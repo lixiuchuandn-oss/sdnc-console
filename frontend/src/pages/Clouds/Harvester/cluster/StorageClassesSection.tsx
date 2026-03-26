@@ -18,7 +18,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions, Select } from 'antd';
-import { ReloadOutlined, SearchOutlined, HddTwoTone } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, PieChartTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -122,7 +122,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         const isDefault = String(r?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] || '').toLowerCase() === 'true';
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <HddTwoTone style={{ flexShrink: 0 }} />
+            <PieChartTwoTone/>
             <span>{name}</span>
             {isDefault && <span className="std-badge std-badge-warning">Default</span>}
           </div>

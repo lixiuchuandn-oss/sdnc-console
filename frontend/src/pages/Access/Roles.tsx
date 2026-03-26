@@ -101,7 +101,7 @@ const AccessRolesPage: React.FC = () => {
   
   // 筛选状态
   const [roleKw, setRoleKw] = useState('');
-  const [roleType, setRoleType] = useState<string>('全部');
+  const [roleType, setRoleType] = useState<string>('');
   
   // 授权抽屉状态（权限配置）
   const [kw, setKw] = useState('');
@@ -295,7 +295,7 @@ const AccessRolesPage: React.FC = () => {
   // 加载系统用户列表
   const fetchUsers = async () => {
     try {
-      const json = await apiRequest('/api/users');
+      const json = await apiRequest('/api/users', { skipCache: true });
       setUsers(Array.isArray(json) ? json : (Array.isArray(json?.users) ? json.users : []));
     } catch {
       setUsers([]);
@@ -307,7 +307,7 @@ const AccessRolesPage: React.FC = () => {
     setAssignUserTarget(role);
     try {
       // 先加载用户列表
-      const usersJson = await apiRequest('/api/users');
+      const usersJson = await apiRequest('/api/users', { skipCache: true });
       const usersList: SysUser[] = Array.isArray(usersJson) ? usersJson : (Array.isArray(usersJson?.users) ? usersJson.users : []);
       setUsers(usersList);
       
@@ -436,9 +436,9 @@ const AccessRolesPage: React.FC = () => {
         width: 140,
         render: (_: unknown, row: RBACRole) =>
           row.type === '系统策略' ? (
-            <Tag color="purple">内置角色</Tag>
+            <Tag color="blue">内置角色</Tag>
           ) : row.type === '自定义策略' ? (
-            <Tag color="orange">自定义角色</Tag>
+            <Tag color="green">自定义角色</Tag>
           ) : (
             <Tag>-</Tag>
           ),
@@ -449,7 +449,7 @@ const AccessRolesPage: React.FC = () => {
         dataIndex: 'scope',
         width: 130,
         render: (_: unknown, row: RBACRole) =>
-          row.scope === 'system' ? <Tag color="blue">System</Tag> : <Tag color="green">Tenant</Tag>,
+          row.scope === 'system' ? '系统角色' : row.scope === 'tenant' ? '租户角色' : '-',
       },
       {
         title: '授予用户数',
@@ -532,23 +532,21 @@ const AccessRolesPage: React.FC = () => {
           layout="vertical"
           style={{ display:'flex', alignItems:'flex-end', rowGap:12, columnGap:12 }}
           form={filterForm}
-          initialValues={{ type: '全部' }}
           onValuesChange={(_, all) => {
             setRoleKw(all.keyword || '');
-            setRoleType(all.type || '全部');
+            setRoleType(all.type ?? '');
           }}
         >
           <Form.Item name="keyword">
             <Input allowClear placeholder="搜索角色名称或说明" className="toolbar-search" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} />
           </Form.Item>
           <Form.Item name="type">
-            <Select className="toolbar-filter" placeholder="全部类型">
-              <Select.Option value="全部">全部类型</Select.Option>
+            <Select className="toolbar-filter-sm" placeholder="全部类型" allowClear>
               <Select.Option value="系统策略">系统角色</Select.Option>
               <Select.Option value="自定义策略">自定义角色</Select.Option>
             </Select>
           </Form.Item>
-          <Button type="link" className="toolbar-reset-btn" onClick={() => { filterForm.resetFields(); setRoleKw(''); setRoleType('全部'); }}>重置</Button>
+          <Button type="link" className="toolbar-reset-btn" onClick={() => { filterForm.resetFields(); setRoleKw(''); setRoleType(''); }}>重置</Button>
         </Form>
         
         {/* 操作按钮区 */}
@@ -612,7 +610,7 @@ const AccessRolesPage: React.FC = () => {
           const matchKw = roleKw ? ((r.name||'').toLowerCase().includes(roleKw.toLowerCase()) || (r.description||'').toLowerCase().includes(roleKw.toLowerCase())) : true;
           // type 筛选逻辑可能需要根据实际数据调整，这里假设前端不做严格过滤或数据源已有 type 字段
           // 如果数据源没有 type 字段，可能需要根据 scope 或其他属性推断
-          const matchType = roleType === '全部' ? true : (r.type === roleType || (roleType === '系统策略' && r.scope === 'system') || (roleType === '自定义策略' && r.scope === 'tenant'));
+          const matchType = !roleType ? true : (r.type === roleType || (roleType === '系统策略' && r.scope === 'system') || (roleType === '自定义策略' && r.scope === 'tenant'));
           return matchKw && matchType;
         })}
         columns={displayedColumns}

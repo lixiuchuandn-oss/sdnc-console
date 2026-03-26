@@ -21,6 +21,7 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
   const [keyword, setKeyword] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [bindFilter, setBindFilter] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
   const [metadataModalVisible, setMetadataModalVisible] = useState(false);
   const [currentMetadata, setCurrentMetadata] = useState<any>(null);
@@ -123,10 +124,12 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
       const state = String(getUsbState(r)).toLowerCase();
       if (nf && nodeName !== nf) return false;
       if (sf && state !== sf) return false;
+      if (bindFilter === 'bound' && !r?.claimed) return false;
+      if (bindFilter === 'unbound' && r?.claimed) return false;
       if (!kw) return true;
       return rn.includes(kw) || name.includes(kw) || desc.includes(kw) || vendorId.includes(kw) || vendor.includes(kw) || productId.includes(kw) || nodeName.includes(kw) || addr.includes(kw) || devicePath.includes(kw) || state.includes(kw);
     });
-  }, [keyword, nodeFilter, statusFilter, usbDevices, vendorLabel, getNodeName, getUsbState]);
+  }, [keyword, nodeFilter, statusFilter, bindFilter, usbDevices, vendorLabel, getNodeName, getUsbState]);
 
   const handleRefresh = async () => {
     if (!onRefresh) return;
@@ -182,12 +185,9 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
 
   const columnsAll = useMemo(() => {
     return [
-      { title: '节点', key: 'node', width: 160, ellipsis: true, render: (_: any, r: any) => (r?.nodeName || r?.raw?.status?.nodeName || r?.raw?.spec?.nodeName || '-') },
-      { title: '资源名', key: 'resource', width: 260, ellipsis: true, render: (_: any, r: any) => r?.resourceName || '-' },
       {
         title: '名称',
         key: 'name',
-        width: 220,
         ellipsis: true,
         render: (_: any, r: any) => (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -196,14 +196,16 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
           </span>
         ),
       },
-      { title: '状态', key: 'state', width: 100, ellipsis: true, render: (_: any, r: any) => {
+      { title: '资源名', key: 'resource', ellipsis: true, render: (_: any, r: any) => r?.resourceName || '-' },
+      { title: '节点', key: 'node', ellipsis: true, render: (_: any, r: any) => (r?.nodeName || r?.raw?.status?.nodeName || r?.raw?.spec?.nodeName || '-') },
+      { title: '状态', key: 'state', ellipsis: true, render: (_: any, r: any) => {
         return renderUnifiedStateTag(getUsbState(r));
       } },
-      { title: 'PCI地址', key: 'addr', width: 140, ellipsis: true, render: (_: any, r: any) => (r?.pciAddress || r?.raw?.status?.pciAddress || r?.raw?.status?.address || r?.raw?.spec?.pciAddress || r?.raw?.spec?.address || '-') },
-      { title: '厂商', key: 'vendor', width: 160, ellipsis: true, render: (_: any, r: any) => vendorLabel(r?.vendorId || r?.raw?.status?.vendorID || r?.raw?.status?.vendorId || r?.raw?.spec?.vendorID || r?.raw?.spec?.vendorId) },
-      { title: '设备ID', key: 'productId', width: 100, ellipsis: true, render: (_: any, r: any) => (r?.productId || r?.raw?.status?.productID || r?.raw?.status?.productId || r?.raw?.spec?.productID || r?.raw?.spec?.productId || '-') },
+      { title: 'PCI地址', key: 'addr', ellipsis: true, render: (_: any, r: any) => (r?.pciAddress || r?.raw?.status?.pciAddress || r?.raw?.status?.address || r?.raw?.spec?.pciAddress || r?.raw?.spec?.address || '-') },
+      { title: '厂商', key: 'vendor', ellipsis: true, render: (_: any, r: any) => vendorLabel(r?.vendorId || r?.raw?.status?.vendorID || r?.raw?.status?.vendorId || r?.raw?.spec?.vendorID || r?.raw?.spec?.vendorId) },
+      { title: '设备ID', key: 'productId', ellipsis: true, render: (_: any, r: any) => (r?.productId || r?.raw?.status?.productID || r?.raw?.status?.productId || r?.raw?.spec?.productID || r?.raw?.spec?.productId || '-') },
       { title: '描述', key: 'desc', ellipsis: true, render: (_: any, r: any) => r?.description || r?.raw?.status?.description || r?.raw?.spec?.description || '-' },
-      { title: '绑定到', key: 'binding', width: 220, ellipsis: true, render: (_: any, r: any) => {
+      { title: '绑定到', key: 'binding', ellipsis: true, render: (_: any, r: any) => {
         if (!r?.claimed) return <Tag>未绑定</Tag>;
         // 优先显示VM信息（如果USB挂载到虚拟机）
         if (r?.vmInfo) {
@@ -216,7 +218,7 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
         const txt = r?.bindingTo || r?.claimedBy || r?.claimName || '已绑定';
         return <span style={{ wordBreak: 'break-word' }}>{String(txt)}</span>;
       } },
-      { title: '设备路径', key: 'path', width: 160, ellipsis: true, render: (_: any, r: any) => (r?.raw?.status?.devicePath || r?.raw?.spec?.devicePath || '-') },
+      { title: '设备路径', key: 'path', ellipsis: true, render: (_: any, r: any) => (r?.raw?.status?.devicePath || r?.raw?.spec?.devicePath || '-') },
       {
         title: '操作',
         key: 'actions',
@@ -268,6 +270,17 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
               onChange={(v) => setStatusFilter(v || '')}
               className="toolbar-filter-sm"
               options={statusOptions.map((v) => ({ value: v, label: stateLabel(v) }))}
+            />
+            <Select
+              allowClear
+              placeholder="绑定状态"
+              value={bindFilter || undefined}
+              className="toolbar-filter-sm"
+              options={[
+                { value: 'bound', label: '已绑定' },
+                { value: 'unbound', label: '未绑定' },
+              ]}
+              onChange={(v) => setBindFilter(v || '')}
             />
           </>
         )}

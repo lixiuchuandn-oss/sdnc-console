@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Input, Modal, Select, Table, Tag, Tooltip, message } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, TagTwoTone } from '@ant-design/icons';
 import { deleteKubeOvnVlan, fetchKubeOvnProviderNetworks, fetchKubeOvnVlans } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -18,11 +18,13 @@ type Props = {
   cloudId: string;
   /** 父级注入时与 loadTabResource 对齐，不再在子组件内首发 GET */
   vlans?: any[];
+  /** 父级已拉取的物理网络（provider-networks），用于筛选下拉；传入后不再单独请求 */
+  providerNetworks?: any[];
   loading?: boolean;
   onRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
 };
 
-const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, onRefresh }) => {
+const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loading: loadingProp, onRefresh }) => {
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
   const isControlled = typeof onRefresh === 'function';
@@ -101,12 +103,20 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, o
   );
 
   useEffect(() => {
+    if (providerNetworks !== undefined) {
+      setProviders(Array.isArray(providerNetworks) ? providerNetworks : []);
+    }
+  }, [providerNetworks]);
+
+  useEffect(() => {
     if (!cloudId) return;
     if (!isControlled) {
       void fetchDataInternal(false, false);
     }
-    fetchProviderOptions();
-  }, [cloudId, isControlled, fetchDataInternal]);
+    if (providerNetworks === undefined) {
+      void fetchProviderOptions();
+    }
+  }, [cloudId, isControlled, fetchDataInternal, providerNetworks]);
 
   const openDrawer = useCallback((record: any) => {
     const raw = record?.rawData || record;
@@ -197,12 +207,17 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, o
         ellipsis: true,
         render: (text: string) => {
           const s = String(text || '').trim();
-          return s ? (
-            <span>{s}</span>
-          ) : (
-            <Tooltip title="未在注解 tower.io/alies 中填写展示名，请使用「集群资源名」列识别">
-              <span style={{ color: '#999' }}>（未命名）</span>
-            </Tooltip>
+          return (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TagTwoTone/>
+              {s ? (
+                <span>{s}</span>
+              ) : (
+                <Tooltip title="未在注解 tower.io/alies 中填写展示名，请使用「集群资源名」列识别">
+                  <span style={{ color: '#999' }}>（未命名）</span>
+                </Tooltip>
+              )}
+            </span>
           );
         },
       },

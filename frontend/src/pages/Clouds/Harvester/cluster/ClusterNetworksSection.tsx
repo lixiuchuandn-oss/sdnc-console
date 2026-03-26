@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Tag, Input, Button, Space, Badge, Select } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
+import { LayoutTwoTone, ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -105,10 +105,14 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
       title: '名称',
       dataIndex: ['metadata', 'name'],
       key: 'name',
-      className: 'cell-link',
       render: (text: string, record: any) => (
-        <span onClick={() => handleOpenDrawer(record, 'detail')}>
-          {text}
+        <span
+          className="cell-link"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+          onClick={() => handleOpenDrawer(record, 'detail')}
+        >
+          <LayoutTwoTone/>
+          <span>{text}</span>
         </span>
       ),
       sorter: (a: any, b: any) => (a.metadata?.name || '').localeCompare(b.metadata?.name || ''),
@@ -158,7 +162,6 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
 
   return (
     <PageDetailSection
-      title="集群网络 (Cluster Networks)"
       toolbarLeft={(
         <>
           <Input 

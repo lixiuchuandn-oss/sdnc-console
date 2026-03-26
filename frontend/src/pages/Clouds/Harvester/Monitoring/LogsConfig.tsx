@@ -74,6 +74,8 @@ import {
   FORWARD_PROVIDER,
   SYSLOG_PROVIDER
 } from './constants';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 
 
@@ -157,6 +159,16 @@ interface LogsConfigProps {
 }
 
 const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadLogConfigs = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.log-configs:read'),
+    [perms]
+  );
+  const canWriteLogConfigs = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.log-configs:write'),
+    [perms]
+  );
   const { formNamespaceOptions, namespaceLoading, isAdmin } = useLoggingContext();
   const [configList, setConfigList] = useState<ClusterFlowItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
@@ -210,7 +222,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
   }, [formModalOpen, editingRecord, form, logTargetOptions]);
 
   const loadConfigList = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadLogConfigs) return;
     setConfigLoading(true);
     const ns = (namespaceFilter ?? '').toString().trim();
     const isClusterNs = !ns || ns === LOGGING_NS;
@@ -241,7 +253,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
     } finally {
       setConfigLoading(false);
     }
-  }, [cloudId, namespaceFilter]);
+  }, [cloudId, namespaceFilter, canReadLogConfigs]);
 
   const loadOutputListByNamespace = useCallback(async (namespace: string | undefined) => {
     if (!cloudId) return;
@@ -319,8 +331,8 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
   }, [cloudId]);
 
   useEffect(() => {
-    if (cloudId) loadConfigList();
-  }, [loadConfigList, cloudId]);
+    if (cloudId && canReadLogConfigs) loadConfigList();
+  }, [loadConfigList, cloudId, canReadLogConfigs]);
 
   useEffect(() => {
     if (formModalOpen && cloudId) {
@@ -359,6 +371,10 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
 
   const handleOpenForm = useCallback(
     (record: ClusterFlowItem | null) => {
+      if (!canWriteLogConfigs) {
+        message.warning('无权修改日志采集配置');
+        return;
+      }
       setEditingRecord(record);
       if (record?.metadata?.name && cloudId) {
         const recordNs = (record.metadata.namespace ?? '') as string;
@@ -413,7 +429,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
       }
       setFormModalOpen(true);
     },
-    [form, cloudId, namespaceOptions]
+    [form, cloudId, namespaceOptions, canWriteLogConfigs]
   );
 
   const handleCloseForm = useCallback(() => {
@@ -423,6 +439,10 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
   }, [form]);
 
   const handleFormSubmit = useCallback(async () => {
+    if (!canWriteLogConfigs) {
+      message.warning('无权修改日志采集配置');
+      return;
+    }
     const values = await form.validateFields().catch(() => null);
     if (!values || !cloudId) return;
     const name = (values.name ?? '').toString().trim();
@@ -547,7 +567,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         } else message.error(error || '创建失败');
       }
     }
-  }, [editingRecord, form, handleCloseForm, loadConfigList, cloudId]);
+  }, [editingRecord, form, handleCloseForm, loadConfigList, cloudId, canWriteLogConfigs]);
 
   const handleOpenDetail = useCallback((row: ClusterFlowItem) => {
     setDetailRecord(row);
@@ -561,6 +581,10 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
 
   const handleDelete = useCallback(
     async (row: ClusterFlowItem) => {
+      if (!canWriteLogConfigs) {
+        message.warning('无权删除日志采集配置');
+        return;
+      }
       const name = row.metadata?.name;
       const ns = (row.metadata?.namespace ?? '') as string;
       if (!name || !cloudId) {
@@ -576,7 +600,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         loadConfigList();
       } else message.error(error || '删除失败');
     },
-    [loadConfigList, cloudId]
+    [loadConfigList, cloudId, canWriteLogConfigs]
   );
 
   const filteredList = useMemo(() => {
@@ -733,12 +757,13 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
           <ResourceActionsDropdown
             items={[
               { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
-              { key: 'edit', label: '编辑配置', onClick: () => handleOpenForm(row) },
-              { type: 'divider' },
+              { key: 'edit', label: '编辑配置', disabled: !canWriteLogConfigs, onClick: () => handleOpenForm(row) },
+              { type: 'divider' as const },
               {
                 key: 'delete',
                 label: '删除',
                 danger: true,
+                disabled: !canWriteLogConfigs,
                 onClick: () => {
                   Modal.confirm({
                     title: '确定删除该日志采集配置？',
@@ -763,11 +788,19 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         ),
       },
     ],
-    [handleOpenDetail, handleOpenForm, handleDelete]
+    [handleOpenDetail, handleOpenForm, handleDelete, canWriteLogConfigs]
   );
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: displayColumns } = useTableColumnSettings(allColumns, 'logs_config_clusterflow_table_v2');
+
+  if (!canReadLogConfigs) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看日志采集配置，请联系管理员分配 `clouds.log-configs:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
 
   return (
     <div>
@@ -807,7 +840,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>
+            <Button type="primary" icon={<PlusOutlined />} disabled={!canWriteLogConfigs} onClick={() => handleOpenForm(null)}>
               新增日志采集配置
             </Button>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey="logs_config_clusterflow_table_v2" />

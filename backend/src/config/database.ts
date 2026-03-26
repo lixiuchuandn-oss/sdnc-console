@@ -234,3 +234,69 @@ export async function dropObsoleteKubeOvnIngressInventoryTable() {
     );
   }
 }
+
+/**
+ * 镜像上传任务表（后端任务化上传）：
+ * 在未开启 TypeORM synchronize 的部署模式下，启动时保障该表存在。
+ */
+export async function ensureImageUploadTaskTable() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 image_upload_tasks 表检查');
+      return;
+    }
+
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='image_upload_tasks'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 image_upload_tasks 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "image_upload_tasks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" text NOT NULL,
+          "namespace" text NOT NULL,
+          "displayName" text,
+          "imageType" text,
+          "filename" text,
+          "fileSize" integer,
+          "taskStatus" text NOT NULL DEFAULT ('pending'),
+          "phase" text NOT NULL DEFAULT ('pending'),
+          "progress" integer NOT NULL DEFAULT (0),
+          "ingestProgress" integer NOT NULL DEFAULT (0),
+          "proxyProgress" integer NOT NULL DEFAULT (0),
+          "bytesUploaded" integer NOT NULL DEFAULT (0),
+          "errorCode" text,
+          "errorMessage" text,
+          "createdBy" text NOT NULL,
+          "expiresAt" datetime,
+          "retryCount" integer NOT NULL DEFAULT (0),
+          "startedAt" datetime,
+          "finishedAt" datetime,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_upload_tasks_cloud_user_created"
+        ON "image_upload_tasks" ("cloudId", "createdBy", "createdAt")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_upload_tasks_status_updated"
+        ON "image_upload_tasks" ("taskStatus", "updatedAt")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_upload_tasks_createdBy"
+        ON "image_upload_tasks" ("createdBy")
+      `);
+      dbLog.info('image_upload_tasks 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      'image_upload_tasks 表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}

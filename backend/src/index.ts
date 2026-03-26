@@ -309,10 +309,12 @@ AppDataSource.initialize()
         ensureRecycleBinTables,
         ensureKubeOvnSecurityGroupTables,
         dropObsoleteKubeOvnIngressInventoryTable,
+        ensureImageUploadTaskTable,
       } = await import('./config/database');
       await ensureRecycleBinTables();
       await ensureKubeOvnSecurityGroupTables();
       await dropObsoleteKubeOvnIngressInventoryTable();
+      await ensureImageUploadTaskTable();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
     }

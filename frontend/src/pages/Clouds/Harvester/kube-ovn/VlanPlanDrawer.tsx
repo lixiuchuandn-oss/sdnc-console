@@ -297,21 +297,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#1890ff',
-              fontSize: 20,
-              backgroundColor: '#E6F4FF',
-              borderRadius: 6,
-              border: '1px solid #1890ff',
-              flexShrink: 0,
-            }}
-          >
+          <div className="harvester-drawer-title-icon-wrap">
             <PartitionOutlined />
           </div>
           <div style={{ minWidth: 0 }}>

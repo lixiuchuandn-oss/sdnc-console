@@ -1,20 +1,28 @@
+import { In } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
+import { RoleAssignment } from '../entities/RoleAssignment';
 import { ALL_PERMISSIONS } from '../constants/permissions';
 // 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
 
 // 使用统一的权限原子定义
 const CURATED_PERMISSIONS = [...ALL_PERMISSIONS];
 
+/** 已废弃：平台超级权限仅由 User.super_admin 表达，不再使用同名 RBAC 角色 */
+const DEPRECATED_SUPER_RBAC_NAMES = ['超级管理员', 'Super Admin'] as const;
+
 export async function initializeRoles() {
   try {
     const repo = AppDataSource.getRepository(RBACRole);
+    const assignRepo = AppDataSource.getRepository(RoleAssignment);
 
-    // 历史库中预置名为「Super Admin」，与内置保护名单一致需改为中文名
-    const legacySuper = await repo.findOne({ where: { name: 'Super Admin' } });
-    if (legacySuper) {
-      legacySuper.name = '超级管理员';
-      await repo.save(legacySuper);
+    // 移除历史种子中的「超级管理员」RBAC 角色及其分配（与 super_admin 账户模型对齐）
+    const deprecated = await repo.find({
+      where: { name: In([...DEPRECATED_SUPER_RBAC_NAMES]) },
+    });
+    for (const r of deprecated) {
+      await assignRepo.delete({ roleId: r.id });
+      await repo.remove(r);
     }
 
     const ensureRole = async (spec: {
@@ -47,25 +55,16 @@ export async function initializeRoles() {
       await repo.save(existed);
     };
 
-    // 1. 超级管理员（内置，对应平台 super_admin 能力）
-    await ensureRole({
-      name: '超级管理员',
-      description: '拥有系统所有权限的超级管理员',
-      scope: 'system',
-      permissions: ['*'],
-      status: 'active',
-    });
-
-    // 2. 云租户根用户
+    // 1. 云租户根用户
     // 权限设计（与 PermissionChecker / accessMapping 一致）：
     // - 资源总览、资源池管理：不包含（与原逻辑一致）
-    // - 云主机控制台：仅 clouds.console:read，不包含 clouds.console:write（避免「控制台写」按规则扩张为全部 clouds.*:write）
+    // - 云主机控制台：clouds.console:read + clouds.console:write（VNC/SSH、租户侧 ECS 接口等对权限数组做字面 includes 校验）
     // - 镜像：仅 clouds.images:read，不包含 clouds.images:write（租户侧镜像仅查看，不上传/删除）
     // - 其余 clouds.* 细分资源：保留显式 read/write（如 clouds.ecs:write），与「其他云资源读写」一致
     await ensureRole({
       name: '云租户根用户',
       description:
-        '租户管理员：资源控制台（除资源总览、资源池外）；云主机控制台仅访问；镜像仅查看；其余云资源按各细分权限读写。',
+        '租户管理员：资源控制台（除资源总览、资源池外）；云主机控制台可访问与操作；镜像仅查看；其余云资源按各细分权限读写。',
       scope: 'tenant',
       permissions: [
         ...CURATED_PERMISSIONS.filter(
@@ -74,7 +73,6 @@ export async function initializeRoles() {
             !p.startsWith('clouds.dashboard:') &&
             p !== 'clouds:read' &&
             p !== 'clouds:write' &&
-            p !== 'clouds.console:write' &&
             p !== 'clouds.images:write',
         ),
         'networks.vpcs:read',
@@ -87,7 +85,7 @@ export async function initializeRoles() {
     // 三权分立默认角色
     // =========================================================================
 
-    // 4. 三权-审计管理员
+    // 2. 三权-审计管理员
     // 只能访问操作审计页面
     const auditorRoleName = '三权-审计管理员';
     await ensureRole({
@@ -98,7 +96,7 @@ export async function initializeRoles() {
       status: 'active',
     });
 
-    // 5. 三权-安全管理员
+    // 3. 三权-安全管理员
     // 权限范围：
     // 1. 权限管控分组：角色管理等
     // 2. 多云平台的资源控制台分组、租户管理分组的所有功能权限（不包括系统用户管理）
@@ -133,7 +131,7 @@ export async function initializeRoles() {
       status: 'active',
     });
 
-    // 6. 三权-系统管理员
+    // 4. 三权-系统管理员
     // 权限范围：
     // 1. 通用设置分组：界面设置、授权管理
     // 2. 权限管控分组：保留用户管理

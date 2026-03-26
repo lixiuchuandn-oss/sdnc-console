@@ -36,6 +36,11 @@ import {
   harvesterImageCreateHandler,
   harvesterImageUpdateHandler,
   harvesterImageDeleteHandler,
+  harvesterImageUploadTaskCreateHandler,
+  harvesterImageUploadTaskGetHandler,
+  harvesterImageUploadTaskListHandler,
+  harvesterImageUploadTaskDeleteHandler,
+  harvesterImageUploadTaskFileHandler,
 } from './handlers/storage-cache-images.handlers';
 import { harvesterStorageClassListHandler } from './handlers/storage-cache-classes.handlers';
 import { 
@@ -336,6 +341,67 @@ export function registerHarvesterCacheRoutesProvider(
     createProviderRouter(imageListHandlers)
   );
 
+  // upload-tasks 必须放在 :namespace/:name 之前，避免被详情路由吞掉
+  const imageUploadTaskCreateHandlers = {
+    harvester: harvesterImageUploadTaskCreateHandler,
+    cloudmap: harvesterImageUploadTaskCreateHandler,
+    'cloudmap.private': harvesterImageUploadTaskCreateHandler,
+    'cloudmap.edge': harvesterImageUploadTaskCreateHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/images/upload-tasks',
+    checkAdminPermission,
+    createProviderRouter(imageUploadTaskCreateHandlers)
+  );
+
+  const imageUploadTaskListHandlers = {
+    harvester: harvesterImageUploadTaskListHandler,
+    cloudmap: harvesterImageUploadTaskListHandler,
+    'cloudmap.private': harvesterImageUploadTaskListHandler,
+    'cloudmap.edge': harvesterImageUploadTaskListHandler,
+  };
+  router.get(
+    '/:id/resources/harvester/images/upload-tasks',
+    checkAdminPermission,
+    createProviderRouter(imageUploadTaskListHandlers)
+  );
+
+  const imageUploadTaskGetHandlers = {
+    harvester: harvesterImageUploadTaskGetHandler,
+    cloudmap: harvesterImageUploadTaskGetHandler,
+    'cloudmap.private': harvesterImageUploadTaskGetHandler,
+    'cloudmap.edge': harvesterImageUploadTaskGetHandler,
+  };
+  router.get(
+    '/:id/resources/harvester/images/upload-tasks/:taskId',
+    checkAdminPermission,
+    createProviderRouter(imageUploadTaskGetHandlers)
+  );
+
+  const imageUploadTaskDeleteHandlers = {
+    harvester: harvesterImageUploadTaskDeleteHandler,
+    cloudmap: harvesterImageUploadTaskDeleteHandler,
+    'cloudmap.private': harvesterImageUploadTaskDeleteHandler,
+    'cloudmap.edge': harvesterImageUploadTaskDeleteHandler,
+  };
+  router.delete(
+    '/:id/resources/harvester/images/upload-tasks/:taskId',
+    checkAdminPermission,
+    createProviderRouter(imageUploadTaskDeleteHandlers)
+  );
+
+  const imageUploadTaskFileHandlers = {
+    harvester: harvesterImageUploadTaskFileHandler,
+    cloudmap: harvesterImageUploadTaskFileHandler,
+    'cloudmap.private': harvesterImageUploadTaskFileHandler,
+    'cloudmap.edge': harvesterImageUploadTaskFileHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/images/upload-tasks/:taskId/file',
+    checkAdminPermission,
+    createProviderRouter(imageUploadTaskFileHandlers)
+  );
+
   const imageDetailHandlers = {
     harvester: harvesterImageDetailHandler,
     cloudmap: harvesterImageDetailHandler,
@@ -438,7 +504,7 @@ export function registerHarvesterCacheRoutesProvider(
   };
 
   router.get(
-    '/:id/resources/cluster_networks',
+    '/:id/resources/cluster-networks',
     checkAdminPermission,
     createProviderRouter(clusterNetworkListHandlers)
   );

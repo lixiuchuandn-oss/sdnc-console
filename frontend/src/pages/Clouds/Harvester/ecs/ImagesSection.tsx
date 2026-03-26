@@ -26,9 +26,9 @@
  * - 外部: 依赖 `fetchHarvesterStorageClasses` 获取存储类选项。
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Descriptions, Modal, Row, Col, Tabs, Typography, Steps, Alert, Card, Tooltip } from 'antd';
+import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Modal, Row, Col, Tabs, Typography, Tooltip, Upload, Drawer, Progress } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined, PaperClipOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -36,7 +36,16 @@ import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { API_BASE_URL } from '../../../../services/api';
 import { getToken } from '../../../../utils/tokenStorage';
-import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
+import {
+  deleteHarvesterImage,
+  createHarvesterImage,
+  fetchHarvesterStorageClasses,
+  createHarvesterImageUploadTask,
+  fetchHarvesterImageUploadTask,
+  fetchHarvesterImageUploadTasks,
+  deleteHarvesterImageUploadTask,
+  type HarvesterImageUploadTask,
+} from '../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace, isSystemStorageClass } from '../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -95,7 +104,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<any>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
-  const [uploaderDownloading, setUploaderDownloading] = useState(false);
+  const [uploadingTask, setUploadingTask] = useState(false);
+  const [toolFile, setToolFile] = useState<File | null>(null);
+  const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
 
   React.useEffect(() => {
     if (creating && cloudId) {
@@ -106,6 +119,79 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       }).catch(console.error).finally(() => setScLoading(false));
     }
   }, [creating, cloudId]);
+
+  React.useEffect(() => {
+    if (!cloudId) return;
+    let stopped = false;
+    const loadTasks = async () => {
+      try {
+        const resp: any = await fetchHarvesterImageUploadTasks(cloudId, 20);
+        const items = resp?.data?.items || resp?.items || [];
+        if (!stopped) setToolTaskList(Array.isArray(items) ? items : []);
+      } catch {
+        // ignore background load failure
+      }
+    };
+    void loadTasks();
+    return () => {
+      stopped = true;
+    };
+  }, [cloudId]);
+
+  const loadUploadTasks = async (silent = true) => {
+    try {
+      if (!silent) setTaskDrawerLoading(true);
+      const resp: any = await fetchHarvesterImageUploadTasks(cloudId, 50);
+      const items = resp?.data?.items || resp?.items || [];
+      setToolTaskList(Array.isArray(items) ? items : []);
+    } catch (e: any) {
+      if (!silent) message.error(e?.message || '加载上传任务失败');
+    } finally {
+      if (!silent) setTaskDrawerLoading(false);
+    }
+  };
+
+  const handleDeleteUploadTask = async (task: HarvesterImageUploadTask) => {
+    try {
+      if (!ensureImagesWrite()) return;
+      await deleteHarvesterImageUploadTask(cloudId, task.id);
+      message.success('任务记录已删除');
+      setToolTaskList((prev) => prev.filter((x) => x.id !== task.id));
+    } catch (e: any) {
+      message.error(e?.message || '删除任务记录失败');
+    }
+  };
+
+  React.useEffect(() => {
+    if (!cloudId) return;
+    const active = toolTaskList.filter((t) => ['pending', 'ingesting', 'proxying'].includes(String(t?.status || '')));
+    if (active.length === 0) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await Promise.all(
+          active.map(async (t) => {
+            try {
+              const resp: any = await fetchHarvesterImageUploadTask(cloudId, t.id);
+              return (resp?.data || resp) as HarvesterImageUploadTask;
+            } catch {
+              return t;
+            }
+          }),
+        );
+        setToolTaskList((prev) => {
+          const map = new Map(prev.map((x) => [x.id, x]));
+          next.forEach((x) => map.set(x.id, x));
+          return Array.from(map.values()).sort(
+            (a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime(),
+          );
+        });
+        if (next.some((x) => x.status === 'success')) onRefresh?.(true, true);
+      } catch {
+        // ignore polling failure
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [cloudId, onRefresh, toolTaskList]);
 
   const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
     // Ensure kind is present for Events tab
@@ -485,37 +571,63 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     }
   };
 
-  /** 通过 fetch 下载直传工具：失败时在当前页 message 提示，避免 href 打开错误页 */
-  const handleDownloadImageUploader = async () => {
-    const url = `${API_BASE_URL}/api/tools/imageuploader.exe`;
-    setUploaderDownloading(true);
+  const upsertTask = (task: HarvesterImageUploadTask) => {
+    setToolTaskList((prev) => {
+      const map = new Map(prev.map((x) => [x.id, x]));
+      map.set(task.id, task);
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime(),
+      );
+    });
+  };
+
+  const handleStartTaskUpload = async () => {
+    if (!ensureImagesWrite()) return;
+    if (!toolFile) {
+      message.warning('请先选择镜像文件');
+      return;
+    }
+    const namespace = String(form.getFieldValue('toolNamespace') || 'default');
+    const displayName =
+      String(form.getFieldValue('toolDisplayName') || '').trim() ||
+      toolFile.name.replace(/\.[^.]+$/, '');
+    const imageType = String(form.getFieldValue('toolImageType') || '').trim() || undefined;
+    setUploadingTask(true);
     try {
+      const created: any = await createHarvesterImageUploadTask(cloudId, {
+        namespace,
+        displayName,
+        imageType,
+      });
+      const task = (created?.data || created) as HarvesterImageUploadTask;
+      if (!task?.id) throw new Error('创建任务失败：未返回 taskId');
+      upsertTask(task);
+
       const token = getToken();
-      const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(url, { headers });
-      if (res.status === 404) {
-        message.error('镜像上传工具文件不存在，请确认服务器已部署或联系管理员');
-        return;
+      const fd = new FormData();
+      fd.append('file', toolFile);
+      const uploadResp = await fetch(
+        `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`,
+        {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: fd,
+        },
+      );
+      if (!uploadResp.ok) {
+        const text = await uploadResp.text();
+        throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);
       }
-      if (!res.ok) {
-        message.error(`下载失败（HTTP ${res.status}）`);
-        return;
-      }
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = 'ImageUploader.exe';
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(objectUrl);
+      message.success('上传任务已提交，可继续操作其他页面');
+      setToolFile(null);
+      form.setFieldValue('toolDisplayName', '');
+      setCreating(false);
+      const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
+      upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
     } catch (e: any) {
-      message.error(e?.message || '下载失败，请检查网络');
+      message.error(e?.message || '提交上传任务失败');
     } finally {
-      setUploaderDownloading(false);
+      setUploadingTask(false);
     }
   };
 
@@ -588,54 +700,76 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
 
   const renderToolUploadPanel = () => (
     <div style={{ padding: '0 8px' }}>
-      <Steps
-        direction="vertical"
-        size="small"
-        current={-1}
-        items={[
-          {
-            title: '下载工具',
-            description: (
-              <div style={{ marginTop: 8, marginBottom: 8 }}>
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  loading={uploaderDownloading}
-                  onClick={() => { void handleDownloadImageUploader(); }}
-                >
-                  下载 ImageUploader.exe
-                </Button>
-                <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
-                  支持 Windows (x64) 平台，无需安装直接运行
-                </div>
-              </div>
-            )
-          },
-          {
-            title: '填写信息',
-            description: '运行工具后，选择目标命名空间，填写镜像名称（如 ubuntu-20.04）。'
-          },
-          {
-            title: '连接集群',
-            description: '填写 Cloudmap 地址与 Token 进行身份验证。'
-          },
-          {
-            title: '上传文件',
-            description: '选择本地镜像文件（ISO/QCOW2），点击“开始上传”。'
-          }
-        ]}
-      />
-
-      <Card size="small" title="高级用法：命令行模式" style={{ marginTop: 16, background: '#f9f9f9' }} styles={{ body: { padding: '8px 12px' } }}>
-        <Typography.Paragraph style={{ marginBottom: 4, fontFamily: 'monospace', fontSize: 12 }} copyable>
-          ImageUploader.exe --direct --url=https://10.x.x.x --token=... --name=ubuntu-20.04 --file=./image.iso
-        </Typography.Paragraph>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          提示：在命令行运行工具可查看完整参数说明，适合脚本集成。
-        </Typography.Text>
-      </Card>
+      <Row gutter={16}>
+        <Col span={12}>
+          <Form.Item label="命名空间" name="toolNamespace" initialValue="default">
+            <Select
+              options={[{ label: 'default', value: 'default' }]}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </Col>
+        <Col span={12}>
+          <Form.Item label="镜像类型" name="toolImageType" tooltip="可选">
+            <Select
+              allowClear
+              options={[
+                { value: 'disk', label: 'Qcow2（磁盘镜像）' },
+                { value: 'iso', label: 'ISO（光盘镜像）' },
+              ]}
+              placeholder="按需选择"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </Col>
+      </Row>
+      <Form.Item label="镜像显示名" name="toolDisplayName" tooltip="可选，不填将使用文件名">
+        <Input placeholder="例如 ubuntu-22.04" />
+      </Form.Item>
+      <Form.Item label="本地文件" required>
+        <div
+          style={{
+            border: '1px dashed #d9d9d9',
+            borderRadius: 6,
+            padding: '8px 12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <Upload
+            beforeUpload={(file) => {
+              setToolFile(file as File);
+              return false;
+            }}
+            maxCount={1}
+            onRemove={() => setToolFile(null)}
+            showUploadList={false}
+          >
+            <Button>选择镜像文件</Button>
+          </Upload>
+          <Typography.Text style={{ flex: 1, textAlign: 'left' }} ellipsis>
+            <PaperClipOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+            {toolFile?.name || '-'}
+          </Typography.Text>
+        </div>
+      </Form.Item>
     </div>
   );
+
+  const uploadStatusText = (t: HarvesterImageUploadTask) => {
+    const s = String(t?.status || '').toLowerCase();
+    const map: Record<string, string> = {
+      pending: '等待上传',
+      ingesting: '文件接收中',
+      proxying: '后端代传中',
+      success: '完成',
+      failed: '失败',
+      cancelled: '已取消',
+    };
+    return map[s] || s || '-';
+  };
 
   const isUrlCreateTab = mode === 'standard' && createTab === 'url';
 
@@ -707,7 +841,15 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       )}
       toolbarRight={(
         <>
-          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); setCreateTab('tool'); setCreating(true); }}>新增镜像</Button>
+          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); form.setFieldsValue({ toolNamespace: 'default' }); setCreateTab('tool'); setCreating(true); }}>新增镜像</Button>
+          <Button
+            onClick={() => {
+              setTaskDrawerOpen(true);
+              void loadUploadTasks(false);
+            }}
+          >
+            上传任务
+          </Button>
           <Tooltip
             title={
               !hasImagesWrite
@@ -753,9 +895,10 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         open={creating}
         title="新增镜像"
         onCancel={() => setCreating(false)}
-        onFinish={isUrlCreateTab ? handleCreate : ()=> setCreating(false)}
+        onFinish={isUrlCreateTab ? handleCreate : handleStartTaskUpload}
         form={form}
-        okText={isUrlCreateTab ? '创建' : '关闭'}
+        okText={isUrlCreateTab ? '创建' : '提交任务'}
+        confirmLoading={uploadingTask}
         width={600}
       >
         {mode === 'simple' ? (
@@ -807,6 +950,74 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         onTabChange={setDrawerTab}
         cloudId={cloudId}
       />
+      <Drawer
+        title="镜像上传任务"
+        placement="right"
+        width={460}
+        open={taskDrawerOpen}
+        onClose={() => setTaskDrawerOpen(false)}
+        extra={
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            loading={taskDrawerLoading}
+            onClick={() => {
+              void loadUploadTasks(false);
+            }}
+          />
+        }
+      >
+        {toolTaskList.length === 0 ? (
+          <Typography.Text type="secondary">暂无上传任务</Typography.Text>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {toolTaskList.map((t) => (
+              <div key={t.id} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <Typography.Text ellipsis style={{ maxWidth: 260 }}>
+                    {t.displayName || t.filename || t.id}
+                  </Typography.Text>
+                  <Tag color={t.status === 'success' ? 'green' : t.status === 'failed' ? 'red' : 'blue'}>
+                    {uploadStatusText(t)}
+                  </Tag>
+                </div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  命名空间：{t.namespace || '-'}
+                </Typography.Text>
+                <Progress
+                  percent={Number(t.progress || 0)}
+                  size="small"
+                  status={t.status === 'failed' ? 'exception' : t.status === 'success' ? 'success' : 'active'}
+                  style={{ marginTop: 6, marginBottom: 4 }}
+                />
+                {t.errorMessage ? (
+                  <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                    {t.errorMessage}
+                  </Typography.Text>
+                ) : null}
+                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    size="small"
+                    danger
+                    disabled={['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) || !hasImagesWrite}
+                    onClick={() =>
+                      Modal.confirm({
+                        title: '确认删除该上传任务记录？',
+                        content: `删除后将无法恢复：${t.displayName || t.filename || t.id}`,
+                        onOk: async () => {
+                          await handleDeleteUploadTask(t);
+                        },
+                      })
+                    }
+                  >
+                    删除
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Drawer>
     </PageDetailSection>
   );
 };

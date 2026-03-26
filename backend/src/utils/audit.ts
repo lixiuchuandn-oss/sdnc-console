@@ -17,10 +17,16 @@ export const logOperation = async (
   try {
     const user = (req as any).user;
     const ipAddress = req.ip || req.socket.remoteAddress;
+    // 登录请求发生在认证前，req.user 为空时回退使用请求体中的 username。
+    const fallbackUsername =
+      typeof (req as any).body?.username === 'string'
+        ? (req as any).body.username.trim()
+        : undefined;
+    const username = user?.username || fallbackUsername || 'unknown';
 
     const record = new AuditLog();
     record.userId = user ? user.id : null;
-    record.username = user ? user.username : 'unknown';
+    record.username = username;
     record.action = action;
     record.details = details;
     record.status = success ? AuditLogStatus.SUCCESS : AuditLogStatus.FAILED;

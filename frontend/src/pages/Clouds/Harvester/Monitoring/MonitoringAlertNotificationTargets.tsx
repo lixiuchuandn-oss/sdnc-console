@@ -3,7 +3,7 @@
    * 按命名空间搜索，展示该命名空间下 receivers 列表（后端返回新结构：通知方式标识/名称、邮件SMTP、是否发送恢复邮件等）
    */
   import React, { useCallback, useEffect, useMemo, useState } from 'react';
-  import { Button, Checkbox, Col, Descriptions, Dropdown, Form, Input, message, Modal, Row, Select, Space, Switch, Table, Tag } from 'antd';
+  import { Button, Checkbox, Col, Descriptions, Dropdown, Form, Input, message, Modal, Row, Select, Space, Switch, Table, Tag, Typography } from 'antd';
   import { DeleteOutlined, DingtalkOutlined, MailOutlined, PlusOutlined, ReloadOutlined as RefreshIcon, SearchOutlined } from '@ant-design/icons';
   import type { ColumnsType, ColumnType } from 'antd/es/table';
   import { useAuth } from '../../../../contexts/AuthContext';
@@ -40,6 +40,7 @@
     type ReceiverName,
     type ReceiverSpec,
   } from './utils/receivers';
+  import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
   type ReceiverSpecItem = NotificationTargetReceiver;
   type ReceiverItem = {
@@ -114,7 +115,16 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
 
   const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     const { user } = useAuth();
-    const isAdmin = user?.role === 'admin';
+    const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+    const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+    const canReadReceivers = useMemo(
+      () => hasPermissionForAction(perms, 'clouds.alert-receivers:read'),
+      [perms]
+    );
+    const canWriteReceivers = useMemo(
+      () => hasPermissionForAction(perms, 'clouds.alert-receivers:write'),
+      [perms]
+    );
     const { formNamespaceOptions, namespaceLoading, configNsFilter, setConfigNsFilter, namespaceList, tenantNamespaces } = useMonitoring();
 
     // 注意：namespaceOptions 和 loadingNs 在 loadNamespaceOptions 中被设置，但当前使用 formNamespaceOptions 和 namespaceLoading（来自 useMonitoring hook）
@@ -147,7 +157,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
     const watchedEmailFormNamespace = Form.useWatch('namespace', addEmailForm);
 
     const loadNamespaceOptions = useCallback(async () => {
-      if (!cloudId) return;
+      if (!cloudId || !canReadReceivers) return;
       setLoadingNs(true);
       if (!isAdmin) {
         const { data: allowedData, ok: allowedOk } = await fetchAllowedNamespaces(cloudId);
@@ -186,11 +196,11 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         setNamespaceOptions(isAdmin ? [{ label: DEFAULT_ADMIN_NAMESPACE, value: DEFAULT_ADMIN_NAMESPACE }] : [{ label: 'default', value: 'default' }]);
         setSelectedNamespace(isAdmin ? DEFAULT_ADMIN_NAMESPACE : 'default');
       }
-    }, [cloudId, isAdmin]);
+    }, [cloudId, isAdmin, canReadReceivers]);
 
     /** 根据 configNsFilter 决定请求的命名空间；钉钉的 robotUrl/robotAccessToken 从 dingtalkWebhookConfig（ConfigMap targets）同步读取 */
     const loadReceivers = useCallback(async () => {
-      if (!cloudId) return;
+      if (!cloudId || !canReadReceivers) return;
       const namespaces =
         configNsFilter != null
           ? [configNsFilter]
@@ -225,11 +235,11 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         return { ...r, specReceivers };
       });
       setReceiverSpecs(receivers);
-    }, [cloudId, configNsFilter, isAdmin, namespaceList, tenantNamespaces]);
+    }, [cloudId, configNsFilter, isAdmin, namespaceList, tenantNamespaces, canReadReceivers]);
 
     useEffect(() => {
-      if (cloudId) loadNamespaceOptions();
-    }, [cloudId, loadNamespaceOptions]);
+      if (cloudId && canReadReceivers) loadNamespaceOptions();
+    }, [cloudId, loadNamespaceOptions, canReadReceivers]);
 
     useEffect(() => {
       if (isAdmin && selectedNamespace === '') setSelectedNamespace(DEFAULT_ADMIN_NAMESPACE);
@@ -237,8 +247,8 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
 
     /** 通知方式或命名空间变更时重新加载通知对象列表 */
     useEffect(() => {
-      if (cloudId) loadReceivers();
-    }, [cloudId, configNsFilter, receiverNameFilter, loadReceivers]);
+      if (cloudId && canReadReceivers) loadReceivers();
+    }, [cloudId, configNsFilter, receiverNameFilter, loadReceivers, canReadReceivers]);
 
     /** 命名空间筛选改为具体命名空间时，同步 selectedNamespace 供「新增」使用 */
     useEffect(() => {
@@ -274,6 +284,10 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
     }, [addEmailModalOpen, cloudId, watchedEmailFormNamespace, loadEmailModalSecrets]);
 
     const handleOpenAddEmailModal = useCallback(async () => {
+      if (!canWriteReceivers) {
+        message.warning('无权新增通知对象');
+        return;
+      }
       if (!selectedNamespace) {
         message.warning('请先选择命名空间');
         return;
@@ -287,9 +301,13 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         specReceiverName: '',
         emailConfigs: [{ ...EMPTY_EMAIL_CONFIG }],
       });
-    }, [selectedNamespace, addEmailForm]);
+    }, [selectedNamespace, addEmailForm, canWriteReceivers]);
 
     const handleOpenAddDingtalkModal = useCallback(() => {
+      if (!canWriteReceivers) {
+        message.warning('无权新增通知对象');
+        return;
+      }
       if (!selectedNamespace) {
         message.warning('请先选择命名空间');
         return;
@@ -302,16 +320,20 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         specReceiverName: '',
         webhookConfigs: [{ ...EMPTY_DINGTALK_CONFIG }],
       });
-    }, [selectedNamespace, addDingtalkForm]);
+    }, [selectedNamespace, addDingtalkForm, canWriteReceivers]);
 
     const handleOpenAddWebsiteModal = useCallback(() => {
+      if (!canWriteReceivers) {
+        message.warning('无权新增通知对象');
+        return;
+      }
       setAddWebsiteModalOpen(true);
       addWebsiteForm.resetFields();
       addWebsiteForm.setFieldsValue({
         namespace: selectedNamespace ? [selectedNamespace] : [],
         receiverName: WEBSITE_RECEIVER,
       });
-    }, [selectedNamespace, addWebsiteForm]);
+    }, [selectedNamespace, addWebsiteForm, canWriteReceivers]);
 
     const handleCloseAddEmailModal = useCallback(() => {
       setAddEmailModalOpen(false);
@@ -486,6 +508,10 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
 
     const handleEdit = useCallback(
       (record: ReceiverItem, receiverRows: ReceiverItem[]) => {
+        if (!canWriteReceivers) {
+          message.warning('无权编辑通知对象');
+          return;
+        }
         if (!cloudId || !record.namespace || !record.receiverName || !record.specReceiverName) {
           message.warning('无法编辑：缺少命名空间或通知对象信息');
           return;
@@ -538,10 +564,14 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           message.info('暂不支持编辑该类型');
         }
       },
-      [cloudId, addEmailForm, addDingtalkForm]
+      [cloudId, addEmailForm, addDingtalkForm, canWriteReceivers]
     );
     const handleDelete = useCallback(
       (record: ReceiverItem) => {
+        if (!canWriteReceivers) {
+          message.warning('无权删除通知对象');
+          return;
+        }
         if (!record.namespace || !record.receiverName || !record.specReceiverName) {
           message.warning('无法删除：缺少命名空间或通知对象信息');
           return;
@@ -580,7 +610,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           },
         });
       },
-      [cloudId, loadReceivers]
+      [cloudId, loadReceivers, canWriteReceivers]
     );
 
     const receiverRows: ReceiverItem[] = useMemo(() => {
@@ -697,14 +727,14 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
       (_: unknown, record: ReceiverItem) => (
         <ResourceActionsDropdown
           items={[
-            { key: 'edit', label: '编辑', onClick: () => handleEdit(record, receiverRows) },
             { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
-            { type: 'divider' },
-            { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) },
+            { key: 'edit', label: '编辑', disabled: !canWriteReceivers, onClick: () => handleEdit(record, receiverRows) },
+            { type: 'divider' as const },
+            { key: 'delete', label: '删除', danger: true, disabled: !canWriteReceivers, onClick: () => handleDelete(record) },
           ]}
         />
       ),
-      [handleDetail, handleEdit, handleDelete, receiverRows]
+      [handleDetail, handleEdit, handleDelete, receiverRows, canWriteReceivers]
     );
 
     const emailColumns: ColumnsType<ReceiverItem> = useMemo(
@@ -862,11 +892,11 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
 
     const renderWebsiteAction = useCallback(
       (_: unknown, record: ReceiverItem) => (
-        <Button type="link" danger size="small" onClick={() => handleDelete(record)}>
+        <Button type="link" danger size="small" disabled={!canWriteReceivers} onClick={() => handleDelete(record)}>
           删除
         </Button>
       ),
-      [handleDelete]
+      [handleDelete, canWriteReceivers]
     );
 
     const websiteColumns: ColumnsType<ReceiverItem> = useMemo(
@@ -912,6 +942,14 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
     const settingsKey = `monitoring_alert_notification_targets_${receiverNameFilter}`;
     const { displayColumns: columns } = useTableColumnSettings(allColumns, settingsKey);
 
+    if (!canReadReceivers) {
+      return (
+        <PageDetailSection asCard={false}>
+          <Typography.Text type="secondary">无权查看告警通知对象，请联系管理员分配 `clouds.alert-receivers:read` 权限。</Typography.Text>
+        </PageDetailSection>
+      );
+    }
+
     return (
       <div>
         <PageDetailSection
@@ -949,6 +987,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
+                disabled={!canWriteReceivers}
                 onClick={() => {
                   if (receiverNameFilter === EMAIL_RECEIVER) handleOpenAddEmailModal();
                   else if (receiverNameFilter === DINGTALK_RECEIVER) handleOpenAddDingtalkModal();

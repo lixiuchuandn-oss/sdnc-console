@@ -8,7 +8,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, Input, Select } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { AppstoreTwoTone , ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -106,7 +106,12 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       title: '名称', 
       dataIndex: 'name', 
       key: 'name',
-      render: (text: string) => <span>{text}</span>
+      render: (text: string) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <AppstoreTwoTone />
+          <span>{text}</span>
+        </span>
+      ),
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { 

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"mime/multipart"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,13 +32,31 @@ type Cloud struct {
 	Id       string `json:"id"`
 	Name     string `json:"name"`
 	Provider string `json:"provider"`
+	Type     string `json:"type"`
 	Config   struct {
 		Endpoint string `json:"endpoint"`
+		Provider string `json:"provider"`
 	} `json:"config"`
 }
 
-type CloudResponse struct {
-	Items []Cloud `json:"items"`
+type CloudDetailResponse struct {
+	Id       string `json:"id"`
+	Endpoint string `json:"endpoint"`
+}
+
+type UploadTokenApiResponse struct {
+	Data struct {
+		Namespace          string `json:"namespace"`
+		ServiceAccountName string `json:"serviceAccountName"`
+		ExpirationSeconds  int    `json:"expirationSeconds"`
+		Token              string `json:"token"`
+		ExpiresAt          string `json:"expiresAt"`
+	} `json:"data"`
+}
+
+type LoginApiResponse struct {
+	Token   string `json:"token"`
+	Message string `json:"message"`
 }
 
 type CreateImageRequest struct {
@@ -69,12 +88,25 @@ func main() {
 	// CLI Args for direct mode
 	argUrl := flag.String("url", "", "Cloudmap URL")
 	argToken := flag.String("token", "", "Cloudmap Token")
+	argTowerUrl := flag.String("tower-url", "", "Tower URL（用于签发短期上传Token）")
+	argTowerToken := flag.String("tower-token", "", "Tower 用户 Token（用于签发短期上传Token）")
+	argCloudId := flag.String("cloud-id", "", "资源池 Cloud ID（用于签发短期上传Token）")
+	argServiceAccount := flag.String("sa", "image-uploader", "上传 ServiceAccount 名称")
+	argExpireSeconds := flag.Int("expire", 300, "短期Token有效期（秒，60-600）")
 	argNs := flag.String("ns", "default", "Namespace")
 	argName := flag.String("name", "", "Image Name")
 	argFile := flag.String("file", "", "Local File Path")
 	argImageType := flag.String("type", "", "Image Type: disk (qcow2) or iso")
 
 	flag.Parse()
+
+	// Deprecated: standalone uploader has been retired.
+	_ = gui
+	_ = direct
+	_ = testServer
+	fmt.Println("该镜像上传工具已废弃，不再提供独立上传能力。")
+	fmt.Println("请使用 Compute Tower 平台内置的镜像上传功能。")
+	return
 
 	if *testServer {
 		runTestServer()
@@ -101,7 +133,29 @@ func main() {
 		if *argToken != "" {
 			cfg.HarvesterToken = *argToken
 		} else {
-			cfg.HarvesterToken = prompt("Cloudmap Token: ")
+			// 优先尝试通过 Tower 签发短期 token（推荐）
+			towerURL := strings.TrimSpace(*argTowerUrl)
+			towerToken := strings.TrimSpace(*argTowerToken)
+			cloudID := strings.TrimSpace(*argCloudId)
+			if towerURL != "" && towerToken != "" && cloudID != "" {
+				host, token, err := issueUploadTokenFromTower(
+					towerURL,
+					towerToken,
+					cloudID,
+					*argNs,
+					strings.TrimSpace(*argServiceAccount),
+					*argExpireSeconds,
+				)
+				if err != nil {
+					fmt.Printf("通过 Tower 签发短期 token 失败: %v\n", err)
+					return
+				}
+				cfg.HarvesterHost = normalizeHost(host)
+				cfg.HarvesterToken = token
+				fmt.Println("已通过 Tower 获取短期上传 token")
+			} else {
+				cfg.HarvesterToken = prompt("Cloudmap Token: ")
+			}
 		}
 
 		var ns string
@@ -225,8 +279,25 @@ func main() {
 
 	// 4. 输入 Cloudmap Token
 	fmt.Println("\n--- Cloudmap 认证 ---")
-	fmt.Println("请输入 Cloudmap 集群 API Token (非 Tower Token)")
-	config.HarvesterToken = prompt("Bearer Token: ")
+	fmt.Println("优先通过 Tower 签发短期上传 Token（推荐，避免暴露资源池长期令牌）")
+	hostFromTower, tokenFromTower, signErr := issueUploadTokenFromTower(
+		config.TowerURL,
+		config.TowerToken,
+		selectedCloud.Id,
+		namespace,
+		"image-uploader",
+		300,
+	)
+	if signErr != nil {
+		fmt.Printf("Tower 签发短期 token 失败: %v\n", signErr)
+		fmt.Println("将回退为手工输入 Cloudmap Token")
+		fmt.Println("请输入 Cloudmap 集群 API Token (非 Tower Token)")
+		config.HarvesterToken = prompt("Bearer Token: ")
+	} else {
+		config.HarvesterHost = normalizeHost(hostFromTower)
+		config.HarvesterToken = tokenFromTower
+		fmt.Println("已通过 Tower 获取短期上传 token")
+	}
 
 	// 5. 执行
 	fmt.Println("\n开始执行...")
@@ -285,14 +356,261 @@ func fetchHarvesterClouds(cfg Config) ([]Cloud, error) {
 	defer resp.Body.Close()
 	
 	if resp.StatusCode != 200 { return nil, fmt.Errorf("HTTP %d", resp.StatusCode) }
-	
-	var res CloudResponse
-	json.NewDecoder(resp.Body).Decode(&res)
-	var list []Cloud
-	for _, c := range res.Items {
-		if c.Provider == "harvester" || strings.HasPrefix(strings.ToLower(c.Provider), "cloudmap") { list = append(list, c) }
+
+	body, _ := io.ReadAll(resp.Body)
+	var all []Cloud
+	// 兼容三种常见返回：[] / {items:[]} / {data:{items:[]}}
+	if err := json.Unmarshal(body, &all); err != nil || len(all) == 0 {
+		var wrap1 struct {
+			Items []Cloud `json:"items"`
+		}
+		if err1 := json.Unmarshal(body, &wrap1); err1 == nil && len(wrap1.Items) > 0 {
+			all = wrap1.Items
+		} else {
+			var wrap2 struct {
+				Data struct {
+					Items []Cloud `json:"items"`
+				} `json:"data"`
+			}
+			if err2 := json.Unmarshal(body, &wrap2); err2 == nil && len(wrap2.Data.Items) > 0 {
+				all = wrap2.Data.Items
+			}
+		}
+	}
+	if all == nil {
+		all = []Cloud{}
+	}
+
+	list := make([]Cloud, 0, len(all))
+	for _, c := range all {
+		pCandidates := []string{
+			strings.ToLower(strings.TrimSpace(c.Provider)),
+			strings.ToLower(strings.TrimSpace(c.Config.Provider)),
+			strings.ToLower(strings.TrimSpace(c.Type)),
+		}
+		match := false
+		for _, p := range pCandidates {
+			if p == "harvester" || strings.HasPrefix(p, "cloudmap") {
+				match = true
+				break
+			}
+		}
+		if match {
+			list = append(list, c)
+		}
 	}
 	return list, nil
+}
+
+func loginTower(towerURL, username, password string) (string, error) {
+	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	username = strings.TrimSpace(username)
+	password = strings.TrimSpace(password)
+	if towerURL == "" || username == "" || password == "" {
+		return "", fmt.Errorf("缺少登录参数")
+	}
+	bodyMap := map[string]string{
+		"username": username,
+		"password": password,
+	}
+	body, _ := json.Marshal(bodyMap)
+	req, _ := http.NewRequest("POST", towerURL+"/api/auth/login", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("登录请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return "", fmt.Errorf("登录失败: HTTP %d %s", resp.StatusCode, string(respBody))
+	}
+	var lr LoginApiResponse
+	if err := json.Unmarshal(respBody, &lr); err != nil {
+		return "", fmt.Errorf("解析登录响应失败: %v", err)
+	}
+	if strings.TrimSpace(lr.Token) == "" {
+		return "", fmt.Errorf("登录响应缺少 token")
+	}
+	return lr.Token, nil
+}
+
+func fetchCloudNamespaces(towerURL, towerToken, cloudID string) ([]string, error) {
+	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	towerToken = strings.TrimSpace(towerToken)
+	cloudID = strings.TrimSpace(cloudID)
+	if towerURL == "" || towerToken == "" || cloudID == "" {
+		return nil, fmt.Errorf("缺少查询命名空间参数")
+	}
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/clouds/%s/resources/harvester/namespaces?excludeSystem=true", towerURL, cloudID), nil)
+	req.Header.Set("Authorization", "Bearer "+towerToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("查询命名空间失败: %v", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("查询命名空间失败: HTTP %d %s", resp.StatusCode, string(b))
+	}
+	var raw struct {
+		Data struct {
+			Items []map[string]any `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return nil, fmt.Errorf("解析命名空间响应失败: %v", err)
+	}
+	list := make([]string, 0, len(raw.Data.Items))
+	seen := map[string]bool{}
+	for _, item := range raw.Data.Items {
+		name, _ := item["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			if md, ok := item["metadata"].(map[string]any); ok {
+				if n2, ok2 := md["name"].(string); ok2 {
+					name = n2
+				}
+			}
+		}
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		list = append(list, name)
+	}
+	return list, nil
+}
+
+func uploadViaTowerProxy(
+	towerURL, towerToken, cloudID, namespace, displayName, imageType string,
+	file multipart.File,
+	header *multipart.FileHeader,
+) error {
+	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	if towerURL == "" || strings.TrimSpace(towerToken) == "" || strings.TrimSpace(cloudID) == "" {
+		return fmt.Errorf("缺少 tower 代理上传参数")
+	}
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+
+	go func() {
+		defer pw.Close()
+		defer writer.Close()
+		_ = writer.WriteField("namespace", namespace)
+		_ = writer.WriteField("displayName", displayName)
+		_ = writer.WriteField("imageType", imageType)
+		part, err := writer.CreateFormFile("file", header.Filename)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+	}()
+
+	req, _ := http.NewRequest(
+		"POST",
+		fmt.Sprintf("%s/api/clouds/%s/resources/harvester/images/upload-proxy", towerURL, cloudID),
+		pr,
+	)
+	req.Header.Set("Authorization", "Bearer "+towerToken)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("请求 Tower 代理上传失败: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("Tower 代理上传失败: HTTP %d %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+func issueUploadTokenFromTower(
+	towerURL string,
+	towerToken string,
+	cloudID string,
+	namespace string,
+	serviceAccountName string,
+	expirationSeconds int,
+) (string, string, error) {
+	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	towerToken = strings.TrimSpace(towerToken)
+	cloudID = strings.TrimSpace(cloudID)
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		namespace = "default"
+	}
+	if serviceAccountName == "" {
+		serviceAccountName = "image-uploader"
+	}
+	if expirationSeconds < 60 {
+		expirationSeconds = 60
+	}
+	if expirationSeconds > 600 {
+		expirationSeconds = 600
+	}
+	if towerURL == "" || towerToken == "" || cloudID == "" {
+		return "", "", fmt.Errorf("缺少 Tower 签发参数")
+	}
+
+	// 1) 查询 cloud 详情，获取 endpoint
+	getReq, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/clouds/%s", towerURL, cloudID), nil)
+	getReq.Header.Set("Authorization", "Bearer "+towerToken)
+	getResp, err := client.Do(getReq)
+	if err != nil {
+		return "", "", fmt.Errorf("查询资源池失败: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != 200 {
+		b, _ := io.ReadAll(getResp.Body)
+		return "", "", fmt.Errorf("查询资源池失败: HTTP %d %s", getResp.StatusCode, string(b))
+	}
+	var cloudDetail CloudDetailResponse
+	if err := json.NewDecoder(getResp.Body).Decode(&cloudDetail); err != nil {
+		return "", "", fmt.Errorf("解析资源池详情失败: %v", err)
+	}
+	if strings.TrimSpace(cloudDetail.Endpoint) == "" {
+		return "", "", fmt.Errorf("资源池 endpoint 为空")
+	}
+
+	// 2) 调用上传短期 token 接口
+	bodyMap := map[string]any{
+		"namespace":          namespace,
+		"serviceAccountName": serviceAccountName,
+		"expirationSeconds":  expirationSeconds,
+	}
+	body, _ := json.Marshal(bodyMap)
+	postReq, _ := http.NewRequest(
+		"POST",
+		fmt.Sprintf("%s/api/clouds/%s/resources/harvester/images/upload-token", towerURL, cloudID),
+		bytes.NewBuffer(body),
+	)
+	postReq.Header.Set("Authorization", "Bearer "+towerToken)
+	postReq.Header.Set("Content-Type", "application/json")
+	postResp, err := client.Do(postReq)
+	if err != nil {
+		return "", "", fmt.Errorf("签发上传 token 失败: %v", err)
+	}
+	defer postResp.Body.Close()
+	respBody, _ := io.ReadAll(postResp.Body)
+	if postResp.StatusCode < 200 || postResp.StatusCode > 299 {
+		return "", "", fmt.Errorf("签发上传 token 失败: HTTP %d %s", postResp.StatusCode, string(respBody))
+	}
+
+	var tokenResp UploadTokenApiResponse
+	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
+		return "", "", fmt.Errorf("解析上传 token 响应失败: %v", err)
+	}
+	if strings.TrimSpace(tokenResp.Data.Token) == "" {
+		return "", "", fmt.Errorf("上传 token 响应为空")
+	}
+
+	return cloudDetail.Endpoint, tokenResp.Data.Token, nil
 }
 
 func createTowerImage(cfg Config, cloudId, ns, name, imageType string) (*ImageResource, error) {
@@ -898,6 +1216,59 @@ const indexHTML = `<!doctype html>
     }
     .progress-text { font-size: 12px; margin-top: 8px; color: var(--text-secondary); }
     .hint { font-size: 12px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5; }
+    .section-title {
+      margin: 2px 0 12px;
+      padding-left: 10px;
+      border-left: 3px solid var(--color-primary);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .section {
+      border: 1px dashed #d6e4ff;
+      border-radius: var(--radius);
+      padding: 14px 12px 10px;
+      margin-bottom: 14px;
+      background: #fcfdff;
+    }
+    .status-panel {
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      border: 1px solid #d9d9d9;
+      background: #fafafa;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+    }
+    .status-panel.ok {
+      background: #f6ffed;
+      border-color: #b7eb8f;
+      color: #389e0d;
+    }
+    .status-panel.err {
+      background: #fff2f0;
+      border-color: #ffccc7;
+      color: #cf1322;
+    }
+    .actions-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .actions-row .btn {
+      margin-top: 0;
+      flex: 1;
+    }
+    .status-inline {
+      font-size: 12px;
+      color: var(--text-secondary);
+      min-height: 18px;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
@@ -909,47 +1280,171 @@ const indexHTML = `<!doctype html>
           <h1>镜像上传工具</h1>
         </div>
       </div>
-      <div class="field">
-        <label>Cloudmap 地址</label>
-        <input id="harvesterUrl" type="text" placeholder="https://集群 IP 或域名" autocomplete="off"/>
-      </div>
-      <div class="field">
-        <label>Cloudmap Token</label>
-        <input id="harvesterToken" type="password" placeholder="Bearer Token" autocomplete="off"/>
-      </div>
-      <div class="row2">
-        <div class="field" style="margin-bottom:0">
-          <label>镜像显示名称</label>
-          <input id="displayName" type="text" placeholder="如 ubuntu-20.04" autocomplete="off"/>
+      <div id="statusPanel" class="status-panel">请先登录平台账号，然后选择 Cloudmap 云平台与命名空间。</div>
+      <div class="section">
+        <div class="section-title">登录区域</div>
+        <div class="row2">
+          <div class="field" style="margin-bottom:0">
+            <label>Tower 地址</label>
+            <input id="towerUrl" type="text" placeholder="http://Tower:5001" autocomplete="off"/>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>用户名</label>
+            <input id="username" type="text" placeholder="平台用户名" autocomplete="off"/>
+          </div>
         </div>
-        <div class="field" style="margin-bottom:0">
-          <label>镜像类型</label>
-          <select id="imageType">
-            <option value="disk" selected>Qcow2（磁盘镜像）</option>
-            <option value="iso">ISO（光盘镜像）</option>
-          </select>
+        <div class="row2">
+          <div class="field" style="margin-bottom:0">
+            <label>密码</label>
+            <input id="password" type="password" placeholder="平台密码" autocomplete="off"/>
+          </div>
+          <div class="field" style="margin-bottom:0"></div>
         </div>
-      </div>
-      <div class="field">
-        <label>镜像文件</label>
-        <div class="file-picker">
-          <input id="file" type="file" accept=".iso,.qcow2,.qcow,.img,.raw"/>
+        <div class="actions-row">
+          <button type="button" class="btn" onclick="doLogin()">登录并加载资源</button>
         </div>
-        <p class="hint">支持 ISO / QCOW2 等大文件；上传过程中请勿关闭本窗口。</p>
+        <div id="loginHint" class="status-inline"></div>
       </div>
-      <button type="button" class="btn" onclick="submit()">开始上传</button>
-      <p id="msg"></p>
-      <div class="progress"><div id="bar" class="bar"></div></div>
-      <div id="ptxt" class="progress-text"></div>
+
+      <div class="section">
+        <div class="section-title">镜像上传区域</div>
+        <div class="row2">
+          <div class="field" style="margin-bottom:0">
+            <label>Cloudmap 云平台</label>
+            <select id="cloudId"></select>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>命名空间</label>
+            <select id="namespace"></select>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field" style="margin-bottom:0">
+            <label>镜像显示名称</label>
+            <input id="displayName" type="text" placeholder="如 ubuntu-20.04" autocomplete="off"/>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>镜像类型</label>
+            <select id="imageType">
+              <option value="disk" selected>Qcow2（磁盘镜像）</option>
+              <option value="iso">ISO（光盘镜像）</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>镜像文件</label>
+          <div class="file-picker">
+            <input id="file" type="file" accept=".iso,.qcow2,.qcow,.img,.raw"/>
+          </div>
+          <p class="hint">支持 ISO / QCOW2 等大文件；上传过程中请勿关闭本窗口。</p>
+        </div>
+        <button type="button" class="btn" onclick="submit()">开始上传</button>
+        <div id="uploadHint" class="status-inline"></div>
+        <div class="progress"><div id="bar" class="bar"></div></div>
+        <div id="ptxt" class="progress-text"></div>
+      </div>
     </div>
   </div>
   <script>
+    function setMsg(text, ok){
+      const panel = document.getElementById('statusPanel');
+      panel.textContent = text || '';
+      panel.className = 'status-panel' + (ok === true ? ' ok' : (ok === false ? ' err' : ''));
+    }
+    function setLoginHint(text){
+      document.getElementById('loginHint').textContent = text || '';
+    }
+    function setUploadHint(text){
+      document.getElementById('uploadHint').textContent = text || '';
+    }
+    function fillSelect(id, items, valueKey='value', labelKey='label'){
+      const el = document.getElementById(id);
+      el.innerHTML = '';
+      (items || []).forEach(it=>{
+        const op = document.createElement('option');
+        op.value = it[valueKey];
+        op.textContent = it[labelKey];
+        el.appendChild(op);
+      });
+    }
+    async function loadNamespaces(){
+      const towerUrl = document.getElementById('towerUrl').value.trim();
+      const cloudId = document.getElementById('cloudId').value.trim();
+      if(!towerUrl || !cloudId){
+        fillSelect('namespace', [{value:'default', label:'default'}]);
+        return;
+      }
+      const res = await fetch('/api/namespaces', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ towerUrl, cloudId })
+      });
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok){
+        throw new Error(data.message || '加载命名空间失败');
+      }
+      const nss = Array.isArray(data.namespaces) ? data.namespaces : [];
+      if(nss.length===0){
+        fillSelect('namespace', [{value:'default', label:'default'}]);
+      }else{
+        fillSelect('namespace', nss.map(ns=>({value:ns,label:ns})));
+      }
+    }
+    async function doLogin(){
+      try{
+        const towerUrl = document.getElementById('towerUrl').value.trim();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value.trim();
+        if(!towerUrl || !username || !password){
+          setMsg('请填写 Tower 地址、用户名、密码', false);
+          setLoginHint('登录参数未填写完整。');
+          return;
+        }
+        setMsg('登录中...');
+        setLoginHint('正在验证账号并拉取资源...');
+        const res = await fetch('/api/login', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ towerUrl, username, password })
+        });
+        const data = await res.json().catch(()=>({}));
+        if(!res.ok){
+          setMsg(data.message || '登录失败', false);
+          setLoginHint('请检查地址或账号密码后重试。');
+          return;
+        }
+        const clouds = Array.isArray(data.clouds) ? data.clouds : [];
+        if(clouds.length===0){
+          fillSelect('cloudId', []);
+          fillSelect('namespace', [{value:'default', label:'default'}]);
+          setMsg('登录成功，但当前用户无可用 Cloudmap 资源池', false);
+          setLoginHint('当前账号没有资源池可见权限。');
+          return;
+        }
+        fillSelect('cloudId', clouds.map(c=>({value:c.id, label:c.name + ' (' + c.id + ')'})));
+        await loadNamespaces();
+        setMsg('登录成功，已加载可用 Cloudmap 与命名空间', true);
+        setLoginHint('可以直接进入下方镜像上传区域。');
+      }catch(err){
+        setMsg(err && err.message ? err.message : '登录失败', false);
+        setLoginHint('登录过程出现异常，请稍后重试。');
+      }
+    }
+    document.addEventListener('DOMContentLoaded', ()=>{
+      fillSelect('cloudId', []);
+      fillSelect('namespace', [{value:'default', label:'default'}]);
+      document.getElementById('cloudId').addEventListener('change', async ()=>{
+        try { await loadNamespaces(); } catch (e) { setMsg(e.message || '加载命名空间失败', false); }
+      });
+    });
     async function submit(){
       const file = document.getElementById('file').files[0];
-      if(!file){ document.getElementById('msg').textContent='请先选择文件'; document.getElementById('msg').className='err'; return; }
+      if(!file){ setMsg('请先选择文件', false); return; }
       const fd = new FormData();
-      fd.append('harvesterUrl', document.getElementById('harvesterUrl').value.trim());
-      fd.append('harvesterToken', document.getElementById('harvesterToken').value.trim());
+      fd.append('towerUrl', document.getElementById('towerUrl').value.trim());
+      fd.append('towerToken', '');
+      fd.append('cloudId', document.getElementById('cloudId').value.trim());
+      fd.append('namespace', document.getElementById('namespace').value.trim() || 'default');
       const dn1 = document.getElementById('displayName').value.trim();
       fd.append('displayName', dn1);
       fd.append('imageType', document.getElementById('imageType').value.trim());
@@ -958,7 +1453,6 @@ const indexHTML = `<!doctype html>
       xhr.open('POST','/api/upload-direct');
       const bar = document.getElementById('bar');
       const ptxt = document.getElementById('ptxt');
-      const msg = document.getElementById('msg');
       xhr.upload.onprogress = (e)=>{
         if(e.lengthComputable){
           const pct = (e.loaded/e.total)*100;
@@ -971,15 +1465,17 @@ const indexHTML = `<!doctype html>
         }
       };
       xhr.onload = ()=>{
-        msg.textContent = xhr.responseText || '完成';
-        msg.className = xhr.status>=200 && xhr.status<300 ? 'ok' : 'err';
+        const text = xhr.responseText || '完成';
+        const ok = xhr.status>=200 && xhr.status<300;
+        setMsg(text, ok);
+        setUploadHint(ok ? '上传任务已完成。' : '上传失败，请检查提示信息。');
       };
       xhr.onerror = ()=>{
-        msg.textContent = '连接服务器失败 (请查看工具运行窗口的日志)';
-        msg.className = 'err';
+        setMsg('连接服务器失败 (请查看工具运行窗口的日志)', false);
+        setUploadHint('网络连接失败或服务未启动。');
       };
-      msg.textContent = '开始上传...';
-      msg.className = '';
+      setMsg('开始上传...');
+      setUploadHint('正在上传，请勿关闭窗口...');
       bar.style.width = '0%';
       ptxt.textContent = '';
       xhr.send(fd);
@@ -1029,6 +1525,7 @@ func runTestServer() {
 }
 
 func startGUI() {
+	var towerSessionToken string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1053,11 +1550,23 @@ func startGUI() {
 			return
 		}
 
-		harvUrl := strings.TrimRight(r.FormValue("harvesterUrl"), "/")
-		harvToken := r.FormValue("harvesterToken")
-		ns := "default" // GUI 固定命名空间，不提供用户输入
+		towerURL := strings.TrimRight(r.FormValue("towerUrl"), "/")
+		towerToken := r.FormValue("towerToken")
+		cloudID := strings.TrimSpace(r.FormValue("cloudId"))
+		ns := strings.TrimSpace(r.FormValue("namespace"))
+		if ns == "" {
+			ns = "default"
+		}
 		display := r.FormValue("displayName")
 		imageType := strings.ToLower(r.FormValue("imageType"))
+		if strings.TrimSpace(towerToken) == "" {
+			towerToken = towerSessionToken
+		}
+		if towerURL == "" || towerToken == "" || cloudID == "" {
+			w.WriteHeader(400)
+			io.WriteString(w, "缺少参数：towerUrl/towerToken/cloudId")
+			return
+		}
 		
 		file, header, err := r.FormFile("file")
 		if err != nil {
@@ -1068,30 +1577,88 @@ func startGUI() {
 		}
 		defer file.Close()
 
-		fmt.Printf("目标: %s, 命名空间: %s, 镜像: %s, 类型: %s, 文件: %s (%d bytes)\n", harvUrl, ns, display, imageType, header.Filename, header.Size)
-
-		cfg := Config{HarvesterHost: normalizeHost(harvUrl), HarvesterToken: harvToken}
-		
-		fmt.Println("正在创建镜像元数据...")
-		name, uploadUrl, err := createHarvesterImage(cfg, ns, display, imageType)
-		if err != nil {
-			fmt.Printf("创建镜像失败: %v\n", err)
+		fmt.Printf("Tower 代理上传: cloud=%s, ns=%s, 镜像=%s, 类型=%s, 文件=%s (%d bytes)\n", cloudID, ns, display, imageType, header.Filename, header.Size)
+		if err := uploadViaTowerProxy(towerURL, towerToken, cloudID, ns, display, imageType, file, header); err != nil {
+			fmt.Printf("Tower 代理上传失败: %v\n", err)
 			w.WriteHeader(500)
-			io.WriteString(w, "创建镜像失败: "+err.Error())
+			io.WriteString(w, "上传失败: "+err.Error())
 			return
 		}
-		fmt.Printf("镜像创建成功: %s\n", name)
-
-		fmt.Println("正在上传文件流...")
-		if err := uploadReaderToHarvester(cfg, ns, name, header.Filename, "", uploadUrl, header.Size, file); err != nil {
-			fmt.Printf("上传文件失败: %v\n", err)
-			w.WriteHeader(500)
-			io.WriteString(w, "上传文件失败: "+err.Error())
-			return
-		}
-		
-		fmt.Println("上传完成")
+		fmt.Println("上传完成（经 Tower 代理）")
 		io.WriteString(w, "上传成功")
+	})
+	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			io.WriteString(w, "Method Not Allowed")
+			return
+		}
+		var reqBody struct {
+			TowerURL string `json:"towerUrl"`
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			w.WriteHeader(400)
+			io.WriteString(w, `{"message":"请求体格式错误"}`)
+			return
+		}
+		token, err := loginTower(reqBody.TowerURL, reqBody.Username, reqBody.Password)
+		if err != nil {
+			w.WriteHeader(401)
+			resp, _ := json.Marshal(map[string]any{"message": err.Error()})
+			io.WriteString(w, string(resp))
+			return
+		}
+		cfg := Config{
+			TowerURL:   strings.TrimRight(strings.TrimSpace(reqBody.TowerURL), "/"),
+			TowerToken: token,
+		}
+		clouds, err := fetchHarvesterClouds(cfg)
+		if err != nil {
+			w.WriteHeader(500)
+			resp, _ := json.Marshal(map[string]any{"message": "登录成功，但拉取云平台失败: " + err.Error()})
+			io.WriteString(w, string(resp))
+			return
+		}
+		towerSessionToken = token
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		resp, _ := json.Marshal(map[string]any{
+			"message": "登录成功",
+			"clouds":  func() []Cloud { if clouds == nil { return []Cloud{} }; return clouds }(),
+		})
+		io.WriteString(w, string(resp))
+	})
+	mux.HandleFunc("/api/namespaces", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			io.WriteString(w, "Method Not Allowed")
+			return
+		}
+		var reqBody struct {
+			TowerURL string `json:"towerUrl"`
+			CloudID  string `json:"cloudId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			w.WriteHeader(400)
+			io.WriteString(w, `{"message":"请求体格式错误"}`)
+			return
+		}
+		if strings.TrimSpace(towerSessionToken) == "" {
+			w.WriteHeader(401)
+			io.WriteString(w, `{"message":"请先登录"}`)
+			return
+		}
+		list, err := fetchCloudNamespaces(reqBody.TowerURL, towerSessionToken, reqBody.CloudID)
+		if err != nil {
+			w.WriteHeader(500)
+			resp, _ := json.Marshal(map[string]any{"message": err.Error()})
+			io.WriteString(w, string(resp))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		resp, _ := json.Marshal(map[string]any{"namespaces": list})
+		io.WriteString(w, string(resp))
 	})
 	go func() {
 		http.ListenAndServe("127.0.0.1:8787", mux)

@@ -68,7 +68,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge, Tag, Tooltip } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined, HddOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined, HddTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume, fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
@@ -105,6 +105,7 @@ type Props = {
   storageClasses?: any[];
   namespacesOptions?: string[];
   onRefresh?: (force?: boolean, silent?: boolean) => void;
+  onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: (force?: boolean, silent?: boolean) => void; // 刷新镜像列表的回调
   isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷)
   bordered?: boolean;
@@ -291,6 +292,7 @@ const VolumesSection: React.FC<Props> = ({
   storageClasses: propStorageClasses, 
   namespacesOptions, 
   onRefresh, 
+  onRefreshStorageClasses,
   onRefreshImages,
   isTenant
 }) => {
@@ -878,7 +880,7 @@ const VolumesSection: React.FC<Props> = ({
         const isSystemDisk = checkIsSystemDisk(r, vm);
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
-            <HddOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <HddTwoTone  style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
             <span
               className="cell-link"
               onClick={() => handleOpenVolumeDetail(r, 'detail')}
@@ -1136,12 +1138,6 @@ const VolumesSection: React.FC<Props> = ({
             />
           )}
           <Select
-            allowClear showSearch placeholder="存储类"
-            value={scFilter || undefined} onChange={(v) => setScFilter(v || '')}
-            className="toolbar-filter-sm" 
-            options={[{ value: '', label: '全部' }, ...dataSource.map(v => v.storageClass).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(s => ({ value: s, label: s }))]}
-          />
-          <Select
             allowClear placeholder="状态"
             value={statusFilter || undefined} onChange={(v) => setStatusFilter(v || '')}
             className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...statusOptions.map(k => ({ value: k, label: cnStatus(k) }))]}
@@ -1164,6 +1160,7 @@ const VolumesSection: React.FC<Props> = ({
         <>
           <Button type="primary" disabled={!hasDisksWrite} onClick={() => { 
             if (!ensureDisksWrite()) return;
+            onRefreshStorageClasses?.(true, true);
             createForm.resetFields(); 
             const defaultNs = nsOptions.length > 0 ? nsOptions[0].value : undefined;
             

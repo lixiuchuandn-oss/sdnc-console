@@ -211,7 +211,7 @@ export async function harvesterProviderNetworkCreateHandler(
 }
 
 /**
- * DELETE /:id/resources/providernetworks/:name
+ * DELETE /:id/resources/provider-networks/:name
  * 删除前检查是否有 VLAN 仍引用该物理网络（spec.provider）。
  */
 export async function harvesterProviderNetworkDeleteHandler(

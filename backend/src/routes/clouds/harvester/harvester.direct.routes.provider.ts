@@ -813,17 +813,17 @@ export function registerHarvesterDirectRoutesProvider(
 
   // OVN Provider Networks
   router.get(
-    '/:id/resources/providernetworks',
+    '/:id/resources/provider-networks',
     checkAdminPermission,
     createProviderRouter(providerNetworkListHandlers)
   );
   router.post(
-    '/:id/resources/providernetworks',
+    '/:id/resources/provider-networks',
     checkAdminPermission,
     createProviderRouter(providerNetworkCreateHandlers)
   );
   router.delete(
-    '/:id/resources/providernetworks/:name',
+    '/:id/resources/provider-networks/:name',
     checkAdminPermission,
     createProviderRouter(providerNetworkDeleteHandlers)
   );

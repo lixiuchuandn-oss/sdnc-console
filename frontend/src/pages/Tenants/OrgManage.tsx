@@ -28,12 +28,9 @@ type RBACRole = { id: string; name: string; description?: string; scope: 'system
 type Assignment = { id: string; roleId: string; userType: 'system' | 'tenant'; userId: string; createdAt: string };
 
 /**
- * 平台预置 RBAC 策略名称 → 界面展示（与 backend/constants/rbacBuiltInRoles、seeders/initRoles 同步，共 5 个内置角色）。
- * 「Super Admin」仅兼容迁移前库中的旧名称。
+ * 平台预置 RBAC 策略名称 → 界面展示（与 backend/constants/rbacBuiltInRoles、seeders/initRoles 同步，共 4 个内置角色）。
  */
 const RBAC_BUILTIN_ROLE_DISPLAY: Record<string, string> = {
-  'Super Admin': '超级管理员',
-  '超级管理员': '超级管理员',
   '云租户根用户': '云租户根用户',
   '三权-审计管理员': '三权-审计管理员',
   '三权-安全管理员': '三权-安全管理员',

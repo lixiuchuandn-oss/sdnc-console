@@ -32,6 +32,27 @@ html, body, #root {
 }
 
 /* ==========================================================================
+   Harvester / Clouds — 自定义详情抽屉标题主图标外框
+   ========================================================================== */
+
+.harvester-drawer-title-icon-wrap {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #e6f4ff;
+  border-radius: 6px;
+  border: 1px solid #1890ff;
+  flex-shrink: 0;
+  color: #1890ff;
+}
+
+.harvester-drawer-title-icon-wrap > .anticon {
+  font-size: 20px;
+}
+
+/* ==========================================================================
    Animations (动画定义)
    ========================================================================== */
 

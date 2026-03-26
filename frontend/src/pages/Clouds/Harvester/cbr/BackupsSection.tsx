@@ -5,7 +5,7 @@
  */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, SearchOutlined, SaveOutlined, CameraOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -194,27 +194,23 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    */
   const columns = useMemo(() => [
     {
+      title: '名称',
+      dataIndex: 'alias',
+      key: 'alias',
+      render: (t: string, r: any) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+          <CameraTwoTone/>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t !== '-' ? t : r.name}</span>
+        </span>
+      ),
+    },
+    {
       title: '类型',
       dataIndex: 'itemType',
       key: 'itemType',
       render: (t: string) => (
         <span>{t === 'snapshot' ? '虚拟机快照' : '虚拟机备份'}</span>
       ),
-    },
-    { 
-       title: '名称', 
-       dataIndex: 'alias', 
-       key: 'alias',
-       render: (t: string, r: any) => (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            {r.itemType === 'snapshot' ? (
-              <CameraOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
-            ) : (
-              <SaveOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
-            )}
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t !== '-' ? t : r.name}</span>
-          </span>
-       )
     },
     { 
        title: 'ID', 

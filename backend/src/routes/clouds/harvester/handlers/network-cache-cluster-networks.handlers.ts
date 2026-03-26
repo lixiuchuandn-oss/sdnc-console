@@ -11,7 +11,7 @@ import { HarvesterVlanConfigInventory } from '../../../../entities/harvester/Har
 import { syncHarvesterClusterNetworks } from '../../../../services/clouds/harvester/inventory';
 
 /**
- * GET /:id/resources/cluster_networks - 获取集群网络列表
+ * GET /:id/resources/cluster-networks - 获取集群网络列表
  */
 export async function harvesterClusterNetworkListHandler(req: Request, res: Response) {
   try {

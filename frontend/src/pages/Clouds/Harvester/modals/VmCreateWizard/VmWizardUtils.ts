@@ -126,8 +126,9 @@ export const validateAndGetGpu = (params: {
 }) => {
   const { v, gpuResources, hostModeState, selectedNodeName } = params;
   
-  // 1. 基础检查
-  if (!v.gpuMode) return { selectedGpu: null, finalGpuResName: undefined };
+  // 1. 基础检查（'none' 为非空字符串，不能用 !v.gpuMode 判断）
+  const gm = String(v.gpuMode || '').toLowerCase();
+  if (!gm || gm === 'none') return { selectedGpu: null, finalGpuResName: undefined };
 
   const list = Array.isArray(gpuResources) ? gpuResources : [];
   if (list.length === 0) return { selectedGpu: null, finalGpuResName: undefined };
@@ -145,7 +146,8 @@ export const validateAndGetGpu = (params: {
   }
   
   if (!found) {
-    throw new Error(`GPU 资源不可用：${v.gpuPcideviceName || v.gpuResourceName}`);
+    const hint = v.gpuPcideviceName || v.gpuResourceName || '未选择或列表中无匹配项';
+    throw new Error(`GPU 资源不可用：${hint}`);
   }
 
   // 3. 提取信息

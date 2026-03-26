@@ -64,6 +64,8 @@ import {
   FILE_PROVIDER
 } from './constants';
 import { useLoggingContext } from './context/LoggingContext';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 type LogType = typeof LOG_TYPE_LOGGING | typeof LOG_TYPE_AUDIT | typeof LOG_TYPE_EVENT;
 
@@ -218,6 +220,16 @@ interface LogOutputsProps {
 
 
 const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadLogReceivers = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.log-receivers:read'),
+    [perms]
+  );
+  const canWriteLogReceivers = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.log-receivers:write'),
+    [perms]
+  );
   const { formNamespaceOptions, namespaceLoading } = useLoggingContext();
 
   const [list, setList] = useState<ClusterOutputItem[]>([]);
@@ -234,7 +246,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
   const namespaceOptions = formNamespaceOptions;
 
   const loadList = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadLogReceivers) return;
     setLoading(true);
     const isClusterNs = !namespaceFilter || namespaceFilter === LOGGING_NS;
     if (isClusterNs) {
@@ -267,14 +279,18 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
       const normalized = normalizeOutputList(data);
       setList(normalized);
     }
-  }, [cloudId, namespaceFilter]);
+  }, [cloudId, namespaceFilter, canReadLogReceivers]);
 
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    if (canReadLogReceivers) loadList();
+  }, [loadList, canReadLogReceivers]);
 
   const handleOpenForm = useCallback(
     (record: ClusterOutputItem | null) => {
+      if (!canWriteLogReceivers) {
+        message.warning('无权修改日志接收端');
+        return;
+      }
       setEditingRecord(record);
       setFormModalOpen(true);
       const resourceName = getResourceName(record);
@@ -447,7 +463,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         });
       }
     },
-    [cloudId, form, namespaceOptions]
+    [cloudId, form, namespaceOptions, canWriteLogReceivers]
   );
 
   const handleCloseForm = useCallback(() => {
@@ -621,6 +637,10 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
   );
 
   const handleFormSubmit = useCallback(async () => {
+    if (!canWriteLogReceivers) {
+      message.warning('无权修改日志接收端');
+      return;
+    }
     const values = await form.validateFields().catch(() => null);
     if (!values || !cloudId) return;
     const name = (values.name ?? '').toString().trim();
@@ -706,10 +726,14 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         } else message.error(error || '创建失败');
       }
     }
-  }, [cloudId, editingRecord, form, buildSpecFromForm, handleCloseForm, loadList]);
+  }, [cloudId, editingRecord, form, buildSpecFromForm, handleCloseForm, loadList, canWriteLogReceivers]);
 
   const handleDelete = useCallback(
     async (row: ClusterOutputItem) => {
+      if (!canWriteLogReceivers) {
+        message.warning('无权删除日志接收端');
+        return;
+      }
       const name = row.metadata?.name;
       const ns = (row.metadata?.namespace ?? '') as string;
       if (!name || !cloudId) {
@@ -725,7 +749,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         loadList();
       } else message.error(error || '删除失败');
     },
-    [cloudId, loadList, namespaceFilter]
+    [cloudId, loadList, namespaceFilter, canWriteLogReceivers]
   );
 
   const filteredList = useMemo(() => {
@@ -853,12 +877,13 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           <ResourceActionsDropdown
             items={[
               { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
-              { key: 'edit', label: '编辑配置', onClick: () => handleOpenForm(row) },
-              { type: 'divider' },
+              { key: 'edit', label: '编辑配置', disabled: !canWriteLogReceivers, onClick: () => handleOpenForm(row) },
+              { type: 'divider' as const },
               {
                 key: 'delete',
                 label: '删除',
                 danger: true,
+                disabled: !canWriteLogReceivers,
                 onClick: () => {
                   Modal.confirm({
                     title: '确定删除该日志接收端？',
@@ -883,11 +908,19 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         ),
       },
     ],
-    [handleOpenDetail, handleOpenForm, handleDelete]
+    [handleOpenDetail, handleOpenForm, handleDelete, canWriteLogReceivers]
   );
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: displayColumns } = useTableColumnSettings(columns, 'monitoring_log_outputs_table');
+
+  if (!canReadLogReceivers) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看日志接收端，请联系管理员分配 `clouds.log-receivers:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
 
   if (!cloudId) return null;
 
@@ -930,7 +963,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>
+            <Button type="primary" icon={<PlusOutlined />} disabled={!canWriteLogReceivers} onClick={() => handleOpenForm(null)}>
               新增日志接收端
             </Button>
             <TableColumnSettingsButton allColumns={columns} settingsKey="monitoring_log_outputs_table" />

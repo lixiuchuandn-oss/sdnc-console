@@ -61,7 +61,7 @@ interface LoggingProviderProps {
 
 export const LoggingProvider: React.FC<LoggingProviderProps> = ({ cloudId, children }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const [namespaceList, setNamespaceList] = useState<string[]>([]);
   const [namespaceLoading, setNamespaceLoading] = useState(false);

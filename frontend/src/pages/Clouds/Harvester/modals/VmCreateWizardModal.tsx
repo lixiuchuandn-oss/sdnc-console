@@ -478,7 +478,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
       let selectedGpu: any = null;
       // let finalGpuResName: string | undefined = undefined;
-      if (v.gpuMode) {
+      if (v.gpuMode && String(v.gpuMode).toLowerCase() !== 'none') {
         let list = Array.isArray(gpuResources) ? gpuResources : [];
         if (list.length === 0) { 
            try { await reloadGpuResources(); } catch {} 
@@ -512,6 +512,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       await createHarvesterVm(cid, payload);
 
       message.success('创建成功');
+      sessionStorage.setItem('cloud_console_refresh_after_create', String(cid));
       navigate(-1);
     } catch (e: any) {
       message.error(e?.message || '创建失败');

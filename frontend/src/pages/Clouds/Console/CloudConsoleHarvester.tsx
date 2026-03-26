@@ -32,17 +32,17 @@ import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import VmSection from '../Harvester/sections/VmSection';
-import RecycleBinSection from '../Harvester/sections/RecycleBinSection';
-import TemplatesSection from '../Harvester/sections/TemplatesSection';
-import SshKeysSection from '../Harvester/sections/SshKeysSection';
-import VolumesSection from '../Harvester/sections/VolumesSection';
-import ImagesSection from '../Harvester/sections/ImagesSection';
-import BackupsSection from '../Harvester/sections/BackupsSection';
-import ScheduleVmBackupsSection from '../Harvester/sections/ScheduleVmBackupsSection';
-import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
-import CloudInitsSection from '../Harvester/sections/CloudInitsSection';
-import GpuSection from '../Harvester/sections/GpusSection';
+import VmSection from '../Harvester/ecs/VmSection';
+import RecycleBinSection from '../Harvester/ecs/RecycleBinSection';
+import TemplatesSection from '../Harvester/ecs/TemplatesSection';
+import SshKeysSection from '../Harvester/ecs/SshKeysSection';
+import VolumesSection from '../Harvester/ebs/VolumesSection';
+import ImagesSection from '../Harvester/ecs/ImagesSection';
+import BackupsSection from '../Harvester/cbr/BackupsSection';
+import ScheduleVmBackupsSection from '../Harvester/cbr/ScheduleVmBackupsSection';
+import SnapshotsSection from '../Harvester/ebs/SnapshotsSection';
+import CloudInitsSection from '../Harvester/ecs/CloudInitsSection';
+import GpuSection from '../Harvester/cluster/GpusSection';
 import EipSection from '../Harvester/kube-ovn/EipSection';
 import FipSection from '../Harvester/kube-ovn/FipSection';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
@@ -110,6 +110,7 @@ interface Props {
   onRefreshTemplates: (force?: boolean) => void;
   onRefreshSshKeys: () => void;
   onRefreshVolumes?: () => void;
+  onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: () => void;
   onRefreshSnapshots?: () => void;
   onRefreshBackups?: () => void;
@@ -173,6 +174,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   onRefreshTemplates,
   onRefreshSshKeys,
   onRefreshVolumes,
+  onRefreshStorageClasses,
   onRefreshImages,
   onRefreshSnapshots,
   onRefreshBackups,
@@ -392,6 +394,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             volumes={volumes}
             loading={loading}
             onRefresh={onRefreshVolumes}
+            onRefreshStorageClasses={onRefreshStorageClasses}
             cloudId={cloudId}
             vms={vms}
             storageClasses={storageClasses}

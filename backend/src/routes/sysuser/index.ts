@@ -11,6 +11,7 @@ import { AuthRequest } from '../../middleware/auth';
 import bcrypt from 'bcryptjs';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
+import { isBuiltInSystemUser } from '../../constants/systemBuiltInUsers';
 
 const sysUserLog = logger.child('Sysuser');
 
@@ -28,7 +29,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       role: u.role,
       status: u.status,
       createdAt: u.createdAt,
-      builtIn: u.username === 'admin',
+      builtIn: isBuiltInSystemUser(u.username),
     }));
 
     res.json(users);
@@ -358,7 +359,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     if (req.user.id === user.id) {
       return res.status(400).json({ message: '不能删除当前登录的账户' });
     }
-    if (user.username === 'admin') {
+    if (isBuiltInSystemUser(user.username)) {
       return res.status(400).json({ message: '内置用户不允许删除' });
     }
     if (user.role === UserRole.SUPER_ADMIN) {

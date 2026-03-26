@@ -1,5 +1,5 @@
 import React from 'react';
-import Icon from '@ant-design/icons';
+import Icon, { CodeTwoTone } from '@ant-design/icons';
 import { ReactComponent as AndroidSvg } from '../assets/OS/android.svg';
 import { ReactComponent as AnolisSvg } from '../assets/OS/anolis.svg';
 import { ReactComponent as CentosSvg } from '../assets/OS/centos.svg';
@@ -14,7 +14,6 @@ import { ReactComponent as SuseSvg } from '../assets/OS/suse.svg';
 import { ReactComponent as UbuntuSvg } from '../assets/OS/ubuntu.svg';
 import { ReactComponent as UosSvg } from '../assets/OS/uos.svg';
 import { ReactComponent as WindowsSvg } from '../assets/OS/windows.svg';
-import { ReactComponent as DefaultOsSvg } from '../assets/OS/default-os.svg';
 import { ReactComponent as CloudmapSvg } from '../assets/OS/rhytvr.svg';
 
 interface OsIconProps {
@@ -71,5 +70,5 @@ export const OsIcon: React.FC<OsIconProps> = ({ osName, className, style }) => {
   }
 
   // 3. Default fallback
-  return <Icon component={DefaultOsSvg} className={className} style={{ color: '#000', fill: '#000', fontSize: 16, ...style }} />;
+  return <CodeTwoTone className={className} style={{ fontSize: 16, ...style }} />;
 };

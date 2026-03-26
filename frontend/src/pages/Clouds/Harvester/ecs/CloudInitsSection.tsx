@@ -5,7 +5,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input, Select } from 'antd';
-import { ReloadOutlined, SearchOutlined, FileTextOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, TagTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -115,7 +115,7 @@ const CloudInitsSection: React.FC<Props> = ({
       key: 'name', 
       render: (text: string) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <FileTextOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <TagTwoTone twoToneColor={['#1890ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{text}</span>
         </span>
       ),

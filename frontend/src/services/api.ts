@@ -261,6 +261,11 @@ export const fetchClouds = async () => {
   return await apiRequest('/api/clouds');
 };
 
+// 获取单个云资源池详情
+export const fetchCloudById = async (id: string, options?: { skipCache?: boolean }) => {
+  return await apiRequest(`/api/clouds/${id}`, { skipCache: options?.skipCache || false });
+};
+
 
 
 // 获取用户数据

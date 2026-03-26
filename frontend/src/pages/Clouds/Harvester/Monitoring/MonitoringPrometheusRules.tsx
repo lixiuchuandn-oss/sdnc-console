@@ -11,12 +11,20 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { fetchPrometheusRules, fetchPrometheusRulesGroups, type PrometheusRuleItem } from '../../../../services/monitoringApi';
 import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS, SEVERITY_CRITICAL, SEVERITY_WARNING, SEVERITY_MAP } from './constants';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 interface MonitoringPrometheusRulesProps {
   cloudId: string;
 }
 
 const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadRules = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alert-rules:read'),
+    [perms]
+  );
   const [loading, setLoading] = useState(false);
   const [rules, setRules] = useState<PrometheusRuleItem[]>([]);
   const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
@@ -26,7 +34,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
   const [keyword, setKeyword] = useState('');
 
   const loadRules = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadRules) return;
     setLoading(true);
     const { data, ok } = await fetchPrometheusRules(cloudId);
     setLoading(false);
@@ -35,25 +43,25 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
     } else {
       setRules([]);
     }
-  }, [cloudId]);
+  }, [cloudId, canReadRules]);
 
   const loadRulesGroupMap = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadRules) return;
     const { data, ok } = await fetchPrometheusRulesGroups(cloudId);
     if (ok && data?.rulesGroupMap && typeof data.rulesGroupMap === 'object') {
       setRulesGroupMap(data.rulesGroupMap);
     } else {
       setRulesGroupMap({});
     }
-  }, [cloudId]);
+  }, [cloudId, canReadRules]);
 
   useEffect(() => {
-    if (cloudId) loadRules();
-  }, [cloudId, loadRules]);
+    if (cloudId && canReadRules) loadRules();
+  }, [cloudId, loadRules, canReadRules]);
 
   useEffect(() => {
-    if (cloudId && rules.length > 0) loadRulesGroupMap();
-  }, [cloudId, rules.length, loadRulesGroupMap]);
+    if (cloudId && canReadRules && rules.length > 0) loadRulesGroupMap();
+  }, [cloudId, rules.length, loadRulesGroupMap, canReadRules]);
 
   const groupFilterOptions = useMemo(() => {
     const entries = Object.entries(rulesGroupMap).map(([value, label]) => ({ label: label || value, value }));
@@ -121,6 +129,14 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: displayColumns } = useTableColumnSettings(columns, 'monitoring_prometheus_rules_table');
+
+  if (!canReadRules) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看告警规则，请联系管理员分配 `clouds.alert-rules:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
 
   return (
     <PageDetailSection

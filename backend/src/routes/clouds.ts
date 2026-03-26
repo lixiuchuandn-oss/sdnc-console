@@ -1808,3 +1808,14 @@ router.post(
     }
   },
 );
+
+// 获取单个云资源详情
+router.get('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
+  try {
+    const cloud = await fetchCloudOr404(req.params.id, res);
+    if (!cloud) return;
+    res.json(redactCloud(cloud));
+  } catch (error: any) {
+    res.status(500).json({ message: '获取云资源详情失败', error: error.message });
+  }
+});

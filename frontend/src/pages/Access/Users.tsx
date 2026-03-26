@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Checkbox, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import StdFormModal from '../../components/StdFormModal';
@@ -28,7 +28,7 @@ const AccessUsersPage: React.FC = () => {
   const [users, setUsers] = useState<SysUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all'|'active'|'inactive'|'suspended'>('active');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [filterForm] = Form.useForm();
@@ -52,6 +52,13 @@ const AccessUsersPage: React.FC = () => {
     ) },
     { title:'姓名', key:'fullName', dataIndex:'fullName' },
     { title:'角色', key:'roles', render: (_:any, row: SysUser) => {
+      if (row.role === 'super_admin') {
+        return (
+          <Tooltip title="权限为平台内置（全部权限），不由 RBAC 角色分配表控制。">
+            <Tag color="error">最高权限</Tag>
+          </Tooltip>
+        );
+      }
       const myRoles = rolesByUser[row.id] || [];
       if (!myRoles.length) return <Text type="secondary">-</Text>;
       return (
@@ -176,7 +183,7 @@ const AccessUsersPage: React.FC = () => {
   const filteredUsers = useMemo(() => {
     const lower = kw.toLowerCase();
     return users
-      .filter(u => statusFilter === 'all' ? true : (String(u.status) === statusFilter))
+      .filter(u => !statusFilter ? true : (String(u.status) === statusFilter))
       .filter(u => (u.username||'').toLowerCase().includes(lower) || (u.fullName||'').toLowerCase().includes(lower) || (u.email||'').toLowerCase().includes(lower));
   }, [users, kw, statusFilter]);
 
@@ -207,15 +214,14 @@ const AccessUsersPage: React.FC = () => {
           form={filterForm}
           className="toolbar-container" 
           layout="vertical" 
-          onValuesChange={(_,all)=> { setKw(all.keyword||''); setStatusFilter(all.status||'active'); }}
+          onValuesChange={(_,all)=> { setKw(all.keyword||''); setStatusFilter(all.status ?? ''); }}
         >
           <Form.Item name="keyword"><Input allowClear placeholder="搜索用户名/姓名/邮箱" className="toolbar-search" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} /></Form.Item>
-          <Form.Item name="status" initialValue={statusFilter}><Select allowClear placeholder="全部" className="toolbar-filter-sm" options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
+          <Form.Item name="status"><Select allowClear placeholder="全部状态" className="toolbar-filter-sm" options={[{ value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
           <Button type="link" className="toolbar-reset-btn" onClick={() => {
             setKw('');
-            setStatusFilter('active');
+            setStatusFilter('');
             filterForm.resetFields();
-            filterForm.setFieldsValue({ status: 'active' });
           }}>重置</Button>
         </Form>
         <div className="toolbar-actions">

@@ -305,11 +305,11 @@ export const registerHarvesterDirectNetworkRoutes = (
    * ==================================================================================
    * Provider Networks (Kube-OVN)
    * ==================================================================================
-   * [GET] /:id/resources/providernetworks
+   * [GET] /:id/resources/provider-networks
    * 获取 Provider Network 列表。
    */
   router.get(
-    '/:id/resources/providernetworks',
+    '/:id/resources/provider-networks',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
@@ -370,11 +370,11 @@ export const registerHarvesterDirectNetworkRoutes = (
   );
 
   /**
-   * [POST] /:id/resources/providernetworks
+   * [POST] /:id/resources/provider-networks
    * 创建 Provider Network。
    */
   router.post(
-    '/:id/resources/providernetworks',
+    '/:id/resources/provider-networks',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {

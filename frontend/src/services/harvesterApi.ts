@@ -56,7 +56,10 @@ export const fetchHarvesterSnapshots = async (cloudId: string, force = false, sk
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const queryString = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/snapshots${queryString ? `?${queryString}` : ''}`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/snapshots${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
 };
 
 
@@ -143,7 +146,10 @@ export const fetchHarvesterBackups = async (cloudId: string, force = false, skip
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const queryString = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/backups${queryString ? `?${queryString}` : ''}`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/backups${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
 };
 
 /**
@@ -329,7 +335,7 @@ export const fetchHarvesterNads = (cloudId: string, force = false, skipSync = fa
  * @returns Promise<any>
  */
 export const fetchHarvesterClusterNetworks = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/cluster_networks${force ? '?force=true' : ''}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/cluster-networks${force ? '?force=true' : ''}`);
 };
 
 /**
@@ -721,7 +727,10 @@ export const fetchHarvesterVolumes = async (cloudId: string, force = false, skip
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const queryString = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes${queryString ? `?${queryString}` : ''}`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/volumes${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
 };
 
 /**
@@ -741,8 +750,16 @@ export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterStorageClasses = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/storage-classes${force ? '?force=true' : ''}`);
+export const fetchHarvesterStorageClasses = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  const mustBypassCache = !!(force || skipSync);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/storage-classes${query ? `?${query}` : ''}`,
+    { skipCache: mustBypassCache }
+  );
 };
 
 /**
@@ -766,7 +783,55 @@ export const fetchHarvesterImages = async (cloudId: string, force = false, skipS
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const queryString = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images${queryString ? `?${queryString}` : ''}`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
+};
+
+export type HarvesterImageUploadTask = {
+  id: string;
+  cloudId: string;
+  namespace: string;
+  displayName?: string;
+  imageType?: string;
+  filename?: string;
+  fileSize?: number;
+  status: 'pending' | 'ingesting' | 'proxying' | 'success' | 'failed' | 'cancelled';
+  phase: 'pending' | 'ingesting' | 'proxying' | 'finished';
+  progress: number;
+  ingestProgress: number;
+  proxyProgress: number;
+  bytesUploaded: number;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+export const createHarvesterImageUploadTask = async (
+  cloudId: string,
+  payload: { namespace: string; displayName?: string; imageType?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks`, payload);
+};
+
+export const fetchHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`, {
+    skipCache: true,
+  });
+};
+
+export const fetchHarvesterImageUploadTasks = async (cloudId: string, limit = 20) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks?limit=${Math.max(1, Math.min(100, limit))}`, {
+    skipCache: true,
+  });
+};
+
+export const deleteHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`);
 };
 
 /**
@@ -957,7 +1022,7 @@ export const fetchKubeOvnProviderNetworks = async (cloudId: string, force = fals
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const query = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/providernetworks${query ? `?${query}` : ''}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/provider-networks${query ? `?${query}` : ''}`);
 };
 
 /**
@@ -967,7 +1032,7 @@ export const fetchKubeOvnProviderNetworks = async (cloudId: string, force = fals
  * @returns Promise<any>
  */
 export const createKubeOvnProviderNetwork = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/providernetworks`, payload);
+  return await apiPost(`/api/clouds/${cloudId}/resources/provider-networks`, payload);
 };
 
 /**
@@ -977,7 +1042,7 @@ export const createKubeOvnProviderNetwork = async (cloudId: string, payload: any
  * @returns Promise<any>
  */
 export const deleteKubeOvnProviderNetwork = async (cloudId: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/providernetworks/${encodeURIComponent(name)}`);
+  return await apiDelete(`/api/clouds/${cloudId}/resources/provider-networks/${encodeURIComponent(name)}`);
 };
 
 /**

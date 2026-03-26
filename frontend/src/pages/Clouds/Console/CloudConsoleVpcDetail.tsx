@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Tabs, Table, Tag, Button, Space, Dropdown, Empty } from 'antd';
 import { ReloadOutlined, CaretDownFilled } from '@ant-design/icons';
-import VmSection from '../Harvester/sections/VmSection';
-import VolumesSection from '../Harvester/sections/VolumesSection';
-import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
-import BackupsSection from '../Harvester/sections/BackupsSection';
+import VmSection from '../Harvester/ecs/VmSection';
+import VolumesSection from '../Harvester/ebs/VolumesSection';
+import SnapshotsSection from '../Harvester/ebs/SnapshotsSection';
+import BackupsSection from '../Harvester/cbr/BackupsSection';
 import { DEFAULT_PAGINATION_CONFIG } from '../../../constants/pagination';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { 

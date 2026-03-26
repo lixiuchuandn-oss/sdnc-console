@@ -16,6 +16,7 @@
  * 2. [前端过滤]: 
  *    - 支持按名称/命名空间/别名进行关键字搜索。
  *    - 支持按 Ready/NotReady 状态筛选。
+ *    - 系统命名空间：与云盘列表一致，管理员默认不展示；租户不展示系统/公共命名空间。
  * 3. [视图控制]: 
  *    - 通过 `showYaml` 属性控制是否允许用户查看底层 YAML 和 Events（通常用于区分管理员/租户视角）。
  * 
@@ -33,8 +34,8 @@
  * ==============================================================================
  */
 import React, { useMemo, useState, useCallback } from 'react';
-import { Table, Badge, Button, Modal, Input, message, Dropdown, Select, Checkbox } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraOutlined } from '@ant-design/icons';
+import { Table, Badge, Button, Modal, Input, message, Dropdown, Select } from 'antd';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
@@ -54,8 +55,7 @@ import { hasPermissionForAction } from '../../../../utils/accessMapping';
  * @property onRefresh - 刷新回调，force=true 表示强制从后端同步
  * @property bordered - 是否显示表格边框 (默认: true)。租户侧可能需要无边框样式。
  * @property showYaml - 是否显示 YAML/详情入口 (默认: true)。租户侧通常隐藏底层细节。
- * @property isTenant - 是否为租户模式 (租户模式下强制过滤系统和公共卷，且隐藏开关)
- * @property showSys - [已废弃，逻辑合并入 isTenant] 是否允许显示系统资源开关 (默认 true)
+ * @property isTenant - 是否为租户模式 (租户模式下强制过滤系统和公共命名空间；管理员侧与云盘列表一致，默认不展示系统命名空间)
  */
 interface Props {
   cloudId: string;
@@ -87,9 +87,6 @@ const SnapshotsSection: React.FC<Props> = ({
   // 1. 状态定义 (State Definitions)
   // ==============================================================================
   
-  // 系统资源显示控制
-  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
-
   // 工具栏过滤与选择状态
   const [keyword, setKeyword] = useState<string>('');
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
@@ -138,17 +135,18 @@ const SnapshotsSection: React.FC<Props> = ({
   // 这里的逻辑是为了支持客户端即时搜索，无需频繁请求后端。
   // 1. 关键字匹配：同时搜索 Name, Namespace 和 Alias。
   // 2. 状态匹配：根据 Ready/NotReady 进行精确筛选。
-  // 3. 系统资源过滤：根据 isTenant 和 showSystemResources 决定是否显示系统资源。
+  // 3. 系统资源过滤：与 VolumesSection 一致 — 租户排除系统/公共命名空间；管理员排除系统命名空间（无「显示系统资源」开关）
   const filteredData = useMemo(() => {
     let d = dataSource;
 
     // [系统资源过滤]
     d = d.filter((r: any) => {
       const ns = r.namespace;
-      // 1. 租户模式: 强制过滤系统命名空间和公共命名空间
-      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
-      // 2. 管理员模式: 仅在未勾选"显示系统资源"时过滤系统命名空间
-      if (!isTenant && !showSystemResources && isSystemNamespace(ns)) return false;
+      if (isTenant) {
+        if (isSystemNamespace(ns) || isPublicNamespace(ns)) return false;
+      } else if (isSystemNamespace(ns)) {
+        return false;
+      }
       return true;
     });
 
@@ -171,7 +169,7 @@ const SnapshotsSection: React.FC<Props> = ({
       }
     }
     return d;
-  }, [dataSource, keyword, statusFilter, isTenant, showSystemResources, namespaceFilter]);
+  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter]);
 
   // ==============================================================================
   // 3. 交互处理 (Action Handlers)
@@ -287,7 +285,7 @@ const SnapshotsSection: React.FC<Props> = ({
       key: 'alias', 
       render: (_: any, r: any) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <CameraOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <CameraTwoTone  style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
             {r.alias !== '-' ? r.alias : r.name}
           </span>
@@ -370,7 +368,7 @@ const SnapshotsSection: React.FC<Props> = ({
                   { value: '', label: '全部' },
                   ...namespaces.filter((x: any) => {
                     const n = x.metadata?.name || x.name || '';
-                    if (!showSystemResources && isSystemNamespace(n)) return false;
+                    if (isSystemNamespace(n)) return false;
                     return true;
                   }).map((x: any) => {
                     const n = x.metadata?.name || x.name || '';
@@ -391,16 +389,6 @@ const SnapshotsSection: React.FC<Props> = ({
               { value: 'notReady', label: '未就绪' }
             ]}
           />
-          {!isTenant && (
-            <div style={{ display: 'flex', alignItems: 'center', marginLeft: 8 }}>
-              <Checkbox 
-                checked={showSystemResources} 
-                onChange={(e: any) => setShowSystemResources(e.target.checked)}
-              >
-                显示系统资源
-              </Checkbox>
-            </div>
-          )}
           <button
             type="button"
             className="toolbar-reset-btn"
@@ -408,7 +396,6 @@ const SnapshotsSection: React.FC<Props> = ({
               setKeyword('');
               setNamespaceFilter('');
               setStatusFilter('');
-              setShowSystemResources(false);
             }}
           >
             重置

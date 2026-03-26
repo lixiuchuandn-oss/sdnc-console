@@ -15,7 +15,7 @@ import {
 import { getToken } from '../../../utils/tokenStorage';
 import './CloudConsole.css';
 import CloudConsoleHarvester from './CloudConsoleHarvester';
-import VmSection from '../Harvester/sections/VmSection';
+import VmSection from '../Harvester/ecs/VmSection';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import CloudConsoleVpcDetail from './CloudConsoleVpcDetail';
 import { useLicense } from '../../../contexts/LicenseContext';
@@ -82,6 +82,7 @@ const CloudConsolePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('ecs'); // 当前激活的 Tab 页签
   const [selectedVpc, setSelectedVpc] = useState<string | null>(null); // 当前选中的 VPC (用于 VPC 详情视图)
   const [caps, setCaps] = useState<any>({}); // 当前云平台的能力集 (capabilities)，用于判断是否为 Harvester 等
+  const CONSOLE_REFRESH_KEY = 'cloud_console_refresh_after_create';
   
   // Harvester Specific Navigation State (Lifted Up)
   const [harvesterCategory, setHarvesterCategory] = useState<string>('compute');
@@ -536,7 +537,7 @@ const CloudConsolePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const json = await fetchHarvesterVolumes(cid, force);
+      const json = await fetchHarvesterVolumes(cid, force, force);
       const items: any[] = Array.isArray((json as any)?.data?.items) 
           ? (json as any).data.items 
           : (Array.isArray((json as any)?.items) ? (json as any).items : []);
@@ -551,14 +552,14 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载镜像列表
-  const loadImages = async (cloudId?: string) => {
+  const loadImages = async (cloudId?: string, force: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
 
     setLoading(true);
     setError(null);
     try {
-      const json = await fetchHarvesterImages(cid);
+      const json = await fetchHarvesterImages(cid, force);
       const items: any[] = Array.isArray((json as any)?.data?.items) 
           ? (json as any).data.items 
           : (Array.isArray((json as any)?.items) ? (json as any).items : []);
@@ -589,12 +590,12 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载存储类
-  const loadStorageClasses = async (cloudId?: string) => {
+  const loadStorageClasses = async (cloudId?: string, force: boolean = false, skipSync: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchHarvesterStorageClasses(cid);
+      const res = await fetchHarvesterStorageClasses(cid, force, skipSync);
       const list: any[] = Array.isArray((res as any)?.data?.items) ? (res as any).data.items : (Array.isArray((res as any)?.items) ? (res as any).items : []);
       setStorageClasses(Array.isArray(list) ? list : []);
     } catch (e: any) {
@@ -622,12 +623,12 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载快照列表
-  const loadSnapshots = async (cloudId?: string) => {
+  const loadSnapshots = async (cloudId?: string, force: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchHarvesterSnapshots(cid);
+      const res = await fetchHarvesterSnapshots(cid, force);
       setSnapshots(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadSnapshots error:', e);
@@ -638,12 +639,12 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载备份列表
-  const loadBackups = async (cloudId?: string) => {
+  const loadBackups = async (cloudId?: string, force: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchHarvesterBackups(cid);
+      const res = await fetchHarvesterBackups(cid, force);
       setBackups(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadBackups error:', e);
@@ -799,6 +800,21 @@ const CloudConsolePage: React.FC = () => {
     loadClouds();
   }, []);
 
+  useEffect(() => {
+    if (!currentCloudId) return;
+    const raw = sessionStorage.getItem(CONSOLE_REFRESH_KEY);
+    if (!raw) return;
+    if (raw !== String(currentCloudId)) return;
+
+    sessionStorage.removeItem(CONSOLE_REFRESH_KEY);
+    loadEcs(currentCloudId, true);
+    loadPvcs(currentCloudId, true);
+    loadImages(currentCloudId, true);
+    loadSnapshots(currentCloudId, true);
+    loadBackups(currentCloudId, true);
+    loadSchedules(currentCloudId);
+  }, [currentCloudId]);
+
   // 当选中的资源池 (currentCloudId) 变化时:
   // 1. 加载该资源池的 VPC 和子网数据 (用于构建左侧树)
   // 2. 展开左侧树的对应节点
@@ -899,7 +915,7 @@ const CloudConsolePage: React.FC = () => {
         if (images.length === 0) loadImages(currentCloudId);
         break;
       case 'image':
-        loadImages(currentCloudId);
+        loadImages(currentCloudId, true);
         break;
       case 'ssh':
         loadSshKeys(currentCloudId);
@@ -911,15 +927,16 @@ const CloudConsolePage: React.FC = () => {
         loadGpus(currentCloudId);
         break;
       case 'volume':
-        loadPvcs(currentCloudId);
-        loadStorageClasses(currentCloudId);
+        // 仅首次进入云盘视图时自动加载，避免覆盖“创建后强制刷新”的最新结果
+        if (pvcs.length === 0) loadPvcs(currentCloudId);
+        if (storageClasses.length === 0) loadStorageClasses(currentCloudId, true, true);
         break;
       case 'volume-snapshot':
-        loadSnapshots(currentCloudId);
+        loadSnapshots(currentCloudId, true);
         break;
       case 'snapshot':
       case 'backup':
-        loadBackups(currentCloudId);
+        loadBackups(currentCloudId, true);
         break;
       case 'schedule':
         loadSchedules(currentCloudId);
@@ -970,7 +987,7 @@ const CloudConsolePage: React.FC = () => {
         if (caps?.isHarvester) loadPvcs(currentCloudId);
         break;
       case 'image':
-        if (caps?.isHarvester) loadImages(currentCloudId);
+        if (caps?.isHarvester) loadImages(currentCloudId, true);
         break;
       case 'template':
         if (caps?.isHarvester) loadTemplates(currentCloudId);
@@ -1074,8 +1091,8 @@ const CloudConsolePage: React.FC = () => {
                        // 选中 VPC 时，右侧显示 VPC 详情，不再通过 Tab 切换
                        setSelectedVpc(key.replace(/^vpc-/, ''));
                        // 预加载存储类数据（创建云盘时需要）
-                       if (currentCloudId && storageClasses.length === 0) {
-                         loadStorageClasses(currentCloudId);
+                      if (currentCloudId && storageClasses.length === 0) {
+                         loadStorageClasses(currentCloudId, true, true);
                        }
                     } else if (key === 'group-cloudmap' || key === 'group-harvester') {
                        // 点击一级目录节点: 切换展开/收起状态
@@ -1172,9 +1189,9 @@ const CloudConsolePage: React.FC = () => {
                     isHarvester={!!caps?.isHarvester}
                     onRefresh={(force?: boolean) => loadEcs(currentCloudId, !!force || true)} // 默认传递 force=true 确保强制刷新
                     onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
-                    onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
-                    onRefreshBackups={() => loadBackups(currentCloudId)}
-                    onRefreshStorageClasses={() => loadStorageClasses(currentCloudId)}
+                    onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
+                    onRefreshBackups={() => loadBackups(currentCloudId, true)}
+                    onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) => loadStorageClasses(currentCloudId, !!force, !!skipSync)}
                     onOpenReconfigure={(vm) => {
                       setReconfVm(vm);
                       setReconfVisible(true);
@@ -1230,12 +1247,13 @@ const CloudConsolePage: React.FC = () => {
                       loadEcs(currentCloudId, true);
                       loadPvcs(currentCloudId, true); // 传递 force=true 确保强制刷新，获取最新数据
                     }}
+                    onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) => loadStorageClasses(currentCloudId, !!force, !!skipSync)}
                     onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                     onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
-                    onRefreshImages={() => loadImages(currentCloudId)}
-                    onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
-                    onRefreshBackups={() => loadBackups(currentCloudId)}
+                    onRefreshImages={() => loadImages(currentCloudId, true)}
+                    onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
+                    onRefreshBackups={() => loadBackups(currentCloudId, true)}
                     onRefreshSchedules={() => loadSchedules(currentCloudId)}
                     onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                     onRefreshGpus={() => loadGpus(currentCloudId)}
@@ -1298,12 +1316,13 @@ const CloudConsolePage: React.FC = () => {
                       loadEcs(currentCloudId, true);
                       loadPvcs(currentCloudId, true); // 传递 force=true 确保强制刷新，获取最新数据
                     }}
+                    onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) => loadStorageClasses(currentCloudId, !!force, !!skipSync)}
                     onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                     onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
-                    onRefreshImages={() => loadImages(currentCloudId)}
-                    onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
-                    onRefreshBackups={() => loadBackups(currentCloudId)}
+                    onRefreshImages={() => loadImages(currentCloudId, true)}
+                    onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
+                    onRefreshBackups={() => loadBackups(currentCloudId, true)}
                     onRefreshSchedules={() => loadSchedules(currentCloudId)}
                     onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                     onRefreshGpus={() => loadGpus(currentCloudId)}

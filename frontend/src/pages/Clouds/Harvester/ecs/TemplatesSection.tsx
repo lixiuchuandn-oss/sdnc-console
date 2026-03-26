@@ -16,7 +16,7 @@
 import React, { useState, useMemo } from 'react';
 import { Table, Input, Button, Select, message, App, Tag, Tooltip, Modal, Switch, Dropdown } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, ProjectOutlined, SearchOutlined, ExclamationCircleOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CheckCircleTwoTone  , SearchOutlined, ExclamationCircleOutlined, EllipsisOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -309,7 +309,7 @@ const TemplatesSection: React.FC<Props> = ({
         const displayName = getTemplateDisplayName(r);
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <ProjectOutlined style={{ fontSize: 16, color: '#1677ff', flexShrink: 0 }} />
+            <CheckCircleTwoTone />
             <span
               className="cell-link"
               style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}

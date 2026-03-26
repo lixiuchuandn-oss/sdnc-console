@@ -124,7 +124,7 @@ interface LogsFlowConfigProps {
 
 const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const [configList, setConfigList] = useState<FlowItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);

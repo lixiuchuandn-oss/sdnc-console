@@ -4,7 +4,6 @@
  * 若新增种子角色，请同时改 initRoles 与本数组。
  */
 export const BUILT_IN_RBAC_ROLE_NAMES: readonly string[] = [
-  '超级管理员',
   '云租户根用户',
   '三权-审计管理员',
   '三权-安全管理员',

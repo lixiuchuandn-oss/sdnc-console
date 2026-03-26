@@ -4,7 +4,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
 import { createHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/harvesterApi';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { FolderOpenTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import StdFormModal from '../../../../components/StdFormModal';
 
@@ -236,10 +236,11 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       dataIndex: 'name',
       key: 'name',
       render: (_: any, r: any) => (
-        <span>
-          {r?.metadata?.name || r?.name}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <FolderOpenTwoTone/>
+          <span>{r?.metadata?.name || r?.name}</span>
         </span>
-      )
+      ),
     },
     {
       title: '状态',

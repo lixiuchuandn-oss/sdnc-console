@@ -9,7 +9,7 @@
  */
 import React, { useMemo, useState, useEffect } from 'react';
 import { Table, Badge, Input, Button, Select, message, Space, Popconfirm } from 'antd';
-import { ReloadOutlined, SearchOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, CloudServerOutlined, ClockCircleTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { fetchHarvesterMigrations, fetchHarvesterMigrationsDirect, abortHarvesterMigration } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -204,7 +204,15 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'standa
     {
       title: '任务ID',
       key: 'taskId',
-      render: (_: any, r: any) => SafeMig.taskId(r)
+      render: (_: any, r: any) => {
+        const text = SafeMig.taskId(r);
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ClockCircleTwoTone twoToneColor={['#1890ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
+            <span style={{ wordBreak: 'break-all' }}>{text}</span>
+          </span>
+        );
+      },
     },
     {
       title: '状态',

@@ -14,6 +14,7 @@ import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings
 import { fetchAlertsRules, fetchAllowedNamespaces, fetchPrometheusRulesGroups } from '../../../../services/monitoringApi';
 import { parseAlerts, type ParsedAlert } from './utils/prometheusAlerts';
 import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 interface MonitoringAlertsProps {
   cloudId: string;
@@ -21,7 +22,12 @@ interface MonitoringAlertsProps {
 
 const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadAlerts = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alerts:read'),
+    [perms]
+  );
 
   // 站内实时告警列表
   const [alertsLoading, setAlertsLoading] = useState(false);
@@ -41,7 +47,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
 
   const loadAlerts = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadAlerts) return;
     setAlertsLoading(true);
     const opts: { datasource?: string; namespace?: string; page?: number; pageSize?: number } = {};
     opts.datasource = dataSourceFilter || 'prometheus';
@@ -63,24 +69,24 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       setAlertsData(list);
       setAlertTotal(list.length);
     }
-  }, [cloudId, isAdmin, alertPage, alertPageSize, dataSourceFilter, namespaceFilter]);
+  }, [cloudId, isAdmin, alertPage, alertPageSize, dataSourceFilter, namespaceFilter, canReadAlerts]);
 
   const loadAllowedNamespaces = useCallback(async () => {
-    if (!cloudId || isAdmin) return;
+    if (!cloudId || isAdmin || !canReadAlerts) return;
     setAllowedNsLoading(true);
     const { data, ok } = await fetchAllowedNamespaces(cloudId);
     setAllowedNsLoading(false);
     if (ok && data?.namespaces) setTenantNamespaces(data.namespaces);
     else setTenantNamespaces([]);
-  }, [cloudId, isAdmin]);
+  }, [cloudId, isAdmin, canReadAlerts]);
 
   useEffect(() => {
-    if (cloudId) loadAlerts();
-  }, [loadAlerts, cloudId]);
+    if (cloudId && canReadAlerts) loadAlerts();
+  }, [loadAlerts, cloudId, canReadAlerts]);
 
   useEffect(() => {
-    if (cloudId && !isAdmin) loadAllowedNamespaces();
-  }, [cloudId, isAdmin, loadAllowedNamespaces]);
+    if (cloudId && !isAdmin && canReadAlerts) loadAllowedNamespaces();
+  }, [cloudId, isAdmin, loadAllowedNamespaces, canReadAlerts]);
 
   useEffect(() => {
     if (!cloudId) return;
@@ -250,6 +256,14 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     }
     return [{ label: '全部', value: '' }, ...tenantNamespaces.map((ns) => ({ label: ns, value: ns }))];
   }, [isAdmin, alertsList, tenantNamespaces]);
+
+  if (!canReadAlerts) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看监控告警，请联系管理员分配 `clouds.alerts:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
 
 
   return (

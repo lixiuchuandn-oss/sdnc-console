@@ -5,7 +5,7 @@
  */
 import React, { useMemo, useState, useEffect } from 'react';
 import { Drawer, Segmented, Button, Card, Descriptions, Tag, Tooltip, Spin } from 'antd';
-import { CloseOutlined, DesktopOutlined, BellOutlined } from '@ant-design/icons';
+import { CloseOutlined, DesktopOutlined, BellOutlined, HddOutlined } from '@ant-design/icons';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
 import { fetchHarvesterVolume } from '../../../../services/harvesterApi';
 import HarvesterEventsTab from './HarvesterEventsTab';
@@ -126,16 +126,8 @@ const HarvesterVolumeDetailDrawer: React.FC<HarvesterVolumeDetailDrawerProps> = 
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <DiskIcon width={32} height={32} style={{ fill: '#1890ff' }} />
+          <div className="harvester-drawer-title-icon-wrap">
+            <HddOutlined />
           </div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>

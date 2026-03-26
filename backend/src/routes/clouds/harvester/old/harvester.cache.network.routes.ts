@@ -47,7 +47,7 @@ import { licenseService } from '../../../services/LicenseService';
  * ------------------------------------------------------------------------------
  * [API 接口说明]
  * ------------------------------------------------------------------------------
- * 1. GET /:id/resources/cluster_networks
+ * 1. GET /:id/resources/cluster-networks
  *    - 获取集群网络配置及 VLAN 映射。
  * 
  * 2. GET /:id/resources/vpcs
@@ -79,9 +79,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
   return;
   
   /* 旧代码已禁用，保留用于参考
-  // [已迁移] GET /:id/resources/cluster_networks
+  // [已迁移] GET /:id/resources/cluster-networks
   router.get(
-    '/:id/resources/cluster_networks',
+    '/:id/resources/cluster-networks',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Divider, Tabs, Descriptions, Modal, Form, Input, Checkbox, Select, Popconfirm, Dropdown, Radio, InputNumber, App } from 'antd';
+import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Divider, Tabs, Descriptions, Modal, Form, Input, Checkbox, Select, Popconfirm, Dropdown, Radio, InputNumber, App, Spin } from 'antd';
 import { CloudOutlined, HomeOutlined, GlobalOutlined, ReloadOutlined, ArrowLeftOutlined, CloudUploadOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, HddOutlined, DeploymentUnitOutlined, SwapOutlined, BranchesOutlined, NodeIndexOutlined, CameraOutlined, UnorderedListOutlined, EditOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../components/PageDetailContainer';
-import NamespacesTab from './Harvester/sections/NamespacesTab';
+import NamespacesTab from './Harvester/cluster/NamespacesTab';
 import { bc, build } from '../../components/Breadcrumbs';
 import { normalizeVpcs } from '../../utils/cloudNormalize';
 import CloudDetailHw from './Hw/CloudDetailHw';
@@ -12,8 +12,8 @@ import CloudDetailAliyun from './Aliyun/CloudDetailAliyun';
 import CloudDetailCsm from './Csm/CloudDetailCsm';
 import CloudDetailCloudmap from './Cloudmap/CloudDetailCloudmap';
 import { getProviderName } from './providers';
-import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSubnetsByVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl } from '../../services/api';
-import { fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets } from '../../services/harvesterApi';
+import { fetchCloudById, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSubnetsByVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl } from '../../services/api';
+import { fetchHarvesterVmDetail, fetchHarvesterHealth } from '../../services/harvesterApi';
 import { fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries, createCloudProviderVpc, createCloudProviderVSwitch, deleteCloudProviderVpc, updateCloudProviderVpc, deleteCloudProviderVSwitch, fetchCloudProviderEnis, createCloudProviderEni, updateCloudProviderEni, deleteCloudProviderEni, fetchCloudProviderNetworkAcls, createCloudProviderNetworkAcl, updateCloudProviderNetworkAcl, deleteCloudProviderNetworkAcl, createCloudProviderSecurityGroup, updateCloudProviderSecurityGroup, deleteCloudProviderSecurityGroup, startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs } from '../../services/aliyunApi';
 
 interface AliyunVpc {
@@ -140,12 +140,19 @@ const CloudDetail: React.FC = () => {
   };
 
   const loadCloud = async () => {
+    if (!id) return;
     try {
-      const all = await fetchClouds();
-      const c = (all || []).find((x: any) => x.id === id);
-      if (c) setCloud({ id: c.id, name: c.name, region: c.region, type: c.type, config: c.config, status: c.status, endpoint: c.endpoint, description: c.description, createdAt: c.createdAt, updatedAt: c.updatedAt });
-    } catch (e) {
-      // ignore
+      setError(null);
+      const c = await fetchCloudById(String(id), { skipCache: true });
+      if (c) {
+        setCloud({ id: c.id, name: c.name, region: c.region, type: c.type, config: c.config, status: c.status, endpoint: c.endpoint, description: c.description, createdAt: c.createdAt, updatedAt: c.updatedAt });
+      } else {
+        setCloud(null);
+        setError('未找到该资源池，可能已被删除或无访问权限');
+      }
+    } catch (e: any) {
+      setCloud(null);
+      setError(e?.message || '获取资源池详情失败');
     }
   };
 
@@ -611,7 +618,28 @@ const CloudDetail: React.FC = () => {
   }
   // 避免闪屏：在 provider 未解析前不渲染回退页面
   if (!cloud || !provider) {
-    return null;
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 320, width: '100%' }}>
+        {error ? (
+          <Alert
+            type="warning"
+            message="资源池信息未就绪"
+            description={error}
+            showIcon
+            action={
+              <Space>
+                <Button onClick={() => navigate('/admin/clouds')}>返回列表</Button>
+                <Button type="primary" icon={<ReloadOutlined />} onClick={() => loadCloud()}>
+                  重试
+                </Button>
+              </Space>
+            }
+          />
+        ) : (
+          <Spin size="large" tip="加载资源池信息..." />
+        )}
+      </div>
+    );
   }
   // 已解析但不受支持的供应商时，显示轻量提示
   if (id) {

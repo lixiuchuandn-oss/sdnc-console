@@ -26,9 +26,24 @@ type Props = {
   cloudId: string;
   /** 简易模式下不展示「运维信息」等运维向入口 */
   mode?: 'standard' | 'simple';
+  /**
+   * 详情页「集群」Tab 托管：列表由父级 loadTabResource 拉取，与切换 Tab 行为一致；不传则组件内自行请求（兼容其它入口）
+   */
+  parentNetworks?: any[];
+  parentVlans?: any[];
+  parentLoading?: boolean;
+  onParentRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
 };
 
-const ProviderNetworksSection: React.FC<Props> = ({ cloudId, mode = 'standard' }) => {
+const ProviderNetworksSection: React.FC<Props> = ({
+  cloudId,
+  mode = 'standard',
+  parentNetworks,
+  parentVlans,
+  parentLoading,
+  onParentRefresh,
+}) => {
+  const isParentManaged = typeof onParentRefresh === 'function';
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
   const [createMode, setCreateMode] = useState<'centralized' | 'node_specific'>('centralized');
@@ -70,9 +85,11 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId, mode = 'standard' }
     setDrawerOpen(true);
   };
 
+  const vlanListForAlias = isParentManaged ? (parentVlans || []) : vlans;
+
   const vlanAliasMap = useMemo(() => {
     const map = new Map<string, { display: string; alias: string }>();
-    (vlans || []).forEach((v: any) => {
+    (vlanListForAlias || []).forEach((v: any) => {
       const name = String(v?.metadata?.name ?? '').trim();
       if (!name) return;
       const ann = v?.metadata?.annotations || {};
@@ -80,9 +97,13 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId, mode = 'standard' }
       map.set(name, { display: alias || name, alias });
     });
     return map;
-  }, [vlans]);
+  }, [vlanListForAlias]);
 
   const fetchData = async (force = false, skipSync = false) => {
+    if (isParentManaged && onParentRefresh) {
+      await onParentRefresh(force, skipSync);
+      return;
+    }
     setLoading(true);
     try {
       const [pnRes, vlanRes] = await Promise.all([
@@ -92,7 +113,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId, mode = 'standard' }
       setData(Array.isArray(pnRes?.data?.items) ? pnRes.data.items : []);
       setVlans(Array.isArray(vlanRes?.data?.items) ? vlanRes.data.items : []);
       if (force && cloudId) {
-        clearCache(`/api/clouds/${cloudId}/resources/providernetworks`, 'GET');
+        clearCache(`/api/clouds/${cloudId}/resources/provider-networks`, 'GET');
         clearCache(`/api/clouds/${cloudId}/resources/vlans`, 'GET');
       }
     } catch (error: any) {
@@ -181,8 +202,9 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId, mode = 'standard' }
   };
 
   useEffect(() => {
-    if (cloudId) fetchData();
-  }, [cloudId]);
+    if (!cloudId || isParentManaged) return;
+    fetchData();
+  }, [cloudId, isParentManaged]);
 
   useEffect(() => {
     if (!isModalVisible) return;
@@ -532,8 +554,8 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId, mode = 'standard' }
         className="std-table"
         bordered={false}
         rowKey={(r) => r.key || r.name}
-        loading={loading}
-        dataSource={(data || [])
+        loading={isParentManaged ? !!parentLoading : loading}
+        dataSource={((isParentManaged ? parentNetworks : data) || [])
           .map((item: any) => {
             const rawBase = item?.rawData || item;
             const mergedLinks = {

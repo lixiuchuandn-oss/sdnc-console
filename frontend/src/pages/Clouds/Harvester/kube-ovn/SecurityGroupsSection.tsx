@@ -14,7 +14,7 @@ import {
 } from 'antd';
 import type { MenuProps } from 'antd';
 import type { SubnetAclFormRow } from './SubnetAclFormItems';
-import { PlusOutlined, ReloadOutlined, SafetyOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SafetyCertificateTwoTone , SearchOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../../contexts/AuthContext';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -603,7 +603,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         ellipsis: true,
         render: (_: string, record: SecurityGroupRow) => (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <SafetyOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <SafetyCertificateTwoTone  style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
             <span className="cell-link" onClick={() => openRulesDrawer(record)}>
               {record.name}
             </span>

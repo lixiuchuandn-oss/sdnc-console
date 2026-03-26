@@ -242,7 +242,7 @@ export class PermissionRegistry {
           // 其他资源类型：基于资源类型名称推断
           else {
             // 例如：/api/clouds/:id/resources/eips -> clouds.eips
-            // 例如：/api/clouds/:id/resources/security-groups -> clouds.security-groups
+            // 例如：/api/clouds/:id/resources/cluster-networks -> clouds.cluster-networks
             permissionBase = `clouds.${resourceType}`;
           }
         } else {

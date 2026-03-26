@@ -7,7 +7,7 @@
  * - 删：DELETE /monitoring/secrets/:namespace/:name
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Descriptions, Form, Input, message, Modal, Select, Space, Table } from 'antd';
+import { Button, Descriptions, Form, Input, message, Modal, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -23,6 +23,8 @@ import {
   updateSecret,
   type OpaqueSecretItem,
 } from '../../../../services/monitoringApi';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 function base64Encode(str: string): string {
   try {
@@ -50,6 +52,16 @@ interface Props {
 }
 
 const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadSecrets = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alert-secrets:read'),
+    [perms]
+  );
+  const canWriteSecrets = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alert-secrets:write'),
+    [perms]
+  );
   const { formNamespaceOptions, configNsFilter, setConfigNsFilter } = useMonitoring();
 
   const [loading, setLoading] = useState(false);
@@ -71,7 +83,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   const [form] = Form.useForm();
 
   const loadSecrets = useCallback(async () => {
-    if (!cloudId || !namespaceFilter) return;
+    if (!cloudId || !namespaceFilter || !canReadSecrets) return;
     setLoading(true);
     const { data, ok, error } = await fetchSecrets(cloudId, {
       namespace: namespaceFilter,
@@ -84,11 +96,11 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       setSecrets([]);
       if (error) message.error(error);
     }
-  }, [cloudId, namespaceFilter, dataSourceFilter]);
+  }, [cloudId, namespaceFilter, dataSourceFilter, canReadSecrets]);
 
   useEffect(() => {
-    if (cloudId && namespaceFilter) loadSecrets();
-  }, [cloudId, namespaceFilter, dataSourceFilter, loadSecrets]);
+    if (cloudId && namespaceFilter && canReadSecrets) loadSecrets();
+  }, [cloudId, namespaceFilter, dataSourceFilter, loadSecrets, canReadSecrets]);
 
   useEffect(() => {
     if (configNsFilter && namespaceFilter !== configNsFilter) {
@@ -97,6 +109,10 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   }, [namespaceFilter, configNsFilter, setConfigNsFilter]);
 
   const handleAdd = useCallback(() => {
+    if (!canWriteSecrets) {
+      message.warning('无权新增告警密钥');
+      return;
+    }
     setEditingRecord(null);
     setEditFormInitialValues(null);
     form.resetFields();
@@ -107,10 +123,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       dataValue: '',
     });
     setModalOpen(true);
-  }, [form, namespaceFilter]);
+  }, [form, namespaceFilter, canWriteSecrets]);
 
   const handleEdit = useCallback(
     async (record: SecretRow) => {
+      if (!canWriteSecrets) {
+        message.warning('无权编辑告警密钥');
+        return;
+      }
       const ns = record.namespace ?? namespaceFilter;
       const nm = record.name;
       if (!cloudId || !ns || !nm) {
@@ -142,10 +162,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         hideLoading();
       }
     },
-    [cloudId, form, namespaceFilter]
+    [cloudId, form, namespaceFilter, canWriteSecrets]
   );
 
   const handleModalOk = useCallback(async () => {
+    if (!canWriteSecrets) {
+      message.warning('无权修改告警密钥');
+      return;
+    }
     const values = await form.validateFields().catch(() => null);
     if (!values || !cloudId) return;
     const { namespace, name, dataKey, dataValue } = values;
@@ -190,7 +214,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
     } finally {
       setModalLoading(false);
     }
-  }, [cloudId, form, editingRecord, loadSecrets]);
+  }, [cloudId, form, editingRecord, loadSecrets, canWriteSecrets]);
 
   const filteredSecrets = useMemo(() => {
     if (!keyword.trim()) return secrets;
@@ -207,6 +231,10 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
 
   const handleDelete = useCallback(
     (record: SecretRow) => {
+      if (!canWriteSecrets) {
+        message.warning('无权删除告警密钥');
+        return;
+      }
       if (!cloudId || !record.namespace || !record.name) {
         message.warning('无法删除：缺少命名空间或密钥名称');
         return;
@@ -228,21 +256,21 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         },
       });
     },
-    [cloudId, loadSecrets]
+    [cloudId, loadSecrets, canWriteSecrets]
   );
 
   const renderAction = useCallback(
     (_: unknown, record: SecretRow) => (
       <ResourceActionsDropdown
         items={[
-          { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
           { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
-          { type: 'divider' },
-          { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) },
+          { key: 'edit', label: '编辑', disabled: !canWriteSecrets, onClick: () => handleEdit(record) },
+          { type: 'divider' as const },
+          { key: 'delete', label: '删除', danger: true, disabled: !canWriteSecrets, onClick: () => handleDelete(record) },
         ]}
       />
     ),
-    [handleEdit, handleDetail, handleDelete]
+    [handleEdit, handleDetail, handleDelete, canWriteSecrets]
   );
 
   const allColumns: ColumnsType<SecretRow> = [
@@ -258,6 +286,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: columns } = useTableColumnSettings(allColumns, 'monitoring_alert_secrets_table');
+
+  if (!canReadSecrets) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看告警密钥，请联系管理员分配 `clouds.alert-secrets:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
 
   return (
     <>
@@ -291,7 +327,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         }
         toolbarRight={
           <Space>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+            <Button type="primary" icon={<PlusOutlined />} disabled={!canWriteSecrets} onClick={handleAdd}>
               新增密钥
             </Button>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey="monitoring_alert_secrets_table" />

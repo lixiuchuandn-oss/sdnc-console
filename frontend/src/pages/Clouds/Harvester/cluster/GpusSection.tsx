@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Table, Button, Space, Select, Tag, Input, Modal, Tabs } from 'antd';
-import { ReloadOutlined, SearchOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, ApiTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -166,17 +166,21 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
    * - 操作列提供元数据查看与 SourceData 跳转
    */
   const allColumns = useMemo(() => [
+    {
+      title: '名称',
+      key: 'name',
+      render: (_: any, r: any) => {
+        const text = r?.name || r?.status?.deviceName || r?.spec?.deviceName || r?.metadata?.name || r?.raw?.status?.deviceName || '-';
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ApiTwoTone/>
+            <span>{text}</span>
+          </span>
+        );
+      },
+    },
+    { title: '资源名', key: 'resourceName', render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.raw?.status?.resourceName || '-' },
     { title: '节点', key: 'node', render: (_: any, r: any) => r?.node || r?.status?.nodeName || r?.spec?.nodeName || r?.raw?.status?.nodeName || '-' },
-    { title: '资源名', key: 'resourceName', render: (_: any, r: any) => {
-      const text = r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.raw?.status?.resourceName || '-';
-      return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <DeploymentUnitOutlined style={{ color: '#1890ff', flexShrink: 0 }} />
-          <span>{text}</span>
-        </span>
-      );
-    } },
-    { title: '名称', key: 'name', render: (_: any, r: any) => r?.name || r?.status?.deviceName || r?.spec?.deviceName || r?.metadata?.name || r?.raw?.status?.deviceName || '-' },
     { title: '状态', key: 'state', render: (_: any, r: any) => {
       const s = r?.state?.name || r?.metadata?.state?.name || r?.status?.state?.name || r?.raw?.metadata?.state?.name || '';
       return renderUnifiedStateTag(s);

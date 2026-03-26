@@ -9,7 +9,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input, Select, Modal, Dropdown } from 'antd';
-import { ReloadOutlined, SearchOutlined, EllipsisOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, EllipsisOutlined, TagTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -205,7 +205,7 @@ const SshKeysSection: React.FC<Props> = ({
         // [Security] 租户侧严禁查看 YAML 详情，此处移除所有点击链接
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <SafetyCertificateOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <TagTwoTone  style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{content}</span>
           </span>
         );

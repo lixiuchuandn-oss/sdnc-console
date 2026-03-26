@@ -2,29 +2,29 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Modal, Select, Popconfirm, message, Dropdown, Typography } from 'antd';
 // 引入各个资源模块组件
-import NodesSection from './sections/NodesSection';
-import ImagesSection from './sections/ImagesSection';
-import VolumesSection from './sections/VolumesSection';
-import NadsSection from './sections/NadsSection';
+import NodesSection from './cluster/NodesSection';
+import ImagesSection from './ecs/ImagesSection';
+import VolumesSection from './ebs/VolumesSection';
+import NadsSection from './nad/NadsSection';
 import KubeOvnVpcsSection from './kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from './kube-ovn/SubnetsSection';
 import UnderlaySubnetsSection from './kube-ovn/UnderlaySubnetsSection';
 import VlansSection from './kube-ovn/VlansSection';
-import GpusSection from './sections/GpusSection';
-import PciDevicesSection from './sections/PciDevicesSection';
-import UsbDevicesSection from './sections/UsbDevicesSection';
-import MigrationsSection from './sections/MigrationsSection';
-import StorageClassesSection from './sections/StorageClassesSection';
-import SnapshotsSection from './sections/SnapshotsSection';
-import BackupsSection from './sections/BackupsSection';
-import SshKeysSection from './sections/SshKeysSection';
-import CloudInitsSection from './sections/CloudInitsSection';
-import ServicesSection from './sections/ServicesSection';
-import LoadBalancersSection from './sections/LoadBalancersSection';
-import IPPoolsSection from './sections/IPPoolsSection';
-import ClusterNetworksSection from './sections/ClusterNetworksSection';
+import GpusSection from './cluster/GpusSection';
+import PciDevicesSection from './cluster/PciDevicesSection';
+import UsbDevicesSection from './cluster/UsbDevicesSection';
+import MigrationsSection from './ecs/MigrationsSection';
+import StorageClassesSection from './cluster/StorageClassesSection';
+import SnapshotsSection from './ebs/SnapshotsSection';
+import BackupsSection from './cbr/BackupsSection';
+import SshKeysSection from './ecs/SshKeysSection';
+import CloudInitsSection from './ecs/CloudInitsSection';
+import ServicesSection from './cluster/ServicesSection';
+import LoadBalancersSection from './nad/LoadBalancersSection';
+import IPPoolsSection from './nad/IPPoolsSection';
+import ClusterNetworksSection from './cluster/ClusterNetworksSection';
 // 重新编译触发引入
-import NamespacesTab from './sections/NamespacesTab';
+import NamespacesTab from './cluster/NamespacesTab';
 import { CloudUploadOutlined, ArrowLeftOutlined, ReloadOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
@@ -35,13 +35,13 @@ import { getToken } from '../../../utils/tokenStorage';
 import { clearCache } from '../../../utils/requestManager';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
 import VmReconfigureModal from './modals/VmReconfigureModal';
-import VmSection from './sections/VmSection';
-import RecycleBinSection from './sections/RecycleBinSection';
-import TemplatesSection from './sections/TemplatesSection';
-import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
-import VmRestoreTasksSection from './sections/VmRestoreTasksSection';
+import VmSection from './ecs/VmSection';
+import RecycleBinSection from './ecs/RecycleBinSection';
+import TemplatesSection from './ecs/TemplatesSection';
+import ScheduleVmBackupsSection from './cbr/ScheduleVmBackupsSection';
+import VmRestoreTasksSection from './cbr/VmRestoreTasksSection';
 import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
 import SnatSection from './kube-ovn/SnatSection';
@@ -140,6 +140,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [harvesterSshKeys, setHarvesterSshKeys] = useState<any[]>([]); // SSH 密钥
   const [harvesterCloudInits, setHarvesterCloudInits] = useState<any[]>([]); // CloudInit 配置
   const [harvesterVlans, setHarvesterVlans] = useState<any[]>([]); // Kube-OVN VLANs
+  const [harvesterKubeOvnProviderNetworks, setHarvesterKubeOvnProviderNetworks] = useState<any[]>([]);
   const [harvesterServices, setHarvesterServices] = useState<any[]>([]); // K8s 服务
   const [harvesterLoadBalancers, setHarvesterLoadBalancers] = useState<any[]>([]); // Harvester LoadBalancers
   const [harvesterIPPools, setHarvesterIPPools] = useState<any[]>([]); // IP 地址池
@@ -377,24 +378,29 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * @param key Tab 的 key 或资源标识
    * @param force 是否强制刷新
    */
-  const loadTabResource = async (key: string, force = false) => {
+  const loadTabResource = async (key: string, force = false, skipSync = false) => {
       switch (key) {
           case 'namespaces':
-            // 命名空间管理页面：加载所有命名空间（包括系统命名空间），使用独立状态避免影响其他组件
-            // 后端已实现租户隔离，租户用户即使查询所有命名空间，也只会看到分配给自己的命名空间
             if (checkPerm('clouds.namespaces:read') || checkPerm('clouds.ecs:read')) {
-              setResourceLoading(prev => ({ ...prev, namespaces: true }));
-              fetchHarvesterNamespaces(cloudId, force, false) // excludeSystem=false，管理页面需要查看系统命名空间
-                .then((json) => {
-                  const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
-                  setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
-                })
-                .catch((e) => {
-                  console.warn('Failed to load namespaces for management', e);
-                })
-                .finally(() => {
-                  setResourceLoading(prev => ({ ...prev, namespaces: false }));
+              setResourceLoading((prev) => ({ ...prev, namespaces: true }));
+              try {
+                const json = await fetchHarvesterNamespaces(cloudId, force, false, skipSync);
+                const list: any[] = Array.isArray((json as any)?.data?.items)
+                  ? (json as any).data.items
+                  : Array.isArray((json as any)?.items)
+                    ? (json as any).items
+                    : [];
+                setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
+                const filtered = list.filter((ns: any) => {
+                  const name = ns?.metadata?.name || ns?.name;
+                  return name && !isSystemNamespace(name);
                 });
+                setHarvesterNamespaces(filtered);
+              } catch (e) {
+                console.warn('Failed to load namespaces for management', e);
+              } finally {
+                setResourceLoading((prev) => ({ ...prev, namespaces: false }));
+              }
             }
             break;
           case 'volumes':
@@ -489,6 +495,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'usb_devices':
+          case 'cluster_usb':
             if (checkPerm('clouds.usb-devices:read') || checkPerm('clouds.ecs:read')) {
               loadResource('usbDevices', () => fetchHarvesterUsbResources(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
@@ -498,6 +505,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'pci_devices':
+          case 'cluster_pci':
             if (checkPerm('clouds.pci-devices:read') || checkPerm('clouds.ecs:read')) {
               loadResource('pciDevices', () => fetchHarvesterPciDevices(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
@@ -528,13 +536,17 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
           case 'cluster_vlans':
           case 'vlans':
             if (checkPerm('clouds.networks:read')) {
-              loadResource('vlans', () => fetchKubeOvnVlans(cloudId, force, false), (json) => {
+              loadResource('vlans', () => fetchKubeOvnVlans(cloudId, force, skipSync), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterVlans(Array.isArray(list) ? list : []);
                 setRawVlans(json || null);
                 if (force && cloudId) {
                   clearCache(`/api/clouds/${cloudId}/resources/vlans`, 'GET');
                 }
+              }, force);
+              loadResource('kubeOvnProviderNetworks', () => fetchKubeOvnProviderNetworks(cloudId, force, skipSync), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                setHarvesterKubeOvnProviderNetworks(Array.isArray(list) ? list : []);
               }, force);
             }
             break;
@@ -547,7 +559,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               }, force);
             }
             break;
-          case 'cluster_networks':
+          case 'clusterNetworks':
             if (checkPerm('clouds.cluster-networks:read')) {
               loadResource('clusterNetworks', () => fetchHarvesterClusterNetworks(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.items) ? (json as any).items : [];
@@ -556,34 +568,55 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               }, force);
             }
             break;
+          case 'cluster_nodes':
+            if (checkPerm('clouds.cluster-nodes:read') || checkPerm('clouds.ecs:read')) {
+              loadResource('nodes', () => fetchHarvesterNodes(cloudId, force), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setHarvesterNodes(Array.isArray(list) ? list : []);
+                setRawNodes(json || null);
+              }, force);
+            }
+            break;
+          case 'storage_classes':
+            if (checkPerm('clouds.storage-classes:read') || checkPerm('clouds.ecs:read')) {
+              loadResource('storageClasses', () => fetchHarvesterStorageClasses(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                setHarvesterStorageClasses(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            break;
           case 'eips':
+          case 'kubeovn_eips':
           case 'fips':
+          case 'kubeovn_fips':
           case 'snat':
+          case 'kubeovn_snat':
           case 'dnat':
+          case 'kubeovn_dnat':
           case 'kube_ovn_group': // Kube-OVN 扩展组
             if (checkPerm('clouds.networks:read')) {
-                if (key === 'eips' || key === 'kube_ovn_group') {
+                if (key === 'eips' || key === 'kube_ovn_group' || key === 'kubeovn_eips') {
                     loadResource('eips', () => fetchCloudProviderOvnEips(cloudId, force), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnEips(Array.isArray(list) ? list : []);
                         setRawEips(json || null);
                     }, force);
                 }
-                if (key === 'fips' || key === 'kube_ovn_group') {
+                if (key === 'fips' || key === 'kube_ovn_group' || key === 'kubeovn_fips') {
                     loadResource('fips', () => fetchCloudProviderOvnFips(cloudId, force), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnFips(Array.isArray(list) ? list : []);
                         setRawFips(json || null);
                     }, force);
                 }
-                if (key === 'snat' || key === 'kube_ovn_group') {
+                if (key === 'snat' || key === 'kube_ovn_group' || key === 'kubeovn_snat') {
                     loadResource('snatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnSnatRules(Array.isArray(list) ? list : []);
                         setRawSnatRules(json || null);
                     }, force);
                 }
-                if (key === 'dnat' || key === 'kube_ovn_group') {
+                if (key === 'dnat' || key === 'kube_ovn_group' || key === 'kubeovn_dnat') {
                     loadResource('dnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnDnatRules(Array.isArray(list) ? list : []);
@@ -595,27 +628,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       }
   };
 
-  /** VLAN 列表：支持 skipSync（创建/删除后）与父级 resourceLoading.vlans 对齐 */
-  const refreshVlans = React.useCallback(
-    async (force = false, skipSync = false) => {
-      if (!hasPermissionForAction(permissions || [], 'clouds.networks:read')) return;
-      setResourceLoading((prev) => ({ ...prev, vlans: true }));
-      try {
-        const json = await fetchKubeOvnVlans(cloudId, force, skipSync);
-        const list: any[] = (json as any)?.data?.items || [];
-        setHarvesterVlans(Array.isArray(list) ? list : []);
-        setRawVlans(json || null);
-        if (force && cloudId) {
-          clearCache(`/api/clouds/${cloudId}/resources/vlans`, 'GET');
-        }
-      } catch (e: any) {
-        message.error(`获取 VLAN 列表失败: ${e?.message || '未知错误'}`);
-      } finally {
-        setResourceLoading((prev) => ({ ...prev, vlans: false }));
-      }
-    },
-    [cloudId, permissions],
-  );
+  /** VLAN Tab：与集群其它 Tab 一致，走 loadTabResource + loadedRef */
+  const refreshVlans = async (force = false, skipSync = false) => {
+    if (!hasPermissionForAction(permissions || [], 'clouds.networks:read')) return;
+    await loadTabResource('vlans', force, skipSync);
+  };
 
   /**
    * 全局/手动刷新函数
@@ -649,7 +666,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
     
     // 4. 智能刷新已加载的按需资源
     if (isForce) {
-        const secondaryKeys = ['snapshots', 'backups', 'ssh_keys', 'cloud_inits', 'templates', 'gpu', 'services', 'vlans', 'ippools', 'cluster_networks', 'eips', 'fips', 'snat', 'dnat', 'load_balancers'];
+        const secondaryKeys = ['snapshots', 'backups', 'ssh_keys', 'cloud_inits', 'templates', 'gpu', 'services', 'vlans', 'ippools', 'clusterNetworks', 'eips', 'fips', 'snat', 'dnat', 'load_balancers'];
         // 只有当资源之前被加载过，才刷新它
         secondaryKeys.forEach(k => {
              // 注意：这里简化判断，只要之前请求过相关key，就刷新
@@ -671,7 +688,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
              if (k === 'vlans' && previouslyLoaded.includes('vlans')) shouldRefresh = true;
              if (k === 'ippools' && previouslyLoaded.includes('ippools')) shouldRefresh = true;
              if (k === 'load_balancers' && previouslyLoaded.includes('loadBalancers')) shouldRefresh = true;
-             if (k === 'cluster_networks' && previouslyLoaded.includes('clusterNetworks')) shouldRefresh = true;
+             if (k === 'clusterNetworks' && previouslyLoaded.includes('clusterNetworks')) shouldRefresh = true;
              if (k === 'eips' && previouslyLoaded.includes('eips')) shouldRefresh = true;
              if (k === 'fips' && previouslyLoaded.includes('fips')) shouldRefresh = true;
              if (k === 'snat' && previouslyLoaded.includes('snatRules')) shouldRefresh = true;
@@ -715,27 +732,21 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * 处理 Tab 切换事件，实现按需加载
    * @param key 激活的 Tab Key
    */
+  /**
+   * Tab 切换时按需拉数：别名在 loadTabResource 的 switch 中统一处理；
+   * 此处仅「多 Tab 共用备份加载」。
+   */
   const handleTabChange = (key: string) => {
-      // 外层 Tabs 特殊情况映射
-      if (key === 'backups_group') { loadTabResource('backups'); return; }
-
-      // 内层 Tabs 映射
-      if (key === 'cluster_services') { loadTabResource('services'); return; }
-      if (key === 'cluster_usb') { loadTabResource('usb_devices'); return; }
-      if (key === 'cluster_pci') { loadTabResource('pci_devices'); return; }
-      if (key === 'load_balancers') { loadTabResource('load_balancers'); return; }
-      if (key === 'kubeovn_eips') { loadTabResource('eips'); return; }
-      if (key === 'kubeovn_fips') { loadTabResource('fips'); return; }
-      if (key === 'kubeovn_snat') { loadTabResource('snat'); return; }
-      if (key === 'kubeovn_dnat') { loadTabResource('dnat'); return; }
-      if (key === 'cluster_vlans') { loadTabResource('vlans'); return; }
-      if (key === 'schedule_vm_backups') { loadTabResource('backups'); return; } // 同时加载备份和策略
-      if (key === 'vm_snapshots') { loadTabResource('backups'); return; }
-      if (key === 'vm_clones') { loadTabResource('backups'); return; }
-      if (key === 'templates') { loadTabResource('templates', true); return; }
-
-      // 直接匹配的 Key
-      loadTabResource(key);
+    if (
+      key === 'backups_group' ||
+      key === 'schedule_vm_backups' ||
+      key === 'vm_snapshots' ||
+      key === 'vm_clones'
+    ) {
+      loadTabResource('backups');
+      return;
+    }
+    loadTabResource(key);
   };
   
   // --- SSE 实时数据更新 Effect ---
@@ -958,18 +969,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   
   const tlsIgnored = !!(cloud?.config?.ignoreTls);
 
-  // 独立 GPU 刷新
-  const refreshGpu = async (force: boolean = false) => {
-    try {
-      const r = await fetchHarvesterGpuResources(cloudId, force);
-      const items = Array.isArray((r as any)?.data?.items) ? (r as any).data.items : (Array.isArray((r as any)?.items) ? (r as any).items : []);
-      setHarvesterGpuResources(items);
-      setRawGpu(r);
-    } catch (e: any) {
-      message.error(e?.message || '刷新失败');
-    }
-  };
-
   return (
     <PageDetailContainer
       breadcrumbs={[
@@ -1105,7 +1104,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               children: (
                 <Tabs
                   type="line"
-                  destroyOnHidden
+                  destroyOnHidden={false}
                   defaultActiveKey="cluster_nodes"
                   onChange={handleTabChange}
                   items={[
@@ -1144,11 +1143,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       )
                     },
                     {
-                      key: 'cluster_networks',
+                      key: 'clusterNetworks',
                       label: '集群网络',
                       children: (
                         <>
-                          <ClusterNetworksSection cloudId={cloudId} clusterNetworks={harvesterClusterNetworks} loading={resourceLoading.clusterNetworks} onRefresh={() => loadTabResource('cluster_networks', true)} />
+                          <ClusterNetworksSection cloudId={cloudId} clusterNetworks={harvesterClusterNetworks} loading={resourceLoading.clusterNetworks} onRefresh={() => loadTabResource('clusterNetworks', true)} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawClusterNetworks, null, 2)}</pre>
@@ -1165,6 +1164,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           <VlansSection
                             cloudId={cloudId}
                             vlans={harvesterVlans}
+                            providerNetworks={harvesterKubeOvnProviderNetworks}
                             loading={resourceLoading.vlans}
                             onRefresh={refreshVlans}
                           />
@@ -1184,38 +1184,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         namespaces={harvesterNamespacesForManagement} 
                         loading={resourceLoading.namespaces} 
                         onRefresh={async (force = false, silent = false) => {
-                          console.log('[CloudDetailHarvester] 命名空间刷新开始, cloudId:', cloudId, 'force:', force, 'silent:', silent);
-                          setResourceLoading(prev => ({ ...prev, namespaces: true }));
                           try {
-                            // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步，只查询数据库
-                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
-                            console.log('[CloudDetailHarvester] 调用 fetchHarvesterNamespaces, force:', force, 'skipSync:', skipSync);
-                            const json = await fetchHarvesterNamespaces(cloudId, force, false, skipSync);
-                            console.log('[CloudDetailHarvester] fetchHarvesterNamespaces 返回:', json);
-                            const items = json?.data?.items || json?.items || [];
-                            const list = Array.isArray(items) ? items : [];
-                            console.log('[CloudDetailHarvester] 解析后的命名空间数量:', list.length);
-                            setHarvesterNamespacesForManagement(list);
-                            // 同步更新通用命名空间列表（过滤系统命名空间）
-                            const filtered = list.filter((ns: any) => {
-                              const name = ns?.metadata?.name || ns?.name;
-                              return name && !isSystemNamespace(name);
-                            });
-                            console.log('[CloudDetailHarvester] 过滤后的命名空间数量:', filtered.length);
-                            setHarvesterNamespaces(filtered);
-                            // 只有在非静默模式且是手动刷新时才显示提示信息
+                            await loadTabResource('namespaces', force, silent);
                             if (force && !silent) {
-                              message.success(`刷新成功，共 ${list.length} 个命名空间`);
+                              message.success('刷新成功');
                             }
                           } catch (e: any) {
-                            console.error('[CloudDetailHarvester] 刷新命名空间列表失败', e);
-                            // 静默模式下不显示错误提示（创建后的自动刷新）
                             if (!silent) {
                               message.error('刷新失败: ' + (e?.message || '未知错误'));
                             }
-                          } finally {
-                            console.log('[CloudDetailHarvester] 命名空间刷新结束，重置 loading 状态');
-                            setResourceLoading(prev => ({ ...prev, namespaces: false }));
                           }
                         }} 
                         showLog={showLog} 
@@ -1228,7 +1205,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '存储类',
                       children: (
                         <>
-                          <StorageClassesSection cloudId={cloudId} storageClasses={harvesterStorageClasses} loading={resourceLoading.storageClasses} onRefresh={() => loadResource('storageClasses', () => fetchHarvesterStorageClasses(cloudId), (json) => setHarvesterStorageClasses(json?.data?.items || []), true)} />
+                          <StorageClassesSection cloudId={cloudId} storageClasses={harvesterStorageClasses} loading={resourceLoading.storageClasses} onRefresh={() => loadTabResource('storage_classes', true)} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(harvesterStorageClasses, null, 2)}</pre>
@@ -1240,7 +1217,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     {
                       key: 'gpu',
                       label: 'GPU',
-                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
+                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={() => loadTabResource('gpu', true)} raw={rawGpu} showLog={showLog} />)
                     },
                     {
                       key: 'cluster_usb',
@@ -1255,7 +1232,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   ].filter((i:any) => {
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.cluster-nodes:read');
                       if (i.key === 'cluster_services') return checkPerm('clouds.cluster-services:read');
-                      if (i.key === 'cluster_networks') return checkPerm('clouds.cluster-networks:read');
+                      if (i.key === 'clusterNetworks') return checkPerm('clouds.cluster-networks:read');
                       if (i.key === 'cluster_vlans') return checkPerm('clouds.networks:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
                       if (i.key === 'storage_classes') return checkPerm('clouds.storage-classes:read');
