@@ -642,9 +642,9 @@ import { yaml } from '@codemirror/lang-yaml';
 - [x] 能够配置节点亲和性/反亲和性
 - [x] 能够配置 Pod 亲和性/反亲和性
 - [x] 能够配置污点容忍
-- [ ] 能够创建和管理 PodDisruptionBudget
-- [ ] 能够创建和管理 NetworkPolicy
-- [ ] 表单内快速创建关联资源
+- [x] 能够创建和管理 PodDisruptionBudget
+- [x] 能够创建和管理 NetworkPolicy
+- [x] 表单内快速创建关联资源
 - [ ] 服务拓扑可视化
 
 ---

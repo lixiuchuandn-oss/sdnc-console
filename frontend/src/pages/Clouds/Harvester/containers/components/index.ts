@@ -88,3 +88,8 @@ export type { QuickCreateSecretModalProps } from './QuickCreateSecretModal';
 // 快速创建镜像拉取凭证弹窗组件
 export { default as QuickCreateRegistrySecretModal } from './QuickCreateRegistrySecretModal';
 export type { QuickCreateRegistrySecretModalProps } from './QuickCreateRegistrySecretModal';
+
+// NetworkPolicy 网络策略表单组件
+export { default as NetworkPolicyForm } from './NetworkPolicyForm';
+export { default as NetworkPolicyFormModal } from './NetworkPolicyFormModal';
+export type { NetworkPolicyFormValues, NetworkPolicyFormProps } from './NetworkPolicyForm';

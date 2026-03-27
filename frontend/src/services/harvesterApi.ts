@@ -2176,3 +2176,64 @@ export const createHarvesterPDB = async (cloudId: string, namespace: string, bod
 export const deleteHarvesterPDB = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
+
+// ============================================================
+// NetworkPolicy API
+// ============================================================
+
+/**
+ * 获取 NetworkPolicy 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选，不传则返回所有命名空间)
+ * @param force 是否强制刷新缓存
+ * @returns Promise<any>
+ */
+export const fetchNetworkPolicies = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 NetworkPolicy 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name NetworkPolicy 名称
+ * @returns Promise<any>
+ */
+export const fetchNetworkPolicyDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 NetworkPolicy
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body NetworkPolicy 资源定义
+ * @returns Promise<any>
+ */
+export const createNetworkPolicy = async (cloudId: string, namespace: string, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies`, { namespace, body });
+};
+
+/**
+ * 更新 NetworkPolicy
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name NetworkPolicy 名称
+ * @param body NetworkPolicy 资源定义
+ * @returns Promise<any>
+ */
+export const updateNetworkPolicy = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
+ * 删除 NetworkPolicy
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name NetworkPolicy 名称
+ * @returns Promise<any>
+ */
+export const deleteNetworkPolicy = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
