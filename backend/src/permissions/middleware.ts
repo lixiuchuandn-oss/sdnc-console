@@ -160,11 +160,23 @@ export function createApiPermissionMiddleware(options?: {
       return ['clouds:read', 'clouds.console:read', 'clouds.ecs:read'];
     }
 
-    // 子网：Harvester/CloudMap 扁平与公共子网与业务 VPC 解耦；仅授子网权限即可访问子网 API，仍兼容仅授 VPC 权限
+    // 子网：父级 clouds.subnets + 按 tower.io/subnet-type 拆分的子权限；仍兼容仅授 VPC 权限的旧角色
     if (actionBase === 'clouds.subnets') {
       return isRead
-        ? ['clouds.subnets:read', 'clouds.vpcs:read']
-        : ['clouds.subnets:write', 'clouds.vpcs:write'];
+        ? [
+            'clouds.subnets:read',
+            'clouds.subnets.vpc:read',
+            'clouds.subnets.flat:read',
+            'clouds.subnets.public:read',
+            'clouds.vpcs:read',
+          ]
+        : [
+            'clouds.subnets:write',
+            'clouds.subnets.vpc:write',
+            'clouds.subnets.flat:write',
+            'clouds.subnets.public:write',
+            'clouds.vpcs:write',
+          ];
     }
 
     // 安全组（含 Kube-OVN 扁平子网安全组 API）：优先 clouds.security-groups，兼容仅授 VPC 的旧角色

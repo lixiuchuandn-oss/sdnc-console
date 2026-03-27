@@ -12,6 +12,7 @@ import SubnetAclFormItems, { normalizeAclRowForForm, validateAclsFormRowsForSubm
 import { fetchCloudProviderEcs } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { CLOUD_SUBNETS_VPC_WRITE } from '../../../../constants/cloudPermissions';
 
 /**
  * =============================================================================
@@ -47,7 +48,11 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasVpcsWrite = useMemo(
-    () => hasPermissionForAction(perms, 'clouds.vpcs:write') || hasPermissionForAction(perms, 'clouds:write'),
+    () =>
+      hasPermissionForAction(perms, CLOUD_SUBNETS_VPC_WRITE) ||
+      hasPermissionForAction(perms, 'clouds.subnets:write') ||
+      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
+      hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
   const { id: cloudId } = useParams<{ id: string }>();

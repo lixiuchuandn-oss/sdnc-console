@@ -24,6 +24,10 @@ import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../utils/towerKubeOvnNames';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import {
+  CLOUD_SUBNETS_FLAT_WRITE,
+  CLOUD_SUBNETS_PUBLIC_WRITE,
+} from '../../../../constants/cloudPermissions';
 
 const { Option } = Select;
 
@@ -54,7 +58,7 @@ const TOWER_ALIAS_ANNOTATION = 'tower.io/alias';
 type Props = {
   cloudId: string;
   mode?: 'flat' | 'public';
-  displayMode?: 'standard' | 'simple';
+  displayMode?: 'standard' | 'ops';
   /** 是否显示「查看YAML」并接入 HarvesterOpsinfoDrawer（与 VPC 子网列表一致） */
   showYaml?: boolean;
 };
@@ -232,26 +236,29 @@ function subnetRecordToFormValues(record: any, isFlatMode: boolean): Record<stri
   return base;
 }
 
-const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displayMode = 'standard', showYaml = true }) => {
+const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displayMode = 'ops', showYaml = true }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
+  const isFlatMode = mode === 'flat';
   const hasUnderlayWrite = useMemo(() => {
+    const scopedWrite = isFlatMode ? CLOUD_SUBNETS_FLAT_WRITE : CLOUD_SUBNETS_PUBLIC_WRITE;
     const hasWrite =
+      hasPermissionForAction(perms, scopedWrite) ||
       hasPermissionForAction(perms, 'clouds.subnets:write') ||
       hasPermissionForAction(perms, 'clouds.vpcs:write') ||
       hasPermissionForAction(perms, 'clouds:write');
     // 租户角色禁止扁平/公共子网写操作（与镜像写权限收敛策略一致）
     return hasWrite && !isTenantUser;
-  }, [perms, isTenantUser]);
+  }, [isFlatMode, perms, isTenantUser]);
   const ensureUnderlayWrite = useCallback(() => {
     if (hasUnderlayWrite) return true;
     message.error('当前账号没有子网操作权限（租户角色仅允许查看）');
     return false;
   }, [hasUnderlayWrite]);
 
-  const isFlatMode = mode === 'flat';
-  const isSimpleMode = displayMode === 'simple';
+  /** 标准视图：隐藏 ACL 等运维列 */
+  const isStandardView = displayMode === 'standard';
   const subnetKindLabel = isFlatMode ? '扁平子网' : '公共子网';
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -709,7 +716,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         },
       },
 
-      ...(isSimpleMode
+      ...(isStandardView
         ? []
         : [
             {
@@ -756,7 +763,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               disabled: !hasUnderlayWrite,
               onClick: () => openEditNetwork(record),
             },
-            ...(!isSimpleMode
+            ...(!isStandardView
               ? [
                   {
                     key: 'edit_acl',
@@ -800,7 +807,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       openHarvesterOpsDrawer,
       openEditNetwork,
       isFlatMode,
-      isSimpleMode,
+      isStandardView,
       vlans,
       providers,
       showYaml,

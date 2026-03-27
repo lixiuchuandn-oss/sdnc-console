@@ -45,7 +45,7 @@ import {
   deleteHarvesterImageUploadTask,
   type HarvesterImageUploadTask,
 } from '../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace, resolveVmImageKind } from '../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -64,11 +64,11 @@ type Props = {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
 
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
   bordered?: boolean;
 };
 
-const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false, mode = 'standard', bordered = true }) => {
+const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false, mode = 'ops', bordered = true }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasImagesWrite = useMemo(
@@ -226,61 +226,6 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     const gb = n / (1024 * 1024 * 1024);
     return `${gb.toFixed(2)}GB`;
   };
-  const resolveImageKind = (img: any): 'iso' | 'disk' | 'unknown' => {
-    // 优先检查 sourceType
-    const sourceType = String(img?.spec?.sourceType || '').toLowerCase();
-    
-    // 从卷导出的镜像默认为 disk 类型
-    if (sourceType === 'export-from-volume') return 'disk';
-    
-    // 如果 spec 中没有 sourceType，但存在 pvcName 或 pvcNamespace，说明是从卷导出的镜像
-    if (img?.spec?.pvcName || img?.spec?.pvcNamespace) return 'disk';
-    
-    // 如果 spec 字段缺失，尝试从 managedFields 判断（Harvester API 返回的数据可能不包含完整 spec）
-    // 检查 storageClassName 是否包含 "image-" 前缀（从卷导出的镜像通常会有这样的存储类）
-    const storageClassName = String(img?.storageClassName || img?.spec?.storageClassName || img?.status?.storageClassName || '').toLowerCase();
-    if (storageClassName.includes('image-') && storageClassName.includes('longhorn')) {
-      // 从卷导出的镜像，存储类通常是 longhorn-image-{name} 格式
-      return 'disk';
-    }
-    
-    // 本地上传和URL导入的镜像，根据文件名或URL推断类型
-    if (sourceType === 'upload' || sourceType === 'download') {
-      const disp = String(
-        img?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-        img?.spec?.displayName ||
-        img?.metadata?.name ||
-        img?.name ||
-        ''
-      ).toLowerCase();
-      const url = String(img?.spec?.url || '').toLowerCase();
-      
-      // 检查文件名或URL中是否包含 .iso
-      if (/\.(iso)$/.test(disp) || /\.(iso)(\?|$|#)/.test(url)) return 'iso';
-      // 检查文件名或URL中是否包含磁盘镜像扩展名
-      if (/\.(qcow2|img|raw)$/.test(disp) || /\.(qcow2|img|raw)(\?|$|#)/.test(url)) return 'disk';
-      // 如果无法从文件名推断，默认认为是 disk 类型（因为大多数上传/导入的镜像都是磁盘镜像）
-      return 'disk';
-    }
-    
-    // 其他情况：检查标签和格式
-    const labels = img?.metadata?.labels || {};
-    const typeLabel = String(labels['harvesterhci.io/image-type'] || '').toLowerCase();
-    if (typeLabel === 'iso') return 'iso';
-    if (['raw_qcow2', 'qcow2', 'raw'].includes(typeLabel)) return 'disk';
-    const diskFormat = String(img?.spec?.diskFormat || img?.diskFormat || '').toLowerCase();
-    if (diskFormat === 'iso') return 'iso';
-    if (['qcow2', 'raw'].includes(diskFormat)) return 'disk';
-    const disp = String(
-      labels['harvesterhci.io/imageDisplayName'] ||
-      img?.metadata?.name ||
-      img?.name ||
-      ''
-    ).toLowerCase();
-    if (/\.(iso)$/.test(disp)) return 'iso';
-    if (/\.(qcow2|img|raw)$/.test(disp)) return 'disk';
-    return 'unknown';
-  };
   const expandOsKeywords = useCallback((val: string) => {
     const v = (val || '').toLowerCase();
     const groups = getOsKeywordGroups();
@@ -291,71 +236,82 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const getId = (r: any): string => String(r?.name || r?.metadata?.name || '');
   const getNs = (r: any): string => String(r?.namespace || r?.metadata?.namespace || 'default');
 
+  /** 创建时间（毫秒），用于列表默认排序与表格列排序 */
+  const getImageCreatedMs = useCallback((r: any) => {
+    const t = r?.metadata?.creationTimestamp || r?.createdAt;
+    const ms = t ? new Date(t).getTime() : 0;
+    return Number.isFinite(ms) ? ms : 0;
+  }, []);
+
   const filtered = useMemo(() => {
+    const base = Array.isArray(images) ? images : [];
     // 如果没有过滤条件，直接返回所有镜像
-    const hasFilters = keyword.trim() || (mode === 'standard' ? statusFilter : '') || typeFilter || osFilter || (mode === 'standard' ? scopeFilter : '');
+    const hasFilters = keyword.trim() || (mode === 'ops' ? statusFilter : '') || typeFilter || osFilter || (mode === 'ops' ? scopeFilter : '');
+    let list: any[];
     if (!hasFilters && !isTenant) {
-      return Array.isArray(images) ? images : [];
-    }
-    
-    const kw = keyword.trim().toLowerCase();
-    const st = statusFilter.trim().toLowerCase();
-    const osKey = osFilter.trim().toLowerCase();
-    return (Array.isArray(images) ? images : []).filter((r:any) => {
-      const ns = getNs(r);
-      
-      // [系统资源过滤]
-      // 租户模式: 严格隔离，禁止查看系统命名空间，但允许查看公共命名空间 (harvester-public)
-      if (isTenant) {
-        if (isSystemNamespace(ns) && !isPublicNamespace(ns)) return false;
-      }
+      list = base;
+    } else {
+      const kw = keyword.trim().toLowerCase();
+      const st = statusFilter.trim().toLowerCase();
+      const osKey = osFilter.trim().toLowerCase();
+      list = base.filter((r: any) => {
+        const ns = getNs(r);
 
-      // Scope Filter - 只有用户主动选择时才过滤
-      if (mode === 'standard' && scopeFilter === 'public' && !isPublicNamespace(ns)) return false;
-      if (mode === 'standard' && scopeFilter === 'private') {
-        // Private: 非公共且非系统
-        if (isPublicNamespace(ns) || isSystemNamespace(ns)) return false;
-      }
-
-      // 关键字过滤 - 只有用户输入时才过滤
-      // 搜索范围：displayName、spec.displayName、labels中的imageDisplayName、name、namespace
-      if (kw) {
-        const displayName = String(
-          r?.displayName || 
-          r?.spec?.displayName || 
-          r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || 
-          ''
-        ).toLowerCase();
-        const imageName = String(r?.name || r?.metadata?.name || '').toLowerCase();
-        const namespace = String(ns).toLowerCase();
-        if (!displayName.includes(kw) && !imageName.includes(kw) && !namespace.includes(kw)) {
-          return false;
+        // [系统资源过滤]
+        // 租户模式: 严格隔离，禁止查看系统命名空间，但允许查看公共命名空间 (harvester-public)
+        if (isTenant) {
+          if (isSystemNamespace(ns) && !isPublicNamespace(ns)) return false;
         }
-      }
-      
-      // 状态过滤 - 只有用户选择时才过滤
-      if (mode === 'standard' && st) {
-        const stateValue = r?.state || (typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '';
-        const key = String(stateValue).toLowerCase();
-        if (key !== st) return false;
-      }
-      
-      // 镜像类型过滤 - 只有用户主动选择类型时才过滤
-      if (typeFilter) {
-        const kind = resolveImageKind(r);
-        if (kind !== typeFilter) return false;
-      }
-      
-      // OS过滤 - 只有用户输入时才过滤
-      if (osKey) {
-        const osLabel = String(r?.metadata?.labels?.['harvesterhci.io/os'] || '').toLowerCase();
-        const iconName = String(r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.metadata?.name || r?.name || '').toLowerCase();
-        const keys = expandOsKeywords(osKey);
-        if (!keys.some(k => osLabel.includes(k) || iconName.includes(k))) return false;
-      }
-      return true;
-    });
-  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, mode, expandOsKeywords]);
+
+        // Scope Filter - 只有用户主动选择时才过滤
+        if (mode === 'ops' && scopeFilter === 'public' && !isPublicNamespace(ns)) return false;
+        if (mode === 'ops' && scopeFilter === 'private') {
+          // Private: 非公共且非系统
+          if (isPublicNamespace(ns) || isSystemNamespace(ns)) return false;
+        }
+
+        // 关键字过滤 - 只有用户输入时才过滤
+        // 搜索范围：displayName、spec.displayName、labels中的imageDisplayName、name、namespace
+        if (kw) {
+          const displayName = String(
+            r?.displayName ||
+              r?.spec?.displayName ||
+              r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
+              '',
+          ).toLowerCase();
+          const imageName = String(r?.name || r?.metadata?.name || '').toLowerCase();
+          const namespace = String(ns).toLowerCase();
+          if (!displayName.includes(kw) && !imageName.includes(kw) && !namespace.includes(kw)) {
+            return false;
+          }
+        }
+
+        // 状态过滤 - 只有用户选择时才过滤
+        if (mode === 'ops' && st) {
+          const stateValue = r?.state || (typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '';
+          const key = String(stateValue).toLowerCase();
+          if (key !== st) return false;
+        }
+
+        // 镜像类型过滤 - 只有用户主动选择类型时才过滤
+        if (typeFilter) {
+          const kind = resolveVmImageKind(r);
+          if (kind !== typeFilter) return false;
+        }
+
+        // OS过滤 - 只有用户输入时才过滤
+        if (osKey) {
+          const osLabel = String(r?.metadata?.labels?.['harvesterhci.io/os'] || '').toLowerCase();
+          const iconName = String(r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.metadata?.name || r?.name || '').toLowerCase();
+          const keys = expandOsKeywords(osKey);
+          if (!keys.some((k) => osLabel.includes(k) || iconName.includes(k))) return false;
+        }
+        return true;
+      });
+    }
+    // 默认按创建时间降序（最新在前）；清除列排序时仍保持该顺序
+    return [...list].sort((a, b) => getImageCreatedMs(b) - getImageCreatedMs(a));
+  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, mode, expandOsKeywords, getImageCreatedMs]);
 
   const statusOptions = ['imported','pending','downloading','ready','failed','unknown'];
   const osOptions = [
@@ -442,10 +398,10 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     } },
     { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
     { title: '命名空间', key: 'namespace', render: (_:any, r:any)=> getNs(r) },
-    ...(mode === 'standard' ? [{ title: '作用域', key: 'scope', render: (_:any, r:any)=> isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像' }] : []),
-    ...(mode === 'standard' ? [{ title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) }] : []),
+    ...(mode === 'ops' ? [{ title: '作用域', key: 'scope', render: (_:any, r:any)=> isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像' }] : []),
+    ...(mode === 'ops' ? [{ title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) }] : []),
     { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
-        const kind = resolveImageKind(r);
+        const kind = resolveVmImageKind(r);
         const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? 'Qcow2' : '其他';
         const color = kind === 'iso' ? 'pink' : kind === 'disk' ? 'blue' : undefined;
         return <Tag color={color}>{text}</Tag>;
@@ -466,10 +422,16 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         return '-';
       } },
     { title: '存储类', key: 'sc', render: (_:any, r:any)=> r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-' },
-    { title: '创建时间', key: 'created_at', render: (_:any, r:any)=> {
+    {
+      title: '创建时间',
+      key: 'created_at',
+      sorter: (a: any, b: any) => getImageCreatedMs(a) - getImageCreatedMs(b),
+      defaultSortOrder: 'descend' as const,
+      render: (_: any, r: any) => {
         const t = r?.metadata?.creationTimestamp || r?.createdAt;
         return t ? new Date(t).toLocaleString() : '-';
-    } },
+      },
+    },
     { title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_:any, r:any)=> {
       const name = r?.name || r?.metadata?.name || '';
       const alias = getImageAlias(r);
@@ -504,7 +466,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         />
       );
     } },
-  ], [cloudId, onRefresh, isTenant, hasImagesWrite, mode, ensureImagesWrite, statusBadge]);
+  ], [cloudId, onRefresh, isTenant, hasImagesWrite, mode, ensureImagesWrite, statusBadge, getImageCreatedMs]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
@@ -744,7 +706,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       toolbarLeft={(
         <>
           <Input allowClear placeholder="名称/命名空间" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
-          {mode === 'standard' && (
+          {mode === 'ops' && (
             <Select
               allowClear
               placeholder="作用域"
@@ -758,7 +720,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
               ]}
             />
           )}
-          {mode === 'standard' && (
+          {mode === 'ops' && (
             <Select
               allowClear
               placeholder="镜像状态"
@@ -867,7 +829,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         okButtonProps={createTab === 'desktop' ? { style: { display: 'none' } } : undefined}
         width={600}
       >
-        {mode === 'simple' ? (
+        {mode === 'standard' ? (
           renderBrowserUploadPanel()
         ) : (
           <Tabs

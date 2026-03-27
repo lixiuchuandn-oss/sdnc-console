@@ -79,7 +79,17 @@ export const ALL_PERMISSIONS = [
   // 云主机管理
   'clouds.ecs:read',           // 云主机列表 - 查看
   'clouds.ecs:write',          // 云主机管理 - 创建/启动/停止/删除
-  
+  /** 虚拟机创建向导（分步 /instances/create），与 clouds.ecs:write 解耦，便于单独门控 */
+  'clouds.vm-create-wizard:write',
+  /** Cloudmap 资源池：标准/运维视图切换（运维含命名空间、ACL、运维抽屉等） */
+  'clouds.cloudmap.ops-view:write',
+  // 扁平网络 - NAT（与 VPC NAT 网关权限解耦）
+  'clouds.flat-nat:read',
+  'clouds.flat-nat:write',
+  // 扁平网络 - 流量镜像
+  'clouds.traffic-mirroring:read',
+  'clouds.traffic-mirroring:write',
+
   // 虚拟私有云 (VPC)
   'clouds.vpcs:read',          // VPC 列表 - 查看
   'clouds.vpcs:write',         // VPC 管理 - 创建/编辑/删除
@@ -87,7 +97,14 @@ export const ALL_PERMISSIONS = [
   // 子网
   'clouds.subnets:read',       // 子网列表 - 查看
   'clouds.subnets:write',      // 子网管理 - 创建/编辑/删除
-  
+  /** Kube-OVN 子网按 tower.io/subnet-type 拆分（与前端门控一致；父级 clouds.subnets 仍保留兼容） */
+  'clouds.subnets.vpc:read',
+  'clouds.subnets.vpc:write',
+  'clouds.subnets.flat:read',
+  'clouds.subnets.flat:write',
+  'clouds.subnets.public:read',
+  'clouds.subnets.public:write',
+
   // 弹性公网 IP (EIP)
   'clouds.eips:read',          // EIP 列表 - 查看
   'clouds.eips:write',         // EIP 管理 - 申请/绑定/释放
@@ -395,9 +412,16 @@ export const PERMISSION_GROUPS = {
     '资源控制台': [
       'clouds.dashboard',
       'clouds',
+      'clouds.cloudmap.ops-view',
       'clouds.ecs',
+      'clouds.vm-create-wizard',
       'clouds.vpcs',
       'clouds.subnets',
+      'clouds.subnets.vpc',
+      'clouds.subnets.flat',
+      'clouds.subnets.public',
+      'clouds.flat-nat',
+      'clouds.traffic-mirroring',
       'clouds.eips',
       'clouds.fips',
       'clouds.disks',

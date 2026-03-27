@@ -43,6 +43,17 @@ export class PermissionChecker {
     // 3. 通配符匹配（如 'clouds:*' 包含所有 clouds 相关权限）
     const [base, verb] = required.split(':');
     if (base && verb) {
+      // 子网汇总权限：clouds.subnets:{read|write} 可由任一子类型权限满足（与 API 中间件一致）
+      if (base === 'clouds.subnets' && (verb === 'read' || verb === 'write')) {
+        const scoped = [
+          `clouds.subnets.vpc:${verb}`,
+          `clouds.subnets.flat:${verb}`,
+          `clouds.subnets.public:${verb}`,
+        ];
+        if (scoped.some((s) => this.check(permissions, s))) {
+          return true;
+        }
+      }
       // 检查 domain:* 或 domain.feature:*
       const segments = base.split('.');
       

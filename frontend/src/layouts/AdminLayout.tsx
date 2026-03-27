@@ -48,6 +48,8 @@ import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../constants/navigation';
 import { routeSpecs } from '../routes/RouteSpec';
 import { iconOf } from '../components/PageContainer';
 import { fetchClouds, apiPost } from '../services/api';
+import { getPublicAdminPasswordPolicy } from '../services/systemApi';
+import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../utils/markdown';
 import '../pages/Dashboard/Dashboard.css';
 import AdminSidebar from './AdminSidebar';
@@ -87,7 +89,7 @@ const AdminLayout: React.FC = () => {
   // ============================================================================
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const { hasFeature } = useLicense();
   const { settings, loading: settingsLoading } = useSettings();
   const isProConsole = location.pathname.startsWith('/admin/clouds/console'); // 是否为 Pro 控制台模式
@@ -103,6 +105,20 @@ const AdminLayout: React.FC = () => {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [changePasswordSaving, setChangePasswordSaving] = useState(false);
   const [changePasswordForm] = Form.useForm();
+  const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
+
+  const forcePasswordChange = user?.mustChangePassword === true && user?.role !== 'tenant';
+
+  useEffect(() => {
+    getPublicAdminPasswordPolicy().then(setAdminPwdPolicy);
+  }, []);
+
+  useEffect(() => {
+    if (forcePasswordChange) {
+      changePasswordForm.resetFields();
+      setChangePasswordOpen(true);
+    }
+  }, [forcePasswordChange, user?.id, changePasswordForm]);
 
   const openChangePassword = () => {
     changePasswordForm.resetFields();
@@ -117,10 +133,9 @@ const AdminLayout: React.FC = () => {
         oldPassword: String(values.oldPassword || ''),
         newPassword: String(values.newPassword || ''),
       });
-      message.success('密码修改成功，请重新登录');
+      await refreshUser();
+      message.success('密码修改成功');
       setChangePasswordOpen(false);
-      logout();
-      navigate('/admin/login');
     } catch (e: any) {
       if (Array.isArray(e?.errorFields) && e.errorFields.length > 0) return;
       message.error(e?.message || '修改密码失败');
@@ -945,13 +960,17 @@ const AdminLayout: React.FC = () => {
       {isProConsole ? <ProHeader /> : <StandardHeader />}
       <>
         <Modal
-          title="修改密码"
+          title={forcePasswordChange ? '密码已过期，请修改密码' : '修改密码'}
           open={changePasswordOpen}
-          onCancel={() => setChangePasswordOpen(false)}
+          onCancel={() => {
+            if (!forcePasswordChange) setChangePasswordOpen(false);
+          }}
           onOk={submitChangePassword}
           confirmLoading={changePasswordSaving}
           okText="确认修改"
           cancelText="取消"
+          closable={!forcePasswordChange}
+          maskClosable={!forcePasswordChange}
           destroyOnHidden
         >
           <Form form={changePasswordForm} layout="vertical">
@@ -967,7 +986,23 @@ const AdminLayout: React.FC = () => {
               name="newPassword"
               rules={[
                 { required: true, message: '请输入新密码' },
-                { min: 8, max: 64, message: '密码长度需为 8-64 位' },
+                {
+                  validator: async (_, v) => {
+                    const pol =
+                      adminPwdPolicy || {
+                        minLength: 8,
+                        maxLength: 64,
+                        requireUppercase: false,
+                        requireLowercase: false,
+                        requireDigit: false,
+                        requireSpecial: false,
+                        maxPasswordAgeDays: 0,
+                        requirePasswordChangeOnFirstLogin: false,
+                      };
+                    const err = validateAdminPasswordClient(pol, String(v || ''), user?.username);
+                    if (err) throw new Error(err);
+                  },
+                },
               ]}
             >
               <Input.Password autoComplete="new-password" />

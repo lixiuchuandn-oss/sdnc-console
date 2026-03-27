@@ -19,6 +19,8 @@ interface User {
   organizationName?: string;
   tenantId?: string; // 租户ID（租户用户才有）
   organizationId?: string; // 组织ID（组织级用户才有）
+  /** 平台管理员密码已过期，需先改密（租户无此字段） */
+  mustChangePassword?: boolean;
 }
 
 /**
@@ -34,6 +36,8 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<User>;
   logout: () => void;
   loading: boolean;
+  /** 重新拉取 /api/users/me（改密成功后刷新 mustChangePassword 等） */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -157,6 +161,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
  * - 成功后写入 token 到 localStorage
  * - 同步执行与 initAuth 相同的“角色→权限”汇总逻辑，返回带 permissions 的用户对象
  */
+  const refreshUser = async () => {
+    const storedToken = getToken();
+    if (!storedToken) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/me`, {
+        headers: { Authorization: `Bearer ${storedToken}` },
+      });
+      if (!response.ok) return;
+      const userData = await response.json();
+      if (userData.role === 'super_admin' && (!Array.isArray(userData.permissions) || userData.permissions.length === 0)) {
+        setUser({ ...userData, permissions: ['*'] });
+        return;
+      }
+      setUser(userData);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const login = async (username: string, password: string): Promise<User> => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -246,6 +269,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     logout,
     loading,
+    refreshUser,
   };
 
   return (

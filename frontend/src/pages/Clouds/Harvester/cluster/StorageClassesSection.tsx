@@ -144,6 +144,14 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       dataIndex: 'volumeBindingMode', 
       key: 'volumeBindingMode' 
     },
+    {
+      title: '副本数',
+      key: 'numberOfReplicas',
+      render: (_: any, r: any) => {
+        const replicas = r?.parameters?.numberOfReplicas;
+        return replicas !== undefined && replicas !== null && String(replicas).trim() !== '' ? String(replicas) : '-';
+      }
+    },
     { 
       title: '允许扩容', 
       key: 'allowVolumeExpansion', 

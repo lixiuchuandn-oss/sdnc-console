@@ -43,7 +43,7 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
   bordered?: boolean;
 }
 
@@ -108,7 +108,7 @@ const TemplatesSection: React.FC<Props> = ({
   loading, 
   onRefresh, 
   isTenant = false,
-  mode = 'standard',
+  mode = 'ops',
   bordered = true,
 }) => {
   const { modal } = App.useApp();
@@ -120,7 +120,7 @@ const TemplatesSection: React.FC<Props> = ({
   );
   
   // [推导] 视图控制变量
-  const showYaml = !isTenant && mode === 'standard'; // 租户/简易模式不显示 YAML
+  const showYaml = !isTenant && mode === 'ops'; // 租户不展示；标准视图下不展示 YAML
 
   /**
    * 搜索关键字（受控 Input）
@@ -343,7 +343,7 @@ const TemplatesSection: React.FC<Props> = ({
         );
       }
     },
-    ...(mode === 'standard' ? [{
+    ...(mode === 'ops' ? [{
       title: '作用域',
       key: 'scope',
       render: (_: any, r: any) => {
@@ -352,7 +352,7 @@ const TemplatesSection: React.FC<Props> = ({
           return <Tag color={isPublic ? 'orange' : 'cyan'}>{scope}</Tag>;
       }
     }] : []),
-    ...(mode === 'standard'
+    ...(mode === 'ops'
       ? [{
           title: '命名空间',
           key: 'namespace',
@@ -397,7 +397,7 @@ const TemplatesSection: React.FC<Props> = ({
         ];
 
         // 仅在非租户模式下显示运维信息
-        if (!isTenant && mode === 'standard') {
+        if (!isTenant && mode === 'ops') {
           items.push({
             key: 'ops_info',
             label: '运维信息',
@@ -481,8 +481,8 @@ const TemplatesSection: React.FC<Props> = ({
       const ns = getTemplateNamespace(t);
       if (selectedNamespace && ns !== selectedNamespace) return false;
       // 1.1 作用域筛选
-      if (mode === 'standard' && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
-      if (mode === 'standard' && selectedScope === 'private' && isPublicNamespace(ns)) return false;
+      if (mode === 'ops' && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
+      if (mode === 'ops' && selectedScope === 'private' && isPublicNamespace(ns)) return false;
 
       // 2. 关键字搜索
       if (searchText) {
@@ -506,7 +506,7 @@ const TemplatesSection: React.FC<Props> = ({
               className="toolbar-search"
               allowClear
             />
-            {!isTenant && mode === 'standard' && (
+            {!isTenant && mode === 'ops' && (
               <Select
                 allowClear
                 showSearch
@@ -517,7 +517,7 @@ const TemplatesSection: React.FC<Props> = ({
                 className="toolbar-filter-sm"
               />
             )}
-            {mode === 'standard' && (
+            {mode === 'ops' && (
               <Select
                 allowClear
                 placeholder="作用域"

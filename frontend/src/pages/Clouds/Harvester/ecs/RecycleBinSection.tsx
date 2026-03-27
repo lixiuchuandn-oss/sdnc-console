@@ -101,7 +101,7 @@ interface Props {
   volumes?: any[];
   images?: any[];
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
 }
 
 const RecycleBinSection: React.FC<Props> = ({ 
@@ -113,7 +113,7 @@ const RecycleBinSection: React.FC<Props> = ({
   volumes = [],
   images = [],
   isTenant = false,
-  mode = 'standard'
+  mode = 'ops'
 }) => {
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
@@ -805,7 +805,7 @@ const RecycleBinSection: React.FC<Props> = ({
         return <Badge status={status as any} text={cnVmStatus(s)} />;
       },
     },
-    ...(mode === 'standard' ? [
+    ...(mode === 'ops' ? [
       {
         title: '命名空间',
         key: 'namespace',
@@ -973,7 +973,7 @@ const RecycleBinSection: React.FC<Props> = ({
             label: '恢复',
             onClick: () => handleRestore(r),
           },
-          ...(!isTenant && mode === 'standard' ? [
+          ...(!isTenant && mode === 'ops' ? [
             { type: 'divider' },
             {
               key: 'opsinfo',
@@ -1047,7 +1047,7 @@ const RecycleBinSection: React.FC<Props> = ({
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
-          {!isTenant && mode === 'standard' && namespaceOptions.length > 0 && (
+          {!isTenant && mode === 'ops' && namespaceOptions.length > 0 && (
             <Select
               allowClear
               showSearch

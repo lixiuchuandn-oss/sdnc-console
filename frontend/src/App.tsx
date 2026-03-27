@@ -13,16 +13,16 @@ import PrivateRoute from './components/PrivateRoute';
 import { routeSpecs } from './routes/RouteSpec';
 import { getSystemSetting } from './services/systemApi';
 
-// 关键路由保持同步加载（首屏必需，体积小）
+// ????????????????????
 import Login from './pages/Auth/Login';
 import AdminLogin from './pages/Auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
 
-// 懒加载主要页面组件
+// ?????????
 const OverviewDashboard = lazy(() => import('./pages/Dashboard/OverviewDashboard'));
 const Users = lazy(() => import('./pages/Tenants/Users'));
 const Clouds = lazy(() => import('./pages/Clouds'));
-const CloudDetail = lazy(() => import('./pages/Clouds/CloudDetail'));
+const CloudDetailGate = lazy(() => import('./pages/Clouds/CloudDetailGate'));
 const InstanceDetail = lazy(() => import('./pages/Clouds/InstanceDetail'));
 const Tenants = lazy(() => import('./pages/Tenants'));
 const GeneralSettings = lazy(() => import('./pages/Settings/GeneralSettings'));
@@ -51,8 +51,8 @@ const CENDetailPage = lazy(() => import('./pages/SecMgrPlane/CascadeChannels/Det
 const ComingSoon = lazy(() => import('./pages/ComingSoon'));
 const SecurityApps = lazy(() => import('./pages/SecMgrPlane/Applications/index'));
 const SecurityServices = lazy(() => import('./pages/SecMgrPlane/SecurityServices/index'));
-const AccessRolesPage = lazy(() => import('./pages/Access/Roles'));
-const AccessUsersPage = lazy(() => import('./pages/Access/Users'));
+const AccessRolesPage = lazy(() => import('./pages/Settings/Roles/Index'));
+const AccessUsersPage = lazy(() => import('./pages/Settings/Users/Index'));
 const ProtectedObjects = lazy(() => import('./pages/Security/TrafficOrchestration/ProtectedObjects'));
 const ServiceChains = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains'));
 const CreateServiceChainWizard = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains/CreateWizard'));
@@ -65,7 +65,7 @@ const VmCreateWizardModal = lazy(() => import('./pages/Clouds/Harvester/modals/V
 const AiSocPlaceholder = lazy(() => import('./pages/SecOps/AiSocPlaceholder'));
 const AiSocFrame = lazy(() => import('./pages/SecOps/AiSocFrame'));
 
-// 加载中组件
+// ?????
 const LoadingFallback: React.FC = () => (
   <div style={{ 
     display: 'flex', 
@@ -74,20 +74,17 @@ const LoadingFallback: React.FC = () => (
     minHeight: '400px',
     width: '100%'
   }}>
-    <Spin size="large" tip="加载中...">
+    <Spin size="large" tip="???...">
       <div style={{ minHeight: 200 }} />
     </Spin>
   </div>
 );
 
-
-  
-
 const InstanceDetailModal: React.FC = () => {
   const navigate = useNavigate();
   return (
     <Modal
-      title="云主机详情"
+      title="?????"
       open
       destroyOnHidden
       footer={null}
@@ -120,7 +117,7 @@ const AppRoutes: React.FC = () => {
           <Route index element={<AdminIndex />} />
           <Route path="dashboard" element={<OverviewDashboard />} />
           <Route path="clouds" element={<Clouds />} />
-          <Route path="clouds/:id" element={<CloudDetail />} />
+          <Route path="clouds/:id" element={<CloudDetailGate />} />
           
           <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
@@ -129,7 +126,7 @@ const AppRoutes: React.FC = () => {
           <Route path="tenants" element={<Tenants />} />
           <Route path="tenants/:tenantId/organizations" element={<OrgManagePage />} />
           
-          {/* 租户专线管理功能已迁移到 AISOC 平台，相关路由已移除 */}
+          {/* ???????????? AISOC ?????????? */}
 
           <Route path="tenants/users" element={<Users />} />
           <Route path="interconnect/srv6" element={<SRv6Page />} />
@@ -154,14 +151,14 @@ const AppRoutes: React.FC = () => {
           <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="sec-mgr-plane/security-services" element={<SecurityServices />} />
           {/* AI SOC Integration Placeholders */}
-          <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />
+          <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC??" module="situation_overview" />} />
           <Route path="aisoc/data-source" element={<AiSocFrame path="data-source" />} />
           <Route path="aisoc/raw-logs" element={<AiSocFrame path="raw-logs" />} />
           <Route path="aisoc/preprocess-rule" element={<AiSocFrame path="preprocess-rule" />} />
           <Route path="aisoc/processed-logs" element={<AiSocFrame path="processed-logs" />} />
           
-          <Route path="aisoc/analysis/events" element={<AiSocPlaceholder title="威胁事件分析" module="analysis_events" />} />
-          <Route path="aisoc/analysis/attack" element={<AiSocPlaceholder title="ATT&CK框架分析" module="analysis_attack" />} />
+          <Route path="aisoc/analysis/events" element={<AiSocPlaceholder title="??????" module="analysis_events" />} />
+          <Route path="aisoc/analysis/attack" element={<AiSocPlaceholder title="ATT&CK????" module="analysis_attack" />} />
           
           <Route path="aisoc/report" element={<AiSocFrame path="report" />} />
 
@@ -245,16 +242,16 @@ const AdminIndex: React.FC = () => {
   }, [user, isAdmin]);
 
   if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
-  // 优先使用 favorite cloud（如果有且用户有权限）
+  // ???? favorite cloud???????????
   if (isAdmin && favoriteCloudId) {
-    // 检查用户是否有访问资源池的权限
+    // ???????????????
     const canAccessClouds = hasPermissionForAction(perms, 'clouds:read') || 
                             hasPermissionForAction(perms, 'clouds.console:read');
     if (canAccessClouds) {
       return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
     }
   }
-  // 其他情况统一使用 getDefaultAdminPath（包括 admin 用户），同时检查 requiredFeature
+  // ???????? getDefaultAdminPath??? admin ???????? requiredFeature
   const target = getDefaultAdminPath(perms, hasFeature);
   return <Navigate to={target} replace />;
 };

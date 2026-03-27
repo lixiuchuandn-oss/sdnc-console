@@ -28,6 +28,19 @@ export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
   'ui.loginEnableParticleBackground': 'true',
   'ui.loginButtonColor': '#1890ff',
   'ui.loginButtonHoverColor': '#40a9ff',
+  /** 操作审计日志默认保留天数 */
+  'audit.logs.retention_days': '180',
+  /** 管理员密码策略 JSON（仅平台 User，不含租户） */
+  'auth.admin_password_policy': JSON.stringify({
+    minLength: 8,
+    maxLength: 64,
+    requireUppercase: false,
+    requireLowercase: false,
+    requireDigit: false,
+    requireSpecial: false,
+    maxPasswordAgeDays: 0,
+    requirePasswordChangeOnFirstLogin: false,
+  }),
 };
 
 let settingsCache: Record<string, string> = {};

@@ -66,6 +66,7 @@ import apiProxyRoutes from './routes/apiProxy';
 import path from 'path';
 import fs from 'fs';
 import { getPublicUiSettings } from './config/systemSettings';
+import { getPublicAdminPasswordPolicy } from './services/adminPasswordPolicy';
 
 dotenv.config();
 
@@ -217,6 +218,10 @@ app.use('/auth', authRoutes);
 app.get('/api/public/system-ui', (_req, res) => {
   res.json({ data: getPublicUiSettings() });
 });
+/** 未登录可读：管理员密码复杂度规则（用于登录页/改密表单提示） */
+app.get('/api/public/admin-password-policy', (_req, res) => {
+  res.json({ data: getPublicAdminPasswordPolicy() });
+});
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/clouds', authMiddleware, cloudRoutes);
 
@@ -298,6 +303,12 @@ AppDataSource.initialize()
     } catch (e) {
       logger.warn('启用 WAL 模式失败:', e);
     }
+    try {
+      const { ensureUsersPasswordChangedAtColumn } = await import('./config/database');
+      await ensureUsersPasswordChangedAtColumn();
+    } catch (e) {
+      logger.warn('users.passwordChangedAt 检查失败:', e);
+    }
     // 初始化管理员账户
     await initializeAdmin();
     // 初始化默认角色
@@ -349,6 +360,16 @@ AppDataSource.initialize()
       }, 15000);
     } catch (e) {
       logger.error('启动回收站定时任务失败:', e);
+    }
+
+    // 启动审计日志清理任务（每天执行一次）
+    try {
+      const { AuditLogRetentionService } = await import('./services/AuditLogRetentionService');
+      setTimeout(() => {
+        AuditLogRetentionService.getInstance().start();
+      }, 20000);
+    } catch (e) {
+      logger.error('启动审计日志清理任务失败:', e);
     }
 
     // WebSocket 服务实例

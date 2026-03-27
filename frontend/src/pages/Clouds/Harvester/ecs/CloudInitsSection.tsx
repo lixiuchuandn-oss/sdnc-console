@@ -27,7 +27,7 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
 }
 
 const CloudInitsSection: React.FC<Props> = ({ 
@@ -36,7 +36,7 @@ const CloudInitsSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   isTenant = false,
-  mode = 'standard'
+  mode = 'ops'
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -120,7 +120,7 @@ const CloudInitsSection: React.FC<Props> = ({
         </span>
       ),
     },
-    ...(mode === 'standard' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 }] : []),
+    ...(mode === 'ops' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 }] : []),
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180, className: 'std-time' },
     {
@@ -132,7 +132,7 @@ const CloudInitsSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 非租户模式显示运维信息入口
-        if (!isTenant && mode === 'standard') {
+        if (!isTenant && mode === 'ops') {
           items.push({ 
             key: 'opsinfo', 
             label: '运维信息', 
@@ -182,7 +182,7 @@ const CloudInitsSection: React.FC<Props> = ({
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
         />
-          {!isTenant && mode === 'standard' && (
+          {!isTenant && mode === 'ops' && (
             <Select
               allowClear
               showSearch

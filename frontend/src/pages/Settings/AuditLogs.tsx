@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Table, Input, Descriptions, Badge, Tag, DatePicker, Form, Select } from 'antd';
+import { Table, Input, Descriptions, Badge, Tag, DatePicker, Form, Select, InputNumber, Button, Space, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import { apiRequest } from '../../services/api';
+import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
 
 const { RangePicker } = DatePicker;
 
@@ -21,6 +22,7 @@ interface AuditLog {
 }
 
 const AuditLogs: React.FC = () => {
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AuditLog[]>([]);
   const [total, setTotal] = useState(0);
@@ -29,7 +31,24 @@ const AuditLogs: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [actionFilter, setActionFilter] = useState<string | undefined>(undefined);
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [retentionDays, setRetentionDays] = useState<number>(180);
+  const [savingRetention, setSavingRetention] = useState(false);
   const [filterForm] = Form.useForm();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getSystemSetting('audit.logs.retention_days');
+        const raw = (res as any)?.value ?? '';
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          setRetentionDays(Math.max(1, Math.min(3650, parsed)));
+        }
+      } catch {
+        // 保持默认值即可
+      }
+    })();
+  }, []);
 
   const fetchLogs = async (page: number, limit: number, search?: string) => {
     setLoading(true);
@@ -947,6 +966,37 @@ const AuditLogs: React.FC = () => {
             </button>
           </Form.Item>
         </Form>
+      }
+      toolbarRight={
+        <Space size={8} align="center">
+          <span className="std-muted">日志存储时长</span>
+          <InputNumber
+            min={1}
+            max={3650}
+            value={retentionDays}
+            onChange={(v) => setRetentionDays(Number(v) || 1)}
+            suffix="天"
+            style={{ width: 140 }}
+          />
+          <Button
+            type="primary"
+            loading={savingRetention}
+            onClick={async () => {
+              try {
+                setSavingRetention(true);
+                const value = String(Math.max(1, Math.min(3650, Number(retentionDays) || 1)));
+                await updateSystemSetting('audit.logs.retention_days', value);
+                message.success('日志存储时长已保存');
+              } catch {
+                message.error('保存日志存储时长失败');
+              } finally {
+                setSavingRetention(false);
+              }
+            }}
+          >
+            保存时长
+          </Button>
+        </Space>
       }
       onRefresh={() => fetchLogs(currentPage, pageSize, searchText)}
     >

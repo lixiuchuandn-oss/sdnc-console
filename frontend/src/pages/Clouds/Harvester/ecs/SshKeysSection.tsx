@@ -35,7 +35,7 @@ interface Props {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
 
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
   bordered?: boolean;
 }
 
@@ -45,7 +45,7 @@ const SshKeysSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   isTenant,
-  mode = 'standard',
+  mode = 'ops',
   bordered = true
 }) => {
   const { user } = useAuth();
@@ -218,7 +218,7 @@ const SshKeysSection: React.FC<Props> = ({
       copyable: true,
       render: (text: string) => <span className="std-code">{text}</span>
     },
-    ...(mode === 'standard' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
+    ...(mode === 'ops' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', className: 'std-time' },
     {
       title: '操作',
@@ -229,7 +229,7 @@ const SshKeysSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 仅在非租户模式下添加详情入口
-        if (!isTenant && mode === 'standard') {
+        if (!isTenant && mode === 'ops') {
           items.push({ 
             key: 'opsinfo', 
             label: '运维信息', 
@@ -294,7 +294,7 @@ const SshKeysSection: React.FC<Props> = ({
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
           />
-          {!isTenant && mode === 'standard' && (
+          {!isTenant && mode === 'ops' && (
             <Select
               placeholder="命名空间"
               className="toolbar-filter-sm" 

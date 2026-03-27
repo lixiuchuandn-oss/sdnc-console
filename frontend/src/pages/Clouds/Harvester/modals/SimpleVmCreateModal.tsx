@@ -1,5 +1,5 @@
 /**
- * Cloudmap 资源池「简易模式」下使用的极简创建虚拟机弹窗。
+ * Cloudmap 资源池「快速创建」使用的极简创建虚拟机弹窗。
  * 命名空间固定 default（不展示）；网络固定为 Kube-OVN 扁平子网，接口类型固定为 managedtap（与创建向导扁平子网一致）。
  */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -18,19 +18,19 @@ import {
   Col,
 } from 'antd';
 import type { RadioChangeEvent } from 'antd';
-import { OsIcon } from '../../../components/OsIcon';
-import { ReactComponent as CpuSvg } from '../../../assets/clouds/cpu.svg';
-import { ReactComponent as MemSvg } from '../../../assets/clouds/mem.svg';
-import { ReactComponent as DiskSvg } from '../../../assets/clouds/disk.svg';
-import { ReactComponent as NicSvg } from '../../../assets/clouds/nic.svg';
-import { createHarvesterVm } from '../../../services/harvesterApi';
+import { OsIcon } from '../../../../components/OsIcon';
+import { ReactComponent as CpuSvg } from '../../../../assets/clouds/cpu.svg';
+import { ReactComponent as MemSvg } from '../../../../assets/clouds/mem.svg';
+import { ReactComponent as DiskSvg } from '../../../../assets/clouds/disk.svg';
+import { ReactComponent as NicSvg } from '../../../../assets/clouds/nic.svg';
+import { createHarvesterVm } from '../../../../services/harvesterApi';
 import {
   initialWizardValues,
   validateImageSize,
   constructVmPayload,
   generateUniqueVmId,
   parseSizeToGi,
-} from '../Harvester/modals/VmCreateWizard/VmWizardUtils';
+} from './VmCreateWizard/VmWizardUtils';
 export type SimpleVmCreateModalProps = {
   open: boolean;
   onClose: () => void;

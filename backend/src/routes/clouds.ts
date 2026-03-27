@@ -270,12 +270,17 @@ const extractIdentity = (provider: string, type: 'vm' | 'vpc', r: any) => {
 
 // 将各云厂商/Harvester/CloudMap 的子路由注册到统一的 /clouds 路由下，
 // 并统一使用 checkAdminPermission 做权限拦截。
+//
+// 顺序说明：阿里云 / 华为云 / 腾讯云 的部分路由与 Harvester 缓存路由使用相同路径
+//（如 GET /:id/resources/vpcs、GET /:id/resources/ecs）。公有云实现会在非本厂商时 next()，
+// 若先注册 Harvester 的 createProviderRouter，则会先响应并返回「云平台 xxx 不支持此操作」。
+// 因此必须先注册公有云专用路由，再注册 Harvester 缓存路由。
 registerHarvesterDirectRoutes(router, checkAdminPermission);
-registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
 registerTencentRoutes(router, checkAdminPermission);
 registerCsmRoutes(router, checkAdminPermission);
+registerHarvesterRoutes(router, checkAdminPermission);
 registerHarvesterServiceRoutesProvider(router, checkAdminPermission);
 
 // 标准化获取实例列表：

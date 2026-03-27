@@ -15,8 +15,16 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.dashboard': '资源总览（页面权限）',
   'clouds': '资源池（clouds.* 全量权限）',
   'clouds.ecs': '云主机管理',
+  'clouds.vm-create-wizard': '云主机创建向导',
+  /** 与权限 ID 前缀 clouds.cloudmap.ops-view 一致（非 clouds.cloudmap） */
+  'clouds.cloudmap.ops-view': '资源池运维视图',
+  'clouds.flat-nat': '扁平网络NAT',
+  'clouds.traffic-mirroring': '流量镜像',
   'clouds.vpcs': '虚拟私有云',
-  'clouds.subnets': '子网',
+  'clouds.subnets': '子网（Kube-OVN · 汇总）',
+  'clouds.subnets.vpc': 'VPC 子网（Kube-OVN）',
+  'clouds.subnets.flat': '扁平子网（Kube-OVN）',
+  'clouds.subnets.public': '公共子网（Kube-OVN）',
   'clouds.eips': '弹性公网IP',
   'clouds.fips': '浮动IP',
   'clouds.disks': '虚拟云盘',
@@ -106,6 +114,22 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds:write': '创建、编辑、删除资源池',
   'clouds.ecs:read': '查看云主机列表和详情',
   'clouds.ecs:write': '创建、启动、停止、删除云主机',
+  'clouds.vm-create-wizard:write': '使用虚拟机创建向导（分步创建云主机）',
+  'clouds.cloudmap.ops-view:write': '在 Cloudmap 资源池切换并进入运维视图',
+  'clouds.flat-nat:read': '查看扁平网络 NAT 规则与状态',
+  'clouds.flat-nat:write': '管理扁平网络 NAT 规则',
+  'clouds.traffic-mirroring:read': '查看流量镜像配置与状态',
+  'clouds.traffic-mirroring:write': '管理流量镜像策略',
+  'clouds.subnets:read':
+    '查看全部 Kube-OVN 子网类型（VPC / 扁平 / 公共）；仅授子类型权限时仅能访问对应类型',
+  'clouds.subnets:write':
+    '管理全部 Kube-OVN 子网类型；仅授子类型权限时仅能操作对应类型',
+  'clouds.subnets.vpc:read': '查看 VPC 子网（tower.io/subnet-type=vpc）',
+  'clouds.subnets.vpc:write': '创建、编辑、删除 VPC 子网',
+  'clouds.subnets.flat:read': '查看扁平子网（tower.io/subnet-type=flat）',
+  'clouds.subnets.flat:write': '创建、编辑、删除扁平子网',
+  'clouds.subnets.public:read': '查看公共子网（tower.io/subnet-type=public）',
+  'clouds.subnets.public:write': '创建、编辑、删除公共子网',
   'clouds.backups:read': '查看虚拟机备份、快照备份任务和定时策略列表',
   'clouds.backups:write': '创建、删除虚拟机备份/快照，管理定时备份策略与恢复操作',
   'clouds.console:read': '访问云主机控制台',
@@ -163,7 +187,7 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
 
   // 确定分类
   let category = 'general';
-  if (base.startsWith('clouds.ecs') || base === 'clouds.console') {
+  if (base.startsWith('clouds.ecs') || base.startsWith('clouds.vm-create-wizard') || base.startsWith('clouds.cloudmap') || base === 'clouds.console') {
     category = 'compute';
   } else if (base.includes('network') || base.includes('vpc') || base.includes('vswitch')) {
     category = 'network';

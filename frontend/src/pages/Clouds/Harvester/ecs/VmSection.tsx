@@ -38,14 +38,14 @@
  * ==============================================================================
  */
 
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined, SafetyCertificateFilled, CopyOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined, SafetyCertificateFilled } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, fetchHarvesterNodes, fetchHarvesterNads, patchHarvesterVm } from '../../../../services/harvesterApi';
+import { fetchHarvesterVncUrl, stopHarvesterVm, fetchHarvesterNodes, fetchHarvesterNads, patchHarvesterVm } from '../../../../services/harvesterApi';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
@@ -53,11 +53,11 @@ import HarvesterVmDetailDrawer from '../components/HarvesterVmDetailDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmCloneModal from '../modals/VmCloneModal';
-import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 import { isPublicNamespace, cnVmStatus, VM_STATUS_MAP, getVmCloneTaskStatus } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../constants/cloudPermissions';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -96,20 +96,19 @@ type Props = {
   namespaces?: any[];
   volumes?: any[]; 
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  /** 标准：租户向精简；运维：命名空间筛选、运维抽屉等 */
+  mode?: 'standard' | 'ops';
   bordered?: boolean; // New prop to control table border explicitly
   disableColumnSettings?: boolean; // 禁用列设置组件，避免在某些场景下导致死锁
-  /** 若提供，则点击「创建」时调用而不跳转全量向导（如 Cloudmap 简易模式） */
+  /** 若提供，则「快速创建」点击时调用（如打开 SimpleVmCreateModal），否则该按钮禁用 */
   onCreateVmOverride?: () => void;
-  /** 创建按钮文案，默认「创建实例」 */
-  createVmButtonText?: string;
 };
 
 /**
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, mode = 'standard', bordered = true, disableColumnSettings = false, onCreateVmOverride, createVmButtonText }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, mode = 'ops', bordered = true, disableColumnSettings = false, onCreateVmOverride }) => {
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
   // 路由跳转：用于跳转到“创建实例”等页面
@@ -123,6 +122,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     const perms = (user?.permissions ?? []) as string[];
     return hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write');
   }, [user?.permissions]);
+  /** 创建向导：独立权限原子，与 clouds.ecs:write 解耦 */
+  const hasVmCreateWizardPermission = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return hasPermissionForAction(perms, CLOUD_VM_CREATE_WIZARD_WRITE);
+  }, [user?.permissions]);
   
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
@@ -131,7 +135,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // [搜索/筛选] 本地关键字和状态筛选
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
   
   // [表格交互] 选中行和列配置
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -148,10 +151,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // [弹窗控制] 热迁移
   const [migrateModalVisible, setMigrateModalVisible] = useState(false);
   const [currentMigrateVm, setCurrentMigrateVm] = useState<any>(null);
-
-  const [saveTemplateModalOpen, setSaveTemplateModalOpen] = useState(false);
-  const [saveTemplateVm, setSaveTemplateVm] = useState<any>(null);
-
 
   // [弹窗控制] 备份与快照
   const [vmBackupModalVisible, setVmBackupModalVisible] = useState(false);
@@ -885,12 +884,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       message.error(e?.message || '获取VNC地址失败');
       return;
     }
-  }, [cloudId, SafeRead]);
-
-  const handleOpenSaveAsTemplate = useCallback((r: any) => {
-    setSaveTemplateVm(r);
-    setSaveTemplateModalOpen(true);
-  }, []);
+  }, [cloudId, SafeRead, message]);
 
   // [事件] 触发备份操作
   const handleBackup = useCallback((r: any) => {
@@ -971,7 +965,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       console.error(e);
       message.error(`操作失败: ${e.message}`);
     }
-  }, [cloudId, onRefresh]);
+  }, [cloudId, onRefresh, SafeRead, message]);
 
   // [事件] 删除确认
   // 包含“同步删除关联卷”的选项
@@ -1038,95 +1032,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       okType: 'default',
       onOk: () => onDelete(iid, deleteVolumes)
     });
-  }, [onDelete, SafeRead]);
-
-  // [事件] 安全弹出 CD-ROM
-  // 逻辑复杂：如果 VM 运行中，需要 停止 -> 卸载 -> 删除PVC -> 启动
-  const handleEjectCdrom = useCallback(async (r: any) => {
-    const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
-    const cdrom = disks[0];
-    if (!cdrom) return;
-    
-    const statusStr = String(SafeRead.status(r)).toLowerCase();
-    const isRunning = !['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
-    
-    let deletePvc = true;
-    
-    modal.confirm({
-      title: isRunning ? '安全弹出 CD-ROM (需要重启)' : '弹出 CD-ROM',
-      width: 500,
-      content: (
-        <div>
-            <p>即将弹出设备: <b>{cdrom.name}</b></p>
-            {isRunning && (
-              <div style={{ marginBottom: 16, color: '#faad14', background: '#fffbe6', padding: '8px 12px', border: '1px solid #ffe58f', borderRadius: 4 }}>
-                <InfoCircleOutlined style={{ marginRight: 8 }} />
-                实例正在运行。系统将自动停止实例，弹出光驱，然后重新启动。
-              </div>
-            )}
-            <div style={{ marginTop: 16 }}>
-              <Checkbox defaultChecked={true} onChange={(e) => { deletePvc = e.target.checked; }}>
-                  同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐，避免残留孤儿卷)</span>
-              </Checkbox>
-            </div>
-        </div>
-      ),
-      onOk: async () => {
-        const hide = message.loading('正在执行弹出操作...', 0);
-        try {
-          const iidStr = getIid(r);
-          let ns = '', name = '';
-          if (iidStr.includes('/')) {
-              [ns, name] = iidStr.split('/');
-          } else {
-              ns = SafeRead.namespace(r);
-              name = SafeRead.vmId(r);
-          }
-          
-          if (!ns || !name) throw new Error('无法解析实例信息');
-
-          // Step 1: 如果正在运行，先停止
-          if (isRunning) {
-              await stopHarvesterVm(cloudId, ns, name, true);
-              await new Promise(resolve => setTimeout(resolve, 5000)); // 简单的等待策略
-          }
-
-          // Step 2: 卸载 CD-ROM 设备
-          await detachHarvesterVolumeFromVm(cloudId, iidStr, { name: cdrom.name });
-
-          // Step 3: 删除关联 PVC (防止垃圾残留)
-          if (deletePvc) {
-              const volumes = r?.spec?.template?.spec?.volumes || [];
-              const vol = volumes.find((v: any) => v.name === cdrom.name);
-              const pvcName = vol?.persistentVolumeClaim?.claimName;
-              
-              if (pvcName) {
-                try {
-                    await deleteHarvesterPVC(cloudId, ns, pvcName);
-                } catch (e: any) {
-                    console.warn('Delete PVC failed', e);
-                    message.warning(`PVC删除失败: ${e.message}`);
-                }
-              }
-          }
-
-          // Step 4: 如果之前是运行的，重新启动
-          if (isRunning) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              await startHarvesterVm(cloudId, ns, name);
-          }
-
-          message.success('已发送弹出指令');
-          onRefresh();
-        } catch(e:any) {
-          // [错误处理] 统一捕获
-          message.error(`弹出失败: ${e.message}`);
-        } finally {
-          hide();
-        }
-      }
-    });
-  }, [cloudId, onRefresh, SafeRead]);
+  }, [onDelete, SafeRead, modal]);
 
   // [事件] 热迁移 (Live Migration)
   // 包含严格的前置条件检查
@@ -1220,31 +1126,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     }
     setCurrentMigrateVm(r);
     setMigrateModalVisible(true);
-  }, [cloudId]);
-
-  // [事件] 取消迁移
-  const handleAbortMigration = useCallback((r: any) => {
-    modal.confirm({
-      title: '确认取消迁移？',
-      icon: <ExclamationCircleOutlined />,
-      content: `确定要取消虚拟机 ${SafeRead.name(r)} 的迁移任务吗？`,
-      okText: '取消迁移',
-      okType: 'danger',
-      onOk: async () => {
-        const hide = message.loading('正在取消迁移...', 0);
-        try {
-          const iid = getIid(r);
-          await abortHarvesterMigration(cloudId, iid);
-          message.success('已发送取消指令');
-          onRefresh && onRefresh(true);
-        } catch (e: any) {
-          message.error(`取消失败: ${e.message}`);
-        } finally {
-          hide();
-        }
-      }
-    });
-  }, [cloudId, onRefresh, SafeRead]);
+  }, [cloudId, message]);
 
   // ==========================================
   // [事件处理] 6. 批量操作事件 (Batch Actions)
@@ -1480,7 +1362,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         </div>
       );
     } },
-    ...(mode === 'standard' ? [
+    ...(mode === 'ops' ? [
       { title: '命名空间', key: 'namespace', ellipsis: true, render: (_: any, r: any) => SafeRead.namespace(r) || '-' },
       { title: '租户', key: 'tenant', ellipsis: true, render: (_: any, r: any) => SafeRead.tenant(r) || '-' },
       { title: '组织', key: 'organization', ellipsis: true, render: (_: any, r: any) => SafeRead.organization(r) },
@@ -1562,21 +1444,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
       const isRunning = statusStr === 'running';
       const isPaused = statusStr === 'paused';
-      const isMigrating = statusStr === 'migrating';
       const { isResizing, pvcName } = checkResizeStatus(r);
 
       // [Feature] 检查重要实例标记
       const finalizers = r?.metadata?.finalizers || [];
       const isImportant = finalizers.includes('tower.io/deletion-protection') || r?.metadata?.labels?.['tower.io/important'] === 'true';
 
-      // 权限检查：检查用户是否有云主机相关权限
+      // 权限检查：检查用户是否有云主机写权限（行操作以写权限为准）
       const perms = (user?.permissions ?? []) as string[];
-      const hasEcsRead = hasPermissionForAction(perms, 'clouds.ecs:read') ||
-                         hasPermissionForAction(perms, 'clouds:read');
       const hasEcsWrite = hasPermissionForAction(perms, 'clouds.ecs:write') || 
                           hasPermissionForAction(perms, 'clouds:write');
-      const hasConsoleRead = hasPermissionForAction(perms, 'clouds.console:read');
-      const hasAnyPermission = hasEcsRead || hasEcsWrite || hasConsoleRead;
 
       const items: any[] = [
         // ----------------------------------------------------------------
@@ -1584,7 +1461,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // ----------------------------------------------------------------
         { key: 'detail', label:'实例详情', onClick: () => handleShowVmDetail(r, 'detail') },        
         // 运维模式下的 YAML / 原始对象查看
-        ...(!isTenant && mode === 'standard' ? [
+        ...(!isTenant && mode === 'ops' ? [
             { key: 'detail_ops', label: '运维信息', onClick: () => handleShowOpsinfo(r, 'detail') }
         ] : []),
 
@@ -1621,27 +1498,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         ...(isPaused ? [
            { key: 'unpause', label: '恢复', onClick: () => onUnpause && onUnpause(iid) }
         ] : []),
-
-        // ----------------------------------------------------------------
-        // 2.5. 迁移操作 (Migration)
-        // ----------------------------------------------------------------
-        // 根据迁移状态动态显示"热迁移"或"中止迁移"
-        ...(isMigrating ? [
-          { 
-            key: 'abort_migration', 
-            label: '中止迁移', 
-            danger: true, 
-            onClick: () => handleAbortMigration(r) 
-          }
-        ] : [
-          ...(isRunning ? [
-            { 
-              key: 'migrate', 
-              label: '热迁移', 
-              onClick: () => handleMigrate(r) 
-            }
-          ] : [])
-        ]),
 
         // ----------------------------------------------------------------
         // 3. 标记管理 (Tags)
@@ -1695,7 +1551,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         </span>
       );
     } },
-  ], [handleShowVmDetail, handleShowOpsinfo, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant, handleMigrate, handleAbortMigration]);
+  ], [handleShowVmDetail, handleShowOpsinfo, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleToggleImportant, message, mode, user?.permissions]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vm_table_v3');
@@ -1716,7 +1572,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         {/* 左侧：筛选器 */}
         <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
           <Input key="keyword" allowClear placeholder="名称/ID" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
-          {!isTenant && mode === 'standard' && (
+          {!isTenant && mode === 'ops' && (
             <Cascader
               key="tenant-org-filter"
               className="toolbar-filter-sm"
@@ -1728,7 +1584,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               allowClear
             />
           )}
-          {!isTenant && mode === 'standard' && (
+          {!isTenant && mode === 'ops' && (
             <Select
             key="ns-filter"
             className="toolbar-filter-sm"
@@ -1782,21 +1638,28 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         
         {/* 右侧：操作按钮 */}
         <div key="toolbar-right" className="toolbar-actions">
-          <Button 
-            key="create-btn" 
+          <Button
+            key="quick-create-btn"
             type="primary"
-            disabled={!hasVmCreatePermission}
+            disabled={!hasVmCreatePermission || !onCreateVmOverride}
             onClick={() => {
-              if (!hasVmCreatePermission) return;
-              if (onCreateVmOverride) {
-                onCreateVmOverride();
-                return;
-              }
-              navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location, isTenant } });
+              if (!hasVmCreatePermission || !onCreateVmOverride) return;
+              onCreateVmOverride();
             }}
           >
-            {createVmButtonText ?? '创建实例'}
+            快速创建
           </Button>
+          {hasVmCreateWizardPermission && (
+            <Button
+              key="wizard-create-btn"
+              type="primary"
+              onClick={() => {
+                navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location, isTenant } });
+              }}
+            >
+              创建向导
+            </Button>
+          )}
           <Tooltip
             title={
               !hasVmCreatePermission
@@ -1948,19 +1811,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         cloudId={cloudId}
         vm={currentMigrateVm}
         nodes={nodesOptions.map(n => ({ metadata: { name: n } }))}
-      />
-
-      <VmSaveAsTemplateModal
-        open={saveTemplateModalOpen}
-        onClose={() => setSaveTemplateModalOpen(false)}
-        cloudId={cloudId}
-        vmNamespace={SafeRead.namespace(saveTemplateVm)}
-        vmName={SafeRead.vmId(saveTemplateVm)}
-        vmDisplayName={SafeRead.name(saveTemplateVm)}
-        isTenant={isTenant}
-        onSuccess={() => {
-          onRefresh && onRefresh(true);
-        }}
       />
 
       {/* 扩容指南说明弹窗 */}

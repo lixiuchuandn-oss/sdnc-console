@@ -211,9 +211,9 @@ export const routeSpecs: RouteSpec[] = [
     group: '资源控制台',
     hidden: true,
     requiredActions: {
-      page: 'clouds.ecs:write',
+      page: 'clouds.vm-create-wizard:write',
       read: 'clouds.ecs:read',
-      write: 'clouds.ecs:write'
+      write: 'clouds.vm-create-wizard:write'
     }
   },
   {
@@ -228,9 +228,9 @@ export const routeSpecs: RouteSpec[] = [
     group: '资源控制台',
     hidden: true,
     requiredActions: {
-      page: 'clouds.ecs:write',
+      page: 'clouds.vm-create-wizard:write',
       read: 'clouds.ecs:read',
-      write: 'clouds.ecs:write'
+      write: 'clouds.vm-create-wizard:write'
     }
   },
   {
@@ -881,6 +881,24 @@ export const routeSpecs: RouteSpec[] = [
       write: 'users:write'
     },
     homePagePriority: 7
+  },
+  {
+    id: 'settings-security',
+    path: '/admin/access/security',
+    element: 'SecuritySettings',
+    layout: 'admin',
+    hidden: true,
+    platform: 'SETTINGS',
+    group: '权限管控',
+    title: '安全管理',
+    subtitle: '配置平台管理员账号的密码复杂度与有效期策略（不含租户用户）。',
+    icon: 'SecurityScanOutlined',
+    order: 4,
+    requiredActions: {
+      page: 'system.settings:read',
+      read: 'system.settings:read',
+      write: 'system.settings:write'
+    }
   },
 
   // Group: 通用设置

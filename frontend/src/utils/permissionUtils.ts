@@ -62,17 +62,26 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds',
   'clouds.dashboard',
   'clouds.console',
+  'clouds.cloudmap.ops-view',
   'clouds.ecs',
-  // VPC/OVN 主体能力（按统一顺序）
-  'clouds.vpcs',
+  'clouds.vm-create-wizard',
+  // 网络能力（按业务分组顺序）
+  'clouds.provider-networks',
+  'clouds.vlans',
   'clouds.subnets',
+  'clouds.subnets.public',
+  'clouds.subnets.flat',
+  'clouds.nads',
+  'clouds.flat-nat',
+  'clouds.traffic-mirroring',
+  'clouds.security-groups',
+  'clouds.vpcs',
+  'clouds.subnets.vpc',
   'clouds.eips',
   'clouds.fips',
   'clouds.nat-gateways',
-  'clouds.security-groups',
-  'clouds.nads',
-  'clouds.provider-networks',
-  'clouds.vlans',
+  'clouds.route-tables',
+  'clouds.route-entries',
   // 其他网络与云资源能力
   'clouds.disks',
   'clouds.load-balancers',
@@ -89,8 +98,6 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.backups',
   'clouds.recycle-bin',
   'clouds.migrations',
-  'clouds.route-tables',
-  'clouds.route-entries',
   'clouds.cluster-nodes',
   'clouds.cluster-services',
   'clouds.cluster-networks',
@@ -142,18 +149,65 @@ type ResourceConsoleGroupRule = {
 const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = [
   {
     label: '平台入口能力',
-    prefixes: ['clouds', 'clouds.dashboard', 'clouds.console'],
+    prefixes: ['clouds', 'clouds.dashboard', 'clouds.console', 'clouds.cloudmap.ops-view'],
   },
   {
-    label: '计算资源',
+    label: '云主机',
     prefixes: [
       'clouds.ecs',
+      'clouds.vm-create-wizard',
       'clouds.images',
       'clouds.templates',
       'clouds.cloudinits',
       'clouds.sshkeys',
       'clouds.recycle-bin',
       'clouds.migrations',
+    ],
+  },
+  {
+    label: '基础网络',
+    prefixes: [
+      'clouds.provider-networks',
+      'clouds.vlans',
+      'clouds.subnets',
+      'clouds.subnets.public',
+      'clouds.subnets.flat',
+      'clouds.nads',
+      // 业务口径映射：flat-traffic -> clouds.traffic-mirroring; flat-sg -> clouds.security-groups
+      'clouds.flat-nat',
+      'clouds.traffic-mirroring',
+      'clouds.security-groups',
+    ],
+  },
+  {
+    label: '扁平网络',
+    prefixes: [
+      'clouds.subnets.flat',
+      'clouds.subnets.public',
+      'clouds.flat-nat',
+      'clouds.traffic-mirroring',
+      'clouds.security-groups',
+    ],
+  },
+  {
+    label: 'VPC网络',
+    prefixes: [
+      'clouds.vpcs',
+      'clouds.subnets.vpc',
+      'clouds.eips',
+      'clouds.fips',
+      'clouds.nat-gateways',
+      'clouds.route-tables',
+      'clouds.route-entries',
+    ],
+  },
+  {
+    label: 'VPC 扩展（第三方云）',
+    prefixes: [
+      'clouds.load-balancers',
+      'clouds.vswitches',
+      'clouds.enis',
+      'clouds.network-acls',
     ],
   },
   {
@@ -164,31 +218,6 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
       'clouds.backups',
       'clouds.schedules',
       'clouds.restore-tasks',
-    ],
-  },
-  {
-    label: 'VPC 基础',
-    prefixes: [
-      'clouds.vpcs',
-      'clouds.subnets',
-      'clouds.eips',
-      'clouds.fips',
-      'clouds.nat-gateways',
-      'clouds.security-groups',
-      'clouds.nads',
-      'clouds.provider-networks',
-      'clouds.vlans',
-    ],
-  },
-  {
-    label: 'VPC 扩展（第三方云）',
-    prefixes: [
-      'clouds.load-balancers',
-      'clouds.vswitches',
-      'clouds.enis',
-      'clouds.network-acls',
-      'clouds.route-tables',
-      'clouds.route-entries',
     ],
   },
   {
@@ -233,13 +262,22 @@ export function groupResourceConsoleChildFeatures<T extends { resourcePrefix: st
   const byOrder = (a: T, b: T) =>
     resourceConsoleOrderIndex(a.resourcePrefix) - resourceConsoleOrderIndex(b.resourcePrefix);
 
+  // 同一 resourcePrefix 只归入第一个命中的分组，避免重复出现在多个业务组
+  const unassigned = [...children];
   const grouped = RESOURCE_CONSOLE_CHILD_GROUP_RULES.map((rule) => {
-    const items = children.filter((item) => rule.prefixes.includes(item.resourcePrefix)).sort(byOrder);
-    return { label: rule.label, items };
+    const matched = unassigned.filter((item) => rule.prefixes.includes(item.resourcePrefix)).sort(byOrder);
+    if (matched.length > 0) {
+      const matchedSet = new Set(matched.map((item) => item.resourcePrefix));
+      for (let i = unassigned.length - 1; i >= 0; i -= 1) {
+        if (matchedSet.has(unassigned[i].resourcePrefix)) {
+          unassigned.splice(i, 1);
+        }
+      }
+    }
+    return { label: rule.label, items: matched };
   }).filter((g) => g.items.length > 0);
 
-  const coveredPrefixes = new Set(grouped.flatMap((g) => g.items.map((item) => item.resourcePrefix)));
-  const others = children.filter((item) => !coveredPrefixes.has(item.resourcePrefix)).sort(byOrder);
+  const others = unassigned.sort(byOrder);
   if (others.length > 0) {
     grouped.push({ label: '其他资源', items: others });
   }

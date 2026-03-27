@@ -1118,7 +1118,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             loading={resourceLoading.nodes || nodesLoading}
                             onRefresh={refreshNodes}
                             cloudId={cloudId}
-                            mode={isCloudmap ? 'simple' : 'standard'}
+                            mode={isCloudmap ? 'standard' : 'ops'}
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>

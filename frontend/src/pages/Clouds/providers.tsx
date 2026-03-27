@@ -22,7 +22,7 @@
  * 1. 被引用模块:
  *    - src/pages/Clouds/index.tsx (云资源列表)
  *    - src/pages/Clouds/CloudWizard.tsx (添加云资源向导)
- *    - src/pages/Clouds/CloudDetail.tsx (云资源详情)
+ *    - src/pages/Clouds/CloudDetailGate.tsx（云资源详情入口，按厂商分发）
  *
  * 2. 关键数据结构:
  *    - CloudProviderField: 定义表单字段的类型和校验规则。

@@ -24,8 +24,8 @@ const { Option } = Select;
 
 type Props = {
   cloudId: string;
-  /** 简易模式下不展示「运维信息」等运维向入口 */
-  mode?: 'standard' | 'simple';
+  /** 标准视图下不展示「运维信息」等运维向入口 */
+  mode?: 'standard' | 'ops';
   /**
    * 详情页「集群」Tab 托管：列表由父级 loadTabResource 拉取，与切换 Tab 行为一致；不传则组件内自行请求（兼容其它入口）
    */
@@ -37,7 +37,7 @@ type Props = {
 
 const ProviderNetworksSection: React.FC<Props> = ({
   cloudId,
-  mode = 'standard',
+  mode = 'ops',
   parentNetworks,
   parentVlans,
   parentLoading,
@@ -481,7 +481,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
       align: 'left' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
-        if (mode !== 'simple') {
+        if (mode !== 'standard') {
           items.push({
             key: 'view',
             label: '运维信息',

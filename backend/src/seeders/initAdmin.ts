@@ -3,6 +3,8 @@ import { User, UserRole, UserStatus } from '../entities/User';
 import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import bcrypt from 'bcryptjs';
+import { IsNull } from 'typeorm';
+import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 
 export async function initializeAdmin() {
   try {
@@ -26,6 +28,7 @@ export async function initializeAdmin() {
 
     if (!existingAdmin) {
       const hashedPassword = await bcrypt.hash('admin123', 10);
+      const now = new Date();
       const admin = userRepository.create({
         username: 'admin',
         email: 'admin@example.com',
@@ -33,6 +36,7 @@ export async function initializeAdmin() {
         password: hashedPassword,
         role: UserRole.SUPER_ADMIN,
         status: UserStatus.ACTIVE,
+        passwordChangedAt: now,
       });
 
       await userRepository.save(admin);
@@ -87,6 +91,7 @@ export async function initializeAdmin() {
         }
       } else {
         const hashedPassword = await bcrypt.hash('sysadmin123', 10);
+        const now = new Date();
         const sysAdmin = userRepository.create({
           username: 'sysadmin',
           email: 'sysadmin@example.com',
@@ -94,6 +99,7 @@ export async function initializeAdmin() {
           password: hashedPassword,
           role: UserRole.ADMIN,
           status: UserStatus.ACTIVE,
+          passwordChangedAt: now,
         });
         const savedSysAdmin = await userRepository.save(sysAdmin);
         
@@ -134,6 +140,7 @@ export async function initializeAdmin() {
         }
       } else {
         const hashedPassword = await bcrypt.hash('auditor123', 10);
+        const now = new Date();
         const auditor = userRepository.create({
           username: 'auditor',
           email: 'auditor@example.com',
@@ -141,6 +148,7 @@ export async function initializeAdmin() {
           password: hashedPassword,
           role: UserRole.ADMIN,
           status: UserStatus.ACTIVE,
+          passwordChangedAt: now,
         });
         const savedAuditor = await userRepository.save(auditor);
         
@@ -181,6 +189,7 @@ export async function initializeAdmin() {
         }
       } else {
         const hashedPassword = await bcrypt.hash('secadmin123', 10);
+        const now = new Date();
         const secAdmin = userRepository.create({
           username: 'secadmin',
           email: 'secadmin@example.com',
@@ -188,6 +197,7 @@ export async function initializeAdmin() {
           password: hashedPassword,
           role: UserRole.ADMIN,
           status: UserStatus.ACTIVE,
+          passwordChangedAt: now,
         });
         const savedSecAdmin = await userRepository.save(secAdmin);
         
@@ -204,6 +214,20 @@ export async function initializeAdmin() {
 
     if (triPowerChanges.length) {
       console.log('[Seeder] 三权账户变更:', triPowerChanges.join('；'));
+    }
+
+    // 仅执行一次：将存量 passwordChangedAt 为空的账号按创建时间回填，避免与「首次登录须改密」的新用户混淆
+    if (getSystemSetting('auth.password_changed_at_backfill_v1') !== 'true') {
+      try {
+        const stale = await userRepository.find({ where: { passwordChangedAt: IsNull() } });
+        for (const u of stale) {
+          u.passwordChangedAt = u.createdAt;
+          await userRepository.save(u);
+        }
+        setSystemSetting('auth.password_changed_at_backfill_v1', 'true');
+      } catch (e) {
+        console.error('[Seeder] passwordChangedAt 一次性回填失败:', e);
+      }
     }
   } catch (error) {
     console.error('初始化失败:', error);

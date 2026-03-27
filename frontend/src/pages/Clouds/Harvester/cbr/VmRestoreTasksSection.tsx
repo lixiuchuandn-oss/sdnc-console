@@ -10,7 +10,7 @@ import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harveste
 type Props = {
   cloudId: string;
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
   vms?: any[]; // 虚拟机列表，用于查找别名
 };
 
@@ -50,7 +50,7 @@ const getBackupStatus = (raw: any) => {
   return { phase: 'pending', text: '未就绪' as const };
 };
 
-const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'standard', vms = [] }) => {
+const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops', vms = [] }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -467,7 +467,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'sta
             onChange={(e) => setKeyword(e.target.value)}
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           />
-          {mode === 'standard' && (
+          {mode === 'ops' && (
             <Select
               allowClear
               showSearch

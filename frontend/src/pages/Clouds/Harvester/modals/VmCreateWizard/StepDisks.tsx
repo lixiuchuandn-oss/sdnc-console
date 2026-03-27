@@ -38,7 +38,8 @@
 import React from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
 import { MinusCircleOutlined } from '@ant-design/icons';
-import { isSystemStorageClass } from '../../../../../utils/harvesterUtils';
+import { isSystemStorageClass, resolveVmImageKind } from '../../../../../utils/harvesterUtils';
+import { parseSizeToGi } from './VmWizardUtils';
 import { OsIcon } from '../../../../../components/OsIcon';
 
 /**
@@ -105,29 +106,6 @@ const StepDisks: React.FC<StepDisksProps> = ({
     return nm.includes('rwx') || shared === 'true';
   };
 
-  /**
-   * [业务逻辑] 解析镜像类型
-   * 根据 Label 或文件扩展名判断镜像是否为 ISO 或磁盘镜像
-   */
-  const resolveImageKind = (img: any): 'iso' | 'disk' | 'unknown' => {
-    const labels = img?.metadata?.labels || {};
-    const typeLabel = String(labels['harvesterhci.io/image-type'] || '').toLowerCase();
-    if (typeLabel === 'iso') return 'iso';
-    if (['raw_qcow2', 'qcow2', 'raw'].includes(typeLabel)) return 'disk';
-    const diskFormat = String(img?.spec?.diskFormat || img?.diskFormat || '').toLowerCase();
-    if (diskFormat === 'iso') return 'iso';
-    if (['qcow2', 'raw'].includes(diskFormat)) return 'disk';
-    const disp = String(
-      labels['harvesterhci.io/imageDisplayName'] ||
-      img?.metadata?.name ||
-      img?.name ||
-      ''
-    ).toLowerCase();
-    if (/\.(iso)$/.test(disp)) return 'iso';
-    if (/\.(qcow2|img|raw)$/.test(disp)) return 'disk';
-    return 'unknown';
-  };
-
   return (
     <>
       <Typography.Paragraph type="secondary">配置新建云主机的系统盘和数据盘参数</Typography.Paragraph>
@@ -176,7 +154,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
             <Form.Item label="选择镜像" name="image" rules={[{ required: true, message: '请选择镜像' }]}> 
               <Select
                 options={(images || []).filter((x: any) => {
-                  const kind = resolveImageKind(x);
+                  const kind = resolveVmImageKind(x);
                   return kind !== 'iso';
                 }).map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
@@ -225,7 +203,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     );
                     const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
                     const isWindows = /windows|win/.test(dispName.toLowerCase());
-                    const kind = resolveImageKind(it);
+                    const kind = resolveVmImageKind(it);
                     const isIso = kind === 'iso';
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
                     // Avoid overwriting storageClassName if user has already set it manually
@@ -239,17 +217,12 @@ const StepDisks: React.FC<StepDisksProps> = ({
                       rootBus: isWindows ? 'sata' : 'virtio'
                     });
                     
-                    // [容量解析] 自动计算镜像大小并转为 GiB
-                    const raw = (it as any)?.virtualSize ?? (it as any)?.size;
-                    let gi = 0;
-                    if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
-                    else {
-                      const ss = String(raw || '').toUpperCase();
-                      const num = Number(ss.replace(/[^0-9]/g, '')) || 0;
-                      if (/GI$/.test(ss)) gi = num;
-                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024);
-                      else gi = Math.round(num / (1024 ** 3));
-                    }
+                    // [容量解析] 与 VmWizardUtils.parseSizeToGi 一致：小数 Gi、字节均向上取整到整 GiB
+                    const raw =
+                      (it as any)?.spec?.virtualSize ??
+                      (it as any)?.virtualSize ??
+                      (it as any)?.size;
+                    const gi = parseSizeToGi(raw);
                     if (gi) form.setFieldsValue({ rootSize: `${gi}` });
                   } catch {}
                 }}
@@ -262,7 +235,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
             <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true, message: '请选择 ISO 镜像' }]}>
               <Select
                 options={(images || []).filter((x: any) => {
-                  const kind = resolveImageKind(x);
+                  const kind = resolveVmImageKind(x);
                   return kind === 'iso';
                 }).map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
@@ -313,16 +286,11 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     // Avoid overwriting storageClassName if user has already set it manually
                     form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: 'cdrom' });
                     
-                    const raw = (it as any)?.virtualSize ?? (it as any)?.size;
-                    let gi = 0;
-                    if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
-                    else {
-                      const ss = String(raw || '').toUpperCase();
-                      const num = Number(ss.replace(/[^0-9]/g, '')) || 0;
-                      if (/GI$/.test(ss)) gi = num;
-                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024);
-                      else gi = Math.round(num / (1024 ** 3));
-                    }
+                    const raw =
+                      (it as any)?.spec?.virtualSize ??
+                      (it as any)?.virtualSize ??
+                      (it as any)?.size;
+                    const gi = parseSizeToGi(raw);
                     if (gi) form.setFieldsValue({ rootSize: `${gi}` });
                   } catch {}
                 }}
@@ -342,9 +310,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                   try {
                     const it = (availableVolumes || []).find((v: any) => v?.pvcName === val);
                     const raw = it?.size;
-                    let gi = 0;
-                    if (typeof raw === 'number') { gi = Math.round(raw / (1024 * 1024 * 1024)); }
-                    else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) { gi = num; } else if (/MI$/.test(ss)) { gi = Math.ceil(num / 1024); } else { gi = Math.round(num / (1024 * 1024 * 1024)); } }
+                    const gi = parseSizeToGi(raw);
                     if (gi) form.setFieldsValue({ rootSize: `${gi}` });
                     
                     // [自动推断] 根据 PVC 名称判断是否为 Windows
@@ -620,7 +586,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                               <Form.Item label="选择 ISO" name={[name, 'image']} rules={[{ required: true, message: '请选择 ISO' }]} style={{ marginBottom: 0 }}>
                                 <Select
                                   options={(images || []).filter((x: any) => {
-                                    return resolveImageKind(x) === 'iso';
+                                    return resolveVmImageKind(x) === 'iso';
                                   }).map((x: any) => {
                                     const name = x?.metadata?.name || x?.name;
                                     const ns = x?.metadata?.namespace || x?.namespace;

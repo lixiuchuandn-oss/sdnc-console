@@ -41,6 +41,8 @@ import {
   harvesterImageUploadTaskListHandler,
   harvesterImageUploadTaskDeleteHandler,
   harvesterImageUploadTaskFileHandler,
+  harvesterImageUploadProxyHandler,
+  harvesterImageUploadTokenHandler,
 } from './handlers/storage-cache-images.handlers';
 import { harvesterStorageClassListHandler } from './handlers/storage-cache-classes.handlers';
 import { 
@@ -339,6 +341,30 @@ export function registerHarvesterCacheRoutesProvider(
     '/:id/resources/harvester/images',
     checkAdminPermission,
     createProviderRouter(imageListHandlers)
+  );
+
+  const imageUploadProxyHandlers = {
+    harvester: harvesterImageUploadProxyHandler,
+    cloudmap: harvesterImageUploadProxyHandler,
+    'cloudmap.private': harvesterImageUploadProxyHandler,
+    'cloudmap.edge': harvesterImageUploadProxyHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/images/upload-proxy',
+    checkAdminPermission,
+    createProviderRouter(imageUploadProxyHandlers)
+  );
+
+  const imageUploadTokenHandlers = {
+    harvester: harvesterImageUploadTokenHandler,
+    cloudmap: harvesterImageUploadTokenHandler,
+    'cloudmap.private': harvesterImageUploadTokenHandler,
+    'cloudmap.edge': harvesterImageUploadTokenHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/images/upload-token',
+    checkAdminPermission,
+    createProviderRouter(imageUploadTokenHandlers)
   );
 
   // upload-tasks 必须放在 :namespace/:name 之前，避免被详情路由吞掉

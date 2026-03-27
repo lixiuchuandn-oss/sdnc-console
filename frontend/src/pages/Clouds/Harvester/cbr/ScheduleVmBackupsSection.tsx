@@ -84,7 +84,7 @@ interface Props {
    * 租户模式：隐藏运维信息入口
    */
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
 }
 
 /**
@@ -116,7 +116,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   vmId, 
   defaultHiddenColumns, 
   isTenant,
-  mode = 'standard',
+  mode = 'ops',
   bordered = true
 }) => {
   const { user } = useAuth();
@@ -558,7 +558,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
               onChange={e => setKeyword(e.target.value)}
               allowClear
             />
-            {mode === 'standard' && (
+            {mode === 'ops' && (
               <Select
                 key="schedule-namespace-filter"
                 className="toolbar-filter-sm"

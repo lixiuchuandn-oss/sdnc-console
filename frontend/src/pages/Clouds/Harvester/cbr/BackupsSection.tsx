@@ -37,11 +37,11 @@ interface Props {
   type?: 'backup' | 'snapshot';
   vmId?: string;
   isTenant?: boolean;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
   bordered?: boolean;
 }
 
-const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, mode = 'standard', bordered = true }) => {
+const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, mode = 'ops', bordered = true }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasBackupsWrite = useMemo(
@@ -332,7 +332,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
             onChange={e => setKeyword(e.target.value)}
             allowClear
           />
-          {mode === 'standard' && (
+          {mode === 'ops' && (
             <Select
               key="namespace-filter"
               allowClear

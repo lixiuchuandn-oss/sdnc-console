@@ -25,7 +25,7 @@
  * - 子组件: StepBasic, StepCompute, StepDisks, StepNetworks, StepOthers, WizardSummary。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Form, Row, Col, Modal, App, Space } from 'antd';
+import { Button, Form, Row, Col, Modal, App, Space, Spin } from 'antd';
 import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined, KeyOutlined } from '@ant-design/icons';
 import './VmCreateWizard/InstanceWizard.css';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -40,6 +40,9 @@ import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../constants/cloudPermissions';
 
 type Props = {
   isTenant?: boolean;
@@ -47,6 +50,7 @@ type Props = {
 
 const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }) => {
   const { message } = App.useApp();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
@@ -97,6 +101,20 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
   const fromVmState = (location.state as any)?.fromVm;
+
+  const canUseVmCreateWizard = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return hasPermissionForAction(perms, CLOUD_VM_CREATE_WIZARD_WRITE);
+  }, [user?.permissions]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    if (!canUseVmCreateWizard) {
+      message.error('当前账号没有虚拟机创建向导权限');
+      navigate(-1);
+    }
+  }, [authLoading, user, canUseVmCreateWizard, message, navigate]);
 
   useEffect(() => {
     const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
@@ -531,6 +549,17 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       setSubmitting(false);
     }
   };
+
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+  if (user && !canUseVmCreateWizard) {
+    return null;
+  }
 
   return (
     <Modal

@@ -1,85 +1,53 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { MenuProps } from 'antd';
-import { Button, Form, Input, Select, Table, Dropdown, message, Space, Tag, App, Tree, Empty, List, Transfer, Checkbox, Divider, Card, Row, Col, Typography } from 'antd';
+import { Button, Form, Input, Select, Table, Dropdown, message, Space, Tag, App, Typography } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
-import StdSideDrawer from '../../components/StdSideDrawer';
-import StdFormModal from '../../components/StdFormModal';
-import PageContainer from '../../components/PageContainer';
-import { featureLabelOf } from '../../constants/permissionCatalog';
-import { usePermissionDefinitions } from '../../hooks/usePermissionDefinitions';
-import { GROUPS, PLATFORM_LABELS, PLATFORMS } from '../../constants/navigation';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
+import StdFormModal from '../../../components/StdFormModal';
+import PageContainer from '../../../components/PageContainer';
+import { usePermissionDefinitions } from '../../../hooks/usePermissionDefinitions';
+import { GROUPS, PLATFORMS } from '../../../constants/navigation';
 import { 
   getGroupFromDefinition, 
   getFeatureFromDefinition, 
   normalizeFeatureName,
   getPlatformFromDefinition,
-  groupResourceConsoleChildFeatures,
   splitResourceConsoleFeatures,
-} from '../../utils/permissionUtils';
-import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
-import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
-import { apiRequest, apiPost, apiDelete, apiPatch } from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../utils/accessMapping';
+} from '../../../utils/permissionUtils';
+import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
+import { apiRequest, apiPost, apiDelete, apiPatch } from '../../../services/api';
+import { useAuth } from '../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
+import type { RBACRole } from './types';
+import RoleAssignUsersDrawer from './components/RoleAssignUsersDrawer';
+import RolePermissionDrawer from './components/RolePermissionDrawer';
+import { stripTenantForbiddenPermissionIds, TENANT_HIDDEN_RESOURCE_PREFIXES } from './utils';
+import {
+  CLOUD_SUBNETS_FLAT_READ,
+  CLOUD_SUBNETS_FLAT_WRITE,
+  CLOUD_SUBNETS_PUBLIC_READ,
+  CLOUD_SUBNETS_PUBLIC_WRITE,
+  CLOUD_SUBNETS_VPC_READ,
+  CLOUD_SUBNETS_VPC_WRITE,
+} from '../../../constants/cloudPermissions';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
-// 角色数据结构定义
-type RBACRole = {
-  id: string;
-  name: string;
-  description?: string;
-  scope: 'system' | 'tenant'; // 角色范围：系统级或租户级
-  permissions?: string;       // 权限字符串 (JSON)
-  actions?: string[];         // 权限原子列表
-  type?: '系统策略' | '自定义策略'; // 角色类型：系统角色(预置)或自定义角色
-  status: 'active' | 'inactive';
-  createdAt?: string;
-  updatedAt?: string;
-  /** 后端聚合：rbac 分配记录数，与「授予用户」抽屉一致 */
-  grantedUserCount?: number;
-};
+const SUBNET_SPLIT_ACTIONS = [
+  CLOUD_SUBNETS_VPC_READ,
+  CLOUD_SUBNETS_VPC_WRITE,
+  CLOUD_SUBNETS_FLAT_READ,
+  CLOUD_SUBNETS_FLAT_WRITE,
+  CLOUD_SUBNETS_PUBLIC_READ,
+  CLOUD_SUBNETS_PUBLIC_WRITE,
+] as const;
 
-// 系统用户类型
-type SysUser = {
-  id: string;
-  username: string;
-  email: string;
-  fullName: string;
-  role: 'super_admin' | 'admin' | 'tenant';
-  status: 'active' | 'inactive' | 'suspended';
-  createdAt?: string;
-  builtIn?: boolean;
-};
-
-// 角色分配类型
-type Assignment = { id: string; roleId: string; userType: 'system'|'tenant'; userId: string; createdAt: string };
-
-/** 租户角色在「配置权限」中不展示「资源总览」「资源池」两张父级卡片（细分 clouds.* 仍可选） */
-const TENANT_HIDDEN_RESOURCE_PREFIXES = new Set(['clouds.dashboard', 'clouds']);
-
-function stripTenantForbiddenPermissionIds(ids: string[]): string[] {
-  return ids.filter((id) => {
-    const resource = String(id).split(':')[0];
-    return !TENANT_HIDDEN_RESOURCE_PREFIXES.has(resource);
-  });
-}
-
-// 将权限原子转换为可读描述（优先使用后端定义）
-const describeAction = (action: string, definitions?: any[]): string => {
-  // 优先使用后端权限定义的描述
-  const backendDef = definitions?.find(d => d.id === action);
-  if (backendDef?.description) {
-    return backendDef.description;
-  }
-  
-  // 回退到生成描述
-  const [resource, op] = String(action).split(':');
-  const f = featureLabelOf(resource || action, definitions);
-  if (op === 'read') return `查看${f}列表与详情`;
-  if (op === 'write') return `创建、修改、删除${f}`;
-  return `${f}操作`;
+const SUBNET_SPLIT_SET = new Set<string>(SUBNET_SPLIT_ACTIONS);
+const SUBNET_SPLIT_RESOURCE_NAME: Record<string, string> = {
+  'clouds.subnets.vpc': 'VPC 子网',
+  'clouds.subnets.flat': '扁平子网',
+  'clouds.subnets.public': '公共子网',
 };
 
 const AccessRolesPage: React.FC = () => {
@@ -107,6 +75,10 @@ const AccessRolesPage: React.FC = () => {
   const [kw, setKw] = useState('');
   const [permVerb, setPermVerb] = useState<'全部'|'read'|'write'>('全部');
   const [actionAtoms, setActionAtoms] = useState<string[]>([]);
+  const backendSupportsSubnetSplit = useMemo(
+    () => SUBNET_SPLIT_ACTIONS.some((id) => actionAtoms.includes(id)),
+    [actionAtoms],
+  );
   const [grantOpen, setGrantOpen] = useState(false);
   const [grantTarget, setGrantTarget] = useState<RBACRole | null>(null);
   const [grantSelectedIds, setGrantSelectedIds] = useState<string[]>([]);
@@ -114,7 +86,12 @@ const AccessRolesPage: React.FC = () => {
   // 构建按平台->分组->功能组织的权限数据
   const permissionStructure = useMemo(() => {
     // 获取所有权限原子（用于构建结构，不进行筛选）
-    const allActionsForStructure = actionAtoms;
+    const withFrontendSubnetSplit =
+      !backendSupportsSubnetSplit &&
+      (actionAtoms.includes('clouds.subnets:read') || actionAtoms.includes('clouds.subnets:write'))
+        ? Array.from(new Set([...actionAtoms, ...SUBNET_SPLIT_ACTIONS]))
+        : actionAtoms;
+    const allActionsForStructure = withFrontendSubnetSplit;
     
     // 获取筛选后的权限原子（用于确定哪些权限应该显示复选框）
     // 注意：这个变量现在主要用于兼容，实际筛选在构建结构时进行
@@ -131,9 +108,16 @@ const AccessRolesPage: React.FC = () => {
       if (processedResources.has(resource)) return;
       processedResources.add(resource);
 
-      const platform = getPlatformFromDefinition(action, permissionDefinitions);
-      const group = getGroupFromDefinition(action, permissionDefinitions);
-      const featureRaw = getFeatureFromDefinition(action, permissionDefinitions);
+      const isFrontendSubnetSplit = SUBNET_SPLIT_SET.has(action);
+      const platform = isFrontendSubnetSplit
+        ? 'CNMC'
+        : getPlatformFromDefinition(action, permissionDefinitions);
+      const group = isFrontendSubnetSplit
+        ? '资源控制台'
+        : getGroupFromDefinition(action, permissionDefinitions);
+      const featureRaw = isFrontendSubnetSplit
+        ? (SUBNET_SPLIT_RESOURCE_NAME[resource] || resource)
+        : getFeatureFromDefinition(action, permissionDefinitions);
       const feature = normalizeFeatureName(featureRaw);
       
       // 如果有关键字筛选，检查功能名称是否匹配
@@ -237,7 +221,7 @@ const AccessRolesPage: React.FC = () => {
       });
 
     return platforms;
-  }, [actionAtoms, permVerb, kw, grantSelectedIds, permissionDefinitions, grantTarget?.scope]);
+  }, [actionAtoms, backendSupportsSubnetSplit, permVerb, kw, permissionDefinitions, grantTarget?.scope]);
   
   // 处理权限复选框变化
   const handlePermissionChange = (action: string, checked: boolean) => {
@@ -247,13 +231,39 @@ const AccessRolesPage: React.FC = () => {
       setGrantSelectedIds(grantSelectedIds.filter(id => id !== action));
     }
   };
+
+  const mapLegacySubnetsToSplit = React.useCallback((ids: string[]) => {
+    const out = new Set(ids);
+    if (out.has('clouds.subnets:read')) {
+      out.add(CLOUD_SUBNETS_VPC_READ);
+      out.add(CLOUD_SUBNETS_FLAT_READ);
+      out.add(CLOUD_SUBNETS_PUBLIC_READ);
+    }
+    if (out.has('clouds.subnets:write')) {
+      out.add(CLOUD_SUBNETS_VPC_WRITE);
+      out.add(CLOUD_SUBNETS_FLAT_WRITE);
+      out.add(CLOUD_SUBNETS_PUBLIC_WRITE);
+    }
+    return Array.from(out);
+  }, []);
+
+  const normalizeForBackendSave = React.useCallback((ids: string[]) => {
+    if (backendSupportsSubnetSplit) return ids;
+    const out = new Set(ids.filter((id) => !SUBNET_SPLIT_SET.has(id)));
+    const hasAnyRead = [CLOUD_SUBNETS_VPC_READ, CLOUD_SUBNETS_FLAT_READ, CLOUD_SUBNETS_PUBLIC_READ].some((id) =>
+      ids.includes(id),
+    );
+    const hasAnyWrite = [CLOUD_SUBNETS_VPC_WRITE, CLOUD_SUBNETS_FLAT_WRITE, CLOUD_SUBNETS_PUBLIC_WRITE].some((id) =>
+      ids.includes(id),
+    );
+    if (hasAnyRead) out.add('clouds.subnets:read');
+    if (hasAnyWrite) out.add('clouds.subnets:write');
+    return Array.from(out);
+  }, [backendSupportsSubnetSplit]);
   
   // 授予用户抽屉状态
   const [assignUserOpen, setAssignUserOpen] = useState(false);
   const [assignUserTarget, setAssignUserTarget] = useState<RBACRole | null>(null);
-  const [users, setUsers] = useState<SysUser[]>([]);
-  const [assignUserSelected, setAssignUserSelected] = useState<string[]>([]);
-  const [assignUserExisting, setAssignUserExisting] = useState<Assignment[]>([]);
   
   // 表格选择与列配置
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -292,76 +302,15 @@ const AccessRolesPage: React.FC = () => {
     loadActions();
   }, []);
 
-  // 加载系统用户列表
-  const fetchUsers = async () => {
-    try {
-      const json = await apiRequest('/api/users', { skipCache: true });
-      setUsers(Array.isArray(json) ? json : (Array.isArray(json?.users) ? json.users : []));
-    } catch {
-      setUsers([]);
-    }
-  };
-
-  // 打开授予用户抽屉
-  const openAssignUser = React.useCallback(async (role: RBACRole) => {
+  const openAssignUser = React.useCallback((role: RBACRole) => {
     setAssignUserTarget(role);
-    try {
-      // 先加载用户列表
-      const usersJson = await apiRequest('/api/users', { skipCache: true });
-      const usersList: SysUser[] = Array.isArray(usersJson) ? usersJson : (Array.isArray(usersJson?.users) ? usersJson.users : []);
-      setUsers(usersList);
-      
-      // 遍历所有用户，获取每个用户的角色分配，然后过滤出包含该角色的分配
-      const activeUsers = usersList.filter(u => u.username !== 'admin' && u.status === 'active');
-      const assignmentsPromises = activeUsers.map(u => 
-        apiRequest(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`)
-          .catch(() => ({ assignments: [] }))
-      );
-      const assignmentsResults = await Promise.all(assignmentsPromises);
-      const allAssignments: Assignment[] = [];
-      assignmentsResults.forEach(result => {
-        const list: Assignment[] = Array.isArray(result?.assignments) ? result.assignments : [];
-        allAssignments.push(...list);
-      });
-      // 过滤出包含该角色的分配
-      const roleAssignments = allAssignments.filter(a => a.roleId === role.id);
-      setAssignUserExisting(roleAssignments);
-      const selected = roleAssignments.map(it => it.userId);
-      setAssignUserSelected(selected);
-      setAssignUserOpen(true);
-    } catch (error: any) {
-      message.error('获取用户分配信息失败');
-      setAssignUserOpen(true);
-    }
+    setAssignUserOpen(true);
   }, []);
 
-  // 保存用户分配
-  const handleAssignUserSave = React.useCallback(async () => {
-    if (!assignUserTarget) return;
-    const current = new Set(assignUserExisting.map(x => x.userId));
-    const needAdd = assignUserSelected.filter(userId => !current.has(userId));
-    const needRemove = assignUserExisting.filter(x => !assignUserSelected.includes(x.userId));
-    try {
-      for (const userId of needAdd) {
-        await apiPost('/api/system/rbac/assignments', { 
-          roleId: assignUserTarget.id, 
-          userType: 'system', 
-          userId 
-        });
-      }
-      for (const it of needRemove) {
-        await apiDelete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`);
-      }
-      message.success('用户分配已保存');
-      setAssignUserOpen(false);
-      setAssignUserTarget(null);
-      setAssignUserExisting([]);
-      setAssignUserSelected([]);
-      fetchRoles(); // 刷新角色列表
-    } catch (error: any) {
-      message.error(error?.message || '保存失败');
-    }
-  }, [assignUserTarget, assignUserExisting, assignUserSelected]);
+  const closeAssignDrawer = React.useCallback(() => {
+    setAssignUserOpen(false);
+    setAssignUserTarget(null);
+  }, []);
 
   // 处理角色创建
   const handleCreate = React.useCallback(async () => {
@@ -376,14 +325,15 @@ const AccessRolesPage: React.FC = () => {
       // 创建后直接打开授权界面
       setGrantTarget(role);
       const permArr: string[] = (()=>{ try{ return Array.isArray(JSON.parse(String(role?.permissions||'[]'))) ? JSON.parse(String(role?.permissions||'[]')) : []; }catch{ return []; } })();
+      const expandedPerms = mapLegacySubnetsToSplit(permArr);
       setGrantSelectedIds(
-        role.scope === 'tenant' ? stripTenantForbiddenPermissionIds(permArr) : permArr,
+        role.scope === 'tenant' ? stripTenantForbiddenPermissionIds(expandedPerms) : expandedPerms,
       );
       setGrantOpen(true);
     } catch (error: any) {
       message.error(error?.message || '创建角色失败');
     }
-  }, [createForm]);
+  }, [createForm, mapLegacySubnetsToSplit]);
 
   // 提交授权
   const handleGrantSave = React.useCallback(async (targetKeys: string[]) => {
@@ -391,8 +341,8 @@ const AccessRolesPage: React.FC = () => {
     try {
       const permissionsToSave =
         grantTarget.scope === 'tenant'
-          ? stripTenantForbiddenPermissionIds(targetKeys)
-          : targetKeys;
+          ? stripTenantForbiddenPermissionIds(normalizeForBackendSave(targetKeys))
+          : normalizeForBackendSave(targetKeys);
       await apiPatch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, { permissions: permissionsToSave });
       message.success('授权成功');
       setGrantOpen(false);
@@ -400,16 +350,16 @@ const AccessRolesPage: React.FC = () => {
     } catch (error: any) {
       message.error(error?.message || '保存失败');
     }
-  }, [grantTarget]);
+  }, [grantTarget, normalizeForBackendSave]);
 
   const openAuthorize = React.useCallback((role: RBACRole) => {
     setGrantTarget(role);
-    const ids = role.actions || [];
+    const ids = mapLegacySubnetsToSplit(role.actions || []);
     setGrantSelectedIds(
       role.scope === 'tenant' ? stripTenantForbiddenPermissionIds(ids) : ids,
     );
     setGrantOpen(true);
-  }, []);
+  }, [mapLegacySubnetsToSplit]);
 
   const handleDelete = React.useCallback(async (role: RBACRole) => {
     try {
@@ -638,227 +588,30 @@ const AccessRolesPage: React.FC = () => {
         </Form.Item>
       </StdFormModal>
 
-      {/* 授权配置抽屉（配置角色权限） */}
-      <StdSideDrawer 
-        title={`配置权限 - ${grantTarget?.name}`} 
-        open={grantOpen} 
-        onClose={()=> { setGrantOpen(false); setGrantTarget(null); }} 
-        onOk={() => handleGrantSave(grantSelectedIds)} 
-        width={1200} 
-        styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 24 } }}
-      >
-        {/* 搜索和筛选栏 */}
-        <div className="page-toolbar">
-          <Form
-            className="toolbar-container"
-            layout="vertical"
-            style={{ display:'flex', alignItems:'flex-end', rowGap:12, columnGap:12 }}
-          >
-          <Form.Item style={{ width: 160, marginBottom: 0 }}>
-              <Select 
-                value={permVerb} 
-                onChange={(v:any)=> setPermVerb(v)} 
-                options={[
-                  { value:'全部', label:'全部' }, 
-                  { value:'read', label:'只读' }, 
-                  { value:'write', label:'读写' }
-                ]} 
-              />
-          </Form.Item>
-          <Form.Item style={{ flex: 1, marginBottom: 0 }}>
-              <Input 
-                allowClear 
-                placeholder="搜索功能名称" 
-                className="toolbar-search"
-                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-                value={kw} 
-                onChange={e => setKw(e.target.value)} 
-              />
-          </Form.Item>
-        </Form>
-          <div className="toolbar-actions" style={{ display: 'flex', alignItems: 'center' }}>
-            <Space>
-              <Text>
-                已选择 <Text strong style={{ color: '#1890ff' }}>{grantSelectedIds.length}</Text> 个权限
-              </Text>
-              <Button 
-                type="link" 
-                size="small"
-                onClick={() => setGrantSelectedIds([])}
-              >
-                清空选择
-              </Button>
-            </Space>
-            </div>
-          </div>
-          
-        {/* 权限配置内容区 */}
-        <Card style={{ flex: 1, overflow: 'auto' }} bodyStyle={{ padding: 16 }}>
-          {permissionStructure.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
-          ) : (
-            permissionStructure.map((platform, platformIdx) => (
-              <div key={platform.platform} style={{ marginBottom: platformIdx < permissionStructure.length - 1 ? 32 : 0 }}>
-                {/* 分组列表 */}
-                {platform.groups.map((group, groupIdx) => (
-                  <div key={group.group} style={{ marginBottom: groupIdx < platform.groups.length - 1 ? 24 : 0 }}>
-                    {/* 分组标题 */}
-                    <Text strong style={{ display: 'block', marginBottom: 12, marginTop: groupIdx > 0 ? 16 : 0 }}>
-                      {group.group}
-                    </Text>
+      <RolePermissionDrawer
+        open={grantOpen}
+        target={grantTarget}
+        kw={kw}
+        permVerb={permVerb}
+        grantSelectedIds={grantSelectedIds}
+        permissionStructure={permissionStructure}
+        onKwChange={setKw}
+        onPermVerbChange={setPermVerb}
+        onClearSelected={() => setGrantSelectedIds([])}
+        onPermissionChange={handlePermissionChange}
+        onClose={() => {
+          setGrantOpen(false);
+          setGrantTarget(null);
+        }}
+        onSave={() => handleGrantSave(grantSelectedIds)}
+      />
 
-                    {/* 功能项分栏布局（3列） */}
-                    {(() => {
-                      const parentFeatures = group.features.filter((feature: any) => feature.isResourceParent);
-                      const childFeatures = group.features.filter((feature: any) => !feature.isResourceParent);
-                      const isResourceConsoleGroup = group.group === '资源控制台';
-                      const hasSplit =
-                        isResourceConsoleGroup &&
-                        (parentFeatures.length > 0 || childFeatures.length > 0);
-
-                      const renderFeatureCards = (
-                        features: any[],
-                        opts?: { showParentScopeHints?: boolean; cardSpan?: number }
-                      ) => (
-                        <Row gutter={[16, 12]}>
-                          {features.map((feature) => {
-                            return (
-                            <Col span={opts?.cardSpan ?? 8} key={`${feature.resourcePrefix || feature.feature}`}>
-                              <Card size="small">
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    width: '100%',
-                                    gap: 12,
-                                    alignItems: 'flex-start',
-                                    justifyContent: 'space-between',
-                                  }}
-                                >
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <Text ellipsis style={{ display: 'block' }}>
-                                      {feature.feature}
-                                    </Text>
-                                    <Text
-                                      type="secondary"
-                                      style={{
-                                        display: 'block',
-                                        marginTop: 4,
-                                        fontSize: 12,
-                                        lineHeight: 1.4,
-                                        wordBreak: 'break-all',
-                                      }}
-                                    >
-                                      {Array.from(
-                                        new Set(
-                                          [feature.readVisible ? feature.read : null, feature.writeVisible ? feature.write : null]
-                                            .filter(Boolean)
-                                            .map((id) => String(id).split(':')[0]),
-                                        ),
-                                      ).join(' / ')}
-                                    </Text>
-                                  </div>
-                                  <Space style={{ flexShrink: 0 }}>
-                                    {feature.read && feature.readVisible && (
-                                      <Checkbox
-                                        checked={grantSelectedIds.includes(feature.read)}
-                                        onChange={(e) => handlePermissionChange(feature.read!, e.target.checked)}
-                                      >
-                                        只读
-                                      </Checkbox>
-                                    )}
-                                    {feature.write && feature.writeVisible && (
-                                      <Checkbox
-                                        checked={grantSelectedIds.includes(feature.write)}
-                                        onChange={(e) => handlePermissionChange(feature.write!, e.target.checked)}
-                                      >
-                                        读写
-                                      </Checkbox>
-                                    )}
-                                  </Space>
-                                </div>
-                              </Card>
-                            </Col>
-                            );
-                          })}
-                        </Row>
-                      );
-
-                      if (!hasSplit) {
-                        return renderFeatureCards(group.features);
-                      }
-
-                      return (
-                        <>
-                          {parentFeatures.length > 0 && (
-                            <>
-                              {renderFeatureCards(parentFeatures, { showParentScopeHints: true, cardSpan: 24 })}
-                              <Divider style={{ margin: '16px 0' }} />
-                            </>
-                          )}
-                          {groupResourceConsoleChildFeatures(childFeatures.length > 0 ? childFeatures : group.features).map((childGroup, idx, arr) => (
-                            <div key={childGroup.label}>
-                              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                                {childGroup.label}
-                              </Text>
-                              {renderFeatureCards(childGroup.items)}
-                              {idx < arr.length - 1 && <Divider style={{ margin: '16px 0' }} />}
-                            </div>
-                          ))}
-                        </>
-                      );
-                    })()}
-
-                    {/* 分组分隔线 */}
-                    {groupIdx < platform.groups.length - 1 && (
-                      <Divider style={{ margin: '16px 0' }} />
-              )}
-            </div>
-                ))}
-
-                {/* 平台分隔线 */}
-                {platformIdx < permissionStructure.length - 1 && (
-                  <Divider style={{ margin: '24px 0' }} />
-                )}
-          </div>
-            ))
-          )}
-        </Card>
-      </StdSideDrawer>
-
-      {/* 授予用户抽屉 */}
-      <StdSideDrawer 
-        title={`授予用户 - ${assignUserTarget?.name}`} 
-        open={assignUserOpen} 
-        onClose={()=> { 
-          setAssignUserOpen(false); 
-          setAssignUserTarget(null); 
-          setAssignUserExisting([]); 
-          setAssignUserSelected([]); 
-        }} 
-        onOk={handleAssignUserSave} 
-        width={700}
-      >
-        <Transfer
-          dataSource={users
-            .filter(u => u.username !== 'admin' && u.status === 'active') // 排除 admin 用户和非活跃用户
-            .map(u => ({
-              key: u.id,
-              title: `${u.fullName || u.username} (${u.username})`,
-              description: u.email,
-            }))}
-          titles={['可选用户', '已选用户']}
-          targetKeys={assignUserSelected}
-          onChange={(nextTargetKeys) => setAssignUserSelected(nextTargetKeys as string[])}
-          render={(item) => item.title}
-          rowKey={(item) => item.key}
-          listStyle={{ width: 300, height: 400 }}
-          showSearch
-          filterOption={(inputValue, item) => 
-            (item.title as string).toLowerCase().includes(inputValue.toLowerCase()) ||
-            (item.description as string)?.toLowerCase().includes(inputValue.toLowerCase())
-          }
-        />
-      </StdSideDrawer>
+      <RoleAssignUsersDrawer
+        open={assignUserOpen}
+        target={assignUserTarget}
+        onClose={closeAssignDrawer}
+        onSaved={fetchRoles}
+      />
     </PageContainer>
   );
 };

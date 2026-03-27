@@ -29,10 +29,10 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mode = 'standard' }) => {
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mode = 'ops' }) => {
   // 过滤条件：关键字、角色、就绪状态
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
@@ -330,7 +330,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mod
     { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
         const items: any[] = [];
         items.push({ key: 'detail', label: '详情', onClick: () => handleOpenNodeDetail(r) });
-        if (mode === 'standard') {
+        if (mode === 'ops') {
           items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
         }
         return (

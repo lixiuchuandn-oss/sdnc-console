@@ -30,25 +30,40 @@ import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
 // 1. 基础工具函数 (Utils)
 // ==========================================
 
+const BYTES_PER_GIB = 1024 ** 3;
+
 /**
- * 将各种格式的大小字符串解析为 GiB 数值
- * 支持 '10Gi', '1024Mi', '1073741824' 等格式
- * 
- * @param raw 原始大小值 (string | number)
- * @returns 解析后的 GiB 数值 (number)
+ * 将各种格式的大小字符串解析为 GiB 数值（整数，用于表单与校验）
+ * 支持：字节数 number、纯数字字符串（字节）、Kubernetes 风格 Gi/Mi/Ti/Ki（含小数，如 8.43Gi、8.43GiB）
+ * 换算规则：凡需从更小单位合入 GiB 时一律向上取整，避免容量小于镜像实际需求。
  */
-export const parseSizeToGi = (raw: any) => {
-  let gi = 0;
-  if (typeof raw === 'number') { 
-      gi = Math.max(1, Math.round(Number(raw) / (1024 * 1024 * 1024))); 
-  } else { 
-      const ss = String(raw || '').toUpperCase(); 
-      const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
-      if (/GI$/.test(ss)) gi = num; 
-      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024); 
-      else gi = Math.round(num / (1024 * 1024 * 1024)); 
+export const parseSizeToGi = (raw: any): number => {
+  if (raw === undefined || raw === null || raw === '') return 0;
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.max(1, Math.ceil(raw / BYTES_PER_GIB));
   }
-  return gi;
+  const s = String(raw).trim();
+  if (!s) return 0;
+  const lead = s.match(/^([\d.]+)/);
+  const num = lead ? parseFloat(lead[1]) : NaN;
+  if (!Number.isFinite(num) || num < 0) return 0;
+
+  // 后缀优先匹配长形式 (GiB) 再匹配短形式 (Gi)，避免误伤
+  if (/(GIB|GI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num));
+  }
+  if (/(MIB|MI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num / 1024));
+  }
+  if (/(TIB|TI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num * 1024));
+  }
+  if (/(KIB|KI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num / (1024 * 1024)));
+  }
+  // 无单位：按字节
+  return Math.max(1, Math.ceil(num / BYTES_PER_GIB));
 };
 
 /**

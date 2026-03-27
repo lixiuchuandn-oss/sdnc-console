@@ -300,3 +300,31 @@ export async function ensureImageUploadTaskTable() {
     throw error;
   }
 }
+
+/**
+ * users 表增加 passwordChangedAt（管理员密码策略 / 有效期用）
+ */
+export async function ensureUsersPasswordChangedAtColumn() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 users.passwordChangedAt 检查');
+      return;
+    }
+    const cols = await AppDataSource.query(`PRAGMA table_info(users)`);
+    const has = Array.isArray(cols) && cols.some((c: { name?: string }) => c.name === 'passwordChangedAt');
+    if (!has) {
+      dbLog.info('为 users 表添加 passwordChangedAt 列...');
+      await AppDataSource.query(`ALTER TABLE "users" ADD COLUMN "passwordChangedAt" datetime`);
+      await AppDataSource.query(
+        `UPDATE "users" SET "passwordChangedAt" = "createdAt" WHERE "passwordChangedAt" IS NULL`,
+      );
+      dbLog.info('users.passwordChangedAt 已添加并回填');
+    }
+  } catch (error) {
+    dbLog.error(
+      'users.passwordChangedAt 迁移失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}

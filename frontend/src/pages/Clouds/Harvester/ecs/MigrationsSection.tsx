@@ -70,10 +70,10 @@ const SafeMig = {
 interface Props {
   cloudId: string;
   onRefresh?: () => void;
-  mode?: 'standard' | 'simple';
+  mode?: 'standard' | 'ops';
 }
 
-const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'standard' }) => {
+const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'ops' }) => {
   // 加载状态与数据源
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
@@ -253,7 +253,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'standa
       key: 'targetNode',
       render: (_: any, r: any) => SafeMig.targetNode(r)
     },
-    ...(mode === 'standard' ? [{
+    ...(mode === 'ops' ? [{
       title: '命名空间',
       key: 'namespace',
       render: (_: any, r: any) => SafeMig.namespace(r)
@@ -308,7 +308,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'standa
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
-          {mode === 'standard' && (
+          {mode === 'ops' && (
             <Select
               allowClear
               showSearch

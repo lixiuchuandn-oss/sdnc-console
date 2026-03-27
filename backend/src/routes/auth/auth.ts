@@ -8,6 +8,7 @@ import { RBACRole } from '../../entities/RBACRole';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 import { logger } from '../../utils/logger';
+import { adminMustChangePassword } from '../../services/adminPasswordPolicy';
 
 const authLog = logger.child('Auth');
 
@@ -231,6 +232,8 @@ router.post('/login', async (req: Request, res: Response) => {
       userPayload.organizationId = organizationId;
       userPayload.tenantName = tenantName;
       userPayload.organizationName = organizationName;
+    } else {
+      userPayload.mustChangePassword = adminMustChangePassword(loginUser as User);
     }
 
     res.json({

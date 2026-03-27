@@ -474,25 +474,74 @@ func fetchCloudNamespaces(towerURL, towerToken, cloudID string) ([]string, error
 	return list, nil
 }
 
-func uploadViaTowerProxy(
+// uploadViaTowerLikeBrowser 与前端 ImagesSection.handleStartTaskUpload 一致：
+// 1) POST JSON .../images/upload-tasks
+// 2) POST multipart .../upload-tasks/:taskId/file，字段名 file
+// （不再使用单次 upload-proxy，便于与浏览器行为、后端路由完全一致。）
+func uploadViaTowerLikeBrowser(
 	towerURL, towerToken, cloudID, namespace, displayName, imageType string,
 	file multipart.File,
 	header *multipart.FileHeader,
 ) error {
 	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
 	if towerURL == "" || strings.TrimSpace(towerToken) == "" || strings.TrimSpace(cloudID) == "" {
-		return fmt.Errorf("缺少 tower 代理上传参数")
+		return fmt.Errorf("缺少 Tower 上传参数")
 	}
-	pr, pw := io.Pipe()
-	writer := multipart.NewWriter(pw)
 
+	createPayload := map[string]any{"namespace": strings.TrimSpace(namespace)}
+	dn := strings.TrimSpace(displayName)
+	if dn != "" {
+		createPayload["displayName"] = dn
+	}
+	it := strings.TrimSpace(strings.ToLower(imageType))
+	if it != "" {
+		createPayload["imageType"] = it
+	}
+	bodyJSON, _ := json.Marshal(createPayload)
+	reqCreate, _ := http.NewRequest(
+		"POST",
+		fmt.Sprintf("%s/api/clouds/%s/resources/harvester/images/upload-tasks", towerURL, cloudID),
+		bytes.NewBuffer(bodyJSON),
+	)
+	reqCreate.Header.Set("Authorization", "Bearer "+towerToken)
+	reqCreate.Header.Set("Content-Type", "application/json")
+	respCreate, err := client.Do(reqCreate)
+	if err != nil {
+		return fmt.Errorf("创建上传任务失败: %v", err)
+	}
+	defer respCreate.Body.Close()
+	createBody, _ := io.ReadAll(respCreate.Body)
+	if respCreate.StatusCode < 200 || respCreate.StatusCode > 299 {
+		return fmt.Errorf("创建上传任务失败: HTTP %d %s", respCreate.StatusCode, string(createBody))
+	}
+	var parsed struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	taskID := ""
+	if err := json.Unmarshal(createBody, &parsed); err == nil && parsed.Data.ID != "" {
+		taskID = parsed.Data.ID
+	}
+	if taskID == "" {
+		var loose map[string]any
+		if json.Unmarshal(createBody, &loose) == nil {
+			if d, ok := loose["data"].(map[string]any); ok {
+				if id, ok := d["id"].(string); ok {
+					taskID = id
+				}
+			}
+		}
+	}
+	if taskID == "" {
+		return fmt.Errorf("创建上传任务失败: 响应缺少任务 id: %s", string(createBody))
+	}
+
+	pr, pw := io.Pipe()
+	mpw := multipart.NewWriter(pw)
 	go func() {
 		defer pw.Close()
-		defer writer.Close()
-		_ = writer.WriteField("namespace", namespace)
-		_ = writer.WriteField("displayName", displayName)
-		_ = writer.WriteField("imageType", imageType)
-		part, err := writer.CreateFormFile("file", header.Filename)
+		part, err := mpw.CreateFormFile("file", header.Filename)
 		if err != nil {
 			_ = pw.CloseWithError(err)
 			return
@@ -501,23 +550,27 @@ func uploadViaTowerProxy(
 			_ = pw.CloseWithError(err)
 			return
 		}
+		if err := mpw.Close(); err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
 	}()
 
-	req, _ := http.NewRequest(
-		"POST",
-		fmt.Sprintf("%s/api/clouds/%s/resources/harvester/images/upload-proxy", towerURL, cloudID),
-		pr,
+	uploadURL := fmt.Sprintf(
+		"%s/api/clouds/%s/resources/harvester/images/upload-tasks/%s/file",
+		towerURL, cloudID, url.PathEscape(taskID),
 	)
-	req.Header.Set("Authorization", "Bearer "+towerToken)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	resp, err := client.Do(req)
+	reqFile, _ := http.NewRequest("POST", uploadURL, pr)
+	reqFile.Header.Set("Authorization", "Bearer "+towerToken)
+	reqFile.Header.Set("Content-Type", mpw.FormDataContentType())
+	respFile, err := client.Do(reqFile)
 	if err != nil {
-		return fmt.Errorf("请求 Tower 代理上传失败: %v", err)
+		return fmt.Errorf("上传文件失败: %v", err)
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("Tower 代理上传失败: HTTP %d %s", resp.StatusCode, string(body))
+	defer respFile.Body.Close()
+	fileBody, _ := io.ReadAll(respFile.Body)
+	if respFile.StatusCode < 200 || respFile.StatusCode > 299 {
+		return fmt.Errorf("上传文件失败: HTTP %d %s", respFile.StatusCode, string(fileBody))
 	}
 	return nil
 }
@@ -1569,14 +1622,14 @@ func startGUI() {
 		}
 		defer file.Close()
 
-		fmt.Printf("Tower 代理上传: cloud=%s, ns=%s, 镜像=%s, 类型=%s, 文件=%s (%d bytes)\n", cloudID, ns, display, imageType, header.Filename, header.Size)
-		if err := uploadViaTowerProxy(towerURL, towerToken, cloudID, ns, display, imageType, file, header); err != nil {
-			fmt.Printf("Tower 代理上传失败: %v\n", err)
+		fmt.Printf("Tower 上传（与浏览器一致）: cloud=%s, ns=%s, 镜像=%s, 类型=%s, 文件=%s (%d bytes)\n", cloudID, ns, display, imageType, header.Filename, header.Size)
+		if err := uploadViaTowerLikeBrowser(towerURL, towerToken, cloudID, ns, display, imageType, file, header); err != nil {
+			fmt.Printf("Tower 上传失败: %v\n", err)
 			w.WriteHeader(500)
 			io.WriteString(w, "上传失败: "+err.Error())
 			return
 		}
-		fmt.Println("上传完成（经 Tower 代理）")
+		fmt.Println("上传完成（经 Tower，与浏览器同一套接口）")
 		io.WriteString(w, "上传成功")
 	})
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {

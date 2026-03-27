@@ -241,6 +241,17 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     const urlV1 = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
       namespace,
     )}/virtualmachineimages`;
+    const displayStr = displayName || name || 'image';
+    const diskFmtLower = String(diskFormat || '').toLowerCase();
+    const imageTypeLabel: 'iso' | 'disk' | undefined =
+      diskFmtLower === 'iso' ? 'iso' : diskFmtLower === 'qcow2' || diskFmtLower === 'raw' ? 'disk' : undefined;
+    const scName = targetStorageClassName || 'longhorn';
+    const { labels: createLabels, annotations: createAnnotations } = vmImageHarvesterMetadataLikeUi({
+      displayName: displayStr,
+      imageTypeLabel,
+      imageNameForAnnotation: displayStr,
+      storageClassName: scName,
+    });
     const body = {
       apiVersion: 'harvesterhci.io/v1beta1',
       kind: 'VirtualMachineImage',
@@ -248,14 +259,19 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
         name: name || undefined,
         generateName: name ? undefined : 'image-',
         namespace,
+        labels: createLabels,
+        annotations: createAnnotations,
       },
       spec: {
-        displayName: displayName || name || 'image',
+        displayName: displayStr,
         sourceType: sourceType || (url ? 'download' : 'upload'),
         url: url || '',
         ...(diskFormat ? { diskFormat } : {}),
-        targetStorageClassName: targetStorageClassName || 'longhorn',
-        storageClassParameters: storageClassParameters || {},
+        targetStorageClassName: scName,
+        storageClassParameters:
+          storageClassParameters && Object.keys(storageClassParameters).length > 0
+            ? storageClassParameters
+            : DEFAULT_VM_IMAGE_STORAGE_CLASS_PARAMS,
       },
     };
     let json: any;
@@ -401,6 +417,58 @@ function clampProgress(v: number): number {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
+/** Harvester UI 创建镜像时常用的 Longhorn 参数（与集群默认一致） */
+const DEFAULT_VM_IMAGE_STORAGE_CLASS_PARAMS: Record<string, string> = {
+  dataLocality: 'disabled',
+  migratable: 'true',
+  numberOfReplicas: '3',
+  staleReplicaTimeout: '30',
+};
+
+/**
+ * 从文件名/展示名猜测 os-type（与 Harvester 控制台展示风格接近；无法识别时为空字符串）
+ */
+function guessOsTypeFromImageName(name: string): string {
+  const n = String(name || '').toLowerCase();
+  if (!n) return '';
+  if (n.includes('ubuntu')) return 'ubuntu';
+  if (n.includes('debian')) return 'debian';
+  if (n.includes('centos') || n.includes('rocky') || n.includes('almalinux')) return 'centos';
+  if (n.includes('windows') || /win-?(10|11|201|202)/i.test(n)) return 'windows';
+  if (n.includes('openeuler')) return 'openeuler';
+  if (n.includes('fedora')) return 'fedora';
+  if (n.includes('suse') || n.includes('opensuse')) return 'opensuse';
+  return '';
+}
+
+/**
+ * 对齐 Harvester 控制台创建的 VirtualMachineImage：labels（image-type / imageDisplayName / os-type）与 annotations（image-name / storageClassName）
+ */
+function vmImageHarvesterMetadataLikeUi(params: {
+  displayName: string;
+  imageTypeLabel?: 'iso' | 'disk';
+  imageNameForAnnotation: string;
+  storageClassName: string;
+}): { labels: Record<string, string>; annotations: Record<string, string> } {
+  const dn = String(params.displayName || '').trim() || 'image';
+  const labels: Record<string, string> = {
+    'harvesterhci.io/imageDisplayName': dn,
+  };
+  if (params.imageTypeLabel) {
+    labels['harvesterhci.io/image-type'] = params.imageTypeLabel;
+  }
+  const hint = String(params.imageNameForAnnotation || dn).trim();
+  labels['harvesterhci.io/os-type'] = guessOsTypeFromImageName(hint);
+
+  const annotations: Record<string, string> = {
+    'harvesterhci.io/storageClassName': params.storageClassName || 'longhorn',
+  };
+  if (hint) {
+    annotations['harvesterhci.io/image-name'] = hint;
+  }
+  return { labels, annotations };
+}
+
 function sanitizeTask(task: ImageUploadTask) {
   return {
     id: task.id,
@@ -485,16 +553,37 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
     }
 
     // 1) 创建 upload 类型镜像资源，拿到上传 URL
+    // 浏览器上传任务里用户选择的镜像类型（iso / disk）必须写入 spec.diskFormat，否则 Harvester 默认按 qcow2 处理
+    const uploadDiskFormat =
+      String(task.imageType || '').toLowerCase() === 'iso'
+        ? 'iso'
+        : String(task.imageType || '').toLowerCase() === 'disk'
+          ? 'qcow2'
+          : undefined;
+    const displayLabel = task.displayName || task.filename || 'image-upload-task';
+    const imageTypeLabel: 'iso' | 'disk' | undefined =
+      uploadDiskFormat === 'iso' ? 'iso' : uploadDiskFormat === 'qcow2' ? 'disk' : undefined;
+    const { labels: uploadLabels, annotations: uploadAnnotations } = vmImageHarvesterMetadataLikeUi({
+      displayName: displayLabel,
+      imageTypeLabel,
+      imageNameForAnnotation: task.filename || displayLabel,
+      storageClassName: 'longhorn',
+    });
     const payload = {
       apiVersion: 'harvesterhci.io/v1beta1',
       kind: 'VirtualMachineImage',
       metadata: {
         generateName: 'image-',
         namespace: task.namespace,
+        labels: uploadLabels,
+        annotations: uploadAnnotations,
       },
       spec: {
-        displayName: task.displayName || task.filename || 'image-upload-task',
+        displayName: displayLabel,
         sourceType: 'upload',
+        ...(uploadDiskFormat ? { diskFormat: uploadDiskFormat } : {}),
+        targetStorageClassName: 'longhorn',
+        storageClassParameters: DEFAULT_VM_IMAGE_STORAGE_CLASS_PARAMS,
       },
     };
     // 与 uploader 对齐：优先 Steve API 创建，兼容 K8s API
@@ -815,6 +904,163 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
     try {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     } catch {}
+  }
+}
+
+/**
+ * POST /:id/resources/harvester/images/upload-proxy
+ * 单次 multipart：namespace、displayName、imageType、file；等价于「创建 upload-task + POST .../file」。
+ * tools/uploader 等客户端通过 Tower 代理上传时使用此路径。
+ */
+export async function harvesterImageUploadProxyHandler(req: Request, res: Response) {
+  imageTaskUpload.single('file')(req, res, async (err: any) => {
+    try {
+      if (err) return res.status(400).json({ message: '文件接收失败', error: err?.message || String(err) });
+      const { id } = req.params;
+      const userId = String((req as any)?.user?.id || '');
+      if (!userId) return res.status(401).json({ message: '未登录或用户无效' });
+
+      const namespace = String((req.body as any)?.namespace || '').trim();
+      const displayName = String((req.body as any)?.displayName || '').trim();
+      const imageType = String((req.body as any)?.imageType || '').trim();
+      if (!namespace) return res.status(400).json({ message: '缺少参数：namespace' });
+
+      const cloud = (req as any).cloud;
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) return res.status(400).json({ message: '缺少上传文件，字段名应为 file' });
+
+      const repo = AppDataSource.getRepository(ImageUploadTask);
+      const now = new Date();
+      const expires = new Date(now.getTime() + 30 * 60 * 1000);
+      const task = repo.create({
+        cloudId: id,
+        namespace,
+        displayName: displayName || undefined,
+        imageType: imageType || undefined,
+        taskStatus: 'pending',
+        phase: 'pending',
+        progress: 0,
+        ingestProgress: 0,
+        proxyProgress: 0,
+        bytesUploaded: 0,
+        createdBy: userId,
+        expiresAt: expires,
+        retryCount: 0,
+      });
+      const saved = await repo.save(task);
+
+      saved.filename = file.originalname;
+      saved.fileSize = file.size;
+      saved.taskStatus = 'ingesting';
+      saved.phase = 'ingesting';
+      saved.ingestProgress = 100;
+      saved.progress = 1;
+      saved.bytesUploaded = 0;
+      saved.startedAt = saved.startedAt || new Date();
+      saved.errorCode = undefined;
+      saved.errorMessage = undefined;
+      await repo.save(saved);
+
+      void runImageUploadTask(saved.id, cloud, file.path);
+
+      res.status(202).json({
+        message: '文件已接收，任务执行中',
+        data: { taskId: saved.id, status: saved.taskStatus, phase: saved.phase },
+      });
+    } catch (error: any) {
+      if (res.headersSent) return;
+      res.status(500).json({ message: '代理上传失败', error: error.message });
+    }
+  });
+}
+
+/**
+ * POST /:id/resources/harvester/images/upload-token
+ * 为指定命名空间下的 ServiceAccount 签发短期 Token（Kubernetes TokenRequest）。
+ * tools/uploader 直连 Harvester 前向 Tower 申请短期凭证时使用。
+ */
+export async function harvesterImageUploadTokenHandler(req: Request, res: Response) {
+  try {
+    const cloud = (req as any).cloud;
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const {
+      namespace: nsRaw,
+      serviceAccountName: saRaw,
+      expirationSeconds: expRaw,
+    } = (req.body || {}) as any;
+    const namespace = (String(nsRaw || 'default').trim() || 'default') as string;
+    const serviceAccountName = (String(saRaw || 'image-uploader').trim() || 'image-uploader') as string;
+    let expirationSeconds = Math.floor(Number(expRaw) || 300);
+    if (expirationSeconds < 60) expirationSeconds = 60;
+    if (expirationSeconds > 600) expirationSeconds = 600;
+
+    const base = (cloud.endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+
+    const tokenBody = {
+      apiVersion: 'authentication.k8s.io/v1',
+      kind: 'TokenRequest',
+      spec: {
+        expirationSeconds,
+        audiences: ['https://kubernetes.default.svc'],
+      },
+    };
+
+    const candidates = [
+      `${origin}/apis/authentication.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/serviceaccounts/${encodeURIComponent(serviceAccountName)}/token`,
+      `${origin}/k8s/clusters/local/apis/authentication.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/serviceaccounts/${encodeURIComponent(serviceAccountName)}/token`,
+    ];
+
+    const isHttp = origin.startsWith('http:');
+    const httpAgent = new http.Agent({ keepAlive: true });
+    const httpsAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: !insecure });
+
+    let lastErr: any;
+    for (const url of candidates) {
+      try {
+        const r = await axios.post(url, tokenBody, {
+          headers: {
+            Authorization: `Bearer ${cloud.secretKey || ''}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 60000,
+          httpAgent: isHttp ? httpAgent : undefined,
+          httpsAgent: !isHttp ? httpsAgent : undefined,
+        });
+        const token = r.data?.status?.token;
+        if (token) {
+          const expTs = r.data?.status?.expirationTimestamp;
+          return res.json({
+            message: 'ok',
+            data: {
+              namespace,
+              serviceAccountName,
+              expirationSeconds,
+              token,
+              expiresAt: expTs || undefined,
+            },
+          });
+        }
+        lastErr = new Error('TokenRequest 响应中无 token');
+      } catch (e: any) {
+        lastErr = e;
+      }
+    }
+    return res.status(502).json({
+      message: '签发上传 Token 失败（请确认集群支持 TokenRequest 且 ServiceAccount 存在）',
+      error: lastErr?.response?.data
+        ? JSON.stringify(lastErr.response.data)
+        : lastErr?.message || String(lastErr),
+    });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    res.status(500).json({ message: '签发上传 Token 失败', error: error.message });
   }
 }
 

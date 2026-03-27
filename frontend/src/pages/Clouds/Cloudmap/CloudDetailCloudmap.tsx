@@ -2,7 +2,7 @@
 // 页面门控分三层：
 // 1) License/Feature：能力是否启用
 // 2) RBAC：用户是否有读写权限
-// 3) UI 模式裁剪：仅影响展示，不作为安全边界
+// 3) 标准/运维视图裁剪：仅影响展示；切换「运维」需 clouds.cloudmap.ops-view:write
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -39,11 +39,17 @@ import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchCloudById, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
+import {
+  CLOUD_CLOUDMAP_OPS_VIEW_WRITE,
+  CLOUD_SUBNETS_FLAT_READ,
+  CLOUD_SUBNETS_PUBLIC_READ,
+  CLOUD_SUBNETS_VPC_READ,
+} from '../../../constants/cloudPermissions';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
 import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
-import SimpleVmCreateModal from './SimpleVmCreateModal';
+import SimpleVmCreateModal from '../Harvester/modals/SimpleVmCreateModal';
 import VmSection from '../Harvester/ecs/VmSection';
 import TemplatesSection from '../Harvester/ecs/TemplatesSection';
 import ScheduleVmBackupsSection from '../Harvester/cbr/ScheduleVmBackupsSection';
@@ -102,10 +108,17 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const isTenant = user?.role === 'tenant' || (user as any)?.tenantId;
   // 权限检查辅助函数
   const checkPerm = (act: string) => hasPermissionForAction(permissions || [], act);
+  /** 具备该权限方可将页面切到「运维」视图 */
+  const canToggleOpsView = useMemo(() => checkPerm(CLOUD_CLOUDMAP_OPS_VIEW_WRITE), [permissions]);
+  const canReadVpcSubnets = checkPerm(CLOUD_SUBNETS_VPC_READ) || checkPerm('clouds.subnets:read');
+  const canReadFlatSubnets = checkPerm(CLOUD_SUBNETS_FLAT_READ) || checkPerm('clouds.subnets:read');
+  const canReadPublicSubnets = checkPerm(CLOUD_SUBNETS_PUBLIC_READ) || checkPerm('clouds.subnets:read');
   // 兼容历史权限码，优先命中新原子权限
   const canReadNetworkScope =
     checkPerm('clouds.vpcs:read') ||
-    checkPerm('clouds.subnets:read') ||
+    canReadVpcSubnets ||
+    canReadFlatSubnets ||
+    canReadPublicSubnets ||
     checkPerm('clouds.security-groups:read') ||
     checkPerm('clouds.nads:read') ||
     checkPerm('clouds.networks:read') ||
@@ -211,7 +224,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [nsFilter, setNsFilter] = useState<string>(''); // 命名空间筛选值
   const [nodeFilter, setNodeFilter] = useState<string>(''); // 节点筛选值
   const [showLog, setShowLog] = useState<boolean>(false); // 是否显示原始 JSON 日志
-  const [mode, setMode] = useState<'standard' | 'simple'>('simple'); // 页面显示模式: 标准/简易
+  /** 标准：租户向精简；运维：命名空间、ACL、运维抽屉等 */
+  const [mode, setMode] = useState<'standard' | 'ops'>('standard');
   const [activeTabKey, setActiveTabKey] = useState<string>('overview');
   const [backupsGroupActiveKey, setBackupsGroupActiveKey] = useState<string>('backups');
   const [clusterNetworkSegmentKey, setClusterNetworkSegmentKey] = useState<string>('clusterNetworks');
@@ -1009,9 +1023,13 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   }, [clusterNetworkSegmentOptions, clusterNetworkSegmentKey]);
 
   useEffect(() => {
-    // 切换到简易模式时，若当前处于被隐藏分组，则自动回到概览
-    if (mode !== 'simple') return;
-    if (['monitoring-alerts', 'logs-config'].includes(activeTabKey)) {
+    if (!canToggleOpsView && mode === 'ops') setMode('standard');
+  }, [canToggleOpsView, mode]);
+
+  useEffect(() => {
+    // 标准视图下隐藏部分侧栏分组，若当前 Tab 落在其中则回到概览
+    if (mode !== 'standard') return;
+    if (['monitoring-alerts', 'storage_group', 'logs-config', 'kube_ovn_group'].includes(activeTabKey)) {
       setActiveTabKey('overview');
     }
   }, [mode, activeTabKey]);
@@ -1031,12 +1049,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         <Space size="small">
           <Segmented
             options={[
-              { label: '简易模式', value: 'simple' },
-              { label: '高级模式', value: 'standard' },
+              { label: '标准', value: 'standard' },
+              { label: '运维', value: 'ops', disabled: !canToggleOpsView },
             ]}
             value={mode}
             onChange={(value) => {
-              const nextMode = value as 'standard' | 'simple';
+              const nextMode = value as 'standard' | 'ops';
               if (nextMode === mode) return;
               setMode(nextMode);
               setActiveTabKey('overview');
@@ -1323,7 +1341,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       children: (<PciDevicesSection cloudId={cloudId} devices={harvesterPciDevices} loading={resourceLoading.pciDevices} onRefresh={() => loadTabResource('pci_devices', true)} raw={rawPciDevices} showLog={showLog} bordered={false} />)
                     },
                   ].filter((i:any) => {
-                      if (mode === 'simple') {
+                      if (mode === 'standard') {
                         return ['cluster_nodes', 'storage_classes', 'gpu', 'cluster_usb', 'kubeovn_public_networks'].includes(i.key);
                       }
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.cluster-nodes:read');
@@ -1364,8 +1382,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                             cloudId={cloudId}
                             nsValue={nsFilter || undefined}
                             nodeValue={nodeFilter || undefined}
-                            onCreateVmOverride={mode === 'simple' ? () => setSimpleVmCreateOpen(true) : undefined}
-                            createVmButtonText={mode === 'simple' ? '创建云主机' : undefined}
+                            onCreateVmOverride={() => setSimpleVmCreateOpen(true)}
                             onNsChange={(v)=> setNsFilter(v || '')}
                             onNodeChange={(v)=> setNodeFilter(v || '')}
                             onRefresh={() => {
@@ -1615,7 +1632,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       children: <MigrationsSection cloudId={cloudId} mode={mode} />
                     }
                   ].filter((i:any) => {
-                      if (mode === 'simple' && ['ssh_keys', 'cloud_inits', 'migrations'].includes(i.key)) return false;
+                      if (mode === 'standard' && ['ssh_keys', 'cloud_inits', 'migrations'].includes(i.key)) return false;
                       if (i.key === 'ecs') return checkPerm('clouds.ecs:read');
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'images') return checkPerm('clouds.images:read');
@@ -1783,7 +1800,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       )
                     },
                   ].filter((i:any) => {
-                    if (i.key === 'flat_public_subnets' || i.key === 'security_groups') return canReadNetworkScope;
+                    if (i.key === 'flat_public_subnets') return canReadFlatSubnets;
+                    if (i.key === 'security_groups') return checkPerm('clouds.security-groups:read') || checkPerm('clouds:read');
                     return true;
                   })}
                 />
@@ -1925,6 +1943,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       )
                     }
                   ].filter((i:any) => {
+                      if (i.key === 'kubeovn_public_subnets') return canReadPublicSubnets;
+                      if (i.key === 'subnets') return canReadVpcSubnets;
                       return canReadNetworkScope;
                   })}
                 />
@@ -1967,7 +1987,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               )
             }] : [])
           ].filter((i: any) => {
-            if (mode !== 'simple') return true;
+            if (mode !== 'standard') return true;
             return !['monitoring-alerts', 'storage_group', 'logs-config', 'kube_ovn_group'].includes(i.key);
           })}
       />

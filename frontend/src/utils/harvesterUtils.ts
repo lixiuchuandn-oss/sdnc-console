@@ -229,3 +229,46 @@ export const getVmCloneTaskStatus = (
     return { phase: 'pending', text: '进行中' };
   }
 };
+
+/**
+ * 判断 VirtualMachineImage 是 ISO 光盘镜像还是磁盘镜像（qcow2/raw 等）。
+ * 与 Harvester UI / 镜像列表（ImagesSection）使用同一套规则，避免各页面不一致。
+ *
+ * 优先级：metadata.labels[harvesterhci.io/image-type] → spec.diskFormat →
+ * 卷导出语义 → 展示名/注解 image-name/URL 中的扩展名。
+ */
+export function resolveVmImageKind(img: any): 'iso' | 'disk' | 'unknown' {
+  const labels = img?.metadata?.labels || {};
+  const typeLabel = String(labels['harvesterhci.io/image-type'] || '').toLowerCase();
+  if (typeLabel === 'iso') return 'iso';
+  if (['raw_qcow2', 'qcow2', 'raw', 'disk', 'container'].includes(typeLabel)) return 'disk';
+
+  const diskFormat = String(img?.spec?.diskFormat || img?.diskFormat || '').toLowerCase();
+  if (diskFormat === 'iso') return 'iso';
+  if (['qcow2', 'raw'].includes(diskFormat)) return 'disk';
+
+  const sourceType = String(img?.spec?.sourceType || '').toLowerCase();
+  if (sourceType === 'export-from-volume') return 'disk';
+  if (img?.spec?.pvcName || img?.spec?.pvcNamespace) return 'disk';
+
+  const ann = img?.metadata?.annotations || {};
+  const disp = String(
+    labels['harvesterhci.io/imageDisplayName'] ||
+      img?.spec?.displayName ||
+      ann['harvesterhci.io/image-name'] ||
+      img?.metadata?.name ||
+      img?.name ||
+      '',
+  ).toLowerCase();
+  const url = String(img?.spec?.url || '').toLowerCase();
+
+  if (sourceType === 'upload' || sourceType === 'download') {
+    if (/\.iso$/i.test(disp) || /\.iso(\?|$|#)/i.test(url)) return 'iso';
+    if (/\.(qcow2|img|raw)$/i.test(disp) || /\.(qcow2|img|raw)(\?|$|#)/i.test(url)) return 'disk';
+    return 'unknown';
+  }
+
+  if (/\.iso$/i.test(disp)) return 'iso';
+  if (/\.(qcow2|img|raw)$/i.test(disp)) return 'disk';
+  return 'unknown';
+}

@@ -12,6 +12,11 @@ import bcrypt from 'bcryptjs';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
 import { isBuiltInSystemUser } from '../../constants/systemBuiltInUsers';
+import {
+  getAdminPasswordPolicy,
+  validatePasswordAgainstPolicy,
+  adminMustChangePassword,
+} from '../../services/adminPasswordPolicy';
 
 const sysUserLog = logger.child('Sysuser');
 
@@ -207,6 +212,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
         permissions, // 返回权限列表
+        mustChangePassword: adminMustChangePassword(user),
       };
     }
 
@@ -261,8 +267,10 @@ router.post('/me/password', async (req: AuthRequest, res: Response) => {
     if (!oldPwd || !newPwd) {
       return res.status(400).json({ message: '缺少 oldPassword 或 newPassword' });
     }
-    if (newPwd.length < 8 || newPwd.length > 64) {
-      return res.status(400).json({ message: '新密码长度需为 8-64 位' });
+    const policy = getAdminPasswordPolicy();
+    const v = validatePasswordAgainstPolicy(newPwd, policy, { username: req.user?.username });
+    if (!v.ok) {
+      return res.status(400).json({ message: v.message });
     }
 
     const userRepository = AppDataSource.getRepository(User);
@@ -277,6 +285,7 @@ router.post('/me/password', async (req: AuthRequest, res: Response) => {
     }
 
     user.password = await bcrypt.hash(newPwd, 10);
+    user.passwordChangedAt = new Date();
     await userRepository.save(user);
 
     res.json({ message: '密码修改成功' });
@@ -327,8 +336,21 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const userRepository = AppDataSource.getRepository(User);
     const existed = await userRepository.findOne({ where: [{ username }, { email }] });
     if (existed) return res.status(400).json({ message: '用户名或邮箱已存在' });
+    const policy = getAdminPasswordPolicy();
+    const pv = validatePasswordAgainstPolicy(String(password), policy, { username: String(username) });
+    if (!pv.ok) {
+      return res.status(400).json({ message: pv.message });
+    }
     const hashed = await bcrypt.hash(password, 10);
-    const user = userRepository.create({ username, email, password: hashed, fullName, role: UserRole.ADMIN });
+    const now = new Date();
+    const user = userRepository.create({
+      username,
+      email,
+      password: hashed,
+      fullName,
+      role: UserRole.ADMIN,
+      passwordChangedAt: policy.requirePasswordChangeOnFirstLogin ? null : now,
+    });
     const saved = await userRepository.save(user);
     res
       .status(201)
@@ -404,7 +426,13 @@ const updateUserHandler = async (req: AuthRequest, res: Response) => {
     if (role) user.role = role;
     if (status) user.status = status;
     if (password && String(password).trim()) {
+      const policy = getAdminPasswordPolicy();
+      const pv = validatePasswordAgainstPolicy(String(password).trim(), policy, { username: user.username });
+      if (!pv.ok) {
+        return res.status(400).json({ message: pv.message });
+      }
       user.password = await bcrypt.hash(String(password).trim(), 10);
+      user.passwordChangedAt = new Date();
     }
 
     const saved = await userRepository.save(user);
