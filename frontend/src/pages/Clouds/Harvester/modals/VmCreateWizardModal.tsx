@@ -66,7 +66,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const [selectedDiskIdx, setSelectedDiskIdx] = useState<number | null>(null);
   const [selectedNetIdx, setSelectedNetIdx] = useState<number | null>(null);
   const [hostModeState, setHostModeState] = useState<string>('auto');
-  const [netModeState, setNetModeState] = useState<string>('flat');
+  const [netModeState, setNetModeState] = useState<string>('flat_subnet');
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
   const [nodeKeyword, setNodeKeyword] = useState<string>('');
   const [initialVmName] = useState<string>(()=> `vm-${Math.random().toString(36).slice(2,6)}-${Date.now().toString(36).slice(-4)}`);

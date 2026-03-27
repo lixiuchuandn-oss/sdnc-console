@@ -174,8 +174,10 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
     if (v === 'vpc' || v === 'flat_subnet' || v === 'flat' || v === 'passthrough') {
       reloadNads();
     }
-    if (v === 'vpc' || v === 'flat_subnet') {
+    if (v === 'vpc') {
       reloadKubeVpcs();
+    }
+    if (v === 'vpc' || v === 'flat_subnet') {
       reloadKubeSubnets();
     }
   };
@@ -206,7 +208,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
         {/* 2. 根据网络类型动态渲染配置项 */}
         <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
           {({ getFieldValue }) => {
-            const mode = getFieldValue('netMode') || 'flat';
+            const mode = getFieldValue('netMode') || 'flat_subnet';
             if (mode === 'flat') {
               // --- NAD 网络：选择 Multus NAD（排除 kube-ovn） ---
               return (
@@ -494,7 +496,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
         {/* 3. 通用物理属性配置 (类型、模型、MAC、IP) */}
         <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode || prev.primaryNic?.type !== curr.primaryNic?.type || prev.primaryNic?.name !== curr.primaryNic?.name}>
           {({ getFieldValue }) => {
-            const mode = getFieldValue('netMode') || 'flat';
+            const mode = getFieldValue('netMode') || 'flat_subnet';
             const t = getFieldValue(['primaryNic','type']);
             const primaryTypeLabel = '接口类型';
             
@@ -935,9 +937,8 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
               );
             })}
             
-            {/* 按钮区域：添加辅助网卡 */}
+            {/* 按钮区域：添加辅助网卡（顺序：扁平子网 → VPC → 直通 → NAD） */}
             <Space>
-              <Button onClick={() => { reloadNads(); add({ mode: 'flat', type: 'bridge', model: 'virtio' }); }}>添加NAD网络网卡</Button>
               <Button
                 onClick={() => {
                   reloadKubeSubnets();
@@ -953,6 +954,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
               </Button>
               <Button onClick={() => { reloadKubeVpcs(); reloadKubeSubnets(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }}>添加VPC网卡</Button>
               <Button onClick={() => { reloadNads(); add({ mode: 'passthrough', type: 'sriov', model: 'virtio' }); }}>添加直通网卡</Button>
+              <Button onClick={() => { reloadNads(); add({ mode: 'flat', type: 'bridge', model: 'virtio' }); }}>添加NAD网络网卡</Button>
             </Space>
           </div>
         )}

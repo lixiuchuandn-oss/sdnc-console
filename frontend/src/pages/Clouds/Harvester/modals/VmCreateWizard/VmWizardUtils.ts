@@ -238,7 +238,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   extraDisks: [],
   nodeSelectorPairs: [],
   hostMode: 'auto',
-  netMode: 'flat',
+  netMode: 'flat_subnet',
   gpuMode: 'none',
   gpuCount: 0,
   hotExpandEnabled: false,
@@ -253,7 +253,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   evictionStrategy: 'LiveMigrateIfPossible',
   loginMethod: 'later',
   loginAccount: 'root',
-  primaryNic: { name: '', type: 'bridge', model: 'virtio' },
+  primaryNic: { name: '', type: 'managedtap', model: 'virtio', vpc: 'ovn-cluster' },
   netIfaces: [],
   usbDevices: []
 });

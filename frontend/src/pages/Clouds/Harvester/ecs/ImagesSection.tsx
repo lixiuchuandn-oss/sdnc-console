@@ -14,8 +14,8 @@
  *    - 将后端状态 (Imported, Downloading, Failed 等) 映射为中文描述和 Antd Badge 颜色。
  *    - 特别处理下载进度展示 (Progress)，实时反馈导入状态。
  * 2. [创建流程]:
- *    - 标准模式：内网直传与 URL 导入两个 Tab（前者优先）；URL 导入需选择目标 StorageClass 并校验链接。
- *    - 简易模式：仅展示内网直传说明，不展示 Tab。
+ *    - 标准模式：三个 Tab — 浏览器上传、Windows 桌面工具（下载 ImageUploader.exe）、URL 导入（集群拉取）。
+ *    - 简易模式：新增镜像仅提供浏览器上传（与标准模式第一项表单一致）。
  * 3. [详情抽屉]:
  *    - 点击行支持打开 `HarvesterResourceDrawer`，展示镜像的 YAML 和 Events。
  *    - 在打开抽屉前，自动补全 `kind: VirtualMachineImage` 以适配通用抽屉逻辑。
@@ -23,12 +23,12 @@
  * === 交互依赖 ===
  * - 上游: 依赖 `CloudDetailHarvester` 传入 `images` 列表。
  * - 下游: 调用 `createHarvesterImage`, `deleteHarvesterImage` 等 API。
- * - 外部: 依赖 `fetchHarvesterStorageClasses` 获取存储类选项。
+ * - 外部: 依赖镜像与上传任务相关 API。
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Modal, Row, Col, Tabs, Typography, Tooltip, Upload, Drawer, Progress } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined, SearchOutlined, PaperClipOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined, PaperClipOutlined, DownloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -39,14 +39,13 @@ import { getToken } from '../../../../utils/tokenStorage';
 import {
   deleteHarvesterImage,
   createHarvesterImage,
-  fetchHarvesterStorageClasses,
   createHarvesterImageUploadTask,
   fetchHarvesterImageUploadTask,
   fetchHarvesterImageUploadTasks,
   deleteHarvesterImageUploadTask,
   type HarvesterImageUploadTask,
 } from '../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace, isSystemStorageClass } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -93,13 +92,9 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   // 创建表单实例
   const [form] = Form.useForm();
-  // 创建方式 Tab：内网直传 / URL 导入（标准模式可切换；简易模式仅直传）
-  const [createTab, setCreateTab] = useState<'url'|'tool'>('tool');
+  /** 标准模式：browser | desktop | url；简易模式弹窗不使用 Tab，仅浏览器上传 */
+  const [createTab, setCreateTab] = useState<'browser' | 'desktop' | 'url'>('browser');
   
-  // 存储类列表，用于 URL 导入时选择目标存储类
-  const [storageClasses, setStorageClasses] = useState<any[]>([]);
-  const [scLoading, setScLoading] = useState(false);
-
   // 抽屉状态，用于展示镜像的 Harvester 详情与事件等
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<any>(null);
@@ -109,16 +104,6 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
-
-  React.useEffect(() => {
-    if (creating && cloudId) {
-      setScLoading(true);
-      fetchHarvesterStorageClasses(cloudId).then((res: any) => {
-        const raw = res?.data?.items ?? res?.items ?? res?.data;
-        setStorageClasses(Array.isArray(raw) ? raw : []);
-      }).catch(console.error).finally(() => setScLoading(false));
-    }
-  }, [creating, cloudId]);
 
   React.useEffect(() => {
     if (!cloudId) return;
@@ -553,13 +538,10 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       }
       await createHarvesterImage(cloudId, {
         namespace: v.namespace || 'default',
-        name: v.name || undefined,
         displayName: v.displayName || undefined,
-        sourceType: v.sourceType || undefined,
+        sourceType: 'download',
         url: v.url || undefined,
         diskFormat: diskFormat,
-        targetStorageClassName: v.storageClassName || undefined,
-        storageClassParameters: v.storageClassParameters || {}
       });
       message.success('创建成功');
       setCreating(false);
@@ -635,30 +617,32 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     <>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
-            <Select options={[{ label:'default', value:'default' }]} style={{ width: '100%' }} />
+          <Form.Item label="镜像仓" name="namespace" initialValue="default" rules={[{ required: true }]}>
+            <Select options={[{ label:'公共镜像仓（默认）', value:'default' }]} style={{ width: '100%' }} />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="来源类型" name="sourceType" rules={[{ required: true }]}>
-            <Select options={[{label:'下载URL',value:'download'}]} style={{ width: '100%' }} />
+          <Form.Item label="镜像类型" name="imageType" tooltip="可选，不选择时后端会自动推断">
+            <Select
+              placeholder="选择镜像类型（可选）"
+              allowClear
+              options={[
+                { value: 'disk', label: 'Qcow2（磁盘镜像）' },
+                { value: 'iso', label: 'ISO（光盘镜像）' },
+              ]}
+              style={{ width: '100%' }}
+            />
           </Form.Item>
         </Col>
       </Row>
-      <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}>
+      <Form.Item label="镜像显示名" name="displayName" rules={[{ required: true }]}>
         <Input placeholder="如：ubuntu_20.04_200G.qcow2" />
-      </Form.Item>
-      <Form.Item label="资源名称" name="name" tooltip="可选，不填自动生成 image-*">
-        <Input placeholder="可选，不填自动生成" />
       </Form.Item>
       <Form.Item
         label="下载地址"
         name="url"
-        dependencies={["sourceType"]}
         rules={[{
           validator: async (_, v)=> {
-            const t = form.getFieldValue('sourceType');
-            if (t!=='download') return Promise.resolve();
             if (!v || !/^https?:\/\//i.test(String(v))) return Promise.reject('请输入合法的 http(s) 链接');
             return Promise.resolve();
           }
@@ -666,45 +650,23 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       >
         <Input placeholder="http(s)://..." />
       </Form.Item>
-      <Form.Item label="镜像类型" name="imageType" tooltip="选择镜像类型，如果不选择将根据文件名自动推断">
-        <Select
-          placeholder="选择镜像类型（可选）"
-          allowClear
-          options={[
-            { value: 'disk', label: 'Qcow2（磁盘镜像）' },
-            { value: 'iso', label: 'ISO（光盘镜像）' },
-          ]}
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
-      <Form.Item label="存储类" name="storageClassName">
-        <Select
-          loading={scLoading}
-          options={storageClasses
-            .map((sc: any) => {
-              const n = sc?.metadata?.name || sc?.name;
-              if (!n || isSystemStorageClass(n)) return null;
-              return { label: n, value: n };
-            })
-            .filter(Boolean) as { label: string; value: string }[]}
-          placeholder="请选择存储类 (可选)"
-          allowClear
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
-      <Typography.Paragraph type="secondary">
-        说明：URL 导入由 Cloudmap 集群侧自行下载，适合大文件与不稳定网络。请确保链接可被集群访问。
-      </Typography.Paragraph>
+
     </>
   );
 
-  const renderToolUploadPanel = () => (
-    <div style={{ padding: '0 8px' }}>
+  const openImageUploaderDownload = () => {
+    const url = `${API_BASE_URL}/api/tools/imageuploader.exe`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  /** 方式 1：浏览器内提交上传任务（简易模式仅展示此块） */
+  const renderBrowserUploadPanel = () => (
+    <div>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="命名空间" name="toolNamespace" initialValue="default">
+          <Form.Item label="镜像仓" name="toolNamespace" initialValue="default">
             <Select
-              options={[{ label: 'default', value: 'default' }]}
+              options={[{ label: '公共镜像仓（默认）', value: 'default' }]}
               style={{ width: '100%' }}
             />
           </Form.Item>
@@ -723,7 +685,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
           </Form.Item>
         </Col>
       </Row>
-      <Form.Item label="镜像显示名" name="toolDisplayName" tooltip="可选，不填将使用文件名">
+      <Form.Item label="镜像显示名" name="toolDisplayName" rules={[{ required: true, message: '请输入镜像显示名' }]}>
         <Input placeholder="例如 ubuntu-22.04" />
       </Form.Item>
       <Form.Item label="本地文件" required>
@@ -758,6 +720,18 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     </div>
   );
 
+  /** 方式 2：下载 Windows 桌面直传工具 */
+  const renderDesktopToolPanel = () => (
+    <div style={{ padding: '0 8px' }}>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+        适用于大文件或浏览器上传不稳定的环境。下载 Windows 桌面工具后本地运行，按向导登录 Tower、选择 Cloudmap 资源池与命名空间，将镜像直传至集群。
+      </Typography.Paragraph>
+      <Button type="primary" icon={<DownloadOutlined />} onClick={openImageUploaderDownload}>
+        下载 ImageUploader.exe
+      </Button>
+    </div>
+  );
+
   const uploadStatusText = (t: HarvesterImageUploadTask) => {
     const s = String(t?.status || '').toLowerCase();
     const map: Record<string, string> = {
@@ -771,7 +745,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     return map[s] || s || '-';
   };
 
-  const isUrlCreateTab = mode === 'standard' && createTab === 'url';
+  const isUrlCreateTab = createTab === 'url';
 
   return (
     <PageDetailSection
@@ -841,7 +815,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       )}
       toolbarRight={(
         <>
-          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); form.setFieldsValue({ toolNamespace: 'default' }); setCreateTab('tool'); setCreating(true); }}>新增镜像</Button>
+          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); form.setFieldsValue({ toolNamespace: 'default', namespace: 'default' }); setCreateTab('browser'); setCreating(true); }}>新增镜像</Button>
           <Button
             onClick={() => {
               setTaskDrawerOpen(true);
@@ -899,29 +873,34 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         form={form}
         okText={isUrlCreateTab ? '创建' : '提交任务'}
         confirmLoading={uploadingTask}
+        okButtonProps={createTab === 'desktop' ? { style: { display: 'none' } } : undefined}
         width={600}
       >
         {mode === 'simple' ? (
-          renderToolUploadPanel()
+          renderBrowserUploadPanel()
         ) : (
           <Tabs
             activeKey={createTab}
             destroyInactiveTabPane
             onChange={(k)=> {
-              const key = (k as 'url'|'tool');
+              const key = k as 'browser' | 'desktop' | 'url';
               setCreateTab(key);
-              if (key === 'url') form.setFieldsValue({ sourceType: 'download' });
             }}
             items={[
               {
-                key: 'tool',
-                label: '内网直传（传输工具）',
-                children: renderToolUploadPanel(),
+                key: 'browser',
+                label: '浏览器上传',
+                children: renderBrowserUploadPanel(),
               },
               {
                 key: 'url',
-                label: 'URL 导入（集群拉取）',
+                label: 'URL 导入',
                 children: renderUrlImportPanel(),
+              },
+              {
+                key: 'desktop',
+                label: 'Windows 桌面工具',
+                children: renderDesktopToolPanel(),
               },
             ]}
           />
