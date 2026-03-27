@@ -25,7 +25,7 @@
  * - 下游: 调用 `createHarvesterImage`, `deleteHarvesterImage` 等 API。
  * - 外部: 依赖镜像与上传任务相关 API。
  */
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Modal, Row, Col, Tabs, Typography, Tooltip, Upload, Drawer, Progress } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined, PaperClipOutlined, DownloadOutlined } from '@ant-design/icons';
@@ -75,11 +75,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     () => hasPermissionForAction(perms, 'clouds.images:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
-  const ensureImagesWrite = () => {
+  const ensureImagesWrite = useCallback(() => {
     if (hasImagesWrite) return true;
     message.error('当前账号没有镜像操作权限（需要 clouds.images:write 或 clouds:write 权限）');
     return false;
-  };
+  }, [hasImagesWrite]);
 
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -189,7 +189,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   /**
    * 将镜像状态英文 key 转为中文描述
    */
-  const cnStatus = (s?: string): string => {
+  const cnStatus = useCallback((s?: string): string => {
     const k = String(s || '').toLowerCase();
     const m: Record<string, string> = {
       imported: '已导入',
@@ -197,26 +197,29 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       downloading: '下载中',
       ready: '就绪',
       failed: '失败',
-      unknown: '未知'
+      unknown: '未知',
     };
-    return m[k] || (s || '-')
-  };
+    return m[k] || (s || '-');
+  }, []);
   /**
    * 状态 Badge 渲染：根据状态选择不同颜色和中文文案
    */
-  const statusBadge = (s?: string) => {
-    const k = String(s || '').toLowerCase();
-    const text = cnStatus(s);
-    const color = (function(){
-      if (k === 'ready') return 'green';
-      if (k === 'failed') return 'red';
-      if (k === 'imported') return 'success';
-      if (k === 'downloading') return 'blue';
-      if (k === 'pending') return 'gold';
-      return undefined;
-    })();
-    return <Tag color={color}>{text}</Tag>;
-  };
+  const statusBadge = useCallback(
+    (s?: string) => {
+      const k = String(s || '').toLowerCase();
+      const text = cnStatus(s);
+      const color = (function () {
+        if (k === 'ready') return 'green';
+        if (k === 'failed') return 'red';
+        if (k === 'imported') return 'success';
+        if (k === 'downloading') return 'blue';
+        if (k === 'pending') return 'gold';
+        return undefined;
+      })();
+      return <Tag color={color}>{text}</Tag>;
+    },
+    [cnStatus],
+  );
   const gbText = (bytes?: number | string): string => {
     const n = typeof bytes === 'number' ? bytes : (typeof bytes === 'string' ? Number(bytes) : NaN);
     if (!isFinite(n) || n <= 0) return '-';
@@ -278,12 +281,12 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     if (/\.(qcow2|img|raw)$/.test(disp)) return 'disk';
     return 'unknown';
   };
-  const KEYWORD_GROUPS = getOsKeywordGroups();
-  const expandOsKeywords = (val: string) => {
+  const expandOsKeywords = useCallback((val: string) => {
     const v = (val || '').toLowerCase();
-    const g = KEYWORD_GROUPS.find((gr: string[]) => gr.includes(v));
-    return g ? g : (v ? [v] : []);
-  };
+    const groups = getOsKeywordGroups();
+    const g = groups.find((gr: string[]) => gr.includes(v));
+    return g ? g : v ? [v] : [];
+  }, []);
 
   const getId = (r: any): string => String(r?.name || r?.metadata?.name || '');
   const getNs = (r: any): string => String(r?.namespace || r?.metadata?.namespace || 'default');
@@ -352,7 +355,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       }
       return true;
     });
-  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, mode]);
+  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, mode, expandOsKeywords]);
 
   const statusOptions = ['imported','pending','downloading','ready','failed','unknown'];
   const osOptions = [
@@ -375,19 +378,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     { value: 'openeuler', label: 'openEuler' },
     { value: 'anolis', label: 'Anolis' },
   ];
-  
-  /**
-   * 安全读取镜像属性的工具方法
-   * 统一封装 name / uid / os / 架构等常用字段的多来源兜底逻辑
-   */
-  const SafeRead = {
-    name: (r: any) =>
-      r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || '-',
-    uid: (r: any) => r?.metadata?.uid || r?.id || r?.metadata?.name || r?.name || '',
-    os: (r: any) => r?.metadata?.labels?.['harvesterhci.io/os'] || '',
-    kernel: (r: any) => '', 
-    arch: (r: any) => r?.metadata?.labels?.['harvesterhci.io/architecture'] || '',
-  };
+
   const getImageAlias = (r: any): string =>
     String(
       r?.displayName ||
@@ -513,7 +504,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         />
       );
     } },
-  ], [cloudId, onRefresh, isTenant, hasImagesWrite, mode]);
+  ], [cloudId, onRefresh, isTenant, hasImagesWrite, mode, ensureImagesWrite, statusBadge]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');

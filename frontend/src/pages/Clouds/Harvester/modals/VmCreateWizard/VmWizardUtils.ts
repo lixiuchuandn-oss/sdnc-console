@@ -310,7 +310,6 @@ export const applyTemplateToWizardForm = (params: {
   const domain = vmSpec.domain || {};
   const devices = domain.devices || {};
   const cpu = domain.cpu || {};
-  const resources = domain.resources || {};
 
   const next: any = {};
 

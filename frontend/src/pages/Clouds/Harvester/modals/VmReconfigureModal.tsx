@@ -12,7 +12,7 @@
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useMemo } from 'react';
-import { Modal, Form, Menu, Button, Tag, Tooltip, Checkbox, Card, Select, message, Row, Col } from 'antd';
+import { Modal, Form, Menu, Button, Tag, Tooltip, Checkbox, Select, message, Row, Col } from 'antd';
 import type { MenuProps } from 'antd';
 import { 
   HddOutlined, GlobalOutlined, DashboardOutlined, LoadingOutlined, QuestionCircleOutlined
@@ -602,7 +602,10 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       styles={{ body: { padding: 0 } }}
     >
       <div style={{ display: 'flex', height: '70vh' }}>
-        <div style={{ width: 200,  overflowY: 'auto', marginRight: 24 }}>
+        <div
+          className="vm-reconfigure-sidebar-scroll"
+          style={{ width: 200, overflowY: 'auto', marginRight: 24 }}
+        >
           <Menu
             mode="inline"
             style={{ paddingInlineEnd: 24 }}

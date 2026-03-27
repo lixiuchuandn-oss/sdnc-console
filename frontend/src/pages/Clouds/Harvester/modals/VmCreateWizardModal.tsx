@@ -46,7 +46,7 @@ type Props = {
 };
 
 const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }) => {
-  const { message, modal, notification } = App.useApp();
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
@@ -77,6 +77,8 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const [capabilities, setCapabilities] = useState<any>(null);
   const [existingVms, setExistingVms] = useState<any[]>([]);
   const lastValidationErrorTypeRef = useRef<string | null>(null);
+  /** 防止连点/双击在 setSubmitting 生效前并发提交，导致重复创建 VM */
+  const submitInFlightRef = useRef(false);
 
   const {
     images, imageLoading, reloadImages, imageOptions,
@@ -413,6 +415,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
+    setSubmitting(true);
     try {
       await form.validateFields();
       const v = form.getFieldsValue(true) as any;
@@ -446,7 +451,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       const sizeError = validateImageSize(v, images || []);
       if (sizeError) { message.error(sizeError); return; }
 
-      setSubmitting(true);
       const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
       if (!cid) { throw new Error('请选择资源池'); }
       if (hostModeState === 'node' && !selectedNodeName) { throw new Error('请选择主机'); }
@@ -513,10 +517,17 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
       message.success('创建成功');
       sessionStorage.setItem('cloud_console_refresh_after_create', String(cid));
-      navigate(-1);
+      const bg = (location.state as { backgroundLocation?: { pathname?: string; search?: string; hash?: string } } | null)
+        ?.backgroundLocation;
+      if (bg?.pathname) {
+        navigate(`${bg.pathname}${bg.search || ''}${bg.hash || ''}`, { replace: true });
+      } else {
+        navigate(-1);
+      }
     } catch (e: any) {
       message.error(e?.message || '创建失败');
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -704,7 +715,12 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
               <Space>
                 <Button onClick={()=> navigate(-1)}>取消</Button>
                 <Button disabled={step===0} onClick={prev}>上一步</Button>
-                <Button type="primary" loading={submitting} onClick={()=> { if (step < steps.length - 1) { next(); } else { submit(); } }}>
+                <Button
+                  type="primary"
+                  loading={submitting}
+                  disabled={submitting}
+                  onClick={()=> { if (step < steps.length - 1) { next(); } else { submit(); } }}
+                >
                   {step < steps.length - 1 ? '下一步' : '创建'}
                 </Button>
               </Space>

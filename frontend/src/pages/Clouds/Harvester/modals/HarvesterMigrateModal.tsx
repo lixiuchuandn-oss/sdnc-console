@@ -3,34 +3,96 @@
  *
  * 负责发起 Harvester VM 的实时迁移：
  * - 自动探测当前 VM 所在节点（优先使用 VM.status.nodeName，必要时回查 VMI）；
- * - 展示当前节点与目标节点的资源对比：CPU / 内存 / 可承载 VM 数量（估算）；
+ * - 展示当前节点与目标节点的资源对比：CPU / 内存（含 metrics 占用率）；
  * - 支持选择“最佳节点（自动调度）”或指定目标节点；
  * - 提交时调用 migrateHarvesterVm，携带 instanceId 与目标节点。
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { Form, Select, Alert, message, Typography, Table, Space, Row, Col, Input, Progress } from 'antd';
+import { Form, Select, message, Typography, Table, Space, Progress } from 'antd';
+import { CloudServerOutlined, AimOutlined } from '@ant-design/icons';
 import StdFormModal from '../../../../components/StdFormModal';
-import { migrateHarvesterVm, fetchHarvesterResourceByLink, fetchHarvesterNodeDetail, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
+import {
+  migrateHarvesterVm,
+  fetchHarvesterResourceByLink,
+  fetchHarvesterNodeDetail,
+  fetchHarvesterVMAggregated,
+} from '../../../../services/harvesterApi';
 
 const { Text } = Typography;
 
-/**
- * 组件入参
- * - open: 弹窗是否打开
- * - onClose: 关闭回调
- * - onOk: 迁移任务提交成功回调
- * - cloudId: 云 ID
- * - vm: 当前需要迁移的 Harvester VM 对象
- * - nodes: 当前集群可用于迁移的节点列表
- */
 interface HarvesterMigrateModalProps {
   open: boolean;
   onClose: () => void;
   onOk: () => void;
   cloudId: string;
-  vm: any; // Harvester VM Object
-  nodes: any[]; // List of available nodes
+  vm: any;
+  nodes: any[];
 }
+
+/** K8s quantity →「x.xx 核」展示（与节点 allocatable 口径一致） */
+function formatCpuQuantityDisplay(q?: string): string {
+  if (!q) return '-';
+  const s = String(q).trim();
+  if (/m$/i.test(s)) {
+    const v = Number(s.replace(/m$/i, ''));
+    if (!isFinite(v)) return '-';
+    return `${(v / 1000).toFixed(2)} 核`;
+  }
+  if (/n$/i.test(s)) {
+    const v = Number(s.replace(/n$/i, ''));
+    if (!isFinite(v)) return '-';
+    return `${(v / 1e9).toFixed(4)} 核`;
+  }
+  if (/u$/i.test(s)) {
+    const v = Number(s.replace(/u$/i, ''));
+    if (!isFinite(v)) return '-';
+    return `${(v / 1e6).toFixed(4)} 核`;
+  }
+  const v = Number(s);
+  if (!isFinite(v)) return '-';
+  return `${v.toFixed(2)} 核`;
+}
+
+/** K8s memory quantity → GiB 字符串 */
+function formatMemoryQuantityDisplay(q?: string): string {
+  if (!q) return '-';
+  const s = String(q).trim();
+  const m = s.match(/^(\d+(?:\.\d+)?)([KMGTP]i?)?$/i);
+  if (!m) return '-';
+  const val = Number(m[1]);
+  const unit = (m[2] || '').toLowerCase();
+  let bytes = val;
+  if (unit === 'ki') bytes = val * 1024;
+  else if (unit === 'mi') bytes = val * 1024 * 1024;
+  else if (unit === 'gi') bytes = val * 1024 * 1024 * 1024;
+  else if (unit === 'ti') bytes = val * 1024 * 1024 * 1024 * 1024;
+  else if (unit === 'k') bytes = val * 1000;
+  else if (unit === 'm') bytes = val * 1e6;
+  else if (unit === 'g') bytes = val * 1e9;
+  else if (unit === 't') bytes = val * 1e12;
+  const gib = bytes / (1024 * 1024 * 1024);
+  return `${gib.toFixed(2)} GiB`;
+}
+
+const cellMetricRender = (text: string, pct?: number) => (
+  <div>
+    <div style={{ whiteSpace: 'pre-line', lineHeight: 1.35, marginBottom: typeof pct === 'number' ? 4 : 0 }}>{text}</div>
+    {typeof pct === 'number' ? (
+      <div style={{ lineHeight: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Progress
+            percent={Math.max(0, Math.min(100, pct))}
+            size="small"
+            showInfo={false}
+          />
+        </div>
+        <Text type="secondary" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>
+          {pct.toFixed(1)}%
+        </Text>
+      </div>
+    ) : null}
+  </div>
+);
 
 const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
   open,
@@ -44,18 +106,11 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
   const [targetNodeName, setTargetNodeName] = useState<string | null>(null);
-  const [vmiLoading, setVmiLoading] = useState(false);
   const [currentNodeDetail, setCurrentNodeDetail] = useState<any | null>(null);
   const [targetNodeDetail, setTargetNodeDetail] = useState<any | null>(null);
   const [currentNodeMetrics, setCurrentNodeMetrics] = useState<any | null>(null);
   const [targetNodeMetrics, setTargetNodeMetrics] = useState<any | null>(null);
-  const [currentNodePodsCount, setCurrentNodePodsCount] = useState<number | null>(null);
-  const [targetNodePodsCount, setTargetNodePodsCount] = useState<number | null>(null);
 
-  // 弹窗打开时：
-  // - 重置表单
-  // - 初始化当前节点（优先取 VM.status.nodeName，如无则再查 VMI）
-  // - 默认选择“最佳节点（自动调度）”
   useEffect(() => {
     if (open) {
       form.resetFields();
@@ -63,27 +118,22 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
       const n = vm?.status?.nodeName || null;
       setCurrentNodeName(n);
       try {
-        // 默认选择“最佳节点（自动调度）”
-        setTargetNodeName(null);
-        try { form.setFieldsValue({ targetNode: '__AUTO__' }); } catch {}
-      } catch {}
+        form.setFieldsValue({ targetNode: '__AUTO__' });
+      } catch {
+        /* ignore */
+      }
       if (!n && vm?.metadata?.namespace && vm?.metadata?.name) {
-        // Support Cold Migration: If nodeName is empty (Stopped), we don't need to fetch VMI for node.
-        // We still fetch it just in case, but won't block if not found.
-        setVmiLoading(true);
         const path = `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(vm.metadata.namespace)}/virtualmachineinstances/${encodeURIComponent(vm.metadata.name)}`;
         fetchHarvesterResourceByLink(cloudId, path)
           .then((v) => {
             const nn = v?.status?.nodeName || null;
             if (nn) setCurrentNodeName(nn);
           })
-          .catch(() => {})
-          .finally(() => setVmiLoading(false));
+          .catch(() => {});
       }
     }
-  }, [open, form]);
+  }, [open, form, cloudId, vm?.metadata?.namespace, vm?.metadata?.name, vm?.status?.nodeName]);
 
-  // 加载当前节点详情（容量/可分配资源）
   useEffect(() => {
     const name = currentNodeName;
     if (!open || !name) {
@@ -99,15 +149,15 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
         if (!cancelled) setCurrentNodeDetail(null);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, cloudId, currentNodeName]);
 
-  // 加载目标节点详情 + 目标节点上当前 Pod 数量，用于估算可再承载的 VM 数量
   useEffect(() => {
     const name = targetNodeName;
     if (!open || !name) {
       setTargetNodeDetail(null);
-      setTargetNodePodsCount(null);
       return;
     }
     let cancelled = false;
@@ -118,24 +168,16 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
       } catch {
         if (!cancelled) setTargetNodeDetail(null);
       }
-      try {
-        const path = `/api/v1/pods?fieldSelector=${encodeURIComponent(`spec.nodeName=${name}`)}`;
-        const podsJson = await fetchHarvesterResourceByLink(cloudId, path);
-        const cnt = Array.isArray(podsJson?.items) ? podsJson.items.length : 0;
-        if (!cancelled) setTargetNodePodsCount(cnt);
-      } catch {
-        if (!cancelled) setTargetNodePodsCount(null);
-      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, cloudId, targetNodeName]);
 
-  // 加载当前节点的实时 metrics（CPU/内存使用量）以及当前节点 Pod 数
   useEffect(() => {
     const name = currentNodeName;
     if (!open || !name) {
       setCurrentNodeMetrics(null);
-      setCurrentNodePodsCount(null);
       return;
     }
     let cancelled = false;
@@ -147,19 +189,12 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
       } catch {
         if (!cancelled) setCurrentNodeMetrics(null);
       }
-      try {
-        const podsPath = `/api/v1/pods?fieldSelector=${encodeURIComponent(`spec.nodeName=${name}`)}`;
-        const podsJson = await fetchHarvesterResourceByLink(cloudId, podsPath);
-        const cnt = Array.isArray(podsJson?.items) ? podsJson.items.length : 0;
-        if (!cancelled) setCurrentNodePodsCount(cnt);
-      } catch {
-        if (!cancelled) setCurrentNodePodsCount(null);
-      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, cloudId, currentNodeName]);
 
-  // 加载目标节点的实时 metrics（CPU/内存使用量）
   useEffect(() => {
     const name = targetNodeName;
     if (!open || !name) {
@@ -176,14 +211,11 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
         if (!cancelled) setTargetNodeMetrics(null);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, cloudId, targetNodeName]);
 
-  /**
-   * 提交迁移任务：
-   * - instanceId 统一使用 namespace/name 形式；
-   * - targetNode 为 "__AUTO__" 时传 undefined 以启用调度。
-   */
   const handleFinish = async (values: any) => {
     try {
       setLoading(true);
@@ -199,7 +231,9 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
           if (latestVm && data?.related) {
             latestVm.related = data.related;
           }
-        } catch {}
+        } catch {
+          /* ignore */
+        }
       }
 
       const domain = latestVm?.spec?.template?.spec?.domain;
@@ -219,7 +253,7 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
 
       const reasons = [
         hasUsb ? 'USB直通设备' : null,
-        (hasPciHostDevice || hasGpu) ? 'PCI/GPU直通设备' : null,
+        hasPciHostDevice || hasGpu ? 'PCI/GPU直通设备' : null,
         hasPassthroughNic ? '直通网卡(SR-IOV/macvtap)' : null,
       ].filter(Boolean) as string[];
 
@@ -227,9 +261,10 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
         throw new Error(`该虚拟机存在${reasons.join('、')}，不支持热迁移`);
       }
 
-      const instanceId = vm?.metadata?.namespace && vm?.metadata?.name 
-        ? `${vm.metadata.namespace}/${vm.metadata.name}` 
-        : (vm?.id || '');
+      const instanceId =
+        vm?.metadata?.namespace && vm?.metadata?.name
+          ? `${vm.metadata.namespace}/${vm.metadata.name}`
+          : vm?.id || '';
 
       if (!instanceId) {
         throw new Error('无法识别虚拟机 ID');
@@ -237,7 +272,7 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
 
       const target = values?.targetNode === '__AUTO__' ? undefined : values?.targetNode;
       await migrateHarvesterVm(cloudId, instanceId, target);
-      
+
       message.success('迁移任务已提交');
       onOk();
       onClose();
@@ -249,148 +284,59 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
   };
 
   const vmName = vm?.metadata?.name || '-';
+  const vmNs = vm?.metadata?.namespace || '';
   const currentNode = currentNodeName || vm?.status?.nodeName;
 
-  // Filter out current node from options if needed, or just show all
-  // 节点下拉选项（排除当前所在节点）
   const nodeOptions = nodes
-    .filter(n => n?.metadata?.name !== currentNode)
-    .map(n => ({
+    .filter((n) => n?.metadata?.name !== currentNode)
+    .map((n) => ({
       label: n?.metadata?.name,
       value: n?.metadata?.name,
     }));
-  // 下拉选项首项为“最佳节点（自动调度）”
-  const selectOptions = useMemo(() => ([
-    { label: '最佳节点（自动调度）', value: '__AUTO__' },
-    ...nodeOptions
-  ]), [nodeOptions]);
 
-  // 将节点数组转换为 name -> node 的 Map，便于后续查找
+  const selectOptions = useMemo(
+    () => [{ label: '自动选择最佳节点（推荐）', value: '__AUTO__' }, ...nodeOptions],
+    [nodeOptions],
+  );
+
   const nodeMap = useMemo(() => {
     const m: Record<string, any> = {};
-    nodes.forEach(n => {
+    nodes.forEach((n) => {
       const name = n?.metadata?.name;
       if (name) m[name] = n;
     });
     return m;
   }, [nodes]);
 
-  const metricsRows = useMemo(() => {
-    const cur = currentNodeDetail || (currentNode ? nodeMap[currentNode] : null);
-    const tgt = targetNodeDetail || (targetNodeName ? nodeMap[targetNodeName] : null);
-    const curCap = cur?.status?.capacity || cur?.capacity || {};
-    const curAlloc = cur?.status?.allocatable || cur?.allocatable || {};
-    const tgtCap = tgt?.status?.capacity || tgt?.capacity || {};
-    const tgtAlloc = tgt?.status?.allocatable || tgt?.allocatable || {};
-    return [
-      { key: 'cpu', metric: 'CPU(核)', current: curAlloc?.cpu || curCap?.cpu || '-', target: tgtAlloc?.cpu || tgtCap?.cpu || '-' },
-      { key: 'memory', metric: '内存', current: curAlloc?.memory || curCap?.memory || '-', target: tgtAlloc?.memory || tgtCap?.memory || '-' },
-      { key: 'pods', metric: '可分配Pod', current: curAlloc?.pods || curCap?.pods || '-', target: tgtAlloc?.pods || tgtCap?.pods || '-' },
-    ];
-  }, [currentNodeDetail, targetNodeDetail, currentNode, targetNodeName, nodeMap]);
-
-  const columnsCurrent = [
-    { title: '指标', dataIndex: 'metric', key: 'metric', width: 140 },
-    { title: '当前节点', dataIndex: 'value', key: 'value', render: (t: any, row: any) => (
-      <div>
-        <div style={{ whiteSpace: 'pre-line', marginBottom: 4 }}>{t}</div>
-        {typeof row?.pct === 'number' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Progress percent={Math.max(0, Math.min(100, row.pct))} size="small" showInfo={false} />
-            <span>{Math.max(0, Math.min(100, row.pct)).toFixed(1)}%</span>
-          </div>
-        ) : null}
-      </div>
-    ) },
-  ];
-
-  const columnsTarget = [
-    { title: '指标', dataIndex: 'metric', key: 'metric', width: 140 },
-    { title: '目标节点', dataIndex: 'value', key: 'value', render: (t: any, row: any) => (
-      <div>
-        <div style={{ whiteSpace: 'pre-line', marginBottom: 4 }}>{t}</div>
-        {typeof row?.pct === 'number' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Progress percent={Math.max(0, Math.min(100, row.pct))} size="small" showInfo={false} />
-            <span>{Math.max(0, Math.min(100, row.pct)).toFixed(1)}%</span>
-          </div>
-        ) : null}
-      </div>
-    ) },
-  ];
-
-  const toCores = (q?: string): string => {
-    if (!q) return '-';
-    const s = String(q).trim();
-    if (/m$/i.test(s)) {
-      const v = Number(s.replace(/m$/i, ''));
-      if (!isFinite(v)) return '-';
-      return `${(v / 1000).toFixed(2)} 核`;
-    } else if (/n$/i.test(s)) {
-      const v = Number(s.replace(/n$/i, ''));
-      if (!isFinite(v)) return '-';
-      return `${(v / 1e9).toFixed(4)} 核`;
-    } else if (/u$/i.test(s)) {
-      const v = Number(s.replace(/u$/i, ''));
-      if (!isFinite(v)) return '-';
-      return `${(v / 1e6).toFixed(4)} 核`;
-    }
-    const v = Number(s);
-    if (!isFinite(v)) return '-';
-    return `${v.toFixed(2)} 核`;
-  };
-
-  const toGiB = (q?: string): string => {
-    if (!q) return '-';
-    const s = String(q).trim();
-    const m = s.match(/^(\d+(?:\.\d+)?)([KMGTP]i?)?$/i);
-    if (!m) return '-';
-    const val = Number(m[1]);
-    const unit = (m[2] || '').toLowerCase();
-    let bytes = val;
-    if (unit === 'ki') bytes = val * 1024;
-    else if (unit === 'mi') bytes = val * 1024 * 1024;
-    else if (unit === 'gi') bytes = val * 1024 * 1024 * 1024;
-    else if (unit === 'ti') bytes = val * 1024 * 1024 * 1024 * 1024;
-    else if (unit === 'k') bytes = val * 1000;
-    else if (unit === 'm') bytes = val * 1e6;
-    else if (unit === 'g') bytes = val * 1e9;
-    else if (unit === 't') bytes = val * 1e12;
-    const gib = bytes / (1024 * 1024 * 1024);
-    return `${gib.toFixed(2)} GiB`;
-  };
-
   const displayRows = useMemo(() => {
-    const curCap = metricsRows && metricsRows.length ? metricsRows : [];
-    const curCpuRaw = (currentNodeDetail?.status?.allocatable?.cpu || currentNodeDetail?.status?.capacity?.cpu || nodeMap[currentNode || '']?.status?.allocatable?.cpu || nodeMap[currentNode || '']?.status?.capacity?.cpu) as string | undefined;
-    const curMemRaw = (currentNodeDetail?.status?.allocatable?.memory || currentNodeDetail?.status?.capacity?.memory || nodeMap[currentNode || '']?.status?.allocatable?.memory || nodeMap[currentNode || '']?.status?.capacity?.memory) as string | undefined;
-    const tgtCpuRaw = (targetNodeDetail?.status?.allocatable?.cpu || targetNodeDetail?.status?.capacity?.cpu || nodeMap[targetNodeName || '']?.status?.allocatable?.cpu || nodeMap[targetNodeName || '']?.status?.capacity?.cpu) as string | undefined;
-    const tgtMemRaw = (targetNodeDetail?.status?.allocatable?.memory || targetNodeDetail?.status?.capacity?.memory || nodeMap[targetNodeName || '']?.status?.allocatable?.memory || nodeMap[targetNodeName || '']?.status?.capacity?.memory) as string | undefined;
-    const curPodsRaw = (currentNodeDetail?.status?.allocatable?.pods || currentNodeDetail?.status?.capacity?.pods || nodeMap[currentNode || '']?.status?.allocatable?.pods || nodeMap[currentNode || '']?.status?.capacity?.pods) as string | number | undefined;
-    const tgtPodsRaw = (targetNodeDetail?.status?.allocatable?.pods || targetNodeDetail?.status?.capacity?.pods || nodeMap[targetNodeName || '']?.status?.allocatable?.pods || nodeMap[targetNodeName || '']?.status?.capacity?.pods) as string | number | undefined;
-    const toInt = (v: any): number | undefined => {
-      if (v == null) return undefined;
-      const n = parseInt(String(v), 10);
-      return Number.isFinite(n) ? n : undefined;
-    };
-    const curPodsAlloc = toInt(curPodsRaw);
-    const tgtPodsAlloc = toInt(tgtPodsRaw);
-    const curPodsCount = typeof currentNodePodsCount === 'number' ? currentNodePodsCount : undefined;
-    const tgtPodsCount = typeof targetNodePodsCount === 'number' ? targetNodePodsCount : undefined;
-    const curVmRemaining = (curPodsAlloc != null && curPodsCount != null) ? Math.max(0, curPodsAlloc - curPodsCount) : undefined;
-    const tgtVmRemaining = (tgtPodsAlloc != null && tgtPodsCount != null) ? Math.max(0, tgtPodsAlloc - tgtPodsCount) : undefined;
-    const curPods = curVmRemaining != null ? `${curVmRemaining} 台（估算）` : (curPodsAlloc != null ? `${curPodsAlloc} 名额（Pod）` : '-');
-    const tgtPods = tgtVmRemaining != null ? `${tgtVmRemaining} 台（估算）` : (tgtPodsAlloc != null ? `${tgtPodsAlloc} 名额（Pod）` : '-');
+    const curCpuRaw = (currentNodeDetail?.status?.allocatable?.cpu ||
+      currentNodeDetail?.status?.capacity?.cpu ||
+      nodeMap[currentNode || '']?.status?.allocatable?.cpu ||
+      nodeMap[currentNode || '']?.status?.capacity?.cpu) as string | undefined;
+    const curMemRaw = (currentNodeDetail?.status?.allocatable?.memory ||
+      currentNodeDetail?.status?.capacity?.memory ||
+      nodeMap[currentNode || '']?.status?.allocatable?.memory ||
+      nodeMap[currentNode || '']?.status?.capacity?.memory) as string | undefined;
+    const tgtCpuRaw = (targetNodeDetail?.status?.allocatable?.cpu ||
+      targetNodeDetail?.status?.capacity?.cpu ||
+      nodeMap[targetNodeName || '']?.status?.allocatable?.cpu ||
+      nodeMap[targetNodeName || '']?.status?.capacity?.cpu) as string | undefined;
+    const tgtMemRaw = (targetNodeDetail?.status?.allocatable?.memory ||
+      targetNodeDetail?.status?.capacity?.memory ||
+      nodeMap[targetNodeName || '']?.status?.allocatable?.memory ||
+      nodeMap[targetNodeName || '']?.status?.capacity?.memory) as string | undefined;
     const parseCpuToCores = (s?: string): number => {
       if (!s) return 0;
       const t = String(s).trim();
       if (/m$/i.test(t)) {
         const v = Number(t.replace(/m$/i, ''));
         return isFinite(v) ? v / 1000 : 0;
-      } else if (/n$/i.test(t)) {
+      }
+      if (/n$/i.test(t)) {
         const v = Number(t.replace(/n$/i, ''));
         return isFinite(v) ? v / 1e9 : 0;
-      } else if (/u$/i.test(t)) {
+      }
+      if (/u$/i.test(t)) {
         const v = Number(t.replace(/u$/i, ''));
         return isFinite(v) ? v / 1e6 : 0;
       }
@@ -427,90 +373,121 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
     const tgtCpuPct = tgtCpuTotal > 0 ? Math.round((tgtCpuUsed / tgtCpuTotal) * 1000) / 10 : undefined;
     const curMemPct = curMemTotalBytes > 0 ? Math.round((curMemUsedBytes / curMemTotalBytes) * 1000) / 10 : undefined;
     const tgtMemPct = tgtMemTotalBytes > 0 ? Math.round((tgtMemUsedBytes / tgtMemTotalBytes) * 1000) / 10 : undefined;
-    const formatPct = (v?: number) => (typeof v === 'number' && isFinite(v)) ? `${v.toFixed(1)}%` : '-';
-    const toGiBNum = (bytes: number) => (bytes > 0 ? (bytes / (1024 * 1024 * 1024)) : 0);
-    const curMemText = `${toGiB(curMemRaw)}${curMemUsedBytes ? `（已用 ${toGiBNum(curMemUsedBytes).toFixed(2)} GiB，${formatPct(curMemPct)}）` : ''}`;
-    const tgtMemText = `${toGiB(tgtMemRaw)}${tgtMemUsedBytes ? `（已用 ${toGiBNum(tgtMemUsedBytes).toFixed(2)} GiB，${formatPct(tgtMemPct)}）` : ''}`;
-    const curCpuText = `${toCores(curCpuRaw)}${curCpuUsed ? `（已用 ${curCpuUsed.toFixed(2)} 核，${formatPct(curCpuPct)}）` : ''}`;
-    const tgtCpuText = `${toCores(tgtCpuRaw)}${tgtCpuUsed ? `（已用 ${tgtCpuUsed.toFixed(2)} 核，${formatPct(tgtCpuPct)}）` : ''}`;
-    const curPodsPctUsed = (curPodsAlloc != null && curPodsCount != null && curPodsAlloc > 0)
-      ? Math.round((curPodsCount / curPodsAlloc) * 1000) / 10
-      : undefined;
-    const tgtPodsPctUsed = (tgtPodsAlloc != null && tgtPodsCount != null && tgtPodsAlloc > 0)
-      ? Math.round((tgtPodsCount / tgtPodsAlloc) * 1000) / 10
-      : undefined;
+    const formatPct = (v?: number) => (typeof v === 'number' && isFinite(v) ? `${v.toFixed(1)}%` : '-');
+    const toGiBNum = (bytes: number) => (bytes > 0 ? bytes / (1024 * 1024 * 1024) : 0);
+    const curMemText = `${formatMemoryQuantityDisplay(curMemRaw)}${curMemUsedBytes ? `（已用 ${toGiBNum(curMemUsedBytes).toFixed(2)} GiB，${formatPct(curMemPct)}）` : ''}`;
+    const tgtMemText = `${formatMemoryQuantityDisplay(tgtMemRaw)}${tgtMemUsedBytes ? `（已用 ${toGiBNum(tgtMemUsedBytes).toFixed(2)} GiB，${formatPct(tgtMemPct)}）` : ''}`;
+    const curCpuText = `${formatCpuQuantityDisplay(curCpuRaw)}${curCpuUsed ? `（已用 ${curCpuUsed.toFixed(2)} 核，${formatPct(curCpuPct)}）` : ''}`;
+    const tgtCpuText = `${formatCpuQuantityDisplay(tgtCpuRaw)}${tgtCpuUsed ? `（已用 ${tgtCpuUsed.toFixed(2)} 核，${formatPct(tgtCpuPct)}）` : ''}`;
     return [
-      { key: 'cpu', metric: 'CPU(核)', current: curCpuText, target: tgtCpuText, currentPct: curCpuPct, targetPct: tgtCpuPct },
+      { key: 'cpu', metric: 'CPU', current: curCpuText, target: tgtCpuText, currentPct: curCpuPct, targetPct: tgtCpuPct },
       { key: 'memory', metric: '内存', current: curMemText, target: tgtMemText, currentPct: curMemPct, targetPct: tgtMemPct },
-      { key: 'pods', metric: '剩余VM数量', current: curPods, target: tgtPods, currentPct: curPodsPctUsed, targetPct: tgtPodsPctUsed },
     ];
-  }, [metricsRows, currentNodeDetail, targetNodeDetail, currentNode, targetNodeName, nodeMap, currentNodeMetrics, targetNodeMetrics, currentNodePodsCount, targetNodePodsCount]);
+  }, [
+    currentNodeDetail,
+    targetNodeDetail,
+    currentNode,
+    targetNodeName,
+    nodeMap,
+    currentNodeMetrics,
+    targetNodeMetrics,
+  ]);
 
-  const currentTableData = useMemo(() => {
-    return displayRows.map(r => ({
-      key: r.key,
-      metric: r.metric,
-      value: r.current,
-      pct: r.currentPct,
-    }));
-  }, [displayRows]);
+  const combinedColumns = useMemo(
+    () => [
+      {
+        title: '指标',
+        dataIndex: 'metric',
+        key: 'metric',
+        width: 80,
+        fixed: 'left' as const,
+      },
+      {
+        title: (
+          <Space size={6}>
+            <CloudServerOutlined style={{ color: '#1677ff' }} />
+            <span>当前节点</span>
+          </Space>
+        ),
+        dataIndex: 'current',
+        key: 'current',
+        render: (_: unknown, row: (typeof displayRows)[0]) => cellMetricRender(row.current, row.currentPct),
+      },
+      {
+        title: (
+          <Space size={6}>
+            <AimOutlined style={{ color: '#52c41a' }} />
+            <span>目标节点</span>
+          </Space>
+        ),
+        dataIndex: 'target',
+        key: 'target',
+        render: (_: unknown, row: (typeof displayRows)[0]) => {
+          if (!targetNodeName) {
+            return (
+              <Text type="secondary" style={{ fontStyle: 'italic' }}>
+                选择具体节点后显示对比
+              </Text>
+            );
+          }
+          return cellMetricRender(row.target, row.targetPct);
+        },
+      },
+    ],
+    [targetNodeName],
+  );
 
-  const targetTableData = useMemo(() => {
-    return displayRows.map(r => ({
-      key: r.key,
-      metric: r.metric,
-      value: r.target,
-      pct: r.targetPct,
-    }));
-  }, [displayRows]);
+  const modalTitle = (
+    <Space size={6}>
+      <span>热迁移</span>
+      <Text type="secondary">
+        {vmNs ? `${vmNs} / ` : ''}
+        {vmName}
+      </Text>
+    </Space>
+  );
 
   return (
     <StdFormModal
       open={open}
-      title={`虚拟机热迁移 - ${vmName}`}
+      title={modalTitle}
       form={form}
       onCancel={onClose}
       onFinish={handleFinish}
       okText="开始迁移"
       confirmLoading={loading}
-      width={600}
+      width={760}
       destroyOnHidden
       centered
     >
-      <Form.Item label="当前节点">
-        <Input value={currentNode || ''} placeholder="未知" readOnly />
-      </Form.Item>
-      <Table
-        size="small"
-        bordered
-        pagination={false}
-        columns={columnsCurrent as any}
-        dataSource={currentTableData as any}
-        rowKey="key"
-        className="std-table"
-        style={{ marginBottom: 16 }}
-      />
-
-      <Form.Item 
-        name="targetNode" 
-        label="目标节点" 
+      <Form.Item
+        name="targetNode"
+        label="迁移目标"
+        rules={[{ required: true, message: '请选择迁移目标' }]}
       >
         <Select
-          placeholder="请选择目标节点"
+          placeholder="选择目标节点或自动调度"
           options={selectOptions}
           style={{ width: '100%' }}
+          size="large"
           onChange={(v) => setTargetNodeName(v && v !== '__AUTO__' ? v : null)}
         />
       </Form.Item>
+
+
       <Table
         size="small"
         bordered
         pagination={false}
-        columns={columnsTarget as any}
-        dataSource={targetTableData as any}
+        columns={combinedColumns as any}
+        dataSource={displayRows as any}
         rowKey="key"
-        className="std-table"
+        className="std-table harvester-migrate-compare-table"
+        scroll={{ x: 520 }}
       />
+      <style>{`
+        .harvester-migrate-compare-table .ant-table-cell { vertical-align: top; }
+      `}</style>
     </StdFormModal>
   );
 };

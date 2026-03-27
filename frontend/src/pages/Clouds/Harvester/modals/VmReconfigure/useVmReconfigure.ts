@@ -1,15 +1,67 @@
+/**
+ * @file useVmReconfigure.ts
+ * @description Harvester 虚拟机变配弹窗（VmReconfigureModal）的状态与提交逻辑 Hook。
+ *
+ * ## 职责
+ * - 管理变配表单、左侧功能项 `selectedKey`、以及镜像/存储类/GPU/USB/NAD/VPC/子网/节点等资源列表状态。
+ * - 弹窗打开时通过聚合接口刷新 `latestVm`（含 related.volumes），供解绑磁盘等子组件使用。
+ * - 随 `selectedKey` 切换重置并回填表单（与创建向导字段对齐的变配语义）。
+ * - `handleSubmit` 按当前菜单分支调用更新 VM / 卷 / 策略等 API；部分操作后提示重启（`openRestartConfirm` / `maybePromptRestart`）。
+ *
+ * ## 模块级函数（文件顶部，Hook 外）
+ * | 函数 | 用途 |
+ * |------|------|
+ * | `parseQuantity` | 将 K8s 资源量字符串（如 1Gi、500Mi）解析为字节数。 |
+ * | `hasDuplicateFlatSubnetsInNetworks` | 检查 networks 中 Kube-OVN 扁平子网是否被多块网卡重复使用。 |
+ * | `allocateSecondaryNicNames` | 为辅网卡生成 `nic-N` 名称，避免与主网卡及其它辅卡冲突。 |
+ *
+ * ## Hook 内主要函数（节选）
+ * | 函数 | 用途 |
+ * |------|------|
+ * | `getCurrentSpec` | 从 VM 清单解析当前 CPU/内存及热插拔相关上限，供表单初值。 |
+ * | `loadSystemDiskSize` | 读取系统盘 PVC 容量并写入表单（扩系统盘步骤）。 |
+ * | `getParsedNetworkData` | 解析 cloud-init networkData（YAML）为对象，用于静态 IP 等。 |
+ * | `getQuantityInGi` / `getMemoryInGi` | 资源量转 GiB 整数，供展示与表单。 |
+ * | `reloadNads` / `reloadVpcs` / `reloadSubnets` 等 | 拉取集群网络与节点数据。 |
+ * | `ensureNadsLoaded` | 若内存无 NAD 列表则先拉取。 |
+ * | `getMissingNadsFromNetworks` | 根据 VM networks 解析 multus 引用，返回集群中不存在的 NAD。 |
+ * | `generateMacAddress` | 生成随机 MAC（静态 IP 且未填 MAC 时使用）。 |
+ * | `openRestartConfirm` | 变更需重启时弹出确认框，可选立即调用云主机重启 API。 |
+ * | `isRestartRequiredFromVm` | 判断 VM status.conditions 是否含 RestartRequired。 |
+ * | `isVmStopped` | 判断是否关机，用于跳过「立即重启」提示。 |
+ * | `fetchAggregatedVm` | 拉取聚合 VM 并写回 `latestVm`。 |
+ * | `maybePromptRestart` | 提交后短暂延迟再拉取 VM，若需重启且未关机则弹确认。 |
+ * | `handleSubmit` | 主提交：按 `selectedKey` 分支处理各类变配（见函数上方分支说明）。 |
+ * | `handleCreateDisk` / `handleAttachDisk` | 添加数据盘：创建 PVC 或挂载已有卷。 |
+ * | `handleDetachDisk` | 解绑数据盘。 |
+ * | `refreshVm` | 手动刷新聚合 VM 数据。 |
+ */
 import { useState, useEffect, useMemo } from 'react';
 import { Form, message, Modal } from 'antd';
 import yaml from 'js-yaml';
-import { 
-  updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVm, attachHarvesterVolumeToVmByName, 
-  fetchHarvesterGpuResources, fetchHarvesterUsbResources, patchHarvesterVm, fetchHarvesterNads,
-  fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterImages, fetchHarvesterStorageClasses,
-  fetchHarvesterVolume, fetchHarvesterVmDetail, updateHarvesterVolume, fetchHarvesterVolumes, fetchHarvesterAvailableVolumes,
-  detachHarvesterVolumeFromVm, fetchHarvesterVMAggregated, fetchHarvesterNodes
+import {
+  updateHarvesterVmSpec,
+  createHarvesterVolume,
+  attachHarvesterVolumeToVm,
+  fetchHarvesterGpuResources,
+  fetchHarvesterUsbResources,
+  patchHarvesterVm,
+  fetchHarvesterNads,
+  fetchKubeOvnVpcs,
+  fetchKubeOvnSubnets,
+  fetchHarvesterImages,
+  fetchHarvesterStorageClasses,
+  fetchHarvesterVolume,
+  fetchHarvesterVmDetail,
+  updateHarvesterVolume,
+  fetchHarvesterAvailableVolumes,
+  detachHarvesterVolumeFromVm,
+  fetchHarvesterVMAggregated,
+  fetchHarvesterNodes,
 } from '../../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../../services/api';
 
+/** 将 Kubernetes 资源量字符串（如 `1Gi`、`500Mi`、`1000`）解析为字节数。 */
 const parseQuantity = (s: string | number | undefined): number => {
   if (typeof s === 'number') return s;
   if (!s) return 0;
@@ -42,6 +94,35 @@ function hasDuplicateFlatSubnetsInNetworks(networks: any[], subnetInventory: any
   return new Set(names).size !== names.length;
 }
 
+/**
+ * 为辅网卡分配 nic-N 名称：从 nic-1、nic-2… 中取最小可用编号，保证不与主网卡名冲突。
+ * Harvester 等底座常把第一块网卡命名为 nic-1，若仍固定辅卡为 nic-1 会与主卡重名。
+ */
+function allocateSecondaryNicNames(primaryIfaceName: string, count: number): string[] {
+  const used = new Set<string>();
+  if (primaryIfaceName) used.add(primaryIfaceName);
+  const out: string[] = [];
+  let n = 1;
+  for (let i = 0; i < count; i++) {
+    while (used.has(`nic-${n}`)) n++;
+    const name = `nic-${n}`;
+    used.add(name);
+    out.push(name);
+    n++;
+  }
+  return out;
+}
+
+/**
+ * 虚拟机变配主 Hook：供 VmReconfigureModal 使用。
+ * @param props.open - 弹窗是否打开
+ * @param props.cloudId - 资源池 ID
+ * @param props.record - 当前 VM 行/CR 数据
+ * @param props.onClose - 关闭回调
+ * @param props.onOk - 变更成功后的回调（部分流程会传 `true` 表示需刷新列表）
+ * @param props.storageClasses / images / gpuResources - 外部传入时可避免重复请求
+ * @param props.initialConfigType - 打开弹窗时默认选中的菜单项（如 `change_spec`）
+ */
 export const useVmReconfigure = (props: any) => {
   const { 
     open, cloudId, record, onClose, onOk, 
@@ -147,6 +228,7 @@ export const useVmReconfigure = (props: any) => {
     return { systemDisk: sysDiskPvc };
   }, [record, activeRecord]);
 
+  /** 读取系统盘 PVC 的容量并写入表单字段 `systemDiskSize`（扩系统盘菜单使用）。 */
   const loadSystemDiskSize = async () => {
     if (!systemDisk || !record?.metadata?.namespace) return;
     try {
@@ -185,6 +267,10 @@ export const useVmReconfigure = (props: any) => {
     }
   }, [open, initialConfigType]);
 
+  /**
+   * 从 `record` / `activeRecord` 解析当前 CPU/内存及热插拔上限（maxSockets、maxMemory 等），
+   * 供「调整规格」「热插拔设置」「CPU 高级」等表单的初始值。
+   */
   const getCurrentSpec = () => {
     let cpu = record?.Extra?.CPU;
     let mem = record?.Extra?.Memory;
@@ -217,7 +303,7 @@ export const useVmReconfigure = (props: any) => {
     return { cpu: Number(cpu || 0), memory: mem, maxSockets, maxMemory };
   };
 
-  // Helper functions
+  /** 生成随机本地管理 MAC（52:54:00 前缀），用于静态 IP 且未指定 MAC 的网卡。 */
   const generateMacAddress = () => {
     const hex = '0123456789ABCDEF';
     let mac = '52:54:00'; 
@@ -227,6 +313,10 @@ export const useVmReconfigure = (props: any) => {
     return mac;
   };
 
+  /**
+   * 从 VM 的 cloud-init volume 中解析 `networkData`（YAML），失败时返回空 ethernets 结构。
+   * 用于读写静态 IP、网关、DNS 等。
+   */
   const getParsedNetworkData = (vm: any) => {
     try {
       const volumes = vm?.spec?.template?.spec?.volumes || [];
@@ -240,12 +330,14 @@ export const useVmReconfigure = (props: any) => {
     return { network: { version: 2, ethernets: {} } };
   };
 
+  /** 将任意资源量字符串转为 GiB 整数（向上取整）。 */
   const getQuantityInGi = (q: string | number | undefined): number => {
     const bytes = parseQuantity(q);
     if (!bytes) return 0;
     return Math.ceil(bytes / (1024 ** 3));
   };
 
+  /** 将内存量字符串转为 GiB 整数（向上取整），与 `getQuantityInGi` 语义一致。 */
   const getMemoryInGi = (memStr: string | number | undefined): number => {
     const bytes = parseQuantity(memStr);
     if (!bytes) return 0;
@@ -253,15 +345,13 @@ export const useVmReconfigure = (props: any) => {
     return Math.ceil(bytes / (1024 ** 3));
   };
 
-  // [Harvester 兼容] 判断虚拟机是否“配置了”CPU 和内存热扩容（单纯看 Annotation）
-  // 复刻 Harvester 逻辑：通过 Annotation harvesterhci.io/enableCPUAndMemoryHotplug 判断
+  /** 是否开启 CPU/内存热插拔（仅看 Annotation，与当前是否可热插无关）。 */
   const isHotPlugConfiguredOnVm = useMemo(() => {
     const annotations = activeRecord?.metadata?.annotations || {};
     return annotations['harvesterhci.io/enableCPUAndMemoryHotplug']?.toLowerCase() === 'true';
   }, [activeRecord]);
 
-  // [Harvester 兼容] 判断虚拟机当前是否“可以进行热扩容操作”
-  // 逻辑：在已配置热扩容的前提下，如果存在 RestartRequired / HotPlugInProgress，则视为当前不可热扩容
+  /** 当前是否允许走热插拔调整（已配置热插且无异步重启/热插进行中条件）。 */
   const isHotPlugEnabledOnVm = useMemo(() => {
     if (!isHotPlugConfiguredOnVm) return false;
 
@@ -275,11 +365,13 @@ export const useVmReconfigure = (props: any) => {
     return true;
   }, [isHotPlugConfiguredOnVm, activeRecord]);
 
+  /** status 中是否处于 HotVCPUChange / HotMemoryChange 进行中。 */
   const isHotPlugInProgress = useMemo(() => {
     const conditions = activeRecord?.status?.conditions || [];
     return conditions.some((c: any) => (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True');
   }, [activeRecord]);
 
+  /** 拉取集群 NetworkAttachmentDefinition 列表并写入 `nads`。 */
   const reloadNads = async () => {
     try {
       const res = await fetchHarvesterNads(cloudId);
@@ -289,11 +381,16 @@ export const useVmReconfigure = (props: any) => {
     } catch (e) { console.error(e); return []; }
   };
 
+  /** 若内存中已有 NAD 则直接返回，否则调用 `reloadNads`。提交前校验引用完整性时使用。 */
   const ensureNadsLoaded = async () => {
     if (Array.isArray(nads) && nads.length > 0) return nads;
     return await reloadNads();
   };
 
+  /**
+   * 从 VM 的 `networks[].multus.networkName` 解析出 NAD 引用，与 `nadList` 比对，
+   * 返回集群中不存在的 `namespace/name` 列表（用于提交前拦截无效网络）。
+   */
   const getMissingNadsFromNetworks = (networks: any[], vmNamespace: string, nadList: any[]) => {
     const list = Array.isArray(nadList) ? nadList : [];
     const getNs = (x: any) => x?.metadata?.namespace || x?.namespace || '';
@@ -319,6 +416,7 @@ export const useVmReconfigure = (props: any) => {
       .map((ref: any) => `${ref.namespace}/${ref.name}`);
   };
 
+  /** 拉取 Kube-OVN VPC 列表。 */
   const reloadVpcs = async () => {
     try { 
       const res = await fetchKubeOvnVpcs(cloudId); 
@@ -327,6 +425,7 @@ export const useVmReconfigure = (props: any) => {
       return items;
     } catch (e) { console.error(e); return []; }
   };
+  /** 拉取 Kube-OVN Subnet 列表。 */
   const reloadSubnets = async () => {
     try { 
       const res = await fetchKubeOvnSubnets(cloudId); 
@@ -336,6 +435,7 @@ export const useVmReconfigure = (props: any) => {
     } catch (e) { console.error(e); return []; }
   };
 
+  /** 拉取集群节点列表（调度/节点选择等）。 */
   const reloadNodes = async () => {
     try {
       const res = await fetchHarvesterNodes(cloudId);
@@ -348,6 +448,7 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
+  /** 拉取镜像列表。 */
   const reloadImages = async () => {
     try {
       const res = await fetchHarvesterImages(cloudId);
@@ -356,6 +457,7 @@ export const useVmReconfigure = (props: any) => {
     } catch (e) { console.error(e); }
   };
 
+  /** 拉取 StorageClass 列表。 */
   const reloadScs = async () => {
     try {
       const res = await fetchHarvesterStorageClasses(cloudId);
@@ -364,6 +466,7 @@ export const useVmReconfigure = (props: any) => {
     } catch (e) { console.error(e); }
   };
 
+  /** 拉取 GPU 设备资源列表（含 loading 状态）。 */
   const reloadGpuResources = async () => {
     try {
       setGpuLoading(true);
@@ -377,6 +480,7 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
+  /** 拉取 USB 透传设备列表（含 loading 状态）。 */
   const reloadUsbResources = async () => {
     try {
       setUsbLoading(true);
@@ -502,7 +606,9 @@ export const useVmReconfigure = (props: any) => {
       }
       case 'change_primary_nic': {
         (async () => {
-          const [_, __, loadedSubnets] = await Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()]);
+          const loadedSubnets = (
+            await Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()])
+          )[2];
           const networks = record?.spec?.template?.spec?.networks || [];
           const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
           if (interfaces.length > 0) {
@@ -566,7 +672,9 @@ export const useVmReconfigure = (props: any) => {
       }
       case 'change_secondary_nic': {
         (async () => {
-          const [_, __, loadedSubnets] = await Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()]);
+          const loadedSubnets = (
+            await Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()])
+          )[2];
           const networks = record?.spec?.template?.spec?.networks || [];
           const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
           const networkDataObj = getParsedNetworkData(record);
@@ -653,7 +761,7 @@ export const useVmReconfigure = (props: any) => {
                   : isVpc
                     ? 'vpc'
                     : 'flat';
-            const ifaceKey = `nic-${idx + 1}`;
+            const ifaceKey = iface.name || `nic-${idx + 1}`;
             let eth = networkDataObj?.network?.ethernets?.[ifaceKey];
             if (!eth && iface.macAddress && networkDataObj?.network?.ethernets) {
               eth = Object.values(networkDataObj.network.ethernets).find(
@@ -817,6 +925,8 @@ export const useVmReconfigure = (props: any) => {
         break;
       }
     }
+    // 仅随菜单/VM/弹窗切换初始化表单；补全 reload* / 资源列表等依赖会导致重复 reset 与多余请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: tab-switch init only
   }, [selectedKey, open, record, latestVm, form]);
 
   // 专门针对 CPU 高级配置做一次“精确回显”，确保 dedicatedCPUPlacement 等字段与最新 VM 保持一致
@@ -996,6 +1106,10 @@ export const useVmReconfigure = (props: any) => {
     form.setFieldsValue({ gpuNodeName: inferredNode });
   }, [open, selectedKey, activeRecord, gpuResources, form]);
 
+  /**
+   * 变更需重启生效时弹出确认：用户可选择立即重启（调用云 API）或稍后手动重启。
+   * 若 VM 已停止则仅提示「下次启动生效」，不弹重启框。
+   */
   const openRestartConfirm = (namespace: string, vmName: string, force: boolean = false) => {
     // [修复] 检查虚拟机状态，如果已停止则不提示重启
     const activeVm = latestVm || record;
@@ -1020,12 +1134,13 @@ export const useVmReconfigure = (props: any) => {
     });
   };
 
+  /** 读取 VM status.conditions 是否包含 `RestartRequired=True`。 */
   const isRestartRequiredFromVm = (vm: any) => {
     const conditions = vm?.status?.conditions || [];
     return conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
   };
 
-  // 判断虚拟机是否处于停止状态
+  /** 判断虚拟机是否处于停止状态（用于跳过重启提示）。 */
   const isVmStopped = (vm: any) => {
     if (!vm) return false;
     // 检查 spec.running 字段
@@ -1036,6 +1151,7 @@ export const useVmReconfigure = (props: any) => {
     return ['stopped', 'shutoff', 'down', 'offline'].includes(statusLower);
   };
 
+  /** 拉取聚合 VM 数据并更新 `latestVm`，返回更新后的 VM 对象。 */
   const fetchAggregatedVm = async (namespace: string, vmName: string) => {
     const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
     const data = res?.data?.vm ? res.data : res;
@@ -1047,6 +1163,10 @@ export const useVmReconfigure = (props: any) => {
     return updatedVm;
   };
 
+  /**
+   * 提交成功后：可选延迟后重新拉取 VM；若仍运行且出现 RestartRequired，则弹重启确认。
+   * `force` 为 true 时直接走 `openRestartConfirm`。
+   */
   const maybePromptRestart = async (namespace: string, vmName: string, options?: { force?: boolean }) => {
     const force = !!options?.force;
     if (force) {
@@ -1073,6 +1193,23 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
+  /**
+   * 变配表单统一提交入口：根据 `selectedKey` 分支处理。
+   *
+   * - `expand_system_disk`：扩容系统盘 PVC，必要时更新 annotation。
+   * - `change_spec`：调整 CPU/内存（含热插拔路径下的 patch 逻辑）。
+   * - `hotplug_settings`：开关 CPU/内存热插拔及上限。
+   * - `cpu_advanced`：CPU 拓扑、独占、requests/limits 等高级域。
+   * - `change_os`：更换镜像/启动相关。
+   * - `add_disk`：新增数据盘（卷与磁盘条目）。
+   * - `change_gpu`：GPU 绑定与节点亲和。
+   * - `change_node_scheduling` / `change_node_affinity`：节点调度与亲和性。
+   * - `change_usb`：USB 设备透传列表。
+   * - `vm_policy`：运行策略、驱逐策略等。
+   * - `change_primary_nic` / `change_secondary_nic`：主/辅网卡 Multus 与 cloud-init 网络数据。
+   *
+   * 非网卡类提交前会校验当前 VM 引用的 NAD 均存在（`getMissingNadsFromNetworks`）。
+   */
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
@@ -1331,14 +1468,8 @@ export const useVmReconfigure = (props: any) => {
           const finalThreads = finalDomain?.cpu?.threads || currentThreads;
           const finalTotalCpu = finalSockets * finalCores * finalThreads;
 
-          // 使用最新的domain状态获取内存（如果刷新了则用新的，否则用原来的）
-          const finalMemRaw = finalDomain?.resources?.requests?.memory || finalDomain?.memory?.guest || currentMemRaw;
-          // [关键修复] 统一使用 getMemoryInGi 计算内存值，确保与表单初始化时的计算方式一致（向上取整）
-          // 这样可以避免因为计算方式不同（直接除法 vs 向上取整）导致的误判
-          const finalMemGi = finalMemRaw ? getMemoryInGi(finalMemRaw) : currentMemGi;
-
           const newCpu = values.cpu !== undefined ? Number(values.cpu) : finalTotalCpu; // Total Cores，如果未传则保持原值
-          // [关键修复] 如果用户没有修改内存（values.memory 为 undefined），应该使用表单初始化时的值（currentMemGi），而不是 finalMemGi
+          // [关键修复] 如果用户没有修改内存（values.memory 为 undefined），应该使用表单初始化时的值（currentMemGi）
           // 这样可以确保即使用户只改了 CPU，内存比较逻辑也能正确工作
           const newMemGi = values.memory !== undefined ? Number(values.memory) : currentMemGi; // GiB，如果未传则使用表单初始值
 
@@ -1354,7 +1485,7 @@ export const useVmReconfigure = (props: any) => {
           
           // 检查是否是"只增不减"的热扩容场景（基于表单值和当前实际值的比较）
           const isCpuHotAdd = !finalCpuChanged || (newCpu >= finalTotalCpu - 0.01);
-          const isMemHotAdd = !finalMemChanged || (newMemGi >= currentMemGi - 0.01); // 使用 currentMemGi 而不是 finalMemGi
+          const isMemHotAdd = !finalMemChanged || (newMemGi >= currentMemGi - 0.01); // 与表单初始化时的 currentMemGi 比较
           
           // ARM架构不支持CPU热插拔，但支持内存热插拔
           const isCpuHotPlugAllowed = !isArm || !finalCpuChanged;
@@ -1431,9 +1562,7 @@ export const useVmReconfigure = (props: any) => {
           const isHotPlugConfiguredByAnnotation = hotPlugAnnotation?.toLowerCase() === 'true';
           const hasMaxSockets = currentDomain?.cpu?.maxSockets && currentDomain.cpu.maxSockets > currentSockets;
           const isCurrentlyHotPlug = isHotPlugConfiguredByAnnotation && hasMaxSockets;
-          
-          const hotPlugChanged = values.enableHotPlug !== isCurrentlyHotPlug;
-          
+
           // 如果要开启热扩容，且当前拓扑不是cores=1, threads=1，需要先设置拓扑
           const needTopologyFix = values.enableHotPlug && !isCurrentlyHotPlug && (currentCores !== 1 || currentThreads !== 1);
           
@@ -1491,19 +1620,6 @@ export const useVmReconfigure = (props: any) => {
             };
           }
 
-          // [调试日志] 输出提交的 payload
-          console.log('=== 热扩容设置提交 ===');
-          console.log('Payload:', JSON.stringify(payload, null, 2));
-          console.log('当前VM状态:', {
-            sockets: currentSockets,
-            cores: currentCores,
-            threads: currentThreads,
-            totalCpu: currentTotalCpu,
-            isCurrentlyHotPlug,
-            needTopologyFix
-          });
-          console.log('========================');
-          
           await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
           message.success('热扩容设置已提交');
           // [修复] 开启热扩容应该无条件提示重启对话框
@@ -1842,14 +1958,7 @@ export const useVmReconfigure = (props: any) => {
             });
             updateParams.nodeSelector = Object.keys(nodeSelector).length > 0 ? nodeSelector : null;
           }
-          
-          // 调试日志：确认提交的参数
-          console.log('节点调度提交参数:', {
-            mode,
-            fixedNode,
-            updateParams
-          });
-          
+
           await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);
           message.success('节点调度配置已更新');
           openRestartConfirm(namespace, vmName, false);
@@ -2219,9 +2328,13 @@ export const useVmReconfigure = (props: any) => {
            let networkDataObj = getParsedNetworkData(record);
            let hasNetworkDataChange = false;
 
+           const primaryIfaceName =
+             String(currentInterfaces[0]?.name || currentNetworks[0]?.name || '').trim() || 'default';
+           const secondaryIfaceNames = allocateSecondaryNicNames(primaryIfaceName, secondaryNics.length);
+
            // Append Secondary NICs
            secondaryNics.forEach((nic: any, idx: number) => {
-              const ifaceName = `nic-${idx + 1}`; // consistent naming for secondary nics
+              const ifaceName = secondaryIfaceNames[idx];
               let mac = nic.macAddress;
 
               // Auto-generate MAC if Static IP is used but MAC is missing
@@ -2259,8 +2372,12 @@ export const useVmReconfigure = (props: any) => {
               if (nic.mode === 'vpc') {
                   const subnetName = nic.subnet;
                   if (subnetName) {
-                      // Try to find subnet's namespace from subnets list (backend injects metadata.namespace)
-                      const subnet = subnets.find((s: any) => s?.metadata?.name === subnetName);
+                      // 按子网名 + VPC 查找，避免跨 VPC 同名子网误匹配
+                      const subnet = subnets.find(
+                        (s: any) =>
+                          s?.metadata?.name === subnetName &&
+                          String(s?.spec?.vpc || s?.vpc || '').trim() === String(nic?.vpc || '').trim(),
+                      );
                       if (subnet?.metadata?.namespace) {
                           sNetName = `${subnet.metadata.namespace}/${subnetName}`;
                       } else {
@@ -2282,7 +2399,11 @@ export const useVmReconfigure = (props: any) => {
                       (raw && String(raw).includes('/') ? String(raw).split('/').pop() : raw) ||
                       '';
                   if ((!sNetName || !String(sNetName).includes('/')) && subnetName) {
-                      const subnet = subnets.find((s: any) => s?.metadata?.name === subnetName);
+                      const subnet = subnets.find(
+                        (s: any) =>
+                          s?.metadata?.name === subnetName &&
+                          String(s?.spec?.vpc || s?.vpc || '').trim() === 'ovn-cluster',
+                      );
                       let ns = subnet?.metadata?.namespace;
                       if (!ns && subnet?.spec?.provider) {
                           const parts = String(subnet.spec.provider).split('.');
@@ -2338,21 +2459,17 @@ export const useVmReconfigure = (props: any) => {
                return;
            }
 
-           // Clean up removed secondary NICs from networkData (e.g. if we had nic-2 and now only have nic-1)
-           // Logic: Iterate keys in ethernets, if key starts with 'nic-' and index > secondaryNics.length, delete it.
-           // However, naming convention 'nic-{i}' relies on order.
-           // Safe approach: We rebuilt the list. Any 'nic-X' where X > secondaryNics.length should be removed.
-           // Note: Primary is 'nic-0' or 'nic0' usually. Secondary starts at 'nic-1'.
+           // 删除 cloud-init 中已无对应网卡的 ethernets 条目（与当前 interfaces[].name 对齐）
+           const ifaceNamesInSpec = new Set(
+             newInterfaces.map((i: any) => String(i?.name || '').trim()).filter(Boolean),
+           );
            if (networkDataObj?.network?.ethernets) {
-               Object.keys(networkDataObj.network.ethernets).forEach(key => {
-                   if (key.startsWith('nic-')) {
-                       const idx = parseInt(key.split('-')[1]);
-                       if (!isNaN(idx) && idx > secondaryNics.length) {
-                           delete networkDataObj.network.ethernets[key];
-                           hasNetworkDataChange = true;
-                       }
-                   }
-               });
+             Object.keys(networkDataObj.network.ethernets).forEach((key) => {
+               if (!ifaceNamesInSpec.has(key)) {
+                 delete networkDataObj.network.ethernets[key];
+                 hasNetworkDataChange = true;
+               }
+             });
            }
 
            const payload: any = {
@@ -2410,6 +2527,7 @@ export const useVmReconfigure = (props: any) => {
   // 注意：PVC 就绪等待逻辑在后端 harvesterAddVolumeToVM(*)
   // 已经实现，这里不再阻塞前端交互，只在创建成功后允许挂载。
   // ============================================================================
+  /** 「添加数据盘」：按表单创建 PVC，可选随后挂载到 VM。 */
   const handleCreateDisk = async () => {
     if (diskCreating || diskAttaching) return;
     setDiskCreating(true);
@@ -2446,6 +2564,7 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
+  /** 将已有 PVC/卷挂载为 VM 的数据盘。 */
   const handleAttachDisk = async () => {
     if (diskCreating || diskAttaching) return;
     setDiskAttaching(true);
@@ -2604,9 +2723,9 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
-  // ============================================================================
-  // Refresh VM: 刷新虚拟机数据（使用聚合接口，确保包含 related.volumes）
-  // ============================================================================
+  /**
+   * 使用聚合接口刷新当前 VM（含 related.volumes）；失败时回退到普通详情接口。
+   */
   const refreshVm = async () => {
     if (!cloudId || !record?.metadata?.name || !record?.metadata?.namespace) return;
     try {
@@ -2636,9 +2755,9 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
-  // ============================================================================
-  // Detach Disk: 解绑数据盘
-  // ============================================================================
+  /**
+   * 解绑指定数据盘：提交前校验 VM 网卡引用的 NAD 仍存在，再调用 detach API 并刷新聚合 VM。
+   */
   const handleDetachDisk = async (diskName: string) => {
     if (diskDetaching) return;
     setDiskDetaching(true);
@@ -2699,11 +2818,13 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
+  /** 当前 `activeRecord` 是否处于「需要重启」条件（供 UI 徽章等使用）。 */
   const isRestartRequired = useMemo(() => {
     const conditions = activeRecord?.status?.conditions || [];
     return conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
   }, [activeRecord]);
 
+  /** 暴露给 VmReconfigureModal：表单、菜单、资源列表、各类 reload、提交与磁盘操作等。 */
   return {
     form,
     selectedKey, setSelectedKey,

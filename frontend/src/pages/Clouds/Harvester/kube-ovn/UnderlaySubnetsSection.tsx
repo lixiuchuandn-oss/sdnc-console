@@ -39,8 +39,9 @@ const TOWER_ALIAS_ANNOTATION = 'tower.io/alias';
  *   - VM 选附加网络时常选 NAD。旧式扁平多为 bridge；Kube-OVN 子网会配套同名 NAD（type=kube-ovn）。
  *
  * 【扁平子网】本组件 mode=flat，注解 tower.io/subnet-type=flat
- *   - 挂在默认 VPC（如 ovn-cluster）下的 Kube-OVN underlay 子网，须绑定集群内已有 VLAN（spec.vlan）。
- *   - 用途：二层直通类场景，一般 natOutgoing=false。
+ *   - 挂在默认 VPC（如 ovn-cluster）下的 Kube-OVN 子网；可选绑定 VLAN（spec.vlan）。
+ *   - 不选 VLAN：纯 OVN overlay，与同 VPC 内其它资源互通，不经物理 VLAN 上行（适合不需开通 VPC 高级能力的租户隔离网段）。
+ *   - 选择 VLAN：与物理线路打标签对接，二层直通类场景；一般 natOutgoing=false。
  *
  * 【公共子网】本组件 mode=public，注解 tower.io/subnet-type=public
  *   - 仍在默认 VPC 下，产品侧用于 EIP/NAT/浮动 IP 等南北向能力常用网段，一般 natOutgoing=true。
@@ -169,20 +170,15 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
     <Form.Item
       name="vlan"
       label="VLAN"
-      rules={
-        isFlatMode
-          ? [{ required: true, message: '请选择 VLAN' }]
-          : []
-      }
       tooltip={
         isFlatMode
-          ? '在物理线路上给流量打 VLAN 标签。须选择集群中已创建的 VLAN 资源（默认选 VLAN ID 最小的一项）。'
+          ? '需要与物理网络对接时选择集群已有 VLAN；不选则仅为 OVN 虚拟二层（overlay），不绑定物理 VLAN。'
           : '若需要给流量打 VLAN 标签，请从集群已有 VLAN 中选择；不选表示不打标签。'
       }
     >
       <Select
-        placeholder={isFlatMode ? '请选择 VLAN' : '可选'}
-        allowClear={!isFlatMode}
+        placeholder={isFlatMode ? '可选（不选 = 纯 overlay）' : '可选'}
+        allowClear
         showSearch={isFlatMode}
         optionFilterProp="label"
         dropdownStyle={{ minWidth: 280 }}
@@ -262,8 +258,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [aclModalVisible, setAclModalVisible] = useState(false);
   const [aclSubnetName, setAclSubnetName] = useState<string | null>(null);
-  /** 弹窗标题展示用：注解别名，无则回退为 metadata.name */
-  const [aclSubnetTitleLabel, setAclSubnetTitleLabel] = useState<string | null>(null);
   const [aclSubmitting, setAclSubmitting] = useState(false);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailSubnetRecord, setDetailSubnetRecord] = useState<any>(null);
@@ -296,15 +290,18 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     });
   }, [data, keyword, vlanFilter]);
 
-  const loadTypedSubnets = async (force = false, skipSync = false) => {
-    const res = await fetchKubeOvnSubnets(cloudId, force, skipSync);
-    const items = Array.isArray(res?.data?.items) ? res.data.items : [];
-    const expectType = isFlatMode ? 'flat' : 'public';
-    return items.filter((item: any) => {
-      const t = String(item?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] || '').trim().toLowerCase();
-      return t === expectType;
-    });
-  };
+  const loadTypedSubnets = useCallback(
+    async (force = false, skipSync = false) => {
+      const res = await fetchKubeOvnSubnets(cloudId, force, skipSync);
+      const items = Array.isArray(res?.data?.items) ? res.data.items : [];
+      const expectType = isFlatMode ? 'flat' : 'public';
+      return items.filter((item: any) => {
+        const t = String(item?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] || '').trim().toLowerCase();
+        return t === expectType;
+      });
+    },
+    [cloudId, isFlatMode],
+  );
 
   /** 接口保存失败后，用集群当前 Subnet 覆盖 ACL 表单，避免「未写入」的规则仍回显在弹窗里 */
   const resyncAclFormFromCluster = async (subnetName: string) => {
@@ -323,49 +320,48 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     }
   };
 
-  const fetchData = async (force = false, skipSync = false) => {
-    setLoading(true);
-    try {
-      const typed = await loadTypedSubnets(force, skipSync);
-      setData(typed);
-      if (force && cloudId) {
-        clearCache(`/api/clouds/${cloudId}/resources/subnets`, 'GET');
+  const fetchData = useCallback(
+    async (force = false, skipSync = false) => {
+      setLoading(true);
+      try {
+        const typed = await loadTypedSubnets(force, skipSync);
+        setData(typed);
+        if (force && cloudId) {
+          clearCache(`/api/clouds/${cloudId}/resources/subnets`, 'GET');
+        }
+      } catch (error: any) {
+        message.error(`获取${subnetKindLabel}列表失败: ${error.message}`);
+      } finally {
+        setLoading(false);
       }
-    } catch (error: any) {
-      message.error(`获取${subnetKindLabel}列表失败: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [cloudId, loadTypedSubnets, subnetKindLabel],
+  );
 
-  const fetchVlanOptions = async () => {
+  const fetchVlanOptions = useCallback(async () => {
     try {
       const res = await fetchKubeOvnVlans(cloudId);
       setVlans(Array.isArray(res?.data?.items) ? res.data.items : []);
-    } catch {}
-  };
-  const fetchProviderOptions = async () => {
+    } catch {
+      /* ignore */
+    }
+  }, [cloudId]);
+
+  const fetchProviderOptions = useCallback(async () => {
     try {
       const res = await fetchKubeOvnProviderNetworks(cloudId);
       setProviders(Array.isArray(res?.data?.items) ? res.data.items : []);
-    } catch {}
-  };
+    } catch {
+      /* ignore */
+    }
+  }, [cloudId]);
 
   useEffect(() => {
     if (!cloudId) return;
-    fetchData();
-    fetchVlanOptions();
-    fetchProviderOptions();
-  }, [cloudId, isFlatMode]);
-
-  /** 创建弹窗打开且 VLAN 列表后到时，默认选中 VLAN ID 最小的一项 */
-  useEffect(() => {
-    if (!isModalVisible || !isFlatMode) return;
-    const cur = form.getFieldValue('vlan');
-    if (cur) return;
-    const def = defaultVlanCrNameByMinVlanId(vlans);
-    if (def) form.setFieldsValue({ vlan: def });
-  }, [isModalVisible, isFlatMode, vlans, form]);
+    void fetchData();
+    void fetchVlanOptions();
+    void fetchProviderOptions();
+  }, [cloudId, fetchData, fetchVlanOptions, fetchProviderOptions]);
 
   const handleForceRefresh = async () => {
     await Promise.all([
@@ -384,14 +380,15 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       const excludeIps = rest.excludeIps
         ? String(rest.excludeIps).split('\n').map((s: string) => s.trim()).filter((s: string) => s)
         : [];
-      /** 扁平子网：与集群/产品约定一致的固定 spec；vlan 由表单必选 */
+      /** 扁平子网：与集群/产品约定一致的固定 spec；vlan 可选（不填则纯 overlay） */
+      const vlanTrim = String(rest.vlan ?? '').trim();
       const flatSubnetHardcoded = {
         natOutgoing: false,
         private: false,
         gatewayType: 'distributed',
         disableGatewayCheck: true,
         allowDhcp: true,
-        vlan: String(rest.vlan ?? '').trim(),
+        ...(vlanTrim ? { vlan: vlanTrim } : {}),
       };
 
       const payload: Record<string, unknown> = {
@@ -502,18 +499,16 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     }
   };
 
-  const openAclEditor = (record: any) => {
+  const openAclEditor = useCallback((record: any) => {
     const name = record?.metadata?.name;
     if (!name) return;
     const spec = record?.spec || {};
     setAclSubnetName(name);
-    const disp = String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
-    setAclSubnetTitleLabel(disp || name);
     aclForm.setFieldsValue({
       acls: Array.isArray(spec.acls) ? spec.acls.map((a: any) => normalizeAclRowForForm({ ...a })) : [],
     });
     setAclModalVisible(true);
-  };
+  }, [aclForm]);
 
   const handleAclSubmit = async () => {
     if (!ensureUnderlayWrite()) return;
@@ -536,7 +531,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       message.success('ACL 已更新');
       setAclModalVisible(false);
       setAclSubnetName(null);
-      setAclSubnetTitleLabel(null);
       aclForm.resetFields();
       await fetchData(true, false);
     } catch (e: any) {
@@ -573,25 +567,28 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     setHarvesterOpsOpen(true);
   }, []);
 
-  const handleDelete = async (name: string) => {
-    if (!ensureUnderlayWrite()) return;
-    try {
-      await deleteKubeOvnSubnet(cloudId, name);
-      message.success('删除成功');
-      await fetchData(true, false);
-    } catch (error: any) {
-      const raw =
-        error?.response?.data?.message ??
-        error?.response?.data?.error ??
-        error?.response?.data ??
-        error?.data?.message ??
-        error?.data ??
-        error?.message ??
-        '未知错误';
-      const detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
-      message.error(`删除失败: ${detail}`);
-    }
-  };
+  const handleDelete = useCallback(
+    async (name: string) => {
+      if (!ensureUnderlayWrite()) return;
+      try {
+        await deleteKubeOvnSubnet(cloudId, name);
+        message.success('删除成功');
+        await fetchData(true, false);
+      } catch (error: any) {
+        const raw =
+          error?.response?.data?.message ??
+          error?.response?.data?.error ??
+          error?.response?.data ??
+          error?.data?.message ??
+          error?.data ??
+          error?.message ??
+          '未知错误';
+        const detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
+        message.error(`删除失败: ${detail}`);
+      }
+    },
+    [cloudId, ensureUnderlayWrite, fetchData],
+  );
 
   const allColumns = useMemo(
     () => [
@@ -660,7 +657,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         render: (v: string) => {
           const vlanName = String(v ?? '').trim();
           if (!vlanName) {
-            return isFlatMode ? <Tag>—</Tag> : <Tag>未打标签 (Untagged)</Tag>;
+            return isFlatMode ? (
+              <Tag title="未绑定 VLAN，纯 OVN overlay">overlay</Tag>
+            ) : (
+              <Tag>未打标签 (Untagged)</Tag>
+            );
           }
           const vlanObj = vlans.find((item) => String(item?.metadata?.name ?? '').trim() === vlanName);
           if (!vlanObj) {
@@ -793,7 +794,20 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         },
       },
     ],
-    [subnetKindLabel, openOpsDrawer, openHarvesterOpsDrawer, openEditNetwork, isFlatMode, isSimpleMode, vlans, providers, showYaml, hasUnderlayWrite],
+    [
+      subnetKindLabel,
+      openOpsDrawer,
+      openHarvesterOpsDrawer,
+      openEditNetwork,
+      isFlatMode,
+      isSimpleMode,
+      vlans,
+      providers,
+      showYaml,
+      hasUnderlayWrite,
+      handleDelete,
+      openAclEditor,
+    ],
   );
 
   const underlaySubnetTableSettingsKey = `harvester_underlay_subnets_${mode}`;
@@ -826,7 +840,17 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               </Option>
             ))}
           </Select>
-          <a className="toolbar-reset-btn" onClick={() => { setKeyword(''); setVlanFilter(undefined); handleForceRefresh(); }}>重置</a>
+          <Button
+            type="link"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setVlanFilter(undefined);
+              void handleForceRefresh();
+            }}
+          >
+            重置
+          </Button>
         </div>
         <div className="toolbar-actions">
           <Button
@@ -836,9 +860,12 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               if (!ensureUnderlayWrite()) return;
               form.resetFields();
               setIsModalVisible(true);
-              const defVlan = defaultVlanCrNameByMinVlanId(vlans);
-              if (defVlan) {
-                form.setFieldsValue({ vlan: defVlan });
+              // 公共子网仍可默认选最小 VLAN；扁平子网默认不选 VLAN，便于纯 overlay 场景
+              if (!isFlatMode) {
+                const defVlan = defaultVlanCrNameByMinVlanId(vlans);
+                if (defVlan) {
+                  form.setFieldsValue({ vlan: defVlan });
+                }
               }
             }}
           >
@@ -943,7 +970,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         onCancel={() => {
           setAclModalVisible(false);
           setAclSubnetName(null);
-          setAclSubnetTitleLabel(null);
           aclForm.resetFields();
         }}
         confirmLoading={aclSubmitting}

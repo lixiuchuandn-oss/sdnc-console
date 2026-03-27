@@ -47,8 +47,37 @@ const parseMemoryToBytes = (s: string | undefined): number => {
   return num;
 };
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 const { Panel } = Collapse;
+
+/** 诊断步骤内层内容卡片：统一边框、圆角、背景 */
+const DIAG_STEP_CONTENT_CARD: Pick<React.ComponentProps<typeof Card>, 'variant' | 'styles' | 'style'> = {
+  variant: 'borderless',
+  styles: { body: { padding: 0 } },
+  style: {
+    borderRadius: 8,
+    border: '1px solid #f0f0f0',
+    background: '#fafafa',
+  },
+};
+
+/** 步骤内 Descriptions 内边距 */
+const DIAG_DESC_INNER: React.CSSProperties = { padding: '12px 16px' };
+
+/** 页面级外壳（步骤条容器等） */
+const DIAG_PAGE_SHELL_STYLE: React.CSSProperties = {
+  borderRadius: 8,
+  border: '1px solid #f0f0f0',
+  background: '#fff',
+};
+
+/** 节点资源检查中单节点块样式 */
+const diagNodeResourceBlock = (sufficient: boolean): React.CSSProperties => ({
+  padding: '12px 16px',
+  borderRadius: 8,
+  background: sufficient ? '#f6ffed' : '#fff1f0',
+  border: `1px solid ${sufficient ? '#b7eb8f' : '#ffccc7'}`,
+});
 
 const buildLogWsUrl = (
   baseHttp: string,
@@ -421,7 +450,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       const vmiPhaseInVmStatus = vmStatusObj.phase; // VMI phase 可能已合并到 VM status
       const effectiveVmiExists = vmiExistsDirect || !!vmiPhaseInVmStatus || vmRunning || podExists;
       
-      console.log('[诊断] VMI 判断:', {
+      console.debug('[诊断] VMI 判断:', {
         vmiExistsDirect,
         vmiPhaseInVmStatus,
         vmRunning,
@@ -504,7 +533,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
         }
       }
       
-      console.log('[诊断] VMI 状态对象:', {
+      console.debug('[诊断] VMI 状态对象:', {
         vmiStatusObj,
         vmStatusPhase: vmStatusObj.phase,
         vmStatusNodeName: vmStatusObj.nodeName,
@@ -563,6 +592,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     } finally {
       setLoading(false);
     }
+    // animateSteps / extractResourcesWithNodeCheck 为组件内函数，列入依赖会导致 loadDiagnosis 频繁变化并触发重复拉取
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随 cloudId/namespace/name/active 刷新诊断
   }, [active, cloudId, namespace, name]);
 
   useEffect(() => {
@@ -790,6 +821,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     if (isMountedRef.current) {
       setSteps(allSteps);
     }
+    // createStepContent 依赖的 render* 在每次渲染都会新建，列入依赖会导致步骤动画回调不稳定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const analyzeNodeAffinity = (vm: any, nodes: any[] | null): DiagnosisResult['nodeAffinity'] => {
@@ -971,7 +1004,6 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     // 获取节点亲和性规则
     const nodeAffinity = vm?.spec?.template?.spec?.affinity?.nodeAffinity;
     const requiredAffinity = nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution;
-    const preferredAffinity = nodeAffinity?.preferredDuringSchedulingIgnoredDuringExecution;
 
     // 获取污点容忍
     const tolerations = vm?.spec?.template?.spec?.tolerations || [];
@@ -1118,7 +1150,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
         const totalCpuStr = allocatable.cpu || capacity.cpu || scheduledNode?.cpu || rawData?.cpu || '';
         const totalMemoryStr = allocatable.memory || capacity.memory || scheduledNode?.memory || rawData?.memory || '';
         
-        console.log('[节点资源检查] 已运行节点资源:', {
+        console.debug('[节点资源检查] 已运行节点资源:', {
           nodeName: scheduledNodeName,
           totalCpuStr,
           totalMemoryStr,
@@ -1776,10 +1808,10 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       // 提取卷名称（PVC）
       const volumeMatch = msg.match(/volume\s+["']?([^"'\s]+)["']?/i) || msg.match(/pvc-[\w-]+/i);
       // 提取当前挂载的节点
-      const currentNodeMatch = msg.match(/attached to (?:different )?node\s+([a-zA-Z0-9\-\.]+)/i);
+      const currentNodeMatch = msg.match(/attached to (?:different )?node\s+([a-zA-Z0-9.-]+)/i);
       // 提取目标节点（尝试挂载的节点）
-      const targetNodeMatch = msg.match(/attach to node\s+([a-zA-Z0-9\-\.]+)/i) || 
-                             msg.match(/node\s+([a-zA-Z0-9\-\.]+)\s+with attachmentID/i);
+      const targetNodeMatch = msg.match(/attach to node\s+([a-zA-Z0-9.-]+)/i) || 
+                             msg.match(/node\s+([a-zA-Z0-9.-]+)\s+with attachmentID/i);
       
       if (volumeMatch && currentNodeMatch) {
         volumeConflictDetails.push({
@@ -1814,13 +1846,13 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       // 但我们可以尝试从 involvedObject 中获取
       if (e.involvedObject?.fieldPath) {
         // fieldPath 可能包含节点信息，例如 "spec.nodeName"
-        const nodeMatch = e.involvedObject.fieldPath.match(/nodeName[:\s]+([a-zA-Z0-9\-\.]+)/i);
+        const nodeMatch = e.involvedObject.fieldPath.match(/nodeName[:\s]+([a-zA-Z0-9.-]+)/i);
         if (nodeMatch && nodeMatch[1]) {
           ipExhaustionNodes.add(nodeMatch[1]);
         }
       }
       // 3. 从 message 中尝试提取节点信息（如果消息中包含节点名称）
-      const nodeMatch = e.message?.match(/node[:\s]+([a-zA-Z0-9\-\.]+)/i);
+      const nodeMatch = e.message?.match(/node[:\s]+([a-zA-Z0-9.-]+)/i);
       if (nodeMatch && nodeMatch[1]) {
         ipExhaustionNodes.add(nodeMatch[1]);
       }
@@ -2169,8 +2201,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderVmStatus = (vmStatus: any, isVMError: boolean) => {
     if (!vmStatus) {
       return (
-        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-          <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+        <Card {...DIAG_STEP_CONTENT_CARD}>
+          <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
             <Descriptions.Item label="状态" span={2}>
               <Space>
                 <ExclamationCircleOutlined style={{ color: '#faad14' }} />
@@ -2185,8 +2217,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       );
     }
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           <Descriptions.Item label="状态">
             <Space>
               {getStatusIcon(vmStatus.printableStatus, isVMError)}
@@ -2230,8 +2262,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderVmiStatus = (vmiStatus: any, diagnosis: DiagnosisResult) => {
     if (!vmiStatus) {
       return (
-        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-          <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+        <Card {...DIAG_STEP_CONTENT_CARD}>
+          <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
             <Descriptions.Item label="状态" span={2}>
               <Space direction="vertical" size={4}>
                 <Space>
@@ -2253,8 +2285,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       );
     }
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           <Descriptions.Item label="Phase">
             <Space>
               {vmiStatus.phase === 'Running' ? (
@@ -2289,8 +2321,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderPodInfo = (podInfo: any, diagnosis: DiagnosisResult) => {
     if (!podInfo?.podName) {
       return (
-        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-          <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+        <Card {...DIAG_STEP_CONTENT_CARD}>
+          <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
             <Descriptions.Item label="状态" span={2}>
               <Space direction="vertical" size={4}>
                 <Space>
@@ -2308,8 +2340,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     }
     const podLogs = diagnosis?.podLogs;
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           <Descriptions.Item label="容器名称" span={2}>
             <Text code>{podInfo.podName}</Text>
           </Descriptions.Item>
@@ -2366,7 +2398,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                   <div style={{ 
                     padding: '12px', 
                     background: podLogs.severity === 'error' ? '#fff1f0' : podLogs.severity === 'warning' ? '#fff7e6' : '#e6f7ff',
-                    borderRadius: 4,
+                    borderRadius: 8,
                     border: `1px solid ${podLogs.severity === 'error' ? '#ffccc7' : podLogs.severity === 'warning' ? '#ffe58f' : '#91d5ff'}`
                   }}>
                     <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
@@ -2399,7 +2431,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                       <div style={{ 
                         padding: '8px', 
                         background: '#f5f5f5', 
-                        borderRadius: 4,
+                        borderRadius: 8,
                         maxHeight: '400px',
                         overflow: 'auto'
                       }}>
@@ -2439,8 +2471,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderNodeAffinity = (nodeAffinity: any) => {
     if (!nodeAffinity) return null;
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           {!nodeAffinity.required ? (
             <Descriptions.Item label="节点亲和性" span={2}>
               <Text type="secondary">未配置节点亲和性要求</Text>
@@ -2504,8 +2536,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderNodeSelector = (nodeSelector: any) => {
     if (!nodeSelector) return null;
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           {!nodeSelector.configured ? (
             <Descriptions.Item label="节点选择器" span={2}>
               <Text type="secondary">未配置节点选择器（自动调度）</Text>
@@ -2611,8 +2643,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     if (!resources) return null;
     const nodeCheck = resources.nodeResourceCheck;
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           <Descriptions.Item label="CPU 请求">
             {resources.cpuRequest}
           </Descriptions.Item>
@@ -2661,12 +2693,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                       {nodeCheck.nodes.map((node: any, idx: number) => (
                         <div
                           key={idx}
-                          style={{
-                            padding: '12px',
-                            background: node.sufficient ? '#f6ffed' : '#fff1f0',
-                            borderRadius: 4,
-                            border: `1px solid ${node.sufficient ? '#b7eb8f' : '#ffccc7'}`,
-                          }}
+                          style={diagNodeResourceBlock(!!node.sufficient)}
                         >
                           <Space direction="vertical" size={6} style={{ width: '100%' }}>
                             <div>
@@ -2723,8 +2750,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderPvcStatus = (pvcStatus: any[]) => {
     if (!pvcStatus || pvcStatus.length === 0) {
       return (
-        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-          <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+        <Card {...DIAG_STEP_CONTENT_CARD}>
+          <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
             <Descriptions.Item label="存储卷" span={2}>
               <Text type="secondary" style={{ fontSize: 12 }}>未配置存储卷</Text>
             </Descriptions.Item>
@@ -2733,8 +2760,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       );
     }
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           {pvcStatus.map((pvc, idx) => (
             <React.Fragment key={idx}>
               <Descriptions.Item label="卷名称">
@@ -2928,8 +2955,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderNetworkStatus = (networkStatus: any) => {
     if (!networkStatus) return null;
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           {networkStatus.multusNetworks && networkStatus.multusNetworks.length > 0 ? (
             <>
               {networkStatus.multusNetworks.map((net: any, idx: number) => (
@@ -2963,8 +2990,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderEventAnalysis = (eventAnalysis: any, events: any[]) => {
     if (!eventAnalysis) {
       return (
-        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-          <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+        <Card {...DIAG_STEP_CONTENT_CARD}>
+          <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
             <Descriptions.Item label="状态" span={2}>
               <Space>
                 <ExclamationCircleOutlined style={{ color: '#faad14' }} />
@@ -2979,8 +3006,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       );
     }
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           {/* 显示事件分析摘要 */}
           <Descriptions.Item label="分析结果">
             <Space>
@@ -3169,7 +3196,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                   <div style={{ 
                     padding: '12px', 
                     background: eventAnalysis.recentPattern === '正常运行' ? '#f6ffed' : '#fff1f0',
-                    borderRadius: 4,
+                    borderRadius: 8,
                     border: `1px solid ${eventAnalysis.recentPattern === '正常运行' ? '#b7eb8f' : '#ffccc7'}`
                   }}>
                     <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
@@ -3188,7 +3215,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
           {/* 事件列表 */}
           {events && events.length > 0 ? (
             <Descriptions.Item label="最近事件" span={2}>
-              <div style={{ border: '1px solid #d9d9d9', borderRadius: 4 }}>
+              <div style={{ border: '1px solid #f0f0f0', borderRadius: 8 }}>
                 <Collapse size="small" ghost>
                   <Panel 
                     header={
@@ -3216,7 +3243,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                         <div key={idx} style={{ 
                           padding: '8px', 
                           background: event.type === 'Warning' ? '#fff7e6' : '#f6ffed',
-                          borderRadius: 4,
+                          borderRadius: 8,
                           borderLeft: `3px solid ${event.type === 'Warning' ? '#faad14' : '#52c41a'}`
                         }}>
                           <Space>
@@ -3254,8 +3281,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
 
   const renderSummary = (diagnosis: DiagnosisResult, isVMError: boolean, vmiStatus: any) => {
     return (
-      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={2} size="small" style={DIAG_DESC_INNER}>
           {isVMError && (
             <Descriptions.Item label="诊断结果" span={2}>
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -3304,7 +3331,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                 <div style={{ 
                   padding: '12px', 
                   background: '#fff7e6',
-                  borderRadius: 4,
+                  borderRadius: 8,
                   border: '1px solid #ffe58f'
                 }}>
                   <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
@@ -3338,7 +3365,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                 <div style={{ 
                   padding: '12px', 
                   background: '#f6ffed',
-                  borderRadius: 4,
+                  borderRadius: 8,
                   border: '1px solid #b7eb8f'
                 }}>
                   <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
@@ -3394,17 +3421,11 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     );
   }
 
-  const vmStatus = diagnosis.vmStatus;
-  const vmiStatus = diagnosis.vmiStatus;
-  const isVMError = vmStatus?.printableStatus === 'ErrorUnschedulable' || 
-                    vmStatus?.printableStatus === 'ErrorPvcNotFound' ||
-                    vmStatus?.conditions?.some((c: any) => c.status === 'False' && c.type === 'Ready');
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* 步骤条 - 每个步骤的内容直接显示在步骤下方 */}
       {steps.length > 0 && (
-        <Card variant="borderless" styles={{ body: { padding: '16px 24px' } }}>
+        <Card variant="borderless" styles={{ body: { padding: '16px 24px' } }} style={DIAG_PAGE_SHELL_STYLE}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
             <Button type="primary" icon={<ReloadOutlined />} onClick={loadDiagnosis} loading={loading}>
               重新诊断
@@ -3412,6 +3433,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
           </div>
           <Steps
             direction="vertical"
+            size="small"
             current={currentStep}
             items={steps.map((step, index) => {
               const showContent =
@@ -3448,7 +3470,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       )}
 
       {steps.length === 0 && diagnosis && (
-        <Card variant="borderless" styles={{ body: { padding: 24, textAlign: 'center' } }}>
+        <Card variant="borderless" styles={{ body: { padding: 24, textAlign: 'center' } }} style={DIAG_PAGE_SHELL_STYLE}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button type="primary" icon={<ReloadOutlined />} onClick={loadDiagnosis} loading={loading}>
               重新诊断

@@ -144,7 +144,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
     if (pNic.name === '') {
       form.setFieldsValue({ primaryNic: { ...pNic, name: undefined } });
     }
-  }, []);
+  }, [form]);
 
   const handleNetModeChange = (v: string) => {
     // [状态重置] 切换网络模式时，重置主网卡并同步该模式下的默认网桥类型（须每次 onChange 都执行：
@@ -619,7 +619,9 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                  <Select
                                    placeholder="选择网络"
                                    options={(nadOptions || []).filter((x: any) => {
-                                       // [业务规则] NAD 网络模式下排除 Kube-OVN 类型的 NAD
+                                       // 排除 Kube-OVN：以 CNI type 为准，避免 label 未含 kube-ovn 时误展示
+                                       const t = String(x?._type || '').toLowerCase();
+                                       if (t === 'kube-ovn') return false;
                                        return !String(x?.label || '').toLowerCase().includes('kube-ovn');
                                      })}
                                    onOpenChange={async (open) => { if (open) reloadNads(); }}
@@ -652,6 +654,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                    placeholder="选择直通网络（SR-IOV / macvlan）"
                                    options={(nadOptions || []).filter((x: any) => {
                                        const t = String((x as any)?._type || '').toLowerCase();
+                                       if (t === 'kube-ovn') return false;
                                        if (t) return t === 'sriov' || t === 'macvtap' || t === 'macvlan';
                                        const lbl = String(x?.label || '').toLowerCase();
                                        return (
@@ -732,7 +735,9 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                   }}
                                   onChange={(val) => {
                                     let netName = val;
-                                    const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
+                                    const subnet = (kubeSubnets || []).find(
+                                      (x: any) => (x?.name || x?.metadata?.name) === val,
+                                    );
                                     let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
                                     if (!subnetNs) {
                                       const provider = subnet?.provider || subnet?.spec?.provider;
@@ -831,14 +836,40 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                 return filtered.map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })); 
                               })()}
                               onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
-                              onChange={(val) => { 
-                                try { 
-                                  const curr = form.getFieldValue('netIfaces') || []; 
-                                  const next = [...curr]; 
-                                  // [状态同步] 选择子网时，自动设置网络名称，且类型设为 bridge
-                                  next[name] = { ...next[name], name: val, type: 'bridge' }; 
-                                  form.setFieldsValue({ netIfaces: next }); 
-                                } catch { } 
+                              onChange={(val) => {
+                                try {
+                                  const curr = form.getFieldValue('netIfaces') || [];
+                                  const next = [...curr];
+                                  const vpc = form.getFieldValue(['netIfaces', name, 'vpc']);
+                                  // 与主网卡 VPC 一致：Multus 需 namespace/name，不能仅写子网 CR 名（否则 webhook 报 NAD not found）
+                                  let netName = val;
+                                  const subnet = (kubeSubnets || []).find(
+                                    (x: any) => x?.name === val && x?.vpc === vpc,
+                                  );
+                                  let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                                  if (!subnetNs) {
+                                    const provider = subnet?.provider || subnet?.spec?.provider;
+                                    if (provider) {
+                                      const parts = String(provider).split('.');
+                                      if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                                    }
+                                  }
+                                  if (subnetNs) {
+                                    netName = `${subnetNs}/${val}`;
+                                  } else {
+                                    try {
+                                      const found = (nadOptions || []).find((x: any) => {
+                                        const vv = String(x?.value || '');
+                                        const parts = vv.split('/');
+                                        const nm = parts.length > 1 ? parts[1] : parts[0];
+                                        return nm === val;
+                                      });
+                                      if (found) netName = found.value;
+                                    } catch {}
+                                  }
+                                  next[name] = { ...next[name], subnet: val, name: netName, type: 'bridge' };
+                                  form.setFieldsValue({ netIfaces: next });
+                                } catch {}
                               }}
                             />
                           </Form.Item>

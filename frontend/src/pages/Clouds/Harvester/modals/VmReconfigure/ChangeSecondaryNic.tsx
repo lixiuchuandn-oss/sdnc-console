@@ -25,6 +25,14 @@ function isKubeOvnFlatSubnet(s: any): boolean {
   return t === 'flat';
 }
 
+/** 与 StepNetworks 一致：NAD CNI type → KubeVirt 接口类型 */
+function passthroughKubevirtIfaceTypeFromNad(nadOpt: any): 'sriov' | 'macvtap' {
+  const t = String(nadOpt?._type || '').toLowerCase();
+  if (t === 'sriov') return 'sriov';
+  if (t === 'macvtap' || t === 'macvlan') return 'macvtap';
+  return 'sriov';
+}
+
 const ChangeSecondaryNic: React.FC<Props> = ({
   form,
   nads,
@@ -101,8 +109,16 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                         try {
                                           const list = form.getFieldValue('secondaryNics') || [];
                                           const curr = list[name] || {};
-                                          // 扁平模式选择 NAD 时强制为 bridge；直通模式仅更新名称
-                                          list[name] = { ...curr, name: val, ...(mode === 'flat' ? { type: 'bridge' } : {}) };
+                                          if (mode === 'flat') {
+                                            list[name] = { ...curr, name: val, type: 'bridge' };
+                                          } else {
+                                            const hit = nadInfos.find((x: any) => String(x?.value) === String(val));
+                                            list[name] = {
+                                              ...curr,
+                                              name: val,
+                                              type: passthroughKubevirtIfaceTypeFromNad(hit),
+                                            };
+                                          }
                                           form.setFieldsValue({ secondaryNics: list });
                                         } catch {}
                                       }}
@@ -172,7 +188,19 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                               const parts = String(subnet.spec.provider).split('.');
                                               if (parts.length >= 2) subnetNs = parts[parts.length - 2];
                                             }
-                                            if (subnetNs) netName = `${subnetNs}/${val}`;
+                                            if (subnetNs) {
+                                              netName = `${subnetNs}/${val}`;
+                                            } else {
+                                              try {
+                                                const found = nadInfos.find((x: any) => {
+                                                  const vv = String(x?.value || '');
+                                                  const parts = vv.split('/');
+                                                  const nm = parts.length > 1 ? parts[1] : parts[0];
+                                                  return nm === val;
+                                                });
+                                                if (found) netName = found.value;
+                                              } catch {}
+                                            }
 
                                             list[name] = {
                                               ...list[name],
@@ -242,9 +270,34 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                             }); 
                                         })()}
                                         onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
-                                        onChange={(val) => { 
+                                        onChange={(val) => {
                                             const list = form.getFieldValue('secondaryNics');
-                                            list[name] = { ...list[name], name: val, type: 'bridge' }; // Set name to subnet name and enforce bridge
+                                            const vpc = form.getFieldValue(['secondaryNics', name, 'vpc']);
+                                            let netName = val;
+                                            const subnet = (subnets || []).find(
+                                              (x: any) =>
+                                                (x?.metadata?.name || x?.name) === val &&
+                                                String(x?.spec?.vpc || x?.vpc || '').trim() === String(vpc || '').trim(),
+                                            );
+                                            let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                                            if (!subnetNs && subnet?.spec?.provider) {
+                                              const parts = String(subnet.spec.provider).split('.');
+                                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                                            }
+                                            if (subnetNs) {
+                                              netName = `${subnetNs}/${val}`;
+                                            } else {
+                                              try {
+                                                const found = nadInfos.find((x: any) => {
+                                                  const vv = String(x?.value || '');
+                                                  const parts = vv.split('/');
+                                                  const nm = parts.length > 1 ? parts[1] : parts[0];
+                                                  return nm === val;
+                                                });
+                                                if (found) netName = found.value;
+                                              } catch {}
+                                            }
+                                            list[name] = { ...list[name], subnet: val, name: netName, type: 'bridge' };
                                             form.setFieldsValue({ secondaryNics: list });
                                         }}
                                       />
@@ -260,7 +313,12 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                    >
                                      {({ getFieldValue }) => {
                                        const subnetName = getFieldValue(['secondaryNics', name, 'subnet']);
-                                       const subnet = (subnets || []).find((x: any) => x?.metadata?.name === subnetName);
+                                       const vpc = getFieldValue(['secondaryNics', name, 'vpc']);
+                                       const subnet = (subnets || []).find(
+                                         (x: any) =>
+                                           x?.metadata?.name === subnetName &&
+                                           String(x?.spec?.vpc || x?.vpc || '').trim() === String(vpc || '').trim(),
+                                       );
                                        return <Input value={subnet?.spec?.cidrBlock || ''} disabled />;
                                      }}
                                    </Form.Item>
@@ -322,18 +380,19 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                  </Card>
                );
              })}
+             {/* 顺序：扁平子网 → VPC → 直通 → NAD（与创建向导一致） */}
              <div style={{ display: 'flex', gap: 8 }}>
-              <Button type="dashed" onClick={() => add({ mode: 'flat', type: 'bridge', model: 'virtio' })} style={{ flex: 1 }} icon={<PlusOutlined />}>
-                 添加NAD网络网卡
-               </Button>
                <Button type="dashed" onClick={() => { reloadSubnets(); add({ mode: 'flat_subnet', vpc: UNDERLAY_SYSTEM_VPC, type: 'managedtap', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
-                 添加扁平子网网卡
+                 添加扁平子网
                </Button>
                <Button type="dashed" onClick={() => { reloadVpcs(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
                  添加VPC网卡
                </Button>
                <Button type="dashed" onClick={() => add({ mode: 'passthrough', type: 'sriov', model: 'virtio' })} style={{ flex: 1 }} icon={<PlusOutlined />}>
                  添加直通网卡
+               </Button>
+               <Button type="dashed" onClick={() => add({ mode: 'flat', type: 'bridge', model: 'virtio' })} style={{ flex: 1 }} icon={<PlusOutlined />}>
+                 添加NAD网络
                </Button>
              </div>
            </div>

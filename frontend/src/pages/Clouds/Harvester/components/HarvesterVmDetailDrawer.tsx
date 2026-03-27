@@ -43,7 +43,6 @@ import {
   ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
   SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined,
   CloseOutlined, SyncOutlined, LineChartOutlined, BellOutlined, FileTextOutlined,
-  ThunderboltOutlined
 } from '@ant-design/icons';
 import { cnVmStatus } from '../../../../utils/harvesterUtils';
 import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated, abortHarvesterMigration } from '../../../../services/harvesterApi';
@@ -232,7 +231,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     } finally {
         if (manual) setRefreshing(false);
     }
-  }, [open, cloudId, record?.metadata?.namespace, record?.metadata?.name]);
+  }, [open, cloudId, record?.metadata?.namespace, record?.metadata?.name, onRefresh]);
 
   React.useEffect(() => {
     fetchAggregated();
@@ -447,17 +446,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
 
-  // [按需加载] 仅在切换到“备份/快照”Tab 时拉取数据，避免抽屉打开瞬间触发过多请求
-  React.useEffect(() => {
-    if (open) {
-      if (activeTab === 'backup_snapshot') {
-        fetchBackups();
-        fetchSchedules();
-      }
-    }
-  }, [activeTab, open]);
-
-  const fetchBackups = async (force = false, skipSync = false) => {
+  const fetchBackups = React.useCallback(async (force = false, skipSync = false) => {
     if (!cloudId) return;
     setBackupsLoading(true);
     try {
@@ -472,9 +461,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     } finally {
       setBackupsLoading(false);
     }
-  };
+  }, [cloudId]);
 
-  const fetchSchedules = async (force = false, skipSync = false) => {
+  const fetchSchedules = React.useCallback(async (force = false, skipSync = false) => {
     if (!cloudId) return;
     setSchedulesLoading(true);
     try {
@@ -489,7 +478,15 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     } finally {
       setSchedulesLoading(false);
     }
-  };
+  }, [cloudId]);
+
+  // [按需加载] 仅在切换到“备份/快照”Tab 时拉取数据，避免抽屉打开瞬间触发过多请求
+  React.useEffect(() => {
+    if (open && activeTab === 'backup_snapshot') {
+      void fetchBackups();
+      void fetchSchedules();
+    }
+  }, [activeTab, open, fetchBackups, fetchSchedules]);
 
   const handleTabChange = useCallback((key: string) => {
     if (propOnTabChange) {
@@ -916,7 +913,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             };
         });
     }
-  }), [namespaces, volumes, vpcs, subnets, nads]);
+  }), [volumes, vpcs, subnets, nads, vmImages, vmPvcs]);
 
   // ==============================================================================
   // 10. 操作封装 (Actions)
@@ -1120,7 +1117,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         }
       }
     });
-  }, [cloudId, vmData, onRefresh, SafeRead]);
+  }, [cloudId, vmData, onRefresh, SafeRead, hasEcsWrite]);
 
   // [事件] 中止迁移
   const handleAbortMigration = useCallback(() => {

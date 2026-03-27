@@ -222,6 +222,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   const specPresetWatched = Form.useWatch('specPreset', form);
   const showCustomCpuMem = specPresetWatched === 'custom';
   const [submitting, setSubmitting] = useState(false);
+  const [diskBootAdvancedOpen, setDiskBootAdvancedOpen] = useState(false);
   const vmIdRef = useRef<string | null>(null);
 
   const defaultStorageClassName = useMemo(() => {
@@ -521,10 +522,14 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
             style={{ display: 'flex', flexWrap: 'wrap' }}
           />
         </Form.Item>
-        <div style={{ display: showCustomCpuMem ? 'block' : 'none', marginTop: -10 }}>
+        <div style={{ display: showCustomCpuMem ? 'block' : 'none'}}>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="cpu" rules={[{ required: true, message: '请输入 CPU' }]}>
+              <Form.Item 
+                name="cpu" 
+                label="vCPU" 
+                rules={[{ required: true, message: '请输入 CPU' }]}
+              >
                 <InputNumber
                   min={1}
                   max={256}
@@ -542,7 +547,8 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
             </Col>
             <Col span={12}>
               <Form.Item
-                name="memoryGi"
+                name="memoryGi" 
+                label="内存"
                 rules={[{ required: true, message: '请输入内存' }]}
               >
                 <InputNumber
@@ -563,8 +569,8 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           </Row>
         </div>
 
-        <Row gutter={16} align="top">
-          <Col xs={24} md={16}>
+        <Row gutter={12} align="top">
+          <Col xs={24} md={14}>
             <Form.Item name="image" label="选择镜像" rules={[{ required: true, message: '请选择镜像' }]}>
               <Select
                 showSearch
@@ -579,7 +585,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={8}>
+          <Col xs={24} md={6}>
             <Form.Item noStyle shouldUpdate={(p, c) => p.image !== c.image}>
               {() => {
                 const imgVal = form.getFieldValue('image');
@@ -618,37 +624,50 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
               }}
             </Form.Item>
           </Col>
+          <Col xs={24} md={4}>
+            <Form.Item label="启动方式" colon={false}>
+              <Button
+                block
+                style={{ height: '32px' }}
+                onClick={() => setDiskBootAdvancedOpen((v) => !v)}
+              >
+                {diskBootAdvancedOpen ? '自定义' : '自动配置'}
+              </Button>
+            </Form.Item>
+          </Col>
         </Row>
 
-        <Row gutter={12}>
-          <Col xs={24} md={12}>
-            <Form.Item name="bootUseEfi" label="启动方式" rules={[{ required: true, message: '请选择启动方式' }]}>
-              <Radio.Group
-                optionType="button"
-                buttonStyle="solid"
-                block
-                options={[
-                  { label: 'BIOS（Legacy）', value: false },
-                  { label: 'UEFI', value: true },
-                ]}
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="rootBus" label="系统盘总线" rules={[{ required: true, message: '请选择系统盘总线' }]}>
-              <Radio.Group
-                optionType="button"
-                buttonStyle="solid"
-                block
-                options={[
-                  { label: 'VirtIO', value: 'virtio' },
-                  { label: 'SATA', value: 'sata' },
-                  { label: 'SCSI', value: 'scsi' },
-                ]}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
+        {diskBootAdvancedOpen ? (
+          <Row gutter={12} align="top">
+            <Col xs={24} md={14}>
+              <Form.Item name="rootBus" label="系统盘总线" rules={[{ required: true, message: '请选择系统盘总线' }]}>
+                <Radio.Group
+                  optionType="button"
+                  buttonStyle="solid"
+                  block
+                  options={[
+                    { label: 'VirtIO', value: 'virtio' },
+                    { label: 'SATA', value: 'sata' },
+                    { label: 'SCSI', value: 'scsi' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={10}>
+              <Form.Item name="bootUseEfi" label="启动方式" rules={[{ required: true, message: '请选择启动方式' }]}>
+                <Radio.Group
+                  optionType="button"
+                  buttonStyle="solid"
+                  block
+                  options={[
+                    { label: 'Legacy', value: false },
+                    { label: 'UEFI', value: true },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+        ) : null}
 
         <Form.Item name="flatSubnet" label="选择网络" rules={[{ required: true, message: '请选择网络' }]}>
           <Select
