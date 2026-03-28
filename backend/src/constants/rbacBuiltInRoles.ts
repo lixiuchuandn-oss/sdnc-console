@@ -8,6 +8,8 @@ export const BUILT_IN_RBAC_ROLE_NAMES: readonly string[] = [
   '三权-审计管理员',
   '三权-安全管理员',
   '三权-系统管理员',
+  '云计算用户',
+  '云管理用户',
 ];
 
 export function isBuiltInRbacRoleName(name: string): boolean {

@@ -46,6 +46,7 @@ import {
   NAD_MULTUS_INTERFACE_TYPES,
   PASSTHROUGH_VIRT_IFACE_OPTIONS,
 } from './harvesterVmIfaceTypeOptions';
+import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/underlay-subnet/constants';
 
 /**
  * [接口定义] StepNetworksProps
@@ -106,7 +107,6 @@ const NIC_MODELS = [
 ];
 
 const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
-const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
 
 /** 与 UnderlaySubnetsSection 一致：注解 tower.io/subnet-type=flat 的 Kube-OVN 子网 */
 function isKubeOvnFlatSubnet(s: any): boolean {
@@ -159,7 +159,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           type: initialType,
           model: 'virtio',
           name: undefined,
-          vpc: v === 'flat_subnet' ? UNDERLAY_SYSTEM_VPC : undefined,
+          vpc: v === 'flat_subnet' ? KUBE_OVN_FLAT_VPC : undefined,
           subnet: undefined,
           macAddress: undefined,
           ipAddress: undefined,
@@ -284,7 +284,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             }
 
             if (mode === 'flat_subnet') {
-              // --- 扁平子网：默认 VPC ovn-cluster + 注解 subnet-type=flat 的 Subnet，绑定同名 kube-ovn NAD ---
+              // --- 扁平子网：内置 VPC ovn-internal + 注解 subnet-type=flat 的 Subnet，绑定同名 kube-ovn NAD ---
               return (
                 <>
                   <Col span={8}>
@@ -308,8 +308,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           return (kubeSubnets || [])
                             .filter(
                               (x: any) =>
-                                String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
-                                isKubeOvnFlatSubnet(x),
+                                isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) && isKubeOvnFlatSubnet(x),
                             )
                             .filter((x: any) => {
                               const n = x?.name;
@@ -320,8 +319,10 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             .map((x: any) => {
                               const n = x?.name || '-';
                               const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                              const vpcDisp =
+                                String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
                               return {
-                                label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
+                                label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
                                 value: n,
                               };
                             });
@@ -353,9 +354,12 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               if (found) netName = found.value;
                             } catch {}
                           }
+                          const flatVpc =
+                            String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                            KUBE_OVN_FLAT_VPC;
                           form.setFieldsValue({
                             primaryNic: {
-                              vpc: UNDERLAY_SYSTEM_VPC,
+                              vpc: flatVpc,
                               subnet: val,
                               name: netName,
                               type: 'managedtap',
@@ -379,7 +383,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         const subnet = (kubeSubnets || []).find(
                           (x: any) =>
                             x?.name === subnetName &&
-                            String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                            isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
                             isKubeOvnFlatSubnet(x),
                         );
                         return <Input value={subnet?.cidr || ''} disabled />;
@@ -684,7 +688,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         return (
                           <>
                             <Col span={8}>
-                              <Form.Item name={[name, 'vpc']} initialValue={UNDERLAY_SYSTEM_VPC} hidden>
+                              <Form.Item name={[name, 'vpc']} initialValue={KUBE_OVN_FLAT_VPC} hidden>
                                 <Input />
                               </Form.Item>
                               <Form.Item
@@ -712,7 +716,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                     return (kubeSubnets || [])
                                       .filter(
                                         (x: any) =>
-                                          String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                          isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
                                           isKubeOvnFlatSubnet(x),
                                       )
                                       .filter((x: any) => {
@@ -724,8 +728,11 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                       .map((x: any) => {
                                         const n = x?.name || '-';
                                         const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                        const vpcDisp =
+                                          String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                          KUBE_OVN_FLAT_VPC;
                                         return {
-                                          label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
+                                          label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
                                           value: n,
                                         };
                                       });
@@ -762,10 +769,13 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                     try {
                                       const curr = form.getFieldValue('netIfaces') || [];
                                       const next = [...curr];
+                                      const flatVpc =
+                                        String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                        KUBE_OVN_FLAT_VPC;
                                       next[name] = {
                                         ...next[name],
                                         mode: 'flat_subnet',
-                                        vpc: UNDERLAY_SYSTEM_VPC,
+                                        vpc: flatVpc,
                                         subnet: val,
                                         name: netName,
                                         type: 'managedtap',
@@ -791,7 +801,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                   const subnet = (kubeSubnets || []).find(
                                     (x: any) =>
                                       x?.name === subnetName &&
-                                      String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                      isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
                                       isKubeOvnFlatSubnet(x),
                                   );
                                   return <Input value={subnet?.cidr || ''} disabled />;
@@ -977,7 +987,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     mode: 'flat_subnet',
                     type: 'managedtap',
                     model: 'virtio',
-                    vpc: UNDERLAY_SYSTEM_VPC,
+                    vpc: KUBE_OVN_FLAT_VPC,
                   });
                 }}
               >

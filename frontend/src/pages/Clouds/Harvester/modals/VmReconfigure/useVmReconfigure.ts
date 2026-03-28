@@ -60,6 +60,7 @@ import {
   fetchHarvesterNodes,
 } from '../../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../../services/api';
+import { KUBE_OVN_FLAT_VPC } from '../../kube-ovn/underlay-subnet/constants';
 
 /** 将 Kubernetes 资源量字符串（如 `1Gi`、`500Mi`、`1000`）解析为字节数。 */
 const parseQuantity = (s: string | number | undefined): number => {
@@ -659,7 +660,13 @@ export const useVmReconfigure = (props: any) => {
                 type,
                 model: iface.model || 'virtio',
                 macAddress: iface.macAddress,
-                vpc: netMode === 'vpc' ? targetSubnet?.spec?.vpc : netMode === 'flat_subnet' ? 'ovn-cluster' : undefined,
+                vpc:
+                  netMode === 'vpc'
+                    ? targetSubnet?.spec?.vpc
+                    : netMode === 'flat_subnet'
+                      ? String(targetSubnet?.spec?.vpc || targetSubnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                        KUBE_OVN_FLAT_VPC
+                      : undefined,
                 subnet: subnetName,
                 ipAddress,
                 gateway,
@@ -727,7 +734,13 @@ export const useVmReconfigure = (props: any) => {
                 type,
                 model: iface.model || 'virtio',
                 macAddress: iface.macAddress,
-                vpc: netMode === 'vpc' ? targetSubnet?.spec?.vpc : netMode === 'flat_subnet' ? 'ovn-cluster' : undefined,
+                vpc:
+                  netMode === 'vpc'
+                    ? targetSubnet?.spec?.vpc
+                    : netMode === 'flat_subnet'
+                      ? String(targetSubnet?.spec?.vpc || targetSubnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                        KUBE_OVN_FLAT_VPC
+                      : undefined,
                 subnet: subnetName,
                 ipAddress,
                 gateway,
@@ -782,7 +795,13 @@ export const useVmReconfigure = (props: any) => {
               type,
               model: iface.model || 'virtio',
               macAddress: iface.macAddress,
-              vpc: mode === 'vpc' ? targetSubnet?.spec?.vpc : mode === 'flat_subnet' ? 'ovn-cluster' : undefined,
+              vpc:
+                mode === 'vpc'
+                  ? targetSubnet?.spec?.vpc
+                  : mode === 'flat_subnet'
+                    ? String(targetSubnet?.spec?.vpc || targetSubnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                      KUBE_OVN_FLAT_VPC
+                    : undefined,
               subnet: subnetName,
               ipAddress,
               gateway,
@@ -2399,11 +2418,13 @@ export const useVmReconfigure = (props: any) => {
                       (raw && String(raw).includes('/') ? String(raw).split('/').pop() : raw) ||
                       '';
                   if ((!sNetName || !String(sNetName).includes('/')) && subnetName) {
-                      const subnet = subnets.find(
-                        (s: any) =>
-                          s?.metadata?.name === subnetName &&
-                          String(s?.spec?.vpc || s?.vpc || '').trim() === 'ovn-cluster',
-                      );
+                      const subnet = subnets.find((s: any) => {
+                        if (s?.metadata?.name !== subnetName) return false;
+                        const st = String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '')
+                          .trim()
+                          .toLowerCase();
+                        return st === 'flat';
+                      });
                       let ns = subnet?.metadata?.namespace;
                       if (!ns && subnet?.spec?.provider) {
                           const parts = String(subnet.spec.provider).split('.');

@@ -124,10 +124,10 @@ const Clouds: React.FC = () => {
   const [vendorFilter, setVendorFilter] = useState<string|undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   
-  // [权限管理] 与 RouteSpec「资源池管理」一致：读 clouds:read（进页已由路由校验）；写操作需 clouds:write。默认资源池写入系统设置键，需 system.settings:write。
+  // [权限管理] 与 RouteSpec「资源池管理」一致：写 clouds.resource-pools:write（全量 clouds:write 仍兼容）。默认资源池写入系统设置键需 system.settings:write。
   const { user } = useAuth();
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
-  const canWriteClouds = hasPermissionForAction(perms, 'clouds:write');
+  const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
   const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
   const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
 
@@ -253,7 +253,7 @@ const Clouds: React.FC = () => {
   // ============================================================================
   const testConnection = useCallback(async (cloudId: string) => {
     if (!canWriteClouds) {
-      message.error('权限不足：需要资源池写入权限（clouds:write）');
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
       return;
     }
     setTestingConnection(cloudId);
@@ -284,7 +284,7 @@ const Clouds: React.FC = () => {
   // ============================================================================
   const handleEdit = useCallback((cloud: Cloud) => {
     if (!canWriteClouds) {
-      message.error('权限不足：需要资源池写入权限（clouds:write）');
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
       return;
     }
     setEditingCloud(cloud);
@@ -301,7 +301,7 @@ const Clouds: React.FC = () => {
   // 3. 执行删除并刷新列表。
   const handleDelete = useCallback((cloudId: string) => {
     if (!canWriteClouds) {
-      message.error('权限不足：需要资源池写入权限（clouds:write）');
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
       return;
     }
 
@@ -512,7 +512,7 @@ const Clouds: React.FC = () => {
   // ============================================================================
   const handleBulkDelete = useCallback(async () => {
     if (!canWriteClouds) {
-      message.error('权限不足：需要资源池写入权限（clouds:write）');
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
       return;
     }
     Modal.confirm({

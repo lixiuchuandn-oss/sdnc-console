@@ -42,7 +42,7 @@
  *   1) ALL_PERMISSIONS
  *   2) PERMISSION_GROUPS
  *   3) backend/src/permissions/definitions.ts（名称映射）
- *   4) frontend/src/utils/permissionUtils.ts（展示分组与排序）
+ *   4) frontend/src/utils/permissionUtils.ts（资源控制台展示顺序与业务分组以该文件为准；PERMISSION_GROUPS 应对齐）
  * 
  * 【使用位置】
  * - permissions/definitions.ts - 生成权限定义
@@ -72,9 +72,13 @@ export const ALL_PERMISSIONS = [
   'clouds.dashboard:read',     // 资源总览页面 - 查看
   'clouds.dashboard:write',    // 资源总览页面 - 编辑
   
-  // 资源池管理
-  'clouds:read',               // 资源池列表 - 查看
-  'clouds:write',              // 资源池管理 - 创建/编辑/删除
+  // 资源池管理（列表与详情页入口；与 Tab 级 clouds.* 原子解耦，便于按角色隐藏指定 Tab）
+  'clouds.resource-pools:read',   // 资源池管理页面 - 查看列表与进入详情
+  'clouds.resource-pools:write', // 资源池管理页面 - 创建/编辑/删除资源池
+  
+  // 云资源全量（最高）：等价于拥有全部 clouds.* 读写能力；细粒度角色请勿勾选此项以免 Tab 门控失效
+  'clouds:read',
+  'clouds:write',
   
   // 云主机管理
   'clouds.ecs:read',           // 云主机列表 - 查看
@@ -83,12 +87,19 @@ export const ALL_PERMISSIONS = [
   'clouds.vm-create-wizard:write',
   /** Cloudmap 资源池：标准/运维视图切换（运维含命名空间、ACL、运维抽屉等） */
   'clouds.cloudmap.ops-view:write',
-  // 扁平网络 - NAT（与 VPC NAT 网关权限解耦）
-  'clouds.flat-nat:read',
-  'clouds.flat-nat:write',
-  // 扁平网络 - 流量镜像
-  'clouds.traffic-mirroring:read',
-  'clouds.traffic-mirroring:write',
+  // 扁平网络（新命名）
+  'clouds.eips.flat:read',
+  'clouds.eips.flat:write',
+  'clouds.fips.flat:read',
+  'clouds.fips.flat:write',
+  'clouds.dnat.flat:read',
+  'clouds.dnat.flat:write',
+  'clouds.snat.flat:read',
+  'clouds.snat.flat:write',
+  'clouds.traffic-mirroring.flat:read',
+  'clouds.traffic-mirroring.flat:write',
+  'clouds.security-groups.flat:read',
+  'clouds.security-groups.flat:write',
 
   // 虚拟私有云 (VPC)
   'clouds.vpcs:read',          // VPC 列表 - 查看
@@ -105,21 +116,23 @@ export const ALL_PERMISSIONS = [
   'clouds.subnets.public:read',
   'clouds.subnets.public:write',
 
-  // 弹性公网 IP (EIP)
-  'clouds.eips:read',          // EIP 列表 - 查看
-  'clouds.eips:write',         // EIP 管理 - 申请/绑定/释放
+  // VPC 网络（新命名）
+  'clouds.eips.vpc:read',
+  'clouds.eips.vpc:write',
+  'clouds.fips.vpc:read',
+  'clouds.fips.vpc:write',
+  'clouds.dnat.vpc:read',
+  'clouds.dnat.vpc:write',
+  'clouds.snat.vpc:read',
+  'clouds.snat.vpc:write',
+  'clouds.traffic-mirroring.vpc:read',
+  'clouds.traffic-mirroring.vpc:write',
+  'clouds.security-groups.vpc:read',
+  'clouds.security-groups.vpc:write',
 
-  // 浮动 IP (FIP)
-  'clouds.fips:read',          // FIP 列表 - 查看
-  'clouds.fips:write',         // FIP 管理 - 绑定/解绑
-  
   // 虚拟云盘
   'clouds.disks:read',         // 虚拟云盘列表 - 查看
   'clouds.disks:write',        // 虚拟云盘管理 - 创建/挂载/卸载/删除
-  
-  // 安全组
-  'clouds.security-groups:read',   // 安全组列表 - 查看
-  'clouds.security-groups:write',   // 安全组管理 - 创建/编辑规则/删除
   
   // 负载均衡
   'clouds.load-balancers:read',     // 负载均衡列表 - 查看
@@ -140,10 +153,6 @@ export const ALL_PERMISSIONS = [
   // SSH 密钥
   'clouds.sshkeys:read',       // SSH 密钥列表 - 查看
   'clouds.sshkeys:write',      // SSH 密钥管理 - 创建/删除
-  
-  // 网络附加定义 (NAD - Network Attachment Definition)
-  'clouds.nads:read',          // NAD 列表 - 查看
-  'clouds.nads:write',         // NAD 管理 - 创建/编辑/删除
   
   // 定时任务
   'clouds.schedules:read',     // 定时任务列表 - 查看
@@ -172,6 +181,10 @@ export const ALL_PERMISSIONS = [
   // 物理网络（Provider Network）
   'clouds.provider-networks:read',  // 物理网络列表 - 查看
   'clouds.provider-networks:write', // 物理网络管理 - 创建/编辑/删除
+
+  // 网络附加定义 (NAD - Network Attachment Definition)，与基础网络能力归并展示
+  'clouds.nads:read',          // NAD 列表 - 查看
+  'clouds.nads:write',         // NAD 管理 - 创建/编辑/删除
   
   // 虚拟交换机
   'clouds.vswitches:read',     // 虚拟交换机列表 - 查看
@@ -208,10 +221,6 @@ export const ALL_PERMISSIONS = [
   // 路由条目
   'clouds.route-entries:read', // 路由条目列表 - 查看
   'clouds.route-entries:write', // 路由条目管理 - 创建/编辑/删除
-  
-  // NAT 网关
-  'clouds.nat-gateways:read',  // NAT 网关列表 - 查看
-  'clouds.nat-gateways:write', // NAT 网关管理 - 创建/配置/删除
   
   // VLAN 网络
   'clouds.vlans:read',         // VLAN 列表 - 查看
@@ -410,46 +419,53 @@ export const PERMISSION_GROUPS = {
   // CNMC 平台
   CNMC: {
     '资源控制台': [
-      'clouds.dashboard',
       'clouds',
+      'clouds.dashboard',
+      'clouds.resource-pools',
+      'clouds.console',
       'clouds.cloudmap.ops-view',
       'clouds.ecs',
       'clouds.vm-create-wizard',
-      'clouds.vpcs',
-      'clouds.subnets',
-      'clouds.subnets.vpc',
-      'clouds.subnets.flat',
-      'clouds.subnets.public',
-      'clouds.flat-nat',
-      'clouds.traffic-mirroring',
-      'clouds.eips',
-      'clouds.fips',
-      'clouds.disks',
-      'clouds.security-groups',
-      'clouds.load-balancers',
       'clouds.images',
       'clouds.templates',
       'clouds.cloudinits',
       'clouds.sshkeys',
-      'clouds.nads',
+      'clouds.recycle-bin',
+      'clouds.migrations',
+      'clouds.disks',
+      'clouds.snapshots',
+      'clouds.backups',
       'clouds.schedules',
       'clouds.restore-tasks',
-      'clouds.namespaces',
+      'clouds.provider-networks',
+      'clouds.vlans',
+      'clouds.nads',
+      'clouds.subnets.public',
+      'clouds.subnets.flat',
+      'clouds.eips.flat',
+      'clouds.fips.flat',
+      'clouds.dnat.flat',
+      'clouds.snat.flat',
+      'clouds.traffic-mirroring.flat',
+      'clouds.security-groups.flat',
+      'clouds.vpcs',
+      'clouds.subnets.vpc',
+      'clouds.eips.vpc',
+      'clouds.fips.vpc',
+      'clouds.dnat.vpc',
+      'clouds.snat.vpc',
+      'clouds.traffic-mirroring.vpc',
+      'clouds.security-groups.vpc',
+      'clouds.load-balancers',
+      'clouds.vswitches',
+      'clouds.enis',
+      'clouds.route-tables',
+      'clouds.route-entries',
+      'clouds.network-acls',
       'clouds.cluster-nodes',
       'clouds.cluster-services',
       'clouds.cluster-networks',
-      'clouds.provider-networks',
-      'clouds.vswitches',
-      'clouds.enis',
-      'clouds.network-acls',
-      'clouds.snapshots',
-      'clouds.backups',
-      'clouds.recycle-bin',
-      'clouds.migrations',
-      'clouds.route-tables',
-      'clouds.route-entries',
-      'clouds.nat-gateways',
-      'clouds.vlans',
+      'clouds.namespaces',
       'clouds.storage-classes',
       'clouds.gpus',
       'clouds.usb-devices',
@@ -462,7 +478,6 @@ export const PERMISSION_GROUPS = {
       'clouds.log-targets',
       'clouds.log-receivers',
       'clouds.log-configs',
-      'clouds.console',
     ],
     '租户管理': [
       'tenants',

@@ -10,6 +10,7 @@ import {
   createKubeOvnProviderNetwork,
   deleteKubeOvnProviderNetwork,
   fetchKubeOvnProviderNetworks,
+  fetchKubeOvnSubnets,
   fetchKubeOvnVlans,
   fetchHarvesterNodes,
   fetchHarvesterClusterNetworks,
@@ -17,8 +18,10 @@ import {
 import { clearCache } from '../../../../utils/requestManager';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import VlanPlanDrawer from './VlanPlanDrawer';
+import { CLOUD_PROVIDER_NETWORKS_READ, CLOUD_PROVIDER_NETWORKS_WRITE } from '../../../../constants/cloudPermissions';
+import VlanPlanDrawer from './vlan-plan-drawer';
 import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../utils/towerKubeOvnNames';
+import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from './underlay-subnet';
 
 const { Option } = Select;
 
@@ -45,10 +48,13 @@ const ProviderNetworksSection: React.FC<Props> = ({
 }) => {
   const isParentManaged = typeof onParentRefresh === 'function';
   const { user } = useAuth();
-  const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
+  const perms = user?.permissions || [];
+  const canReadProviderNetwork = hasPermissionForAction(perms, CLOUD_PROVIDER_NETWORKS_READ);
+  const canWriteProviderNetwork = hasPermissionForAction(perms, CLOUD_PROVIDER_NETWORKS_WRITE);
   const [createMode, setCreateMode] = useState<'centralized' | 'node_specific'>('centralized');
   const [data, setData] = useState<any[]>([]);
   const [vlans, setVlans] = useState<any[]>([]);
+  const [subnets, setSubnets] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
@@ -80,7 +86,12 @@ const ProviderNetworksSection: React.FC<Props> = ({
 
   const openDrawer = (record: any, tab: string = 'detail') => {
     const raw = record?.raw || record?.rawData || record;
-    setDrawerRecord({ ...raw, kind: 'ProviderNetwork' });
+    setDrawerRecord({
+      ...raw,
+      kind: 'ProviderNetwork',
+      __flatSubnets: record?.flatSubnets || [],
+      __publicSubnets: record?.publicSubnets || [],
+    });
     setDrawerTab(tab);
     setDrawerOpen(true);
   };
@@ -100,6 +111,12 @@ const ProviderNetworksSection: React.FC<Props> = ({
   }, [vlanListForAlias]);
 
   const fetchData = async (force = false, skipSync = false) => {
+    try {
+      const subnetRes = await fetchKubeOvnSubnets(cloudId, force, skipSync).catch(() => ({ data: { items: [] } }));
+      setSubnets(Array.isArray(subnetRes?.data?.items) ? subnetRes.data.items : []);
+    } catch {
+      setSubnets([]);
+    }
     if (isParentManaged && onParentRefresh) {
       await onParentRefresh(force, skipSync);
       return;
@@ -216,6 +233,10 @@ const ProviderNetworksSection: React.FC<Props> = ({
   }, [isModalVisible, cloudId]);
 
   const handleCreate = async (values: any) => {
+    if (!canWriteProviderNetwork) {
+      message.error('当前账号没有物理网络管理权限');
+      return;
+    }
     try {
       const customConfig: Record<string, string[]> = {};
       let defaultIf = String(values.defaultInterface || '');
@@ -289,6 +310,10 @@ const ProviderNetworksSection: React.FC<Props> = ({
   };
 
   const handleDelete = (record: any) => {
+    if (!canWriteProviderNetwork) {
+      message.error('当前账号没有物理网络管理权限');
+      return;
+    }
     const raw = record?.raw || record?.rawData || record;
     const name = String(
       record?.name ||
@@ -488,26 +513,40 @@ const ProviderNetworksSection: React.FC<Props> = ({
             onClick: () => openDrawer(record, 'detail'),
           });
         }
-        if (canWriteVlan) {
+        if (canReadProviderNetwork) {
           items.push({
             key: 'vlan-plan',
             label: '详情',
             onClick: () => openVlanPlanForProvider(String(record.name || '').trim()),
           });
         }
-        if (items.length > 0) {
-          items.push({ type: 'divider' });
+        if (canWriteProviderNetwork) {
+          if (items.length > 0) {
+            items.push({ type: 'divider' });
+          }
+          items.push({
+            key: 'delete',
+            label: '删除',
+            danger: true,
+            onClick: () => handleDelete(record),
+          });
         }
-        items.push({
-          key: 'delete',
-          label: '删除',
-          danger: true,
-          onClick: () => handleDelete(record),
-        });
+        if (items.length === 0) {
+          return <span style={{ color: '#bfbfbf' }}>—</span>;
+        }
         return <ResourceActionsDropdown items={items} />;
       },
     },
-  ], [openDrawer, handleDelete, canWriteVlan, openVlanPlanForProvider, vlanAliasMap, mode]);
+  ], [
+    openDrawer,
+    handleDelete,
+    canReadProviderNetwork,
+    canWriteProviderNetwork,
+    openVlanPlanForProvider,
+    vlanAliasMap,
+    mode,
+    subnets,
+  ]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_provider_networks_table');
 
@@ -541,7 +580,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
           <a className="toolbar-reset-btn" onClick={() => { setKeyword(''); setReadyFilter(''); setVlanFilter(''); setCustomFilter(''); fetchData(); }}>重置</a>
         </div>
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => setIsModalVisible(true)}>创建物理网络</Button>
+          {canWriteProviderNetwork ? (
+            <Button type="primary" onClick={() => setIsModalVisible(true)}>
+              创建物理网络
+            </Button>
+          ) : null}
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey="harvester_provider_networks_table"
@@ -568,6 +611,28 @@ const ProviderNetworksSection: React.FC<Props> = ({
             };
             const ann = raw?.metadata?.annotations || {};
             const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+            const providerVlans = new Set(
+              (Array.isArray(raw?.status?.vlans) ? raw.status.vlans : [])
+                .map((v: unknown) => String(v ?? '').trim())
+                .filter(Boolean),
+            );
+            const relatedSubnets = (subnets || [])
+              .filter((sn: any) => {
+                const snVlan = String(sn?.spec?.vlan ?? '').trim();
+                return !!snVlan && providerVlans.has(snVlan);
+              })
+              .map((sn: any) => {
+                const snAnn = sn?.metadata?.annotations || {};
+                return {
+                  name: String(sn?.metadata?.name || '-'),
+                  alias: String(snAnn[TOWER_ALIAS_ANNOTATION] || '').trim(),
+                  vlan: String(sn?.spec?.vlan || '-'),
+                  cidr: String(sn?.spec?.cidrBlock || sn?.spec?.cidr || '-'),
+                  type: String(snAnn[SUBNET_TYPE_ANNOTATION_KEY] || '').trim().toLowerCase(),
+                };
+              });
+            const flatSubnets = relatedSubnets.filter((sn) => sn.type === 'flat');
+            const publicSubnets = relatedSubnets.filter((sn) => sn.type === 'public');
             return {
               key: raw?.metadata?.uid || raw?.metadata?.name,
               name: raw?.metadata?.name || '-',
@@ -578,6 +643,8 @@ const ProviderNetworksSection: React.FC<Props> = ({
               ready: !!raw?.status?.ready,
               readyNodes: Array.isArray(raw?.status?.readyNodes) ? raw.status.readyNodes : [],
               vlans: Array.isArray(raw?.status?.vlans) ? raw.status.vlans : [],
+              flatSubnets,
+              publicSubnets,
               creationTimestamp: raw?.metadata?.creationTimestamp,
               raw,
             };

@@ -245,8 +245,10 @@ const AdminIndex: React.FC = () => {
   // ???? favorite cloud???????????
   if (isAdmin && favoriteCloudId) {
     // ???????????????
-    const canAccessClouds = hasPermissionForAction(perms, 'clouds:read') || 
-                            hasPermissionForAction(perms, 'clouds.console:read');
+    const canAccessClouds =
+      hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
+      hasPermissionForAction(perms, 'clouds:read') ||
+      hasPermissionForAction(perms, 'clouds.console:read');
     if (canAccessClouds) {
       return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
     }

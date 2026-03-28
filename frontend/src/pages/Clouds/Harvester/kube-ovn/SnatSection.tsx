@@ -1,12 +1,27 @@
-import React, { useState, useMemo } from 'react';
-import { Table, Tag, Button, Space, Modal, Form, Input, Select, message, MenuProps } from 'antd';
-import { ExportOutlined, SearchOutlined } from '@ant-design/icons';
+import React, { useState, useMemo, useCallback } from 'react';
+import {
+  KUBE_OVN_FLAT_VPC,
+  KUBE_OVN_PUBLIC_VPC,
+  SUBNET_TYPE_ANNOTATION_KEY,
+  TOWER_ALIAS_ANNOTATION,
+  isBuiltInKubeOvnVpc,
+} from './underlay-subnet/constants';
+import { Table, Tag, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip } from 'antd';
+import { InteractionTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { createCloudProviderOvnSnatRule, deleteCloudProviderOvnSnatRule } from '../../../../services/harvesterApi';
 import MetadataModal from './MetadataModal';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
+import { ovnDisplayName, ovnKeywordMatches } from './ovnResourceDisplay';
+
+function subnetCidrOf(s: any): string {
+  return String(s?.spec?.cidrBlock ?? s?.spec?.cidr ?? s?.cidr ?? '').trim();
+}
 
 interface BaseSectionProps {
   cloudId: string;
@@ -20,15 +35,43 @@ interface SnatSectionProps extends BaseSectionProps {
   eips: any[];
   vpcs: any[]; // Used to filter subnets or context
   subnets: any[];
+  /** flat/vpc：走分域 API 与写权限；不传则 Harvester 未分域行为 */
+  networkScope?: 'flat' | 'vpc';
 }
 
-export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, eips, subnets, loading, onRefresh, bordered = true }) => {
+export const SnatSection: React.FC<SnatSectionProps> = ({
+  cloudId,
+  snatRules,
+  eips,
+  subnets,
+  loading,
+  onRefresh,
+  bordered = true,
+  networkScope,
+}) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasVpcsWrite = useMemo(
     () => hasPermissionForAction(perms, 'clouds.vpcs:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
+  const hasNatWrite = useMemo(() => {
+    if (networkScope === 'flat') {
+      return (
+        hasPermissionForAction(perms, 'clouds.snat.flat:write') ||
+        hasPermissionForAction(perms, 'clouds.subnets.flat:write') ||
+        hasPermissionForAction(perms, 'clouds:write')
+      );
+    }
+    if (networkScope === 'vpc') {
+      return (
+        hasPermissionForAction(perms, 'clouds.snat.vpc:write') ||
+        hasPermissionForAction(perms, 'clouds.vpcs:write') ||
+        hasPermissionForAction(perms, 'clouds:write')
+      );
+    }
+    return hasVpcsWrite;
+  }, [networkScope, perms, hasVpcsWrite]);
   const [isCreateVisible, setIsCreateVisible] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [form] = Form.useForm();
@@ -41,7 +84,6 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
   // 筛选数据
   const filteredData = useMemo(() => {
     return snatRules.filter((item: any) => {
-      const name = item.metadata?.name || '';
       const eip = item.spec?.ovnEip || '';
       const vpcSubnet = item.spec?.vpcSubnet || '';
       const vpc = item.spec?.vpc || '';
@@ -49,9 +91,11 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
       // 关键字搜索
       if (keyword) {
         const kw = keyword.toLowerCase();
-        if (!name.toLowerCase().includes(kw) && 
-            !eip.toLowerCase().includes(kw) && 
-            !vpcSubnet.toLowerCase().includes(kw)) {
+        if (
+          !ovnKeywordMatches(item, kw) &&
+          !eip.toLowerCase().includes(kw) &&
+          !vpcSubnet.toLowerCase().includes(kw)
+        ) {
           return false;
         }
       }
@@ -75,30 +119,63 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
     return Array.from(set);
   }, [snatRules]);
 
+  const subnetChoices = useMemo(() => {
+    if (!networkScope) return subnets;
+    return subnets.filter((s: any) => {
+      const vpc = String(s.spec?.vpc || s.vpc || '').trim();
+      const onFlatBuiltinVpc = !vpc || isBuiltInKubeOvnVpc(vpc);
+      if (networkScope === 'flat') {
+        const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
+          .trim()
+          .toLowerCase();
+        // 与「扁平子网」页一致：仅注解 tower.io/subnet-type=flat，排除公共子网与 VPC 子网
+        return t === 'flat' && onFlatBuiltinVpc;
+      }
+      return vpc && !isBuiltInKubeOvnVpc(vpc);
+    });
+  }, [subnets, networkScope]);
+
   const handleCreate = async () => {
-    if (!hasVpcsWrite) {
+    if (!hasNatWrite) {
       message.error('无权限执行该操作');
       return;
     }
     try {
       const values = await form.validateFields();
       setCreateLoading(true);
-      await createCloudProviderOvnSnatRule(cloudId, values);
+      const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+      const displayName = String(values.displayName ?? '').trim();
+      const payload = {
+        ...values,
+        name: generateHarvesterEntityId('snat'),
+        ...(displayName ? { alias: displayName } : {}),
+      };
+      delete (payload as any).displayName;
+      await createCloudProviderOvnSnatRule(cloudId, payload, scope);
       message.success('SNAT 规则创建成功');
       setIsCreateVisible(false);
       form.resetFields();
       // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步
       onRefresh(true, true);
     } catch (e: any) {
-      let errMsg = e.message || '创建失败';
-      try {
-        const errObj = JSON.parse(errMsg);
-        if (errObj && typeof errObj === 'object') {
-          errMsg = errObj.message || errMsg;
-          if (errObj.error) errMsg += `: ${errObj.error}`;
+      let errMsg = e?.message || '创建失败';
+      let parsed: Record<string, unknown> | null = null;
+      if (typeof errMsg === 'string') {
+        try {
+          parsed = JSON.parse(errMsg) as Record<string, unknown>;
+        } catch {
+          parsed = null;
         }
-      } catch (parseError) {
-        // ignore
+      }
+      if (parsed && typeof parsed === 'object') {
+        const d = parsed.details as Record<string, unknown> | undefined;
+        const kubeMsg = d?.message;
+        if (typeof kubeMsg === 'string' && kubeMsg.trim()) {
+          errMsg = kubeMsg.trim();
+        } else {
+          errMsg = String(parsed.message || errMsg);
+          if (parsed.error) errMsg += `: ${parsed.error}`;
+        }
       }
       message.error(errMsg);
     } finally {
@@ -106,44 +183,62 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
     }
   };
 
-  const handleMenuClick = async (key: string, record: any) => {
-    if (key === 'metadata') {
-      setMetadataRecord(record);
-    } else if (key === 'delete') {
-      if (!hasVpcsWrite) {
-        message.error('无权限执行该操作');
-        return;
-      }
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除 SNAT 规则 ${record.metadata?.name} 吗？`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
-          try {
-            await deleteCloudProviderOvnSnatRule(cloudId, record.metadata?.name);
-            message.success('删除成功');
-            onRefresh(true);
-          } catch (e: any) {
-            message.error(`删除失败: ${e.message}`);
-          }
+  const handleMenuClick = useCallback(
+    async (key: string, record: any) => {
+      if (key === 'metadata') {
+        setMetadataRecord(record);
+      } else if (key === 'delete') {
+        if (!hasNatWrite) {
+          message.error('无权限执行该操作');
+          return;
         }
-      });
-    }
-  };
+        Modal.confirm({
+          title: '确认删除',
+          content: `确定要删除 SNAT 规则「${ovnDisplayName(record)}」吗？`,
+          okText: '删除',
+          okType: 'danger',
+          cancelText: '取消',
+          onOk: async () => {
+            try {
+              await deleteCloudProviderOvnSnatRule(cloudId, record.metadata?.name);
+              message.success('删除成功');
+              onRefresh(true);
+            } catch (e: any) {
+              message.error(`删除失败: ${e.message}`);
+            }
+          },
+        });
+      }
+    },
+    [cloudId, hasNatWrite, onRefresh],
+  );
 
-  const columns = [
-    { 
-      title: '名称', 
-      key: 'name', 
-      ellipsis: true,
+  const allColumns = useMemo(
+    () => [
+    {
+      title: '名称',
+      key: 'alias',
       render: (_: any, r: any) => {
-        const n = r.metadata?.name || '—';
+        const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+        const text = alias || '—';
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <ExportOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={n}>{n}</span>
+            <InteractionTwoTone twoToneColor={['#1677ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={text}>
+              {text}
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      key: 'id',
+      render: (_: any, r: any) => {
+        const id = String(r?.metadata?.name ?? '').trim() || '—';
+        return (
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }} title={id}>
+            {id}
           </span>
         );
       },
@@ -171,18 +266,23 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
         const menuItems: MenuProps['items'] = [
           { key: 'metadata', label: '查看元数据' },
           { type: 'divider' },
-          { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite }
+          { key: 'delete', label: '删除', danger: true, disabled: !hasNatWrite }
         ];
         return (
           <ResourceActionsDropdown 
             items={menuItems} 
             onClick={({ key }) => handleMenuClick(key, r)}
-            buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }}
+            buttonProps={{ className: 'row-actions-trigger', disabled: !hasNatWrite }}
           />
         );
       }
-    }
-  ];
+    },
+    ],
+    [hasNatWrite, handleMenuClick],
+  );
+
+  const snatTableSettingsKey = `harvester_ovn_snat_${networkScope ?? 'legacy'}`;
+  const { displayColumns: columns } = useTableColumnSettings(allColumns, snatTableSettingsKey);
 
   return (
     <>
@@ -222,12 +322,18 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
           </>
         )}
         primaryAction={{
-          label: '创建SNAT规则',
-          onClick: () => { if (!hasVpcsWrite) return; setIsCreateVisible(true); },
-          disabled: !hasVpcsWrite
+          label: '创建 SNAT 网关',
+          onClick: () => { if (!hasNatWrite) return; setIsCreateVisible(true); },
+          disabled: !hasNatWrite
         }}
-        onRefresh={() => onRefresh(true)}
-        refreshLoading={loading}
+        toolbarRight={
+          <Space size={8}>
+            <TableColumnSettingsButton allColumns={allColumns} settingsKey={snatTableSettingsKey} />
+            <Tooltip title="刷新">
+              <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading} aria-label="刷新" />
+            </Tooltip>
+          </Space>
+        }
       >
         <Table 
           className="std-table"
@@ -235,7 +341,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
           columns={columns} 
           loading={loading} 
           bordered={false}
-          rowKey={r => r.metadata?.uid} 
+          rowKey={r => r.metadata?.uid}
           pagination={{
             size: 'small',
             showTotal: (total) => `共 ${total} 条`,
@@ -246,7 +352,8 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
       <MetadataModal visible={!!metadataRecord} record={metadataRecord} onClose={() => setMetadataRecord(null)} />
 
       <Modal
-        title="创建 SNAT 规则"
+        title="创建 SNAT 网关"
+        centered
         open={isCreateVisible}
         onCancel={() => setIsCreateVisible(false)}
         onOk={handleCreate}
@@ -255,25 +362,55 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
         cancelText="取消"
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入规则名称' }]}>
-            <Input placeholder="例如: my-snat-rule" />
+          <Form.Item name="displayName" label="名称">
+            <Input placeholder="可选，支持中文；留空则列表仅显示自动生成的资源名" />
           </Form.Item>
-          <Form.Item name="ovnEip" label="EIP" rules={[{ required: true, message: '请选择EIP' }]}>
+          <Form.Item name="ovnEip" label="选择EIP" rules={[{ required: true, message: '请选择EIP' }]}>
             <Select placeholder="请选择EIP">
-              {eips.map(e => (
+              {eips.map((e) => (
                 <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
-                  {e.metadata?.name} ({e.spec?.v4Ip})
+                  {ovnDisplayName(e)} ({e.spec?.v4Ip})
                 </Select.Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="vpcSubnet" label="VPC子网" rules={[{ required: true, message: '请选择VPC子网' }]}>
-            <Select placeholder="请选择子网">
-              {subnets.map(s => (
-                <Select.Option key={s.metadata?.name || s.name} value={s.metadata?.name || s.name}>
-                  {s.metadata?.name || s.name} (VPC: {s.spec?.vpc || s.vpc})
-                </Select.Option>
-              ))}
+          <Form.Item
+            name="vpcSubnet"
+            label={networkScope === 'flat' ? '选择扁平子网' : '选择 VPC 子网'}
+            rules={[
+              {
+                required: true,
+                message: networkScope === 'flat' ? '请选择扁平子网' : '请选择 VPC 子网',
+              },
+            ]}
+          >
+            <Select placeholder={networkScope === 'flat' ? '请选择扁平子网' : '请选择子网'}>
+              {subnetChoices.map((s) => {
+                const name = String(s.metadata?.name || s.name || '');
+                const alias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+                const cidr = subnetCidrOf(s);
+                const vpc =
+                  String(s.spec?.vpc || s.vpc || '').trim() ||
+                  (networkScope === 'flat' ? KUBE_OVN_FLAT_VPC : KUBE_OVN_PUBLIC_VPC);
+                if (networkScope === 'flat') {
+                  const primary = alias || name;
+                  const secondary = alias ? name : '';
+                  return (
+                    <Select.Option key={name} value={name}>
+                      <span title={cidr ? `${primary} ${cidr}` : primary}>
+                        {primary}
+                        {secondary ? <span style={{ color: '#8c8c8c' }}>（{secondary}）</span> : null}
+                        {cidr ? <span style={{ color: '#8c8c8c' }}> {cidr}</span> : null}
+                      </span>
+                    </Select.Option>
+                  );
+                }
+                return (
+                  <Select.Option key={name} value={name}>
+                    {name} (VPC: {vpc})
+                  </Select.Option>
+                );
+              })}
             </Select>
           </Form.Item>
         </Form>

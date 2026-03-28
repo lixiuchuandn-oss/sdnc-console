@@ -9,7 +9,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { clearCache } from '../../../../utils/requestManager';
-import VlanPlanDrawer from './VlanPlanDrawer';
+import VlanPlanDrawer from './vlan-plan-drawer';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../utils/towerKubeOvnNames';
 
 const { Option } = Select;

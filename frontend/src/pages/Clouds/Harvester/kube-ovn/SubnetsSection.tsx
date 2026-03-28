@@ -13,6 +13,10 @@ import { fetchCloudProviderEcs } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { CLOUD_SUBNETS_VPC_WRITE } from '../../../../constants/cloudPermissions';
+import {
+  KUBE_OVN_PUBLIC_VPC,
+  isBuiltInKubeOvnVpc,
+} from './underlay-subnet/constants';
 
 /**
  * =============================================================================
@@ -22,8 +26,8 @@ import { CLOUD_SUBNETS_VPC_WRITE } from '../../../../constants/cloudPermissions'
  * 与 NAD、扁平/公共子网的区别：
  *
  * - 【NAD】Multus 网络定义，描述「网卡怎么接」（见 NadsSection）。Kube-OVN 子网创建流程里会建同名 NAD。
- * - 【扁平子网 / 公共子网】见 UnderlaySubnetsSection（flat / public），挂在默认 VPC ovn-cluster。
- * - 【VPC 子网】本页：挂在业务 VPC 下的隔离网段，须选择非 ovn-cluster 的 VPC；用于租户内虚拟机网络。
+ * - 【扁平子网 / 公共子网】见 UnderlaySubnetsSection（flat→ovn-internal，public→ovn-cluster）。
+ * - 【VPC 子网】本页：挂在业务 VPC 下的隔离网段，须选择非内置 VPC；用于租户内虚拟机网络。
  *
  * 列表仅展示 subnet-type=vpc，避免与扁平/公共子网列表混淆。
  * =============================================================================
@@ -38,7 +42,6 @@ type Props = {
   showYaml?: boolean;
 };
 
-const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
 /** 注解值 vpc：产品名「VPC 子网」（业务 VPC 内隔离网段） */
 const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
 const SUBNET_FINALIZER = 'tower.io/managed';
@@ -80,8 +83,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const vpcOptions = useMemo(() => {
     const set = new Set<string>();
     for (const s of subnets || []) {
-      const v = String(s?.vpc || s?.spec?.vpc || UNDERLAY_SYSTEM_VPC).trim();
-      if (v && v !== UNDERLAY_SYSTEM_VPC) set.add(v);
+      const v = String(s?.vpc || s?.spec?.vpc || KUBE_OVN_PUBLIC_VPC).trim();
+      if (v && !isBuiltInKubeOvnVpc(v)) set.add(v);
     }
     return Array.from(set).map((x) => ({ label: x, value: x }));
   }, [subnets]);
@@ -98,7 +101,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const businessVpcList = useMemo(
     () => (vpcList || []).filter((v: any) => {
       const name = String(v?.name || v?.metadata?.name || '').trim();
-      return name && name !== UNDERLAY_SYSTEM_VPC && name !== 'ovn-vpc-external-network';
+      return name && !isBuiltInKubeOvnVpc(name) && name !== 'ovn-vpc-external-network';
     }),
     [vpcList]
   );
@@ -111,7 +114,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const filtered = useMemo(() => {
     const kw = String(keyword || '').toLowerCase().trim();
     return (subnets || []).filter((r: any) => {
-      const vpcVal = String(r?.vpc || r?.spec?.vpc || UNDERLAY_SYSTEM_VPC);
+      const vpcVal = String(r?.vpc || r?.spec?.vpc || KUBE_OVN_PUBLIC_VPC);
       const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
       const cidr = String(r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '').toLowerCase();
       const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] || '').toLowerCase();
@@ -215,8 +218,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         await updateKubeOvnSubnet(cloudId!, name, patchBody);
         message.success('更新子网成功');
       } else {
-        if (String(values?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC) {
-          message.error('VPC 子网不能使用 ovn-cluster，请选择业务 VPC');
+        if (isBuiltInKubeOvnVpc(values?.vpc)) {
+          message.error('VPC 子网不能使用内置 VPC（ovn-cluster / ovn-internal），请选择业务 VPC');
           setSubmitting(false);
           return;
         }
@@ -290,8 +293,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     
     const name = record.name || record.metadata?.name;
     const vpcVal = record.vpc || record.spec?.vpc;
-    if (String(vpcVal || '').trim() === UNDERLAY_SYSTEM_VPC) {
-      message.error('该子网属于扁平子网或公共子网（ovn-cluster），请在本页的扁平/公共子网入口编辑');
+    if (isBuiltInKubeOvnVpc(vpcVal)) {
+      message.error('该子网属于扁平或公共内置 VPC，请在「扁平子网 / 公共子网」入口编辑');
       return;
     }
     const cidr = record.cidr || record.cidrBlock || record.spec?.cidrBlock || record.spec?.cidr;
@@ -439,7 +442,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     { 
       title: 'VPC', 
       key: 'vpc', 
-      render: (_: any, r: any) => r?.vpc || r?.spec?.vpc || 'ovn-cluster' 
+      render: (_: any, r: any) => r?.vpc || r?.spec?.vpc || KUBE_OVN_PUBLIC_VPC 
     },
     { 
       title: '网关', 

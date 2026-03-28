@@ -44,8 +44,10 @@ const AdminLogin: React.FC = () => {
           const cloudId = String(fav?.value || '').trim();
           if (cloudId) {
             // 检查用户是否有访问资源池的权限
-            const canAccessClouds = hasPermissionForAction(perms, 'clouds:read') || 
-                                    hasPermissionForAction(perms, 'clouds.console:read');
+            const canAccessClouds =
+              hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
+              hasPermissionForAction(perms, 'clouds:read') ||
+              hasPermissionForAction(perms, 'clouds.console:read');
             if (canAccessClouds) {
               navigate(`/admin/clouds/${cloudId}`);
               return;

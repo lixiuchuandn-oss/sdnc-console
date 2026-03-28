@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Drawer, Tabs, Descriptions } from 'antd';
+import { Drawer, Tabs, Descriptions, Card, List, Tag } from 'antd';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
 
@@ -89,6 +89,9 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
   const drawerTitle = record 
     ? `${resourceType}: ${record.metadata?.name || record.name || ''}`
     : ` ${resourceType} Opsinfo`;
+  const providerFlatSubnets = Array.isArray(record?.__flatSubnets) ? record.__flatSubnets : [];
+  const providerPublicSubnets = Array.isArray(record?.__publicSubnets) ? record.__publicSubnets : [];
+  const isProviderNetwork = record?.kind === 'ProviderNetwork';
 
   return (
     <Drawer
@@ -117,6 +120,58 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
             label: '摘要 (Instance)',
             children: (
               <div style={{ height: '100%', overflow: 'auto', padding: '16px' }}>
+                {isProviderNetwork ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <Card size="small" title={`公共子网 (${providerPublicSubnets.length})`}>
+                      <List
+                        size="small"
+                        dataSource={providerPublicSubnets}
+                        locale={{ emptyText: '暂无关联公共子网' }}
+                        renderItem={(item: any) => {
+                          const alias = String(item?.alias || '').trim();
+                          const name = String(item?.name || '-').trim();
+                          const cidr = String(item?.cidr || '-').trim();
+                          const vlan = String(item?.vlan || '-').trim();
+                          return (
+                            <List.Item>
+                              <div style={{ width: '100%' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                  <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{alias || name}</span>
+                                  <Tag color="blue">VLAN: {vlan}</Tag>
+                                </div>
+                                <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 2 }}>{cidr}</div>
+                              </div>
+                            </List.Item>
+                          );
+                        }}
+                      />
+                    </Card>
+                    <Card size="small" title={`扁平子网 (${providerFlatSubnets.length})`}>
+                      <List
+                        size="small"
+                        dataSource={providerFlatSubnets}
+                        locale={{ emptyText: '暂无关联扁平子网' }}
+                        renderItem={(item: any) => {
+                          const alias = String(item?.alias || '').trim();
+                          const name = String(item?.name || '-').trim();
+                          const cidr = String(item?.cidr || '-').trim();
+                          const vlan = String(item?.vlan || '-').trim();
+                          return (
+                            <List.Item>
+                              <div style={{ width: '100%' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                  <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{alias || name}</span>
+                                  <Tag color="blue">VLAN: {vlan}</Tag>
+                                </div>
+                                <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 2 }}>{cidr}</div>
+                              </div>
+                            </List.Item>
+                          );
+                        }}
+                      />
+                    </Card>
+                  </div>
+                ) : null}
                 <Descriptions bordered column={1} size="small">
                   {Object.entries(record || {})
                     .sort(([keyA], [keyB]) => {
@@ -132,7 +187,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                     // Skip complex objects/arrays for cleaner display, or JSON stringify them
                     // Skip rawData as it's too large usually
                     // Skip links as they are technical metadata (HATEOAS) and pollute the UI
-                    if (key === 'rawData' || key === 'links') return [];
+                    if (key === 'rawData' || key === 'links' || key === '__flatSubnets' || key === '__publicSubnets') return [];
                     
                     // 对于 status 字段，如果是快照/备份资源，优先显示关键信息
                     if (key === 'status' && value && typeof value === 'object' && !Array.isArray(value)) {

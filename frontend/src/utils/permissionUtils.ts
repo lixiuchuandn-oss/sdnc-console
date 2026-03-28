@@ -55,49 +55,62 @@ export function normalizeFeatureName(name: string): string {
 }
 
 /**
- * 资源控制台功能权限在角色配置中的展示顺序（与 backend/src/constants/permissions.ts
- * PERMISSION_GROUPS.CNMC['资源控制台'] 保持一致）
+ * 资源控制台功能权限在角色配置中的展示顺序（本数组为设计源；整改后端时请让
+ * backend/src/constants/permissions.ts 中 PERMISSION_GROUPS.CNMC['资源控制台'] 与
+ * ALL_PERMISSIONS 中的 clouds.* 前缀与此处一致）
  */
 export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds',
   'clouds.dashboard',
+  'clouds.resource-pools',
   'clouds.console',
   'clouds.cloudmap.ops-view',
+  // 云主机
   'clouds.ecs',
   'clouds.vm-create-wizard',
-  // 网络能力（按业务分组顺序）
-  'clouds.provider-networks',
-  'clouds.vlans',
-  'clouds.subnets',
-  'clouds.subnets.public',
-  'clouds.subnets.flat',
-  'clouds.nads',
-  'clouds.flat-nat',
-  'clouds.traffic-mirroring',
-  'clouds.security-groups',
-  'clouds.vpcs',
-  'clouds.subnets.vpc',
-  'clouds.eips',
-  'clouds.fips',
-  'clouds.nat-gateways',
-  'clouds.route-tables',
-  'clouds.route-entries',
-  // 其他网络与云资源能力
-  'clouds.disks',
-  'clouds.load-balancers',
   'clouds.images',
   'clouds.templates',
   'clouds.cloudinits',
   'clouds.sshkeys',
-  'clouds.schedules',
-  'clouds.restore-tasks',
-  'clouds.vswitches',
-  'clouds.enis',
-  'clouds.network-acls',
-  'clouds.snapshots',
-  'clouds.backups',
   'clouds.recycle-bin',
   'clouds.migrations',
+  // 存储与备份
+  'clouds.disks',
+  'clouds.snapshots',
+  'clouds.backups',
+  'clouds.schedules',
+  'clouds.restore-tasks',
+  // 基础网络
+  'clouds.provider-networks',
+  'clouds.vlans',
+  'clouds.nads',
+  'clouds.subnets', // 子网（Kube-OVN · 汇总，与分域原子并列展示）
+  'clouds.subnets.public',
+  // 扁平网络
+  'clouds.subnets.flat',
+  'clouds.eips.flat',
+  'clouds.fips.flat',
+  'clouds.dnat.flat',
+  'clouds.snat.flat',
+  'clouds.traffic-mirroring.flat',
+  'clouds.security-groups.flat',
+  // VPC网络
+  'clouds.vpcs',
+  'clouds.subnets.vpc',
+  'clouds.eips.vpc',
+  'clouds.fips.vpc',
+  'clouds.dnat.vpc',
+  'clouds.snat.vpc',
+  'clouds.traffic-mirroring.vpc',
+  'clouds.security-groups.vpc',
+  // VPC 扩展能力
+  'clouds.load-balancers',
+  'clouds.vswitches',
+  'clouds.enis',
+  'clouds.route-tables',
+  'clouds.route-entries',
+  'clouds.network-acls',
+  // 集群与运维
   'clouds.cluster-nodes',
   'clouds.cluster-services',
   'clouds.cluster-networks',
@@ -106,11 +119,13 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.gpus',
   'clouds.usb-devices',
   'clouds.pci-devices',
+  // 监控
   'clouds.alerts',
   'clouds.alert-rules',
   'clouds.alert-policies',
   'clouds.alert-receivers',
   'clouds.alert-secrets',
+  // 日志
   'clouds.log-targets',
   'clouds.log-receivers',
   'clouds.log-configs',
@@ -149,7 +164,13 @@ type ResourceConsoleGroupRule = {
 const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = [
   {
     label: '平台入口能力',
-    prefixes: ['clouds', 'clouds.dashboard', 'clouds.console', 'clouds.cloudmap.ops-view'],
+    prefixes: [
+      'clouds',
+      'clouds.dashboard',
+      'clouds.resource-pools',
+      'clouds.console',
+      'clouds.cloudmap.ops-view',
+    ],
   },
   {
     label: '云主机',
@@ -165,52 +186,6 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
     ],
   },
   {
-    label: '基础网络',
-    prefixes: [
-      'clouds.provider-networks',
-      'clouds.vlans',
-      'clouds.subnets',
-      'clouds.subnets.public',
-      'clouds.subnets.flat',
-      'clouds.nads',
-      // 业务口径映射：flat-traffic -> clouds.traffic-mirroring; flat-sg -> clouds.security-groups
-      'clouds.flat-nat',
-      'clouds.traffic-mirroring',
-      'clouds.security-groups',
-    ],
-  },
-  {
-    label: '扁平网络',
-    prefixes: [
-      'clouds.subnets.flat',
-      'clouds.subnets.public',
-      'clouds.flat-nat',
-      'clouds.traffic-mirroring',
-      'clouds.security-groups',
-    ],
-  },
-  {
-    label: 'VPC网络',
-    prefixes: [
-      'clouds.vpcs',
-      'clouds.subnets.vpc',
-      'clouds.eips',
-      'clouds.fips',
-      'clouds.nat-gateways',
-      'clouds.route-tables',
-      'clouds.route-entries',
-    ],
-  },
-  {
-    label: 'VPC 扩展（第三方云）',
-    prefixes: [
-      'clouds.load-balancers',
-      'clouds.vswitches',
-      'clouds.enis',
-      'clouds.network-acls',
-    ],
-  },
-  {
     label: '存储与备份',
     prefixes: [
       'clouds.disks',
@@ -218,6 +193,52 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
       'clouds.backups',
       'clouds.schedules',
       'clouds.restore-tasks',
+    ],
+  },
+  {
+    label: '基础网络',
+    prefixes: [
+      'clouds.provider-networks', // 物理网络
+      'clouds.vlans', // VLAN网络
+      'clouds.nads', // 网络附加定义（Multus NAD）
+      'clouds.subnets', // 子网管理
+      'clouds.subnets.public', // 公共子网
+    ],
+  },
+  {
+    label: '扁平网络',
+    prefixes: [
+      'clouds.subnets.flat',
+      'clouds.eips.flat',
+      'clouds.fips.flat',
+      'clouds.dnat.flat',
+      'clouds.snat.flat',
+      'clouds.traffic-mirroring.flat',
+      'clouds.security-groups.flat',
+    ],
+  },
+  {
+    label: 'VPC网络',
+    prefixes: [
+      'clouds.vpcs', // VPC网络
+      'clouds.subnets.vpc',
+      'clouds.eips.vpc',
+      'clouds.fips.vpc',
+      'clouds.dnat.vpc',
+      'clouds.snat.vpc',
+      'clouds.traffic-mirroring.vpc',
+      'clouds.security-groups.vpc',
+    ],
+  },
+  {
+    label: 'VPC扩展',
+    prefixes: [
+      'clouds.load-balancers',
+      'clouds.vswitches',
+      'clouds.enis',
+      'clouds.route-tables',
+      'clouds.route-entries',
+      'clouds.network-acls',
     ],
   },
   {

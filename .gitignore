@@ -18,6 +18,8 @@ Thumbs.db
 /backend/*.sqlite-shm
 /backend/*.sqlite-wal
 /backend/*.sqlite-journal
+/backend/data.sqlite-shm
+/backend/data.sqlite-wal
 
 /frontend/node_modules/
 /frontend/node_modules/.cache/
@@ -55,3 +57,4 @@ scripts/
 
 1.md
 2.md
+

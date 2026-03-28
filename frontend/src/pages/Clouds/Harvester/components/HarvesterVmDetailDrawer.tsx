@@ -35,6 +35,10 @@
  * ==============================================================================
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import {
+  KUBE_OVN_FLAT_VPC,
+  KUBE_OVN_PUBLIC_VPC,
+} from '../kube-ovn/underlay-subnet/constants';
 import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Descriptions, List, Space, Progress, Modal, Checkbox } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
@@ -873,10 +877,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                 const vpcDisplay = vpc?.metadata?.annotations?.['tower.io/alias'] || vpcName;
                                 const subnetAlias = String(subnet?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
                                 const subnetDisplay = subnetAlias || subnet.metadata?.name || targetName;
-                                if (String(vpcName) === 'ovn-cluster') {
-                                    displayName = `扁平子网/${subnetDisplay}`;
+                                const subnetType = String(
+                                  subnet?.metadata?.annotations?.['tower.io/subnet-type'] ?? '',
+                                )
+                                  .trim()
+                                  .toLowerCase();
+                                const vpcStr = String(vpcName);
+                                if (subnetType === 'public' || vpcStr === KUBE_OVN_PUBLIC_VPC) {
+                                  displayName = `公共子网/${subnetDisplay}`;
+                                } else if (subnetType === 'flat' || vpcStr === KUBE_OVN_FLAT_VPC) {
+                                  displayName = `扁平子网/${subnetDisplay}`;
                                 } else {
-                                    displayName = `VPC / ${vpcDisplay} / ${subnetDisplay}`;
+                                  displayName = `VPC / ${vpcDisplay} / ${subnetDisplay}`;
                                 }
                             } else {
                                 // subnet 资源缺失时兜底展示

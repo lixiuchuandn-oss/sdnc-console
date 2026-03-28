@@ -1,5 +1,6 @@
 import { startCloudProviderEcs } from '../../../../../services/api';
 import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
+import { KUBE_OVN_FLAT_VPC } from '../../kube-ovn/underlay-subnet/constants';
 
 /**
  * ==============================================================================
@@ -268,7 +269,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   evictionStrategy: 'LiveMigrateIfPossible',
   loginMethod: 'later',
   loginAccount: 'root',
-  primaryNic: { name: '', type: 'managedtap', model: 'virtio', vpc: 'ovn-cluster' },
+  primaryNic: { name: '', type: 'managedtap', model: 'virtio', vpc: KUBE_OVN_FLAT_VPC },
   netIfaces: [],
   usbDevices: []
 });

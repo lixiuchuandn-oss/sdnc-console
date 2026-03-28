@@ -5,6 +5,7 @@ import {
   ifaceTypeOption,
   PASSTHROUGH_VIRT_IFACE_OPTIONS,
 } from '../VmCreateWizard/harvesterVmIfaceTypeOptions';
+import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/underlay-subnet/constants';
 
 type Props = {
   form: any;
@@ -18,7 +19,6 @@ type Props = {
 };
 
 const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
-const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
 
 function isKubeOvnFlatSubnet(s: any): boolean {
   const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION] ?? '').trim().toLowerCase();
@@ -128,7 +128,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                               ) : mode === 'flat_subnet' ? (
                                 <>
                                   <Col span={8}>
-                                    <Form.Item {...restField} name={[name, 'vpc']} initialValue={UNDERLAY_SYSTEM_VPC} hidden>
+                                    <Form.Item {...restField} name={[name, 'vpc']} initialValue={KUBE_OVN_FLAT_VPC} hidden>
                                       <Input />
                                     </Form.Item>
                                     <Form.Item
@@ -156,7 +156,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                           return (subnets || [])
                                             .filter(
                                               (x: any) =>
-                                                String(x?.spec?.vpc || x?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                                isFlatKubeOvnSubnetVpc(x?.spec?.vpc || x?.vpc) &&
                                                 isKubeOvnFlatSubnet(x),
                                             )
                                             .filter((x: any) => {
@@ -168,7 +168,10 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                             .map((x: any) => {
                                               const n = x?.metadata?.name || x?.name || '-';
                                               const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                                              return { label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`, value: n };
+                                              const vpcDisp =
+                                                String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                                KUBE_OVN_FLAT_VPC;
+                                              return { label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`, value: n };
                                             });
                                         })()}
                                         onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
@@ -177,7 +180,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                             const list = form.getFieldValue('secondaryNics') || [];
                                             const flatList = (subnets || []).filter(
                                               (x: any) =>
-                                                String(x?.spec?.vpc || x?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                                isFlatKubeOvnSubnetVpc(x?.spec?.vpc || x?.vpc) &&
                                                 isKubeOvnFlatSubnet(x),
                                             );
                                             const subnet = flatList.find((x: any) => (x?.metadata?.name || x?.name) === val);
@@ -202,10 +205,13 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                               } catch {}
                                             }
 
+                                            const flatVpc =
+                                              String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                              KUBE_OVN_FLAT_VPC;
                                             list[name] = {
                                               ...list[name],
                                               mode: 'flat_subnet',
-                                              vpc: UNDERLAY_SYSTEM_VPC,
+                                              vpc: flatVpc,
                                               subnet: val,
                                               name: netName,
                                               type: 'managedtap',
@@ -231,7 +237,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                         const subnetName = gf(['secondaryNics', name, 'subnet']);
                                         const subnet = (subnets || []).find(
                                           (x: any) => (x?.metadata?.name === subnetName || x?.name === subnetName) &&
-                                            String(x?.spec?.vpc || x?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                            isFlatKubeOvnSubnetVpc(x?.spec?.vpc || x?.vpc) &&
                                             isKubeOvnFlatSubnet(x),
                                         );
                                         return <Input value={subnet?.spec?.cidrBlock || subnet?.cidr || ''} disabled />;
@@ -382,7 +388,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
              })}
              {/* 顺序：扁平子网 → VPC → 直通 → NAD（与创建向导一致） */}
              <div style={{ display: 'flex', gap: 8 }}>
-               <Button type="dashed" onClick={() => { reloadSubnets(); add({ mode: 'flat_subnet', vpc: UNDERLAY_SYSTEM_VPC, type: 'managedtap', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
+               <Button type="dashed" onClick={() => { reloadSubnets(); add({ mode: 'flat_subnet', vpc: KUBE_OVN_FLAT_VPC, type: 'managedtap', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
                  添加扁平子网
                </Button>
                <Button type="dashed" onClick={() => { reloadVpcs(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>

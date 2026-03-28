@@ -2,7 +2,7 @@
 // 页面门控分三层：
 // 1) License/Feature：能力是否启用
 // 2) RBAC：用户是否有读写权限
-// 3) 标准/运维视图裁剪：仅影响展示；切换「运维」需 clouds.cloudmap.ops-view:write
+// 3) 标准/运维（mode）：仅影响各 Section 内交互/展示细节；Tab 显隐仅由授权 + RBAC 决定
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -41,6 +41,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import {
   CLOUD_CLOUDMAP_OPS_VIEW_WRITE,
+  CLOUD_PROVIDER_NETWORKS_READ,
   CLOUD_SUBNETS_FLAT_READ,
   CLOUD_SUBNETS_PUBLIC_READ,
   CLOUD_SUBNETS_VPC_READ,
@@ -113,16 +114,22 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const canReadVpcSubnets = checkPerm(CLOUD_SUBNETS_VPC_READ) || checkPerm('clouds.subnets:read');
   const canReadFlatSubnets = checkPerm(CLOUD_SUBNETS_FLAT_READ) || checkPerm('clouds.subnets:read');
   const canReadPublicSubnets = checkPerm(CLOUD_SUBNETS_PUBLIC_READ) || checkPerm('clouds.subnets:read');
-  // 兼容历史权限码，优先命中新原子权限
-  const canReadNetworkScope =
+  // 兼容历史权限码，优先命中新原子权限（不含仅物理网络 / 仅 VLAN 读，用于子 Tab 门控）
+  const canReadNetworkScopeBase =
     checkPerm('clouds.vpcs:read') ||
     canReadVpcSubnets ||
     canReadFlatSubnets ||
     canReadPublicSubnets ||
-    checkPerm('clouds.security-groups:read') ||
+    checkPerm('clouds.security-groups.flat:read') ||
+    checkPerm('clouds.security-groups.vpc:read') ||
     checkPerm('clouds.nads:read') ||
     checkPerm('clouds.networks:read') ||
     checkPerm('clouds:read');
+  /** 拉取物理网络 / VLAN 等数据：在 base 上并入物理网络读、VLAN 读 */
+  const canReadNetworkScope =
+    canReadNetworkScopeBase ||
+    checkPerm(CLOUD_PROVIDER_NETWORKS_READ) ||
+    checkPerm('clouds.vlans:read');
   const canReadLoadBalancers =
     checkPerm('clouds.load-balancers:read') ||
     checkPerm('clouds.loadbalancers:read') ||
@@ -138,16 +145,20 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     checkPerm('clouds.log-targets:read') ||
     checkPerm('clouds.log-receivers:read') ||
     checkPerm('clouds.log-configs:read');
+  // 与「集群」内各子 Tab 对齐：勿用宽泛 canReadNetworkScope，否则仅有扁平网络/NAD 等权限也会看到
+  // 「物理网络」空壳（Tab 显示但无 provider-networks 读、接口不落数据）
   const canViewClusterGroup =
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds.cluster-services:read') ||
     checkPerm('clouds.cluster-networks:read') ||
-    canReadNetworkScope ||
     checkPerm('clouds.namespaces:read') ||
     checkPerm('clouds.storage-classes:read') ||
     checkPerm('clouds.gpus:read') ||
     checkPerm('clouds.usb-devices:read') ||
     checkPerm('clouds.pci-devices:read') ||
+    checkPerm('clouds.nads:read') ||
+    checkPerm(CLOUD_PROVIDER_NETWORKS_READ) ||
+    checkPerm('clouds.vlans:read') ||
     checkPerm('clouds:read');
   const canViewComputeGroup =
     checkPerm('clouds.ecs:read') ||
@@ -166,10 +177,32 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     checkPerm('clouds.backups:read') ||
     checkPerm('clouds.restore-tasks:read') ||
     checkPerm('clouds:read');
+  /**
+   * 扁平子网分组（与 VPC 分组标价/授权解耦）：仅扁平 underlay 子网读、扁平安全组读，或全量 clouds:read
+   * 不包含 VPC 专有能力（vpcs / subnets.vpc / eips.vpc 等）
+   */
   const canViewFlatNetworkGroup =
-    canReadNetworkScope;
+    checkPerm('clouds:read') ||
+    canReadFlatSubnets ||
+    checkPerm('clouds.security-groups.flat:read') ||
+    checkPerm('clouds.eips.flat:read') ||
+    checkPerm('clouds.fips.flat:read') ||
+    checkPerm('clouds.snat.flat:read') ||
+    checkPerm('clouds.dnat.flat:read');
+  /**
+   * 虚拟专有云（VPC）分组：仅 VPC 侧网络读能力，或全量 clouds:read
+   * 不包含仅扁平子网、仅物理网络、仅 NAD 等（那些走 canReadNetworkScope / 集群等其它入口）
+   */
   const canViewKubeOvnGroup =
-    canReadNetworkScope;
+    checkPerm('clouds:read') ||
+    checkPerm('clouds.vpcs:read') ||
+    canReadVpcSubnets ||
+    checkPerm('clouds.security-groups.vpc:read') ||
+    checkPerm('clouds.eips.vpc:read') ||
+    checkPerm('clouds.fips.vpc:read') ||
+    checkPerm('clouds.dnat.vpc:read') ||
+    checkPerm('clouds.snat.vpc:read') ||
+    checkPerm('clouds.traffic-mirroring.vpc:read');
   const { hasFeature } = useLicense();
   const ovnVpcEnabled = hasFeature('network.ovn.vpc');
 
@@ -200,6 +233,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [kubeOvnFips, setKubeOvnFips] = useState<any[]>([]);
   const [kubeOvnSnatRules, setKubeOvnSnatRules] = useState<any[]>([]);
   const [kubeOvnDnatRules, setKubeOvnDnatRules] = useState<any[]>([]);
+  const [kubeOvnFlatEips, setKubeOvnFlatEips] = useState<any[]>([]);
+  const [kubeOvnFlatFips, setKubeOvnFlatFips] = useState<any[]>([]);
+  const [kubeOvnFlatSnatRules, setKubeOvnFlatSnatRules] = useState<any[]>([]);
+  const [kubeOvnFlatDnatRules, setKubeOvnFlatDnatRules] = useState<any[]>([]);
 
   // --- 次要/按需加载资源数据 ---
   const [harvesterSnapshots, setHarvesterSnapshots] = useState<any[]>([]); // 卷快照
@@ -371,18 +408,38 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         setHarvesterNads(Array.isArray(list) ? list : []);
         setRawNads(json || null);
       }, force);
-      
-      // Kube-OVN：业务 VPC（含 EIP/NAT 等）受授权 network.ovn.vpc；扁平/公共子网与简易创建 VM 所需子网列表不依赖该授权
-      if (ovnVpcEnabled) {
-        loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
-          const list: any[] = (json as any)?.data?.items || [];
-          setKubeOvnVpcs(Array.isArray(list) ? list : []);
-          setRawVpcs(json || null);
-        }, force);
-      } else {
-        setKubeOvnVpcs([]);
-        setRawVpcs(null);
-      }
+    }
+
+    // VPC 列表：VPC 分组或扁平 OVN（FIP/DNAT 选 VPC）需要
+    const shouldPrefetchVpcs =
+      canViewKubeOvnGroup ||
+      checkPerm('clouds.eips.flat:read') ||
+      checkPerm('clouds.fips.flat:read') ||
+      checkPerm('clouds.snat.flat:read') ||
+      checkPerm('clouds.dnat.flat:read');
+    if (ovnVpcEnabled && shouldPrefetchVpcs) {
+      loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
+        const list: any[] = (json as any)?.data?.items || [];
+        setKubeOvnVpcs(Array.isArray(list) ? list : []);
+        setRawVpcs(json || null);
+      }, force);
+    } else {
+      setKubeOvnVpcs([]);
+      setRawVpcs(null);
+    }
+
+    const shouldPrefetchKubeOvnSubnets =
+      checkPerm('clouds:read') ||
+      canReadFlatSubnets ||
+      canReadVpcSubnets ||
+      checkPerm('clouds.subnets:read') ||
+      (ovnVpcEnabled && canViewKubeOvnGroup) ||
+      (ovnVpcEnabled &&
+        (checkPerm('clouds.snat.flat:read') ||
+          checkPerm('clouds.snat.vpc:read') ||
+          checkPerm('clouds.eips.flat:read') ||
+          checkPerm('clouds.eips.vpc:read')));
+    if (shouldPrefetchKubeOvnSubnets) {
       loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
         const list: any[] = (json as any)?.data?.items || [];
         setKubeOvnSubnets(Array.isArray(list) ? list : []);
@@ -483,7 +540,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             }
             break;
           case 'backups':
-            if (checkPerm('clouds.ecs:read')) {
+            // 与云备份内层 Tab 可见条件对齐：clouds.backups:read（含 clouds:read 扩张），勿仅绑 ecs:read
+            if (checkPerm('clouds.backups:read')) {
               loadResource('backups', () => fetchHarvesterBackups(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterBackups(Array.isArray(list) ? list : []);
@@ -573,7 +631,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             break;
           case 'cluster_vlans':
           case 'vlans':
-            if (canReadNetworkScope) {
+            if (checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) {
               loadResource('vlans', () => fetchKubeOvnVlans(cloudId, force, skipSync), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterVlans(Array.isArray(list) ? list : []);
@@ -624,7 +682,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             }
             break;
           case 'kubeovn_public_networks':
-            if (canReadNetworkScope) {
+            if (checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) {
               loadResource(
                 'providerNetworksTab',
                 async () => {
@@ -657,6 +715,65 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               );
             }
             break;
+          case 'kube_ovn_group':
+            // 进入 VPC 分组时不「一刀切」拉四类 NAT；仅按对应读权限拉取（与内层 Tab filter 一致），避免无原子仍请求
+            if (!canViewKubeOvnGroup) break;
+            if (checkPerm('clouds.eips.vpc:read')) {
+              loadResource('eips', () => fetchCloudProviderOvnEips(cloudId, force, 'vpc'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnEips(Array.isArray(list) ? list : []);
+                setRawEips(json || null);
+              }, force);
+            }
+            if (checkPerm('clouds.fips.vpc:read')) {
+              loadResource('fips', () => fetchCloudProviderOvnFips(cloudId, force, 'vpc'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFips(Array.isArray(list) ? list : []);
+                setRawFips(json || null);
+              }, force);
+            }
+            if (checkPerm('clouds.snat.vpc:read')) {
+              loadResource('snatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force, false, 'vpc'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnSnatRules(Array.isArray(list) ? list : []);
+                setRawSnatRules(json || null);
+              }, force);
+            }
+            if (checkPerm('clouds.dnat.vpc:read')) {
+              loadResource('dnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force, false, 'vpc'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnDnatRules(Array.isArray(list) ? list : []);
+                setRawDnatRules(json || null);
+              }, force);
+            }
+            break;
+          case 'flat_network_group':
+            if (!ovnVpcEnabled || !canViewFlatNetworkGroup) break;
+            if (checkPerm('clouds.eips.flat:read')) {
+              loadResource('flatEips', () => fetchCloudProviderOvnEips(cloudId, force, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatEips(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            if (checkPerm('clouds.fips.flat:read')) {
+              loadResource('flatFips', () => fetchCloudProviderOvnFips(cloudId, force, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatFips(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            if (checkPerm('clouds.snat.flat:read')) {
+              loadResource('flatSnatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force, false, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatSnatRules(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            if (checkPerm('clouds.dnat.flat:read')) {
+              loadResource('flatDnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force, false, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatDnatRules(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            break;
           case 'eips':
           case 'kubeovn_eips':
           case 'fips':
@@ -665,31 +782,30 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           case 'kubeovn_snat':
           case 'dnat':
           case 'kubeovn_dnat':
-          case 'kube_ovn_group': // Kube-OVN 扩展组
-            if (canReadNetworkScope) {
-                if (key === 'eips' || key === 'kube_ovn_group' || key === 'kubeovn_eips') {
-                    loadResource('eips', () => fetchCloudProviderOvnEips(cloudId, force), (json) => {
+            if (canViewKubeOvnGroup) {
+                if (key === 'eips' || key === 'kubeovn_eips') {
+                    loadResource('eips', () => fetchCloudProviderOvnEips(cloudId, force, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnEips(Array.isArray(list) ? list : []);
                         setRawEips(json || null);
                     }, force);
                 }
-                if (key === 'fips' || key === 'kube_ovn_group' || key === 'kubeovn_fips') {
-                    loadResource('fips', () => fetchCloudProviderOvnFips(cloudId, force), (json) => {
+                if (key === 'fips' || key === 'kubeovn_fips') {
+                    loadResource('fips', () => fetchCloudProviderOvnFips(cloudId, force, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnFips(Array.isArray(list) ? list : []);
                         setRawFips(json || null);
                     }, force);
                 }
-                if (key === 'snat' || key === 'kube_ovn_group' || key === 'kubeovn_snat') {
-                    loadResource('snatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force), (json) => {
+                if (key === 'snat' || key === 'kubeovn_snat') {
+                    loadResource('snatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force, false, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnSnatRules(Array.isArray(list) ? list : []);
                         setRawSnatRules(json || null);
                     }, force);
                 }
-                if (key === 'dnat' || key === 'kube_ovn_group' || key === 'kubeovn_dnat') {
-                    loadResource('dnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force), (json) => {
+                if (key === 'dnat' || key === 'kubeovn_dnat') {
+                    loadResource('dnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force, false, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnDnatRules(Array.isArray(list) ? list : []);
                         setRawDnatRules(json || null);
@@ -697,11 +813,41 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                 }
             }
             break;
+          case 'flat_kubeovn_eips':
+          case 'flat_kubeovn_fips':
+          case 'flat_kubeovn_snat':
+          case 'flat_kubeovn_dnat':
+            if (!ovnVpcEnabled || !canViewFlatNetworkGroup) break;
+            if (key === 'flat_kubeovn_eips' && checkPerm('clouds.eips.flat:read')) {
+              loadResource('flatEips', () => fetchCloudProviderOvnEips(cloudId, force, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatEips(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            if (key === 'flat_kubeovn_fips' && checkPerm('clouds.fips.flat:read')) {
+              loadResource('flatFips', () => fetchCloudProviderOvnFips(cloudId, force, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatFips(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            if (key === 'flat_kubeovn_snat' && checkPerm('clouds.snat.flat:read')) {
+              loadResource('flatSnatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force, false, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatSnatRules(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            if (key === 'flat_kubeovn_dnat' && checkPerm('clouds.dnat.flat:read')) {
+              loadResource('flatDnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force, false, 'flat'), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setKubeOvnFlatDnatRules(Array.isArray(list) ? list : []);
+              }, force);
+            }
+            break;
       }
   };
 
   const refreshVlans = async (force = false, skipSync = false) => {
-    if (!canReadNetworkScope) return;
+    if (!checkPerm('clouds.vlans:read') && !checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) return;
     await loadTabResource('vlans', force, skipSync);
   };
 
@@ -1022,17 +1168,26 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     }
   }, [clusterNetworkSegmentOptions, clusterNetworkSegmentKey]);
 
+  /** 集群内层 Tabs：defaultActiveKey 与首个有权限的子 Tab 对齐，避免空白内容区 */
+  const clusterInnerDefaultActiveKey = useMemo(() => {
+    if (checkPerm('clouds.cluster-nodes:read')) return 'cluster_nodes';
+    if (checkPerm('clouds.cluster-services:read')) return 'cluster_services';
+    if (clusterNetworkSegmentOptions.length > 0) return 'clusterNetworks';
+    if (checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) {
+      return checkPerm('clouds.vlans:read') ? 'cluster_vlans' : 'kubeovn_public_networks';
+    }
+    if (canReadPublicSubnets) return 'kubeovn_public_subnets';
+    if (checkPerm('clouds.namespaces:read') || checkPerm('clouds:read')) return 'namespaces';
+    if (checkPerm('clouds.storage-classes:read')) return 'storage_classes';
+    if (checkPerm('clouds.gpus:read')) return 'gpu';
+    if (checkPerm('clouds.usb-devices:read')) return 'cluster_usb';
+    if (checkPerm('clouds.pci-devices:read')) return 'cluster_pci';
+    return 'cluster_nodes';
+  }, [permissions, clusterNetworkSegmentOptions.length, canReadPublicSubnets]);
+
   useEffect(() => {
     if (!canToggleOpsView && mode === 'ops') setMode('standard');
   }, [canToggleOpsView, mode]);
-
-  useEffect(() => {
-    // 标准视图下隐藏部分侧栏分组，若当前 Tab 落在其中则回到概览
-    if (mode !== 'standard') return;
-    if (['monitoring-alerts', 'storage_group', 'logs-config', 'kube_ovn_group'].includes(activeTabKey)) {
-      setActiveTabKey('overview');
-    }
-  }, [mode, activeTabKey]);
 
   return (
     <PageDetailContainer
@@ -1047,19 +1202,21 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       titleLevel={3}
       extra={
         <Space size="small">
-          <Segmented
-            options={[
-              { label: '标准', value: 'standard' },
-              { label: '运维', value: 'ops', disabled: !canToggleOpsView },
-            ]}
-            value={mode}
-            onChange={(value) => {
-              const nextMode = value as 'standard' | 'ops';
-              if (nextMode === mode) return;
-              setMode(nextMode);
-              setActiveTabKey('overview');
-            }}
-          />
+          {canToggleOpsView ? (
+            <Segmented
+              options={[
+                { label: '标准', value: 'standard' },
+                { label: '运维', value: 'ops' },
+              ]}
+              value={mode}
+              onChange={(value) => {
+                const nextMode = value as 'standard' | 'ops';
+                if (nextMode === mode) return;
+                setMode(nextMode);
+                setActiveTabKey('overview');
+              }}
+            />
+          ) : null}
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/clouds')}></Button>
           <Button icon={<ReloadOutlined />} onClick={() => loadAll(true)} />
       </Space>
@@ -1185,7 +1342,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                 <Tabs
                   type="line"
                   destroyOnHidden={false}
-                  defaultActiveKey="cluster_nodes"
+                  defaultActiveKey={clusterInnerDefaultActiveKey}
                   onChange={(key) => {
                     if (key === 'clusterNetworks') {
                       handleTabChange(clusterNetworkSegmentKey);
@@ -1282,6 +1439,16 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       )
                     },
                     {
+                      key: 'kubeovn_public_subnets',
+                      label: '公共子网',
+                      children: (
+                        <>
+                          <UnderlaySubnetsSection cloudId={cloudId} mode="public" displayMode={mode} />
+                          <DebugJSON data={rawSubnets} show={showLog} />
+                        </>
+                      )
+                    },
+                    {
                       key: 'cluster_vlans',
                       label: 'VLANs',
                       children: (
@@ -1341,19 +1508,25 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       children: (<PciDevicesSection cloudId={cloudId} devices={harvesterPciDevices} loading={resourceLoading.pciDevices} onRefresh={() => loadTabResource('pci_devices', true)} raw={rawPciDevices} showLog={showLog} bordered={false} />)
                     },
                   ].filter((i:any) => {
-                      if (mode === 'standard') {
-                        return ['cluster_nodes', 'storage_classes', 'gpu', 'cluster_usb', 'kubeovn_public_networks'].includes(i.key);
-                      }
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.cluster-nodes:read');
                       if (i.key === 'cluster_services') return checkPerm('clouds.cluster-services:read');
                       if (i.key === 'clusterNetworks') return clusterNetworkSegmentOptions.length > 0;
-                      if (i.key === 'cluster_vlans') return canReadNetworkScope;
+                      if (i.key === 'cluster_vlans') {
+                        return (
+                          checkPerm('clouds.vlans:read') ||
+                          checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
+                        );
+                      }
+                      if (i.key === 'kubeovn_public_networks') {
+                        return checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
+                      }
+                      if (i.key === 'kubeovn_public_subnets') return canReadPublicSubnets;
                       if (i.key === 'cluster_usb') return checkPerm('clouds.usb-devices:read');
                       if (i.key === 'cluster_pci') return checkPerm('clouds.pci-devices:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
                       if (i.key === 'storage_classes') return checkPerm('clouds.storage-classes:read');
                       if (i.key === 'gpu') return checkPerm('clouds.gpus:read');
-                      return true;
+                      return false;
                    })}
                 />
               )
@@ -1632,7 +1805,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       children: <MigrationsSection cloudId={cloudId} mode={mode} />
                     }
                   ].filter((i:any) => {
-                      if (mode === 'standard' && ['ssh_keys', 'cloud_inits', 'migrations'].includes(i.key)) return false;
                       if (i.key === 'ecs') return checkPerm('clouds.ecs:read');
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'images') return checkPerm('clouds.images:read');
@@ -1730,21 +1902,20 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                         <>
                           <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={async (force = true, silent = false) => {
                             const skipSync = false;
-                            if (checkPerm('clouds.ecs:read')) {
-                              if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: true }));
-                              try {
-                                if (force && !skipSync) {
-                                  try { await apiPost(`/api/clouds/${cloudId}/sync`); } catch {}
-                                }
-                                const json = await fetchHarvesterScheduleVmBackups(cloudId, force, skipSync);
-                                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
-                                setHarvesterScheduleVmBackups(Array.isArray(list) ? list : []);
-                                setRawScheduleVmBackups(json || null);
-                              } catch (e) {
-                                console.warn('Failed to load schedule vm backups', e);
-                              } finally {
-                                if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: false }));
+                            if (!checkPerm('clouds.backups:read')) return;
+                            if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: true }));
+                            try {
+                              if (force && !skipSync) {
+                                try { await apiPost(`/api/clouds/${cloudId}/sync`); } catch {}
                               }
+                              const json = await fetchHarvesterScheduleVmBackups(cloudId, force, skipSync);
+                              const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                              setHarvesterScheduleVmBackups(Array.isArray(list) ? list : []);
+                              setRawScheduleVmBackups(json || null);
+                            } catch (e) {
+                              console.warn('Failed to load schedule vm backups', e);
+                            } finally {
+                              if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: false }));
                             }
                           }} vms={ecs} mode={mode} />
                           <DebugJSON data={rawScheduleVmBackups} show={showLog} />
@@ -1799,9 +1970,130 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                         </>
                       )
                     },
+                    ...(ovnVpcEnabled
+                      ? [
+                          {
+                            key: 'flat_kubeovn_eips',
+                            label: '弹性公网IP',
+                            children: (
+                              <>
+                                <EipSection
+                                  cloudId={cloudId}
+                                  eips={kubeOvnFlatEips}
+                                  subnets={kubeOvnSubnets}
+                                  loading={!!resourceLoading.flatEips}
+                                  networkScope="flat"
+                                  onRefresh={() => loadTabResource('flat_kubeovn_eips', true)}
+                                />
+                              </>
+                            ),
+                          },
+                          {
+                            key: 'flat_kubeovn_fips',
+                            label: '浮动IP',
+                            children: (
+                              <>
+                                <FipSection
+                                  cloudId={cloudId}
+                                  fips={kubeOvnFlatFips}
+                                  eips={kubeOvnFlatEips}
+                                  vpcs={kubeOvnVpcs}
+                                  subnets={kubeOvnSubnets}
+                                  loading={!!resourceLoading.flatFips}
+                                  networkScope="flat"
+                                  onRefresh={() => loadTabResource('flat_kubeovn_fips', true)}
+                                />
+                              </>
+                            ),
+                          },
+                          {
+                            key: 'flat_kubeovn_snat',
+                            label: 'SNAT 网关',
+                            children: (
+                              <>
+                                <SnatSection
+                                  cloudId={cloudId}
+                                  snatRules={kubeOvnFlatSnatRules}
+                                  eips={kubeOvnFlatEips}
+                                  vpcs={kubeOvnVpcs}
+                                  subnets={kubeOvnSubnets}
+                                  loading={!!resourceLoading.flatSnatRules}
+                                  networkScope="flat"
+                                  onRefresh={(force = true, silent = false) => {
+                                    const skipSync = silent;
+                                    setResourceLoading((prev) => ({ ...prev, flatSnatRules: true }));
+                                    fetchCloudProviderOvnSnatRules(cloudId, force, skipSync, 'flat')
+                                      .then((json) => {
+                                        const list: any[] = (json as any)?.data?.items || [];
+                                        setKubeOvnFlatSnatRules(Array.isArray(list) ? list : []);
+                                        if (force && !silent) message.success('刷新成功');
+                                      })
+                                      .catch((e) => {
+                                        if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
+                                      })
+                                      .finally(() => {
+                                        setResourceLoading((prev) => ({ ...prev, flatSnatRules: false }));
+                                      });
+                                  }}
+                                />
+                              </>
+                            ),
+                          },
+                          {
+                            key: 'flat_kubeovn_dnat',
+                            label: 'DNAT 网关',
+                            children: (
+                              <>
+                                <DnatSection
+                                  cloudId={cloudId}
+                                  dnatRules={kubeOvnFlatDnatRules}
+                                  eips={kubeOvnFlatEips}
+                                  vpcs={kubeOvnVpcs}
+                                  subnets={kubeOvnSubnets}
+                                  loading={!!resourceLoading.flatDnatRules}
+                                  networkScope="flat"
+                                  onRefresh={(force = true, silent = false) => {
+                                    const skipSync = silent;
+                                    setResourceLoading((prev) => ({ ...prev, flatDnatRules: true }));
+                                    fetchCloudProviderOvnDnatRules(cloudId, force, skipSync, 'flat')
+                                      .then((json) => {
+                                        const list: any[] = (json as any)?.data?.items || [];
+                                        setKubeOvnFlatDnatRules(Array.isArray(list) ? list : []);
+                                        if (force && !silent) message.success('刷新成功');
+                                      })
+                                      .catch((e) => {
+                                        if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
+                                      })
+                                      .finally(() => {
+                                        setResourceLoading((prev) => ({ ...prev, flatDnatRules: false }));
+                                      });
+                                  }}
+                                />
+                              </>
+                            ),
+                          },
+                        ]
+                      : []),
                   ].filter((i:any) => {
                     if (i.key === 'flat_public_subnets') return canReadFlatSubnets;
-                    if (i.key === 'security_groups') return checkPerm('clouds.security-groups:read') || checkPerm('clouds:read');
+                    if (i.key === 'security_groups') {
+                      return (
+                        checkPerm('clouds.security-groups.flat:read') ||
+                        checkPerm('clouds:read')
+                      );
+                    }
+                    if (i.key === 'flat_kubeovn_eips') {
+                      return checkPerm('clouds.eips.flat:read') || checkPerm('clouds:read');
+                    }
+                    if (i.key === 'flat_kubeovn_fips') {
+                      return checkPerm('clouds.fips.flat:read') || checkPerm('clouds:read');
+                    }
+                    if (i.key === 'flat_kubeovn_snat') {
+                      return checkPerm('clouds.snat.flat:read') || checkPerm('clouds:read');
+                    }
+                    if (i.key === 'flat_kubeovn_dnat') {
+                      return checkPerm('clouds.dnat.flat:read') || checkPerm('clouds:read');
+                    }
                     return true;
                   })}
                 />
@@ -1843,16 +2135,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       )
                     },
                     {
-                      key: 'kubeovn_public_subnets',
-                      label: '公共子网',
-                      children: (
-                        <>
-                          <UnderlaySubnetsSection cloudId={cloudId} mode="public" displayMode={mode} />
-                          <DebugJSON data={rawSubnets} show={showLog} />
-                        </>
-                      )
-                    },
-                    {
                       key: 'subnets',
                       label: 'VPC 子网',
                       children: (
@@ -1875,7 +2157,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '弹性公网IP',
                       children: (
                         <>
-                          <EipSection cloudId={cloudId} eips={kubeOvnEips} subnets={kubeOvnSubnets} loading={resourceLoading.eips} onRefresh={() => loadTabResource('eips', true)} />
+                          <EipSection cloudId={cloudId} eips={kubeOvnEips} subnets={kubeOvnSubnets} loading={resourceLoading.eips} onRefresh={() => loadTabResource('eips', true)} networkScope="vpc" />
                           <DebugJSON data={rawEips} show={showLog} />
                         </>
                       )
@@ -1885,7 +2167,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '浮动IP',
                       children: (
                         <>
-                          <FipSection cloudId={cloudId} fips={kubeOvnFips} eips={kubeOvnEips} vpcs={kubeOvnVpcs} loading={resourceLoading.fips} onRefresh={() => loadTabResource('fips', true)} />
+                          <FipSection cloudId={cloudId} fips={kubeOvnFips} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.fips} onRefresh={() => loadTabResource('fips', true)} networkScope="vpc" />
                           <DebugJSON data={rawFips} show={showLog} />
                         </>
                       )
@@ -1895,10 +2177,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: 'SNAT 网关',
                       children: (
                         <>
-                          <SnatSection cloudId={cloudId} snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} onRefresh={(force = true, silent = false) => {
+                          <SnatSection cloudId={cloudId} snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} networkScope="vpc" onRefresh={(force = true, silent = false) => {
                             const skipSync = silent;
                             setResourceLoading(prev => ({ ...prev, snatRules: true }));
-                            fetchCloudProviderOvnSnatRules(cloudId, force, skipSync)
+                            fetchCloudProviderOvnSnatRules(cloudId, force, skipSync, 'vpc')
                               .then((json) => {
                                 const list: any[] = (json as any)?.data?.items || [];
                                 setKubeOvnSnatRules(Array.isArray(list) ? list : []);
@@ -1921,10 +2203,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: 'DNAT 网关',
                       children: (
                         <>
-                          <DnatSection cloudId={cloudId} dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} loading={resourceLoading.dnatRules} onRefresh={(force = true, silent = false) => {
+                          <DnatSection cloudId={cloudId} dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.dnatRules} networkScope="vpc" onRefresh={(force = true, silent = false) => {
                             const skipSync = silent;
                             setResourceLoading(prev => ({ ...prev, dnatRules: true }));
-                            fetchCloudProviderOvnDnatRules(cloudId, force, skipSync)
+                            fetchCloudProviderOvnDnatRules(cloudId, force, skipSync, 'vpc')
                               .then((json) => {
                                 const list: any[] = (json as any)?.data?.items || [];
                                 setKubeOvnDnatRules(Array.isArray(list) ? list : []);
@@ -1943,9 +2225,27 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       )
                     }
                   ].filter((i:any) => {
-                      if (i.key === 'kubeovn_public_subnets') return canReadPublicSubnets;
-                      if (i.key === 'subnets') return canReadVpcSubnets;
-                      return canReadNetworkScope;
+                      if (i.key === 'subnets') return canReadVpcSubnets || checkPerm('clouds:read');
+                      if (i.key === 'vpcs') {
+                        return (
+                          checkPerm('clouds.vpcs:read') ||
+                          canReadVpcSubnets ||
+                          checkPerm('clouds:read')
+                        );
+                      }
+                      if (i.key === 'kubeovn_eips') {
+                        return checkPerm('clouds.eips.vpc:read') || checkPerm('clouds:read');
+                      }
+                      if (i.key === 'kubeovn_fips') {
+                        return checkPerm('clouds.fips.vpc:read') || checkPerm('clouds:read');
+                      }
+                      if (i.key === 'kubeovn_snat') {
+                        return checkPerm('clouds.snat.vpc:read') || checkPerm('clouds:read');
+                      }
+                      if (i.key === 'kubeovn_dnat') {
+                        return checkPerm('clouds.dnat.vpc:read') || checkPerm('clouds:read');
+                      }
+                      return checkPerm('clouds:read');
                   })}
                 />
               )
@@ -1986,10 +2286,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                 </LoggingProvider>
               )
             }] : [])
-          ].filter((i: any) => {
-            if (mode !== 'standard') return true;
-            return !['monitoring-alerts', 'storage_group', 'logs-config', 'kube_ovn_group'].includes(i.key);
-          })}
+          ]}
       />
       <SimpleVmCreateModal
         open={simpleVmCreateOpen}
@@ -2001,7 +2298,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         kubeSubnets={kubeOvnSubnets}
         harvesterNads={harvesterNads}
         onReloadSubnets={
-          canReadNetworkScope
+          canReadFlatSubnets || canReadVpcSubnets || checkPerm('clouds:read')
             ? () =>
                 loadResource(
                   'subnets',

@@ -13,6 +13,10 @@ import {
   resolveHarvesterK8sApiBase,
 } from '../harvester.direct.helpers';
 import { parseKubeOvnAclRulesInput } from '../../../../services/clouds/harvester/kubeOvnAclRules';
+import {
+  KUBE_OVN_FLAT_VPC,
+  KUBE_OVN_PUBLIC_VPC,
+} from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 
 /**
  * =============================================================================
@@ -25,10 +29,10 @@ import { parseKubeOvnAclRulesInput } from '../../../../services/clouds/harvester
  *   - Harvester webhook 要求上述三段式，不能把物理 ProviderNetwork 名塞进 NAD CNI provider。
  *
  * 【扁平子网】metadata.annotations['tower.io/subnet-type']=flat
- *   - 默认 VPC（常为 ovn-cluster）下的 underlay 子网；用户选的 ProviderNetwork 写入注解 tower.io/provider-network。
+ *   - 内置 VPC ovn-internal（与公共子网分域）；用户选的 ProviderNetwork 写入注解 tower.io/provider-network。
  *
  * 【公共子网】annotations['tower.io/subnet-type']=public
- *   - 仍在默认 VPC 下；产品侧多用于 EIP/NAT 等，创建时通常 natOutgoing=true（由前端传参）。
+ *   - 内置 VPC ovn-cluster；产品侧多用于 EIP/NAT 等；未传 natOutgoing/nat 时默认 true。
  *
  * 【VPC 子网】annotations['tower.io/subnet-type']=vpc
  *   - spec.vpc 为用户业务 VPC；与扁平/公共子网区分，不在本 handler 单独分支，靠请求体 vpc + 注解区分。
@@ -256,9 +260,16 @@ export async function harvesterSubnetDirectCreateHandler(
         : [];
       const reqRange = cidrToRange(String(cidrBlock || '').trim());
       if (reqRange) {
-        const targetVpc = vpc || 'ovn-cluster';
+        const subnetTypeForVpc = String(annotations?.['tower.io/subnet-type'] || '')
+          .trim()
+          .toLowerCase();
+        const defaultVpcForNew =
+          subnetTypeForVpc === 'flat'
+            ? KUBE_OVN_FLAT_VPC
+            : KUBE_OVN_PUBLIC_VPC;
+        const targetVpc = vpc || defaultVpcForNew;
         for (const s of items) {
-          const currentVpc = s?.spec?.vpc || 'ovn-cluster';
+          const currentVpc = s?.spec?.vpc || KUBE_OVN_PUBLIC_VPC;
           if (currentVpc !== targetVpc) continue;
           const c = String(s?.spec?.cidrBlock || s?.spec?.cidr || '').trim();
           const r = cidrToRange(c);
@@ -444,7 +455,7 @@ export async function harvesterSubnetDirectCreateHandler(
         ? natOutgoing
         : nat !== undefined
           ? nat
-          : false;
+          : true;
 
     const payload = {
       apiVersion: 'kubeovn.io/v1',

@@ -75,13 +75,31 @@ import {
 } from './handlers/network-direct-nads.handlers';
 import {
   harvesterOvnEipListHandler,
+  harvesterOvnEipListHandlerUnderlay,
+  harvesterOvnEipListHandlerVpc,
   harvesterOvnEipCreateHandler,
+  harvesterOvnEipDeleteHandler,
   harvesterOvnFipListHandler,
+  harvesterOvnFipListHandlerUnderlay,
+  harvesterOvnFipListHandlerVpc,
   harvesterOvnFipCreateHandler,
+  harvesterOvnFipCreateHandlerUnderlay,
+  harvesterOvnFipCreateHandlerVpc,
+  harvesterOvnFipDeleteHandler,
   harvesterOvnSnatCreateHandler,
+  harvesterOvnSnatCreateHandlerUnderlay,
+  harvesterOvnSnatCreateHandlerVpc,
   harvesterOvnSnatListHandler,
+  harvesterOvnSnatListHandlerUnderlay,
+  harvesterOvnSnatListHandlerVpc,
+  harvesterOvnSnatDeleteHandler,
   harvesterOvnDnatCreateHandler,
+  harvesterOvnDnatCreateHandlerUnderlay,
+  harvesterOvnDnatCreateHandlerVpc,
   harvesterOvnDnatListHandler,
+  harvesterOvnDnatListHandlerUnderlay,
+  harvesterOvnDnatListHandlerVpc,
+  harvesterOvnDnatDeleteHandler,
 } from './handlers/ovn-direct-eip-fip-nat.handlers';
 import {
   harvesterLbListHandler,
@@ -464,6 +482,34 @@ export function registerHarvesterDirectRoutesProvider(
     'cloudmap.private': harvesterOvnDnatListHandler,
     'cloudmap.edge': harvesterOvnDnatListHandler,
   };
+
+  const mkOvnHandlers = <T>(h: T) => ({
+    harvester: h,
+    cloudmap: h,
+    'cloudmap.private': h,
+    'cloudmap.edge': h,
+  });
+
+  const ovnEipListUnderlayHandlers = mkOvnHandlers(harvesterOvnEipListHandlerUnderlay);
+  const ovnEipListVpcHandlers = mkOvnHandlers(harvesterOvnEipListHandlerVpc);
+  const ovnFipListUnderlayHandlers = mkOvnHandlers(harvesterOvnFipListHandlerUnderlay);
+  const ovnFipListVpcHandlers = mkOvnHandlers(harvesterOvnFipListHandlerVpc);
+  const ovnFipCreateUnderlayHandlers = mkOvnHandlers(harvesterOvnFipCreateHandlerUnderlay);
+  const ovnFipCreateVpcHandlers = mkOvnHandlers(harvesterOvnFipCreateHandlerVpc);
+  const ovnSnatListUnderlayHandlers = mkOvnHandlers(harvesterOvnSnatListHandlerUnderlay);
+  const ovnSnatListVpcHandlers = mkOvnHandlers(harvesterOvnSnatListHandlerVpc);
+  const ovnSnatCreateUnderlayHandlers = mkOvnHandlers(harvesterOvnSnatCreateHandlerUnderlay);
+  const ovnSnatCreateVpcHandlers = mkOvnHandlers(harvesterOvnSnatCreateHandlerVpc);
+  const ovnDnatListUnderlayHandlers = mkOvnHandlers(harvesterOvnDnatListHandlerUnderlay);
+  const ovnDnatListVpcHandlers = mkOvnHandlers(harvesterOvnDnatListHandlerVpc);
+  const ovnDnatCreateUnderlayHandlers = mkOvnHandlers(harvesterOvnDnatCreateHandlerUnderlay);
+  const ovnDnatCreateVpcHandlers = mkOvnHandlers(harvesterOvnDnatCreateHandlerVpc);
+
+  const ovnEipDeleteHandlers = mkOvnHandlers(harvesterOvnEipDeleteHandler);
+  const ovnFipDeleteHandlers = mkOvnHandlers(harvesterOvnFipDeleteHandler);
+  const ovnSnatDeleteHandlers = mkOvnHandlers(harvesterOvnSnatDeleteHandler);
+  const ovnDnatDeleteHandlers = mkOvnHandlers(harvesterOvnDnatDeleteHandler);
+
   const lbListHandlers = {
     harvester: harvesterLbListHandler,
     cloudmap: harvesterLbListHandler,
@@ -864,15 +910,40 @@ export function registerHarvesterDirectRoutesProvider(
     createProviderRouter(nadDirectDetailHandlers)
   );
 
-  // OVN EIP/FIP/NAT
+  // OVN EIP/FIP/NAT（未分域：Harvester/控制台全量，权限并集）
   router.get('/:id/resources/ovneips', checkAdminPermission, createProviderRouter(ovnEipListHandlers));
   router.post('/:id/resources/ovneips', checkAdminPermission, createProviderRouter(ovnEipCreateHandlers));
+  router.delete('/:id/resources/ovneips/:name', checkAdminPermission, createProviderRouter(ovnEipDeleteHandlers));
   router.get('/:id/resources/ovnfips', checkAdminPermission, createProviderRouter(ovnFipListHandlers));
   router.post('/:id/resources/ovnfips', checkAdminPermission, createProviderRouter(ovnFipCreateHandlers));
+  router.delete('/:id/resources/ovnfips/:name', checkAdminPermission, createProviderRouter(ovnFipDeleteHandlers));
   router.post('/:id/resources/ovnsnatrules', checkAdminPermission, createProviderRouter(ovnSnatCreateHandlers));
   router.get('/:id/resources/ovnsnatrules', checkAdminPermission, createProviderRouter(ovnSnatListHandlers));
+  router.delete('/:id/resources/ovnsnatrules/:name', checkAdminPermission, createProviderRouter(ovnSnatDeleteHandlers));
   router.post('/:id/resources/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatCreateHandlers));
   router.get('/:id/resources/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatListHandlers));
+  router.delete('/:id/resources/ovndnatrules/:name', checkAdminPermission, createProviderRouter(ovnDnatDeleteHandlers));
+
+  // 扁平（ovn-internal，兼容 ovn-cluster）与业务 VPC 分域
+  router.get('/:id/resources/network-flat/ovneips', checkAdminPermission, createProviderRouter(ovnEipListUnderlayHandlers));
+  router.post('/:id/resources/network-flat/ovneips', checkAdminPermission, createProviderRouter(ovnEipCreateHandlers));
+  router.get('/:id/resources/network-vpc/ovneips', checkAdminPermission, createProviderRouter(ovnEipListVpcHandlers));
+  router.post('/:id/resources/network-vpc/ovneips', checkAdminPermission, createProviderRouter(ovnEipCreateHandlers));
+
+  router.get('/:id/resources/network-flat/ovnfips', checkAdminPermission, createProviderRouter(ovnFipListUnderlayHandlers));
+  router.post('/:id/resources/network-flat/ovnfips', checkAdminPermission, createProviderRouter(ovnFipCreateUnderlayHandlers));
+  router.get('/:id/resources/network-vpc/ovnfips', checkAdminPermission, createProviderRouter(ovnFipListVpcHandlers));
+  router.post('/:id/resources/network-vpc/ovnfips', checkAdminPermission, createProviderRouter(ovnFipCreateVpcHandlers));
+
+  router.get('/:id/resources/network-flat/ovnsnatrules', checkAdminPermission, createProviderRouter(ovnSnatListUnderlayHandlers));
+  router.post('/:id/resources/network-flat/ovnsnatrules', checkAdminPermission, createProviderRouter(ovnSnatCreateUnderlayHandlers));
+  router.get('/:id/resources/network-vpc/ovnsnatrules', checkAdminPermission, createProviderRouter(ovnSnatListVpcHandlers));
+  router.post('/:id/resources/network-vpc/ovnsnatrules', checkAdminPermission, createProviderRouter(ovnSnatCreateVpcHandlers));
+
+  router.get('/:id/resources/network-flat/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatListUnderlayHandlers));
+  router.post('/:id/resources/network-flat/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatCreateUnderlayHandlers));
+  router.get('/:id/resources/network-vpc/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatListVpcHandlers));
+  router.post('/:id/resources/network-vpc/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatCreateVpcHandlers));
 
   // LB / Service / IPPool
   router.get('/:id/resources/harvester-loadbalancers', checkAdminPermission, createProviderRouter(lbListHandlers));

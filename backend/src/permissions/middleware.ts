@@ -155,9 +155,14 @@ export function createApiPermissionMiddleware(options?: {
       return `${actionBase}:write`;
     }
 
-    // 特殊场景：GET /clouds 列表接口，如果用户有 clouds.console:read 或 clouds.ecs:read 也允许访问
-    if (actionBase === 'clouds' && isRead) {
-      return ['clouds:read', 'clouds.console:read', 'clouds.ecs:read'];
+    // GET /clouds 列表：主权限为资源池页；兼容全量 clouds:read、控制台与 ECS（创建向导等依赖拉取云列表）
+    if (actionBase === 'clouds.resource-pools' && isRead) {
+      return [
+        'clouds.resource-pools:read',
+        'clouds:read',
+        'clouds.console:read',
+        'clouds.ecs:read',
+      ];
     }
 
     // 子网：父级 clouds.subnets + 按 tower.io/subnet-type 拆分的子权限；仍兼容仅授 VPC 权限的旧角色
@@ -179,11 +184,119 @@ export function createApiPermissionMiddleware(options?: {
           ];
     }
 
-    // 安全组（含 Kube-OVN 扁平子网安全组 API）：优先 clouds.security-groups，兼容仅授 VPC 的旧角色
-    if (actionBase === 'clouds.security-groups') {
+    // VLAN 列表：扁平/公共子网创建/编辑需下拉选 VLAN；持对应子网权限但无 clouds.vlans:read 时仍允许 GET 列表（不写 VLAN 管理）
+    // 注意：勿加入 clouds.subnets:read —— checker 会把它与 clouds.subnets.vpc:read 等同，会过度放行仅 VPC 子网读的角色
+    if (actionBase === 'clouds.vlans' && isRead) {
+      return [
+        'clouds.vlans:read',
+        'clouds.subnets.flat:read',
+        'clouds.subnets.flat:write',
+        'clouds.subnets.public:read',
+        'clouds.subnets.public:write',
+      ];
+    }
+
+    // 安全组（registry 映射为 .vpc 或 .flat）
+    if (actionBase === 'clouds.security-groups.vpc') {
       return isRead
-        ? ['clouds.security-groups:read', 'clouds.vpcs:read']
-        : ['clouds.security-groups:write', 'clouds.vpcs:write'];
+        ? ['clouds.security-groups.vpc:read', 'clouds.vpcs:read']
+        : ['clouds.security-groups.vpc:write', 'clouds.vpcs:write'];
+    }
+    if (actionBase === 'clouds.security-groups.flat') {
+      return isRead
+        ? ['clouds.security-groups.flat:read', 'clouds.vpcs:read']
+        : ['clouds.security-groups.flat:write', 'clouds.vpcs:write'];
+    }
+
+    // 扁平分域 OVN EIP/FIP/SNAT/DNAT（仅 network-flat 路径）
+    if (actionBase === 'clouds.eips.flat') {
+      return isRead
+        ? ['clouds.eips.flat:read', 'clouds:read']
+        : ['clouds.eips.flat:write', 'clouds:write'];
+    }
+    if (actionBase === 'clouds.fips.flat') {
+      return isRead
+        ? ['clouds.fips.flat:read', 'clouds:read']
+        : ['clouds.fips.flat:write', 'clouds:write'];
+    }
+    if (actionBase === 'clouds.snat.flat') {
+      return isRead
+        ? ['clouds.snat.flat:read', 'clouds:read']
+        : ['clouds.snat.flat:write', 'clouds:write'];
+    }
+    if (actionBase === 'clouds.dnat.flat') {
+      return isRead
+        ? ['clouds.dnat.flat:read', 'clouds:read']
+        : ['clouds.dnat.flat:write', 'clouds:write'];
+    }
+
+    // EIP/FIP：network-vpc 路径仅 VPC 原子；未分域路径兼容 Harvester 全量（VPC+扁平+vpcs）
+    if (actionBase === 'clouds.eips.vpc') {
+      const scopedVpc = path.includes('/resources/network-vpc/');
+      if (scopedVpc) {
+        return isRead
+          ? ['clouds.eips.vpc:read', 'clouds:read']
+          : ['clouds.eips.vpc:write', 'clouds:write'];
+      }
+      return isRead
+        ? ['clouds.eips.vpc:read', 'clouds.eips.flat:read', 'clouds.vpcs:read']
+        : ['clouds.eips.vpc:write', 'clouds.eips.flat:write', 'clouds.vpcs:write'];
+    }
+    if (actionBase === 'clouds.fips.vpc') {
+      const scopedVpc = path.includes('/resources/network-vpc/');
+      if (scopedVpc) {
+        return isRead
+          ? ['clouds.fips.vpc:read', 'clouds:read']
+          : ['clouds.fips.vpc:write', 'clouds:write'];
+      }
+      return isRead
+        ? ['clouds.fips.vpc:read', 'clouds.fips.flat:read', 'clouds.vpcs:read']
+        : ['clouds.fips.vpc:write', 'clouds.fips.flat:write', 'clouds.vpcs:write'];
+    }
+
+    // SNAT：network-vpc 仅 VPC SNAT；未分域路径允许 VPC+扁平（Harvester / Cloudmap 旧接口）
+    if (actionBase === 'clouds.snat.vpc') {
+      const scopedVpc = path.includes('/resources/network-vpc/');
+      if (scopedVpc) {
+        return isRead
+          ? ['clouds.snat.vpc:read', 'clouds:read']
+          : ['clouds.snat.vpc:write', 'clouds:write'];
+      }
+      return isRead
+        ? ['clouds.snat.vpc:read', 'clouds.snat.flat:read', 'clouds.vpcs:read']
+        : ['clouds.snat.vpc:write', 'clouds.snat.flat:write', 'clouds.vpcs:write'];
+    }
+
+    // 流量镜像（registry 默认映射到 .vpc）
+    if (actionBase === 'clouds.traffic-mirroring.vpc') {
+      return isRead
+        ? ['clouds.traffic-mirroring.vpc:read', 'clouds.traffic-mirroring.flat:read', 'clouds.vpcs:read']
+        : ['clouds.traffic-mirroring.vpc:write', 'clouds.traffic-mirroring.flat:write', 'clouds.vpcs:write'];
+    }
+
+    // DNAT：network-vpc 仅 VPC DNAT；未分域路径兼容 NAT 网关与扁平（与 SNAT 并集）
+    if (actionBase === 'clouds.dnat.vpc') {
+      const scopedVpc = path.includes('/resources/network-vpc/');
+      if (scopedVpc) {
+        return isRead
+          ? ['clouds.dnat.vpc:read', 'clouds:read']
+          : ['clouds.dnat.vpc:write', 'clouds:write'];
+      }
+      return isRead
+        ? [
+            'clouds.dnat.vpc:read',
+            'clouds.snat.vpc:read',
+            'clouds.dnat.flat:read',
+            'clouds.snat.flat:read',
+            'clouds.vpcs:read',
+          ]
+        : [
+            'clouds.dnat.vpc:write',
+            'clouds.snat.vpc:write',
+            'clouds.dnat.flat:write',
+            'clouds.snat.flat:write',
+            'clouds.vpcs:write',
+          ];
     }
 
     return isRead ? `${actionBase}:read` : `${actionBase}:write`;

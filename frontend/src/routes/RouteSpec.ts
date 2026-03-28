@@ -62,9 +62,9 @@ export const routeSpecs: RouteSpec[] = [
     group: '资源控制台',
     title: '资源池管理',
     requiredActions: {
-      page: 'clouds:read',
-      read: 'clouds:read',
-      write: 'clouds:write'
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write'
     },
     breadcrumbLabel: '资源池管理',
     subtitle: '统一管理各云资源的接入、状态监控与资源统计，支持连接测试、资源池编辑、批量删除等运维操作。',

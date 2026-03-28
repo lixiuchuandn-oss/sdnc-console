@@ -511,6 +511,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             fips={fips}
             eips={eips}
             vpcs={vpcs}
+            subnets={subnets}
             loading={loading}
             onRefresh={onRefreshFips || (() => {})}
             bordered={bordered}
@@ -536,6 +537,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             dnatRules={dnatRules}
             eips={eips}
             vpcs={vpcs}
+            subnets={subnets}
             loading={loading}
             onRefresh={onRefreshDnatRules || (() => {})}
             bordered={bordered}

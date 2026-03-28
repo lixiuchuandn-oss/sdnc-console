@@ -11,6 +11,11 @@ import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, dele
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import {
+  KUBE_OVN_FLAT_VPC,
+  KUBE_OVN_PUBLIC_VPC,
+  isBuiltInKubeOvnVpc,
+} from './underlay-subnet/constants';
 
 /**
  * 接口定义
@@ -53,7 +58,7 @@ const SafeRead = {
   },
   
   // Subnet 特有字段
-  subnetVpc: (data: any) => data?.vpc || data?.spec?.vpc || 'ovn-cluster',
+  subnetVpc: (data: any) => data?.vpc || data?.spec?.vpc || KUBE_OVN_PUBLIC_VPC,
   subnetCidr: (data: any) => data?.cidr || data?.spec?.cidrBlock || data?.spec?.cidr || '-',
   subnetNamespace: (data: any) => {
     const provider = data?.provider || data?.spec?.provider;
@@ -293,7 +298,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       vpc: vpcName,
       namespace: ns,
       protocol: 'IPv4',
-      nat: false,
+      nat: true,
       allowDhcp: true,
       excludeIps: [],
     });
@@ -515,8 +520,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     // 过滤掉系统 VPC（不显示给客户）
     filtered = filtered.filter(item => {
       const name = SafeRead.name(item);
-      // 排除系统 VPC：ovn-cluster（默认 VPC）和 ovn-vpc-external-network（Provider VPC）
-      return name !== 'ovn-cluster' && name !== 'ovn-vpc-external-network';
+      // 排除系统 VPC：ovn-cluster（公共）、ovn-internal（扁平）、ovn-vpc-external-network（Provider）
+      return !isBuiltInKubeOvnVpc(name) && name !== 'ovn-vpc-external-network';
     });
 
     // 搜索过滤
@@ -643,7 +648,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         const alias = String(SafeRead.alias(r) || '').trim();
         const display = alias || '—';
         let tag = null;
-        if (name === 'ovn-cluster') tag = <Tag color="gold">Default</Tag>;
+        if (name === KUBE_OVN_PUBLIC_VPC) tag = <Tag color="gold">公共</Tag>;
+        if (name === KUBE_OVN_FLAT_VPC) tag = <Tag color="cyan">扁平</Tag>;
         if (name === 'ovn-vpc-external-network') tag = <Tag color="purple">Provider</Tag>;
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
@@ -709,7 +715,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
-        const isSystem = name === 'ovn-cluster' || name === 'ovn-vpc-external-network';
+        const isSystem = isBuiltInKubeOvnVpc(name) || name === 'ovn-vpc-external-network';
         const items = [
           { key: 'edit', label: '编辑VPC', disabled: !hasVpcsWrite, onClick: () => handleEditVpc(r) },
           { key: 'createSubnet', label: '添加 VPC 子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },

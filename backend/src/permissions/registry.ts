@@ -156,23 +156,66 @@ export class PermissionRegistry {
         // /api/clouds/:id/... -> 需要进一步判断
         const resourcePart = parts.find(p => p === 'resources');
         if (resourcePart && parts.indexOf(resourcePart) < parts.length - 1) {
-          const resourceType = parts[parts.indexOf(resourcePart) + 1];
-          if (resourceType === 'ecs') {
+          const ri = parts.indexOf(resourcePart);
+          const seg1 = parts[ri + 1];
+          let scopedNetworkBase = '';
+          if (seg1 === 'network-flat' && parts.length > ri + 2) {
+            const sub = parts[ri + 2];
+            if (sub === 'ovneips') scopedNetworkBase = 'clouds.eips.flat';
+            else if (sub === 'ovnfips') scopedNetworkBase = 'clouds.fips.flat';
+            else if (sub === 'ovnsnatrules') scopedNetworkBase = 'clouds.snat.flat';
+            else if (sub === 'ovndnatrules') scopedNetworkBase = 'clouds.dnat.flat';
+          } else if (seg1 === 'network-vpc' && parts.length > ri + 2) {
+            const sub = parts[ri + 2];
+            if (sub === 'ovneips') scopedNetworkBase = 'clouds.eips.vpc';
+            else if (sub === 'ovnfips') scopedNetworkBase = 'clouds.fips.vpc';
+            else if (sub === 'ovnsnatrules') scopedNetworkBase = 'clouds.snat.vpc';
+            else if (sub === 'ovndnatrules') scopedNetworkBase = 'clouds.dnat.vpc';
+          }
+          if (scopedNetworkBase) {
+            permissionBase = scopedNetworkBase;
+          } else if (seg1 === 'ecs') {
             // 回收站写操作（restore/force）使用独立权限，其他 ECS 路径保持 clouds.ecs
             const isRecycleBinAction = parts.includes('restore') || parts.includes('force');
             permissionBase = isRecycleBinAction ? 'clouds.recycle-bin' : 'clouds.ecs';
-          } else if (resourceType === 'vpcs') {
+          } else if (seg1 === 'vpcs') {
             permissionBase = 'clouds.vpcs';
-          } else if (resourceType === 'subnets') {
+          } else if (seg1 === 'eips') {
+            // 公有云 /resources/eips 默认映射到 VPC EIP
+            permissionBase = 'clouds.eips.vpc';
+          } else if (seg1 === 'fips') {
+            // 公有云 /resources/fips 默认映射到 VPC FIP
+            permissionBase = 'clouds.fips.vpc';
+          } else if (seg1 === 'ovneips') {
+            // Kube-OVN EIP（未分域路径）：兼容 Harvester 页全量，权限与 VPC EIP 同族并扩张扁平
+            permissionBase = 'clouds.eips.vpc';
+          } else if (seg1 === 'ovnfips') {
+            permissionBase = 'clouds.fips.vpc';
+          } else if (seg1 === 'subnets') {
             // 子网独立权限 clouds.subnets；中间件对读/写同时接受 clouds.vpcs（兼容仅授 VPC 权限的旧角色）
             permissionBase = 'clouds.subnets';
-          } else if (resourceType === 'kube-ovn-security-groups') {
-            // Harvester/CloudMap 扁平子网安全组（Tower DB），与公有云 security-groups 共用 clouds.security-groups
-            permissionBase = 'clouds.security-groups';
-          } else if (resourceType === 'services' || resourceType === 'ippools') {
+          } else if (seg1 === 'security-groups') {
+            // 公有云安全组默认映射到 VPC 安全组
+            permissionBase = 'clouds.security-groups.vpc';
+          } else if (seg1 === 'kube-ovn-security-groups') {
+            // Harvester/CloudMap 扁平子网安全组（Tower DB）默认映射到扁平安全组权限
+            permissionBase = 'clouds.security-groups.flat';
+          } else if (seg1 === 'nat-gateways') {
+            // 公有云 NAT 网关能力默认映射到 VPC DNAT/SNAT 组合权限（中间件做并集校验）
+            permissionBase = 'clouds.dnat.vpc';
+          } else if (seg1 === 'ovnsnatrules' || seg1 === 'ovn-snat-rules') {
+            // Kube-OVN SNAT（未分域）：VPC/扁平并集，见 middleware
+            permissionBase = 'clouds.snat.vpc';
+          } else if (seg1 === 'ovndnatrules' || seg1 === 'ovn-dnat-rules') {
+            permissionBase = 'clouds.dnat.vpc';
+          } else if (seg1 === 'traffic-mirroring') {
+            permissionBase = 'clouds.traffic-mirroring.vpc';
+          } else if (seg1 === 'flat-nat') {
+            permissionBase = 'clouds.dnat.flat';
+          } else if (seg1 === 'services' || seg1 === 'ippools') {
             // Harvester/CloudMap 场景：LB(Service) 与 IPPool 归入 NAD 网络能力权限
             permissionBase = 'clouds.nads';
-          } else if (resourceType === 'harvester') {
+          } else if (seg1 === 'harvester') {
             // /api/clouds/:id/resources/harvester/... -> 需要检查 harvester 后面的资源类型
             // 路径格式：/api/clouds/:id/resources/harvester/{resourceType}/...
             const harvesterIndex = parts.indexOf('harvester');
@@ -241,16 +284,17 @@ export class PermissionRegistry {
           }
           // 其他资源类型：基于资源类型名称推断
           else {
-            // 例如：/api/clouds/:id/resources/eips -> clouds.eips
+            // 例如：/api/clouds/:id/resources/eips -> clouds.eips.vpc（上文已分支）
             // 例如：/api/clouds/:id/resources/cluster-networks -> clouds.cluster-networks
-            permissionBase = `clouds.${resourceType}`;
+            permissionBase = `clouds.${seg1}`;
           }
         } else {
-          // /api/clouds -> clouds
-          permissionBase = 'clouds';
+          // /api/clouds/:id/... 且非 resources 子树（如连接测试等）归入资源池管理权限
+          permissionBase = 'clouds.resource-pools';
         }
       } else {
-        permissionBase = 'clouds';
+        // /api/clouds、/api/clouds/:id（资源池 CRUD 与元数据）
+        permissionBase = 'clouds.resource-pools';
       }
     }
     // 审计日志

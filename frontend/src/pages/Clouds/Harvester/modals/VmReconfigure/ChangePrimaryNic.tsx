@@ -4,6 +4,7 @@ import {
   ifaceTypeOption,
   PASSTHROUGH_VIRT_IFACE_OPTIONS,
 } from '../VmCreateWizard/harvesterVmIfaceTypeOptions';
+import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/underlay-subnet/constants';
 
 type Props = {
   form: any;
@@ -24,7 +25,6 @@ const NIC_MODELS = [
 ];
 
 const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
-const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
 
 function isKubeOvnFlatSubnet(s: any): boolean {
   const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION] ?? '').trim().toLowerCase();
@@ -83,7 +83,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                          type: initialType,
                          model: 'virtio',
                          name: undefined,
-                         vpc: v === 'flat_subnet' ? UNDERLAY_SYSTEM_VPC : undefined,
+                         vpc: v === 'flat_subnet' ? KUBE_OVN_FLAT_VPC : undefined,
                          subnet: undefined,
                          macAddress: undefined,
                          ipAddress: undefined,
@@ -137,8 +137,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                   const list = subnets || [];
                   const flatList = list.filter(
                     (x: any) =>
-                      String(x?.spec?.vpc || x?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
-                      isKubeOvnFlatSubnet(x),
+                      isFlatKubeOvnSubnetVpc(x?.spec?.vpc || x?.vpc) && isKubeOvnFlatSubnet(x),
                   );
                   return (
                     <>
@@ -170,7 +169,10 @@ const ChangePrimaryNic: React.FC<Props> = ({
                                 .map((x: any) => {
                                   const n = x?.metadata?.name || x?.name || '-';
                                   const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                                  return { label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`, value: n };
+                                  const vpcDisp =
+                                    String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                    KUBE_OVN_FLAT_VPC;
+                                  return { label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`, value: n };
                                 });
                             })()}
                             onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
@@ -186,9 +188,12 @@ const ChangePrimaryNic: React.FC<Props> = ({
                                   if (parts.length >= 2) subnetNs = parts[parts.length - 2];
                                 }
                                 if (subnetNs) netName = `${subnetNs}/${val}`;
+                                const flatVpc =
+                                  String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                  KUBE_OVN_FLAT_VPC;
                                 form.setFieldsValue({
                                   primaryNic: {
-                                    vpc: UNDERLAY_SYSTEM_VPC,
+                                    vpc: flatVpc,
                                     subnet: val,
                                     name: netName,
                                     type: 'managedtap',

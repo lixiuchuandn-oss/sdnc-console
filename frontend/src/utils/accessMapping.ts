@@ -102,7 +102,7 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
   
   // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
-  // 注意：clouds:read（资源池管理）不会被继承，因为它是 clouds:read 而不是 clouds.*:read
+  // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read
   if (base.startsWith('clouds.') && act.endsWith(':read')) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
       return true;
@@ -115,9 +115,16 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
       return true;
     }
   }
+
+  // clouds:write 包含所有 clouds.*:write（与 clouds:read 对读权限的对称）
+  if (base.startsWith('clouds.') && act.endsWith(':write')) {
+    if (permsArray.includes('clouds:write')) {
+      return true;
+    }
+  }
   
-  // clouds:read 包含所有 clouds.*:read（含 resources 总览与云主机控制台）
-  // 注意：clouds:read 本身不会被 clouds.console:read 继承（因为格式不同：clouds:read vs clouds.*:read）
+  // clouds:read 包含所有 clouds.*:read（含 clouds.resource-pools、资源总览路由仍用独立原子）
+  // 注意：clouds:read 本身不会被 clouds.console:read 继承（格式为 clouds:read vs clouds.*:read）
   if (base.startsWith('clouds.') && act.endsWith(':read')) {
     if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
       return true;

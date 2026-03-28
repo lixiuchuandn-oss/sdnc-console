@@ -31,6 +31,10 @@ import {
   generateUniqueVmId,
   parseSizeToGi,
 } from './VmCreateWizard/VmWizardUtils';
+import {
+  KUBE_OVN_FLAT_VPC,
+  isFlatKubeOvnSubnetVpc,
+} from '../kube-ovn/underlay-subnet/constants';
 export type SimpleVmCreateModalProps = {
   open: boolean;
   onClose: () => void;
@@ -50,7 +54,6 @@ export type SimpleVmCreateModalProps = {
 const NS = 'default';
 
 const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
-const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
 
 const SPEC_PRESETS = [
   { key: '2c4g', label: '2C/4G', cpu: 2, mem: 4 },
@@ -79,7 +82,7 @@ function resolveFlatSubnetPrimaryNic(
     const nm = subnetDisplayName(x);
     return (
       nm === subnetName &&
-      String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+      isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
       isKubeOvnFlatSubnet(x)
     );
   });
@@ -109,7 +112,7 @@ function resolveFlatSubnetPrimaryNic(
   return {
     type: 'managedtap',
     model: 'virtio',
-    vpc: UNDERLAY_SYSTEM_VPC,
+    vpc: String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC,
     subnet: subnetName,
     name: netName,
   };
@@ -266,14 +269,15 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   const flatSubnetOptions = useMemo(() => {
     return (kubeSubnets || [])
       .filter(
-        (x: any) =>
-          String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC && isKubeOvnFlatSubnet(x),
+        (x: any) => isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) && isKubeOvnFlatSubnet(x),
       )
       .map((x: any) => {
         const n = subnetDisplayName(x);
         const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+        const vpcDisp =
+          String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
         return {
-          label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
+          label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
           value: n,
         };
       });

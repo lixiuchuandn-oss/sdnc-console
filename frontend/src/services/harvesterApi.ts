@@ -474,93 +474,122 @@ export const fetchHarvesterSystemPods = async (cloudId: string, params: { page: 
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/pods?${query}`);
 };
 
+/** OVN 网络分域：legacy 未分域（Harvester 全量）；flat/vpc 与 Cloudmap 分域 API 对齐 */
+export type CloudOvnNetworkScope = 'legacy' | 'flat' | 'vpc';
+
+function cloudOvnResourcePath(
+  cloudId: string,
+  resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
+  scope: CloudOvnNetworkScope,
+): string {
+  if (scope === 'legacy') {
+    return `/api/clouds/${cloudId}/resources/${resource}`;
+  }
+  const seg = scope === 'flat' ? 'network-flat' : 'network-vpc';
+  return `/api/clouds/${cloudId}/resources/${seg}/${resource}`;
+}
+
 /**
  * 获取云提供商 OVN EIP（弹性 IP）列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
+ * @param scope legacy=全量；flat/vpc=仅默认 VPC / 仅业务 VPC 域
  */
-export const fetchCloudProviderOvnEips = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovneips${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnEips = async (
+  cloudId: string,
+  force = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  const base = cloudOvnResourcePath(cloudId, 'ovneips', scope);
+  return await apiRequest(`${base}${force ? '?force=true' : ''}`);
 };
 
 /**
  * 获取云提供商 OVN FIP（浮动 IP）列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
  */
-export const fetchCloudProviderOvnFips = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovnfips${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnFips = async (
+  cloudId: string,
+  force = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  const base = cloudOvnResourcePath(cloudId, 'ovnfips', scope);
+  return await apiRequest(`${base}${force ? '?force=true' : ''}`);
 };
 
 /**
  * 获取云提供商 OVN SNAT 规则列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
  */
-export const fetchCloudProviderOvnSnatRules = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchCloudProviderOvnSnatRules = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const query = params.toString() ? `?${params.toString()}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovnsnatrules${query}`);
+  const base = cloudOvnResourcePath(cloudId, 'ovnsnatrules', scope);
+  return await apiRequest(`${base}${query}`);
 };
 
 /**
  * 获取云提供商 OVN DNAT 规则列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 是否跳过全量同步，默认 false
- * @returns Promise<any>
  */
-export const fetchCloudProviderOvnDnatRules = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchCloudProviderOvnDnatRules = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const query = params.toString() ? `?${params.toString()}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovndnatrules${query}`);
+  const base = cloudOvnResourcePath(cloudId, 'ovndnatrules', scope);
+  return await apiRequest(`${base}${query}`);
 };
 
 /**
  * 创建云提供商 OVN EIP
- * @param cloudId 云环境 ID
- * @param payload EIP 配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnEip = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovneips`, payload);
+export const createCloudProviderOvnEip = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovneips', scope), payload);
 };
 
 /**
  * 创建云提供商 OVN FIP
- * @param cloudId 云环境 ID
- * @param payload FIP 配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnFip = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovnfips`, payload);
+export const createCloudProviderOvnFip = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovnfips', scope), payload);
 };
 
 /**
  * 创建云提供商 OVN SNAT 规则
- * @param cloudId 云环境 ID
- * @param payload SNAT 规则配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnSnatRule = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovnsnatrules`, payload);
+export const createCloudProviderOvnSnatRule = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovnsnatrules', scope), payload);
 };
 
 /**
  * 创建云提供商 OVN DNAT 规则
- * @param cloudId 云环境 ID
- * @param payload DNAT 规则配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnDnatRule = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovndnatrules`, payload);
+export const createCloudProviderOvnDnatRule = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovndnatrules', scope), payload);
 };
 
 /**

@@ -81,7 +81,15 @@ const RolePermissionDrawer: React.FC<Props> = ({
         </div>
       </div>
 
-      <Card style={{ flex: 1, overflow: 'auto' }} bodyStyle={{ padding: 16 }}>
+      <Card
+        variant="borderless"
+        style={{
+          flex: 1,
+          overflow: 'auto',
+
+        }}
+        styles={{ body: { padding: '0 10px 0 0' } }}
+      >
         {permissionStructure.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
         ) : (

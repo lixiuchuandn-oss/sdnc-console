@@ -182,7 +182,8 @@ type Props = {
 const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
   const { user } = useAuth();
   const canWrite =
-    hasPermissionForAction(user?.permissions || [], 'clouds.security-groups:write') ||
+    hasPermissionForAction(user?.permissions || [], 'clouds.security-groups.flat:write') ||
+    hasPermissionForAction(user?.permissions || [], 'clouds.security-groups.vpc:write') ||
     hasPermissionForAction(user?.permissions || [], 'clouds.vpcs:write') ||
     hasPermissionForAction(user?.permissions || [], 'clouds:write');
 

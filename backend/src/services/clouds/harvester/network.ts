@@ -1,6 +1,7 @@
 import { resolveHarvesterK8sApiBase } from '../../../routes/clouds/harvester/harvester.direct.helpers';
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
+import { KUBE_OVN_PUBLIC_VPC } from './kubeOvnNetworkScope';
 
 /**
  * 更新 Harvester/Kube-OVN 子网
@@ -332,7 +333,7 @@ export const listKubeOvnSubnets = async ({
     name: s?.metadata?.name || s?.name || '',
     uid: s?.metadata?.uid || '',
     createdAt: s?.metadata?.creationTimestamp || '',
-    vpc: s?.spec?.vpc || 'ovn-cluster',
+    vpc: s?.spec?.vpc || KUBE_OVN_PUBLIC_VPC,
     cidr: s?.spec?.cidrBlock || s?.spec?.cidr || '',
     gateway: s?.spec?.gateway || s?.spec?.gateway || '',
     protocol: s?.spec?.protocol || 'IPV4',

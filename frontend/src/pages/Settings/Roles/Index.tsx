@@ -198,7 +198,12 @@ const AccessRolesPage: React.FC = () => {
                 write: perms.write,
                 readVisible: perms.readVisible !== false,
                 writeVisible: perms.writeVisible !== false,
-              }));
+              }))
+              .filter(
+                (item) =>
+                  grantTarget?.scope !== 'tenant' ||
+                  !TENANT_HIDDEN_RESOURCE_PREFIXES.has(item.resourcePrefix),
+              );
 
             const features = group === '资源控制台'
               ? (() => {

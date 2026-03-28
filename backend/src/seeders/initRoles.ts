@@ -71,6 +71,7 @@ export async function initializeRoles() {
           (p) =>
             p.startsWith('clouds.') &&
             !p.startsWith('clouds.dashboard:') &&
+            !p.startsWith('clouds.resource-pools:') &&
             p !== 'clouds:read' &&
             p !== 'clouds:write' &&
             p !== 'clouds.images:write',
@@ -110,7 +111,7 @@ export async function initializeRoles() {
       'system.roles.assignments:read',
       'system.roles.assignments:write',
       'system.rbac:read',
-      // 资源控制台分组：资源池管理权限
+      // 资源控制台分组：云资源全量（clouds:read 已隐含全部 clouds.* 含 resource-pools）
       'clouds:read',
       'clouds:write',
       // 资源控制台分组：所有其他权限
@@ -153,6 +154,72 @@ export async function initializeRoles() {
       description: '拥有通用设置分组（界面设置、授权管理）所有权限、权限管控分组的用户管理权限、以及高级集成分组所有权限',
       scope: 'system',
       permissions: sysadminPerms,
+      status: 'active',
+    });
+
+    // 5. 云计算用户（系统角色）
+    // 权限范围：云主机、云存储、云备份、扁平网络；不含 NAD、不含云主机创建向导（NAD 列表仍可由 clouds.ecs:read 在后端兜底读取以支持创建 VM）
+    const cloudComputeRoleName = '云计算用户';
+    const cloudComputePrefixes = [
+      // 云主机
+      'clouds.ecs',
+      'clouds.images',
+      'clouds.templates',
+      'clouds.cloudinits',
+      'clouds.sshkeys',
+      'clouds.recycle-bin',
+      'clouds.migrations',
+      // 云存储
+      'clouds.disks',
+      'clouds.snapshots',
+      // 云备份
+      'clouds.backups',
+      'clouds.schedules',
+      'clouds.restore-tasks',
+      // 扁平网络
+      'clouds.subnets.flat',
+      'clouds.eips.flat',
+      'clouds.fips.flat',
+      'clouds.dnat.flat',
+      'clouds.snat.flat',
+      'clouds.traffic-mirroring.flat',
+      'clouds.security-groups.flat',
+    ] as const;
+    const cloudComputePerms = CURATED_PERMISSIONS.filter(
+      (p) =>
+        cloudComputePrefixes.some((prefix) => p.startsWith(`${prefix}:`)) &&
+        !p.startsWith('clouds.vm-create-wizard:'),
+    );
+    cloudComputePerms.push('clouds.resource-pools:read');
+    await ensureRole({
+      name: cloudComputeRoleName,
+      description: '拥有云主机、云存储、云备份、扁平网络使用权限（不含网络附加定义 NAD、不含云主机创建向导）。',
+      scope: 'system',
+      permissions: cloudComputePerms,
+      status: 'active',
+    });
+
+    // 6. 云管理用户（系统角色）
+    // 权限范围：云主机、云存储、云备份、物理网络、VLAN、扁平网络等；不含 NAD、不含云主机创建向导
+    const cloudOpsRoleName = '云管理用户';
+    const cloudOpsPrefixes = [
+      ...cloudComputePrefixes,
+      // 物理网络
+      'clouds.provider-networks',
+      'clouds.vlans',
+      'clouds.subnets.public',
+    ] as const;
+    const cloudOpsPerms = CURATED_PERMISSIONS.filter(
+      (p) =>
+        cloudOpsPrefixes.some((prefix) => p.startsWith(`${prefix}:`)) &&
+        !p.startsWith('clouds.vm-create-wizard:'),
+    );
+    cloudOpsPerms.push('clouds.resource-pools:read');
+    await ensureRole({
+      name: cloudOpsRoleName,
+      description: '拥有云主机、云存储、云备份、物理网络、扁平网络等使用权限（不含网络附加定义 NAD、不含云主机创建向导）。',
+      scope: 'system',
+      permissions: cloudOpsPerms,
       status: 'active',
     });
 
