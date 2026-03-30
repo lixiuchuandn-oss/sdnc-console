@@ -11,7 +11,8 @@
     "db:init-users": "ts-node --transpile-only src/scripts/initUsers.ts",
     "db:check-user": "ts-node --transpile-only src/scripts/checkUser.ts",
     "test": "jest",
-    "plan:sync-routes": "node -r ts-node/register/transpile-only ../deployment/plan/scripts/sync-routespec.js"
+    "plan:sync-routes": "node -r ts-node/register/transpile-only ../deployment/plan/scripts/sync-routespec.js",
+    "plan:deploy-remote": "node ../deployment/plan/scripts/deploy-remote.js"
   },
   "dependencies": {
     "@alicloud/pop-core": "^1.7.10",
