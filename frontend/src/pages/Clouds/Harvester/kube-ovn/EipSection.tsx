@@ -253,7 +253,9 @@ export const EipSection: React.FC<EipSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              await deleteCloudProviderOvnEip(cloudId, record.metadata?.name);
+              const apiScope =
+                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+              await deleteCloudProviderOvnEip(cloudId, record.metadata?.name, apiScope);
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {
@@ -263,7 +265,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
         });
       }
     },
-    [cloudId, hasEipWrite, onRefresh],
+    [cloudId, hasEipWrite, networkScope, onRefresh],
   );
 
   const allColumns = useMemo(

@@ -883,9 +883,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                   .trim()
                                   .toLowerCase();
                                 const vpcStr = String(vpcName);
-                                if (subnetType === 'public' || vpcStr === KUBE_OVN_PUBLIC_VPC) {
+                                // VM 详情抽屉展示规则：
+                                // - 内置 VPC ovn-cluster / ovn-internal 均按「扁平子网」展示（与产品定义对齐）
+                                // - 其它 VPC 正常展示 VPC / {vpc} / {subnet}
+                                if (vpcStr === KUBE_OVN_PUBLIC_VPC || vpcStr === KUBE_OVN_FLAT_VPC) {
+                                  displayName = `扁平子网/${subnetDisplay}`;
+                                } else if (subnetType === 'public') {
                                   displayName = `公共子网/${subnetDisplay}`;
-                                } else if (subnetType === 'flat' || vpcStr === KUBE_OVN_FLAT_VPC) {
+                                } else if (subnetType === 'flat') {
                                   displayName = `扁平子网/${subnetDisplay}`;
                                 } else {
                                   displayName = `VPC / ${vpcDisplay} / ${subnetDisplay}`;

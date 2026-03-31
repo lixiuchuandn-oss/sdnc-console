@@ -6,6 +6,8 @@
  * 1. 命名空间 / 存储类过滤：
  *    - isSystemNamespace：判断命名空间是否为系统命名空间，用于前端列表过滤或标记
  *    - isSystemStorageClass：判断存储类是否为系统 / 内部使用的存储类
+ *    - isClusterDefaultStorageClass：判断是否为集群标记的 default StorageClass
+ *    - pickDefaultStorageClassName：解析默认存储类名称（与创建向导一致）
  *
  * 2. 状态文案转换：
  *    - cnVmStatus：将 Harvester / KubeVirt VM 的状态字符串转换为中文可读文案
@@ -86,6 +88,31 @@ export const isSystemStorageClass = (name: string): boolean => {
   if (n.startsWith('longhorn-') && /-[0-9]{13,}$/.test(n)) return true;
   
   return false;
+};
+
+/**
+ * 判断存储类是否被集群标记为 default StorageClass（metadata/annotations 上的 is-default-class）
+ */
+export const isClusterDefaultStorageClass = (sc: any): boolean => {
+  const meta = sc?.metadata?.annotations || {};
+  const top = sc?.annotations || {};
+  const flag =
+    meta['storageclass.kubernetes.io/is-default-class'] ??
+    meta['storageclass.beta.kubernetes.io/is-default-class'] ??
+    top['storageclass.kubernetes.io/is-default-class'] ??
+    top['storageclass.beta.kubernetes.io/is-default-class'] ??
+    sc?.isDefault;
+  return String(flag || '').toLowerCase() === 'true';
+};
+
+/**
+ * 解析集群「默认」存储类名称：优先 is-default-class，否则取列表第一项（与创建向导 useHarvesterData 一致）
+ */
+export const pickDefaultStorageClassName = (storageClasses?: any[]): string | undefined => {
+  const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
+  const pickName = (sc: any) => sc?.metadata?.name || sc?.name;
+  const hit = list.find(isClusterDefaultStorageClass);
+  return pickName(hit) || pickName(list[0]) || undefined;
 };
 
 /**

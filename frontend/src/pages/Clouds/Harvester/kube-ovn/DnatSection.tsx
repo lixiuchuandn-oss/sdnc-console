@@ -131,7 +131,14 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
 
   const vmsOnSubnet = useMemo(() => {
     if (!selectedSubnet) return [];
-    return vmsList.filter((vm) => vmUsesSubnet(vm, selectedSubnet));
+    return vmsList.filter((vm) => {
+      // 过滤回收站虚拟机：与 `VmSection.tsx` 一致
+      const finalizers = (vm?.metadata?.finalizers || vm?.finalizers || []) as any[];
+      const labels = (vm?.metadata?.labels || vm?.labels || {}) as Record<string, any>;
+      if (Array.isArray(finalizers) && finalizers.includes('tower.io/recycle-bin')) return false;
+      if (String(labels?.['tower.io/recycle-bin'] ?? '').toLowerCase() === 'true') return false;
+      return vmUsesSubnet(vm, selectedSubnet);
+    });
   }, [vmsList, selectedSubnet]);
 
   useEffect(() => {
@@ -310,7 +317,9 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              await deleteCloudProviderOvnDnatRule(cloudId, record.metadata?.name);
+              const apiScope =
+                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+              await deleteCloudProviderOvnDnatRule(cloudId, record.metadata?.name, apiScope);
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {
@@ -320,7 +329,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         });
       }
     },
-    [cloudId, hasNatWrite, onRefresh],
+    [cloudId, hasNatWrite, networkScope, onRefresh],
   );
 
   const allColumns = useMemo(
@@ -527,7 +536,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
             <Input placeholder="可选，支持中文；留空则列表仅显示自动生成的资源名" />
           </Form.Item>
           <Row gutter={12}>
-            <Col span={14}>
+            <Col span={9}>
               <Form.Item name="ovnEip" label="公网IP" rules={[{ required: true, message: '请选择公网IP' }]}>
                 <Select placeholder="请选择公网IP" allowClear>
                   {eipsForCreate.map((e) => (
@@ -538,7 +547,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={4}>
+            <Col span={9}>
               <Form.Item name="protocol" label="协议" initialValue="tcp">
                 <Select>
                   <Select.Option value="tcp">TCP</Select.Option>

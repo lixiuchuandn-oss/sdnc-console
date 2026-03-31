@@ -346,7 +346,9 @@ export const FipSection: React.FC<FipSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              await deleteCloudProviderOvnFip(cloudId, record.metadata?.name);
+              const apiScope =
+                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+              await deleteCloudProviderOvnFip(cloudId, record.metadata?.name, apiScope);
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {
@@ -356,7 +358,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
         });
       }
     },
-    [cloudId, hasFipWrite, onRefresh],
+    [cloudId, hasFipWrite, networkScope, onRefresh],
   );
 
   const allColumns = useMemo(

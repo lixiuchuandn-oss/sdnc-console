@@ -942,8 +942,13 @@ export function registerHarvesterDirectRoutesProvider(
 
   router.get('/:id/resources/network-flat/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatListUnderlayHandlers));
   router.post('/:id/resources/network-flat/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatCreateUnderlayHandlers));
+  router.delete('/:id/resources/network-flat/ovndnatrules/:name', checkAdminPermission, createProviderRouter(ovnDnatDeleteHandlers));
   router.get('/:id/resources/network-vpc/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatListVpcHandlers));
   router.post('/:id/resources/network-vpc/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatCreateVpcHandlers));
+
+  router.delete('/:id/resources/network-flat/ovneips/:name', checkAdminPermission, createProviderRouter(ovnEipDeleteHandlers));
+  router.delete('/:id/resources/network-flat/ovnfips/:name', checkAdminPermission, createProviderRouter(ovnFipDeleteHandlers));
+  router.delete('/:id/resources/network-flat/ovnsnatrules/:name', checkAdminPermission, createProviderRouter(ovnSnatDeleteHandlers));
 
   // LB / Service / IPPool
   router.get('/:id/resources/harvester-loadbalancers', checkAdminPermission, createProviderRouter(lbListHandlers));

@@ -213,6 +213,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
   const [membersPanelLoading, setMembersPanelLoading] = useState(false);
   const [membersList, setMembersList] = useState<SecurityGroupMemberRow[]>([]);
   const [membersVmOptions, setMembersVmOptions] = useState<SecurityGroupVmOptionRow[]>([]);
+  const [recycleVmKeys, setRecycleVmKeys] = useState<string[]>([]);
   const [memberTargetKeys, setMemberTargetKeys] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
@@ -437,6 +438,19 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         ]);
         const rawMembers = Array.isArray(detailRes?.data?.members) ? detailRes.data.members : [];
         const vms: any[] = ecsRes?.data || ecsRes || [];
+        const recycleKeys: string[] = [];
+        for (const vm of vms) {
+          const finalizers = (vm?.metadata?.finalizers || vm?.finalizers || []) as any[];
+          const labels = (vm?.metadata?.labels || vm?.labels || {}) as Record<string, any>;
+          const isRecycle =
+            (Array.isArray(finalizers) && finalizers.includes('tower.io/recycle-bin')) ||
+            String(labels?.['tower.io/recycle-bin'] ?? '').toLowerCase() === 'true';
+          if (isRecycle) {
+            const k = vmRowKey(vm);
+            if (k && k.includes('/')) recycleKeys.push(k);
+          }
+        }
+        setRecycleVmKeys(recycleKeys);
         const vmByKey = new Map<string, any>();
         for (const vm of vms) {
           const k = vmRowKey(vm);
@@ -487,6 +501,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         setMembersList([]);
         setMembersVmOptions([]);
         setMemberTargetKeys([]);
+        setRecycleVmKeys([]);
       } finally {
         setMembersPanelLoading(false);
       }
@@ -502,6 +517,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       setMembersList([]);
       setMembersVmOptions([]);
       setMemberTargetKeys([]);
+      setRecycleVmKeys([]);
       setRulesDrawerOpen(true);
       loadRulesIntoForm(record);
       void reloadMembersPanelData(record);
@@ -849,6 +865,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         memberKeys={memberTargetKeys}
         onMemberKeysChange={setMemberTargetKeys}
         members={{ list: membersList, vmOptions: membersVmOptions }}
+        recycleVmKeys={recycleVmKeys}
       />
     </div>
   );

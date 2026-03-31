@@ -80,7 +80,13 @@ import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterVolumeDetailDrawer from '../components/HarvesterVolumeDetailDrawer';
 
-import { isSystemNamespace, isSystemStorageClass, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import {
+  isSystemNamespace,
+  isSystemStorageClass,
+  isPublicNamespace,
+  isClusterDefaultStorageClass,
+  pickDefaultStorageClassName,
+} from '../../../../utils/harvesterUtils';
 
 /**
  * [组件参数] Props - VolumesSection 组件入参
@@ -203,22 +209,6 @@ const gbText = (bytes: number): string => {
   if (!bytes || bytes <= 0) return '-';
   const gb = bytes / (1024 * 1024 * 1024);
   return `${gb.toFixed(2)} GB`;
-};
-
-const isClusterDefaultStorageClass = (sc: any): boolean => {
-  const ann = sc?.metadata?.annotations || sc?.annotations || {};
-  const flag =
-    ann?.['storageclass.kubernetes.io/is-default-class'] ??
-    ann?.['storageclass.beta.kubernetes.io/is-default-class'] ??
-    sc?.isDefault;
-  return String(flag || '').toLowerCase() === 'true';
-};
-
-const pickDefaultStorageClassName = (storageClasses?: any[]): string | undefined => {
-  const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
-  const pickName = (sc: any) => sc?.metadata?.name || sc?.name;
-  const hit = list.find(isClusterDefaultStorageClass);
-  return pickName(hit) || pickName(list[0]) || undefined;
 };
 
 /**

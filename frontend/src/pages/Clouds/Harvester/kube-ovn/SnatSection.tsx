@@ -235,7 +235,9 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              await deleteCloudProviderOvnSnatRule(cloudId, record.metadata?.name);
+              const apiScope =
+                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+              await deleteCloudProviderOvnSnatRule(cloudId, record.metadata?.name, apiScope);
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {
@@ -245,7 +247,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         });
       }
     },
-    [cloudId, hasNatWrite, onRefresh],
+    [cloudId, hasNatWrite, networkScope, onRefresh],
   );
 
   const allColumns = useMemo(

@@ -40,6 +40,26 @@ function getOriginFromEndpoint(endpoint: string): string {
 
 const TOWER_IO_ALIAS = 'tower.io/alias';
 
+/**
+ * 扁平网络分域（/network-flat/ 或 scope=underlay）不应依赖「VPC 授权」license；
+ * 仅 VPC 分域与未分域 legacy 接口保留 network.ovn.vpc 校验。
+ */
+function shouldRequireOvnVpcLicense(req: any, scope: OvnNetworkScope | null): boolean {
+  const url = String(req.originalUrl || req.path || req.url || '');
+  if (url.includes('/network-flat/')) return false;
+  if (scope === 'underlay') return false;
+  return true;
+}
+
+function assertOvnVpcLicense(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
+  if (!shouldRequireOvnVpcLicense(req, scope)) return true;
+  if (!licenseService.hasFeature('network.ovn.vpc')) {
+    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    return false;
+  }
+  return true;
+}
+
 /** OVN CR：metadata.name 为技术 ID；可选展示名写入 tower.io/alias（与 VM 创建约定一致） */
 function ovnCrMetadataWithOptionalAlias(
   name: string,
@@ -156,9 +176,7 @@ async function harvesterOvnEipListHandlerScoped(
   scope: OvnNetworkScope | null,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -202,9 +220,7 @@ async function harvesterOvnEipListHandlerScoped(
 
 export async function harvesterOvnEipCreateHandler(req: any, res: Response, next: any) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, null)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -278,9 +294,7 @@ async function deleteKubeOvnClusterCr(
 
 export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, null)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -350,9 +364,7 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, null)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -379,9 +391,7 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, null)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -412,9 +422,7 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
 
 export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, null)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -462,9 +470,7 @@ async function harvesterOvnFipListHandlerScoped(
   scope: OvnNetworkScope | null,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -524,9 +530,7 @@ async function harvesterOvnFipCreateHandlerScoped(
   scope: OvnNetworkScope | null,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, scope)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -613,9 +617,7 @@ async function harvesterOvnSnatCreateHandlerScoped(
   scope: OvnNetworkScope | null,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, scope)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -722,9 +724,7 @@ async function harvesterOvnSnatListHandlerScoped(
   scope: OvnNetworkScope | null,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -779,9 +779,7 @@ async function harvesterOvnDnatCreateHandlerScoped(
   scope: OvnNetworkScope | null,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, scope)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -888,9 +886,7 @@ async function harvesterOvnDnatListHandlerScoped(
   scope: OvnNetworkScope | null,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (!assertOvnVpcLicense(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });

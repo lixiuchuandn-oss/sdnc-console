@@ -41,8 +41,8 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined, SafetyCertificateFilled } from '@ant-design/icons';
+import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Tag, Tabs, Tooltip, Alert, Cascader, Form } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined, SafetyCertificateFilled, EditTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchHarvesterVncUrl, stopHarvesterVm, fetchHarvesterNodes, fetchHarvesterNads, patchHarvesterVm } from '../../../../services/harvesterApi';
@@ -160,6 +160,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // [弹窗控制] 克隆虚拟机
   const [cloneModalVisible, setCloneModalVisible] = useState(false);
   const [cloneSourceVm, setCloneSourceVm] = useState<any>(null);
+
+  // [弹窗控制] 修改名称（alias）
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasVm, setAliasVm] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
 
   // [筛选] 租户/组织
   const [tenantOrgPath, setTenantOrgPath] = useState<string[]>([]);
@@ -1034,6 +1040,71 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [onDelete, SafeRead, modal]);
 
+  // [事件] 打开“修改名称（alias）”弹窗
+  const handleOpenAliasModal = useCallback((r: any) => {
+    const currentAlias = r?.metadata?.annotations?.['tower.io/alias'] || '';
+    setAliasVm(r);
+    setAliasModalVisible(true);
+    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+  }, [aliasForm]);
+
+  // [事件] 提交“修改名称（alias）”
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasVm) return false;
+    const ns = SafeRead.namespace(aliasVm);
+    const name = SafeRead.vmId(aliasVm);
+    if (!ns || !name) {
+      message.error('未能解析虚拟机命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasVm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasVm?.metadata?.annotations;
+    const hasPrev = !!aliasVm?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      // 清空别名：仅在存在时移除
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        // RFC6902: add 到已存在字段会覆盖（等价于 replace）
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterVm(cloudId, ns, name, patchBody, 'application/json-patch+json');
+      message.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasVm(null);
+      aliasForm.resetFields();
+      onRefresh && onRefresh(true);
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      message.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasVm, SafeRead, cloudId, message, onRefresh, aliasForm]);
+
   // [事件] 热迁移 (Live Migration)
   // 包含严格的前置条件检查
   const handleMigrate = useCallback(async (r: any) => {
@@ -1271,6 +1342,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
       const finalizers = r?.metadata?.finalizers || [];
       const isImportant = finalizers.includes('tower.io/deletion-protection') || r?.metadata?.labels?.['tower.io/important'] === 'true';
+      const hasAlias = !!r?.metadata?.annotations?.['tower.io/alias'];
 
       const cloneTaskAnno = r?.metadata?.annotations?.['tower.io/cloneTask'];
       let cloneInfo: any = null;
@@ -1303,6 +1375,20 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           </span>
           ) : (
             <span>{text}</span>
+          )}
+          {hasEcsWrite && (
+            <Tooltip title={hasAlias ? '修改别名（当前使用别名展示）' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                className="vm-alias-edit-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(r);
+                }}
+              />
+            </Tooltip>
           )}
           {isImportant && (
             <Tooltip title="重要实例 (防删保护)">
@@ -1551,7 +1637,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         </span>
       );
     } },
-  ], [handleShowVmDetail, handleShowOpsinfo, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleToggleImportant, message, mode, user?.permissions]);
+  ], [handleShowVmDetail, handleShowOpsinfo, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleToggleImportant, message, mode, user?.permissions, handleOpenAliasModal]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vm_table_v3');
@@ -1562,6 +1648,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
   return (
     <PageDetailSection asCard={false}>
+      <style>{`
+        .vm-alias-edit-btn {
+          background: #f5f5f5;
+          border-radius: 4px;
+        }
+        .vm-alias-edit-btn:hover,
+        .vm-alias-edit-btn:focus-visible {
+          background: #eaeaea;
+        }
+      `}</style>
       {/* 
         ========================================
         1. 工具栏区域 (Toolbar)
@@ -1875,6 +1971,60 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
              }
            ]} />
         </div>
+      </Modal>
+
+      {/* 名称修改（alias）弹窗 */}
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {
+            // validateFields 失败时不关闭弹窗
+          }
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasVm(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入别名' },
+              {
+                validator: async (_rule, value) => {
+                  const v = String(value || '').trim();
+                  if (v.includes('\n') || v.includes('\r')) throw new Error('别名不允许换行');
+                },
+              },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入别名（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </PageDetailSection>
   );

@@ -47,7 +47,7 @@ import {
   fetchHarvesterVolume
 } from '../../../../../services/harvesterApi';
 
-import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace, pickDefaultStorageClassName } from '../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from './VmWizardUtils';
 
 /**
@@ -418,21 +418,11 @@ export const useHarvesterData = (
         };
      }), [clouds, cloudId, currentCloudId]);
 
-  // [数据处理] 默认存储类
-  // [业务规则] 查找标记为 is-default-class 的存储类，如果没有则使用列表第一个
-  const defaultStorageClassName = useMemo(() => {
-    const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
-    const hit = list.find((x: any) => {
-      const flag = x?.annotations?.['storageclass.kubernetes.io/is-default-class']
-        || x?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class']
-        || x?.annotations?.['storageclass.beta.kubernetes.io/is-default-class']
-        || x?.metadata?.annotations?.['storageclass.beta.kubernetes.io/is-default-class']
-        || x?.isDefault;
-      return String(flag || '').toLowerCase() === 'true';
-    });
-    const pickName = (sc: any) => sc?.metadata?.name || sc?.name;
-    return (pickName(hit) || pickName(list[0]) || undefined);
-  }, [storageClasses]);
+  // [数据处理] 默认存储类（与 harvesterUtils.pickDefaultStorageClassName 一致）
+  const defaultStorageClassName = useMemo(
+    () => pickDefaultStorageClassName(storageClasses),
+    [storageClasses],
+  );
 
   // [数据处理] SSH 密钥选项
   const sshKeyOptions = useMemo(() => (sshKeys || []).map((x: any) => {

@@ -418,7 +418,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       checkPerm('clouds.fips.flat:read') ||
       checkPerm('clouds.snat.flat:read') ||
       checkPerm('clouds.dnat.flat:read');
-    if (ovnVpcEnabled && shouldPrefetchVpcs) {
+    // 扁平网络分组必须不受「VPC 授权」影响：即使未开通 network.ovn.vpc，也应允许拉取用于扁平 NAT 的 VPC 列表
+    if (shouldPrefetchVpcs) {
       loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
         const list: any[] = (json as any)?.data?.items || [];
         setKubeOvnVpcs(Array.isArray(list) ? list : []);
@@ -435,11 +436,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       canReadVpcSubnets ||
       checkPerm('clouds.subnets:read') ||
       (ovnVpcEnabled && canViewKubeOvnGroup) ||
-      (ovnVpcEnabled &&
-        (checkPerm('clouds.snat.flat:read') ||
-          checkPerm('clouds.snat.vpc:read') ||
-          checkPerm('clouds.eips.flat:read') ||
-          checkPerm('clouds.eips.vpc:read')));
+      // 扁平 EIP/SNAT 等不应被 VPC 授权控制
+      checkPerm('clouds.snat.flat:read') ||
+      checkPerm('clouds.eips.flat:read') ||
+      // VPC 侧仍由授权控制
+      (ovnVpcEnabled && (checkPerm('clouds.snat.vpc:read') || checkPerm('clouds.eips.vpc:read')));
     if (shouldPrefetchKubeOvnSubnets) {
       loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
         const list: any[] = (json as any)?.data?.items || [];
@@ -758,7 +759,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             }
             break;
           case 'flat_network_group':
-            if (!ovnVpcEnabled || !canViewFlatNetworkGroup) break;
+            // 扁平网络分组必须不受「VPC 授权」影响
+            if (!canViewFlatNetworkGroup) break;
             if (checkPerm('clouds.eips.flat:read')) {
               loadResource('flatEips', () => fetchCloudProviderOvnEips(cloudId, force, 'flat'), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
@@ -827,7 +829,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           case 'flat_kubeovn_fips':
           case 'flat_kubeovn_snat':
           case 'flat_kubeovn_dnat':
-            if (!ovnVpcEnabled || !canViewFlatNetworkGroup) break;
+            // 扁平网络分组必须不受「VPC 授权」影响
+            if (!canViewFlatNetworkGroup) break;
             if (key === 'flat_kubeovn_eips' && checkPerm('clouds.eips.flat:read')) {
               loadResource('flatEips', () => fetchCloudProviderOvnEips(cloudId, force, 'flat'), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
@@ -1988,92 +1991,88 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                         </>
                       )
                     },
-                    ...(ovnVpcEnabled
-                      ? [
-                          {
-                            key: 'flat_kubeovn_eips',
-                            label: '公网IP',
-                            children: (
-                              <>
-                                <EipSection
-                                  cloudId={cloudId}
-                                  eips={kubeOvnFlatEips}
-                                  subnets={kubeOvnSubnets}
-                                  loading={!!resourceLoading.flatEips}
-                                  networkScope="flat"
-                                  onRefresh={() => loadTabResource('flat_kubeovn_eips', true)}
-                                />
-                              </>
-                            ),
-                          },
-                          {
-                            key: 'flat_kubeovn_snat',
-                            label: 'SNAT 网关',
-                            children: (
-                              <>
-                                <SnatSection
-                                  cloudId={cloudId}
-                                  snatRules={kubeOvnFlatSnatRules}
-                                  eips={kubeOvnFlatEips}
-                                  vpcs={kubeOvnVpcs}
-                                  subnets={kubeOvnSubnets}
-                                  loading={!!resourceLoading.flatSnatRules}
-                                  networkScope="flat"
-                                  onRefresh={(force = true, silent = false) => {
-                                    const skipSync = silent;
-                                    setResourceLoading((prev) => ({ ...prev, flatSnatRules: true }));
-                                    fetchCloudProviderOvnSnatRules(cloudId, force, skipSync, 'flat')
-                                      .then((json) => {
-                                        const list: any[] = (json as any)?.data?.items || [];
-                                        setKubeOvnFlatSnatRules(Array.isArray(list) ? list : []);
-                                        if (force && !silent) message.success('刷新成功');
-                                      })
-                                      .catch((e) => {
-                                        if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
-                                      })
-                                      .finally(() => {
-                                        setResourceLoading((prev) => ({ ...prev, flatSnatRules: false }));
-                                      });
-                                  }}
-                                />
-                              </>
-                            ),
-                          },
-                          {
-                            key: 'flat_kubeovn_dnat',
-                            label: 'DNAT 网关',
-                            children: (
-                              <>
-                                <DnatSection
-                                  cloudId={cloudId}
-                                  dnatRules={kubeOvnFlatDnatRules}
-                                  eips={kubeOvnFlatEips}
-                                  vpcs={kubeOvnVpcs}
-                                  subnets={kubeOvnSubnets}
-                                  loading={!!resourceLoading.flatDnatRules}
-                                  networkScope="flat"
-                                  onRefresh={(force = true, silent = false) => {
-                                    const skipSync = silent;
-                                    setResourceLoading((prev) => ({ ...prev, flatDnatRules: true }));
-                                    fetchCloudProviderOvnDnatRules(cloudId, force, skipSync, 'flat')
-                                      .then((json) => {
-                                        const list: any[] = (json as any)?.data?.items || [];
-                                        setKubeOvnFlatDnatRules(Array.isArray(list) ? list : []);
-                                        if (force && !silent) message.success('刷新成功');
-                                      })
-                                      .catch((e) => {
-                                        if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
-                                      })
-                                      .finally(() => {
-                                        setResourceLoading((prev) => ({ ...prev, flatDnatRules: false }));
-                                      });
-                                  }}
-                                />
-                              </>
-                            ),
-                          },
-                        ]
-                      : []),
+                    {
+                      key: 'flat_kubeovn_eips',
+                      label: '公网IP',
+                      children: (
+                        <>
+                          <EipSection
+                            cloudId={cloudId}
+                            eips={kubeOvnFlatEips}
+                            subnets={kubeOvnSubnets}
+                            loading={!!resourceLoading.flatEips}
+                            networkScope="flat"
+                            onRefresh={() => loadTabResource('flat_kubeovn_eips', true)}
+                          />
+                        </>
+                      ),
+                    },
+                    {
+                      key: 'flat_kubeovn_snat',
+                      label: 'SNAT 网关',
+                      children: (
+                        <>
+                          <SnatSection
+                            cloudId={cloudId}
+                            snatRules={kubeOvnFlatSnatRules}
+                            eips={kubeOvnFlatEips}
+                            vpcs={kubeOvnVpcs}
+                            subnets={kubeOvnSubnets}
+                            loading={!!resourceLoading.flatSnatRules}
+                            networkScope="flat"
+                            onRefresh={(force = true, silent = false) => {
+                              const skipSync = silent;
+                              setResourceLoading((prev) => ({ ...prev, flatSnatRules: true }));
+                              fetchCloudProviderOvnSnatRules(cloudId, force, skipSync, 'flat')
+                                .then((json) => {
+                                  const list: any[] = (json as any)?.data?.items || [];
+                                  setKubeOvnFlatSnatRules(Array.isArray(list) ? list : []);
+                                  if (force && !silent) message.success('刷新成功');
+                                })
+                                .catch((e) => {
+                                  if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
+                                })
+                                .finally(() => {
+                                  setResourceLoading((prev) => ({ ...prev, flatSnatRules: false }));
+                                });
+                            }}
+                          />
+                        </>
+                      ),
+                    },
+                    {
+                      key: 'flat_kubeovn_dnat',
+                      label: 'DNAT 网关',
+                      children: (
+                        <>
+                          <DnatSection
+                            cloudId={cloudId}
+                            dnatRules={kubeOvnFlatDnatRules}
+                            eips={kubeOvnFlatEips}
+                            vpcs={kubeOvnVpcs}
+                            subnets={kubeOvnSubnets}
+                            loading={!!resourceLoading.flatDnatRules}
+                            networkScope="flat"
+                            onRefresh={(force = true, silent = false) => {
+                              const skipSync = silent;
+                              setResourceLoading((prev) => ({ ...prev, flatDnatRules: true }));
+                              fetchCloudProviderOvnDnatRules(cloudId, force, skipSync, 'flat')
+                                .then((json) => {
+                                  const list: any[] = (json as any)?.data?.items || [];
+                                  setKubeOvnFlatDnatRules(Array.isArray(list) ? list : []);
+                                  if (force && !silent) message.success('刷新成功');
+                                })
+                                .catch((e) => {
+                                  if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
+                                })
+                                .finally(() => {
+                                  setResourceLoading((prev) => ({ ...prev, flatDnatRules: false }));
+                                });
+                            }}
+                          />
+                        </>
+                      ),
+                    },
                   ].filter((i:any) => {
                     if (i.key === 'flat_public_subnets') return canReadFlatSubnets;
                     if (i.key === 'security_groups') {

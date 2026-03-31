@@ -66,6 +66,8 @@ export type SecurityGroupAccessControlDrawerProps = {
   memberKeys: string[];
   onMemberKeysChange: (keys: string[]) => void;
   members: { list: SgMemberRow[]; vmOptions: SgVmOptionRow[] };
+  /** 回收站虚拟机 key（ns/name），用于成员面板过滤显示 */
+  recycleVmKeys?: string[];
 };
 
 const SG_ACTION_OPTIONS = [
@@ -363,6 +365,7 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
   memberKeys,
   onMemberKeysChange,
   members,
+  recycleVmKeys,
 }) => {
   const [memberSearch, setMemberSearch] = useState('');
   useEffect(() => {
@@ -374,12 +377,19 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
   const inboundCount = useMemo(() => (Array.isArray(inboundRules) ? inboundRules.length : 0), [inboundRules]);
   const outboundCount = useMemo(() => (Array.isArray(outboundRules) ? outboundRules.length : 0), [outboundRules]);
 
-  const allVmRows = useMemo(
-    () => buildAllVmRows(members.list, members.vmOptions),
-    [members.list, members.vmOptions],
+  const recycleKeySet = useMemo(() => new Set(recycleVmKeys || []), [recycleVmKeys]);
+
+  const allVmRows = useMemo(() => {
+    const rows = buildAllVmRows(members.list, members.vmOptions);
+    return rows.filter((r) => !recycleKeySet.has(r.key));
+  }, [members.list, members.vmOptions, recycleKeySet]);
+
+  const displayMemberKeys = useMemo(
+    () => memberKeys.filter((k) => !recycleKeySet.has(k)),
+    [memberKeys, recycleKeySet],
   );
 
-  const memberKeySet = useMemo(() => new Set(memberKeys), [memberKeys]);
+  const memberKeySet = useMemo(() => new Set(displayMemberKeys), [displayMemberKeys]);
 
   const joinedRows = useMemo(() => {
     return allVmRows
@@ -396,7 +406,7 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
   const showRulesCard = tab === 'inbound' || tab === 'outbound';
   const showMembersCard = tab === 'members';
   const saveDisabled = readOnly || loading || saving;
-  const memberBadge = tab === 'members' ? memberKeys.length : serverMemberCount;
+  const memberBadge = tab === 'members' ? displayMemberKeys.length : serverMemberCount;
 
   return (
     <AntDrawer

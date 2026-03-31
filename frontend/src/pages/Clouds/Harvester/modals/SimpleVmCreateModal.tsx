@@ -10,6 +10,7 @@ import {
   Input,
   Button,
   Space,
+  Tag,
   InputNumber,
   Typography,
   message,
@@ -35,6 +36,7 @@ import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
 } from '../kube-ovn/underlay-subnet/constants';
+import { isSystemStorageClass, pickDefaultStorageClassName } from '../../../../utils/harvesterUtils';
 export type SimpleVmCreateModalProps = {
   open: boolean;
   onClose: () => void;
@@ -70,6 +72,10 @@ function isKubeOvnFlatSubnet(s: any): boolean {
 
 function subnetDisplayName(x: any): string {
   return String(x?.name || x?.metadata?.name || '').trim() || '-';
+}
+
+function subnetCidrBlock(x: any): string {
+  return String(x?.spec?.cidrBlock ?? x?.spec?.cidr ?? x?.cidr ?? '').trim();
 }
 
 function resolveFlatSubnetPrimaryNic(
@@ -228,18 +234,33 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   const [diskBootAdvancedOpen, setDiskBootAdvancedOpen] = useState(false);
   const vmIdRef = useRef<string | null>(null);
 
-  const defaultStorageClassName = useMemo(() => {
-    const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
-    const scName = (x: any) => String(x?.metadata?.name || x?.name || '').trim() || undefined;
-    const hit = list.find((x: any) => {
-      const flag =
-        x?.annotations?.['storageclass.kubernetes.io/is-default-class'] ||
-        x?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] ||
-        x?.isDefault;
-      return String(flag || '').toLowerCase() === 'true';
-    });
-    return scName(hit) || scName(list[0]);
-  }, [storageClasses]);
+  const defaultStorageClassName = useMemo(
+    () => pickDefaultStorageClassName(storageClasses),
+    [storageClasses],
+  );
+
+  /** 与创建向导 StepDisks 一致：下拉中排除系统/内部存储类 */
+  const userSelectableStorageClassOptions = useMemo(
+    () =>
+      (storageClasses || [])
+        .filter((x: any) => !isSystemStorageClass(String(x?.metadata?.name || x?.name || '')))
+        .map((x: any) => {
+          const n = String(x?.metadata?.name || x?.name || '').trim();
+          const isDef = !!n && n === defaultStorageClassName;
+          return {
+            label: isDef ? (
+              <Space size={6}>
+                <span>{n}</span>
+                <Tag color="blue">默认</Tag>
+              </Space>
+            ) : (
+              n
+            ),
+            value: n,
+          };
+        }),
+    [storageClasses, defaultStorageClassName],
+  );
 
   const nadOptions = useMemo(
     () =>
@@ -276,12 +297,45 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
         const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
         const vpcDisp =
           String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
+        const cidr = subnetCidrBlock(x);
+        // 展示层不暴露 metadata.name（仍用作 value），优先展示别名；网段用 Tag
+        const shownName = alias || n;
+        const shownVpc = alias ? '' : ` (${vpcDisp})`;
+        const titleLine = `${shownName}${shownVpc}`.trim();
+        const searchText = [titleLine, alias, n, vpcDisp, cidr].filter(Boolean).join(' ').toLowerCase();
         return {
-          label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
           value: n,
+          searchText,
+          label: (
+            <Space size={6} wrap>
+              <span>{titleLine}</span>
+              {cidr ? <Tag color="blue">{cidr}</Tag> : null}
+            </Space>
+          ),
         };
       });
   }, [kubeSubnets]);
+
+  /** 按 Subnet metadata.name 缓存其 CIDR 段（用于快速创建网络选择展示/回填） */
+  const subnetIpSegmentCacheRef = useRef<Record<string, string>>({});
+  const subnetIpSegmentByName = useMemo(() => {
+    const m: Record<string, string> = {};
+    (kubeSubnets || []).forEach((x: any) => {
+      const name = String(x?.metadata?.name ?? x?.name ?? '').trim();
+      if (!name) return;
+      const cidr = subnetCidrBlock(x);
+      if (!cidr) return;
+      m[name] = cidr;
+    });
+    subnetIpSegmentCacheRef.current = { ...subnetIpSegmentCacheRef.current, ...m };
+    return subnetIpSegmentCacheRef.current;
+  }, [kubeSubnets]);
+  const selectedFlatSubnet = Form.useWatch('flatSubnet', form);
+  const selectedFlatSubnetSegment = useMemo(() => {
+    const n = String(selectedFlatSubnet ?? '').trim();
+    if (!n) return '';
+    return subnetIpSegmentByName[n] || '';
+  }, [selectedFlatSubnet, subnetIpSegmentByName]);
 
   const diskImages = useMemo(
     () => (images || []).filter((x: any) => resolveImageKind(x) !== 'iso'),
@@ -333,6 +387,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       image: undefined,
       rootSizeGi: undefined,
       flatSubnet: undefined,
+      dataDisks: [],
       bootUseEfi: false,
       rootBus: 'virtio',
       rootDeviceType: 'disk',
@@ -424,6 +479,27 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
         rootBus: String(values.rootBus || 'virtio'),
         rootDeviceType: String(values.rootDeviceType || 'disk'),
       };
+
+      // 数据盘（快速创建）：映射到向导通用 extraDisks
+      const rawDataDisks = Array.isArray(values.dataDisks) ? values.dataDisks : [];
+      const extraDisks = rawDataDisks
+        .map((d: any, idx: number) => {
+          const sizeGi = Number(d?.sizeGi);
+          if (!Number.isFinite(sizeGi) || sizeGi <= 0) return null;
+          const sc = String(d?.storageClassName ?? '').trim();
+          const bus = String(d?.bus ?? '').trim();
+          return {
+            name: `data-${idx + 1}`,
+            sourceType: 'new',
+            size: String(Math.ceil(sizeGi)),
+            storageClassName: sc || resolvedStorageClass || defaultStorageClassName,
+            bus: bus || 'virtio',
+            type: 'disk',
+            volumeMode: 'Block',
+          };
+        })
+        .filter(Boolean);
+      if (extraDisks.length > 0) v.extraDisks = extraDisks;
 
       const sizeErr = validateImageSize(v, images || []);
       if (sizeErr) {
@@ -677,14 +753,76 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           <Select
             showSearch
             placeholder="选择扁平子网"
-            optionFilterProp="label"
             options={flatSubnetOptions}
+            filterOption={(input, option) => {
+              const v = String((option as { value?: string })?.value ?? '');
+              const hit = flatSubnetOptions.find((o) => o.value === v);
+              const raw = String((hit as { searchText?: string })?.searchText ?? '').toLowerCase();
+              const q = String(input ?? '').trim().toLowerCase();
+              if (!q) return true;
+              return raw.includes(q);
+            }}
             disabled={flatSubnetOptions.length === 0}
             prefix={<NicSvg width={16} height={16} style={{ display: 'block', fill: '#1890ff' }} />}
             onOpenChange={(o) => {
               if (o && onReloadSubnets) onReloadSubnets();
             }}
           />
+        </Form.Item>
+
+
+        <Form.Item label="数据盘（可选）" colon={false}>
+          <Form.List name="dataDisks">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((field) => (
+                  <Row gutter={12} align="top">
+                    <Col xs={24} md={14}>
+                      <Form.Item {...field} name={[field.name, 'storageClassName']} style={{ marginBottom: 10 }}>
+                        <Select
+                          allowClear
+                          placeholder={`存储类（默认 ${defaultStorageClassName || 'longhorn'}）`}
+                          options={userSelectableStorageClassOptions}
+                          prefix="存储池"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={6}>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'sizeGi']}
+                        rules={[{ required: true, message: '请输入容量' }]}
+                        style={{ marginBottom: 10 }}
+                      >
+                        <InputNumber min={1} max={8192} style={{ width: '100%' }}                       prefix={
+                        <Space size={6} align="center">
+                      <DiskSvg width={16} height={16} style={{ display: 'block', fill: '#1890ff' }} />
+                    </Space>
+                      } suffix="GiB" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={4}>
+                      <Button danger block onClick={() => remove(field.name)}>
+                        删除
+                      </Button>
+                    </Col>
+                  </Row>
+                ))}
+                <Button
+                  type="link"
+                  style={{ padding: 0 }}
+                  onClick={() =>
+                    add({
+                      sizeGi: 20,
+                      storageClassName: defaultStorageClassName || 'longhorn',
+                    })
+                  }
+                >
+                  + 添加数据盘
+                </Button>
+              </>
+            )}
+          </Form.List>
         </Form.Item>
       </Form>
 
