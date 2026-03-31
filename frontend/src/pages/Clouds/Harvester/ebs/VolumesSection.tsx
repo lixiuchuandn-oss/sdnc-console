@@ -109,6 +109,7 @@ type Props = {
   onRefreshImages?: (force?: boolean, silent?: boolean) => void; // 刷新镜像列表的回调
   isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷)
   bordered?: boolean;
+  mode?: 'standard' | 'ops';
 };
 
 // ==============================================================================
@@ -294,10 +295,12 @@ const VolumesSection: React.FC<Props> = ({
   onRefresh, 
   onRefreshStorageClasses,
   onRefreshImages,
-  isTenant
+  isTenant,
+  mode = 'ops'
 }) => {
   const { message, modal } = App.useApp();
   const { user } = useAuth();
+  const isStandardView = mode === 'standard';
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasDisksWrite = useMemo(
     () => hasPermissionForAction(perms, 'clouds.disks:write') || hasPermissionForAction(perms, 'clouds:write'),
@@ -1000,9 +1003,9 @@ const VolumesSection: React.FC<Props> = ({
 
         const items: any[] = [
           // 1. 资源详情 / 运维信息
-          ...(!isTenant ? [
+          ...(!isTenant && !isStandardView ? [
             { key: 'volume_detail', label: '卷详情', onClick: () => handleOpenVolumeDetail(r, 'detail') },
-            { key: 'detail', label: '运维信息', onClick: () => handleOpenOpsDrawer(r, 'detail') },
+            { key: 'detail', label: '查看YAML', onClick: () => handleOpenOpsDrawer(r, 'detail') },
           ] : []),
           
           // 2. 基础管理
@@ -1108,7 +1111,7 @@ const VolumesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasDisksWrite }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, isStandardView, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_volumes_table', ['namespace', 'volumeMode']);

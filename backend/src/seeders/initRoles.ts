@@ -57,14 +57,15 @@ export async function initializeRoles() {
 
     // 1. 云租户根用户
     // 权限设计（与 PermissionChecker / accessMapping 一致）：
-    // - 资源总览、资源池管理：不包含（与原逻辑一致）
+    // - 资源总览、资源池管理、Cloudmap 运维视图切换：不包含（与原逻辑一致）
+    // - 监控与日志：不包含 clouds.alerts*、clouds.log* 相关权限
     // - 云主机控制台：clouds.console:read + clouds.console:write（VNC/SSH、租户侧 ECS 接口等对权限数组做字面 includes 校验）
     // - 镜像：仅 clouds.images:read，不包含 clouds.images:write（租户侧镜像仅查看，不上传/删除）
     // - 其余 clouds.* 细分资源：保留显式 read/write（如 clouds.ecs:write），与「其他云资源读写」一致
     await ensureRole({
       name: '云租户根用户',
       description:
-        '租户管理员：资源控制台（除资源总览、资源池外）；云主机控制台可访问与操作；镜像仅查看；其余云资源按各细分权限读写。',
+        '租户管理员：云主机控制台可访问与操作；镜像仅查看；其余云资源按各细分权限读写。',
       scope: 'tenant',
       permissions: [
         ...CURATED_PERMISSIONS.filter(
@@ -72,6 +73,9 @@ export async function initializeRoles() {
             p.startsWith('clouds.') &&
             !p.startsWith('clouds.dashboard:') &&
             !p.startsWith('clouds.resource-pools:') &&
+            !p.startsWith('clouds.cloudmap.ops-view:') &&
+            !p.startsWith('clouds.alerts:') &&
+            !p.startsWith('clouds.log') &&
             p !== 'clouds:read' &&
             p !== 'clouds:write' &&
             p !== 'clouds.images:write',

@@ -6,7 +6,7 @@ import {
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
 } from './underlay-subnet/constants';
-import { Table, Tag, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip } from 'antd';
+import { Table, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip } from 'antd';
 import { InteractionTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -81,12 +81,29 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
   const [keyword, setKeyword] = useState<string>('');
   const [vpcFilter, setVpcFilter] = useState<string>('');
 
+  const eipIpv4ByName = useMemo(() => {
+    const map = new Map<string, string>();
+    (Array.isArray(eips) ? eips : []).forEach((e: any) => {
+      const name = String(e?.metadata?.name || e?.name || '').trim();
+      if (!name) return;
+      const ip = String(e?.spec?.v4Ip || e?.status?.v4Ip || '').trim();
+      if (ip) map.set(name, ip);
+    });
+    return map;
+  }, [eips]);
+
   // 筛选数据
   const filteredData = useMemo(() => {
     return snatRules.filter((item: any) => {
-      const eip = item.spec?.ovnEip || '';
-      const vpcSubnet = item.spec?.vpcSubnet || '';
-      const vpc = item.spec?.vpc || '';
+      const eipName = String(item?.spec?.ovnEip || '').trim();
+      const eip = String(
+        item?.status?.v4Eip ||
+          item?.metadata?.labels?.['ovn.kubernetes.io/eip_v4_ip'] ||
+          eipIpv4ByName.get(eipName) ||
+          eipName,
+      ).trim();
+      const vpcSubnet = String(item?.status?.v4IpCidr || item?.spec?.vpcSubnet || '').trim();
+      const vpc = String(item?.status?.vpc || item?.spec?.vpc || '').trim();
       
       // 关键字搜索
       if (keyword) {
@@ -107,17 +124,34 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       
       return true;
     });
-  }, [snatRules, keyword, vpcFilter]);
+  }, [snatRules, keyword, vpcFilter, eipIpv4ByName]);
 
   // 筛选选项
   const vpcOptions = useMemo(() => {
     const set = new Set<string>();
     snatRules.forEach((item: any) => {
-      const vpc = item.spec?.vpc;
+      const vpc = item?.status?.vpc || item?.spec?.vpc;
       if (vpc) set.add(vpc);
     });
     return Array.from(set);
   }, [snatRules]);
+
+  const eipsForCreate = useMemo(() => {
+    return (Array.isArray(eips) ? eips : []).filter((e: any) => {
+      const t = String(e?.spec?.type ?? e?.type ?? '').trim().toLowerCase();
+      return t !== 'lrp';
+    });
+  }, [eips]);
+
+  const eipIpv4Of = useCallback((e: any) => {
+    return String(
+      e?.status?.v4Eip ||
+      e?.spec?.v4Ip ||
+      e?.status?.v4Ip ||
+      e?.metadata?.labels?.['ovn.kubernetes.io/eip_v4_ip'] ||
+      '',
+    ).trim();
+  }, []);
 
   const subnetChoices = useMemo(() => {
     if (!networkScope) return subnets;
@@ -128,8 +162,9 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
           .trim()
           .toLowerCase();
-        // 与「扁平子网」页一致：仅注解 tower.io/subnet-type=flat，排除公共子网与 VPC 子网
-        return t === 'flat' && onFlatBuiltinVpc;
+        const hasVlan = !!String(s?.spec?.vlan || '').trim();
+        const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
+        return t === 'flat' && onFlatBuiltinVpc && !hasVlan && vpcNorm === KUBE_OVN_FLAT_VPC;
       }
       return vpc && !isBuiltInKubeOvnVpc(vpc);
     });
@@ -223,7 +258,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         const text = alias || '—';
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <InteractionTwoTone twoToneColor={['#1677ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
+            <InteractionTwoTone/>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={text}>
               {text}
             </span>
@@ -246,17 +281,31 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     { 
       title: 'CIDR', 
       key: 'cidr', 
-      render: (_: any, r: any) => <Tag>{r.spec?.vpcSubnet}</Tag> 
+      render: (_: any, r: any) => <span>{String(r?.status?.v4IpCidr || r?.spec?.vpcSubnet || '').trim() || '-'}</span> 
     },
+    ...(networkScope === 'flat'
+      ? []
+      : [
+          { 
+            title: 'VPC', 
+            key: 'vpc', 
+            render: (_: any, r: any) => String(r?.status?.vpc || r?.spec?.vpc || '').trim() || '-' 
+          },
+        ]),
     { 
-      title: 'VPC', 
-      key: 'vpc', 
-      render: (_: any, r: any) => r.spec?.vpc || '-' 
-    },
-    { 
-      title: 'EIP', 
+      title: '公网IP', 
       key: 'eip', 
-      render: (_: any, r: any) => r.spec?.ovnEip || '-' 
+      render: (_: any, r: any) => {
+        const eipName = String(r?.spec?.ovnEip || '').trim();
+        return (
+          String(
+            r?.status?.v4Eip ||
+              r?.metadata?.labels?.['ovn.kubernetes.io/eip_v4_ip'] ||
+              eipIpv4ByName.get(eipName) ||
+              eipName,
+          ).trim() || '-'
+        );
+      } 
     },
     {
       title: '操作', 
@@ -278,7 +327,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       }
     },
     ],
-    [hasNatWrite, handleMenuClick],
+    [hasNatWrite, handleMenuClick, networkScope, eipIpv4ByName],
   );
 
   const snatTableSettingsKey = `harvester_ovn_snat_${networkScope ?? 'legacy'}`;
@@ -365,11 +414,11 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           <Form.Item name="displayName" label="名称">
             <Input placeholder="可选，支持中文；留空则列表仅显示自动生成的资源名" />
           </Form.Item>
-          <Form.Item name="ovnEip" label="选择EIP" rules={[{ required: true, message: '请选择EIP' }]}>
-            <Select placeholder="请选择EIP">
-              {eips.map((e) => (
+          <Form.Item name="ovnEip" label="选择公网IP" rules={[{ required: true, message: '请选择公网IP' }]}>
+            <Select placeholder="请选择公网IP">
+              {eipsForCreate.map((e) => (
                 <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
-                  {ovnDisplayName(e)} ({e.spec?.v4Ip})
+                  {ovnDisplayName(e)} ({eipIpv4Of(e) || '-'})
                 </Select.Option>
               ))}
             </Select>

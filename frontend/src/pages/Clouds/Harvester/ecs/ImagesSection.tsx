@@ -458,7 +458,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
           items={[
-            ...(!isTenant ? [{ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
+            ...(!isTenant && mode === 'ops' ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: '确认删除镜像？', content: `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`, onOk: handleDelete }) },

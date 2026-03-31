@@ -13,12 +13,10 @@ import PrivateRoute from './components/PrivateRoute';
 import { routeSpecs } from './routes/RouteSpec';
 import { getSystemSetting } from './services/systemApi';
 
-// ????????????????????
 import Login from './pages/Auth/Login';
 import AdminLogin from './pages/Auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
 
-// ?????????
 const OverviewDashboard = lazy(() => import('./pages/Dashboard/OverviewDashboard'));
 const Users = lazy(() => import('./pages/Tenants/Users'));
 const Clouds = lazy(() => import('./pages/Clouds'));
@@ -65,7 +63,6 @@ const VmCreateWizardModal = lazy(() => import('./pages/Clouds/Harvester/modals/V
 const AiSocPlaceholder = lazy(() => import('./pages/SecOps/AiSocPlaceholder'));
 const AiSocFrame = lazy(() => import('./pages/SecOps/AiSocFrame'));
 
-// ?????
 const LoadingFallback: React.FC = () => (
   <div style={{ 
     display: 'flex', 
@@ -126,8 +123,6 @@ const AppRoutes: React.FC = () => {
           <Route path="tenants" element={<Tenants />} />
           <Route path="tenants/:tenantId/organizations" element={<OrgManagePage />} />
           
-          {/* ???????????? AISOC ?????????? */}
-
           <Route path="tenants/users" element={<Users />} />
           <Route path="interconnect/srv6" element={<SRv6Page />} />
           <Route path="interconnect/srv6/create" element={<SRv6CreatePage />} />
@@ -242,18 +237,17 @@ const AdminIndex: React.FC = () => {
   }, [user, isAdmin]);
 
   if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
-  // ???? favorite cloud???????????
   if (isAdmin && favoriteCloudId) {
-    // ???????????????
-    const canAccessClouds =
+    const canAccessCloudPools =
       hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
-      hasPermissionForAction(perms, 'clouds:read') ||
-      hasPermissionForAction(perms, 'clouds.console:read');
-    if (canAccessClouds) {
+      hasPermissionForAction(perms, 'clouds:read');
+    if (canAccessCloudPools) {
       return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
     }
+    if (hasPermissionForAction(perms, 'clouds.console:read')) {
+      return <Navigate to="/admin/clouds/console" replace />;
+    }
   }
-  // ???????? getDefaultAdminPath??? admin ???????? requiredFeature
   const target = getDefaultAdminPath(perms, hasFeature);
   return <Navigate to={target} replace />;
 };

@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Form, Input, Modal, Select, Table, Tag, Tooltip, Typography, message } from 'antd';
-import { ApartmentOutlined, GlobalOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import {
   deleteKubeOvnSubnet,
+  fetchCloudProviderOvnEips,
   fetchKubeOvnProviderNetworks,
   fetchKubeOvnSubnets,
   fetchKubeOvnVlans,
+  updateHarvesterVpc,
   updateKubeOvnSubnet,
 } from '../../../../services/harvesterApi';
 import { clearCache } from '../../../../utils/requestManager';
@@ -27,14 +29,19 @@ import {
 import {
   CreateFlatSubnetModal,
   CreatePublicSubnetModal,
+  KUBE_OVN_FLAT_VPC,
+  KUBE_OVN_PUBLIC_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   UnderlaySubnetFormFields,
+  providerDisplayName,
   vlanRecordLabelForSelect,
   vlanRecordSearchBlob,
 } from './underlay-subnet';
 
 const { Option } = Select;
+
+const EXTERNAL_SUBNET_NAME = 'external';
 
 /**
  * =============================================================================
@@ -98,6 +105,12 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     // 租户角色禁止扁平/公共子网写操作（与镜像写权限收敛策略一致）
     return hasWrite && !isTenantUser;
   }, [isFlatMode, perms, isTenantUser]);
+  const hasVpcsWrite = useMemo(() => {
+    const hasWrite =
+      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
+      hasPermissionForAction(perms, 'clouds:write');
+    return hasWrite && !isTenantUser;
+  }, [perms, isTenantUser]);
   const ensureUnderlayWrite = useCallback(() => {
     if (hasUnderlayWrite) return true;
     message.error('当前账号没有子网操作权限（租户角色仅允许查看）');
@@ -191,9 +204,9 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     [cloudId, loadTypedSubnets, subnetKindLabel],
   );
 
-  const fetchVlanOptions = useCallback(async () => {
+  const fetchVlanOptions = useCallback(async (force = false, skipSync = false) => {
     try {
-      const res = await fetchKubeOvnVlans(cloudId);
+      const res = await fetchKubeOvnVlans(cloudId, force, skipSync);
       setVlans(Array.isArray(res?.data?.items) ? res.data.items : []);
     } catch {
       /* ignore */
@@ -216,6 +229,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     void fetchProviderOptions();
   }, [cloudId, fetchData, fetchVlanOptions, fetchProviderOptions]);
 
+  useEffect(() => {
+    if ((!isModalVisible && !editModalVisible) || !cloudId) return;
+    void fetchVlanOptions(true, true);
+  }, [isModalVisible, editModalVisible, cloudId, fetchVlanOptions]);
+
   const handleForceRefresh = async () => {
     await Promise.all([
       fetchData(true, false),
@@ -237,8 +255,29 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     if (!ensureUnderlayWrite()) return;
     const name = editRecord?.metadata?.name;
     if (!name) return;
+    let shouldRelinkInternalVpc = false;
+    let internalVpcTouched = false;
     try {
       setEditSubmitting(true);
+
+      // 校验 EIP 占用
+      try {
+        const eipsRes = await fetchCloudProviderOvnEips(cloudId, true);
+        const eips = Array.isArray(eipsRes?.data?.items) ? eipsRes.data.items : [];
+        const usingEips = eips.filter((eip: any) => {
+          const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
+          return String(sub || '').trim() === name;
+        });
+        if (usingEips.length > 0) {
+          const names = usingEips.map((e: any) => e?.metadata?.name || e?.name).filter(Boolean);
+          message.error(`子网正在被以下 EIP 使用，无法修改或清空其网段信息：${names.join('、')}`);
+          setEditSubmitting(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('[UpdateSubnet] EIP usage check failed:', e);
+      }
+
       const { alias, ...rest } = values;
       const aliasTrim = String(alias ?? '').trim();
       const excludeIps = rest.excludeIps
@@ -259,13 +298,38 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       } else {
         payload.vlan = null;
       }
+      const vpcName = String(editRecord?.spec?.vpc ?? editRecord?.vpc ?? '').trim();
+      shouldRelinkInternalVpc = !isFlatMode && String(name) === EXTERNAL_SUBNET_NAME && vpcName === KUBE_OVN_PUBLIC_VPC;
+      if (shouldRelinkInternalVpc && !hasVpcsWrite) {
+        message.error('编辑 external 公共子网需要 VPC 写权限（clouds.vpcs:write 或 clouds:write）');
+        setEditSubmitting(false);
+        return;
+      }
+      if (shouldRelinkInternalVpc) {
+        await updateHarvesterVpc(cloudId, KUBE_OVN_FLAT_VPC, { enableExternal: false });
+        internalVpcTouched = true;
+      }
       await updateKubeOvnSubnet(cloudId, name, payload);
+      if (shouldRelinkInternalVpc) {
+        await updateHarvesterVpc(cloudId, KUBE_OVN_FLAT_VPC, {
+          enableExternal: true,
+          nextHopIP: String(rest.gateway ?? '').trim(),
+        });
+        internalVpcTouched = false;
+      }
       message.success(`更新${subnetKindLabel}成功`);
       setEditModalVisible(false);
       setEditRecord(null);
       editForm.resetFields();
-      await fetchData(true, false);
+      await fetchData(true, true);
     } catch (error: any) {
+      if (internalVpcTouched) {
+        try {
+          await updateHarvesterVpc(cloudId, KUBE_OVN_FLAT_VPC, { enableExternal: true });
+        } catch {
+          /* ignore */
+        }
+      }
       const raw =
         error?.response?.data?.message ??
         error?.response?.data?.error ??
@@ -274,7 +338,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         error?.message ??
         '未知错误';
       const detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
-      message.error(`更新${subnetKindLabel}失败: ${detail}`);
+      if (shouldRelinkInternalVpc) {
+        message.error(`更新${subnetKindLabel}失败（包含 ovn-internal 联动）: ${detail}`);
+      } else {
+        message.error(`更新${subnetKindLabel}失败: ${detail}`);
+      }
     } finally {
       setEditSubmitting(false);
     }
@@ -313,7 +381,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       setAclModalVisible(false);
       setAclSubnetName(null);
       aclForm.resetFields();
-      await fetchData(true, false);
+      await fetchData(true, true);
     } catch (e: any) {
       if (e?.errorFields) throw e;
       if (e?.aclFormValidated) throw e;
@@ -351,10 +419,14 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   const handleDelete = useCallback(
     async (name: string) => {
       if (!ensureUnderlayWrite()) return;
+      if (name === EXTERNAL_SUBNET_NAME) {
+        message.error('默认子网 external 不可删除');
+        return;
+      }
       try {
         await deleteKubeOvnSubnet(cloudId, name);
         message.success('删除成功');
-        await fetchData(true, false);
+        await fetchData(true, true);
       } catch (error: any) {
         const raw =
           error?.response?.data?.message ??
@@ -380,10 +452,10 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         render: (_: any, record: any) => {
           const alias = String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
           const display = alias || '—';
-          const NameIcon = isFlatMode ? ApartmentOutlined : GlobalOutlined;
+          const NameIcon = ApartmentOutlined
           const nameInner = (
             <>
-              <NameIcon style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+              <NameIcon style={{ color: '#1677ff'}} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{display}</span>
             </>
           );
@@ -458,10 +530,27 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               title: '物理网络',
               key: 'provider',
               render: (_: any, record: any) => {
+                const vlanRef = String(record?.spec?.vlan ?? '').trim();
+                const vlanObj = vlanRef
+                  ? vlans.find((item) => {
+                      const name = String(item?.metadata?.name ?? '').trim();
+                      const id = item?.spec?.id;
+                      const idStr = id !== undefined && id !== null ? String(id).trim() : '';
+                      return (name && name === vlanRef) || (idStr && idStr === vlanRef);
+                    })
+                  : undefined;
+                const byVlan = String(vlanObj?.spec?.provider ?? '').trim();
                 const hint = record?.metadata?.annotations?.['tower.io/provider-network'];
-                const specP = record?.spec?.provider;
-                const val = hint || specP;
-                return val ? <Tag color="geekblue">{val}</Tag> : '-';
+                const providerName = byVlan || String(hint ?? '').trim();
+                if (!providerName) return '-';
+                const display = providerDisplayName(providerName, providers);
+                return display !== providerName ? (
+                  <Tooltip title={`资源名: ${providerName}`}>
+                    <Tag color="geekblue">{display}</Tag>
+                  </Tooltip>
+                ) : (
+                  <Tag color="geekblue">{display}</Tag>
+                );
               },
             },
           ]),
@@ -470,7 +559,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         key: 'usage',
         render: (_: any, record: any) => {
           const st = record.status || {};
-          // 集群 JSON 常为 v4availableIPs / v4usingIPs（小写 available），与文档 v4AvailableIPs 并存
           const available = Number(
             st.v4AvailableIPs ??
               st.v4availableIPs ??
@@ -478,13 +566,13 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               st.availableIps ??
               0,
           ) || 0;
-          const using = Number(
+          const used = Number(
             st.v4UsingIPs ?? st.v4usingIPs ?? st.usingIPs ?? st.usingIps ?? 0,
           ) || 0;
-          // 与 Kube-OVN status：已用 + 可用 = 控制器统计的分配池规模（如 0/253 表示未占用、池内共 253）
+          const total = Math.max(available + used, 0);
           return (
-            <span title={`可用 ${available}（已用 ${using}）`}>
-              {using} / {available + using}
+            <span title={`已用 ${used}（总数 ${total}，可用 ${available}）`}>
+              {used} / {total}
             </span>
           );
         },
@@ -552,7 +640,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               key: 'delete',
               label: '删除',
               danger: true,
-              disabled: !hasUnderlayWrite,
+              disabled: !hasUnderlayWrite || name === EXTERNAL_SUBNET_NAME,
               onClick: () => {
                 if (!name) return;
                 const disp =
@@ -694,7 +782,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
           vlans={vlans}
           providers={providers}
           aliasDupCheckItems={data}
-          onSuccess={() => fetchData(true, false)}
+          onSuccess={() => fetchData(true, true)}
         />
       ) : (
         <CreatePublicSubnetModal
@@ -705,7 +793,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
           providers={providers}
           aliasDupCheckItems={data}
           title={`创建${subnetKindLabel}`}
-          onSuccess={() => fetchData(true, false)}
+          onSuccess={() => fetchData(true, true)}
         />
       )}
 
@@ -758,4 +846,3 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
 };
 
 export default UnderlaySubnetsSection;
-

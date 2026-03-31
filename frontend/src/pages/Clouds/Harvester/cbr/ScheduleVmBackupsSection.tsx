@@ -494,10 +494,10 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
          const items: any[] = [];
          
          // [租户适配] 只有管理员才显示“查看详情”
-         if (!isTenant) {
+         if (!isTenant && mode === 'ops') {
            items.push({
              key: 'opsinfo',
-             label: '运维信息',
+             label: '查看YAML',
              onClick: () => { setCurrentRecord(r.raw); setDrawerVisible(true); }
            });
          }
@@ -537,7 +537,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       );
       }
     }
-  ], [handleDelete, handleSuspend, isTenant, hasBackupsWrite]);
+  ], [handleDelete, handleSuspend, isTenant, mode, hasBackupsWrite]);
 
   // 用户自定义的列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_schedule_backups_list', defaultHiddenColumns);

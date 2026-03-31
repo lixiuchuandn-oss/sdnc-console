@@ -11,6 +11,7 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   KUBE_OVN_FLAT_VPC,
+  KUBE_OVN_PUBLIC_VPC,
 } from './constants';
 
 export type CreateFlatSubnetModalProps = {
@@ -76,6 +77,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
               .filter((s: string) => s)
           : [];
         const vlanTrim = String(rest.vlan ?? '').trim();
+        const defaultVpc = vlanTrim ? KUBE_OVN_PUBLIC_VPC : KUBE_OVN_FLAT_VPC;
         const flatSubnetHardcoded = {
           natOutgoing: true,
           private: false,
@@ -91,7 +93,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           excludeIps,
           protocol: 'IPv4',
           allowEWTraffic: false,
-          vpc: rest.vpc || KUBE_OVN_FLAT_VPC,
+          vpc: rest.vpc || defaultVpc,
           ...flatSubnetHardcoded,
           annotations: {
             ...(rest?.annotations || {}),

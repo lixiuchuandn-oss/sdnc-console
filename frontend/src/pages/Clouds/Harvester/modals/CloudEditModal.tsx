@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Row, Col, Select, Switch, Space, Button, message } from 'antd';
-import { CodepenOutlined, EyeOutlined } from '@ant-design/icons';
-import { apiPost, apiPatch, apiPut } from '../../../../services/api';
+import { apiPost, apiPut } from '../../../../services/api';
 import { 
   Cloud, 
-  getProviderName, 
   getCredentialLabels, 
   CLOUD_TYPE_MAP 
 } from '../../providers';

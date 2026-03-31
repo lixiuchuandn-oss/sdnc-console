@@ -139,9 +139,21 @@ export const FipSection: React.FC<FipSectionProps> = ({
   const [vmsLoading, setVmsLoading] = useState(false);
 
   const eipByName = useMemo(() => eipNameToResourceMap(eips), [eips]);
+  const eipsForCreate = useMemo(() => {
+    return (Array.isArray(eips) ? eips : []).filter((e: any) => {
+      const t = String(e?.spec?.type ?? e?.type ?? '').trim().toLowerCase();
+      return t !== 'lrp';
+    });
+  }, [eips]);
 
   const subnetChoicesForFip = useMemo(
-    () => subnetChoicesForOvnAttach(subnets, networkScope),
+    () => {
+      const base = subnetChoicesForOvnAttach(subnets, networkScope);
+      if (networkScope === 'flat') {
+        return base.filter((s: any) => !String(s?.spec?.vlan || '').trim());
+      }
+      return base;
+    },
     [subnets, networkScope],
   );
 
@@ -262,26 +274,37 @@ export const FipSection: React.FC<FipSectionProps> = ({
         (s: any) => String(s?.metadata?.name || s?.name || '') === subnetName,
       );
       const vpc = String(subnet?.spec?.vpc || subnet?.vpc || '').trim() || KUBE_OVN_FLAT_VPC;
-      let nic: { ipName: string; v4Ip?: string };
+      let nic: { ipName: string; v4Ip?: string } | null = null;
       try {
-        nic = JSON.parse(String(values.nicAttach || '')) as { ipName: string; v4Ip?: string };
-      } catch {
-        message.error('内部 IP 选项无效，请重新选择虚拟机网卡');
-        return;
+        const raw = String(values.nicAttach || '');
+        if (raw) nic = JSON.parse(raw) as { ipName: string; v4Ip?: string };
+      } catch {}
+      if (!nic) {
+        const vmKey = String(values.vmKey || '');
+        const vm = vmsOnSubnet.find(
+          (x: any) =>
+            `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
+            vmKey,
+        );
+        const opts = vm ? buildVmNicIpOptions(vm) : [];
+        if (opts.length > 0) {
+          try {
+            nic = JSON.parse(String(opts[0]?.value || '')) as { ipName: string; v4Ip?: string };
+          } catch {}
+        }
       }
-      if (!nic?.ipName) {
-        message.error('缺少 ipName，请重新选择网卡');
+      if (!nic?.v4Ip) {
+        message.error('未解析到网卡 IPv4，无法创建 FIP');
         return;
       }
       const payload: Record<string, unknown> = {
         name: generateHarvesterEntityId('fip'),
         ovnEip: values.ovnEip,
         vpc,
-        ipName: nic.ipName,
-        ipType: values.ipType || 'eip',
+        ipType: 'eip',
       };
       if (displayName) payload.alias = displayName;
-      if (nic.v4Ip) payload.v4Ip = nic.v4Ip;
+      payload.v4Ip = nic.v4Ip;
       setCreateLoading(true);
       await createCloudProviderOvnFip(cloudId, payload, scope);
       message.success('FIP 创建成功');
@@ -518,7 +541,6 @@ export const FipSection: React.FC<FipSectionProps> = ({
           onClick: () => {
             if (!hasFipWrite) return;
             form.resetFields();
-            form.setFieldsValue({ ipType: 'eip' });
             setIsCreateVisible(true);
           },
           disabled: !hasFipWrite
@@ -578,7 +600,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
           </Form.Item>
           <Form.Item name="ovnEip" label="EIP" rules={[{ required: true, message: '请选择 EIP' }]}>
             <Select placeholder="请选择 EIP" allowClear>
-              {eips.map((e) => (
+              {eipsForCreate.map((e) => (
                 <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
                   {ovnDisplayName(e)} ({e.spec?.v4Ip})
                 </Select.Option>
@@ -615,17 +637,15 @@ export const FipSection: React.FC<FipSectionProps> = ({
                 const name = String(s?.metadata?.name || s?.name || '');
                 const alias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
                 const cidr = subnetCidrOf(s);
-                const vpc = String(s?.spec?.vpc || s?.vpc || '').trim() || KUBE_OVN_FLAT_VPC;
                 const primary = alias || name;
                 const secondary = alias ? name : '';
-                const searchBlob = [primary, secondary, name, cidr, vpc].filter(Boolean).join(' ');
+                const searchBlob = [primary, secondary, name, cidr, s?.spec?.vpc || s?.vpc || ''].filter(Boolean).join(' ');
                 return (
                   <Select.Option key={name} value={name} title={searchBlob}>
-                    <span title={cidr ? `${primary} ${cidr} VPC:${vpc}` : `${primary} VPC:${vpc}`}>
+                    <span title={cidr ? `${primary} ${cidr}` : `${primary}`}>
                       {primary}
                       {secondary ? <span style={{ color: '#8c8c8c' }}>（{secondary}）</span> : null}
                       {cidr ? <span style={{ color: '#8c8c8c' }}> {cidr}</span> : null}
-                      <span style={{ color: '#8c8c8c' }}> · {vpc}</span>
                     </span>
                   </Select.Option>
                 );
@@ -688,13 +708,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
                   String(vmKey || ''),
               );
               const opts = vm ? buildVmNicIpOptions(vm) : [];
-              if (!vmKey) {
-                return (
-                  <Form.Item label="内部 IP（网卡）">
-                    <Select placeholder="请先选择虚拟机" disabled />
-                  </Form.Item>
-                );
-              }
+              if (!vmKey) return null;
               if (!opts.length) {
                 return (
                   <>
@@ -707,7 +721,6 @@ export const FipSection: React.FC<FipSectionProps> = ({
                     />
                     <Form.Item
                       name="nicAttach"
-                      label="内部 IP（网卡）"
                       rules={[
                         {
                           validator: () =>
@@ -721,23 +734,15 @@ export const FipSection: React.FC<FipSectionProps> = ({
                   </>
                 );
               }
-              return (
-                <Form.Item
-                  name="nicAttach"
-                  label="内部 IP（网卡）"
-                  rules={[{ required: true, message: '请选择网卡 IP' }]}
-                  extra="将据此填写 OvnFip 的 ipName 与 v4Ip（对应 Kube-OVN IP CR / 虚拟机网口）"
-                >
-                  <Select placeholder="请选择网卡与 IP" allowClear options={opts} />
-                </Form.Item>
-              );
+              const current = form.getFieldValue('nicAttach');
+              if (!current && opts.length) {
+                form.setFieldsValue({ nicAttach: opts[0].value });
+              }
+              return null;
             }}
           </Form.Item>
-          <Form.Item name="ipType" label="IP 类型" initialValue="eip">
-            <Select>
-              <Select.Option value="eip">EIP</Select.Option>
-              <Select.Option value="vip">VIP</Select.Option>
-            </Select>
+          <Form.Item name="nicAttach" hidden>
+            <Input type="hidden" />
           </Form.Item>
         </Form>
       </Modal>

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Table, List, Modal, Form, Input, Select, message, Tag, Space, Alert, Tooltip, Badge, Segmented } from 'antd';
-import { ReloadOutlined, PartitionOutlined } from '@ant-design/icons';
+import { ReloadOutlined, LayoutTwoTone, SearchOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -335,6 +335,26 @@ const ProviderNetworksSection: React.FC<Props> = ({
       okType: 'danger',
       cancelText: '取消',
       onOk: async () => {
+        // 校验 VLAN 占用
+        try {
+          const res = await fetchKubeOvnVlans(cloudId, true);
+          const items = Array.isArray(res?.data?.items) ? res.data.items : [];
+          const boundVlans = items
+            .filter((v: any) => (v?.spec?.provider || v?.provider) === name)
+            .map((v: any) => {
+              const vAnn = v?.metadata?.annotations || {};
+              const alias = String(vAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+              return alias || v?.metadata?.name || v?.name;
+            })
+            .filter(Boolean);
+          if (boundVlans.length > 0) {
+            message.error(`物理网络正在被以下 VLAN 使用，无法删除：${boundVlans.join('、')}`);
+            return;
+          }
+        } catch (e) {
+          console.warn('[DeleteProvider] VLAN usage check failed:', e);
+        }
+
         try {
           await deleteKubeOvnProviderNetwork(cloudId, name);
           message.success('删除成功');
@@ -416,7 +436,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
         const pnName = String(record?.name || '').trim();
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <PartitionOutlined style={{ color: '#1890ff', flexShrink: 0 }} />
+            <LayoutTwoTone style={{ color: '#1890ff', flexShrink: 0 }} />
             {pnName ? (
               <span
                 className="cell-link"
@@ -509,7 +529,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
         if (mode !== 'standard') {
           items.push({
             key: 'view',
-            label: '运维信息',
+            label: '查看YAML',
             onClick: () => openDrawer(record, 'detail'),
           });
         }
@@ -534,7 +554,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
         if (items.length === 0) {
           return <span style={{ color: '#bfbfbf' }}>—</span>;
         }
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [
@@ -554,7 +574,14 @@ const ProviderNetworksSection: React.FC<Props> = ({
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <div className="toolbar-container">
-          <Input allowClear placeholder="名称" value={keyword} onChange={(e) => setKeyword(e.target.value)} className="toolbar-search" />
+          <Input
+            allowClear
+            placeholder="名称"
+            value={keyword}
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="toolbar-search"
+          />
           <Select
             allowClear
             placeholder="就绪状态"
@@ -784,4 +811,3 @@ const ProviderNetworksSection: React.FC<Props> = ({
 };
 
 export default ProviderNetworksSection;
-

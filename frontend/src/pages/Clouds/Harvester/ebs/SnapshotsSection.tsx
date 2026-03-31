@@ -65,6 +65,7 @@ interface Props {
   isTenant?: boolean;
   namespaces?: any[];
   bordered?: boolean;
+  mode?: 'standard' | 'ops';
 }
 
 const SnapshotsSection: React.FC<Props> = ({ 
@@ -74,8 +75,10 @@ const SnapshotsSection: React.FC<Props> = ({
   onRefresh,
   isTenant = false,
   namespaces = [],
-  bordered = true
+  bordered = true,
+  mode = 'ops'
 }) => {
+  const isStandardView = mode === 'standard';
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasSnapshotsWrite = useMemo(
@@ -319,8 +322,8 @@ const SnapshotsSection: React.FC<Props> = ({
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
-        if (!isTenant) {
-          items.push({ key: 'detail', label: '运维信息', onClick: () => handleOpenDrawer(record, 'detail') });
+        if (!isTenant && !isStandardView) {
+          items.push({ key: 'detail', label: '查看YAML', onClick: () => handleOpenDrawer(record, 'detail') });
           items.push({ type: 'divider' as const });
         }
         items.push({ key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse || !hasSnapshotsWrite });
@@ -334,7 +337,7 @@ const SnapshotsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, handleOpenDrawer, handleRestore, handleDelete, hasSnapshotsWrite]);
+  ], [isTenant, isStandardView, handleOpenDrawer, handleRestore, handleDelete, hasSnapshotsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_volume_snapshots_list');

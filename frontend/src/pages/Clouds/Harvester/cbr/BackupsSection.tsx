@@ -251,10 +251,10 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       render: (_: any, record: any) => {
         const items: any[] = [];
         
-        if (!isTenant) {
+        if (!isTenant && mode === 'ops') {
           items.push({
             key: 'opsinfo',
-            label: '运维信息',
+            label: '查看YAML',
             onClick: () => { 
               // 确保传递完整的 rawData，包含 status 信息
               const rawRecord = record.raw || record.rawData || record;
@@ -313,7 +313,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         );
       },
     },
-  ], [handleDelete, isTenant, hasBackupsWrite]);
+  ], [handleDelete, isTenant, mode, hasBackupsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, `harvester_${type}_list`);

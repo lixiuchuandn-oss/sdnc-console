@@ -75,9 +75,10 @@ type Props = {
   bordered?: boolean;
   /** 仅展示 bridge 类型 NAD（扁平网络 / VLAN 网络）：为 true 时排除 kube-ovn 等，网桥信息列才有意义 */
   onlyBridge?: boolean;
+  mode?: 'standard' | 'ops';
 };
 
-const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false }) => {
+const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false, mode = 'ops' }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasNadsWrite = useMemo(
@@ -89,6 +90,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     message.error('当前账号没有附加网络操作权限（需要 clouds.nads:write 或 clouds:write 权限）');
     return false;
   };
+  const isStandardView = mode === 'standard';
 
   // ==================== 状态管理 ====================
   
@@ -713,7 +715,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         }
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <ApartmentOutlined style={{ color: '#1677ff' }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{displayName}</span>
           </span>
         );
@@ -787,8 +789,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           const isPublic = isPublicNamespace(r._namespace);
           const deleteDisabled = isSys || (isTenant && isPublic);
           const items: any[] = [];
-          if (!isTenant) {
-            items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+          if (!isTenant && !isStandardView) {
+            items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
             items.push({ type: 'divider' });
           }
           items.push({ 
@@ -801,7 +803,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasNadsWrite }} />;
       } 
     },
-  ], [hasNadsWrite, isTenant]);
+  ], [hasNadsWrite, isTenant, isStandardView]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nads_table');

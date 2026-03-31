@@ -33,9 +33,11 @@ interface Props {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean;
   bordered?: boolean;
+  mode?: 'standard' | 'ops';
 }
 
-const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true }) => {
+const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   const { user } = useAuth();
   const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.nads:write');
   const [keyword, setKeyword] = useState<string>('');
@@ -306,7 +308,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
       key: 'name', 
       render: (t: string) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <GlobalOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <GlobalOutlined style={{ color: '#1677ff' }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t}</span>
         </span>
       ) 
@@ -337,10 +339,11 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
         const deleteDisabled = isSys || (isTenant && isPublic);
         return (
           <ResourceActionsDropdown 
+            buttonProps={{ className: 'row-actions-trigger' }}
             items={[
-              ...(!isTenant ? [{
+              ...(!isTenant && !isStandardView ? [{
                 key: 'opsinfo',
-                label: '运维信息',
+                label: '查看YAML',
                 onClick: () => handleOpenOpsinfo(record)
               }] : []),
               { type: 'divider' },

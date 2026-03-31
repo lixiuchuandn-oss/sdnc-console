@@ -4,7 +4,7 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
 } from './underlay-subnet/constants';
-import { Table, Tag, Modal, Form, Input, Select, message, Alert, MenuProps, Badge, Button, Tooltip, Space } from 'antd';
+import { Table, Modal, Form, Input, Select, message, Alert, MenuProps, Badge, Button, Tooltip, Space } from 'antd';
 import { ApiTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -40,6 +40,40 @@ function ipv4InCidr(ip: string, cidr: string): boolean {
 
 function subnetCidrOf(s: any): string {
   return String(s?.spec?.cidrBlock ?? s?.spec?.cidr ?? s?.cidr ?? '').trim();
+}
+
+function normalizeExcludeIps(s: any): string[] {
+  const raw = s?.spec?.excludeIps ?? s?.excludeIps ?? [];
+  return Array.isArray(raw) ? raw.map((x) => String(x).trim()).filter(Boolean) : [];
+}
+
+function ipv4InRange(ip: string, start: string, end: string): boolean {
+  const a = ipv4ToInt(start);
+  const b = ipv4ToInt(end);
+  const x = ipv4ToInt(ip);
+  if (a === null || b === null || x === null) return false;
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  return x >= lo && x <= hi;
+}
+
+function ipv4ExcludedBy(entries: string[], ip: string): boolean {
+  for (const e of entries) {
+    const v = String(e || '').trim();
+    if (!v) continue;
+    if (v.includes('/')) {
+      if (ipv4InCidr(ip, v)) return true;
+      continue;
+    }
+    if (v.includes('..')) {
+      const parts = v.split('..').map((s) => s.trim());
+      if (parts.length === 2 && ipv4InRange(ip, parts[0], parts[1])) return true;
+      continue;
+    }
+    const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v);
+    if (isIp && v === ip) return true;
+  }
+  return false;
 }
 
 interface BaseSectionProps {
@@ -242,7 +276,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
         const text = a || '—';
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <ApiTwoTone twoToneColor={['#1677ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
+            <ApiTwoTone/>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={text}>
               {text}
             </span>
@@ -263,14 +297,14 @@ export const EipSection: React.FC<EipSectionProps> = ({
       },
     },
     { 
-      title: '外部子网', 
+      title: '所在公共子网', 
       key: 'externalSubnet', 
       render: (_: any, r: any) => r.spec?.externalSubnet 
     },
     { 
       title: 'IP地址', 
       key: 'ip', 
-      render: (_: any, r: any) => <Tag color="blue">{r.spec?.v4Ip}</Tag> 
+      render: (_: any, r: any) => <span>{String(r?.status?.v4Ip || r?.spec?.v4Ip || '').trim() || '-'}</span> 
     },
     { 
       title: 'MAC地址', 
@@ -464,6 +498,10 @@ export const EipSection: React.FC<EipSectionProps> = ({
                   }
                   if (!ipv4InCidr(raw, cidr)) {
                     throw new Error(`IP 须落在公共子网网段 ${cidr} 内`);
+                  }
+                  const excluded = s ? normalizeExcludeIps(s) : [];
+                  if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
+                    throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
                   }
                 },
               }),

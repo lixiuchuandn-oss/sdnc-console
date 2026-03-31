@@ -41,6 +41,7 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
+  mode?: 'standard' | 'ops';
 };
 
 /**
@@ -56,7 +57,8 @@ type Props = {
  * - 不直接请求后端，只消费上层注入的数据和回调
  * - 工具栏和表格区域均遵循 PageDetailSection / global-new.css 的 UI 规范
  */
-const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh, isTenant }) => {
+const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh, isTenant, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   /**
    * 关键字搜索（受控 Input）
    * - 用户在顶部输入框中输入的文本
@@ -172,13 +174,13 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       align: 'left' as const,
       render: (_: any, r: any) => {
           const items: any[] = [];
-          if (!isTenant) {
-            items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+          if (!isTenant && !isStandardView) {
+            items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
           }
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], []);
+  ], [isTenant, isStandardView]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_storageclasses_table');

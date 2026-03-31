@@ -135,7 +135,7 @@ const CloudInitsSection: React.FC<Props> = ({
         if (!isTenant && mode === 'ops') {
           items.push({ 
             key: 'opsinfo', 
-            label: '运维信息', 
+            label: '查看YAML', 
             onClick: () => message.info('详情功能开发中') 
           });
           items.push({ type: 'divider' as const });

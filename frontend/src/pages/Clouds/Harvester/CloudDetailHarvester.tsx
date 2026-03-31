@@ -746,7 +746,17 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       loadTabResource('backups');
       return;
     }
-    loadTabResource(key);
+    const shouldForceRefresh =
+      key === 'eips' ||
+      key === 'kubeovn_eips' ||
+      key === 'fips' ||
+      key === 'kubeovn_fips' ||
+      key === 'snat' ||
+      key === 'kubeovn_snat' ||
+      key === 'dnat' ||
+      key === 'kubeovn_dnat' ||
+      key === 'kube_ovn_group';
+    loadTabResource(key, shouldForceRefresh);
   };
   
   // --- SSE 实时数据更新 Effect ---

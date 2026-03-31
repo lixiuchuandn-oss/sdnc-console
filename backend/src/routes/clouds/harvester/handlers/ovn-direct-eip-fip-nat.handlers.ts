@@ -130,6 +130,13 @@ function applyNsFilter(items: any[], isTenant: boolean | undefined, tenantNamesp
   return items;
 }
 
+function filterOutSystemLrpEips(items: any[]): any[] {
+  return (Array.isArray(items) ? items : []).filter((item: any) => {
+    const t = String(item?.spec?.type ?? item?.type ?? '').trim().toLowerCase();
+    return t !== 'lrp';
+  });
+}
+
 export async function harvesterOvnEipListHandler(req: any, res: Response, next: any) {
   return harvesterOvnEipListHandlerScoped(req, res, next, null);
 }
@@ -181,7 +188,8 @@ async function harvesterOvnEipListHandlerScoped(
     }
 
     const rawItems = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data) ? json.data : [];
-    let items = applyNsFilter(rawItems, isTenant, tenantNamespace);
+    const userVisibleItems = filterOutSystemLrpEips(rawItems);
+    let items = applyNsFilter(userVisibleItems, isTenant, tenantNamespace);
     if (scope) {
       items = await filterEipsByOvnScope(items, scope, cloud, insecure);
     }
@@ -284,6 +292,49 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    const toRefName = (obj: any): string | null => {
+      const n = String(obj?.metadata?.name || obj?.name || '').trim();
+      if (!n) return null;
+      const alias = String(obj?.metadata?.annotations?.[TOWER_IO_ALIAS] || '').trim();
+      if (alias && alias !== n) return `${alias}(${n})`;
+      return n;
+    };
+    const shortList = (arr: string[]) => (arr.length > 5 ? `${arr.slice(0, 5).join('，')} 等` : arr.join('，'));
+
+    try {
+      const [fips, snats, dnats] = await Promise.all([
+        listKubeOvnFips({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
+        listKubeOvnSnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
+        listKubeOvnDnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
+      ]);
+
+      const usingFips = fips.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toRefName).filter(Boolean) as string[];
+      const usingSnats = snats.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toRefName).filter(Boolean) as string[];
+      const usingDnats = dnats.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toRefName).filter(Boolean) as string[];
+
+      if (usingFips.length || usingSnats.length || usingDnats.length) {
+        const parts: string[] = [];
+        if (usingFips.length) parts.push(`FIP(浮动IP)：${shortList(usingFips)}`);
+        if (usingSnats.length) parts.push(`SNAT 规则：${shortList(usingSnats)}`);
+        if (usingDnats.length) parts.push(`DNAT 规则：${shortList(usingDnats)}`);
+        return res.status(409).json({
+          message: `不能删除 EIP「${nameStr}」，因为正在被 ${parts.join('；')} 使用`,
+          code: 'EIP_IN_USE',
+          usage: {
+            fips: usingFips,
+            snats: usingSnats,
+            dnats: usingDnats,
+          },
+        });
+      }
+    } catch (e: any) {
+      return res.status(500).json({
+        message: '删除EIP失败：无法校验依赖关系',
+        error: e?.body || e?.message || String(e),
+      });
+    }
+
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovneips', 'ovn-eips', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnEipInventory).delete({ cloudId: cloud.id, name: nameStr });
@@ -481,8 +532,11 @@ async function harvesterOvnFipCreateHandlerScoped(
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const { name, alias, ovnEip, vpc, ipType, ipName, v4Ip, v6Ip, type } = req.body;
-    if (!name || !ovnEip || !vpc || !ipName) {
-      return res.status(400).json({ message: '缺少必要参数: name, ovnEip, vpc, ipName' });
+    if (!name || !ovnEip || !vpc) {
+      return res.status(400).json({ message: '缺少必要参数: name, ovnEip, vpc' });
+    }
+    if (!ipName && !v4Ip && !v6Ip) {
+      return res.status(400).json({ message: '缺少必要参数: ipName 或 v4Ip/v6Ip' });
     }
     if (scope === 'underlay' && !isUnderlayVpcName(vpc)) {
       return res.status(400).json({
@@ -508,8 +562,8 @@ async function harvesterOvnFipCreateHandlerScoped(
       spec: {
         ovnEip,
         vpc,
-        ipName,
         ipType: ipType || 'eip',
+        ...(ipName ? { ipName } : {}),
         ...(v4Ip ? { v4Ip } : {}),
         ...(v6Ip ? { v6Ip } : {}),
         ...(type ? { type } : {}),
@@ -760,7 +814,6 @@ async function harvesterOvnDnatCreateHandlerScoped(
       spec: {
         ovnEip,
         ipType: 'ip',
-        ipName: ovnEip,
         protocol: protocol || 'tcp',
         externalPort: String(externalPort),
         internalPort: String(internalPort),

@@ -31,6 +31,7 @@ type Props = {
   showLog?: boolean;
   raw?: any;
   isTenant?: boolean;
+  mode?: 'standard' | 'ops';
 };
 
 /**
@@ -54,13 +55,14 @@ const phaseBadge = (phase?: string) => {
  * Harvester 命名空间管理页签组件
  * 展示命名空间列表，提供创建、编辑、删除及详情查看功能
  */
-const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw, isTenant }) => {
+const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw, isTenant, mode = 'ops' }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasNamespacesWrite = useMemo(
     () => hasPermissionForAction(perms, 'clouds.namespaces:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
+  const isStandardView = mode === 'standard';
 
   // === 状态管理 ===
   // 搜索关键字
@@ -365,8 +367,8 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         const name = r?.metadata?.name || r?.name;
         const isSys = isSystemNamespace(name);
         const items: any[] = [];
-        if (!isTenant) {
-          items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+        if (!isTenant && !isStandardView) {
+          items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
         }
         // [系统命名空间保护] 系统命名空间不允许编辑，只能查看
         if (!isSys) {
@@ -380,7 +382,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         );
       }
     }
-  ], [cloudId, isTenant, handleOpenOpsinfo, handleEdit]);
+  ], [cloudId, isTenant, isStandardView, handleOpenOpsinfo, handleEdit]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_namespaces_table_v3');

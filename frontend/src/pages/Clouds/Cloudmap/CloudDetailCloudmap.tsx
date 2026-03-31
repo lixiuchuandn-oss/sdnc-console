@@ -48,7 +48,7 @@ import {
 } from '../../../constants/cloudPermissions';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import SimpleVmCreateModal from '../Harvester/modals/SimpleVmCreateModal';
 import VmSection from '../Harvester/ecs/VmSection';
@@ -73,6 +73,8 @@ import DnatSection from '../Harvester/kube-ovn/DnatSection';
 import { getToken } from '../../../utils/tokenStorage';
 import { clearCache } from '../../../utils/requestManager';
 import { useLicense } from '../../../contexts/LicenseContext';
+
+const REQUEST_TIMEOUT = 30000;
 
 /**
  * 调试用的 JSON 展示组件
@@ -108,9 +110,9 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const permissions = user?.permissions;
   const isTenant = user?.role === 'tenant' || (user as any)?.tenantId;
   // 权限检查辅助函数
-  const checkPerm = (act: string) => hasPermissionForAction(permissions || [], act);
+  const checkPerm = React.useCallback((act: string) => hasPermissionForAction(permissions || [], act), [permissions]);
   /** 具备该权限方可将页面切到「运维」视图 */
-  const canToggleOpsView = useMemo(() => checkPerm(CLOUD_CLOUDMAP_OPS_VIEW_WRITE), [permissions]);
+  const canToggleOpsView = useMemo(() => checkPerm(CLOUD_CLOUDMAP_OPS_VIEW_WRITE), [checkPerm]);
   const canReadVpcSubnets = checkPerm(CLOUD_SUBNETS_VPC_READ) || checkPerm('clouds.subnets:read');
   const canReadFlatSubnets = checkPerm(CLOUD_SUBNETS_FLAT_READ) || checkPerm('clouds.subnets:read');
   const canReadPublicSubnets = checkPerm(CLOUD_SUBNETS_PUBLIC_READ) || checkPerm('clouds.subnets:read');
@@ -260,7 +262,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [vmReconfTarget, setVmReconfTarget] = useState<any | null>(null); // 待调整的虚拟机对象
   const [nsFilter, setNsFilter] = useState<string>(''); // 命名空间筛选值
   const [nodeFilter, setNodeFilter] = useState<string>(''); // 节点筛选值
-  const [showLog, setShowLog] = useState<boolean>(false); // 是否显示原始 JSON 日志
+  const [showLog] = useState<boolean>(false); // 是否显示原始 JSON 日志
   /** 标准：租户向精简；运维：命名空间、ACL、运维抽屉等 */
   const [mode, setMode] = useState<'standard' | 'ops'>('standard');
   const [activeTabKey, setActiveTabKey] = useState<string>('overview');
@@ -350,8 +352,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
    * @param cb 数据回调处理函数
    * @param force 是否强制刷新 (忽略缓存)
    */
-  const REQUEST_TIMEOUT = 30000;
-  const loadResource = async (key: string, fn: () => Promise<any>, cb: (json: any) => void, force = false) => {
+  const loadResource = React.useCallback(async (key: string, fn: () => Promise<any>, cb: (json: any) => void, force = false) => {
     // 如果非强制刷新且已加载过，直接跳过
     if (!force && loadedRef.current.has(key)) return;
     
@@ -380,14 +381,14 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     } finally {
       setResourceLoading(prev => ({ ...prev, [key]: false }));
     }
-  };
+  }, []);
 
   /**
    * 加载核心资源 (首页/概览页必须的数据)
    * 包括: 云信息, VM, 网络, 卷, 镜像, 节点, 命名空间
    * @param force 是否强制刷新
    */
-  const loadEssentials = async (force = false) => {
+  const loadEssentials = React.useCallback((force = false) => {
     // 1. 加载云池基础信息
     loadResource('cloud', () => fetchCloudById(cloudId, { skipCache: force }), (cloudRes) => {
       setCloud(cloudRes || null);
@@ -487,7 +488,16 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     loadResource('capabilities', () => fetchHarvesterCapabilities(cloudId), (json) => {
         setCapabilities(json?.data || null);
     }, force);
-  };
+  }, [
+    cloudId,
+    loadResource,
+    checkPerm,
+    canReadNetworkScope,
+    canViewKubeOvnGroup,
+    ovnVpcEnabled,
+    canReadFlatSubnets,
+    canReadVpcSubnets,
+  ]);
 
   /**
    * 按需加载标签页资源 (Lazy Loading)
@@ -936,7 +946,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   // --- 初始化 Effect ---
   // 仅在组件挂载或 cloudId 变化时加载核心资源
-  useEffect(() => { loadEssentials(); }, [cloudId]);
+  useEffect(() => { loadEssentials(); }, [loadEssentials]);
 
   /**
    * 处理 Tab 切换事件，实现按需加载
@@ -952,7 +962,13 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       loadTabResource('backups');
       return;
     }
-    loadTabResource(key);
+    const shouldForceRefresh =
+      key === 'kube_ovn_group' ||
+      key === 'flat_kubeovn_eips' ||
+      key === 'flat_kubeovn_fips' ||
+      key === 'flat_kubeovn_snat' ||
+      key === 'flat_kubeovn_dnat';
+    loadTabResource(key, shouldForceRefresh);
   };
   
   // --- SSE 实时数据更新 Effect ---
@@ -1158,7 +1174,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       { value: 'ippools', label: 'IP地址池', visible: checkPerm('clouds.nads:read') },
     ];
     return opts.filter((i) => i.visible).map(({ value, label }) => ({ value, label }));
-  }, [permissions, canReadNetworkScope, canReadLoadBalancers]);
+  }, [checkPerm, canReadNetworkScope, canReadLoadBalancers]);
 
   useEffect(() => {
     if (!clusterNetworkSegmentOptions.length) return;
@@ -1183,7 +1199,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     if (checkPerm('clouds.usb-devices:read')) return 'cluster_usb';
     if (checkPerm('clouds.pci-devices:read')) return 'cluster_pci';
     return 'cluster_nodes';
-  }, [permissions, clusterNetworkSegmentOptions.length, canReadPublicSubnets]);
+  }, [checkPerm, clusterNetworkSegmentOptions.length, canReadPublicSubnets]);
 
   useEffect(() => {
     if (!canToggleOpsView && mode === 'ops') setMode('standard');
@@ -1372,7 +1388,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '基础服务 ',
                       children: (
                         <>
-                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} />
+                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} mode={mode} />
                           <DebugJSON data={rawServices} show={showLog} />
                         </>
                       )
@@ -1400,19 +1416,19 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                           )}
                           {clusterNetworkSegmentKey === 'nads' && (
                             <>
-                              <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} onlyBridge />
+                              <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} onlyBridge mode={mode} />
                               <DebugJSON data={rawNads} show={showLog} />
                             </>
                           )}
                           {clusterNetworkSegmentKey === 'load_balancers' && (
                             <>
-                              <LoadBalancersSection cloudId={cloudId} loadBalancers={harvesterLoadBalancers} loading={resourceLoading.loadBalancers} onRefresh={() => loadTabResource('load_balancers', true)} />
+                              <LoadBalancersSection cloudId={cloudId} loadBalancers={harvesterLoadBalancers} loading={resourceLoading.loadBalancers} onRefresh={() => loadTabResource('load_balancers', true)} mode={mode} />
                               <DebugJSON data={rawLoadBalancers} show={showLog} />
                             </>
                           )}
                           {clusterNetworkSegmentKey === 'ippools' && (
                             <>
-                              <IPPoolsSection cloudId={cloudId} ippools={harvesterIPPools} loading={resourceLoading.ippools} onRefresh={() => loadTabResource('ippools', true)} />
+                              <IPPoolsSection cloudId={cloudId} ippools={harvesterIPPools} loading={resourceLoading.ippools} onRefresh={() => loadTabResource('ippools', true)} mode={mode} />
                               <DebugJSON data={rawIPPools} show={showLog} />
                             </>
                           )}
@@ -1459,6 +1475,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                             providerNetworks={harvesterKubeOvnProviderNetworks}
                             loading={resourceLoading.vlans}
                             onRefresh={refreshVlans}
+                            mode={mode}
                           />
                           <DebugJSON data={rawVlans} show={showLog} />
                         </>
@@ -1480,6 +1497,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                         showLog={showLog} 
                         raw={rawNamespaces}
                         isTenant={isTenant}
+                        mode={mode}
                       />
                     },
                     {
@@ -1487,7 +1505,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '存储池',
                       children: (
                         <>
-                          <StorageClassesSection cloudId={cloudId} storageClasses={harvesterStorageClasses} loading={resourceLoading.storageClasses} onRefresh={() => loadTabResource('storage_classes', true)} />
+                          <StorageClassesSection cloudId={cloudId} storageClasses={harvesterStorageClasses} loading={resourceLoading.storageClasses} onRefresh={() => loadTabResource('storage_classes', true)} mode={mode} />
                           <DebugJSON data={harvesterStorageClasses} show={showLog} />
                         </>
                       )
@@ -1832,7 +1850,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '虚拟云盘',
                       children: (
                         <>
-                          <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={resourceLoading.volumes} vms={ecs} storageClasses={harvesterStorageClasses} onRefresh={() => {
+                          <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={resourceLoading.volumes} vms={ecs} storageClasses={harvesterStorageClasses} mode={mode} onRefresh={() => {
                             loadResource('volumes', () => fetchHarvesterVolumes(cloudId, true), (json) => setHarvesterVolumes(json?.data?.items || []), true);
                             loadResource('ecs', () => fetchCloudProviderEcs(cloudId, true), (json) => {
                               const list: any[] = Array.isArray((json as any)?.data) ? (json as any).data : (((json as any)?.data?.Instances?.Instance) || ((json as any)?.data?.items) || ((json as any)?.data?.data) || []);
@@ -1849,7 +1867,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '云盘快照',
                       children: (
                         <>
-                          <SnapshotsSection cloudId={cloudId} snapshots={harvesterSnapshots} namespaces={harvesterNamespaces} loading={resourceLoading.snapshots} onRefresh={() => loadTabResource('snapshots', true)} />
+                          <SnapshotsSection cloudId={cloudId} snapshots={harvesterSnapshots} namespaces={harvesterNamespaces} loading={resourceLoading.snapshots} onRefresh={() => loadTabResource('snapshots', true)} mode={mode} />
                           <DebugJSON data={rawSnapshots} show={showLog} />
                         </>
                       )
@@ -1974,7 +1992,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       ? [
                           {
                             key: 'flat_kubeovn_eips',
-                            label: '弹性公网IP',
+                            label: '公网IP',
                             children: (
                               <>
                                 <EipSection
@@ -1984,24 +2002,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                                   loading={!!resourceLoading.flatEips}
                                   networkScope="flat"
                                   onRefresh={() => loadTabResource('flat_kubeovn_eips', true)}
-                                />
-                              </>
-                            ),
-                          },
-                          {
-                            key: 'flat_kubeovn_fips',
-                            label: '浮动IP',
-                            children: (
-                              <>
-                                <FipSection
-                                  cloudId={cloudId}
-                                  fips={kubeOvnFlatFips}
-                                  eips={kubeOvnFlatEips}
-                                  vpcs={kubeOvnVpcs}
-                                  subnets={kubeOvnSubnets}
-                                  loading={!!resourceLoading.flatFips}
-                                  networkScope="flat"
-                                  onRefresh={() => loadTabResource('flat_kubeovn_fips', true)}
                                 />
                               </>
                             ),
@@ -2118,6 +2118,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                             vpcs={kubeOvnVpcs} 
                             subnets={kubeOvnSubnets} 
                             loading={resourceLoading.vpcs || resourceLoading.subnets} 
+                            showYaml={mode === 'ops'}
                             onRefresh={async (force = false, silent = false) => {
                               const skipSync = silent;
                               loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => {
@@ -2143,6 +2144,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                             subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} 
                             vpcList={kubeOvnVpcs} 
                             loading={resourceLoading.subnets} 
+                            showYaml={mode === 'ops'}
                             onRefresh={() => loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => {
                               setKubeOvnSubnets(json?.data?.items || []);
                               setRawSubnets(json || null);

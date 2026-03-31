@@ -33,9 +33,11 @@ interface Props {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean;
   bordered?: boolean;
+  mode?: 'standard' | 'ops';
 }
 
-const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant, bordered = true }) => {
+const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant, bordered = true, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   // 工具栏与弹窗状态
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
@@ -257,7 +259,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
       key: 'name', 
       render: (t: string) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <ShareAltOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <ShareAltOutlined style={{ color: '#1677ff' }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t}</span>
         </span>
       ) 
@@ -279,10 +281,11 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
         const deleteDisabled = isSys || (isTenant && isPublic);
         return (
           <ResourceActionsDropdown 
+            buttonProps={{ className: 'row-actions-trigger' }}
             items={[
-              ...(!isTenant ? [{
+              ...(!isTenant && !isStandardView ? [{
                 key: 'opsinfo',
-                label: '运维信息',
+                label: '查看YAML',
                 onClick: () => handleOpenOpsinfo(record)
               }] : []),
               { type: 'divider' },

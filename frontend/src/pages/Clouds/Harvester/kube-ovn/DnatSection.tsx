@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Tag, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip, Alert } from 'antd';
+import { Table, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip, Alert, Row, Col } from 'antd';
 import { InteractionTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -11,11 +11,15 @@ import MetadataModal from './MetadataModal';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
-import { KUBE_OVN_FLAT_VPC, TOWER_ALIAS_ANNOTATION } from './underlay-subnet/constants';
+import {
+  KUBE_OVN_FLAT_VPC,
+  SUBNET_TYPE_ANNOTATION_KEY,
+  TOWER_ALIAS_ANNOTATION,
+  isBuiltInKubeOvnVpc,
+} from './underlay-subnet/constants';
 import { ovnDisplayName, ovnKeywordMatches } from './ovnResourceDisplay';
 import {
   buildVmNicIpOptions,
-  subnetChoicesForOvnAttach,
   subnetCidrOf,
   vmUsesSubnet,
 } from './subnetVmPicker';
@@ -79,10 +83,40 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   const [vmsList, setVmsList] = useState<any[]>([]);
   const [vmsLoading, setVmsLoading] = useState(false);
 
-  const subnetChoicesForDnat = useMemo(
-    () => subnetChoicesForOvnAttach(subnets, networkScope),
-    [subnets, networkScope],
-  );
+  const eipsForCreate = useMemo(() => {
+    return (Array.isArray(eips) ? eips : []).filter((e: any) => {
+      const t = String(e?.spec?.type ?? e?.type ?? '').trim().toLowerCase();
+      return t !== 'lrp';
+    });
+  }, [eips]);
+
+  const eipIpv4ByName = useMemo(() => {
+    const map = new Map<string, string>();
+    (Array.isArray(eips) ? eips : []).forEach((e: any) => {
+      const name = String(e?.metadata?.name || e?.name || '').trim();
+      if (!name) return;
+      const ip = String(e?.spec?.v4Ip || e?.status?.v4Ip || '').trim();
+      if (ip) map.set(name, ip);
+    });
+    return map;
+  }, [eips]);
+
+  const subnetChoicesForDnat = useMemo(() => {
+    if (!networkScope) return subnets;
+    return subnets.filter((s: any) => {
+      const vpc = String(s?.spec?.vpc || s?.vpc || '').trim();
+      const onFlatBuiltinVpc = !vpc || isBuiltInKubeOvnVpc(vpc);
+      if (networkScope === 'flat') {
+        const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
+          .trim()
+          .toLowerCase();
+        const hasVlan = !!String(s?.spec?.vlan || '').trim();
+        const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
+        return t === 'flat' && onFlatBuiltinVpc && !hasVlan && vpcNorm === KUBE_OVN_FLAT_VPC;
+      }
+      return vpc && !isBuiltInKubeOvnVpc(vpc);
+    });
+  }, [subnets, networkScope]);
 
   const subnetNameWatch = Form.useWatch('subnetName', form);
 
@@ -129,8 +163,15 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   // 筛选数据
   const filteredData = useMemo(() => {
     return dnatRules.filter((item: any) => {
-      const eip = item.spec?.ovnEip || '';
-      const internalIp = item.spec?.internalIp || '';
+      const eipName = String(item?.spec?.ovnEip || item?.status?.ovnEip || '').trim();
+      const eip =
+        String(
+          item?.status?.v4Eip ||
+            item?.metadata?.labels?.['ovn.kubernetes.io/eip_v4_ip'] ||
+            eipIpv4ByName.get(eipName) ||
+            eipName,
+        ).trim();
+      const internalIp = String(item?.spec?.v4Ip || item?.status?.v4Ip || item?.spec?.internalIp || '').trim();
       const vpc = item.spec?.vpc || '';
       const protocol = item.spec?.protocol || '';
       
@@ -158,7 +199,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       
       return true;
     });
-  }, [dnatRules, keyword, vpcFilter, protocolFilter]);
+  }, [dnatRules, keyword, vpcFilter, protocolFilter, eipIpv4ByName]);
 
   // 筛选选项
   const vpcOptions = useMemo(() => {
@@ -193,16 +234,28 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         (s: any) => String(s?.metadata?.name || s?.name || '') === subnetName,
       );
       const vpc = String(subnet?.spec?.vpc || subnet?.vpc || '').trim() || KUBE_OVN_FLAT_VPC;
-      let nic: { v4Ip?: string };
+      let nic: { v4Ip?: string } | null = null;
       try {
-        nic = JSON.parse(String(values.nicAttach || '')) as { v4Ip?: string };
-      } catch {
-        message.error('内部 IP 选项无效，请重新选择网卡');
-        return;
+        const raw = String(values.nicAttach || '');
+        if (raw) nic = JSON.parse(raw) as { v4Ip?: string };
+      } catch {}
+      if (!nic) {
+        try {
+          const vmKey = String(values.vmKey || '');
+          const vm = vmsOnSubnet.find(
+            (x: any) =>
+              `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
+              vmKey,
+          );
+          const opts = vm ? buildVmNicIpOptions(vm) : [];
+          if (opts.length > 0) {
+            nic = JSON.parse(String(opts[0]?.value || '')) as { v4Ip?: string };
+          }
+        } catch {}
       }
       const internalIp = String(nic?.v4Ip || '').trim();
       if (!internalIp) {
-        message.error('请选择网卡 IP');
+        message.error('未解析到网卡 IPv4，无法创建 DNAT');
         return;
       }
       const payload: Record<string, unknown> = {
@@ -211,6 +264,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         protocol: values.protocol || 'tcp',
         externalPort: values.externalPort,
         internalPort: values.internalPort,
+        v4Ip: internalIp,
         internalIp,
         vpc,
       };
@@ -279,7 +333,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         const text = alias || '—';
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <InteractionTwoTone twoToneColor={['#1677ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
+            <InteractionTwoTone/>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={text}>
               {text}
             </span>
@@ -300,25 +354,49 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       },
     },
     { 
-      title: 'EIP', 
+      title: '公网IP', 
       key: 'eip', 
-      render: (_: any, r: any) => r.spec?.ovnEip || '-' 
+      render: (_: any, r: any) => {
+        const eipName = String(r?.spec?.ovnEip || r?.status?.ovnEip || '').trim();
+        return (
+          String(
+            r?.status?.v4Eip ||
+              r?.metadata?.labels?.['ovn.kubernetes.io/eip_v4_ip'] ||
+              eipIpv4ByName.get(eipName) ||
+              eipName,
+          ).trim() || '-'
+        );
+      }
     },
     { 
-      title: '端口', 
-      key: 'port', 
-      render: (_: any, r: any) => `${r.spec?.protocol} ${r.spec?.externalPort} -> ${r.spec?.internalPort}` 
+      title: '公网端口', 
+      key: 'externalPort', 
+      render: (_: any, r: any) => String(r?.spec?.externalPort || r?.status?.externalPort || '').trim() || '-' 
+    },
+    { 
+      title: '协议', 
+      key: 'protocol', 
+      render: (_: any, r: any) => String(r?.spec?.protocol || r?.status?.protocol || '-').toUpperCase() 
     },
     { 
       title: '内部IP', 
       key: 'ip', 
-      render: (_: any, r: any) => r.spec?.internalIp || '-' 
+      render: (_: any, r: any) => String(r?.spec?.v4Ip || r?.status?.v4Ip || r?.spec?.internalIp || '').trim() || '-' 
     },
     { 
-      title: 'VPC', 
-      key: 'vpc', 
-      render: (_: any, r: any) => r.spec?.vpc || '-' 
+      title: '内部端口', 
+      key: 'internalPort', 
+      render: (_: any, r: any) => String(r?.spec?.internalPort || r?.status?.internalPort || '').trim() || '-' 
     },
+    ...(networkScope === 'flat'
+      ? []
+      : [
+          { 
+            title: 'VPC', 
+            key: 'vpc', 
+            render: (_: any, r: any) => r.spec?.vpc || '-' 
+          },
+        ]),
     {
       title: '操作', 
       key: 'action', 
@@ -339,7 +417,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       }
     },
     ],
-    [hasNatWrite, handleMenuClick],
+    [hasNatWrite, handleMenuClick, eipIpv4ByName, networkScope],
   );
 
   const dnatTableSettingsKey = `harvester_ovn_dnat_${networkScope ?? 'legacy'}`;
@@ -445,28 +523,38 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         cancelText="取消"
       >
         <Form form={form} layout="vertical">
-          {subnetChoicesForDnat.length === 0 && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="缺少可选子网"
-              description="请同步子网列表。扁平 DNAT 选 flat 子网；VPC DNAT 选业务 VPC 下的 vpc 子网（与创建 FIP 一致）。"
-            />
-          )}
           <Form.Item name="displayName" label="名称">
             <Input placeholder="可选，支持中文；留空则列表仅显示自动生成的资源名" />
           </Form.Item>
-          <Form.Item name="ovnEip" label="EIP" rules={[{ required: true, message: '请选择 EIP' }]}>
-            <Select placeholder="请选择 EIP" allowClear>
-              {eips.map((e) => (
-                <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
-                  {ovnDisplayName(e)} ({e.spec?.v4Ip})
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item
+          <Row gutter={12}>
+            <Col span={14}>
+              <Form.Item name="ovnEip" label="公网IP" rules={[{ required: true, message: '请选择公网IP' }]}>
+                <Select placeholder="请选择公网IP" allowClear>
+                  {eipsForCreate.map((e) => (
+                    <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
+                      {ovnDisplayName(e)} ({e.spec?.v4Ip})
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={4}>
+              <Form.Item name="protocol" label="协议" initialValue="tcp">
+                <Select>
+                  <Select.Option value="tcp">TCP</Select.Option>
+                  <Select.Option value="udp">UDP</Select.Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="externalPort" label="公网端口" rules={[{ required: true, message: '请输入公网端口' }]}>
+                <Input placeholder="例如: 80" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={9}>
+              <Form.Item
             name="subnetName"
             label="子网"
             rules={[{ required: true, message: '请选择子网' }]}
@@ -496,67 +584,83 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                 const name = String(s?.metadata?.name || s?.name || '');
                 const alias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
                 const cidr = subnetCidrOf(s);
-                const vpc = String(s?.spec?.vpc || s?.vpc || '').trim() || KUBE_OVN_FLAT_VPC;
                 const primary = alias || name;
-                const secondary = alias ? name : '';
-                const searchBlob = [primary, secondary, name, cidr, vpc].filter(Boolean).join(' ');
+                const searchBlob = [primary, name, cidr].filter(Boolean).join(' ');
                 return (
                   <Select.Option key={name} value={name} title={searchBlob}>
-                    <span title={cidr ? `${primary} ${cidr} VPC:${vpc}` : `${primary} VPC:${vpc}`}>
+                    <span title={cidr ? `${primary} ${cidr}` : primary}>
                       {primary}
-                      {secondary ? <span style={{ color: '#8c8c8c' }}>（{secondary}）</span> : null}
                       {cidr ? <span style={{ color: '#8c8c8c' }}> {cidr}</span> : null}
-                      <span style={{ color: '#8c8c8c' }}> · {vpc}</span>
                     </span>
                   </Select.Option>
                 );
               })}
             </Select>
           </Form.Item>
-          <Form.Item
-            noStyle
-            shouldUpdate={(prev, cur) => prev.subnetName !== cur.subnetName}
-          >
-            {() => {
-              const sn = form.getFieldValue('subnetName');
-              if (!sn) {
-                return (
-                  <Form.Item label="虚拟机">
-                    <Select placeholder="请先选择子网" disabled />
-                  </Form.Item>
-                );
-              }
-              return (
-                <Form.Item
-                  name="vmKey"
-                  label="虚拟机"
-                  rules={[{ required: true, message: '请选择虚拟机' }]}
-                >
-                  <Select
-                    placeholder={vmsLoading ? '加载虚拟机…' : '请选择挂接该子网的虚拟机'}
-                    loading={vmsLoading}
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    onChange={() => form.setFieldsValue({ nicAttach: undefined })}
-                    notFoundContent={vmsLoading ? '加载中…' : '该子网下暂无虚拟机或网卡未挂此子网'}
-                  >
-                    {vmsOnSubnet.map((vm: any) => {
-                      const ns = String(vm.namespace || vm.metadata?.namespace || 'default');
-                      const n = String(vm.name || vm.metadata?.name || '');
-                      const key = `${ns}/${n}`;
-                      const label = `${ovnDisplayName(vm)} (${key})`;
-                      return (
-                        <Select.Option key={key} value={key} label={label}>
-                          {label}
-                        </Select.Option>
-                      );
-                    })}
-                  </Select>
-                </Form.Item>
-              );
-            }}
-          </Form.Item>
+          </Col>
+            <Col span={9}>
+              <Form.Item
+                noStyle
+                shouldUpdate={(prev, cur) => prev.subnetName !== cur.subnetName}
+              >
+                {() => {
+                  const sn = form.getFieldValue('subnetName');
+                  if (!sn) {
+                    return (
+                      <Form.Item label="虚拟机">
+                        <Select placeholder="请先选择子网" disabled />
+                      </Form.Item>
+                    );
+                  }
+                  return (
+                    <Form.Item
+                      name="vmKey"
+                      label="虚拟机"
+                      rules={[{ required: true, message: '请选择虚拟机' }]}
+                    >
+                      <Select
+                        placeholder={vmsLoading ? '加载虚拟机…' : '请选择挂接该子网的虚拟机'}
+                        loading={vmsLoading}
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        onChange={() => form.setFieldsValue({ nicAttach: undefined })}
+                        notFoundContent={vmsLoading ? '加载中…' : '该子网下暂无虚拟机或网卡未挂此子网'}
+                      >
+                        {vmsOnSubnet.map((vm: any) => {
+                          const ns = String(vm.namespace || vm.metadata?.namespace || 'default');
+                          const n = String(vm.name || vm.metadata?.name || '');
+                          const key = `${ns}/${n}`;
+                          const nicOpts = buildVmNicIpOptions(vm);
+                          const ips = nicOpts
+                            .map((opt: any) => {
+                              try {
+                                return String(JSON.parse(String(opt?.value || '{}'))?.v4Ip || '').trim();
+                              } catch {
+                                return '';
+                              }
+                            })
+                            .filter((x: string) => !!x);
+                          const ipText = ips.join(', ');
+                          const label = ipText ? `${ovnDisplayName(vm)} (${ipText})` : ovnDisplayName(vm);
+                          return (
+                            <Select.Option key={key} value={key} label={label}>
+                              {label}
+                            </Select.Option>
+                          );
+                        })}
+                      </Select>
+                    </Form.Item>
+                  );
+                }}
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="internalPort" label="内部端口" rules={[{ required: true, message: '请输入内部端口' }]}>
+                <Input placeholder="例如: 8080" />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item
             noStyle
             shouldUpdate={(prev, cur) => prev.vmKey !== cur.vmKey || prev.subnetName !== cur.subnetName}
@@ -569,13 +673,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                   String(vmKey || ''),
               );
               const opts = vm ? buildVmNicIpOptions(vm) : [];
-              if (!vmKey) {
-                return (
-                  <Form.Item label="内部 IP（网卡）">
-                    <Select placeholder="请先选择虚拟机" disabled />
-                  </Form.Item>
-                );
-              }
+              if (!vmKey) return null;
               if (!opts.length) {
                 return (
                   <>
@@ -588,7 +686,6 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                     />
                     <Form.Item
                       name="nicAttach"
-                      label="内部 IP（网卡）"
                       rules={[
                         {
                           validator: () =>
@@ -602,33 +699,16 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                   </>
                 );
               }
-              return (
-                <Form.Item
-                  name="nicAttach"
-                  label="内部 IP（网卡）"
-                  rules={[{ required: true, message: '请选择网卡 IP' }]}
-                  extra="与创建 FIP 相同：按子网筛选 VM，再选网卡 IP 作为 DNAT 目标内网地址"
-                >
-                  <Select placeholder="请选择网卡与 IP" allowClear options={opts} />
-                </Form.Item>
-              );
+              try {
+                const first = String(opts[0]?.value || '');
+                if (first) form.setFieldsValue({ nicAttach: first });
+              } catch {}
+              return null;
             }}
           </Form.Item>
-          <Form.Item name="protocol" label="协议" initialValue="tcp">
-            <Select>
-              <Select.Option value="tcp">TCP</Select.Option>
-              <Select.Option value="udp">UDP</Select.Option>
-              <Select.Option value="sctp">SCTP</Select.Option>
-            </Select>
+          <Form.Item name="nicAttach" hidden>
+            <Input type="hidden" />
           </Form.Item>
-          <Space>
-            <Form.Item name="externalPort" label="外部端口" rules={[{ required: true, message: '请输入外部端口' }]}>
-              <Input placeholder="例如: 80" />
-            </Form.Item>
-            <Form.Item name="internalPort" label="内部端口" rules={[{ required: true, message: '请输入内部端口' }]}>
-              <Input placeholder="例如: 8080" />
-            </Form.Item>
-          </Space>
         </Form>
       </Modal>
     </>

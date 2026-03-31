@@ -10,18 +10,11 @@ import { routeSpecs } from '../routes/RouteSpec';
  */
 const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }> => {
   return routeSpecs
-    .filter(spec => 
-      // 过滤条件：
-      // 1. 不是废弃的路由
-      // 2. 有 requiredActions.page 配置
-      // 注意：隐藏路由（hidden: true）也需要权限检查，只是不在菜单中显示
-      !spec.deprecated && 
-      spec.requiredActions?.page
-    )
-    .map(spec => ({
+    .map((spec) => ({
       path: spec.path,
-      action: spec.requiredActions!.page
+      action: spec.requiredActions?.page,
     }))
+    .filter((mapping): mapping is { path: string; action: string } => !!mapping.action)
     // 按路径长度降序排序，确保更具体的路径优先匹配（如 /admin/clouds/console 在 /admin/clouds 之前）
     .sort((a, b) => b.path.length - a.path.length);
 };
@@ -65,8 +58,25 @@ export const PATH_PERMISSION_MAPPING: Array<{ path: string; action: string }> = 
 
 export const getRequiredActionForPath = (path: string): string | null => {
   const purePath = String(path || '').split('?')[0];
+
+  const matchesPath = (targetPath: string, patternPath: string): boolean => {
+    const targetSegments = targetPath.split('/').filter(Boolean);
+    const patternSegments = patternPath.split('/').filter(Boolean);
+    if (targetSegments.length < patternSegments.length) return false;
+
+    for (let i = 0; i < patternSegments.length; i += 1) {
+      const patternSeg = patternSegments[i];
+      const targetSeg = targetSegments[i];
+      if (!patternSeg.startsWith(':') && patternSeg !== targetSeg) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   for (const mapping of PATH_PERMISSION_MAPPING) {
-    if (purePath.startsWith(mapping.path)) {
+    if (matchesPath(purePath, mapping.path)) {
       // 开发环境调试（已禁用）
       // if (process.env.NODE_ENV === 'development') {
       //   console.log(`[accessMapping] Path "${purePath}" matched mapping:`, mapping);
@@ -85,6 +95,7 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (!act) return false; // 未映射的路径默认拒绝访问
   const permsArray = perms || [];
   const base = act.split(':')[0];
+  const isDashboardOrPools = base === 'clouds.dashboard' || base === 'clouds.resource-pools';
   const segments = base.split('.');
   const hasDomainPrefix = segments.length >= 2 ? `${segments[0]}.${segments[1]}` : null;
   
@@ -103,14 +114,14 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   
   // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
   // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read
-  if (base.startsWith('clouds.') && act.endsWith(':read')) {
+  if (base.startsWith('clouds.') && act.endsWith(':read') && !isDashboardOrPools) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
       return true;
     }
   }
 
   // 特殊规则：clouds.console:write 包含所有 clouds.*:write（与只读继承对称）
-  if (base.startsWith('clouds.') && act.endsWith(':write')) {
+  if (base.startsWith('clouds.') && act.endsWith(':write') && !isDashboardOrPools) {
     if (permsArray.includes('clouds.console:write')) {
       return true;
     }
@@ -155,13 +166,11 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
 export const getDefaultAdminPath = (perms: string[] = [], hasFeature?: (feature: string) => boolean): string => {
   // 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由
   // 过滤条件：
-  // 1. 不是废弃的路由
-  // 2. 不是隐藏的路由
-  // 3. 设置了 homePagePriority 字段
-  // 4. 有 requiredActions.page 配置（需要权限检查）
+  // 1. 不是隐藏的路由
+  // 2. 设置了 homePagePriority 字段
+  // 3. 有 requiredActions.page 配置（需要权限检查）
   const candidates = routeSpecs
     .filter(spec => 
-      !spec.deprecated && 
       !spec.hidden && 
       spec.homePagePriority !== undefined &&
       spec.requiredActions?.page

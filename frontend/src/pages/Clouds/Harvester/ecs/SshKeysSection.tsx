@@ -232,7 +232,7 @@ const SshKeysSection: React.FC<Props> = ({
         if (!isTenant && mode === 'ops') {
           items.push({ 
             key: 'opsinfo', 
-            label: '运维信息', 
+            label: '查看YAML', 
             onClick: () => handleOpenOpsinfo(record, 'yaml')
           });
           items.push({ type: 'divider' as const });

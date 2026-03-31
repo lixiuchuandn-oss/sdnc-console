@@ -977,7 +977,7 @@ const RecycleBinSection: React.FC<Props> = ({
             { type: 'divider' },
             {
               key: 'opsinfo',
-              label: '运维信息',
+              label: '查看YAML',
               onClick: () => handleShowOpsinfo(r, 'detail'),
             },
           ] : []),

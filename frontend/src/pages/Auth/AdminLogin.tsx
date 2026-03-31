@@ -43,13 +43,15 @@ const AdminLogin: React.FC = () => {
           const fav = await getSystemSetting('favorite.cloudId');
           const cloudId = String(fav?.value || '').trim();
           if (cloudId) {
-            // 检查用户是否有访问资源池的权限
-            const canAccessClouds =
+            const canAccessCloudPools =
               hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
-              hasPermissionForAction(perms, 'clouds:read') ||
-              hasPermissionForAction(perms, 'clouds.console:read');
-            if (canAccessClouds) {
+              hasPermissionForAction(perms, 'clouds:read');
+            if (canAccessCloudPools) {
               navigate(`/admin/clouds/${cloudId}`);
+              return;
+            }
+            if (hasPermissionForAction(perms, 'clouds.console:read')) {
+              navigate('/admin/clouds/console');
               return;
             }
           }

@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { Table, Tag, Space, Input, Select, Button, Modal, Form, message, Dropdown, MenuProps, Radio, Alert, Checkbox, Row, Col, Tabs } from 'antd';
-import { ApartmentOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useMemo, useState } from 'react';
+import { Table, Input, Select, Button, Modal, Form, message, Radio, Alert, Checkbox, Row, Col } from 'antd';
+import { ApartmentOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -431,13 +431,13 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       ellipsis: true,
       render: (_: any, r: any) => {
         const id = String(r?.name || r?.metadata?.name || '').trim() || '—';
-        return <span className="std-time" title={id}>{id}</span>;
+        return <span title={id}>{id}</span>;
       },
     },
     { 
       title: 'CIDR', 
       key: 'cidr', 
-      render: (_: any, r: any) => <span className="std-time">{r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '-'}</span> 
+      render: (_: any, r: any) => <span>{r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '-'}</span> 
     },
     { 
       title: 'VPC', 
@@ -447,7 +447,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     { 
       title: '网关', 
       key: 'gateway', 
-      render: (_: any, r: any) => <span className="std-time">{r?.gateway || r?.spec?.gateway || '-'}</span> 
+      render: (_: any, r: any) => <span>{r?.gateway || r?.spec?.gateway || '-'}</span> 
     },
     { 
       title: '协议', 
@@ -512,7 +512,14 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     <PageDetailSection
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="名称/ID" value={keyword} onChange={(e)=> setKeyword(e.target.value)} className="toolbar-search" />
+          <Input
+            allowClear
+            placeholder="名称/ID"
+            value={keyword}
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            onChange={(e)=> setKeyword(e.target.value)}
+            className="toolbar-search"
+          />
           <Select allowClear placeholder="VPC" options={vpcOptions} value={vpc} onChange={(v)=> setVpc(v)} className="toolbar-filter-sm" />
           <Select allowClear placeholder="协议" options={protocolOptions} value={protocol} onChange={(v)=> setProtocol(v)} className="toolbar-filter-sm" />
           <Select allowClear placeholder="NAT" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={nat} onChange={(v)=> setNat(v)} className="toolbar-filter-sm" />

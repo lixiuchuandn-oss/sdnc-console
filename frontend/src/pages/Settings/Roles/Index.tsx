@@ -22,7 +22,6 @@ import { hasPermissionForAction } from '../../../utils/accessMapping';
 import type { RBACRole } from './types';
 import RoleAssignUsersDrawer from './components/RoleAssignUsersDrawer';
 import RolePermissionDrawer from './components/RolePermissionDrawer';
-import { stripTenantForbiddenPermissionIds, TENANT_HIDDEN_RESOURCE_PREFIXES } from './utils';
 import {
   CLOUD_SUBNETS_FLAT_READ,
   CLOUD_SUBNETS_FLAT_WRITE,
@@ -198,24 +197,13 @@ const AccessRolesPage: React.FC = () => {
                 write: perms.write,
                 readVisible: perms.readVisible !== false,
                 writeVisible: perms.writeVisible !== false,
-              }))
-              .filter(
-                (item) =>
-                  grantTarget?.scope !== 'tenant' ||
-                  !TENANT_HIDDEN_RESOURCE_PREFIXES.has(item.resourcePrefix),
-              );
+              }));
 
             const features = group === '资源控制台'
               ? (() => {
                   const { parents, children } = splitResourceConsoleFeatures(rawFeatures);
-                  const parentItems =
-                    grantTarget?.scope === 'tenant'
-                      ? parents.filter(
-                          (p) => !TENANT_HIDDEN_RESOURCE_PREFIXES.has(p.resourcePrefix),
-                        )
-                      : parents;
                   return [
-                    ...parentItems.map((item) => ({ ...item, isResourceParent: true })),
+                    ...parents.map((item) => ({ ...item, isResourceParent: true })),
                     ...children.map((item) => ({ ...item, isResourceParent: false })),
                   ];
                 })()
@@ -226,7 +214,7 @@ const AccessRolesPage: React.FC = () => {
       });
 
     return platforms;
-  }, [actionAtoms, backendSupportsSubnetSplit, permVerb, kw, permissionDefinitions, grantTarget?.scope]);
+  }, [actionAtoms, backendSupportsSubnetSplit, permVerb, kw, permissionDefinitions]);
   
   // 处理权限复选框变化
   const handlePermissionChange = (action: string, checked: boolean) => {
@@ -331,9 +319,7 @@ const AccessRolesPage: React.FC = () => {
       setGrantTarget(role);
       const permArr: string[] = (()=>{ try{ return Array.isArray(JSON.parse(String(role?.permissions||'[]'))) ? JSON.parse(String(role?.permissions||'[]')) : []; }catch{ return []; } })();
       const expandedPerms = mapLegacySubnetsToSplit(permArr);
-      setGrantSelectedIds(
-        role.scope === 'tenant' ? stripTenantForbiddenPermissionIds(expandedPerms) : expandedPerms,
-      );
+      setGrantSelectedIds(expandedPerms);
       setGrantOpen(true);
     } catch (error: any) {
       message.error(error?.message || '创建角色失败');
@@ -344,10 +330,7 @@ const AccessRolesPage: React.FC = () => {
   const handleGrantSave = React.useCallback(async (targetKeys: string[]) => {
     if (!grantTarget) return;
     try {
-      const permissionsToSave =
-        grantTarget.scope === 'tenant'
-          ? stripTenantForbiddenPermissionIds(normalizeForBackendSave(targetKeys))
-          : normalizeForBackendSave(targetKeys);
+      const permissionsToSave = normalizeForBackendSave(targetKeys);
       await apiPatch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, { permissions: permissionsToSave });
       message.success('授权成功');
       setGrantOpen(false);
@@ -360,9 +343,7 @@ const AccessRolesPage: React.FC = () => {
   const openAuthorize = React.useCallback((role: RBACRole) => {
     setGrantTarget(role);
     const ids = mapLegacySubnetsToSplit(role.actions || []);
-    setGrantSelectedIds(
-      role.scope === 'tenant' ? stripTenantForbiddenPermissionIds(ids) : ids,
-    );
+    setGrantSelectedIds(ids);
     setGrantOpen(true);
   }, [mapLegacySubnetsToSplit]);
 

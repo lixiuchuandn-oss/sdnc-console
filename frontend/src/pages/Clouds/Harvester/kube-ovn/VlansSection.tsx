@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Input, Modal, Select, Table, Tag, Tooltip, message } from 'antd';
-import { ReloadOutlined, TagTwoTone } from '@ant-design/icons';
-import { deleteKubeOvnVlan, fetchKubeOvnProviderNetworks, fetchKubeOvnVlans } from '../../../../services/harvesterApi';
+import { ReloadOutlined, TagTwoTone, SearchOutlined } from '@ant-design/icons';
+import { deleteKubeOvnVlan,
+  fetchKubeOvnProviderNetworks,
+  fetchKubeOvnSubnets,
+  fetchKubeOvnVlans,
+} from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
@@ -22,11 +26,13 @@ type Props = {
   providerNetworks?: any[];
   loading?: boolean;
   onRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  mode?: 'standard' | 'ops';
 };
 
-const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loading: loadingProp, onRefresh }) => {
+const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loading: loadingProp, onRefresh, mode = 'ops' }) => {
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
+  const isStandardView = mode === 'standard';
   const isControlled = typeof onRefresh === 'function';
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -146,6 +152,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
       const ann = raw?.metadata?.annotations || {};
       const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
       const label = displayAlias || name;
+
       Modal.confirm({
         title: '确认删除',
         content: `确定要删除 VLAN「${label}」吗？若仍有子网引用，集群可能拒绝删除。`,
@@ -153,6 +160,26 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         okType: 'danger',
         cancelText: '取消',
         onOk: async () => {
+          // 校验子网占用
+          try {
+            const res = await fetchKubeOvnSubnets(cloudId, true);
+            const items = Array.isArray(res?.data?.items) ? res.data.items : [];
+            const boundSubnets = items
+              .filter((s: any) => String(s?.spec?.vlan || '').trim() === name)
+              .map((s: any) => {
+                const snAnn = s?.metadata?.annotations || {};
+                const alias = String(snAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+                return alias || s?.metadata?.name || s?.name;
+              })
+              .filter(Boolean);
+            if (boundSubnets.length > 0) {
+              message.error(`VLAN 正在被以下子网绑定，无法删除：${boundSubnets.join('、')}`);
+              return;
+            }
+          } catch (e) {
+            console.warn('[DeleteVlan] Subnet usage check failed:', e);
+          }
+
           try {
             await deleteKubeOvnVlan(cloudId, name);
             message.success('删除成功');
@@ -187,11 +214,12 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
     () =>
       filtered.map((raw) => {
         const ann = raw?.metadata?.annotations || {};
-        const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+        const metadataName = String(raw?.metadata?.name || '').trim();
+        const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim() || metadataName;
         return {
           key: raw?.metadata?.uid || raw?.metadata?.name,
           displayAlias,
-          metadataName: raw?.metadata?.name,
+          metadataName,
           rawData: raw,
         };
       }),
@@ -201,35 +229,29 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
   const allColumns = useMemo(
     () => [
       {
-        title: '展示名称',
+        title: '名称',
         dataIndex: 'displayAlias',
         key: 'displayAlias',
         ellipsis: true,
         render: (text: string) => {
-          const s = String(text || '').trim();
+          const s = String(text || '').trim() || '—';
           return (
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <TagTwoTone/>
-              {s ? (
-                <span>{s}</span>
-              ) : (
-                <Tooltip title="未在注解 tower.io/alies 中填写展示名，请使用「集群资源名」列识别">
-                  <span style={{ color: '#999' }}>（未命名）</span>
-                </Tooltip>
-              )}
+              <span>{s}</span>
             </span>
           );
         },
       },
       {
-        title: '集群资源名',
+        title: 'ID',
         dataIndex: 'metadataName',
         key: 'metadataName',
         ellipsis: true,
         width: 160,
         render: (text: string) => (
           <Tooltip title="Kubernetes 中 Vlan 对象的 metadata.name，创建后不可改">
-            <span style={{ fontFamily: 'ui-monospace, monospace' }}>{text ?? '—'}</span>
+            <span>{text ?? '—'}</span>
           </Tooltip>
         ),
       },
@@ -278,19 +300,20 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
           );
         },
       },
-      ...(canWriteVlan
+      ...(!isStandardView && canWriteVlan
         ? [
             {
               title: '操作',
               key: 'action',
-              width: 88,
+              width: 80,
               align: 'left' as const,
               render: (_: unknown, record: any) => (
                 <ResourceActionsDropdown
+                  buttonProps={{ className: 'row-actions-trigger' }}
                   items={[
                     {
                       key: 'ops',
-                      label: '运维信息',
+                      label: '查看YAML',
                       onClick: () => openDrawer(record),
                     },
                     { type: 'divider' as const },
@@ -305,7 +328,8 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
               ),
             },
           ]
-        : [
+        : !isStandardView
+          ? [
             {
               title: '操作',
               key: 'action',
@@ -313,19 +337,21 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
               align: 'left' as const,
               render: (_: unknown, record: any) => (
                 <ResourceActionsDropdown
+                  buttonProps={{ className: 'row-actions-trigger' }}
                   items={[
                     {
                       key: 'ops',
-                      label: '运维信息',
+                      label: '查看YAML',
                       onClick: () => openDrawer(record),
                     },
                   ]}
                 />
               ),
             },
-          ]),
+          ]
+          : []),
     ],
-    [canWriteVlan, openDrawer, handleDelete, providerAliasMap],
+    [canWriteVlan, isStandardView, openDrawer, handleDelete, providerAliasMap],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vlans_table');
@@ -336,8 +362,9 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         <div className="toolbar-container">
           <Input
             allowClear
-            placeholder="展示名 / 集群资源名 / VLAN 标签"
+            placeholder="名称 / ID / VLAN tag"
             value={keyword}
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />

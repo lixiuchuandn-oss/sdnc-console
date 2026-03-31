@@ -29,9 +29,11 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
+  mode?: 'standard' | 'ops';
 }
 
-const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant }) => {
+const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   // 工具栏过滤及详情抽屉状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -149,7 +151,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       render: (_: any, record: any) => (
         <ResourceActionsDropdown 
           items={[
-            ...(!isTenant ? [{ key: 'opsinfo', label: '运维信息', onClick: () => {
+            ...(!isTenant && !isStandardView ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => {
               setSelectedRecord(record);
               setDrawerActiveTab('detail');
               setDrawerOpen(true);
@@ -159,7 +161,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
         />
       ),
     },
-  ], []);
+  ], [isTenant, isStandardView]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_services_table');

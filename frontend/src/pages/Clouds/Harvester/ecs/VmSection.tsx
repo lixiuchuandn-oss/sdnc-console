@@ -1462,7 +1462,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         { key: 'detail', label:'实例详情', onClick: () => handleShowVmDetail(r, 'detail') },        
         // 运维模式下的 YAML / 原始对象查看
         ...(!isTenant && mode === 'ops' ? [
-            { key: 'detail_ops', label: '运维信息', onClick: () => handleShowOpsinfo(r, 'detail') }
+            { key: 'detail_ops', label: '查看YAML', onClick: () => handleShowOpsinfo(r, 'detail') }
         ] : []),
 
         // VNC 控制台

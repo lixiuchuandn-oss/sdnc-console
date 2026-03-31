@@ -331,7 +331,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mod
         const items: any[] = [];
         items.push({ key: 'detail', label: '详情', onClick: () => handleOpenNodeDetail(r) });
         if (mode === 'ops') {
-          items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+          items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
         }
         return (
           <ResourceActionsDropdown 

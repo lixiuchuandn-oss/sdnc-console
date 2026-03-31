@@ -400,7 +400,7 @@ const TemplatesSection: React.FC<Props> = ({
         if (!isTenant && mode === 'ops') {
           items.push({
             key: 'ops_info',
-            label: '运维信息',
+            label: '查看YAML',
             onClick: () => { handleOpenOpsInfo(r); },
           });
         }

@@ -119,7 +119,7 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
         ))}
       </Select>
     </Form.Item>
-    <Form.Item name="excludeIps" label="排除 IP (可选)">
+    <Form.Item name="excludeIps" label="排除 IP (可选)" extra="多 IP 请换行输入">
       <Input.TextArea rows={3} placeholder="每行一个 IP 或 IP 范围 (e.g. 192.168.1.1..192.168.1.10)" />
     </Form.Item>
   </>

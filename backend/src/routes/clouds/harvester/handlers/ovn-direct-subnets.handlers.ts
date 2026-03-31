@@ -3,7 +3,7 @@ import { AppDataSource } from '../../../../config/database';
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { KubevirtNadInventory } from '../../../../entities/kubevirt/KubevirtNadInventory';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
-import { updateHarvesterSubnet } from '../../../../services/clouds/harvester/client';
+import { updateHarvesterSubnet, listKubeOvnEips, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
 import {
   checkTenantAccess,
@@ -141,6 +141,9 @@ export async function harvesterSubnetDirectListHandler(
         cidrBlock: item.cidr,
         gateway: item.gateway,
         protocol: item.protocol,
+        vlan: item.rawData?.spec?.vlan || '',
+        provider: item.rawData?.spec?.provider || '',
+        excludeIps: item.rawData?.spec?.excludeIps || [],
       },
       status: {
         v4AvailableIPs: item.availableIps,
@@ -245,6 +248,17 @@ export async function harvesterSubnetDirectCreateHandler(
 
     const rawEndpoint = String(cloud.endpoint || '').trim();
     const apiBase = resolveHarvesterK8sApiBase(rawEndpoint);
+    const subnetTypeForVpc = String(annotations?.['tower.io/subnet-type'] || '')
+      .trim()
+      .toLowerCase();
+    const hasVlan = vlan !== undefined && vlan !== null && String(vlan).trim() !== '';
+    const defaultVpcForNew =
+      subnetTypeForVpc === 'flat'
+        ? hasVlan
+          ? KUBE_OVN_PUBLIC_VPC
+          : KUBE_OVN_FLAT_VPC
+        : KUBE_OVN_PUBLIC_VPC;
+    const targetVpc = vpc || defaultVpcForNew;
 
     try {
       const subnetListUrl = `${apiBase}/apis/kubeovn.io/v1/subnets`;
@@ -260,14 +274,6 @@ export async function harvesterSubnetDirectCreateHandler(
         : [];
       const reqRange = cidrToRange(String(cidrBlock || '').trim());
       if (reqRange) {
-        const subnetTypeForVpc = String(annotations?.['tower.io/subnet-type'] || '')
-          .trim()
-          .toLowerCase();
-        const defaultVpcForNew =
-          subnetTypeForVpc === 'flat'
-            ? KUBE_OVN_FLAT_VPC
-            : KUBE_OVN_PUBLIC_VPC;
-        const targetVpc = vpc || defaultVpcForNew;
         for (const s of items) {
           const currentVpc = s?.spec?.vpc || KUBE_OVN_PUBLIC_VPC;
           if (currentVpc !== targetVpc) continue;
@@ -468,7 +474,7 @@ export async function harvesterSubnetDirectCreateHandler(
           : {}),
       },
       spec: {
-        vpc,
+        vpc: targetVpc,
         cidrBlock,
         gateway,
         protocol: protocol || 'IPv4',
@@ -584,6 +590,39 @@ export async function harvesterSubnetDirectUpdateHandler(
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    const apiBase = resolveHarvesterK8sApiBase(cloud.endpoint || '');
+    const currentSubnet = await getJsonOnce(
+      `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnetId)}`,
+      cloud.secretKey || '',
+      insecure,
+    );
+    const currentVpc = String(currentSubnet?.spec?.vpc ?? '').trim();
+    const prevGateway = String(currentSubnet?.spec?.gateway ?? '').trim();
+    const shouldRelinkInternalVpc = subnetId === 'external' && currentVpc === KUBE_OVN_PUBLIC_VPC;
+    const newGateway = Object.prototype.hasOwnProperty.call(body, 'gateway')
+      ? String(body?.gateway ?? '').trim()
+      : prevGateway;
+    const shouldUpdateDefaultRoute = shouldRelinkInternalVpc && !!newGateway && newGateway !== prevGateway;
+
+    // 校验 EIP 占用
+    try {
+      const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      const usingEips = eips.filter((eip) => {
+        const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
+        return String(sub || '').trim() === subnetId;
+      });
+      if (usingEips.length > 0) {
+        const names = usingEips.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
+        return res.status(409).json({
+          message: `子网正在被以下 EIP 使用，无法修改或清空其网段信息：${names.join('、')}`,
+          code: 'SUBNET_IN_USE_BY_EIPS',
+          eips: names,
+        });
+      }
+    } catch (e) {
+      console.warn('[UpdateSubnet] EIP usage check failed:', e);
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, 'acls')) {
       const aclResult = parseKubeOvnAclRulesInput(body.acls, 'acls');
       if (!aclResult.ok) {
@@ -593,12 +632,74 @@ export async function harvesterSubnetDirectUpdateHandler(
       body.acls = aclResult.value;
     }
 
-    const data = await updateHarvesterSubnet(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      subnetId,
-      body,
-    );
-    res.json({ message: '更新成功', data });
+    let internalVpcTouched = false;
+    try {
+      if (shouldRelinkInternalVpc) {
+        await updateKubeOvnVpc(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          KUBE_OVN_FLAT_VPC,
+          { enableExternal: false },
+        );
+        internalVpcTouched = true;
+      }
+
+      const data = await updateHarvesterSubnet(
+        { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+        subnetId,
+        body,
+      );
+
+      if (shouldRelinkInternalVpc) {
+        const vpcPatch: Record<string, unknown> = {
+          enableExternal: true,
+          nextHopIP: newGateway || String(data?.spec?.gateway ?? prevGateway ?? '').trim(),
+        };
+        if (shouldUpdateDefaultRoute) {
+          const vpcObj = await getJsonOnce(
+            `${apiBase}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(KUBE_OVN_FLAT_VPC)}`,
+            cloud.secretKey || '',
+            insecure,
+          );
+          const routes: any[] = Array.isArray(vpcObj?.spec?.staticRoutes) ? [...vpcObj.spec.staticRoutes] : [];
+          const defaultIdx = routes.findIndex(
+            (r: any) => String(r?.cidr) === '0.0.0.0/0' && String(r?.policy) === 'policyDst',
+          );
+          const newRoute = {
+            bfdId: '',
+            cidr: '0.0.0.0/0',
+            ecmpMode: '',
+            nextHopIP: newGateway,
+            policy: 'policyDst',
+            routeTable: '',
+          };
+          if (defaultIdx >= 0) {
+            routes[defaultIdx] = { ...routes[defaultIdx], ...newRoute };
+          } else {
+            routes.push(newRoute);
+          }
+          vpcPatch.staticRoutes = routes;
+        }
+        await updateKubeOvnVpc(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          KUBE_OVN_FLAT_VPC,
+          vpcPatch,
+        );
+        internalVpcTouched = false;
+      }
+
+      res.json({ message: '更新成功', data });
+    } catch (e: any) {
+      if (internalVpcTouched) {
+        try {
+          await updateKubeOvnVpc(
+            { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+            KUBE_OVN_FLAT_VPC,
+            { enableExternal: true },
+          );
+        } catch {}
+      }
+      throw e;
+    }
   } catch (error: any) {
     res.status(500).json({
       message: '更新子网失败',
@@ -657,6 +758,25 @@ export async function harvesterSubnetDirectDeleteHandler(
       }
     } catch (checkError) {
       console.warn('[DeleteSubnet] Failed to check VM usage, proceeding anyway:', checkError);
+    }
+
+    // 校验 EIP 占用
+    try {
+      const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      const usingEips = eips.filter((eip) => {
+        const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
+        return String(sub || '').trim() === name;
+      });
+      if (usingEips.length > 0) {
+        const names = usingEips.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
+        return res.status(409).json({
+          message: `子网正在被以下 EIP 使用，无法删除：${names.join('、')}`,
+          code: 'SUBNET_IN_USE_BY_EIPS',
+          eips: names,
+        });
+      }
+    } catch (e) {
+      console.warn('[DeleteSubnet] EIP usage check failed:', e);
     }
 
     await removeTowerManagedFinalizerFromResourceUrl(url, cloud.secretKey || '', insecure);

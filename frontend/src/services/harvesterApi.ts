@@ -42,7 +42,16 @@ export const deleteHarvesterVpc = async (cloudId: string, name: string) => {
  * @returns Promise<any>
  */
 export const updateHarvesterVpc = async (cloudId: string, name: string, payload: any) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(name)}`, payload);
+  const path = `/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(name)}`;
+  try {
+    return await apiPatch(path, payload);
+  } catch (e: any) {
+    const msg = String(e?.message ?? '');
+    if (msg.includes('Cannot PATCH') || e?.status === 404 || e?.response?.status === 404) {
+      return await apiPut(path, payload);
+    }
+    throw e;
+  }
 };
 
 /**
@@ -684,7 +693,7 @@ export const createKubeOvnSubnet = async (cloudId: string, payload: any) => {
  * @returns Promise<any>
  */
 export const updateKubeOvnSubnet = async (cloudId: string, name: string, payload: any) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`, payload);
+  return await apiPut(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`, payload);
 };
 
 /**

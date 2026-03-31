@@ -250,10 +250,9 @@ const VRPage: React.FC = () => {
   };
 
   const getActionMenu = (row: VRRow): MenuProps['items'] => ([
-    { key: 'detail', label: '查看设备详情' },
+    { key: 'metadata', label: '查看详情' },
     { key: 'editDevice', label: '编辑设备信息' },
     { key: 'bindOrg', label: '绑定组织' },
-    { key: 'metadata', label: '查看元数据' },
     { type: 'divider' },
     { key: 'role', label: '设置角色', danger: true },
     { key: 'editConfig', label: '专家模式', danger: true },
@@ -1225,9 +1224,8 @@ const VRPage: React.FC = () => {
         loading: loading,
         scroll: { 
           x: 'max-content',
-          y: 600  // 启用虚拟滚动，设置固定高度
         },
-        bordered: true
+        bordered: false
       }}
     >
 
