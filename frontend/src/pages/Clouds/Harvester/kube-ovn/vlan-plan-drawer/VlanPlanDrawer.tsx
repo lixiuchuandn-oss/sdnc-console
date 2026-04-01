@@ -69,7 +69,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
   onSuccess,
   lockProviderName,
 }) => {
-  const EXTERNAL_SUBNET_NAME = 'external';
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
   const isTenantUser = user?.role === 'tenant' || !!user?.tenantId;
@@ -239,6 +238,8 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     }
     const related = (subnetItems || [])
       .filter((sn: any) => {
+        /** 内置 external 不在物理网络规划里展示 */
+        if (String(sn?.metadata?.name || '').trim() === 'external') return false;
         const snVlan = String(sn?.spec?.vlan ?? '').trim();
         if (!snVlan) return false;
         const vlanItem = vlanByName.get(snVlan) || vlanById.get(snVlan);
@@ -283,7 +284,8 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     () =>
       (subnetItems || []).filter(
         (sn: any) =>
-          String(sn?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '').trim().toLowerCase() === 'public',
+          String(sn?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '').trim().toLowerCase() === 'public' &&
+          String(sn?.metadata?.name || '').trim() !== 'external',
       ),
     [subnetItems],
   );
@@ -292,10 +294,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     (resourceName: string, displayLabel: string) => {
       if (!canWriteFlatSubnet) {
         message.error('当前账号没有扁平子网操作权限');
-        return;
-      }
-      if (resourceName === EXTERNAL_SUBNET_NAME) {
-        message.error('默认子网 external 不可删除');
         return;
       }
       Modal.confirm({
@@ -324,13 +322,19 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
 
   const openEditSubnet = useCallback((sn: any) => {
     setEditingSubnet(sn);
-    editSubnetForm.setFieldsValue({
-      alias: sn.alias || '',
-      cidrBlock: sn.cidr || '',
-      gateway: sn.gateway || '',
-      vlan: sn.vlan || '',
-      excludeIps: Array.isArray(sn.excludeIps) ? sn.excludeIps.join('\n') : '',
-    });
+    if (String(sn?.type || '').trim().toLowerCase() === 'public') {
+      editSubnetForm.setFieldsValue({
+        alias: sn.alias || '',
+      });
+    } else {
+      editSubnetForm.setFieldsValue({
+        alias: sn.alias || '',
+        cidrBlock: sn.cidr || '',
+        gateway: sn.gateway || '',
+        vlan: sn.vlan || '',
+        excludeIps: Array.isArray(sn.excludeIps) ? sn.excludeIps.join('\n') : '',
+      });
+    }
     setEditSubnetModalOpen(true);
   }, [editSubnetForm]);
 
@@ -339,6 +343,24 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     if (!name) return;
     try {
       setEditSubnetLoading(true);
+      const aliasTrim = String(values.alias ?? '').trim();
+
+      if (String(editingSubnet?.type || '').trim().toLowerCase() === 'public') {
+        const full = (subnetItems || []).find((s: any) => String(s?.metadata?.name ?? '').trim() === name);
+        const mergedAnn = {
+          ...(full?.metadata?.annotations || {}),
+          [TOWER_ALIAS_ANNOTATION]: aliasTrim,
+        };
+        await updateKubeOvnSubnet(cloudId, name, { annotations: mergedAnn });
+        message.success('更新子网成功');
+        setEditSubnetModalOpen(false);
+        setEditingSubnet(null);
+        editSubnetForm.resetFields();
+        await loadSubnets();
+        await onSuccess?.();
+        return;
+      }
+
       const { alias, ...rest } = values;
       const excludeIps = String(values.excludeIps || '')
         .split('\n')
@@ -371,10 +393,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     (resourceName: string, displayLabel: string) => {
       if (!canWritePublicSubnet) {
         message.error('当前账号没有公共子网操作权限');
-        return;
-      }
-      if (resourceName === EXTERNAL_SUBNET_NAME) {
-        message.error('默认子网 external 不可删除');
         return;
       }
       Modal.confirm({
@@ -880,7 +898,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                                   size="small"
                                   icon={<DeleteOutlined />}
                                   loading={busy}
-                                  disabled={(!!deletingPublicSubnetName && !busy) || name === EXTERNAL_SUBNET_NAME}
+                                  disabled={!!deletingPublicSubnetName && !busy}
                                   onClick={() => handleDeletePublicSubnet(name, alias || name)}
                                 >
                                   删除
@@ -892,7 +910,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                         <div style={{ width: '100%', minWidth: 0 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                             {alias || name}
-                            {name === EXTERNAL_SUBNET_NAME && <Tag color="default" style={{ margin: 0, fontSize: 10, lineHeight: '14px', height: 16 }}>Default</Tag>}
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span>{cidr}</span>
@@ -956,7 +973,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                                   size="small"
                                   icon={<DeleteOutlined />}
                                   loading={busy}
-                                  disabled={(!!deletingFlatSubnetName && !busy) || name === EXTERNAL_SUBNET_NAME}
+                                  disabled={!!deletingFlatSubnetName && !busy}
                                   onClick={() => handleDeleteFlatSubnet(name, alias || name)}
                                 >
                                   删除
@@ -968,7 +985,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                         <div style={{ width: '100%', minWidth: 0 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                             {alias || name}
-                            {name === EXTERNAL_SUBNET_NAME && <Tag color="default" style={{ margin: 0, fontSize: 10, lineHeight: '14px', height: 16 }}>Default</Tag>}
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span>{cidr}</span>
@@ -1042,6 +1058,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
             providers={providers}
             aliasDupCheckItems={subnetItems}
             editingSubnetResourceName={editingSubnet?.name}
+            publicEditNameOnly={String(editingSubnet?.type || '').trim().toLowerCase() === 'public'}
           />
         </Form>
       </Modal>

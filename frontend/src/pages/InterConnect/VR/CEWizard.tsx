@@ -3,7 +3,7 @@ import { Button, Card, Descriptions, Form, Input, InputNumber, Select, Space, St
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { getVRConfig, saveVRConfig, setVRRole, getVR2Config } from '../../../services/virtualRouterApi';
+import { getVRConfig, saveVRConfig, setVRRole, getVR2Config, fetchVrCacheMerged } from '../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../services/api';
 
 const CEWizard: React.FC = () => {
@@ -20,6 +20,71 @@ const CEWizard: React.FC = () => {
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
+  const normalizeIfaceName = (s: string) =>
+    String(s || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+
+  const findInterfaceInDevice = (dev: any, ifaceName: string) => {
+    const nameRaw = String(ifaceName || '').trim();
+    const name = normalizeIfaceName(nameRaw);
+    if (!dev || !name) return null;
+    // 1) Preferred: dev.interfaces
+    if (Array.isArray(dev.interfaces)) {
+      const hit = dev.interfaces.find((it: any) => normalizeIfaceName(it?.name) === name);
+      if (hit) return hit;
+    }
+    // 2) Buckets: interfaces_* / subinterfaces_*
+    for (const key of Object.keys(dev)) {
+      if ((key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) && Array.isArray(dev[key])) {
+        const hit = (dev[key] as any[]).find((it: any) => normalizeIfaceName(it?.name) === name);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+
+  const pickIfaceIpv4 = (iface: any) =>
+    iface?.ipv4_static ?? iface?.ipv4Static ?? iface?.ipv4 ?? iface?.ip_address ?? iface?.ipAddress ?? '';
+  const pickIfaceIpv6 = (iface: any) =>
+    iface?.ipv6_static ?? iface?.ipv6Static ?? iface?.ipv6 ?? '';
+
+  const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string) => {
+    const obj = findInterfaceInDevice(csmctlCfg, ifaceName);
+    if (!obj) return;
+    const v4 = String(pickIfaceIpv4(obj) || '').trim();
+    const v6 = String(pickIfaceIpv6(obj) || '').trim();
+
+    if (kind === 'wan') {
+      // 仅在用户未手动编辑时回显，避免覆盖用户输入
+      const touchedV4 = form.isFieldTouched('wanIpv4');
+      const touchedV6 = form.isFieldTouched('wanIpv6');
+      form.setFieldsValue({
+        ...(touchedV4 ? {} : { wanIpv4: v4 || undefined }),
+        ...(touchedV6 ? {} : { wanIpv6: v6 || undefined }),
+      });
+    } else {
+      const touchedV4 = form.isFieldTouched('lanIpv4');
+      const touchedV6 = form.isFieldTouched('lanIpv6');
+      form.setFieldsValue({
+        ...(touchedV4 ? {} : { lanIpv4: v4 || undefined }),
+        ...(touchedV6 ? {} : { lanIpv6: v6 || undefined }),
+      });
+    }
+  };
+
+  // 兜底：监听字段变化（例如 setFieldsValue/回填或某些 Select 交互未触发 onChange）
+  const watchedWanName = Form.useWatch('wanName', form);
+  const watchedLanName = Form.useWatch('lanName', form);
+  useEffect(() => {
+    if (watchedWanName) autoFillFromIface('wan', String(watchedWanName));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedWanName, csmctlCfg]);
+  useEffect(() => {
+    if (watchedLanName) autoFillFromIface('lan', String(watchedLanName));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedLanName, csmctlCfg]);
 
   useEffect(() => {
     if (!uuid) return;
@@ -56,6 +121,37 @@ const CEWizard: React.FC = () => {
     if (!uuid) return;
     setIfaceLoading(true);
     try {
+      // 0) 优先走本地缓存合并接口（VR1 + VR3 + 本地设备信息），用于向导回显
+      // 该接口数据来自 vr_cache_extended（你贴的 interfaces/ipv4_static/ipv6_static 就在这里）
+      try {
+        const merged = await fetchVrCacheMerged(uuid);
+        if (merged && typeof merged === 'object') {
+          const names: string[] = [];
+          const collectFromArray = (arr?: any[]) => { (arr || []).forEach((it) => { if (it && typeof it === 'object' && it.name) names.push(String(it.name)); }); };
+          collectFromArray((merged as any).interfaces);
+          // 兼容：扩展信息也可能挂在 vr3_info 上
+          collectFromArray((merged as any).vr3_info?.interfaces);
+          const unique = Array.from(new Set(names)).filter((n) => !!n);
+          const hasIfaces = unique.length > 0;
+          if (hasIfaces) setIfaceOptions(unique);
+
+          // 用 merged 的 VR3 扩展信息作为“设备回读”主数据源（用于按接口名回显 IP）
+          const cfgCandidate = (merged as any).vr3_info || merged;
+          if (cfgCandidate && typeof cfgCandidate === 'object') {
+            setCsmctlCfg(cfgCandidate);
+          }
+
+          // 只有当缓存里确实有接口数据时，才认为“缓存命中成功”并提前返回；
+          // 否则继续走后续 VR3/VR2 直连逻辑，避免因缓存缺失导致向导无法回显。
+          if (hasIfaces) {
+            if (!silent) message.success('设备数据已刷新（来自缓存）');
+            return;
+          }
+        }
+      } catch {
+        // ignore, fallback to direct calls
+      }
+
       const method = 'GET';
       const other = `uuid=${uuid}`;
       const path = '/V2/ctcontrol/VR3/VRConfig/list';
@@ -105,19 +201,6 @@ const CEWizard: React.FC = () => {
   useEffect(() => {
     if (!csmctlCfg) return;
     
-    // 辅助函数：在 deviceCfg 中查找接口信息
-    const findInterfaceInDevice = (dev: any, ifaceName: string) => {
-      if (!dev || !ifaceName) return null;
-      let found: any = null;
-      Object.keys(dev).forEach(key => {
-        if (found) return;
-        if ((key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) && Array.isArray(dev[key])) {
-           found = dev[key].find((item: any) => item.name === ifaceName);
-        }
-      });
-      return found;
-    };
-
     const wanDevName = existingCfg?.ce?.wanName || existingCfg?.ce?.wanDev;
     const lanDevName = existingCfg?.ce?.lanName || existingCfg?.ce?.ifName;
     
@@ -365,6 +448,7 @@ const CEWizard: React.FC = () => {
               loading={ifaceLoading}
               options={ifaceOptions.map(n => ({ label: n, value: n }))}
               filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
+              onChange={(val) => autoFillFromIface('wan', String(val || ''))}
             />
           </Form.Item>
           <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>}>
@@ -395,6 +479,7 @@ const CEWizard: React.FC = () => {
               loading={ifaceLoading}
               options={ifaceOptions.map(n => ({ label: n, value: n }))}
               filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
+              onChange={(val) => autoFillFromIface('lan', String(val || ''))}
             />
           </Form.Item>
           <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>}>

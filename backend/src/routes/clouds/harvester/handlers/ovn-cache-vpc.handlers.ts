@@ -1,7 +1,30 @@
 /**
- * Harvester VPC Handlers
- * 
- * 从 harvester.cache.network.routes.ts 中提取的 VPC 相关业务逻辑
+ * Harvester VPC Handlers（缓存：GET/POST/DELETE/PUT /:id/resources/vpcs...）
+ *
+ * -----------------------------------------------------------------------------
+ * 与「公共子网 / 扁平子网 / VPC 子网」相关的授权说明（本模块与子网的关系）
+ * -----------------------------------------------------------------------------
+ *
+ * Kube-OVN 中业务 VPC 与内置 VPC 并存：
+ *   - 用户业务 VPC：虚拟专有云能力，对应产品「VPC 子网」所在 VPC。
+ *   - 内置 `ovn-cluster`：承载**公共子网**（subnet-type=public）。
+ *   - 内置 `ovn-internal`：承载**扁平子网**（subnet-type=flat）的常见挂载；与公共子网分域。
+ *   扁平子网在 Tower 中的**两类**指：是否配置 **VLAN**（`spec.vlan` 有值 = 挂 VLAN 接物理侧；无值 = 不挂 VLAN、纯 overlay），与授权解耦说明见 License（不含扁平/公共子网）。
+ *
+ * 【路由层 RBAC】
+ * 本组接口挂载 `createApiPermissionMiddleware()`（见 `permissions/middleware.ts` + `permissions/registry.ts`）。
+ *   - GET `/resources/vpcs`  → `clouds.vpcs:read`
+ *   - POST/DELETE/PUT 其它名 → `clouds.vpcs:write`
+ *   - PUT `/resources/vpcs/ovn-internal` 为特例：除 `clouds.vpcs:write` 外，还接受 `clouds.subnets.public:write`、
+ *     `clouds.subnets:write`、`clouds:write`（与公共子网联动改 `enableExternal` / `nextHopIP` 对齐）。
+ *
+ * 【许可证 network.ovn.vpc】
+ *   - 列表 / 创建 / 删除 / 更新「业务 VPC」：一律校验 `network.ovn.vpc` 未启用则 403。
+ *   - 仅 PUT 更新内置 VPC：`ovn-internal`、`ovn-cluster`、`ovn-provider` **不**要求该许可证（与公共/扁平 underlay 联动一致）。
+ * 子网清单接口（`ovn-cache-subnets.handlers.ts`）不在此做许可证校验。
+ *
+ * 【租户过滤】
+ * GET 列表对租户按 `spec.namespaces` 与租户命名空间交集过滤；允许 `cloud-public` 视为公共可见。
  */
 
 import { Request, Response } from 'express';
@@ -14,7 +37,8 @@ import { licenseService } from '../../../../services/LicenseService';
 import { checkTenantAccess } from '../harvester.direct.helpers';
 
 /**
- * GET /:id/resources/vpcs - 获取 VPC 列表
+ * GET /:id/resources/vpcs — 获取 VPC 列表（Inventory）。
+ * 需 `network.ovn.vpc` + `clouds.vpcs:read`（RBAC 由路由中间件保证）。
  */
 export async function harvesterVpcListHandler(req: Request, res: Response) {
   try {
@@ -113,7 +137,8 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
 }
 
 /**
- * POST /:id/resources/vpcs - 创建 VPC
+ * POST /:id/resources/vpcs — 创建业务 VPC。
+ * 需 `network.ovn.vpc`；另经 `checkTenantAccess` 校验资源池访问。
  */
 export async function harvesterVpcCreateHandler(req: Request, res: Response) {
   try {
@@ -164,7 +189,8 @@ export async function harvesterVpcCreateHandler(req: Request, res: Response) {
 }
 
 /**
- * DELETE /:id/resources/vpcs/:name - 删除 VPC
+ * DELETE /:id/resources/vpcs/:name — 删除 VPC（含业务 VPC；内置 VPC 删除需集群侧约束）。
+ * 需 `network.ovn.vpc`。
  */
 export async function harvesterVpcDeleteHandler(req: Request, res: Response) {
   try {
@@ -193,16 +219,22 @@ export async function harvesterVpcDeleteHandler(req: Request, res: Response) {
 }
 
 /**
- * PUT /:id/resources/vpcs/:name - 更新 VPC
+ * PUT /:id/resources/vpcs/:name — 更新 VPC。
+ * 许可证：`ovn-internal` / `ovn-cluster` / `ovn-provider` 豁免 `network.ovn.vpc`；其余名称必须已开通该功能。
+ * RBAC：PUT `ovn-internal` 时中间件额外接受公共子网写权限（见 `permissions/middleware.ts`）。
  */
 export async function harvesterVpcUpdateHandler(req: Request, res: Response) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
+    const { name } = req.params;
+    const nameTrim = String(name || '').trim();
+    // 内置 ovn-internal / ovn-cluster / ovn-provider 与 underlay、公共子网等联动，不占用「虚拟专有云」授权
+    const isBuiltinVpcExemptFromVpcLicense =
+      nameTrim === 'ovn-internal' || nameTrim === 'ovn-cluster' || nameTrim === 'ovn-provider';
+    if (!isBuiltinVpcExemptFromVpcLicense && !licenseService.hasFeature('network.ovn.vpc')) {
       return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
     }
 
     const cloud = (req as any).cloud;
-    const { name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const data = await updateKubeOvnVpc(

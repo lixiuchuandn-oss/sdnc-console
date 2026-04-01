@@ -33,20 +33,28 @@ router.post('/api/sign', (req, res) => {
     const sk = secretKey;
     const tonce = (Date.now() * 1000).toString();
 
-    // 根据请求体生成 MD5 摘要，仅对非 GET/DELETE 且有 Body 的请求进行参与签名
-    let md5Body = '';
-    if (req.body && Object.keys(req.body).length > 0) {
-      if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'DELETE') {
-        // 这里假定 Body 为 JSON 对象，直接使用 JSON.stringify 生成字符串进行 MD5 计算
-        // 如果未来需要 100% 还原原始报文，可改为使用 raw body 中间件获取原始字节流
-        md5Body = crypto.createHash('md5').update(JSON.stringify(req.body)).digest('hex');
+    // 根据请求体生成 MD5 摘要：
+    // - 允许 body 为对象（常见）或字符串（前端可能传 JSON 字符串）
+    // - GET/DELETE 不参与 body 签名
+    const upperMethod = String(method || '').toUpperCase();
+    let bodyRaw = '';
+    if (upperMethod !== 'GET' && upperMethod !== 'DELETE') {
+      const b: any = (req as any).body;
+      if (typeof b === 'string') {
+        bodyRaw = b;
+      } else if (b && typeof b === 'object') {
+        // 仅当对象有字段时才参与；空对象视为无 body
+        if (Object.keys(b).length > 0) bodyRaw = JSON.stringify(b);
       }
     }
+    const md5Body = bodyRaw
+      ? crypto.createHash('md5').update(bodyRaw).digest('hex')
+      : '';
 
     // 签名原始串格式：
     // METHOD|URL|TONCE|ACCESS_KEY|QUERY_PARAMS|BODY_HASH
     // 其中 other 字段用于承载额外参与签名的查询参数串（由前端或调用方拼接）
-    const signStr = `${method}|${url}|${tonce}|${ak}|${other || ''}|${md5Body}`;
+    const signStr = `${upperMethod}|${url}|${tonce}|${ak}|${other || ''}|${md5Body}`;
 
     const signHex = crypto.createHmac('sha256', sk).update(signStr).digest('hex');
     const rawStr = `${ak}:${signHex}`;

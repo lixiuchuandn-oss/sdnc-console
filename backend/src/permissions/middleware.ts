@@ -184,6 +184,16 @@ export function createApiPermissionMiddleware(options?: {
           ];
     }
 
+    // 内置 VPC ovn-internal 写：与公共子网 external 保存联动（enableExternal / nextHopIP），权限与公共子网写对齐，不单绑 clouds.vpcs:write
+    if (actionBase === 'clouds.vpcs' && !isRead && path.includes('/resources/vpcs/ovn-internal')) {
+      return [
+        'clouds.vpcs:write',
+        'clouds.subnets.public:write',
+        'clouds.subnets:write',
+        'clouds:write',
+      ];
+    }
+
     // VLAN 列表：扁平/公共子网创建/编辑需下拉选 VLAN；持对应子网权限但无 clouds.vlans:read 时仍允许 GET 列表（不写 VLAN 管理）
     // 注意：勿加入 clouds.subnets:read —— checker 会把它与 clouds.subnets.vpc:read 等同，会过度放行仅 VPC 子网读的角色
     if (actionBase === 'clouds.vlans' && isRead) {

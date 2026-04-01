@@ -13,6 +13,11 @@ import {
   resolveHarvesterK8sApiBase,
 } from '../harvester.direct.helpers';
 
+/**
+ * GET /:id/resources/harvester/nads
+ * 平台管理员：按 cloudId 返回库存中全部 NAD（不按 kube-system 等做排除，便于排障）。
+ * 租户：仍按 UserSpace 绑定命名空间 + 公共命名空间白名单过滤。
+ */
 export async function harvesterNadListHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;

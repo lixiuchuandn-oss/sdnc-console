@@ -3,7 +3,7 @@ import { AppDataSource } from '../../../../config/database';
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { KubevirtNadInventory } from '../../../../entities/kubevirt/KubevirtNadInventory';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
-import { updateHarvesterSubnet, listKubeOvnEips, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
+import { updateHarvesterSubnet, listKubeOvnEips } from '../../../../services/clouds/harvester/client';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
 import {
   checkTenantAccess,
@@ -17,25 +17,80 @@ import {
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
 } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
+import {
+  OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
+  eipsReferencingSubnetExcludingLrp,
+  isPublicSubnetOnOvnCluster,
+  ovnInternalRouteCidrFromSubnet,
+  removeOvnInternalForPublicSubnet,
+  upsertOvnInternalForPublicSubnet,
+} from './ovnInternalPublicSubnetSync';
 
 /**
  * =============================================================================
- * Kube-OVN Subnet 直连（创建/列表/更新/删除）与「网络类型」说明
+ * Kube-OVN Subnet 直连（创建/列表/更新/删除）
  * =============================================================================
  *
- * 【NAD 网络】NetworkAttachmentDefinition
- *   - 非本子网 CR 本身；创建子网时顺带 POST NAD，供 VM Multus 选择。
- *   - CNI type=kube-ovn 时，config.provider 须为「子网名.命名空间.ovn」，与 Subnet.spec.provider 一致（逻辑交换机名）。
- *   - Harvester webhook 要求上述三段式，不能把物理 ProviderNetwork 名塞进 NAD CNI provider。
+ * ---------------------------------------------------------------------------
+ * 子网创建流程（harvesterSubnetDirectCreateHandler）— 顺序与要点
+ * ---------------------------------------------------------------------------
  *
- * 【扁平子网】metadata.annotations['tower.io/subnet-type']=flat
- *   - 内置 VPC ovn-internal（与公共子网分域）；用户选的 ProviderNetwork 写入注解 tower.io/provider-network。
+ * 1) 入口与前置条件
+ *    - HTTP：POST /api/clouds/:id/resources/subnets（路由经 Harvester 直连注册表指向本 handler）。
+ *    - 校验：租户/用户对资源池有权限（checkTenantAccess）；云存在且 provider 为 harvester（ensureProvider）。
  *
- * 【公共子网】annotations['tower.io/subnet-type']=public
- *   - 内置 VPC ovn-cluster；产品侧多用于 EIP/NAT 等；未传 natOutgoing/nat 时默认 true。
+ * 2) 请求体解析与合法性
+ *    - 必填：name（子网 CR 名，须符合 K8s DNS1123 子域名规则）、cidrBlock。
+ *    - 主要可选：vpc、gateway、protocol、excludeIps、vlan、namespace（NAD/逻辑 provider 命名空间，默认 default）、
+ *      annotations（含 tower.io/subnet-type）、provider（物理 ProviderNetwork 展示名，写入注解 tower.io/provider-network）、
+ *      nat / natOutgoing、allowDhcp、acls、allowEWTraffic、finalizers、harvesterNadNetworkType（仅影响扁平 NAD 的 type 标签）等。
  *
- * 【VPC 子网】annotations['tower.io/subnet-type']=vpc
- *   - spec.vpc 为用户业务 VPC；与扁平/公共子网区分，不在本 handler 单独分支，靠请求体 vpc + 注解区分。
+ * 3) 推导目标 VPC（targetVpc）
+ *    - 若请求体显式传 vpc，则始终使用请求值（覆盖默认）。
+ *    - 否则按 annotations['tower.io/subnet-type'] 与是否带 vlan 取默认（见代码 defaultVpcForNew）：
+ *        · flat：已选 vlan → ovn-cluster；无 vlan → ovn-internal。
+ *        · public：固定默认 ovn-cluster（内置 ovn-cluster，与 EIP/南北向等一致）；创建公共子网时请求体应带 tower.io/subnet-type=public。
+ *        · vpc：未传 vpc 时代码兜底亦为 ovn-cluster，创建业务 VPC 子网时须由前端传 spec.vpc（业务 VPC 名）。
+ *        · 未标注 subnet-type 或其它非 flat 值：默认 ovn-cluster。
+ *
+ * 4) 同 VPC 网段冲突预检（可选失败）
+ *    - 拉取集群现有 kubeovn.io/v1 Subnet 列表，在同一 targetVpc 下用 CIDR 区间判断是否重叠；重叠则 422，不继续创建。
+ *
+ * 5) 合并 Tower 注解（mergedAnnotations）
+ *    - 拷贝请求体 annotations 中非空键值。
+ *    - 若 subnet-type 为 flat 或 public 且传了 provider，写入 tower.io/provider-network。
+ *    - 若 subnet-type 为 flat：按 hasVlan 写入 tower.io/subnet-type-flat-underlay 或 -flat-overlay（互斥）。
+ *
+ * 6) 逻辑交换机名（与 NAD / Subnet 共用）
+ *    - logicalProvider = `${name}.${namespace||default}.ovn`（三段式，Kube-OVN 逻辑 provider 名）。
+ *    - Subnet.spec.provider 与此一致；NAD 的 CNI config.provider 也必须为此字符串，不能填物理网络名。
+ *
+ * 7) 先创建 NAD，再创建 Subnet（顺序固定）
+ *    - 原因：Harvester/Kube-OVN 侧常要求 VM 附加网络时 NAD 已存在；子网与同名 NAD 一一对应（同名、同 namespace）。
+ *    - NAD POST：按候选 URL 列表依次尝试（标准 apiserver / Steve 等路径），直到成功或穷尽。
+ *    - NAD metadata：
+ *        · finalizers: tower.io/managed；
+ *        · labels：至少 tower.io/creator=compute-tower；
+ *        · 若 subnet-type=flat：须带 network.harvesterhci.io/type（无 VLAN→OverlayNetwork，有 VLAN→L2VlanNetwork，可用 harvesterNadNetworkType 覆盖）。
+ *          Harvester 一般不会自动补该 type，需创建时写入。clusternetwork、ready 等可由集群侧后续补全，本接口不强制写入。
+ *    - NAD spec.config：JSON 字符串，内为 CNI：type=kube-ovn，provider=logicalProvider，server_socket 等。
+ *
+ * 8) 创建 Subnet CR
+ *    - POST apis/kubeovn.io/v1/subnets，body 含 metadata.name、mergedAnnotations、spec（vpc=targetVpc、cidrBlock、gateway、
+ *      provider=logicalProvider、vlan/natOutgoing/enableDHCP/acls 等）。
+ *
+ * 9) Tower 侧入库
+ *    - 成功返回后写入 KubeOvnSubnetInventory（异步失败仅打日志，不推翻集群已创建资源）。
+ *
+ *10) 失败与回滚
+ *    - 若 Subnet POST 失败，且本轮曾新创建 NAD（createdNewNad），则尝试按候选路径 DELETE 同名 NAD，避免留下孤立 NAD。
+ *
+ * ---------------------------------------------------------------------------
+ * 子网类型（注解 tower.io/subnet-type）与产品含义 — 简表
+ * ---------------------------------------------------------------------------
+ *  · flat：扁平子网；underlay/overlay 由 flat-underlay / flat-overlay 注解与 spec.vlan 共同约定（见上合并逻辑）。
+ *  · public：公共子网，默认挂 ovn-cluster，多用于 EIP/NAT 等南北向。
+ *  · vpc：业务 VPC 内子网，spec.vpc 为用户 VPC 名。
  *
  * =============================================================================
  */
@@ -208,6 +263,8 @@ export async function harvesterSubnetDirectCreateHandler(
       annotations,
       provider: providerFromBody,
       finalizers: finalizersFromBody,
+      /** 可选：覆盖 NAD 的 network.harvesterhci.io/type（扁平子网默认：无 VLAN→OverlayNetwork，有 VLAN→L2VlanNetwork） */
+      harvesterNadNetworkType,
     } = req.body;
 
     if (!name || !cidrBlock) {
@@ -324,6 +381,36 @@ export async function harvesterSubnetDirectCreateHandler(
     if (isUnderlayFlatOrPublic && providerNetworkHint) {
       mergedAnnotations['tower.io/provider-network'] = providerNetworkHint;
     }
+    if (subnetTypeAnn === 'flat') {
+      if (hasVlan) {
+        mergedAnnotations['tower.io/subnet-type-flat-underlay'] = 'true';
+        delete mergedAnnotations['tower.io/subnet-type-flat-overlay'];
+      } else {
+        mergedAnnotations['tower.io/subnet-type-flat-overlay'] = 'true';
+        delete mergedAnnotations['tower.io/subnet-type-flat-underlay'];
+      }
+    }
+    if (subnetTypeAnn === 'public' && targetVpc === KUBE_OVN_PUBLIC_VPC) {
+      const cidrStr = String(cidrBlock || '').trim();
+      if (!cidrToRange(cidrStr)) {
+        if (!res.headersSent) {
+          res.status(400).json({ message: '公共子网 CIDR 无效，无法同步 ovn-internal', code: 'INVALID_SUBNET_CIDR' });
+        }
+        return;
+      }
+      const routeAnnRaw = String(mergedAnnotations[OVN_INTERNAL_ROUTE_CIDR_ANNOTATION] ?? '').trim();
+      const routeCidr = routeAnnRaw || '0.0.0.0/0';
+      if (!cidrToRange(routeCidr)) {
+        if (!res.headersSent) {
+          res.status(400).json({
+            message: '可访问范围（ovn-internal 路由目的网段）CIDR 无效',
+            code: 'INVALID_PUBLIC_ACCESS_ROUTE_CIDR',
+          });
+        }
+        return;
+      }
+      mergedAnnotations[OVN_INTERNAL_ROUTE_CIDR_ANNOTATION] = routeCidr;
+    }
     const nadCandidates = [
       `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNsEncoded}/network-attachment-definitions`,
       `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNsEncoded}/networkattachmentdefinitions`,
@@ -333,11 +420,31 @@ export async function harvesterSubnetDirectCreateHandler(
       `${apiBase}/v1/cni.cncf.io.networkattachmentdefinitions`,
     ];
 
+    const defaultHarvesterNadType =
+      subnetTypeAnn === 'flat'
+        ? hasVlan
+          ? 'L2VlanNetwork'
+          : 'OverlayNetwork'
+        : '';
+    const harvesterTypeLabel =
+      typeof harvesterNadNetworkType === 'string' && harvesterNadNetworkType.trim().length > 0
+        ? harvesterNadNetworkType.trim()
+        : defaultHarvesterNadType;
+
+    const nadLabels: Record<string, string> = {
+      'tower.io/creator': 'compute-tower',
+      ...(subnetTypeAnn === 'flat' && harvesterTypeLabel
+        ? {
+            'network.harvesterhci.io/type': harvesterTypeLabel,
+          }
+        : {}),
+    };
+
     const nadMetadata = {
       name: nadName,
       namespace: nadNamespace,
       finalizers: ['tower.io/managed'],
-      labels: { 'tower.io/creator': 'compute-tower' },
+      labels: nadLabels,
     };
     const cniConfigObj = {
       cniVersion: '0.3.1',
@@ -494,9 +601,70 @@ export async function harvesterSubnetDirectCreateHandler(
       },
     };
 
+    const rollbackNewNad = async () => {
+      if (!createdNewNad) return;
+      const encNs = encodeURIComponent(nadNamespace);
+      const encName = encodeURIComponent(name);
+      const rollbackNadUrls = [
+        `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${encNs}/network-attachment-definitions/${encName}`,
+        `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${encNs}/networkattachmentdefinitions/${encName}`,
+        `${apiBase}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions/${nadNamespace}/${encName}`,
+        `${apiBase}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions/${nadNamespace}/${encName}`,
+      ];
+      for (const nadDelUrl of rollbackNadUrls) {
+        try {
+          await requestJson('DELETE', nadDelUrl, cloud.secretKey || '', insecure);
+          break;
+        } catch {}
+      }
+    };
+
     try {
       const result = await requestJson('POST', url, cloud.secretKey || '', insecure, payload);
       if (result && result.metadata) {
+        const syncPublicOvn = subnetTypeAnn === 'public' && targetVpc === KUBE_OVN_PUBLIC_VPC;
+        if (syncPublicOvn) {
+          const gw = String(result.spec?.gateway ?? gateway ?? '').trim();
+          const rc = ovnInternalRouteCidrFromSubnet(result);
+          if (!gw) {
+            try {
+              await requestJson('DELETE', url, cloud.secretKey || '', insecure);
+            } catch {}
+            await rollbackNewNad();
+            if (!res.headersSent) {
+              res.status(422).json({
+                message: '公共子网需填写网关后才能同步 ovn-internal',
+                code: 'GATEWAY_REQUIRED_FOR_OVN_INTERNAL',
+              });
+            }
+            return;
+          }
+          try {
+            await upsertOvnInternalForPublicSubnet({
+              harvesterParams: {
+                endpoint: cloud.endpoint,
+                token: cloud.secretKey || '',
+                insecure,
+              } as any,
+              subnetName: name,
+              gateway: gw,
+              routeCidr: rc,
+            });
+          } catch (ovnErr: any) {
+            try {
+              await requestJson('DELETE', url, cloud.secretKey || '', insecure);
+            } catch {}
+            await rollbackNewNad();
+            if (!res.headersSent) {
+              res.status(500).json({
+                message: '同步 ovn-internal 失败，已回滚子网创建',
+                error: ovnErr?.message || String(ovnErr),
+                code: 'OVN_INTERNAL_SYNC_FAILED',
+              });
+            }
+            return;
+          }
+        }
         try {
           const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
           const entity = repo.create({
@@ -529,22 +697,7 @@ export async function harvesterSubnetDirectCreateHandler(
       }
       res.json({ message: '创建子网成功', data: result });
     } catch (error: any) {
-      if (createdNewNad) {
-        const encNs = encodeURIComponent(nadNamespace);
-        const encName = encodeURIComponent(name);
-        const rollbackNadUrls = [
-          `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${encNs}/network-attachment-definitions/${encName}`,
-          `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${encNs}/networkattachmentdefinitions/${encName}`,
-          `${apiBase}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions/${nadNamespace}/${encName}`,
-          `${apiBase}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions/${nadNamespace}/${encName}`,
-        ];
-        for (const nadDelUrl of rollbackNadUrls) {
-          try {
-            await requestJson('DELETE', nadDelUrl, cloud.secretKey || '', insecure);
-            break;
-          } catch {}
-        }
-      }
+      await rollbackNewNad();
       if (res.headersSent) return;
       const subSt = Number(error?.status ?? 0);
       const subDetail = error?.body ?? error?.response ?? error?.toString?.();
@@ -596,25 +749,16 @@ export async function harvesterSubnetDirectUpdateHandler(
       cloud.secretKey || '',
       insecure,
     );
-    const currentVpc = String(currentSubnet?.spec?.vpc ?? '').trim();
     const prevGateway = String(currentSubnet?.spec?.gateway ?? '').trim();
-    const shouldRelinkInternalVpc = subnetId === 'external' && currentVpc === KUBE_OVN_PUBLIC_VPC;
-    const newGateway = Object.prototype.hasOwnProperty.call(body, 'gateway')
-      ? String(body?.gateway ?? '').trim()
-      : prevGateway;
-    const shouldUpdateDefaultRoute = shouldRelinkInternalVpc && !!newGateway && newGateway !== prevGateway;
 
-    // 校验 EIP 占用
+    // 校验 EIP：仅非 lrp 类型占用时禁止修改网段相关字段
     try {
       const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
-      const usingEips = eips.filter((eip) => {
-        const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
-        return String(sub || '').trim() === subnetId;
-      });
-      if (usingEips.length > 0) {
-        const names = usingEips.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
+      const blocking = eipsReferencingSubnetExcludingLrp(eips, subnetId);
+      if (blocking.length > 0) {
+        const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
         return res.status(409).json({
-          message: `子网正在被以下 EIP 使用，无法修改或清空其网段信息：${names.join('、')}`,
+          message: `子网正在被以下 EIP（非 lrp）使用，无法修改或清空其网段信息：${names.join('、')}`,
           code: 'SUBNET_IN_USE_BY_EIPS',
           eips: names,
         });
@@ -632,74 +776,49 @@ export async function harvesterSubnetDirectUpdateHandler(
       body.acls = aclResult.value;
     }
 
-    let internalVpcTouched = false;
-    try {
-      if (shouldRelinkInternalVpc) {
-        await updateKubeOvnVpc(
-          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          KUBE_OVN_FLAT_VPC,
-          { enableExternal: false },
-        );
-        internalVpcTouched = true;
-      }
-
-      const data = await updateHarvesterSubnet(
-        { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-        subnetId,
-        body,
-      );
-
-      if (shouldRelinkInternalVpc) {
-        const vpcPatch: Record<string, unknown> = {
-          enableExternal: true,
-          nextHopIP: newGateway || String(data?.spec?.gateway ?? prevGateway ?? '').trim(),
-        };
-        if (shouldUpdateDefaultRoute) {
-          const vpcObj = await getJsonOnce(
-            `${apiBase}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(KUBE_OVN_FLAT_VPC)}`,
-            cloud.secretKey || '',
-            insecure,
-          );
-          const routes: any[] = Array.isArray(vpcObj?.spec?.staticRoutes) ? [...vpcObj.spec.staticRoutes] : [];
-          const defaultIdx = routes.findIndex(
-            (r: any) => String(r?.cidr) === '0.0.0.0/0' && String(r?.policy) === 'policyDst',
-          );
-          const newRoute = {
-            bfdId: '',
-            cidr: '0.0.0.0/0',
-            ecmpMode: '',
-            nextHopIP: newGateway,
-            policy: 'policyDst',
-            routeTable: '',
-          };
-          if (defaultIdx >= 0) {
-            routes[defaultIdx] = { ...routes[defaultIdx], ...newRoute };
-          } else {
-            routes.push(newRoute);
-          }
-          vpcPatch.staticRoutes = routes;
+    const currentAnn = (currentSubnet?.metadata?.annotations || {}) as Record<string, string>;
+    const typeBefore = String(currentAnn['tower.io/subnet-type'] ?? '').trim().toLowerCase();
+    const vpcBefore = String(currentSubnet?.spec?.vpc ?? '').trim();
+    if (typeBefore === 'public' && vpcBefore === KUBE_OVN_PUBLIC_VPC) {
+      const blockedSpecKeys = ['cidrBlock', 'cidr', 'gateway', 'vlan', 'excludeIps'];
+      for (const k of blockedSpecKeys) {
+        if (Object.prototype.hasOwnProperty.call(body, k)) {
+          return res.status(400).json({
+            message:
+              '公共子网仅允许修改展示名称（别名）等注解；如需调整网段、网关、VLAN、排除 IP，请删除后重建。',
+            code: 'PUBLIC_SUBNET_SPEC_READONLY',
+          });
         }
-        await updateKubeOvnVpc(
-          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          KUBE_OVN_FLAT_VPC,
-          vpcPatch,
-        );
-        internalVpcTouched = false;
       }
-
-      res.json({ message: '更新成功', data });
-    } catch (e: any) {
-      if (internalVpcTouched) {
-        try {
-          await updateKubeOvnVpc(
-            { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-            KUBE_OVN_FLAT_VPC,
-            { enableExternal: true },
-          );
-        } catch {}
-      }
-      throw e;
     }
+
+    const data = await updateHarvesterSubnet(
+      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+      subnetId,
+      body,
+    );
+
+    {
+      const annAfter = data?.metadata?.annotations || {};
+      const typeAfter = String(annAfter['tower.io/subnet-type'] ?? '').trim().toLowerCase();
+      const vpcAfter = String(data?.spec?.vpc ?? '').trim();
+      if (typeAfter === 'public' && vpcAfter === KUBE_OVN_PUBLIC_VPC) {
+        const prevRc = ovnInternalRouteCidrFromSubnet(currentSubnet);
+        const newRc = ovnInternalRouteCidrFromSubnet(data);
+        const newGw = String(data?.spec?.gateway ?? '').trim();
+        const routeChanged = prevGateway !== newGw || prevRc !== newRc;
+        await upsertOvnInternalForPublicSubnet({
+          harvesterParams: { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          subnetName: subnetId,
+          gateway: newGw,
+          routeCidr: newRc,
+          prevGateway: routeChanged ? prevGateway : undefined,
+          prevRouteCidr: routeChanged ? prevRc : undefined,
+        });
+      }
+    }
+
+    res.json({ message: '更新成功', data });
   } catch (error: any) {
     res.status(500).json({
       message: '更新子网失败',
@@ -727,6 +846,36 @@ export async function harvesterSubnetDirectDeleteHandler(
     const apiBase = resolveHarvesterK8sApiBase(cloud.endpoint || '');
 
     const url = `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
+
+    let subnetBefore: any = null;
+    try {
+      subnetBefore = await getJsonOnce(url, cloud.secretKey || '', insecure);
+    } catch (e: any) {
+      const st = Number(e?.status ?? 0);
+      if (st === 404) {
+        res.status(404).json({ message: '子网不存在' });
+        return;
+      }
+      if (!res.headersSent) {
+        res.status(500).json({
+          message: '读取子网失败',
+          error: e?.message || String(e),
+        });
+      }
+      return;
+    }
+    if (!subnetBefore?.metadata) {
+      res.status(404).json({ message: '子网不存在' });
+      return;
+    }
+
+    if (name === 'external') {
+      res.status(409).json({
+        message: '内置子网 external 由集群维护，不可删除',
+        code: 'SUBNET_BUILTIN_READ_ONLY',
+      });
+      return;
+    }
 
     try {
       const ecsList = await getJsonOnce(
@@ -760,23 +909,37 @@ export async function harvesterSubnetDirectDeleteHandler(
       console.warn('[DeleteSubnet] Failed to check VM usage, proceeding anyway:', checkError);
     }
 
-    // 校验 EIP 占用
+    // 校验 EIP：仅非 lrp 占用时禁止删除
     try {
       const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
-      const usingEips = eips.filter((eip) => {
-        const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
-        return String(sub || '').trim() === name;
-      });
-      if (usingEips.length > 0) {
-        const names = usingEips.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
+      const blocking = eipsReferencingSubnetExcludingLrp(eips, name);
+      if (blocking.length > 0) {
+        const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
         return res.status(409).json({
-          message: `子网正在被以下 EIP 使用，无法删除：${names.join('、')}`,
+          message: `子网正在被以下 EIP（非 lrp）使用，无法删除：${names.join('、')}`,
           code: 'SUBNET_IN_USE_BY_EIPS',
           eips: names,
         });
       }
     } catch (e) {
       console.warn('[DeleteSubnet] EIP usage check failed:', e);
+    }
+
+    if (isPublicSubnetOnOvnCluster(subnetBefore)) {
+      try {
+        await removeOvnInternalForPublicSubnet({
+          harvesterParams: { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          subnetName: name,
+          gateway: String(subnetBefore.spec?.gateway ?? '').trim(),
+          routeCidr: ovnInternalRouteCidrFromSubnet(subnetBefore),
+        });
+      } catch (ovnErr: any) {
+        return res.status(500).json({
+          message: '从 ovn-internal 移除公共子网失败',
+          error: ovnErr?.message || String(ovnErr),
+          code: 'OVN_INTERNAL_SYNC_FAILED',
+        });
+      }
     }
 
     await removeTowerManagedFinalizerFromResourceUrl(url, cloud.secretKey || '', insecure);

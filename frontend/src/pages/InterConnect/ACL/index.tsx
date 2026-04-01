@@ -7,7 +7,7 @@ import StdSideDrawer from '../../../components/StdSideDrawer';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import type { ColumnsType } from 'antd/es/table';
 import { 
-  getACLRules, createACLRule, deleteACLRule, ACLRule,
+  getACLRules, deleteACLRule, ACLRule,
   getACLGroups, createACLGroup, deleteACLGroup, addACLRuleToGroup, pushACLConfig, ACLGroup,
   bindACLGroupToVR, unbindACLGroupFromVR,
   type ACLGroupBinding
@@ -235,7 +235,7 @@ const ACLPage: React.FC = () => {
     setTargetGroup(group || null);
     createRuleForm.resetFields();
     if (group && group.vrId) {
-      createRuleForm.setFieldsValue({ vrId: group.vrId });
+      createRuleForm.setFieldsValue({ vrId: group.vrId, groupId: group.id });
     }
     setRuleDrawerOpen(true);
   };
@@ -248,7 +248,10 @@ const ACLPage: React.FC = () => {
       if (targetGroup) {
         await addACLRuleToGroup(targetGroup.id, values);
       } else {
-        await createACLRule(values);
+        const gid = String((values as any).groupId || '').trim();
+        if (!gid) throw new Error('请选择所属 ACL 组');
+        const { groupId, ...rest } = values as any;
+        await addACLRuleToGroup(gid, rest);
       }
       
       message.success('规则创建成功');
@@ -514,7 +517,8 @@ const ACLPage: React.FC = () => {
           columns={groupColumns}
           rowKey="id"
           loading={groupsLoading}
-          bordered
+          bordered={false}
+          className="std-table"
           pagination={{
             size: 'small',
             showTotal: (total) => `共 ${total} 条`,
@@ -524,7 +528,8 @@ const ACLPage: React.FC = () => {
               <div style={{ margin: 0 }}>
                 <p style={{ marginBottom: 8 }}><b>{record.name} 的规则列表:</b></p>
                 <Table
-                  bordered
+                  bordered={false}
+                  className="std-table"
                   columns={ruleColumns.filter(c => c.key !== 'group' && c.key !== 'vrId')} // Hide redundant columns
                   dataSource={record.rules || []}
                   rowKey="id"
@@ -543,7 +548,8 @@ const ACLPage: React.FC = () => {
           columns={ruleColumns}
           rowKey="id"
           loading={rulesLoading}
-          bordered
+          bordered={false}
+          className="std-table"
           pagination={{
             size: 'small',
             showTotal: (total) => `共 ${total} 条`,
@@ -597,6 +603,29 @@ const ACLPage: React.FC = () => {
         confirmLoading={submitting}
       >
         <Form form={createRuleForm} layout="vertical">
+          {!targetGroup && (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="groupId" label="所属 ACL 组" rules={[{ required: true, message: '请选择所属 ACL 组' }]}>
+                  <Select
+                    placeholder="选择 ACL 组"
+                    showSearch
+                    optionFilterProp="label"
+                    options={(groups || []).map((g: any) => ({
+                      value: g.id,
+                      label: `${g.name}${g.vrId ? `（${vrNameMap[g.vrId] || g.vrId}）` : ''}`,
+                      vrId: g.vrId,
+                    }))}
+                    onChange={(_, opt: any) => {
+                      const vrId = opt?.vrId;
+                      if (vrId) createRuleForm.setFieldsValue({ vrId });
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12} />
+            </Row>
+          )}
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="name" label="规则名称" rules={[{ required: true }]}>

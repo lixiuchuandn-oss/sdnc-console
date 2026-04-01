@@ -873,7 +873,7 @@ const VolumesSection: React.FC<Props> = ({
         const isSystemDisk = checkIsSystemDisk(r, vm);
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
-            <HddTwoTone  style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <HddTwoTone/>
             <span
               className="cell-link"
               onClick={() => handleOpenVolumeDetail(r, 'detail')}

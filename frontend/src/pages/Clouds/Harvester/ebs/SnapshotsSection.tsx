@@ -288,7 +288,7 @@ const SnapshotsSection: React.FC<Props> = ({
       key: 'alias', 
       render: (_: any, r: any) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <CameraTwoTone  style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <CameraTwoTone/>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
             {r.alias !== '-' ? r.alias : r.name}
           </span>

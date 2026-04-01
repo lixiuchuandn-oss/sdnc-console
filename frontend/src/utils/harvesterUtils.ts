@@ -28,9 +28,6 @@
  * - Harvester 命名空间列表过滤：隐藏或标记系统命名空间
  * - Volumes / Resources 等页面中，用于区分业务命名空间和系统命名空间
  */
-
-  
-  // system namespace
 export const isSystemNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
   const prefixes = [
@@ -70,7 +67,7 @@ export const isPublicNamespace = (name: string): boolean => {
  */
 export const isSystemStorageClass = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-// 过滤特定的存储类
+  // 过滤特定的存储类
   if (['vmstate-persistence', 'longhorn-static', 'harvester-longhorn'].includes(n)) return true;
   
   // 过滤掉镜像相关的存储类（使用前缀匹配，避免误过滤用户自定义的存储类）

@@ -30,7 +30,7 @@
  * 2. 关键依赖/接口:
  *    - GET  /api/clouds/:id/resources/ecs/stream (SSE: vm_status/vm_deleted)
  *    - harvesterApi: fetchHarvesterVMAggregated / startHarvesterVm / stopHarvesterVm / pauseHarvesterVm / unpauseHarvesterVm
- *    - harvesterApi: detachHarvesterVolumeFromVm / deleteHarvesterPVC / fetchHarvesterBackups / fetchHarvesterScheduleVmBackups
+ *    - harvesterApi: patchHarvesterVm / deleteHarvesterPVC / fetchHarvesterBackups / fetchHarvesterScheduleVmBackups
  *    - monitoringApi: fetchMetricRange (Prometheus range query)
  * ==============================================================================
  */
@@ -49,7 +49,7 @@ import {
   CloseOutlined, SyncOutlined, LineChartOutlined, BellOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import { cnVmStatus } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated, abortHarvesterMigration } from '../../../../services/harvesterApi';
+import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, patchHarvesterVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated, abortHarvesterMigration } from '../../../../services/harvesterApi';
 import { rebootCloudProviderEcs, API_BASE_URL, apiPost } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
@@ -1051,88 +1051,123 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     // [设备选择] 以第一块盘作为“启动盘/引导盘”候选，并在下方按 isCdromBoot 控制入口是否展示
     const cdrom = disks[0];
     if (!cdrom) return;
-    
+
     const statusStr = String(SafeRead.status(vmData)).toLowerCase();
     const isRunning = !['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
-    
+
     let deletePvc = true;
-    
+
     Modal.confirm({
-      title: isRunning ? '安全弹出 CD-ROM (需要重启)' : '弹出 CD-ROM',
+      title: isRunning ? '弹出 CD-ROM (将强制重启)' : '弹出 CD-ROM',
       width: 500,
       content: (
         <div>
-            <p>即将弹出设备: <b>{cdrom.name}</b></p>
-            {isRunning && (
-              <div style={{ marginBottom: 16, color: '#faad14', background: '#fffbe6', padding: '8px 12px', border: '1px solid #ffe58f', borderRadius: 4 }}>
-                <InfoCircleOutlined style={{ marginRight: 8 }} />
-                实例正在运行。系统将自动停止实例，弹出光驱，然后重新启动。
-              </div>
-            )}
-            <div style={{ marginTop: 16 }}>
-              <Checkbox defaultChecked={true} onChange={(e) => { deletePvc = e.target.checked; }}>
-                  同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐，避免残留孤儿卷)</span>
-              </Checkbox>
+          <p>
+            即将弹出设备: <b>{cdrom.name}</b>
+          </p>
+          {isRunning && (
+            <div
+              style={{
+                marginBottom: 16,
+                color: '#faad14',
+                background: '#fffbe6',
+                padding: '8px 12px',
+                border: '1px solid #ffe58f',
+                borderRadius: 4,
+              }}
+            >
+              <InfoCircleOutlined style={{ marginRight: 8 }} />
+              实例正在运行。系统将卸载光驱卷并强制重启实例。
             </div>
+          )}
+          <div style={{ marginTop: 16 }}>
+            <Checkbox
+              defaultChecked={true}
+              onChange={(e) => {
+                deletePvc = e.target.checked;
+              }}
+            >
+              同步删除关联卷 (PVC){' '}
+              <span style={{ color: '#999', fontSize: 12 }}>(推荐，避免残留孤儿卷)</span>
+            </Checkbox>
+          </div>
         </div>
       ),
       onOk: async () => {
-        const hide = message.loading('正在执行弹出操作...', 0);
+        const hide = message.loading(isRunning ? '正在卸载并强制重启...' : '正在卸载...', 0);
         try {
           const ns = SafeRead.namespace(vmData);
           const name = SafeRead.vmId(vmData);
-          // [实例标识] 后端部分接口使用 iid=namespace/name
-          const iidStr = `${ns}/${name}`;
-          
+
           if (!ns || !name) throw new Error('无法解析实例信息');
 
           // ---------------------------------------------------------
-          // 第一步：运行中先停止（避免在线卸载导致状态不一致）
+          // 第一步：从 VM Spec 中移除 CD-ROM 对应的 disk/volume（卷卸载）
           // ---------------------------------------------------------
-          if (isRunning) {
-              await stopHarvesterVm(cloudId, ns, name, true);
-              await new Promise(resolve => setTimeout(resolve, 5000));
+          const currentDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
+          const currentVolumes = vmData?.spec?.template?.spec?.volumes || [];
+          const nextDisks = currentDisks.filter((d: any) => d?.name !== cdrom.name);
+          const nextVolumes = currentVolumes.filter((v: any) => v?.name !== cdrom.name);
+
+          const removedDisk = currentDisks.length - nextDisks.length;
+          const removedVol = currentVolumes.length - nextVolumes.length;
+          if (removedDisk === 0 && removedVol === 0) {
+            throw new Error('未找到可卸载的 CD-ROM 卷');
+          }
+          if (removedDisk !== removedVol) {
+            throw new Error('CD-ROM 磁盘与卷配置不一致，无法安全卸载');
           }
 
-          // ---------------------------------------------------------
-          // 第二步：从 VM 上卸载对应卷
-          // ---------------------------------------------------------
-          await detachHarvesterVolumeFromVm(cloudId, iidStr, { name: cdrom.name });
+          const patchPayload: any = {
+            spec: {
+              template: {
+                spec: {
+                  domain: {
+                    devices: {
+                      disks: nextDisks,
+                    },
+                  },
+                  volumes: nextVolumes,
+                },
+              },
+            },
+          };
+
+          await patchHarvesterVm(cloudId, ns, name, patchPayload);
 
           // ---------------------------------------------------------
-          // 第三步：按用户勾选决定是否删除 PVC（避免残留孤儿卷）
+          // 第二步：按用户勾选决定是否删除 PVC（避免残留孤儿卷）
           // ---------------------------------------------------------
           if (deletePvc) {
-              const volumes = vmData?.spec?.template?.spec?.volumes || [];
-              const vol = volumes.find((v: any) => v.name === cdrom.name);
-              const pvcName = vol?.persistentVolumeClaim?.claimName;
-              
-              if (pvcName) {
-                try {
-                    await deleteHarvesterPVC(cloudId, ns, pvcName);
-                } catch (e: any) {
-                    console.warn('Delete PVC failed', e);
-                    message.warning(`PVC删除失败: ${e.message}`);
-                }
+            const vol = currentVolumes.find((v: any) => v.name === cdrom.name);
+            const pvcName = vol?.persistentVolumeClaim?.claimName;
+
+            if (pvcName) {
+              try {
+                await deleteHarvesterPVC(cloudId, ns, pvcName);
+              } catch (e: any) {
+                console.warn('Delete PVC failed', e);
+                message.warning(`PVC删除失败: ${e.message}`);
               }
+            }
           }
 
           // ---------------------------------------------------------
-          // 第四步：若之前处于运行态，则恢复启动
+          // 第三步：运行中强制重启（避免 start 触发“VM already running”）
           // ---------------------------------------------------------
           if (isRunning) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              await startHarvesterVm(cloudId, ns, name);
+            const instanceId = `${ns}/${name}`;
+            await rebootCloudProviderEcs(cloudId, instanceId, true);
           }
 
-          message.success('已发送弹出指令');
+          message.success(isRunning ? '弹出CD-ROM成功，等待完成重启' : '弹出CD-ROM成功');
           onRefresh && onRefresh();
-        } catch(e:any) {
+        } catch (e: any) {
           message.error(`弹出失败: ${e.message}`);
         } finally {
           hide();
         }
-      }
+      },
     });
   }, [cloudId, vmData, onRefresh, SafeRead, hasEcsWrite]);
 

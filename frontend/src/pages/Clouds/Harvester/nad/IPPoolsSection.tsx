@@ -9,7 +9,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input, Modal, Select, Space, Tag } from 'antd';
-import { ReloadOutlined, SearchOutlined, GlobalOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, EnvironmentTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import IPPoolCreateModal from '../modals/IPPoolCreateModal';
@@ -308,7 +308,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
       key: 'name', 
       render: (t: string) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <GlobalOutlined style={{ color: '#1677ff' }} />
+          <EnvironmentTwoTone style={{ color: '#1677ff' }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t}</span>
         </span>
       ) 

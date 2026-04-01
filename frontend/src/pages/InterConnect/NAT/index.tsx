@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { Form, Input, Select, Tag, message, Space, Row, Col, Typography } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, Form, Input, InputNumber, Modal, Select, Tag, message, Space, Row, Col, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import { EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import { vrApi, getVRConfigCached } from '../../../services/virtualRouterApi';
+import { vrApi, getVRConfig, getVRConfigCached, saveVRConfig } from '../../../services/virtualRouterApi';
 import { apiRequest } from '../../../services/api';
 
 const { Option } = Select;
@@ -19,6 +19,9 @@ const NATPage: React.FC = () => {
   const [vrFilter, setVrFilter] = useState<string | undefined>();
   const [typeFilter, setTypeFilter] = useState<'snat' | 'dnat' | 'static' | undefined>();
   const [filterForm] = Form.useForm();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createForm] = Form.useForm();
   
   // PageContainer handles column visibility
   const defaultHiddenColumns: string[] = [];
@@ -128,6 +131,77 @@ const NATPage: React.FC = () => {
     fetchData();
   }, []);
 
+  const vrOptions = useMemo(
+    () =>
+      (vrList || [])
+        .map((v: any) => {
+          const id = v.uuid || v.id || v.vm_id;
+          const name = v.name || id;
+          return id ? { value: String(id), label: String(name) } : null;
+        })
+        .filter(Boolean) as Array<{ value: string; label: string }>,
+    [vrList],
+  );
+
+  const handleCreateNat = async () => {
+    try {
+      const values = await createForm.validateFields();
+      const vrId = String(values.vrId || '').trim();
+      if (!vrId) throw new Error('请选择 VR');
+
+      setCreateSubmitting(true);
+
+      // 读取当前 DB 配置（没有则从空开始）
+      const existing = (await getVRConfig(vrId)) || {};
+      const cfg: any = (existing && typeof existing === 'object') ? { ...existing } : {};
+
+      const groupId = Number(values.groupId);
+      const rangeText = String(values.range || '').trim();
+      const rangeArr = rangeText ? rangeText.split(/[\n,;，；\s]+/).map((s) => s.trim()).filter(Boolean) : [];
+
+      const mapping: any = {
+        proto: String(values.proto || '').trim(),
+        inside: String(values.inside || '').trim(),
+        local_port: Number(values.localPort),
+        vrf: String(values.vrf || '').trim(),
+        outside: String(values.outside || '').trim(),
+        external_port: Number(values.externalPort),
+        twice_nat: String(values.twiceNat || '').trim(),
+      };
+
+      const groups = Array.isArray(cfg.nat_address_group) ? [...cfg.nat_address_group] : [];
+      const idx = groups.findIndex((g: any) => Number(g?.group_id ?? g?.groupId) === groupId);
+      if (idx >= 0) {
+        const g = { ...(groups[idx] || {}) };
+        const curRange = Array.isArray(g.range) ? g.range : (g.range ? [g.range] : []);
+        const nextRange = rangeArr.length ? rangeArr : curRange;
+        g.group_id = groupId;
+        g.range = nextRange;
+        const curMappings = Array.isArray(g.static_mapping) ? g.static_mapping : [];
+        g.static_mapping = [...curMappings, mapping];
+        groups[idx] = g;
+      } else {
+        groups.push({
+          group_id: groupId,
+          range: rangeArr,
+          static_mapping: [mapping],
+        });
+      }
+      cfg.nat_address_group = groups;
+
+      await saveVRConfig(vrId, cfg);
+      message.success('NAT 规则已保存到平台（未下发）');
+      setCreateOpen(false);
+      createForm.resetFields();
+      fetchData();
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      message.error(e?.message || '创建失败');
+    } finally {
+      setCreateSubmitting(false);
+    }
+  };
+
   const fullColumns: ColumnsType<any> = [
     {
       title: '地址池',
@@ -203,6 +277,13 @@ const NATPage: React.FC = () => {
       width: 120,
       render: (t) => t || '-',
     },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: () => <span style={{ color: '#999' }}>—</span>,
+    },
   ];
 
   const columns = fullColumns;
@@ -250,6 +331,14 @@ const NATPage: React.FC = () => {
     <PageContainer
       titleLevel={3}
       asCard={false}
+      primaryAction={{
+        text: '创建 NAT',
+        onClick: () => {
+          createForm.resetFields();
+          setCreateOpen(true);
+        },
+        type: 'primary',
+      }}
       moreMenuItems={[
         { key: 'refresh', label: '刷新列表', onClick: fetchData },
         { key: 'reset', label: '重置筛选', onClick: resetFilters }
@@ -294,9 +383,106 @@ const NATPage: React.FC = () => {
           showTotal: (total) => `共 ${total} 条`,
         },
         scroll: { x: 'max-content' },
-        bordered: true
+        bordered: false,
+        className: "std-table"
       }}
     >
+      <Modal
+        title="创建 NAT（静态映射）"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={handleCreateNat}
+        confirmLoading={createSubmitting}
+        okText="保存"
+        cancelText="取消"
+        destroyOnHidden
+        width={720}
+      >
+        <Form form={createForm} layout="vertical">
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="vrId" label="所属 VR" rules={[{ required: true, message: '请选择 VR' }]}>
+                <Select showSearch optionFilterProp="label" options={vrOptions} placeholder="选择 VR" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="groupId"
+                label="地址池（group_id）"
+                rules={[{ required: true, message: '请输入地址池 ID' }]}
+              >
+                <InputNumber style={{ width: '100%' }} min={0} placeholder="例如：1" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="range" label="地址池范围（range，可选，多值用逗号/换行分隔）">
+            <Input.TextArea rows={2} placeholder="例如：203.0.113.10-203.0.113.20 或 203.0.113.10/32" />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="proto" label="协议" initialValue="tcp" rules={[{ required: true, message: '请选择协议' }]}>
+                <Select
+                  options={[
+                    { value: 'tcp', label: 'TCP' },
+                    { value: 'udp', label: 'UDP' },
+                    { value: 'icmp', label: 'ICMP' },
+                    { value: 'any', label: 'ANY' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="vrf" label="VRF（可选）">
+                <Input placeholder="例如：4001" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="twiceNat" label="Twice NAT（可选）">
+                <Input placeholder="例如：enable/disable" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="inside" label="内部地址" rules={[{ required: true, message: '请输入内部地址' }]}>
+                <Input placeholder="例如：10.0.0.10" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="localPort"
+                label="内部端口"
+                rules={[{ required: true, message: '请输入内部端口' }]}
+              >
+                <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：80" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="outside" label="外部地址" rules={[{ required: true, message: '请输入外部地址' }]}>
+                <Input placeholder="例如：203.0.113.10" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="externalPort"
+                label="外部端口"
+                rules={[{ required: true, message: '请输入外部端口' }]}
+              >
+                <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：8080" />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+        <div style={{ fontSize: 12, color: '#999' }}>
+          说明：当前仅保存到平台 `vr-config`（`nat_address_group.static_mapping`），后续可在专家模式统一下发。
+        </div>
+      </Modal>
     </PageContainer>
   );
 };

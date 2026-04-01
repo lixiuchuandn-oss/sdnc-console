@@ -31,6 +31,7 @@ import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs
 import { useAuth } from '../../../contexts/AuthContext';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { CLOUD_SUBNETS_PUBLIC_READ } from '../../../constants/cloudPermissions';
 import { getToken } from '../../../utils/tokenStorage';
 import { clearCache } from '../../../utils/requestManager';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
@@ -92,6 +93,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const permissions = user?.permissions;
   // 权限检查辅助函数
   const checkPerm = (act: string) => hasPermissionForAction(permissions || [], act);
+  const canReadPublicSubnets = checkPerm(CLOUD_SUBNETS_PUBLIC_READ) || checkPerm('clouds.subnets:read');
   const canViewMonitoringTab =
     checkPerm('clouds.alerts:read') ||
     checkPerm('clouds.alert-rules:read') ||
@@ -966,7 +968,9 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const provider = useMemo(() => providerRaw.toLowerCase(), [providerRaw]);
   const isCloudmap = useMemo(() => provider === 'cloudmap' || provider === 'cloudmap.private' || provider === 'cloudmap.edge', [provider]);
   const providerName = useMemo(() => (isCloudmap ? 'Cloudmap' : 'Harvester'), [isCloudmap]);
-  
+  /** 标准视图（Cloudmap）下收敛运维向入口；与各 Section 的 mode/displayMode 对齐 */
+  const harvesterViewMode = isCloudmap ? 'standard' : 'ops';
+
   // 版本显示
   const versionText = useMemo(() => {
     const fromConfig = cloud?.config?.harvesterVersion;
@@ -1128,7 +1132,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             loading={resourceLoading.nodes || nodesLoading}
                             onRefresh={refreshNodes}
                             cloudId={cloudId}
-                            mode={isCloudmap ? 'standard' : 'ops'}
+                            mode={harvesterViewMode}
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1143,7 +1147,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'K8s 服务 ',
                       children: (
                         <>
-                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} />
+                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawServices, null, 2)}</pre>
@@ -1157,7 +1161,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '集群网络',
                       children: (
                         <>
-                          <ClusterNetworksSection cloudId={cloudId} clusterNetworks={harvesterClusterNetworks} loading={resourceLoading.clusterNetworks} onRefresh={() => loadTabResource('clusterNetworks', true)} />
+                          <ClusterNetworksSection cloudId={cloudId} clusterNetworks={harvesterClusterNetworks} loading={resourceLoading.clusterNetworks} onRefresh={() => loadTabResource('clusterNetworks', true)} mode={harvesterViewMode} isTenant={user?.role === 'tenant' || !!(user as any)?.tenantId} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawClusterNetworks, null, 2)}</pre>
@@ -1177,6 +1181,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             providerNetworks={harvesterKubeOvnProviderNetworks}
                             loading={resourceLoading.vlans}
                             onRefresh={refreshVlans}
+                            mode={harvesterViewMode}
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1208,6 +1213,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         showLog={showLog} 
                         raw={rawNamespaces}
                         isTenant={user?.role === 'tenant' || (user as any)?.tenantId}
+                        mode={harvesterViewMode}
                       />
                     },
                     {
@@ -1215,7 +1221,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '存储类',
                       children: (
                         <>
-                          <StorageClassesSection cloudId={cloudId} storageClasses={harvesterStorageClasses} loading={resourceLoading.storageClasses} onRefresh={() => loadTabResource('storage_classes', true)} />
+                          <StorageClassesSection cloudId={cloudId} storageClasses={harvesterStorageClasses} loading={resourceLoading.storageClasses} onRefresh={() => loadTabResource('storage_classes', true)} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(harvesterStorageClasses, null, 2)}</pre>
@@ -1227,17 +1233,17 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     {
                       key: 'gpu',
                       label: 'GPU',
-                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={() => loadTabResource('gpu', true)} raw={rawGpu} showLog={showLog} />)
+                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={() => loadTabResource('gpu', true)} raw={rawGpu} showLog={showLog} mode={harvesterViewMode} />)
                     },
                     {
                       key: 'cluster_usb',
                       label: 'USB',
-                      children: (<UsbDevicesSection cloudId={cloudId} usbDevices={harvesterUsbDevices} loading={resourceLoading.usbDevices} onRefresh={() => loadTabResource('usb_devices', true)} raw={rawUsbDevices} showLog={showLog} />)
+                      children: (<UsbDevicesSection cloudId={cloudId} usbDevices={harvesterUsbDevices} loading={resourceLoading.usbDevices} onRefresh={() => loadTabResource('usb_devices', true)} raw={rawUsbDevices} showLog={showLog} mode={harvesterViewMode} />)
                     },
                     {
                       key: 'cluster_pci',
                       label: 'PCI 设备',
-                      children: (<PciDevicesSection cloudId={cloudId} devices={harvesterPciDevices} loading={resourceLoading.pciDevices} onRefresh={() => loadTabResource('pci_devices', true)} raw={rawPciDevices} showLog={showLog} />)
+                      children: (<PciDevicesSection cloudId={cloudId} devices={harvesterPciDevices} loading={resourceLoading.pciDevices} onRefresh={() => loadTabResource('pci_devices', true)} raw={rawPciDevices} showLog={showLog} mode={harvesterViewMode} />)
                     }
                   ].filter((i:any) => {
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.cluster-nodes:read');
@@ -1433,6 +1439,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             }}
                             images={harvesterImages}
                             namespaces={harvesterNamespaces}
+                            mode={harvesterViewMode}
                           />
                           <VmReconfigureModal 
                             open={vmReconfOpen} 
@@ -1497,6 +1504,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                   });
                               }
                             }}
+                            mode={harvesterViewMode}
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1537,7 +1545,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                   setResourceLoading(prev => ({ ...prev, sshKeys: false }));
                                 });
                             }
-                          }} />
+                          }} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSshKeys, null, 2)}</pre>
@@ -1551,7 +1559,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'Cloud Init',
                       children: (
                         <>
-                          <CloudInitsSection cloudId={cloudId} cloudInits={harvesterCloudInits} loading={resourceLoading.cloudInits} onRefresh={() => loadTabResource('cloud_inits', true)} />
+                          <CloudInitsSection cloudId={cloudId} cloudInits={harvesterCloudInits} loading={resourceLoading.cloudInits} onRefresh={() => loadTabResource('cloud_inits', true)} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawCloudInits, null, 2)}</pre>
@@ -1575,6 +1583,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             namespaces={harvesterNamespaces}
                             volumes={harvesterVolumes}
                             images={harvesterImages}
+                            mode={harvesterViewMode}
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1663,7 +1672,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                               const list: any[] = Array.isArray((json as any)?.data) ? (json as any).data : (((json as any)?.data?.Instances?.Instance) || ((json as any)?.data?.items) || ((json as any)?.data?.data) || []);
                               setEcs(Array.isArray(list) ? list : []);
                             }, true);
-                          }} />
+                          }} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVolumes, null, 2)}</pre>
@@ -1695,7 +1704,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             } finally {
                               setResourceLoading(prev => ({ ...prev, images: false }));
                             }
-                          }} />
+                          }} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawImages, null, 2)}</pre>
@@ -1727,7 +1736,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             } finally {
                               setResourceLoading(prev => ({ ...prev, snapshots: false }));
                             }
-                          }} />
+                          }} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSnapshots, null, 2)}</pre>
@@ -1781,7 +1790,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                 if (!silent) setResourceLoading(prev => ({ ...prev, backups: false }));
                               }
                             }
-                          }} namespaces={harvesterNamespaces} vms={ecs} type="backup" />
+                          }} namespaces={harvesterNamespaces} vms={ecs} type="backup" mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawBackups, null, 2)}</pre>
@@ -1813,7 +1822,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                 if (!silent) setResourceLoading(prev => ({ ...prev, backups: false }));
                               }
                             }
-                          }} namespaces={harvesterNamespaces} vms={ecs} type="snapshot" />
+                          }} namespaces={harvesterNamespaces} vms={ecs} type="snapshot" mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawBackups, null, 2)}</pre>
@@ -1845,7 +1854,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                 if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: false }));
                               }
                             }
-                          }} />
+                          }} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawScheduleVmBackups, null, 2)}</pre>
@@ -1881,7 +1890,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'NAD 网络',
                       children: (
                         <>
-                          <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} />
+                          <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawNads, null, 2)}</pre>
@@ -1915,7 +1924,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                 .finally(() => {
                                   setResourceLoading(prev => ({ ...prev, loadBalancers: false }));
                                 });
-                            }} 
+                            }}
+                            mode={harvesterViewMode}
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1949,7 +1959,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                 .finally(() => {
                                   setResourceLoading(prev => ({ ...prev, ippools: false }));
                                 });
-                            }} 
+                            }}
+                            mode={harvesterViewMode}
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1958,11 +1969,32 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           )}
                         </>
                       )
-                    }
+                    },
+                    ...(!ovnVpcEnabled && canReadPublicSubnets
+                      ? [
+                          {
+                            key: 'kubeovn_public_subnets_native',
+                            label: '公共子网',
+                            children: (
+                              <>
+                                <UnderlaySubnetsSection cloudId={cloudId} mode="public" displayMode={harvesterViewMode} />
+                                {showLog && (
+                                  <div style={{ marginTop: 12 }}>
+                                    <pre style={{ background: '#f7f7f7', padding: 12, borderRadius: 8, maxHeight: 300, overflow: 'auto' }}>
+                                      {JSON.stringify(rawSubnets, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                              </>
+                            ),
+                          },
+                        ]
+                      : []),
                   ].filter((i:any) => {
                      if (i.key === 'nad') return checkPerm('clouds.networks:read');
                      if (i.key === 'load_balancers') return checkPerm('clouds.nads:read');
                      if (i.key === 'ippools') return checkPerm('clouds.nads:read');
+                     if (i.key === 'kubeovn_public_subnets_native') return canReadPublicSubnets;
                      return true;
                   })}
                 />
@@ -1996,7 +2028,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                     const skipSync = silent;
                                     loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => setKubeOvnVpcs(json?.data?.items || []), true);
                                     loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force, skipSync), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
-                                  }} />
+                                  }} showYaml={harvesterViewMode === 'ops'} />
                                   {showLog && (
                                     <div style={{ marginTop: 12 }}>
                                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVpcs, null, 2)}</pre>
@@ -2010,7 +2042,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                               label: '公共子网',
                               children: (
                                 <>
-                                  <UnderlaySubnetsSection cloudId={cloudId} mode="public" />
+                                  <UnderlaySubnetsSection cloudId={cloudId} mode="public" displayMode={harvesterViewMode} />
                                   {showLog && (
                                     <div style={{ marginTop: 12 }}>
                                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
@@ -2028,7 +2060,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VPC 子网',
                       children: (
                         <>
-                          <KubeOvnSubnetsSection subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} />
+                          <KubeOvnSubnetsSection subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} showYaml={harvesterViewMode === 'ops'} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>

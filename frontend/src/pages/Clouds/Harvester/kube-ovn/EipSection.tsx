@@ -133,11 +133,13 @@ export const EipSection: React.FC<EipSectionProps> = ({
 
   /**
    * OvnEip.spec.externalSubnet 填 Subnet 名；与产品「公共子网」一致：注解 tower.io/subnet-type=public，挂在 ovn-cluster。
+   * 内置子网 external 由集群维护，不在此列表中供选择（与 Underlay 公共子网列表一致）。
    */
   const externalSubnets = useMemo(() => {
     const subnetTypeOf = (s: any) =>
       String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '').trim().toLowerCase();
     return subnets.filter((s: any) => {
+      if (String(s?.metadata?.name || '').trim() === 'external') return false;
       if (subnetTypeOf(s) !== 'public') return false;
       const vpc = String(s.spec?.vpc || s.vpc || '').trim() || KUBE_OVN_PUBLIC_VPC;
       return vpc === KUBE_OVN_PUBLIC_VPC;

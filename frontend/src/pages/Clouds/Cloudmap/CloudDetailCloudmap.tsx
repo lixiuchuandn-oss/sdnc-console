@@ -1413,13 +1413,13 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                           />
                           {clusterNetworkSegmentKey === 'clusterNetworks' && (
                             <>
-                              <ClusterNetworksSection cloudId={cloudId} clusterNetworks={harvesterClusterNetworks} loading={resourceLoading.clusterNetworks} onRefresh={() => loadTabResource('clusterNetworks', true)} />
+                              <ClusterNetworksSection cloudId={cloudId} clusterNetworks={harvesterClusterNetworks} loading={resourceLoading.clusterNetworks} onRefresh={() => loadTabResource('clusterNetworks', true)} mode={mode} isTenant={isTenant} />
                               <DebugJSON data={rawClusterNetworks} show={showLog} />
                             </>
                           )}
                           {clusterNetworkSegmentKey === 'nads' && (
                             <>
-                              <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} onlyBridge mode={mode} />
+                              <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} mode={mode} />
                               <DebugJSON data={rawNads} show={showLog} />
                             </>
                           )}

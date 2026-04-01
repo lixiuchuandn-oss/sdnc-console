@@ -1393,12 +1393,23 @@ export const getProxyAuthInfo = async (
   secretKey: string = 'Cloudmap#123'
 ): Promise<{ Authorization: string; tonce: string }> => {
   const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
-  // 对于签名请求，bodyRaw 可能是字符串，需要直接传递
+  // 注意：
+  // 1) 这里如果把 JSON 字符串直接作为 body 交给 requestManager，会被再次 JSON.stringify，导致后端解析为非法 JSON（""{\"uuid\""...）。
+  // 2) 因此 bodyRaw 存在时先尝试 JSON.parse 成对象再发送；空 body 发送 {}。
+  let signBody: any = {};
+  if (bodyRaw && typeof bodyRaw === 'string') {
+    try {
+      signBody = JSON.parse(bodyRaw);
+    } catch {
+      // bodyRaw 非 JSON 时退回空对象，避免签名接口因解析失败直接 500
+      signBody = {};
+    }
+  }
   const response = await requestManager(
     {
       method: 'POST',
       endpoint: authUrl,
-      body: bodyRaw || '',
+      body: signBody,
       headers: {
         'Content-Type': 'application/json',
       },

@@ -406,7 +406,8 @@ const IPsecVPNPage: React.FC = () => {
           showTotal: (total) => `共 ${total} 条`,
         },
         loading: loading,
-        bordered: true,
+        bordered: false,
+        className: "std-table",
         scroll: { x: 'max-content' }
       }}
     >

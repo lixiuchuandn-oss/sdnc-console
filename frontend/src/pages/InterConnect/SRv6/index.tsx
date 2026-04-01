@@ -319,7 +319,7 @@ const SRv6Page: React.FC = () => {
         </Form>
       )}
       tableProps={{
-        className: "vr-table",
+        className: "vr-table std-table",
         columns: columns,
         dataSource: filteredTunnels,
         rowKey: (r: Srv6TunnelRow) => r.id,
@@ -329,7 +329,7 @@ const SRv6Page: React.FC = () => {
         },
         loading: loading,
         scroll: { x: 'max-content' },
-        bordered: true
+        bordered: false
       }}
     >
       <Modal

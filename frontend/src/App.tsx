@@ -71,7 +71,7 @@ const LoadingFallback: React.FC = () => (
     minHeight: '400px',
     width: '100%'
   }}>
-    <Spin size="large" tip="???...">
+    <Spin size="large" tip="加载中...">
       <div style={{ minHeight: 200 }} />
     </Spin>
   </div>
@@ -81,7 +81,7 @@ const InstanceDetailModal: React.FC = () => {
   const navigate = useNavigate();
   return (
     <Modal
-      title="?????"
+      title="云主机详情"
       open
       destroyOnHidden
       footer={null}
@@ -146,14 +146,14 @@ const AppRoutes: React.FC = () => {
           <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="sec-mgr-plane/security-services" element={<SecurityServices />} />
           {/* AI SOC Integration Placeholders */}
-          <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC??" module="situation_overview" />} />
+          <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />
           <Route path="aisoc/data-source" element={<AiSocFrame path="data-source" />} />
           <Route path="aisoc/raw-logs" element={<AiSocFrame path="raw-logs" />} />
           <Route path="aisoc/preprocess-rule" element={<AiSocFrame path="preprocess-rule" />} />
           <Route path="aisoc/processed-logs" element={<AiSocFrame path="processed-logs" />} />
           
-          <Route path="aisoc/analysis/events" element={<AiSocPlaceholder title="??????" module="analysis_events" />} />
-          <Route path="aisoc/analysis/attack" element={<AiSocPlaceholder title="ATT&CK????" module="analysis_attack" />} />
+          <Route path="aisoc/analysis/events" element={<AiSocPlaceholder title="威胁事件分析" module="analysis_events" />} />
+          <Route path="aisoc/analysis/attack" element={<AiSocPlaceholder title="ATT&CK框架分析" module="analysis_attack" />} />
           
           <Route path="aisoc/report" element={<AiSocFrame path="report" />} />
 

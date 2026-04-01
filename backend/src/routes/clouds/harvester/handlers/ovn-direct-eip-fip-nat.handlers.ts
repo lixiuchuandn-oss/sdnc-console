@@ -229,6 +229,12 @@ export async function harvesterOvnEipCreateHandler(req: any, res: Response, next
     if (!name || !externalSubnet) {
       return res.status(400).json({ message: '缺少必要参数: name, externalSubnet' });
     }
+    if (String(externalSubnet).trim() === 'external') {
+      return res.status(400).json({
+        message: '不允许使用内置子网 external 作为 EIP 外网子网，请选择其它公共子网',
+        code: 'EIP_EXTERNAL_SUBNET_BUILTIN_FORBIDDEN',
+      });
+    }
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;

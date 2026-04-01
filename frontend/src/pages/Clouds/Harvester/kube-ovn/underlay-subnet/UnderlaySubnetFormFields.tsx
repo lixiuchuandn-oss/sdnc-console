@@ -46,8 +46,10 @@ export type UnderlaySubnetFormFieldsProps = {
   aliasDupCheckItems: any[];
   /** 创建流程可传入更详细的「自动生成 metadata.name」说明 */
   aliasFieldTooltip?: string;
-  /** 编辑时传入当前子网 metadata.name，别名重复校验时排除自身 */
+  /** 编辑时传入当前子网 metadata.name，名称重复校验时排除自身 */
   editingSubnetResourceName?: string | null;
+  /** 公共子网编辑：仅允许修改名称，不展示网段/VLAN 等 */
+  publicEditNameOnly?: boolean;
 };
 
 const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
@@ -58,18 +60,46 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
   aliasDupCheckItems,
   aliasFieldTooltip,
   editingSubnetResourceName,
-}) => (
+  publicEditNameOnly,
+}) => {
+  if (publicEditNameOnly) {
+    return (
+      <Form.Item
+        name="alias"
+        label="名称"
+        tooltip="展示名称，支持中文。公共子网的网段、网关、VLAN 等创建后不可在此修改。"
+        rules={[
+          { required: true, message: '请输入名称' },
+          { max: 200, message: '名称不超过 200 字' },
+          {
+            validator: async (_, value) => {
+              const s = String(value ?? '').trim();
+              if (!s) return Promise.resolve();
+              const dup = aliasDupCheckItems.some((item: any) => {
+                if (editingSubnetResourceName && item?.metadata?.name === editingSubnetResourceName) return false;
+                const a = String(item?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+                return a.length > 0 && a === s;
+              });
+              if (dup) {
+                return Promise.reject(new Error('名称已存在，请修改'));
+              }
+              return Promise.resolve();
+            },
+          },
+        ]}
+      >
+        <Input placeholder="显示名称（支持中文）" />
+      </Form.Item>
+    );
+  }
+  return (
   <>
     <Form.Item
       name="alias"
-      label={isFlatMode ? '名称' : '别名'}
-      tooltip={
-        aliasFieldTooltip ||
-        '展示名称，支持中文；写入注解 tower.io/alias。子网在集群中的资源名（metadata.name）创建后不可改。'
-      }
+      label="名称"
       rules={[
-        { required: true, message: isFlatMode ? '请输入名称' : '请输入别名' },
-        { max: 200, message: isFlatMode ? '名称不超过 200 字' : '别名不超过 200 字' },
+        { required: true, message: '请输入名称' },
+        { max: 200, message: '名称不超过 200 字' },
         {
           validator: async (_, value) => {
             const s = String(value ?? '').trim();
@@ -80,7 +110,7 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
               return a.length > 0 && a === s;
             });
             if (dup) {
-              return Promise.reject(new Error(isFlatMode ? '名称已存在，请修改' : '别名已存在，请修改'));
+              return Promise.reject(new Error('名称已存在，请修改'));
             }
             return Promise.resolve();
           },
@@ -119,10 +149,11 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
         ))}
       </Select>
     </Form.Item>
-    <Form.Item name="excludeIps" label="排除 IP (可选)" extra="多 IP 请换行输入">
-      <Input.TextArea rows={3} placeholder="每行一个 IP 或 IP 范围 (e.g. 192.168.1.1..192.168.1.10)" />
+    <Form.Item name="excludeIps" label="排除 IP (可选)">
+      <Input.TextArea rows={3} placeholder="每行一个 IP 或 IP 范围 (e.g. 192.168.1.1..192.168.1.10)，多 IP 请换行输入。IP 范围支持 IPv4 和 IPv6。" />
     </Form.Item>
   </>
-);
+  );
+};
 
 export default UnderlaySubnetFormFields;

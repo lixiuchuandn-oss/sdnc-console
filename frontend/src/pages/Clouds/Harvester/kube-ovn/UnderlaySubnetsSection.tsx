@@ -10,7 +10,6 @@ import {
   fetchKubeOvnProviderNetworks,
   fetchKubeOvnSubnets,
   fetchKubeOvnVlans,
-  updateHarvesterVpc,
   updateKubeOvnSubnet,
 } from '../../../../services/harvesterApi';
 import { clearCache } from '../../../../utils/requestManager';
@@ -30,18 +29,19 @@ import {
   CreateFlatSubnetModal,
   CreatePublicSubnetModal,
   KUBE_OVN_FLAT_VPC,
-  KUBE_OVN_PUBLIC_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
+  SUBNET_TYPE_FLAT_OVERLAY_ANNOTATION_KEY,
+  SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
+  OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
   UnderlaySubnetFormFields,
   providerDisplayName,
+  resolveTowerUnderlaySubnetCategory,
   vlanRecordLabelForSelect,
   vlanRecordSearchBlob,
 } from './underlay-subnet';
 
 const { Option } = Select;
-
-const EXTERNAL_SUBNET_NAME = 'external';
 
 /**
  * =============================================================================
@@ -105,12 +105,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     // 租户角色禁止扁平/公共子网写操作（与镜像写权限收敛策略一致）
     return hasWrite && !isTenantUser;
   }, [isFlatMode, perms, isTenantUser]);
-  const hasVpcsWrite = useMemo(() => {
-    const hasWrite =
-      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
-      hasPermissionForAction(perms, 'clouds:write');
-    return hasWrite && !isTenantUser;
-  }, [perms, isTenantUser]);
   const ensureUnderlayWrite = useCallback(() => {
     if (hasUnderlayWrite) return true;
     message.error('当前账号没有子网操作权限（租户角色仅允许查看）');
@@ -163,7 +157,10 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       const expectType = isFlatMode ? 'flat' : 'public';
       return items.filter((item: any) => {
         const t = String(item?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] || '').trim().toLowerCase();
-        return t === expectType;
+        if (t !== expectType) return false;
+        /** 内置子网 external 由底层维护，不在本列表展示（注解将改为 tower.io/subnet-type=external） */
+        if (String(item?.metadata?.name || '').trim() === 'external') return false;
+        return true;
       });
     },
     [cloudId, isFlatMode],
@@ -245,7 +242,13 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   const openEditNetwork = useCallback(
     (record: any) => {
       setEditRecord(record);
-      editForm.setFieldsValue(subnetRecordToFormValues(record, isFlatMode));
+      if (!isFlatMode) {
+        editForm.setFieldsValue({
+          alias: String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || undefined,
+        });
+      } else {
+        editForm.setFieldsValue(subnetRecordToFormValues(record, isFlatMode));
+      }
       setEditModalVisible(true);
     },
     [editForm, isFlatMode],
@@ -255,22 +258,37 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     if (!ensureUnderlayWrite()) return;
     const name = editRecord?.metadata?.name;
     if (!name) return;
-    let shouldRelinkInternalVpc = false;
-    let internalVpcTouched = false;
     try {
       setEditSubmitting(true);
 
-      // 校验 EIP 占用
+      if (!isFlatMode) {
+        const aliasTrim = String(values.alias ?? '').trim();
+        const annotations: Record<string, string> = {
+          ...(editRecord?.metadata?.annotations || {}),
+          [TOWER_ALIAS_ANNOTATION]: aliasTrim,
+        };
+        await updateKubeOvnSubnet(cloudId, name, { annotations });
+        message.success(`更新${subnetKindLabel}成功`);
+        setEditModalVisible(false);
+        setEditRecord(null);
+        editForm.resetFields();
+        await fetchData(true, true);
+        return;
+      }
+
+      // 校验 EIP 占用（扁平子网改网段等）
       try {
         const eipsRes = await fetchCloudProviderOvnEips(cloudId, true);
         const eips = Array.isArray(eipsRes?.data?.items) ? eipsRes.data.items : [];
-        const usingEips = eips.filter((eip: any) => {
+        const blocking = eips.filter((eip: any) => {
           const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
-          return String(sub || '').trim() === name;
+          if (String(sub || '').trim() !== name) return false;
+          const t = String(eip?.spec?.type ?? eip?.type ?? '').trim().toLowerCase();
+          return t !== 'lrp';
         });
-        if (usingEips.length > 0) {
-          const names = usingEips.map((e: any) => e?.metadata?.name || e?.name).filter(Boolean);
-          message.error(`子网正在被以下 EIP 使用，无法修改或清空其网段信息：${names.join('、')}`);
+        if (blocking.length > 0) {
+          const names = blocking.map((e: any) => e?.metadata?.name || e?.name).filter(Boolean);
+          message.error(`子网正在被以下 EIP（非 lrp）使用，无法修改或清空其网段信息：${names.join('、')}`);
           setEditSubmitting(false);
           return;
         }
@@ -278,58 +296,40 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         console.warn('[UpdateSubnet] EIP usage check failed:', e);
       }
 
-      const { alias, ...rest } = values;
-      const aliasTrim = String(alias ?? '').trim();
+      const { alias: aliasFlat, ...rest } = values;
+      const aliasTrim = String(aliasFlat ?? '').trim();
       const excludeIps = rest.excludeIps
         ? String(rest.excludeIps).split('\n').map((s: string) => s.trim()).filter((s: string) => s)
         : [];
-      const annotations: Record<string, string> = {
+      const vlanRaw = rest.vlan;
+      const hasVlan =
+        vlanRaw !== undefined && vlanRaw !== null && String(vlanRaw).trim() !== '';
+      const annotations: Record<string, string | null> = {
+        ...(isFlatMode ? {} : (editRecord?.metadata?.annotations || {})),
         [TOWER_ALIAS_ANNOTATION]: aliasTrim,
       };
+      if (isFlatMode) {
+        annotations[SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY] = hasVlan ? 'true' : null;
+        annotations[SUBNET_TYPE_FLAT_OVERLAY_ANNOTATION_KEY] = hasVlan ? null : 'true';
+      }
       const payload: Record<string, unknown> = {
         cidrBlock: String(rest.cidrBlock ?? '').trim(),
         gateway: String(rest.gateway ?? '').trim(),
         excludeIps,
         annotations,
       };
-      const vlanRaw = rest.vlan;
-      if (vlanRaw !== undefined && vlanRaw !== null && String(vlanRaw) !== '') {
+      if (hasVlan) {
         payload.vlan = vlanRaw;
       } else {
         payload.vlan = null;
       }
-      const vpcName = String(editRecord?.spec?.vpc ?? editRecord?.vpc ?? '').trim();
-      shouldRelinkInternalVpc = !isFlatMode && String(name) === EXTERNAL_SUBNET_NAME && vpcName === KUBE_OVN_PUBLIC_VPC;
-      if (shouldRelinkInternalVpc && !hasVpcsWrite) {
-        message.error('编辑 external 公共子网需要 VPC 写权限（clouds.vpcs:write 或 clouds:write）');
-        setEditSubmitting(false);
-        return;
-      }
-      if (shouldRelinkInternalVpc) {
-        await updateHarvesterVpc(cloudId, KUBE_OVN_FLAT_VPC, { enableExternal: false });
-        internalVpcTouched = true;
-      }
       await updateKubeOvnSubnet(cloudId, name, payload);
-      if (shouldRelinkInternalVpc) {
-        await updateHarvesterVpc(cloudId, KUBE_OVN_FLAT_VPC, {
-          enableExternal: true,
-          nextHopIP: String(rest.gateway ?? '').trim(),
-        });
-        internalVpcTouched = false;
-      }
       message.success(`更新${subnetKindLabel}成功`);
       setEditModalVisible(false);
       setEditRecord(null);
       editForm.resetFields();
       await fetchData(true, true);
     } catch (error: any) {
-      if (internalVpcTouched) {
-        try {
-          await updateHarvesterVpc(cloudId, KUBE_OVN_FLAT_VPC, { enableExternal: true });
-        } catch {
-          /* ignore */
-        }
-      }
       const raw =
         error?.response?.data?.message ??
         error?.response?.data?.error ??
@@ -338,11 +338,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         error?.message ??
         '未知错误';
       const detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
-      if (shouldRelinkInternalVpc) {
-        message.error(`更新${subnetKindLabel}失败（包含 ovn-internal 联动）: ${detail}`);
-      } else {
-        message.error(`更新${subnetKindLabel}失败: ${detail}`);
-      }
+      message.error(`更新${subnetKindLabel}失败: ${detail}`);
     } finally {
       setEditSubmitting(false);
     }
@@ -419,10 +415,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   const handleDelete = useCallback(
     async (name: string) => {
       if (!ensureUnderlayWrite()) return;
-      if (name === EXTERNAL_SUBNET_NAME) {
-        message.error('默认子网 external 不可删除');
-        return;
-      }
       try {
         await deleteKubeOvnSubnet(cloudId, name);
         message.success('删除成功');
@@ -489,7 +481,44 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
           return <span title={id}>{id}</span>;
         },
       },
+      {
+        title: '子网分类',
+        key: 'towerUnderlayCategory',
+        width: 148,
+        render: (_: any, record: any) => {
+          const { category, label, detail } = resolveTowerUnderlaySubnetCategory(record, isFlatMode ? 'flat' : 'public');
+          const color =
+            category === 'public'
+              ? 'geekblue'
+              : category === 'flat-underlay'
+                ? 'blue'
+                : category === 'flat-overlay'
+                  ? 'cyan'
+                  : 'default';
+          return (
+            <Tooltip title={detail}>
+              <Tag color={color}>{label}</Tag>
+            </Tooltip>
+          );
+        },
+      },
       { title: 'CIDR', dataIndex: ['spec', 'cidrBlock'], key: 'cidr' },
+      ...(!isFlatMode
+        ? [
+            {
+              title: '可访问范围',
+              key: 'ovnInternalRouteCidr',
+              width: 132,
+              ellipsis: true,
+              render: (_: any, record: any) => {
+                const v = String(
+                  record?.metadata?.annotations?.[OVN_INTERNAL_ROUTE_CIDR_ANNOTATION] ?? '',
+                ).trim();
+                return <span title={v || undefined}>{v || '—'}</span>;
+              },
+            },
+          ]
+        : []),
       { title: '网关', dataIndex: ['spec', 'gateway'], key: 'gateway' },
       {
         title: 'DHCP',
@@ -511,16 +540,18 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
           const vlanName = String(v ?? '').trim();
           if (!vlanName) {
             return isFlatMode ? (
-              <Tag title="未绑定 VLAN，纯 OVN overlay">overlay</Tag>
+              <span title="未绑定 VLAN，纯 OVN overlay">overlay</span>
             ) : (
-              <Tag>未打标签 (Untagged)</Tag>
+              <span>未打标签 (Untagged)</span>
             );
           }
           const vlanObj = vlans.find((item) => String(item?.metadata?.name ?? '').trim() === vlanName);
           if (!vlanObj) {
-            return <Tag color="blue">{vlanName}</Tag>;
+            return <span>{vlanName}</span>;
           }
-          return <Tag color="blue">{vlanRecordLabelForSelect(vlanObj, providers)}</Tag>;
+          const tag = vlanObj?.spec?.id;
+          const tagStr = tag !== undefined && tag !== null ? String(tag) : '—';
+          return <span>{`VLAN ${tagStr}`}</span>;
         },
       },
       ...(isFlatMode
@@ -546,10 +577,10 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
                 const display = providerDisplayName(providerName, providers);
                 return display !== providerName ? (
                   <Tooltip title={`资源名: ${providerName}`}>
-                    <Tag color="geekblue">{display}</Tag>
+                    <span>{display}</span>
                   </Tooltip>
                 ) : (
-                  <Tag color="geekblue">{display}</Tag>
+                  <span>{display}</span>
                 );
               },
             },
@@ -640,7 +671,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               key: 'delete',
               label: '删除',
               danger: true,
-              disabled: !hasUnderlayWrite || name === EXTERNAL_SUBNET_NAME,
+              disabled: !hasUnderlayWrite,
               onClick: () => {
                 if (!name) return;
                 const disp =
@@ -819,6 +850,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
             providers={providers}
             aliasDupCheckItems={data}
             editingSubnetResourceName={editRecord?.metadata?.name}
+            publicEditNameOnly={!isFlatMode}
           />
         </Form>
       </Modal>

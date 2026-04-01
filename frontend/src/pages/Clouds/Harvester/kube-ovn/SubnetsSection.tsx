@@ -101,7 +101,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const businessVpcList = useMemo(
     () => (vpcList || []).filter((v: any) => {
       const name = String(v?.name || v?.metadata?.name || '').trim();
-      return name && !isBuiltInKubeOvnVpc(name) && name !== 'ovn-vpc-external-network';
+      return name && !isBuiltInKubeOvnVpc(name);
     }),
     [vpcList]
   );
@@ -219,7 +219,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         message.success('更新子网成功');
       } else {
         if (isBuiltInKubeOvnVpc(values?.vpc)) {
-          message.error('VPC 子网不能使用内置 VPC（ovn-cluster / ovn-internal），请选择业务 VPC');
+          message.error('VPC 子网不能使用内置 VPC（ovn-cluster / ovn-internal / ovn-provider），请选择业务 VPC');
           setSubmitting(false);
           return;
         }

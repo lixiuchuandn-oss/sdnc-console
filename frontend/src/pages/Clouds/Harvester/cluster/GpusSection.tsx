@@ -4,12 +4,13 @@
  * 提供类型（直通 / vGPU / SR-IOV）、状态和关键字过滤，以及元数据查看能力。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Space, Select, Tag, Input, Modal, Tabs } from 'antd';
+import { Table, Button, Space, Select, Tag, Input } from 'antd';
 import { ReloadOutlined, SearchOutlined, ApiTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 
 /**
  * 组件入参说明
@@ -27,9 +28,12 @@ interface Props {
   onRefresh: (force?: boolean) => void | Promise<void>;
   raw?: any;
   showLog?: boolean;
+  /** 标准视图下隐藏「查看YAML」等运维向入口 */
+  mode?: 'standard' | 'ops';
 }
 
-const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, raw, showLog }) => {
+const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, raw, showLog, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   // 筛选条件：类型、状态与关键字
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -38,13 +42,14 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
   const [keyword, setKeyword] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  // 元数据弹窗状态，支持查看单条记录的 raw JSON
-  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerRecord, setDrawerRecord] = useState<any>(null);
+  const [drawerTab, setDrawerTab] = useState('detail');
 
-  const handleShowMetadata = useCallback((record: any) => {
-    setCurrentMetadata(record);
-    setMetadataModalVisible(true);
+  const handleOpenYaml = useCallback((record: any) => {
+    setDrawerRecord({ ...record, kind: record?.kind || 'GPUDevice' });
+    setDrawerTab('detail');
+    setDrawerOpen(true);
   }, []);
 
   /**
@@ -220,14 +225,14 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     {
       title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_: any, r: any) => {
         const items = [
-          { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
-          ...(r?.claimRaw ? [{ key: 'binding', label: '查看绑定', onClick: () => handleShowMetadata(r.claimRaw) }] : []),
+          ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
+          ...(r?.claimRaw ? [{ key: 'binding', label: '查看绑定', onClick: () => handleOpenYaml(r.claimRaw) }] : []),
           ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
         ];
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       }
     }
-  ], [handleShowMetadata, typeTag, vendorName, renderUnifiedStateTag]);
+  ], [handleOpenYaml, isStandardView, typeTag, vendorName, renderUnifiedStateTag]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_gpus_table');
@@ -335,29 +340,15 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
           locale={{ emptyText: '暂无数据' }}
         />
       </PageDetailSection>
-      {/* Metadata Modal */}
-      <Modal
-        title="元数据查看"
-        open={metadataModalVisible}
-        onCancel={() => setMetadataModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <Tabs items={[
-            {
-                key: 'json',
-                label: 'Raw JSON',
-                children: (
-                    <Input.TextArea 
-                        readOnly 
-                        value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} 
-                        autoSize={{ minRows: 10, maxRows: 20 }}
-                        className="metadata-viewer"
-                    />
-                )
-            }
-        ]} />
-      </Modal>
+      <HarvesterResourceDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        resourceType="GPU 设备"
+        record={drawerRecord}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
+        cloudId={cloudId}
+      />
       {showLog && (
         <div>
           <pre>{JSON.stringify(raw, null, 2)}</pre>

@@ -12,6 +12,7 @@ import {
   TOWER_ALIAS_ANNOTATION,
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
+  buildFlatUnderlayOverlayAnnotations,
 } from './constants';
 
 export type CreateFlatSubnetModalProps = {
@@ -20,7 +21,7 @@ export type CreateFlatSubnetModalProps = {
   cloudId: string;
   vlans: any[];
   providers: any[];
-  /** 用于名称/别名重复校验（扁平子网 CR 列表） */
+  /** 用于名称重复校验（扁平子网 CR 列表） */
   aliasDupCheckItems: any[];
   onSuccess?: () => void | Promise<void>;
   /** 打开时预填 VLAN（CR metadata.name） */
@@ -77,6 +78,10 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
               .filter((s: string) => s)
           : [];
         const vlanTrim = String(rest.vlan ?? '').trim();
+        const vlanHit = vlanTrim
+          ? vlans.find((v: any) => String(v?.metadata?.name ?? '').trim() === vlanTrim)
+          : undefined;
+        const providerFromVlan = String(vlanHit?.spec?.provider ?? '').trim();
         const defaultVpc = vlanTrim ? KUBE_OVN_PUBLIC_VPC : KUBE_OVN_FLAT_VPC;
         const flatSubnetHardcoded = {
           natOutgoing: true,
@@ -91,6 +96,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           ...rest,
           name: subnetId,
           excludeIps,
+          ...(providerFromVlan ? { provider: providerFromVlan } : {}),
           protocol: 'IPv4',
           allowEWTraffic: false,
           vpc: rest.vpc || defaultVpc,
@@ -98,6 +104,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           annotations: {
             ...(rest?.annotations || {}),
             [SUBNET_TYPE_ANNOTATION_KEY]: 'flat',
+            ...buildFlatUnderlayOverlayAnnotations(!!vlanTrim),
             ...(aliasTrim ? { [TOWER_ALIAS_ANNOTATION]: aliasTrim } : {}),
           },
           finalizers: Array.from(
@@ -123,7 +130,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         message.error(`创建扁平子网失败: ${detail}`);
       }
     },
-    [canSubmit, cloudId, form, onClose, onSuccess],
+    [canSubmit, cloudId, form, onClose, onSuccess, vlans],
   );
 
   return (
@@ -147,7 +154,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           vlans={vlans}
           providers={providers}
           aliasDupCheckItems={aliasDupCheckItems}
-          aliasFieldTooltip="展示名称，支持中文；写入注解 tower.io/alias。子网在集群中的资源名（metadata.name）为自动生成，格式 id-sn- 加 11 位随机字符。"
+          aliasFieldTooltip="展示名称，支持中文。集群内资源 ID（metadata.name）为系统自动生成，格式 id-sn- 加 11 位随机字符。"
         />
       </Form>
     </Modal>

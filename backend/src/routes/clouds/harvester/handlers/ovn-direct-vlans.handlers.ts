@@ -12,6 +12,7 @@ import { checkTenantAccess, fetchCloudOr404, ensureProvider } from '../harvester
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { KubeOvnVlanInventory } from '../../../../entities/kubeovn/KubeOvnVlanInventory';
 import { syncKubeOvnVlans } from '../../../../services/clouds/harvester/inventory';
+import { KUBE_OVN_RESERVED_VLAN_CR_NAME_SET } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 
 const ALIAS_KEYS_SUBNET = ['tower.io/alias', 'tower.io/alies'];
 
@@ -76,7 +77,12 @@ export async function harvesterVlanListHandler(
       },
     });
 
-    res.json({ message: '查询成功', data: { items: list } });
+    const listForUser = list.filter((row: any) => {
+      const n = String(row?.metadata?.name ?? '').trim();
+      return !KUBE_OVN_RESERVED_VLAN_CR_NAME_SET.has(n);
+    });
+
+    res.json({ message: '查询成功', data: { items: listForUser } });
   } catch (error: any) {
     if (res.headersSent) return;
     res.status(500).json({ message: '查询 VLANs 失败', error: error.message });
@@ -113,7 +119,15 @@ export async function harvesterVlanCreateHandler(
       res.status(400).json({ message: '缺少必要参数: name' });
       return;
     }
-    const metadata: Record<string, unknown> = { name: String(name).trim() };
+    const nameTrim = String(name).trim();
+    if (KUBE_OVN_RESERVED_VLAN_CR_NAME_SET.has(nameTrim)) {
+      res.status(400).json({
+        message: '该名称为系统保留 VLAN，不能通过控制台创建',
+        code: 'VLAN_NAME_SYSTEM_RESERVED',
+      });
+      return;
+    }
+    const metadata: Record<string, unknown> = { name: nameTrim };
     if (
       annotations &&
       typeof annotations === 'object' &&
@@ -190,6 +204,12 @@ export async function harvesterVlanDeleteHandler(
     const nameStr = String(name || '').trim();
     if (!nameStr) {
       return res.status(400).json({ message: '缺少 VLAN 名称' });
+    }
+    if (KUBE_OVN_RESERVED_VLAN_CR_NAME_SET.has(nameStr)) {
+      return res.status(403).json({
+        message: '系统保留 VLAN，不能删除',
+        code: 'VLAN_SYSTEM_RESERVED',
+      });
     }
 
     const base = (cloud.endpoint || '').replace(/\/+$/, '');

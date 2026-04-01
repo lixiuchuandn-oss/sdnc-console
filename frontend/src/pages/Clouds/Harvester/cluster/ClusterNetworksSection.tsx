@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Table, Tag, Input, Button, Space, Badge, Select } from 'antd';
-import { LayoutTwoTone, ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
+import { LayoutTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
@@ -12,22 +13,39 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
+  isTenant?: boolean;
+  /** 标准视图下隐藏「查看YAML」等运维向入口 */
+  mode?: 'standard' | 'ops';
 };
 
-const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onRefresh, cloudId }) => {
+const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onRefresh, cloudId, isTenant, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
 
-  // Metadata Drawer State
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
 
-  const handleOpenDrawer = (record: any, tab: string) => {
-    setDrawerRecord({ ...record, kind: 'ClusterNetwork' });
-    setDrawerActiveTab(tab);
-    setDrawerVisible(true);
-  };
+  const handleOpenYaml = useCallback(
+    (record: any) => {
+      const name = String(record?.metadata?.name || '').trim();
+      const viewLink = name
+        ? `/apis/network.harvesterhci.io/v1beta1/clusternetworks/${encodeURIComponent(name)}`
+        : undefined;
+      setDrawerRecord({
+        ...record,
+        kind: 'ClusterNetwork',
+        links: {
+          ...(record?.links || {}),
+          ...(viewLink ? { view: viewLink } : {}),
+        },
+      });
+      setDrawerActiveTab('detail');
+      setDrawerVisible(true);
+    },
+    [],
+  );
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -105,13 +123,9 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
       title: '名称',
       dataIndex: ['metadata', 'name'],
       key: 'name',
-      render: (text: string, record: any) => (
-        <span
-          className="cell-link"
-          style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-          onClick={() => handleOpenDrawer(record, 'detail')}
-        >
-          <LayoutTwoTone/>
+      render: (text: string) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <LayoutTwoTone />
           <span>{text}</span>
         </span>
       ),
@@ -149,19 +163,23 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
       key: 'action',
       width: 80,
       align: 'left' as const,
-      render: (_: any, record: any) => (
-        <Space size="small">
-          <Button type="link" size="small" onClick={() => handleOpenDrawer(record, 'detail')}>查看</Button>
-        </Space>
-      )
-    }
-  ], [handleOpenDrawer]);
+      fixed: 'right' as const,
+      render: (_: any, record: any) => {
+        const items: any[] = [];
+        if (!isTenant && !isStandardView) {
+          items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenYaml(record) });
+        }
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+      },
+    },
+  ], [handleOpenYaml, isTenant, isStandardView]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_cluster_networks_table');
 
   return (
     <PageDetailSection
+      asCard={false}
       toolbarLeft={(
         <>
           <Input 
@@ -203,7 +221,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
       )}
     >
       <Table
-        className="std-table"
+        className={!isTenant ? 'std-table' : 'std-table no-border'}
         bordered={false}
         rowKey={(r) => r.metadata?.uid || r.metadata?.name}
         dataSource={filtered}

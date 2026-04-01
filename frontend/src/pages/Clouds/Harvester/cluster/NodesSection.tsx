@@ -341,7 +341,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mod
         );
       } 
     },
-  ], [handleOpenOpsinfo, handleOpenNodeDetail, metricsMap]);
+  ], [handleOpenOpsinfo, handleOpenNodeDetail, metricsMap, mode]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nodes_table');

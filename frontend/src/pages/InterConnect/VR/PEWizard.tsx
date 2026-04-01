@@ -102,7 +102,14 @@ const PEWizard: React.FC = () => {
       wanIpv6: anyIface?.ipv6_static,
       wanRouteDest: ipv4RouteTop?.destination || '0.0.0.0/0',
       wanRoutePriority: ipv4RouteTop?.priority ?? 100,
-      ipv6Dest: ipv6RouteTop?.destination || '0::0/0',
+      // 注意：IPv6 默认路由应为 ::/0；0::0/0 不是合法 IPv6 前缀写法（会触发控制器校验错误）
+      ipv6Dest: (() => {
+        const raw = String(ipv6RouteTop?.destination || '').trim();
+        if (!raw) return '::/0';
+        if (raw.includes('/')) return raw;
+        // 设备侧若回读未带掩码，按单地址补 /128，避免下发时报错
+        return `${raw}/128`;
+      })(),
       ipv6Via: ipv6RouteTop?.via || '500::1',
       bgpAsn: bgpTop?.asn,
       bgpRouterId: bgpTop?.router_id,
@@ -123,6 +130,8 @@ const PEWizard: React.FC = () => {
         }
       });
     };
+    // 顶层 interfaces[]（VR3/合并接口常见）与 interfaces_XXX 分桶并存
+    collectFromArr(Array.isArray((dev as any).interfaces) ? (dev as any).interfaces : undefined);
     Object.keys(dev || {}).forEach((k) => {
       if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
         collectFromArr((dev as any)[k]);
@@ -164,20 +173,27 @@ const PEWizard: React.FC = () => {
       });
     }
 
-    const fullInferred = { ...inferredTop, lanConfigs: groups };
+    // Form.List 在 lanConfigs 为 [] 时 fields 长度为 0，Tabs 无面板，表现为「整步无输入框」
+    const lanConfigsForForm = groups.length > 0 ? groups : [{}];
+
+    const fullInferred = { ...inferredTop, lanConfigs: lanConfigsForForm };
     mirrorForm.setFieldsValue(fullInferred);
     
     if (existingCfg && existingCfg.pe && Object.keys(existingCfg.pe).length > 0) {
       const pe = existingCfg.pe;
+      let lanConfigs = (pe.lanConfigs || []).map((l: any) => ({
+        ...l,
+        ifName: l.lanName || l.ifName,
+        asn: l.bgpAsn || l.asn,
+        routerId: l.bgpRouterId || l.routerId
+      }));
+      if (!lanConfigs.length) {
+        lanConfigs = [{}];
+      }
       const mapped = {
         ...pe,
         wanDev: pe.wanName || pe.wanDev,
-        lanConfigs: (pe.lanConfigs || []).map((l: any) => ({
-          ...l,
-          ifName: l.lanName || l.ifName,
-          asn: l.bgpAsn || l.asn,
-          routerId: l.bgpRouterId || l.routerId
-        }))
+        lanConfigs,
       };
       form.setFieldsValue(mapped);
     } else {
@@ -224,9 +240,20 @@ const PEWizard: React.FC = () => {
   const buildConfigFromValues = (v: any) => {
     const cfg: any = {};
     const ipv4CidrPattern = /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/;
+    // IPv6 CIDR：宽松校验（交给控制器做最终校验），这里只保证“像 IPv6 且带掩码”
+    // 例如：2408:3333:1002::/64、::1/128、::/0
+    const ipv6CidrPattern = /^[0-9a-fA-F:]+\/([0-9]|[1-9]\d|1[01]\d|12[0-8])$/;
     const normalizeIPv4Cidr = (s: any) => {
       const t = String(s || '').trim();
       return ipv4CidrPattern.test(t) ? t : undefined;
+    };
+    const normalizeIPv6Cidr = (s: any) => {
+      const t = String(s || '').trim();
+      if (!t) return undefined;
+      // 快速排除 IPv4
+      if (t.includes('.')) return undefined;
+      // 允许 ::/0 等合法前缀（简化校验）
+      return ipv6CidrPattern.test(t) ? t : undefined;
     };
     const sid = String(v?.sidPrefix || '').trim();
     if (sid || v?.locatorName) {
@@ -302,10 +329,11 @@ const PEWizard: React.FC = () => {
     }
     // 固定生成 IPv6 静态路由（展示但不可编辑）
     {
-      const v6dest = String(v?.ipv6Dest || '0::0/0').trim();
+      const v6dest = String(v?.ipv6Dest || '').trim();
       const v6via = String(v?.ipv6Via || '500::1').trim();
-      if (v6dest) {
-        const route6: any = { destination: v6dest };
+      const dest = normalizeIPv6Cidr(v6dest);
+      if (dest) {
+        const route6: any = { destination: dest };
         if (v6via) route6.via = v6via;
         route6.priority = 100;
         cfg.ipv6_route = [route6];
@@ -326,13 +354,22 @@ const PEWizard: React.FC = () => {
       // 2. 追加 LAN 侧的 VRF BGP 配置
       groups.forEach((g) => {
         if (g?.asn || g?.routerId) {
+          const vrfNum = g?.vrf != null && String(g.vrf).trim() !== '' ? Number(g.vrf) : undefined;
+          const enableAutoSid = Number.isFinite(vrfNum as any) && (vrfNum as number) >= 4001;
           bgpArr.push({
             asn: Number(g?.asn),
-            vrf: g?.vrf,
+            ...(enableAutoSid ? { vrf: vrfNum } : {}), // 没有私网 VRF 时不要下发 vrf，避免被当作私网策略
             router_id: g?.routerId,
             bgp_ebgp_requires_policy: 'disable',
             address_family: [
-              { address_family: 'ipv4', modifier: 'unicast', export_route: 'enable', import_route: 'enable', auto_assign_sid: 'enable' },
+              {
+                address_family: 'ipv4',
+                modifier: 'unicast',
+                export_route: 'enable',
+                import_route: 'enable',
+                // 控制器约束：auto_assign_sid 只能在“私网（VRF）”下开启
+                ...(enableAutoSid ? { auto_assign_sid: 'enable' } : { auto_assign_sid: 'disable' }),
+              },
             ],
           });
         }
@@ -448,11 +485,18 @@ const PEWizard: React.FC = () => {
           <Form.Item name="wanRoutePriority" label={<span style={{ fontSize: 13, color: '#595959' }}>路由优先级</span>}> 
             <InputNumber style={{ width: '100%' }} placeholder="例如：100" />
           </Form.Item>
-          <Form.Item name="ipv6Dest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 静态路由目的</span>}>
-            <Input disabled placeholder="例如：0::0/0（固定生成）" />
+          <Form.Item
+            name="ipv6Dest"
+            label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 静态路由目的</span>}
+            rules={[
+              { required: true, message: '请输入 IPv6 静态路由目的（必须带掩码）' },
+              { pattern: /^[0-9a-fA-F:]+\/([0-9]|[1-9]\d|1[01]\d|12[0-8])$/, message: '格式示例：2408:3333:1002::/64（必须是 IPv6 且带掩码）' },
+            ]}
+          >
+            <Input placeholder="例如：2408:3333:1002::/64（必须带掩码）" />
           </Form.Item>
           <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 静态路由 next-hop</span>}>
-            <Input disabled placeholder="例如：500::1（固定生成）" />
+            <Input placeholder="例如：500::1" />
           </Form.Item>
         </div>
 

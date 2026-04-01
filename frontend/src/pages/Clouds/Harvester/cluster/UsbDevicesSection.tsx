@@ -6,6 +6,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { claimHarvesterUsbDevice, unclaimHarvesterUsbDevice } from '../../../../services/harvesterApi';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 
 interface Props {
   cloudId: string;
@@ -15,16 +16,20 @@ interface Props {
   raw?: any;
   showLog?: boolean;
   bordered?: boolean;
+  /** 标准视图下隐藏「查看YAML」等运维向入口 */
+  mode?: 'standard' | 'ops';
 }
 
-const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRefresh, raw, showLog, bordered = true }) => {
+const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRefresh, raw, showLog, bordered = true, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   const [keyword, setKeyword] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [bindFilter, setBindFilter] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
-  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerRecord, setDrawerRecord] = useState<any>(null);
+  const [drawerTab, setDrawerTab] = useState('detail');
 
   const vendorName = useCallback((id?: string) => {
     const v = String(id || '').trim().toLowerCase();
@@ -141,10 +146,11 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
     }
   };
 
-  const handleShowMetadata = (record: any) => {
-    setCurrentMetadata(record);
-    setMetadataModalVisible(true);
-  };
+  const handleOpenYaml = useCallback((record: any) => {
+    setDrawerRecord({ ...record, kind: record?.kind || 'USBDevice' });
+    setDrawerTab('detail');
+    setDrawerOpen(true);
+  }, []);
 
   const getDeviceName = useCallback((r: any) => {
     return String(r?.raw?.metadata?.name || r?.rawData?.metadata?.name || r?.name || '').trim();
@@ -229,13 +235,13 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
           const items = [
             ...(enabled === true ? [{ key: 'unclaim', label: '设为非直通', onClick: () => handleSetPassthrough([r], false) }] : []),
             ...(enabled === false ? [{ key: 'claim', label: '设为直通', onClick: () => handleSetPassthrough([r], true) }] : []),
-            { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
+            ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
           ];
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
         },
       },
     ];
-  }, [handleSetPassthrough, vendorLabel, getUsbState, renderUnifiedStateTag]);
+  }, [handleOpenYaml, handleSetPassthrough, isStandardView, vendorLabel, getUsbState, renderUnifiedStateTag]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, 'harvester_usb_devices_table');
 
@@ -307,9 +313,15 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
         />
       </PageDetailSection>
 
-      <Modal title="元数据查看" open={metadataModalVisible} onCancel={() => setMetadataModalVisible(false)} footer={null} width={820}>
-        <Input.TextArea readOnly value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} autoSize={{ minRows: 12, maxRows: 26 }} />
-      </Modal>
+      <HarvesterResourceDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        resourceType="USB 设备"
+        record={drawerRecord}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
+        cloudId={cloudId}
+      />
 
       {showLog && (
         <div style={{ marginTop: 12 }}>

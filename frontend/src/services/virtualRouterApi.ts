@@ -231,7 +231,8 @@ export const vrApi = {
 export const getVRConfig = async (uuid: string) => {
   // Use the cached endpoint to ensure we get data from DB
   try {
-    const json = await apiRequest(`/api/vr-config/${uuid}/cached`);
+    // 404 代表“尚未保存过配置”，属于预期情况：静默即可
+    const json = await apiRequest(`/api/vr-config/${uuid}/cached`, { silent: true });
     return json?.data ?? null;
   } catch {
     return null;
@@ -293,7 +294,9 @@ const fetchVR2 = async (uuid: string): Promise<any> => {
   if (!uuid) throw new Error('缺少UUID');
   
   try {
-    const json = await apiRequest(`/api/vr-config/${uuid}/realtime`);
+    // 实时查询必须跳过缓存：设备侧状态/配置可能随时变化；
+    // 且后端可能用 HTTP 200 包装业务错误码（如 5012），否则会被前端缓存误判为“没发请求”。
+    const json = await apiRequest(`/api/vr-config/${uuid}/realtime`, { skipCache: true });
     return json.data;
   } catch (e: any) {
     const errorMsg = e?.message || `VR配置查询失败`;
@@ -330,6 +333,24 @@ export const getVR2ConfigRaw = getVR2Config;
  */
 export const fetchVrCachePageList = async (pageSize: number = 50, pageNum: number = 1) => {
   return await apiRequest(`/api/vr-cache/pagelist?page_size=${pageSize}&page_num=${pageNum}`);
+};
+
+/**
+ * 获取合并后的 VR 缓存（单个）：VR1 基本信息 + VR3 扩展信息 + 本地设备信息
+ */
+export const fetchVrCacheMerged = async (uuid: string) => {
+  const u = String(uuid || '').trim();
+  if (!u) throw new Error('缺少UUID');
+  const json = await apiRequest(`/api/vr-cache/${encodeURIComponent(u)}/merged`, { skipCache: true, silent: true });
+  return json?.data ?? null;
+};
+
+/**
+ * 获取合并后的 VR 缓存（全部）
+ */
+export const fetchVrCacheMergedAll = async () => {
+  const json = await apiRequest(`/api/vr-cache/merged`, { skipCache: true, silent: true });
+  return (json?.data?.items ?? []) as any[];
 };
 
 /**

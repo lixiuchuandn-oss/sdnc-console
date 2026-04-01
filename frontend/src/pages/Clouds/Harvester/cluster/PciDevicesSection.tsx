@@ -1,10 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Input, Modal, Select, Space, Table, Tag } from 'antd';
+import { Button, Input, Select, Space, Table, Tag } from 'antd';
 import { ReloadOutlined, SearchOutlined, ApiTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 
 interface Props {
   cloudId: string;
@@ -14,16 +15,20 @@ interface Props {
   raw?: any;
   showLog?: boolean;
   bordered?: boolean;
+  /** 标准视图下隐藏「查看YAML」等运维向入口 */
+  mode?: 'standard' | 'ops';
 }
 
-const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefresh, raw, showLog, bordered = true }) => {
+const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefresh, raw, showLog, bordered = true, mode = 'ops' }) => {
+  const isStandardView = mode === 'standard';
   const [keyword, setKeyword] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [bindFilter, setBindFilter] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
-  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerRecord, setDrawerRecord] = useState<any>(null);
+  const [drawerTab, setDrawerTab] = useState('detail');
 
   const vendorName = useCallback((id?: string) => {
     const v = String(id || '').trim().toLowerCase();
@@ -147,9 +152,10 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
     }
   };
 
-  const handleShowMetadata = useCallback((record: any) => {
-    setCurrentMetadata(record);
-    setMetadataModalVisible(true);
+  const handleOpenYaml = useCallback((record: any) => {
+    setDrawerRecord({ ...record, kind: record?.kind || 'PCIDevice' });
+    setDrawerTab('detail');
+    setDrawerOpen(true);
   }, []);
 
   const columnsAll = useMemo(() => {
@@ -258,14 +264,14 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const items = [
-            { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
+            ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
             ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
           ];
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
         },
       },
     ];
-  }, [getNodeName, handleShowMetadata, renderPciStateCell, vendorLabel]);
+  }, [getNodeName, handleOpenYaml, isStandardView, renderPciStateCell, vendorLabel]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, 'harvester_pci_devices_table');
 
@@ -337,9 +343,15 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         />
       </PageDetailSection>
 
-      <Modal title="元数据查看" open={metadataModalVisible} onCancel={() => setMetadataModalVisible(false)} footer={null} width={820}>
-        <Input.TextArea readOnly value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} autoSize={{ minRows: 12, maxRows: 26 }} />
-      </Modal>
+      <HarvesterResourceDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        resourceType="PCI 设备"
+        record={drawerRecord}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
+        cloudId={cloudId}
+      />
 
       {showLog && (
         <div style={{ marginTop: 12 }}>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Typography, Tooltip, Badge, Progress, Popover, Checkbox, TreeSelect, Radio, Spin } from 'antd';
+import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Typography, Tooltip, Badge, Progress, Popover, Checkbox, TreeSelect, Radio } from 'antd';
 import type { MenuProps, CheckboxOptionType } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined, SettingOutlined, EyeOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { getVRRoles, setVRRole, getVRConfig, saveVRConfig, upsertVrCache, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import { listSecurityDomains, updateSecurityDomain } from '../../../services/securityDomainApi';
 
+import { VrDetailDrawer } from './VrDetailDrawer';
 import { netClassLabel, netClassColor, getDomainClass } from '../../../utils/netClass';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
 import StdFormModal from '../../../components/StdFormModal';
@@ -155,10 +156,8 @@ const VRPage: React.FC = () => {
   const [ceModalOpen, setCeModalOpen] = useState(false);
   const [ceForm] = Form.useForm();
 
-  // 元数据查看 Modal
-  const [metadataModalOpen, setMetadataModalOpen] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<{ csmctl: any, vrctl: any, vr3?: any, vr2?: any } | null>(null);
-  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<VRRow | null>(null);
 
   // 隧道管理 Modal
   const [tunnelModalOpen, setTunnelModalOpen] = useState(false);
@@ -294,104 +293,24 @@ const VRPage: React.FC = () => {
 
   const handleRowActionClick = (row: VRRow): MenuProps['onClick'] => ({ key, domEvent }) => {
     domEvent.stopPropagation();
+    // CSMCTL/VRConfig 相关接口使用的是 VR 的 uuid（而不是数据库自增 id）
+    const vrUuid = String(row.uuid || row.vr_unique_id || row.vm_id || '').trim();
     if (key === 'metadata') {
-      const id = row.uuid || row.id || row.vm_id;
-      // 优先使用缓存中的 VR3 信息
-      const cachedVr3 = (row as any).vr3_info;
-      
-      setCurrentMetadata({
-        csmctl: (row as any)._raw_csmctl_info,
-        vrctl: (row as any)._raw_vrctl_info,
-        vr3: cachedVr3 || null,
-        vr2: null
-      });
-      setMetadataModalOpen(true);
-      
-      // Async fetch metadata (VR3 and VR2)
-      setMetadataLoading(true);
-      (async () => {
-        try {
-          const promises: Promise<void>[] = [];
-
-          // 1. Fetch VR3 if not cached
-          if (id && !cachedVr3) {
-            promises.push((async () => {
-              try {
-                const accesskey = 'Cloudmap#123';
-                const secretkey = 'Cloudmap#123';
-                const path = '/V2/ctcontrol/VR3/VRConfig/list';
-                const method = 'GET';
-                const other = `uuid=${id}`;
-                
-                const authUrl = `/api-proxy/api/sign?` +
-                  `url=${encodeURIComponent(path)}&` +
-                  `method=${method}&` +
-                  `other=${encodeURIComponent(other)}&` +
-                  `accessKey=${encodeURIComponent(accesskey)}&` +
-                  `secretKey=${encodeURIComponent(secretkey)}`;
-                  
-                const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
-                const signJson = await signResp.json();
-                const info = (signJson && signJson.data) ? signJson.data : signJson;
-                
-                if (info && info.Authorization && info.tonce) {
-                   const queryUrl = `/api-proxy${path}?${other}`;
-                   const res = await fetch(queryUrl, {
-                     method: 'GET',
-                     headers: {
-                       'Content-Type': 'application/json',
-                       'Authorization': info.Authorization,
-                       'tonce': String(info.tonce)
-                     }
-                   });
-                   const json = await res.json();
-                   const data = (json as any)?.data ?? json;
-                   setCurrentMetadata(prev => prev ? { ...prev, vr3: data } : null);
-                }
-              } catch (e) {
-                console.warn('Failed to fetch VR3 metadata:', e);
-                setCurrentMetadata(prev => prev ? { ...prev, vr3: { error: '获取扩展信息失败', details: (e as any).message } } : null);
-              }
-            })());
-          }
-
-          // 2. Fetch VR Config from Local DB (Desired State)
-          if (id) {
-             promises.push((async () => {
-               try {
-                 const data = await getVRConfig(id);
-                 if (data) {
-                    setCurrentMetadata(prev => prev ? { ...prev, vr2: data } : null);
-                 } else {
-                    setCurrentMetadata(prev => prev ? { ...prev, vr2: { error: '暂无配置', details: '本地数据库未找到该VR的配置信息' } } : null);
-                 }
-               } catch (e) {
-                 console.warn('Failed to fetch VR config:', e);
-                 setCurrentMetadata(prev => prev ? { ...prev, vr2: { error: '获取配置失败', details: (e as any).message } } : null);
-               }
-             })());
-          }
-
-          await Promise.allSettled(promises);
-        } finally {
-          setMetadataLoading(false);
-        }
-      })();
+      setDetailRow(row);
+      setDetailDrawerOpen(true);
       return;
     }
     if (key === 'editConfig') {
-      const id = row.uuid || row.id || row.vm_id;
-      if (id) {
-        navigate(`/admin/interconnect/vr/${id}/config`);
+      if (vrUuid) {
+        navigate(`/admin/interconnect/vr/${vrUuid}/config`);
       } else {
-        message.warning('该行缺少可识别的UUID/ID');
+        message.warning('该行缺少可识别的UUID');
       }
     } else if (key === 'detail') {
       message.info('查看设备详情（功能待设计）');
     } else if (key === 'role') {
-      const id = row.uuid || row.id || row.vm_id;
-      if (!id) return message.warning('该行缺少可识别的UUID/ID');
-      setRoleVrUuid(id);
+      if (!vrUuid) return message.warning('该行缺少可识别的UUID');
+      setRoleVrUuid(vrUuid);
       
       // Default selection logic
       if (row.role && ['PE','CE','SASE','标准'].includes(row.role)) {
@@ -1214,6 +1133,7 @@ const VRPage: React.FC = () => {
         </Form>
       )}
       tableProps={{
+        className: "std-table",
         columns: columns,
         dataSource: filteredVRs,
         rowKey: (r: VRRow) => r.uuid || r.id || r.vm_id || Math.random().toString(36).slice(2),
@@ -1229,72 +1149,18 @@ const VRPage: React.FC = () => {
       }}
     >
 
-      {/* CSMCTL Settings Modal */}
-      <Modal
-        title="元数据查看"
-        open={metadataModalOpen}
-        onCancel={() => setMetadataModalOpen(false)}
-        footer={null}
-        width={800}
-      >
-        <Tabs
-          items={[
-            {
-              key: 'csmctl',
-              label: 'CSMCTL 基本信息 (VR1)',
-              children: (
-                <Input.TextArea
-                  value={JSON.stringify(currentMetadata?.csmctl || {}, null, 2)}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-            {
-              key: 'vr3',
-              label: 'CSMCTL 扩展信息 (VR3)',
-              children: metadataLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
-              ) : (
-                <Input.TextArea
-                  value={currentMetadata?.vr3 ? JSON.stringify(currentMetadata.vr3, null, 2) : '暂无扩展信息或获取失败'}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-            {
-              key: 'vrctl',
-              label: 'VRCTL 数据 (DB)',
-              children: (
-                <Input.TextArea
-                  value={currentMetadata?.vrctl ? JSON.stringify(currentMetadata.vrctl, null, 2) : '暂无绑定数据'}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-            {
-              key: 'vr2',
-              label: 'VRConfig 缓存数据',
-              children: metadataLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
-              ) : (
-                <Input.TextArea
-                  value={currentMetadata?.vr2 ? JSON.stringify(currentMetadata.vr2, null, 2) : '暂无缓存数据或获取失败'}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-          ]}
-        />
-      </Modal>
+      <VrDetailDrawer
+        open={detailDrawerOpen}
+        onClose={() => {
+          setDetailDrawerOpen(false);
+          setDetailRow(null);
+        }}
+        row={detailRow}
+        rolesMap={rolesMap}
+        orgNameMap={orgNameMap}
+      />
 
+      {/* CSMCTL Settings Modal */}
       <Modal
         title="CSMCTL 服务地址设置"
         open={settingsModalOpen}

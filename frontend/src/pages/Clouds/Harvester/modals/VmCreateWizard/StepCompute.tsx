@@ -97,6 +97,16 @@ const StepCompute: React.FC<StepComputeProps> = ({
   // 监听表单字段变化
   const cpu = Form.useWatch('cpu', form);
   const hotExpandEnabled = Form.useWatch('hotExpandEnabled', form);
+  const dedicatedCPUPlacement = Form.useWatch('dedicatedCPUPlacement', form);
+
+  // 未启用 CPU 绑定时不能保留 CPU 隔离
+  React.useEffect(() => {
+    if (!dedicatedCPUPlacement && form.getFieldValue('isolateEmulatorThread')) {
+      try {
+        form.setFieldsValue({ isolateEmulatorThread: false });
+      } catch {}
+    }
+  }, [dedicatedCPUPlacement, form]);
 
   // [初始化] 组件加载时同步 CPU 数据并设置默认值
   React.useEffect(() => {
@@ -327,9 +337,9 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Form.Item label="CPU 隔离">
               <Space>
                 <Form.Item name="isolateEmulatorThread" valuePropName="checked" noStyle>
-                  <Checkbox>启用</Checkbox>
+                  <Checkbox disabled={!dedicatedCPUPlacement}>启用</Checkbox>
                 </Form.Item>
-                <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰</Typography.Text>
+                <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰（需先启用 CPU 绑定）</Typography.Text>
               </Space>
             </Form.Item>
             

@@ -22,9 +22,21 @@ export const updateHarvesterSubnet = async (
   }
 
   // 2. 合并 Payload
-  // 支持更新 spec 字段，以及 metadata.annotations
+  // 支持更新 spec 字段，以及 metadata.annotations（值为 null/undefined 时表示删除该注解键，便于扁平子网切换 underlay/overlay）
   const { annotations, ...rawSpec } = payload;
   const specPayload: Record<string, any> = { ...rawSpec };
+  const baseAnnotations: Record<string, string> = {
+    ...(current.metadata?.annotations || {}),
+  };
+  if (annotations && typeof annotations === 'object') {
+    for (const [k, v] of Object.entries(annotations)) {
+      if (v === null || v === undefined) {
+        delete baseAnnotations[k];
+      } else {
+        baseAnnotations[k] = String(v);
+      }
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(specPayload, 'allowDhcp')) {
     specPayload.enableDHCP = !!specPayload.allowDhcp;
     delete specPayload.allowDhcp;
@@ -40,10 +52,7 @@ export const updateHarvesterSubnet = async (
     ...current,
     metadata: {
       ...current.metadata,
-      annotations: {
-        ...(current.metadata?.annotations || {}),
-        ...(annotations || {}),
-      }
+      annotations: baseAnnotations,
     },
     spec: {
       ...current.spec,
@@ -119,9 +128,16 @@ export const listHarvesterNADsStandard = async ({
     }
   }
 
-  // 策略 B: 如果 Cluster 级别失败 (通常是 403 Forbidden)，则尝试在特定 Namespace 下查找
+  // 策略 B: 如果 Cluster 级别失败 (通常是 403 Forbidden)，则尝试在特定 Namespace 下查找（不当作「系统过滤」排除，仅扩大可拉取范围以便入库与排障）
   if (!json) {
-    const nsCandidates = ['default', 'kube-system'];
+    const nsCandidates = [
+      'default',
+      'kube-system',
+      'harvester-system',
+      'cattle-system',
+      'kube-public',
+      'local',
+    ];
     for (const ns of nsCandidates) {
       for (const baseUrl of candidates) {
         // 构造带 namespace 参数的 URL

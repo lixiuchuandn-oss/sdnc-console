@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Form, Modal, message } from 'antd';
+import { Form, Input, Modal, Radio, message } from 'antd';
 import { createKubeOvnSubnet } from '../../../../../services/harvesterApi';
 import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../contexts/AuthContext';
@@ -11,8 +11,22 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   KUBE_OVN_PUBLIC_VPC,
+  OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
 } from './constants';
 import { defaultVlanCrNameByMinVlanId } from './vlanUtils';
+
+function isValidIpv4Cidr(s: string): boolean {
+  const t = String(s ?? '').trim();
+  if (!t) return false;
+  const m = t.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+  if (!m) return false;
+  for (let i = 1; i <= 4; i++) {
+    const n = parseInt(m[i], 10);
+    if (n > 255) return false;
+  }
+  const pref = parseInt(m[5], 10);
+  return pref >= 0 && pref <= 32;
+}
 
 export type CreatePublicSubnetModalProps = {
   open: boolean;
@@ -20,7 +34,7 @@ export type CreatePublicSubnetModalProps = {
   cloudId: string;
   vlans: any[];
   providers: any[];
-  /** 用于别名重复校验（公共子网 CR 列表） */
+  /** 用于名称重复校验（公共子网 CR 列表） */
   aliasDupCheckItems: any[];
   onSuccess?: () => void | Promise<void>;
   /** 打开时预填 VLAN（CR metadata.name）；未传时按 VLAN spec.id 最小默认 */
@@ -58,7 +72,9 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
     const vlanPreset =
       (initialVlanCrName && String(initialVlanCrName).trim()) || defaultVlanCrNameByMinVlanId(vlans);
     if (vlanPreset) {
-      form.setFieldsValue({ vlan: vlanPreset });
+      form.setFieldsValue({ vlan: vlanPreset, accessScopeMode: 'unlimited' });
+    } else {
+      form.setFieldsValue({ accessScopeMode: 'unlimited' });
     }
   }, [open, initialVlanCrName, vlans, form]);
 
@@ -69,8 +85,14 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
         return;
       }
       try {
-        const { alias, ...rest } = values;
+        const { alias, accessScopeMode, accessRouteCidr, ...rest } = values;
         const aliasTrim = String(alias ?? '').trim();
+        const routeCidr =
+          accessScopeMode === 'unlimited' ? '0.0.0.0/0' : String(accessRouteCidr ?? '').trim();
+        if (accessScopeMode === 'custom' && !isValidIpv4Cidr(routeCidr)) {
+          message.error('请填写有效的 IPv4 CIDR（可访问范围）');
+          return;
+        }
         const subnetId = generateHarvesterEntityId('sn');
         const excludeIps = rest.excludeIps
           ? String(rest.excludeIps)
@@ -79,10 +101,17 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
               .filter((s: string) => s)
           : [];
 
+        const vlanTrim = String(rest.vlan ?? '').trim();
+        const vlanHit = vlanTrim
+          ? vlans.find((v: any) => String(v?.metadata?.name ?? '').trim() === vlanTrim)
+          : undefined;
+        const providerFromVlan = String(vlanHit?.spec?.provider ?? '').trim();
+
         const payload: Record<string, unknown> = {
           ...rest,
           name: subnetId,
           excludeIps,
+          ...(providerFromVlan ? { provider: providerFromVlan } : {}),
           protocol: 'IPv4',
           allowEWTraffic: false,
           vpc: rest.vpc || KUBE_OVN_PUBLIC_VPC,
@@ -92,6 +121,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
           annotations: {
             ...(rest?.annotations || {}),
             [SUBNET_TYPE_ANNOTATION_KEY]: 'public',
+            [OVN_INTERNAL_ROUTE_CIDR_ANNOTATION]: routeCidr,
             ...(aliasTrim ? { [TOWER_ALIAS_ANNOTATION]: aliasTrim } : {}),
           },
           finalizers: Array.from(
@@ -117,7 +147,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
         message.error(`创建公共子网失败: ${detail}`);
       }
     },
-    [canSubmit, cloudId, form, onClose, onSuccess],
+    [canSubmit, cloudId, form, onClose, onSuccess, vlans],
   );
 
   return (
@@ -131,18 +161,59 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
         form.resetFields();
       }}
       okButtonProps={{ disabled: !canSubmit }}
-      width={600}
+      width={640}
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" onFinish={handleSubmit} className="std-form">
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={handleSubmit}
+        className="std-form"
+      >
         <UnderlaySubnetFormFields
           form={form}
           isFlatMode={false}
           vlans={vlans}
           providers={providers}
           aliasDupCheckItems={aliasDupCheckItems}
-          aliasFieldTooltip="展示名称，支持中文；写入注解 tower.io/alias。子网在集群中的资源名（metadata.name）为自动生成，格式 id-sn- 加 11 位随机字符。"
+          aliasFieldTooltip="展示名称，支持中文。集群内资源 ID（metadata.name）为系统自动生成，格式 id-sn- 加 11 位随机字符。"
         />
+        <Form.Item
+          name="accessScopeMode"
+          label="可访问的范围"
+          initialValue="unlimited"
+          rules={[{ required: true, message: '请选择可访问范围' }]}
+        >
+          <Radio.Group>
+            <Radio value="unlimited">不限（0.0.0.0/0）</Radio>
+            <Radio value="custom">指定 IP 范围（CIDR）</Radio>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.accessScopeMode !== cur.accessScopeMode}>
+          {({ getFieldValue }) =>
+            getFieldValue('accessScopeMode') === 'custom' ? (
+              <Form.Item
+                name="accessRouteCidr"
+                label="路由目的网段"
+                rules={[
+                  { required: true, message: '请输入 CIDR' },
+                  {
+                    validator: async (_, v) => {
+                      const s = String(v ?? '').trim();
+                      if (!s) return Promise.resolve();
+                      if (!isValidIpv4Cidr(s)) {
+                        return Promise.reject(new Error('请输入有效的 IPv4 CIDR'));
+                      }
+                      return Promise.resolve();
+                    },
+                  },
+                ]}
+              >
+                <Input placeholder="例如 10.0.0.0/8" />
+              </Form.Item>
+            ) : null
+          }
+        </Form.Item>
       </Form>
     </Modal>
   );
