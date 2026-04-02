@@ -1062,6 +1062,9 @@ const JobTable: React.FC<{
       key: 'name',
       width: 220,
       ellipsis: true,
+      render: (name: string, record: any) => (
+        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
+      ),
     },
     {
       title: '命名空间',
@@ -1344,6 +1347,9 @@ const CronJobTable: React.FC<{
       key: 'name',
       width: 220,
       ellipsis: true,
+      render: (name: string, record: any) => (
+        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
+      ),
     },
     {
       title: '命名空间',

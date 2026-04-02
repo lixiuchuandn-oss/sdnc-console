@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { Drawer, Tabs, Descriptions, Tag } from 'antd';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
@@ -31,6 +32,10 @@ export interface HarvesterResourceDrawerProps {
   onViewPodDetail?: (pod: any) => void;
   onViewPodLog?: (pod: any) => void;
   onOpenPodTerminal?: (pod: any) => void;
+  // 返回按钮回调（用于嵌套抽屉）
+  onBack?: () => void;
+  // 隐藏关联 Pod Tab（用于服务拓扑）
+  hideRelatedPods?: boolean;
 }
 
 const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boolean }> = ({ cloudId, viewLink, active }) => {
@@ -89,7 +94,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
     onClose,
     resourceType,
     record,
-    activeTab = 'detail',
+    activeTab: externalActiveTab = 'detail',
     onTabChange,
     cloudId,
     pods,
@@ -97,11 +102,55 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
     onViewPodDetail,
     onViewPodLog,
     onOpenPodTerminal,
+    onBack,
+    hideRelatedPods = false,
   } = props;
+
+  // 内部管理 tab 状态（当没有外部 onTabChange 时使用）
+  const [internalActiveTab, setInternalActiveTab] = useState('detail');
+  
+  // 判断是否使用内部状态
+  const useInternalState = !onTabChange;
+  const activeTab = useInternalState ? internalActiveTab : externalActiveTab;
+  
+  // 处理 tab 切换
+  const handleTabChange = useCallback((key: string) => {
+    if (useInternalState) {
+      setInternalActiveTab(key);
+    } else {
+      onTabChange?.(key);
+    }
+  }, [useInternalState, onTabChange]);
 
   if (resourceType === 'VirtualMachine' && !forceOpsMode) {
     return <HarvesterVmDetailDrawer {...props} />;
   }
+
+  // 如果 record 没有 links.view，根据 resourceType 和 metadata 自动构造
+  const viewLink = record?.links?.view || (() => {
+    if (!record?.metadata?.name || !record?.metadata?.namespace) return null;
+    
+    const ns = record.metadata.namespace;
+    const name = record.metadata.name;
+    
+    // 根据资源类型构造 Kubernetes API 路径
+    const typeToPath: Record<string, string> = {
+      'Service': `/api/v1/namespaces/${ns}/services/${name}`,
+      'Ingress': `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
+      'Pod': `/api/v1/namespaces/${ns}/pods/${name}`,
+      'Node': `/api/v1/nodes/${name}`,
+      'Namespace': `/api/v1/namespaces/${name}`,
+      'Deployment': `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
+      'StatefulSet': `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
+      'DaemonSet': `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
+      'Job': `/apis/batch/v1/namespaces/${ns}/jobs/${name}`,
+      'CronJob': `/apis/batch/v1/namespaces/${ns}/cronjobs/${name}`,
+      'ConfigMap': `/api/v1/namespaces/${ns}/configmaps/${name}`,
+      'Secret': `/api/v1/namespaces/${ns}/secrets/${name}`,
+    };
+    
+    return typeToPath[resourceType] || null;
+  })();
 
   const drawerTitle = record 
     ? `${resourceType}: ${record.metadata?.name || record.name || ''}`
@@ -109,7 +158,16 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
 
   return (
     <Drawer
-      title={drawerTitle}
+      title={
+        <Space>
+          {onBack && (
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
+              返回
+            </Button>
+          )}
+          <span>{drawerTitle}</span>
+        </Space>
+      }
       open={open}
       onClose={onClose}
       placement="right"
@@ -127,7 +185,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
       <Tabs
         className="full-height-drawer-tabs"
         activeKey={activeTab}
-        onChange={onTabChange}
+        onChange={handleTabChange}
         items={[
           {
             key: 'detail',
@@ -215,13 +273,13 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
               </div>
             ),
           },
-          ...((record?.links?.view) ? [{
+          ...(viewLink ? [{
             key: 'view_link',
             label: '实时数据 (View Link)',
-            children: <ViewLinkTab cloudId={cloudId} viewLink={record?.links?.view} active={activeTab === 'view_link'} />
+            children: <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />
           }] : []),
-          // Service 类型显示关联 Pod Tab
-          ...(resourceType === 'Service' ? [{
+          // Service 类型显示关联 Pod Tab（除非 hideRelatedPods 为 true）
+          ...(resourceType === 'Service' && !hideRelatedPods ? [{
             key: 'related_pods',
             label: '关联 Pod',
             children: (

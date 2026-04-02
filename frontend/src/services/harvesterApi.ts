@@ -2198,10 +2198,14 @@ export const fetchNetworkPolicies = async (cloudId: string, namespace?: string, 
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
  * @param name NetworkPolicy 名称
+ * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchNetworkPolicyDetail = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+export const fetchNetworkPolicyDetail = async (cloudId: string, namespace: string, name: string, force?: boolean) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    { skipCache: force }
+  );
 };
 
 /**

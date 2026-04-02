@@ -2,7 +2,7 @@
 
 > 版本: 2.0
 > 创建日期: 2026-03-10
-> 最后更新: 2026-03-24
+> 最后更新: 2026-03-27
 
 ## 目录
 
@@ -159,12 +159,91 @@ WorkloadsSection.tsx
 │   └── 操作列
 └── 创建工作负载按钮 → WorkloadFormModal
     └── WorkloadForm.tsx
+        ├── 左侧: 步骤导航
+        ├── 中间: 当前步骤表单
+        ├── 右侧: 配置预览
         ├── 步骤1: 基本信息 (名称、命名空间、类型、标签)
-        ├── 步骤2: 容器配置 (镜像、资源、环境变量、端口)
-        └── 步骤3: 高级配置 (调度策略、存储卷)
+        ├── 步骤2: 容器配置 (容器列表 + 单容器编辑 + 健康检查)
+        ├── 步骤3: 存储配置 (卷定义 + 当前容器卷挂载)
+        └── 步骤4: 高级配置 (副本、镜像凭证、调度)
 ```
 
-#### 3.1.3 创建表单字段
+#### 3.1.3 多容器支持设计
+
+**目标**:
+- 工作负载支持配置多个容器，对应 Kubernetes `spec.template.spec.containers[]`
+- 保持现有 YAML 模式、编辑模式、快速创建 ConfigMap/Secret/镜像凭证能力可用
+- 创建弹窗改为与 NetworkPolicy 一致的三栏向导布局
+
+**表单数据结构调整**:
+
+```typescript
+interface WorkloadContainerFormValue {
+  name: string;
+  image: string;
+  imagePullPolicy: 'Always' | 'IfNotPresent' | 'Never';
+  ports: Array<{ containerPort: number; protocol: 'TCP' | 'UDP'; name?: string }>;
+  env: EnvVarValue[];
+  resources: {
+    requests: { cpu?: string; memory?: string };
+    limits: { cpu?: string; memory?: string };
+  };
+  command?: string[];
+  args?: string[];
+  livenessProbe?: ProbeConfig;
+  readinessProbe?: ProbeConfig;
+  volumeMounts?: VolumeMountConfig[];
+}
+
+interface WorkloadFormValues {
+  name: string;
+  namespace: string;
+  workloadType: WorkloadType;
+  labels: Array<{ key: string; value: string }>;
+  containers: WorkloadContainerFormValue[];
+  replicas: number;
+  imagePullSecrets: string[];
+  nodeSelector: Array<{ key: string; value: string }>;
+  nodeAffinity?: NodeAffinityConfig;
+  nodeAntiAffinity?: NodeAffinityConfig;
+  podAffinity?: PodAffinityConfig;
+  podAntiAffinity?: PodAffinityConfig;
+  tolerations?: Toleration[];
+  volumes?: VolumeConfig[];
+}
+```
+
+**兼容策略**:
+- 表单模式从单容器字段切换为 `containers[]`
+- YAML 转表单时完整解析 `containers[]`
+- 表单转 YAML 时完整输出 `containers[]`
+- 编辑旧数据时，如果只有一个容器，自动回填到 `containers[0]`
+- 为减少回归，镜像凭证、调度策略、卷定义保留在工作负载级别；卷挂载移动到容器级别
+
+**交互设计**:
+- 容器配置步骤分为两部分：上方容器列表，下方当前选中容器详情表单
+- 支持新增容器、复制容器、删除容器、切换当前编辑容器
+- 至少保留一个容器；删除最后一个容器时阻止操作
+- 右侧预览展示容器数量、每个容器镜像、端口数、环境变量数、挂载数
+- 默认第一个容器名称跟随工作负载名称自动生成；用户手动修改后不再覆盖
+
+**分步布局**:
+- 左侧：步骤导航（基本信息 / 容器配置 / 存储配置 / 高级配置）
+- 中间：当前步骤内容，滚动区域固定高度
+- 右侧：配置预览，实时显示工作负载摘要和容器摘要
+
+**步骤归属原则**:
+- 容器配置：镜像、端口、环境变量、资源限制、启动命令/参数、健康检查
+- 存储配置：共享卷定义 `volumes` + 当前容器卷挂载 `volumeMounts`
+- 高级配置：副本数、镜像拉取凭证、节点选择器、亲和性、污点容忍
+
+**风险点与规避**:
+- `EnvEditor`、`ProbeEditor`、`PortsEditor` 当前绑定单字段，需要改造为支持传入路径
+- `VolumesEditor` 需要拆分为“卷定义”与“当前容器卷挂载”两个层次，避免多个容器共享挂载状态
+- YAML/编辑模式不能再只取 `containers[0]`
+- 编辑模式切换 YAML 时应保留原始 metadata 字段与多容器完整配置
+
+#### 3.1.4 创建表单字段
 
 **基本信息**:
 | 字段 | 类型 | 必填 | 说明 |
@@ -175,7 +254,7 @@ WorkloadsSection.tsx
 | 标签 | key-value | 否 | Pod 标签 |
 | 注解 | key-value | 否 | Pod 注解 |
 
-**容器配置**:
+**容器配置（单容器字段，扩展为容器列表项）**:
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | 镜像 | string | 是 | 容器镜像地址 |
@@ -459,30 +538,35 @@ const CACHE_TTL = 30 * 1000; // 30 秒
 ### 5.3 创建工作负载弹窗
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 创建工作负载                                              [×]       │
-├─────────────────────────────────────────────────────────────────────┤
-│ 步骤指示器: [①基本信息] ─ ②容器配置 ─ ③高级配置                    │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│   工作负载名称 *    [________________]                              │
-│                                                                     │
-│   命名空间 *        [default    ▼]                                  │
-│                                                                     │
-│   类型 *           [Deployment ▼]                                   │
-│                     ○ Deployment  - 无状态应用                      │
-│                     ○ StatefulSet - 有状态应用                      │
-│                     ○ DaemonSet   - 每节点一个                      │
-│                                                                     │
-│   标签             [+] 添加标签                                     │
-│                    ┌──────────────────────────────┐                │
-│                    │ app: nginx                   │ [×]            │
-│                    └──────────────────────────────┘                │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│                                           [取消]  [上一步]  [下一步]│
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 创建工作负载                                                                │
+├──────────────┬───────────────────────────────────────┬─────────────────────┤
+│ 步骤导航      │ 表单内容                               │ 配置预览            │
+│              │                                       │                     │
+│ 1. 基本信息   │ 名称 / 命名空间 / 类型 / 标签          │ 名称                │
+│ 2. 容器配置   │ 容器列表 + 当前容器详情                │ 类型                │
+│ 3. 存储配置   │ 卷定义 + 当前容器卷挂载                │ 命名空间            │
+│ 4. 高级配置   │ 副本 / 镜像凭证 / 调度                 │ 容器数              │
+│              │                                       │ 容器数              │
+│              │ [容器1 nginx] [编辑中]                 │ - nginx             │
+│              │ [容器2 sidecar]                        │   nginx:latest      │
+│              │ [+ 添加容器] [复制容器] [删除容器]      │ - sidecar           │
+│              │                                       │   busybox:1.36      │
+├──────────────┴───────────────────────────────────────┴─────────────────────┤
+│                                                 [取消] [上一步] [下一步/创建]│
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**容器配置步骤布局**:
+- 上方容器卡片列表：显示名称、镜像、端口数、环境变量数、健康检查状态
+- 下方容器编辑区：仅编辑当前选中的一个容器
+- 支持快速在多个容器间切换，不丢失未提交表单值
+
+**存储配置步骤布局**:
+- 上方保留容器切换区，明确当前正在配置哪个容器的卷挂载
+- 中间先编辑共享卷定义 `volumes`
+- 下方编辑当前容器的 `volumeMounts`
+- 避免用户在不同步骤之间来回跳转配置卷定义和挂载关系
 
 ### 5.4 Pod 终端
 
@@ -598,6 +682,25 @@ import { yaml } from '@codemirror/lang-yaml';
   onChange={(value) => setYamlContent(value)}
 />
 ```
+
+### 6.5 多容器表单实现策略
+
+```typescript
+// 工作负载级别
+const containers = Form.useWatch('containers', form) || [];
+const [activeContainerIndex, setActiveContainerIndex] = useState(0);
+
+// 子编辑器统一支持 path 前缀
+<PortsEditor name={['containers', activeContainerIndex, 'ports']} />
+<EnvEditor name={['containers', activeContainerIndex, 'env']} />
+<ProbeEditor name={['containers', activeContainerIndex, 'livenessProbe']} />
+```
+
+**关键原则**:
+- 容器列表数据统一存放在 `form` 的 `containers[]`
+- 当前编辑容器索引用本地 state 管理
+- 子组件通过路径参数读写，避免复制多套单容器逻辑
+- 摘要区通过 `form.getFieldsValue(true)` 读取完整值，避免步骤切换丢数据
 
 ---
 
@@ -1219,6 +1322,7 @@ const namespacesOptions = useMemo(() => {
 | 2026-03-15 | 1.5 | 服务发现设计 |
 | 2026-03-16 | 1.6 | 配置管理设计 |
 | 2026-03-17 | 1.7 | Gateway API 设计 |
+| 2026-03-27 | 2.1 | 新增工作负载多容器支持与三栏向导布局设计 |
 | 2026-03-18 | 1.8 | 服务发现增强设计（编辑/YAML/关联Pod） |
 | 2026-03-19 | 1.9 | YAML 编辑器升级设计 |
 | 2026-03-20 | 2.0 | 三期功能规划（高级调度策略/NetworkPolicy/交互优化/租户视角） |

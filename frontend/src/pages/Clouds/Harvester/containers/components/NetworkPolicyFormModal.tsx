@@ -38,7 +38,11 @@ const NetworkPolicyFormModal: React.FC<Props> = ({
       open={visible}
       onCancel={onCancel}
       footer={null}
-      width={800}
+      width={'70vw'}
+      centered
+      styles={{
+        body: { height: '80vh', maxHeight: '80vh', overflow: 'hidden'}
+      }}
       destroyOnClose
     >
       <NetworkPolicyForm

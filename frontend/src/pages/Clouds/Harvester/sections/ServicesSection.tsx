@@ -281,7 +281,9 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       title: '名称', 
       dataIndex: 'name', 
       key: 'name',
-      render: (text: string) => <span>{text}</span>
+      render: (text: string, record: any) => (
+        <a onClick={() => { setSelectedRecord(record); setDrawerActiveTab('detail'); setDrawerOpen(true); }} style={{ color: '#1890ff' }}>{text}</a>
+      )
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { 

@@ -61,7 +61,7 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
       open={visible}
       onCancel={onCancel}
       footer={null}
-      width={720}
+      width={1500}
       destroyOnClose
       maskClosable={false}
     >

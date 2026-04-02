@@ -571,11 +571,8 @@ const ConfigMapTable: React.FC<{
       key: 'name',
       width: 250,
       ellipsis: true,
-      render: (name: string) => (
-        <Space>
-          <FileTextOutlined />
-          <Text>{name}</Text>
-        </Space>
+      render: (name: string, record: any) => (
+        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
       ),
     },
     {
@@ -795,11 +792,8 @@ const SecretTable: React.FC<{
       key: 'name',
       width: 250,
       ellipsis: true,
-      render: (name: string) => (
-        <Space>
-          <KeyOutlined />
-          <Text>{name}</Text>
-        </Space>
+      render: (name: string, record: any) => (
+        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
       ),
     },
     {

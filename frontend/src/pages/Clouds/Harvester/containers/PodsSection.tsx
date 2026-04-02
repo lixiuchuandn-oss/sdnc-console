@@ -13,8 +13,8 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm } from 'antd';
-import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip } from 'antd';
+import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -90,6 +90,56 @@ const formatTime = (timestamp?: string) => {
   }
 };
 
+const POD_CONDITION_TOOLTIPS: Record<string, string> = {
+  PodScheduled: 'Pod 已被调度到某个节点',
+  Initialized: 'Init 容器全部执行成功',
+  ContainersReady: '所有容器都已启动并通过就绪检查',
+  Ready: 'Pod 可以接收服务流量',
+  PodReadyToStartContainers: '网络和存储已就绪，容器可以启动（K8s 1.29+）',
+  DisruptionTarget: 'Pod 正在被驱逐、删除或因节点异常进入中断处理流程',
+  PodResizePending: 'Pod 资源规格变更已提交，等待运行时完成调整',
+  PodResizeInProgress: 'Pod 资源规格正在调整中',
+  'kubevirt.io/virtual-machine-unpaused': 'KubeVirt 虚拟机已取消暂停，相关 Pod 已恢复运行',
+  'kubevirt.io/virtual-machine-paused': 'KubeVirt 虚拟机已暂停，相关 Pod 进入暂停状态',
+  'kubevirt.io/migration-target-ready': 'KubeVirt 迁移目标端已就绪，可接收虚拟机迁移',
+  'kubevirt.io/storage-live-migration-ready': 'KubeVirt 存储热迁移所需条件已满足',
+};
+
+const getPodConditionTooltip = (type?: string) => {
+  if (!type) return undefined;
+  return POD_CONDITION_TOOLTIPS[type];
+};
+
+const renderPodConditionType = (type?: string) => {
+  const text = type || '-';
+  const tooltip = getPodConditionTooltip(type);
+
+  if (!tooltip) {
+    return text;
+  }
+
+  return (
+    <Space size={4} style={{ maxWidth: '100%' }}>
+      <Tooltip
+        title={tooltip}
+        placement="topLeft"
+        overlayInnerStyle={{ maxWidth: 360, whiteSpace: 'normal' }}
+        zIndex={9999}
+      >
+        <span style={{ cursor: 'help', wordBreak: 'break-word' }}>{text}</span>
+      </Tooltip>
+      <Tooltip
+        title={tooltip}
+        placement="topLeft"
+        overlayInnerStyle={{ maxWidth: 360, whiteSpace: 'normal' }}
+        zIndex={9999}
+      >
+        <InfoCircleOutlined style={{ color: '#999', cursor: 'help', flex: 'none' }} />
+      </Tooltip>
+    </Space>
+  );
+};
+
 /**
  * 计算运行时长
  */
@@ -122,7 +172,8 @@ const PodLogViewer: React.FC<{
   containers: string[];
   visible: boolean;
   onClose: () => void;
-}> = ({ cloudId, namespace, podName, containers, visible, onClose }) => {
+  onBack?: () => void;
+}> = ({ cloudId, namespace, podName, containers, visible, onClose, onBack }) => {
   const [logs, setLogs] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [selectedContainer, setSelectedContainer] = useState<string>('');
@@ -189,7 +240,16 @@ const PodLogViewer: React.FC<{
   
   return (
     <Drawer
-      title={`日志: ${podName}`}
+      title={
+        <Space>
+          {onBack && (
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
+              返回
+            </Button>
+          )}
+          <span>日志: {podName}</span>
+        </Space>
+      }
       placement="right"
       width={800}
       open={visible}
@@ -426,7 +486,7 @@ const PodDetailDrawer: React.FC<{
           },
           {
             key: 'conditions',
-            label: '条件',
+            label: '状态条件',
             children: (
               <Table
                 dataSource={(status.conditions || []).map((c: any, idx: number) => ({
@@ -434,7 +494,12 @@ const PodDetailDrawer: React.FC<{
                   key: idx,
                 }))}
                 columns={[
-                  { title: '类型', dataIndex: 'type', width: 150 },
+                  {
+                    title: '类型',
+                    dataIndex: 'type',
+                    width: 240,
+                    render: (value: string) => renderPodConditionType(value),
+                  },
                   {
                     title: '状态',
                     dataIndex: 'status',
@@ -742,6 +807,9 @@ const PodsSection: React.FC<Props> = ({
       key: 'name',
       width: 220,
       ellipsis: true,
+      render: (name: string, record: any) => (
+        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
+      ),
     },
     {
       title: '命名空间',
@@ -964,9 +1032,8 @@ const PodsSection: React.FC<Props> = ({
           podName={currentPod?.metadata?.name}
           containers={logContainers}
           visible={logVisible}
-          onClose={() => {
-            setLogVisible(false);
-          }}
+          onClose={() => setLogVisible(false)}
+          onBack={() => { setLogVisible(false); setDetailVisible(true); }}
         />
       )}
       

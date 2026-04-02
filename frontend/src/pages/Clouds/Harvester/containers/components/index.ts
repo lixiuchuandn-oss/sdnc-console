@@ -93,3 +93,26 @@ export type { QuickCreateRegistrySecretModalProps } from './QuickCreateRegistryS
 export { default as NetworkPolicyForm } from './NetworkPolicyForm';
 export { default as NetworkPolicyFormModal } from './NetworkPolicyFormModal';
 export type { NetworkPolicyFormValues, NetworkPolicyFormProps } from './NetworkPolicyForm';
+
+// 服务拓扑数据聚合工具
+export {
+  buildServiceTopology,
+  buildServiceTopologyForService,
+  buildNamespaceTopology,
+  extractBackendServices,
+  extractServiceSelector,
+  matchPodsBySelector,
+  getTopologyStats,
+  getPodStatusStats,
+} from './serviceTopologyUtils';
+export type {
+  TopologyNodeType,
+  TopologyNode,
+  TopologyEdge,
+  ServiceTopology as ServiceTopologyData,
+} from './serviceTopologyUtils';
+
+// 服务拓扑可视化组件
+export { ServiceTopology } from './topology';
+export { IngressNode, ServiceNode, PodNode } from './topology';
+export type { ServiceTopologyProps } from './topology';

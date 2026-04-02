@@ -223,7 +223,7 @@ const NetworkPolicyDetailDrawer: React.FC<{
   React.useEffect(() => {
     if (visible && networkPolicy) {
       setLoading(true);
-      fetchNetworkPolicyDetail(cloudId, networkPolicy.metadata.namespace, networkPolicy.metadata.name)
+      fetchNetworkPolicyDetail(cloudId, networkPolicy.metadata.namespace, networkPolicy.metadata.name, true)
         .then((res) => {
           setDetail(res?.data || networkPolicy);
         })

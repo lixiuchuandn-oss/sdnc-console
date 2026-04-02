@@ -24,7 +24,7 @@ import ClusterNetworksSection from './sections/ClusterNetworksSection';
 // 重新编译触发引入
 import NamespacesTab from './sections/NamespacesTab';
 // 引入容器组件
-import { WorkloadsSection, PodsSection, JobsSection, ConfigsSection, RegistriesSection, GatewayApiSection, PDBSection, NetworkPoliciesSection } from './containers';
+import { WorkloadsSection, PodsSection, JobsSection, ConfigsSection, RegistriesSection, GatewayApiSection, PDBSection, NetworkPoliciesSection, ServiceTopologySection } from './containers';
 import { CloudUploadOutlined, ArrowLeftOutlined, ReloadOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
@@ -1747,24 +1747,45 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       )
                     },
                     {
-                      key: 'gateway_api',
-                      label: '网关路由',
+                       key: 'gateway_api',
+                       label: '网关路由',
+                       children: (
+                         <GatewayApiSection
+                           cloudId={cloudId}
+                           gatewayApiStatus={gatewayApiStatus}
+                           gatewayClasses={gatewayClasses}
+                           gateways={gateways}
+                           httpRoutes={httpRoutes}
+                           grpcRoutes={grpcRoutes}
+                           loading={resourceLoading.gatewayApiStatus || resourceLoading.gateways}
+                           namespacesOptions={namespacesOptions}
+                           services={harvesterServices}
+                           onRefresh={() => loadTabResource('gateway_api', true)}
+                         />
+                       )
+                     },
+                    {
+                      key: 'service_topology',
+                      label: '服务拓扑',
                       children: (
-                        <GatewayApiSection
+                        <ServiceTopologySection
                           cloudId={cloudId}
-                          gatewayApiStatus={gatewayApiStatus}
-                          gatewayClasses={gatewayClasses}
-                          gateways={gateways}
-                          httpRoutes={httpRoutes}
-                          grpcRoutes={grpcRoutes}
-                          loading={resourceLoading.gatewayApiStatus || resourceLoading.gateways}
-                          namespacesOptions={namespacesOptions}
+                          ingresses={harvesterIngresses}
                           services={harvesterServices}
-                          onRefresh={() => loadTabResource('gateway_api', true)}
+                          pods={harvesterPods}
+                          namespacesOptions={namespacesOptions}
+                          loading={resourceLoading.ingresses || resourceLoading.services || resourceLoading.pods}
+                          onRefresh={() => {
+                            loadTabResource('ingresses', true);
+                            loadTabResource('services', true);
+                            loadTabResource('pods', true);
+                          }}
+                          nsValue={nsFilter || undefined}
+                          onNsChange={(v) => setNsFilter(v || '')}
                         />
                       )
                     },
-                    {
+                     {
                       key: 'pdbs',
                       label: 'Pod中断保护',
                       children: (

@@ -149,7 +149,7 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
       width={720}
       open={visible}
       onClose={handleClose}
-      destroyOnClose={false}
+      destroyOnClose
       footer={
         isSelectMode ? (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

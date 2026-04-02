@@ -233,6 +233,10 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
 
   // 当 currentImage 变化时，自动展开对应的节点并高亮标签
   useEffect(() => {
+    if (!currentImageInfo) {
+      setSelectedTag(null);
+    }
+
     console.log('[RegistryBrowser] currentImage changed:', currentImage);
     console.log('[RegistryBrowser] currentImageInfo:', currentImageInfo);
     console.log('[RegistryBrowser] initialLoaded:', initialLoaded);
@@ -305,7 +309,7 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
         setTreeKey(prev => prev + 1); // 强制重新渲染 Tree
       }
     }
-  }, [currentImageInfo, initialLoaded, loadedKeys, loadTags, treeData]);
+  }, [currentImage, currentImageInfo, initialLoaded, loadedKeys, loadTags, treeData]);
 
   const onLoadData: TreeProps['loadData'] = async (treeNode) => {
     const node = treeNode as unknown as ExtendedTreeDataNode;

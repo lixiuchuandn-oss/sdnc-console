@@ -20,13 +20,12 @@
  * 步骤3: 高级配置 - 副本数、存储、调度、健康检查
  */
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Form,
   Input,
   Select,
   InputNumber,
-  Steps,
   Button,
   Space,
   Card,
@@ -47,12 +46,18 @@ import {
   FormOutlined,
   FolderOutlined,
   DownOutlined,
+  ProfileOutlined,
+  AppstoreOutlined,
+  SettingOutlined,
+  CheckOutlined,
+  CopyOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 import yaml from 'js-yaml';
 import { createHarvesterContainerResource, updateHarvesterContainerResource } from '../../../../../services/harvesterApi';
-import LinedTextArea from '../../../../../components/LinedTextArea';
 import YamlEditor from '../../../../../components/YamlEditor';
+import '../../modals/VmCreateWizard/InstanceWizard.css';
 import { 
   RegistryBrowserDrawer, 
   QuickCreateRegistrySecretModal,
@@ -176,12 +181,46 @@ export interface VolumeMountConfig {
   readOnly?: boolean;     // 只读
 }
 
+export interface WorkloadContainerFormValue {
+  containerName: string;
+  image: string;
+  imagePullPolicy: 'Always' | 'IfNotPresent' | 'Never';
+  ports: Array<{ containerPort: number; protocol: 'TCP' | 'UDP'; name?: string }>;
+  env: Array<any>;
+  resources: {
+    requests: { cpu?: string; memory?: string };
+    limits: { cpu?: string; memory?: string };
+  };
+  command?: string[];
+  args?: string[];
+  livenessProbe?: {
+    enabled: boolean;
+    type: 'httpGet' | 'tcpSocket' | 'exec';
+    httpGet?: { path: string; port: number };
+    tcpSocket?: { port: number };
+    exec?: { command: string[] };
+    initialDelaySeconds: number;
+    periodSeconds: number;
+  };
+  readinessProbe?: {
+    enabled: boolean;
+    type: 'httpGet' | 'tcpSocket' | 'exec';
+    httpGet?: { path: string; port: number };
+    tcpSocket?: { port: number };
+    exec?: { command: string[] };
+    initialDelaySeconds: number;
+    periodSeconds: number;
+  };
+  volumeMounts?: VolumeMountConfig[];
+}
+
 export interface WorkloadFormValues {
   // 基本信息
   name: string;
   namespace: string;
   workloadType: WorkloadType;
   labels: Array<{ key: string; value: string }>;
+  containers: WorkloadContainerFormValue[];
   
   // 容器配置
   containerName: string;
@@ -291,12 +330,6 @@ const NODE_SELECTOR_OPERATOR_OPTIONS = [
   { value: 'DoesNotExist', label: 'DoesNotExist (标签不存在)' },
   { value: 'Gt', label: 'Gt (大于)' },
   { value: 'Lt', label: 'Lt (小于)' },
-];
-
-// 亲和性规则类型选项
-const AFFINITY_TYPE_OPTIONS = [
-  { value: 'required', label: '必须满足 (硬性要求)' },
-  { value: 'preferred', label: '尽量满足 (软性偏好)' },
 ];
 
 // Pod 选择器操作符选项 (用于 Pod 亲和性)
@@ -482,11 +515,6 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
   onOpenQuickCreateSecret,
 }) => {
   const form = Form.useFormInstance();
-  
-  // 本地 state 管理环境变量列表
-  const [envVars, setEnvVars] = useState<EnvVarValue[]>([]);
-  
-  // 使用 Form.useWatch 监听整个 env 数组，解决 key 下拉框禁用状态延迟问题
   const envFormValues = Form.useWatch('env', form);
   
   // 按命名空间过滤 ConfigMap 和 Secret
@@ -500,39 +528,6 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
     return (secrets || []).filter(s => s?.metadata?.namespace === selectedNamespace);
   }, [secrets, selectedNamespace]);
   
-  // 初始化时从 form 读取值
-  useEffect(() => {
-    const envValue = form.getFieldValue('env') || [];
-    // 兼容旧格式：如果没有 type 字段，默认为 keyValue
-    const normalized = envValue.map((env: any) => {
-      if (!env.type) {
-        return { type: 'keyValue', name: env.name, value: env.value };
-      }
-      return env;
-    });
-    setEnvVars(normalized);
-  }, [form]);
-
-  // 添加环境变量
-  const addEnvVar = (type: EnvVarType) => {
-    // 从 form 获取当前完整数据，避免覆盖已填写的值
-    const currentEnvValues = form.getFieldValue('env') || [];
-    const newEnv: EnvVarValue = { type };
-    // 保留已有行的完整数据，只添加新行
-    const updated = [...currentEnvValues, newEnv];
-    setEnvVars(updated);
-    form.setFieldsValue({ env: updated });
-  };
-
-  // 删除环境变量
-  const removeEnvVar = (index: number) => {
-    // 从 form 获取当前完整数据
-    const currentEnvValues = form.getFieldValue('env') || [];
-    const updated = currentEnvValues.filter((_: any, i: number) => i !== index);
-    setEnvVars(updated);
-    form.setFieldsValue({ env: updated });
-  };
-
   // 获取 ConfigMap 的 keys
   const getConfigMapKeys = (name: string): string[] => {
     if (!name) return [];
@@ -551,30 +546,41 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
   const formItemStyle = { marginBottom: 0 };
 
   // 渲染单个环境变量行
-  const renderEnvVar = (envVar: EnvVarValue, index: number) => {
-    const basePath = ['env', index];
+  const renderEnvVar = (
+    envVar: EnvVarValue,
+    index: number,
+    rowKey: React.Key,
+    restField: any,
+    remove: (index: number) => void,
+  ) => {
+    if (!envVar) return null;
     
     if (envVar.type === 'keyValue') {
       return (
-        <Row key={index} gutter={8} className="env-var-row" align="middle">
+        <Row key={rowKey} gutter={8} className="env-var-row" align="middle">
+          <Form.Item {...restField} name={[index, 'type']} initialValue="keyValue" hidden>
+            <Input />
+          </Form.Item>
           <Col span={2}>
             <Tag color="green" style={{ marginTop: 4 }}>键值</Tag>
           </Col>
           <Col span={8}>
-            <Form.Item
-              name={[...basePath, 'name']}
-              rules={[{ required: true, message: '变量名必填' }]}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'name']}
+                rules={[{ required: true, message: '变量名必填' }]}
+                style={formItemStyle}
+              >
               <Input placeholder="变量名 (如: ENV_KEY)" />
             </Form.Item>
           </Col>
           <Col span={6}>
-            <Form.Item
-              name={[...basePath, 'value']}
-              rules={[{ required: true, message: '变量值必填' }]}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'value']}
+                rules={[{ required: true, message: '变量值必填' }]}
+                style={formItemStyle}
+              >
               <Input placeholder="变量值" />
             </Form.Item>
           </Col>
@@ -586,7 +592,7 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               type="text"
               danger
               icon={<MinusCircleOutlined />}
-              onClick={() => removeEnvVar(index)}
+              onClick={() => remove(index)}
             />
           </Col>
         </Row>
@@ -599,16 +605,20 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
       const cmKeys = getConfigMapKeys(selectedCM);
       
       return (
-        <Row key={index} gutter={8} className="env-var-row" align="middle">
+        <Row key={rowKey} gutter={8} className="env-var-row" align="middle">
+          <Form.Item {...restField} name={[index, 'type']} initialValue="configMapKeyRef" hidden>
+            <Input />
+          </Form.Item>
           <Col span={2}>
             <Tag color="blue">CM</Tag>
           </Col>
           <Col span={8}>
-            <Form.Item
-              name={[...basePath, 'configMapName']}
-              rules={[{ required: true, message: '请选择 ConfigMap' }]}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'configMapName']}
+                rules={[{ required: true, message: '请选择 ConfigMap' }]}
+                style={formItemStyle}
+              >
               <Select
                 placeholder="选择 ConfigMap"
                 showSearch
@@ -637,11 +647,12 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
             </Form.Item>
           </Col>
           <Col span={6}>
-            <Form.Item
-              name={[...basePath, 'configMapKey']}
-              rules={[{ required: true, message: '请选择 Key' }]}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'configMapKey']}
+                rules={[{ required: true, message: '请选择 Key' }]}
+                style={formItemStyle}
+              >
               <Select
                 placeholder="选择 Key"
                 showSearch
@@ -651,10 +662,11 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
             </Form.Item>
           </Col>
           <Col span={6}>
-            <Form.Item
-              name={[...basePath, 'name']}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'name']}
+                style={formItemStyle}
+              >
               <Input placeholder="别名 (可选)" />
             </Form.Item>
           </Col>
@@ -663,7 +675,7 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               type="text"
               danger
               icon={<MinusCircleOutlined />}
-              onClick={() => removeEnvVar(index)}
+              onClick={() => remove(index)}
             />
           </Col>
         </Row>
@@ -676,16 +688,20 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
       const secretKeys = getSecretKeys(selectedSecret);
       
       return (
-        <Row key={index} gutter={8} className="env-var-row" align="middle">
+        <Row key={rowKey} gutter={8} className="env-var-row" align="middle">
+          <Form.Item {...restField} name={[index, 'type']} initialValue="secretKeyRef" hidden>
+            <Input />
+          </Form.Item>
           <Col span={2}>
             <Tag color="orange">Secret</Tag>
           </Col>
           <Col span={8}>
-            <Form.Item
-              name={[...basePath, 'secretName']}
-              rules={[{ required: true, message: '请选择 Secret' }]}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'secretName']}
+                rules={[{ required: true, message: '请选择 Secret' }]}
+                style={formItemStyle}
+              >
               <Select
                 placeholder="选择 Secret"
                 showSearch
@@ -714,11 +730,12 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
             </Form.Item>
           </Col>
           <Col span={6}>
-            <Form.Item
-              name={[...basePath, 'secretKey']}
-              rules={[{ required: true, message: '请选择 Key' }]}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'secretKey']}
+                rules={[{ required: true, message: '请选择 Key' }]}
+                style={formItemStyle}
+              >
               <Select
                 placeholder="选择 Key"
                 showSearch
@@ -728,10 +745,11 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
             </Form.Item>
           </Col>
           <Col span={6}>
-            <Form.Item
-              name={[...basePath, 'name']}
-              style={formItemStyle}
-            >
+              <Form.Item
+                {...restField}
+                name={[index, 'name']}
+                style={formItemStyle}
+              >
               <Input placeholder="别名 (可选)" />
             </Form.Item>
           </Col>
@@ -740,7 +758,7 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               type="text"
               danger
               icon={<MinusCircleOutlined />}
-              onClick={() => removeEnvVar(index)}
+              onClick={() => remove(index)}
             />
           </Col>
         </Row>
@@ -752,55 +770,56 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
 
   return (
     <div>
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 500 }}>环境变量</span>
-        <Space>
-          <Button
-            type="dashed"
-            size="small"
-            onClick={() => addEnvVar('keyValue')}
-            icon={<PlusOutlined />}
-          >
-            键值对
-          </Button>
-          <Button
-            type="dashed"
-            size="small"
-            onClick={() => addEnvVar('configMapKeyRef')}
-            icon={<PlusOutlined />}
-          >
-            从 ConfigMap 引入
-          </Button>
-          <Button
-            type="dashed"
-            size="small"
-            onClick={() => addEnvVar('secretKeyRef')}
-            icon={<PlusOutlined />}
-          >
-            从 Secret 引入
-          </Button>
-        </Space>
-      </div>
+      <Form.List name="env">
+        {(fields, { add, remove }) => {
+          const normalizedEnvVars = (envFormValues || []).map((env: any) => {
+            if (!env) return undefined;
+            if (!env.type) {
+              return { type: 'keyValue', name: env.name, value: env.value };
+            }
+            return env;
+          });
 
-      {/* 表头说明 */}
-      {envVars.length > 0 && (
-        <Row gutter={8} style={{ marginBottom: 0, paddingBottom: 22, color: '#999', fontSize: 12 }}>
-          <Col span={2}>类型</Col>
-          <Col span={8}>名称/来源</Col>
-          <Col span={6}>值/Key</Col>
-          <Col span={6}>别名</Col>
-          <Col span={2}>操作</Col>
-        </Row>
-      )}
+          return (
+            <>
+              <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 500 }}>环境变量</span>
+                <Space>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'keyValue' })} icon={<PlusOutlined />}>
+                    键值对
+                  </Button>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'configMapKeyRef' })} icon={<PlusOutlined />}>
+                    从 ConfigMap 引入
+                  </Button>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'secretKeyRef' })} icon={<PlusOutlined />}>
+                    从 Secret 引入
+                  </Button>
+                </Space>
+              </div>
 
-      {envVars.length === 0 && (
-        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
-          暂无环境变量，点击上方按钮添加
-        </div>
-      )}
+              {fields.length > 0 && (
+                <Row gutter={8} style={{ marginBottom: 0, paddingBottom: 22, color: '#999', fontSize: 12 }}>
+                  <Col span={2}>类型</Col>
+                  <Col span={8}>名称/来源</Col>
+                  <Col span={6}>值/Key</Col>
+                  <Col span={6}>别名</Col>
+                  <Col span={2}>操作</Col>
+                </Row>
+              )}
 
-      {/* 环境变量列表 */}
-      {envVars.map((env, index) => renderEnvVar(env, index))}
+              {fields.length === 0 && (
+                <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+                  暂无环境变量，点击上方按钮添加
+                </div>
+              )}
+
+              {fields.map(({ key, name, ...restField }, index) =>
+                renderEnvVar(normalizedEnvVars[name] as EnvVarValue, name as number, key, restField, remove)
+              )}
+            </>
+          );
+        }}
+      </Form.List>
     </div>
   );
 };
@@ -835,6 +854,41 @@ const EMPTY_DIR_MEDIUM_OPTIONS = [
   { value: 'Memory', label: 'Memory (内存临时存储)' },
 ];
 
+const WORKLOAD_STEPS = [
+  { key: 'basic', title: '基本信息', icon: <ProfileOutlined /> },
+  { key: 'containers', title: '容器配置', icon: <AppstoreOutlined /> },
+  { key: 'storage', title: '存储配置', icon: <FolderOutlined /> },
+  { key: 'advanced', title: '高级配置', icon: <SettingOutlined /> },
+];
+
+const createEmptyContainer = (fallbackName = ''): WorkloadContainerFormValue => ({
+  containerName: fallbackName,
+  image: '',
+  imagePullPolicy: 'IfNotPresent',
+  ports: [],
+  env: [],
+  resources: { requests: {}, limits: {} },
+  command: [],
+  args: [],
+  livenessProbe: { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
+  readinessProbe: { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
+  volumeMounts: [],
+});
+
+const toContainerEditorFields = (container?: Partial<WorkloadContainerFormValue>) => ({
+  containerName: container?.containerName || '',
+  image: container?.image || '',
+  imagePullPolicy: container?.imagePullPolicy || 'IfNotPresent',
+  ports: container?.ports || [],
+  env: container?.env || [],
+  resources: container?.resources || { requests: {}, limits: {} },
+  command: container?.command || [],
+  args: container?.args || [],
+  livenessProbe: container?.livenessProbe || { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
+  readinessProbe: container?.readinessProbe || { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
+  volumeMounts: container?.volumeMounts || [],
+});
+
 interface VolumesEditorProps {
   cloudId: string;
   namespacesOptions: string[];
@@ -861,6 +915,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   onOpenQuickCreateSecret,
 }) => {
   const form = Form.useFormInstance();
+  const [, forceUpdate] = useState(0);
   
   // 按命名空间过滤资源
   const filteredConfigMaps = useMemo(() => {
@@ -878,72 +933,50 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     return (persistentVolumeClaims || []).filter(pvc => pvc?.metadata?.namespace === selectedNamespace);
   }, [persistentVolumeClaims, selectedNamespace]);
   
-  // 本地 state 管理卷列表和挂载列表
-  const [volumes, setVolumes] = useState<VolumeConfig[]>([]);
-  const [volumeMounts, setVolumeMounts] = useState<VolumeMountConfig[]>([]);
-  
-  // 初始化时从 form 读取值
-  useEffect(() => {
-    const volValue = form.getFieldValue('volumes') || [];
-    const mountValue = form.getFieldValue('volumeMounts') || [];
-    setVolumes(volValue);
-    setVolumeMounts(mountValue);
-  }, [form]);
+  const formValues = Form.useWatch([], form);
+  void formValues;
+  const volumes = ((form.getFieldValue('volumes') as VolumeConfig[] | undefined) || []).filter(Boolean);
+  const volumeMounts = ((form.getFieldValue('volumeMounts') as VolumeMountConfig[] | undefined) || []).filter(Boolean);
 
   // 添加卷
   const addVolume = (type: VolumeType) => {
     const newVolume: VolumeConfig = { name: '', type };
     const updated = [...volumes, newVolume];
-    setVolumes(updated);
     form.setFieldsValue({ volumes: updated });
+    forceUpdate((v) => v + 1);
   };
 
   // 删除卷
   const removeVolume = (index: number) => {
     const volName = volumes[index]?.name;
-    const updated = volumes.filter((_, i) => i !== index);
-    setVolumes(updated);
+    const updated = volumes.filter((_: VolumeConfig, i: number) => i !== index);
     form.setFieldsValue({ volumes: updated });
     
     // 同时删除对应的挂载
     if (volName) {
-      const updatedMounts = volumeMounts.filter(m => m.name !== volName);
-      setVolumeMounts(updatedMounts);
+      const updatedMounts = volumeMounts.filter((m: VolumeMountConfig) => m.name !== volName);
       form.setFieldsValue({ volumeMounts: updatedMounts });
     }
+    forceUpdate((v) => v + 1);
   };
 
   // 添加挂载
   const addVolumeMount = () => {
     const newMount: VolumeMountConfig = { name: '', mountPath: '' };
     const updated = [...volumeMounts, newMount];
-    setVolumeMounts(updated);
     form.setFieldsValue({ volumeMounts: updated });
+    forceUpdate((v) => v + 1);
   };
 
   // 删除挂载
   const removeVolumeMount = (index: number) => {
-    const updated = volumeMounts.filter((_, i) => i !== index);
-    setVolumeMounts(updated);
+    const updated = volumeMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
     form.setFieldsValue({ volumeMounts: updated });
+    forceUpdate((v) => v + 1);
   };
 
   // 获取可用的卷名称列表（用于挂载选择）
-  const availableVolumeNames = volumes.filter(v => v.name).map(v => v.name);
-
-  // 获取 ConfigMap 的 keys
-  const getConfigMapKeys = (name: string): string[] => {
-    if (!name) return [];
-    const cm = configMaps.find(c => c.metadata.name === name);
-    return cm?.data ? Object.keys(cm.data) : [];
-  };
-
-  // 获取 Secret 的 keys
-  const getSecretKeys = (name: string): string[] => {
-    if (!name) return [];
-    const secret = secrets.find(s => s.metadata.name === name);
-    return secret?.data ? Object.keys(secret.data) : [];
-  };
+  const availableVolumeNames = volumes.filter((v: VolumeConfig) => v.name).map((v: VolumeConfig) => v.name);
 
   // 渲染单个卷配置
   const renderVolume = (volume: VolumeConfig, index: number) => {
@@ -999,8 +1032,8 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                   const updated = [...volumes];
                   const currentName = updated[index]?.name;
                   updated[index] = { name: currentName || '', type: newType };
-                  setVolumes(updated);
                   form.setFieldsValue({ volumes: updated });
+                  forceUpdate((v) => v + 1);
                 }}
               />
             </Form.Item>
@@ -1214,7 +1247,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             <Select
               placeholder="选择卷"
               showSearch
-              options={availableVolumeNames.map(name => ({ label: name, value: name }))}
+              options={availableVolumeNames.map((name: string) => ({ label: name, value: name }))}
             />
           </Form.Item>
         </Col>
@@ -1289,7 +1322,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
           </div>
         )}
         
-        {volumes.map((vol, index) => renderVolume(vol, index))}
+        {volumes.map((vol: VolumeConfig, index: number) => renderVolume(vol, index))}
       </div>
 
       {/* 卷挂载配置 */}
@@ -1323,7 +1356,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
           </div>
         )}
         
-        {volumeMounts.map((mount, index) => renderVolumeMount(mount, index))}
+        {volumeMounts.map((mount: VolumeMountConfig, index: number) => renderVolumeMount(mount, index))}
       </div>
     </div>
   );
@@ -2752,6 +2785,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const isEditMode = !!editData;
+  const [activeContainerIndex, setActiveContainerIndex] = useState(0);
   
   // YAML 模式状态
   const [mode, setMode] = useState<'form' | 'yaml'>('form');
@@ -2768,6 +2802,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 快速创建 ConfigMap/Secret 弹窗状态
   const [showQuickCreateConfigMap, setShowQuickCreateConfigMap] = useState(false);
   const [showQuickCreateSecret, setShowQuickCreateSecret] = useState(false);
+  const editMetadata = editData?.metadata;
+  const syncingContainerRef = useRef(false);
+  const watchedImagePullSecretsValue = Form.useWatch('imagePullSecrets', form);
+  const watchedImagePullSecrets = useMemo<string[]>(() => watchedImagePullSecretsValue || [], [watchedImagePullSecretsValue]);
 
   /**
    * 加载 localStorage 中的仓库列表
@@ -2908,54 +2946,145 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     return registries;
   }, [localStorageRegistries, secretsWithCredentials, secretToCredential]);
 
+  const syncContainerEditorToForm = useCallback((container: Partial<WorkloadContainerFormValue> | undefined) => {
+    syncingContainerRef.current = true;
+    form.setFieldsValue(toContainerEditorFields(container));
+    queueMicrotask(() => {
+      syncingContainerRef.current = false;
+    });
+  }, [form]);
+
+  const buildActiveContainerFromEditor = useCallback((values: WorkloadFormValues): WorkloadContainerFormValue => {
+    const fallbackName = values.name || 'container';
+    return {
+      containerName: values.containerName || fallbackName,
+      image: values.image || '',
+      imagePullPolicy: values.imagePullPolicy || 'IfNotPresent',
+      ports: values.ports || [],
+      env: values.env || [],
+      resources: values.resources || { requests: {}, limits: {} },
+      command: values.command || [],
+      args: values.args || [],
+      livenessProbe: values.livenessProbe,
+      readinessProbe: values.readinessProbe,
+      volumeMounts: values.volumeMounts || [],
+    };
+  }, []);
+
+  const persistActiveContainerToForm = useCallback(() => {
+    const values = form.getFieldsValue(true) as WorkloadFormValues;
+    const containers = [...(values.containers || [])];
+    const activeContainer = buildActiveContainerFromEditor(values);
+
+    if (containers.length === 0) {
+      containers.push(activeContainer);
+    } else {
+      containers[activeContainerIndex] = activeContainer;
+    }
+
+    syncingContainerRef.current = true;
+    form.setFieldValue('containers', containers);
+    queueMicrotask(() => {
+      syncingContainerRef.current = false;
+    });
+
+    return containers;
+  }, [activeContainerIndex, buildActiveContainerFromEditor, form]);
+
+  const getSyncedFormValues = useCallback((): WorkloadFormValues => {
+    const values = form.getFieldsValue(true) as WorkloadFormValues;
+    const containers = [...(values.containers || [])];
+    const activeContainer = buildActiveContainerFromEditor(values);
+    const latestImagePullSecrets = watchedImagePullSecrets.length > 0
+      ? watchedImagePullSecrets
+      : ((form.getFieldValue('imagePullSecrets') as string[] | undefined) || values.imagePullSecrets || []);
+
+    if (containers.length === 0) {
+      containers.push(activeContainer);
+    } else {
+      containers[activeContainerIndex] = activeContainer;
+    }
+
+    return {
+      ...values,
+      containers,
+      imagePullSecrets: latestImagePullSecrets,
+    };
+  }, [activeContainerIndex, buildActiveContainerFromEditor, form, watchedImagePullSecrets]);
+
+  const handleSelectContainer = useCallback((index: number) => {
+    const containers = persistActiveContainerToForm();
+    const target = containers?.[index];
+    setActiveContainerIndex(index);
+    syncContainerEditorToForm(target);
+  }, [persistActiveContainerToForm, syncContainerEditorToForm]);
+
+  const handleAddContainer = useCallback(() => {
+    const syncedValues = getSyncedFormValues();
+    const nextContainers = [...(syncedValues.containers || [])];
+    const fallbackName = syncedValues.name ? `${syncedValues.name}-${nextContainers.length + 1}` : `container-${nextContainers.length + 1}`;
+    nextContainers.push(createEmptyContainer(fallbackName));
+    form.setFieldsValue({ containers: nextContainers });
+    setActiveContainerIndex(nextContainers.length - 1);
+    syncContainerEditorToForm(nextContainers[nextContainers.length - 1]);
+  }, [form, getSyncedFormValues, syncContainerEditorToForm]);
+
+  const handleDuplicateContainer = useCallback(() => {
+    const syncedValues = getSyncedFormValues();
+    const nextContainers = [...(syncedValues.containers || [])];
+    const current = nextContainers[activeContainerIndex];
+    if (!current) return;
+    nextContainers.splice(activeContainerIndex + 1, 0, {
+      ...current,
+      containerName: current.containerName ? `${current.containerName}-copy` : `container-${nextContainers.length + 1}`,
+      ports: [...(current.ports || [])],
+      env: [...(current.env || [])],
+      resources: {
+        requests: { ...(current.resources?.requests || {}) },
+        limits: { ...(current.resources?.limits || {}) },
+      },
+      command: [...(current.command || [])],
+      args: [...(current.args || [])],
+      volumeMounts: [...(current.volumeMounts || [])],
+    });
+    form.setFieldsValue({ containers: nextContainers });
+    setActiveContainerIndex(activeContainerIndex + 1);
+    syncContainerEditorToForm(nextContainers[activeContainerIndex + 1]);
+  }, [activeContainerIndex, form, getSyncedFormValues, syncContainerEditorToForm]);
+
+  const handleRemoveContainer = useCallback(() => {
+    const syncedValues = getSyncedFormValues();
+    const nextContainers = [...(syncedValues.containers || [])];
+    if (nextContainers.length <= 1) {
+      message.warning('至少需要保留一个容器');
+      return;
+    }
+    nextContainers.splice(activeContainerIndex, 1);
+    const nextIndex = Math.max(0, activeContainerIndex - 1);
+    form.setFieldsValue({ containers: nextContainers });
+    setActiveContainerIndex(nextIndex);
+    syncContainerEditorToForm(nextContainers[nextIndex]);
+  }, [activeContainerIndex, form, getSyncedFormValues, message, syncContainerEditorToForm]);
+
   // 编辑模式：初始化表单数据
   useEffect(() => {
     if (editData) {
       const spec = editData?.spec || {};
       const metadata = editData?.metadata || {};
       const template = spec?.template || {};
-      const container = template?.spec?.containers?.[0] || {};
+      const rawContainers = template?.spec?.containers || [];
+      const firstContainer = rawContainers[0] || {};
       
       // 提取标签
       const labels = Object.entries(metadata?.labels || {}).map(([key, value]) => ({ key, value }));
       
-      // 提取端口
-      const ports = (container?.ports || []).map((p: any) => ({
-        containerPort: p.containerPort,
-        protocol: p.protocol || 'TCP',
-        name: p.name,
-      }));
-      
-      // 提取环境变量
-      const env = (container?.env || []).map((e: any) => ({
-        name: e.name,
-        value: e.value,
-      }));
-      
-      // 提取资源限制
-      const resources = {
-        requests: {
-          cpu: container?.resources?.requests?.cpu,
-          memory: container?.resources?.requests?.memory,
-        },
-        limits: {
-          cpu: container?.resources?.limits?.cpu,
-          memory: container?.resources?.limits?.memory,
-        },
-      };
-      
-      // 提取镜像拉取密钥
-      const imagePullSecrets = (template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
-      
-      // 提取节点选择器
-      const nodeSelector = Object.entries(spec?.template?.spec?.nodeSelector || {}).map(([key, value]) => ({ key, value }));
-      
-      // 提取健康检查
+      // 提取健康检查（必须在 parseContainer 之前定义）
       const parseProbe = (probe: any) => {
         if (!probe) return undefined;
+        const probeType: 'httpGet' | 'tcpSocket' | 'exec' = probe.httpGet ? 'httpGet' : probe.tcpSocket ? 'tcpSocket' : 'exec';
         return {
           enabled: true,
-          type: probe.httpGet ? 'httpGet' : probe.tcpSocket ? 'tcpSocket' : 'exec',
+          type: probeType,
           httpGet: probe.httpGet ? { path: probe.httpGet.path, port: probe.httpGet.port } : undefined,
           tcpSocket: probe.tcpSocket ? { port: probe.tcpSocket.port } : undefined,
           exec: probe.exec ? { command: probe.exec.command } : undefined,
@@ -2963,6 +3092,55 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           periodSeconds: probe.periodSeconds || 10,
         };
       };
+      
+      // 提取端口
+      const parseContainer = (container: any): WorkloadContainerFormValue => ({
+        containerName: container?.name || '',
+        image: container?.image || '',
+        imagePullPolicy: container?.imagePullPolicy || 'IfNotPresent',
+        ports: (container?.ports || []).map((p: any) => ({
+          containerPort: p.containerPort,
+          protocol: p.protocol || 'TCP',
+          name: p.name,
+        })),
+        env: (container?.env || []).map((e: any) => ({
+          type: e?.valueFrom?.configMapKeyRef ? 'configMapKeyRef' : e?.valueFrom?.secretKeyRef ? 'secretKeyRef' : 'keyValue',
+          name: e.name,
+          value: e.value,
+          configMapName: e?.valueFrom?.configMapKeyRef?.name,
+          configMapKey: e?.valueFrom?.configMapKeyRef?.key,
+          secretName: e?.valueFrom?.secretKeyRef?.name,
+          secretKey: e?.valueFrom?.secretKeyRef?.key,
+        })),
+        resources: {
+          requests: {
+            cpu: container?.resources?.requests?.cpu,
+            memory: container?.resources?.requests?.memory,
+          },
+          limits: {
+            cpu: container?.resources?.limits?.cpu,
+            memory: container?.resources?.limits?.memory,
+          },
+        },
+        command: container?.command,
+        args: container?.args,
+        livenessProbe: parseProbe(container?.livenessProbe),
+        readinessProbe: parseProbe(container?.readinessProbe),
+        volumeMounts: (container?.volumeMounts || []).map((mount: any) => ({
+          name: mount.name,
+          mountPath: mount.mountPath,
+          subPath: mount.subPath,
+          readOnly: mount.readOnly,
+        })),
+      });
+      
+      const containers = rawContainers.length > 0 ? rawContainers.map(parseContainer) : [createEmptyContainer(metadata?.name || 'container')];
+
+      // 提取镜像拉取密钥
+      const imagePullSecrets = (template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
+      
+      // 提取节点选择器
+      const nodeSelector = Object.entries(spec?.template?.spec?.nodeSelector || {}).map(([key, value]) => ({ key, value }));
       
       // 提取亲和性配置
       const parseNodeAffinity = (affinity: any): NodeAffinityConfig | undefined => {
@@ -3071,14 +3249,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         name: metadata?.name || '',
         namespace: metadata?.namespace || 'default',
         labels,
-        image: container?.image || '',
-        containerName: container?.name || '',
-        imagePullPolicy: container?.imagePullPolicy || 'IfNotPresent',
-        ports,
-        env,
-        resources,
-        command: container?.command,
-        args: container?.args,
+        containers,
+        ...toContainerEditorFields(containers[0] || parseContainer(firstContainer)),
         replicas: spec?.replicas || 1,
         imagePullSecrets,
         nodeSelector,
@@ -3087,9 +3259,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         podAffinity: parsePodAffinity(affinity?.podAffinity),
         podAntiAffinity: parsePodAffinity(affinity?.podAntiAffinity),
         tolerations: tolerations.length > 0 ? tolerations : undefined,
-        livenessProbe: parseProbe(container?.livenessProbe),
-        readinessProbe: parseProbe(container?.readinessProbe),
       });
+      setActiveContainerIndex(0);
       
       // 设置 YAML 内容（过滤掉 managedFields，避免干扰用户编辑）
       const cleanData = {
@@ -3142,14 +3313,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       namespace,
       workloadType,
       labels,
-      containerName,
-      image,
-      imagePullPolicy,
-      ports,
-      env,
-      resources,
-      command,
-      args,
+      containers,
       replicas,
       imagePullSecrets: pullSecrets,
       nodeSelector,
@@ -3158,10 +3322,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       podAffinity,
       podAntiAffinity,
       tolerations,
-      livenessProbe,
-      readinessProbe,
       volumes,
-      volumeMounts,
     } = values;
     
     // 构建标签
@@ -3172,59 +3333,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       }
     });
     
-    // 构建环境变量（支持三种类型：键值对、ConfigMap 引用、Secret 引用）
-    const envList = (env || []).map((item: any) => {
-      const envVar: any = {};
-      
-      if (item.type === 'configMapKeyRef') {
-        // 从 ConfigMap 引入
-        envVar.name = item.name || item.configMapKey; // 别名或使用 key
-        envVar.valueFrom = {
-          configMapKeyRef: {
-            name: item.configMapName,
-            key: item.configMapKey,
-          },
-        };
-      } else if (item.type === 'secretKeyRef') {
-        // 从 Secret 引入
-        envVar.name = item.name || item.secretKey; // 别名或使用 key
-        envVar.valueFrom = {
-          secretKeyRef: {
-            name: item.secretName,
-            key: item.secretKey,
-          },
-        };
-      } else {
-        // 键值对（默认类型）
-        envVar.name = item.name;
-        envVar.value = item.value;
-      }
-      
-      return envVar;
-    }).filter((item: any) => item.name); // 过滤掉没有名称的环境变量
-    
-    // 构建端口
-    const portsList = (ports || []).map((item) => ({
-      name: item.name || `port-${item.containerPort}`,
-      containerPort: item.containerPort,
-      protocol: item.protocol,
-    }));
-    
-    // 构建资源限制
-    const resourceRequirements: any = {};
-    if (resources?.requests?.cpu || resources?.requests?.memory) {
-      resourceRequirements.requests = {};
-      if (resources.requests.cpu) resourceRequirements.requests.cpu = resources.requests.cpu;
-      if (resources.requests.memory) resourceRequirements.requests.memory = resources.requests.memory;
-    }
-    if (resources?.limits?.cpu || resources?.limits?.memory) {
-      resourceRequirements.limits = {};
-      if (resources.limits.cpu) resourceRequirements.limits.cpu = resources.limits.cpu;
-      if (resources.limits.memory) resourceRequirements.limits.memory = resources.limits.memory;
-    }
-    
     // 构建探针
-    const buildProbe = (probe?: WorkloadFormValues['livenessProbe']) => {
+    const buildProbe = (probe?: WorkloadContainerFormValue['livenessProbe']) => {
       if (!probe?.enabled) return undefined;
       
       let probeConfig: any = {
@@ -3250,25 +3360,78 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       return probeConfig;
     };
     
-    // 构建容器定义
-    const container: any = {
-      name: containerName || name,
-      image,
-      imagePullPolicy,
-      ports: portsList.length > 0 ? portsList : undefined,
-      env: envList.length > 0 ? envList : undefined,
-      resources: Object.keys(resourceRequirements).length > 0 ? resourceRequirements : undefined,
-      command: command?.length ? command : undefined,
-      args: args?.length ? args : undefined,
-      livenessProbe: buildProbe(livenessProbe),
-      readinessProbe: buildProbe(readinessProbe),
-      volumeMounts: (volumeMounts || []).length > 0 ? (volumeMounts || []).map((m) => ({
-        name: m.name,
-        mountPath: m.mountPath,
-        subPath: m.subPath,
-        readOnly: m.readOnly,
-      })) : undefined,
+    const buildEnvList = (env: any[] = []) => env.map((item: any) => {
+      const envVar: any = {};
+
+      if (item.type === 'configMapKeyRef') {
+        envVar.name = item.name || item.configMapKey;
+        envVar.valueFrom = {
+          configMapKeyRef: {
+            name: item.configMapName,
+            key: item.configMapKey,
+          },
+        };
+      } else if (item.type === 'secretKeyRef') {
+        envVar.name = item.name || item.secretKey;
+        envVar.valueFrom = {
+          secretKeyRef: {
+            name: item.secretName,
+            key: item.secretKey,
+          },
+        };
+      } else {
+        envVar.name = item.name;
+        envVar.value = item.value;
+      }
+
+      return envVar;
+    }).filter((item: any) => item.name);
+
+    const buildPortsList = (ports: any[] = []) => ports.map((item) => ({
+      name: item.name || `port-${item.containerPort}`,
+      containerPort: item.containerPort,
+      protocol: item.protocol,
+    }));
+
+    const buildResourceRequirements = (resources: WorkloadContainerFormValue['resources']) => {
+      const resourceRequirements: any = {};
+      if (resources?.requests?.cpu || resources?.requests?.memory) {
+        resourceRequirements.requests = {};
+        if (resources.requests.cpu) resourceRequirements.requests.cpu = resources.requests.cpu;
+        if (resources.requests.memory) resourceRequirements.requests.memory = resources.requests.memory;
+      }
+      if (resources?.limits?.cpu || resources?.limits?.memory) {
+        resourceRequirements.limits = {};
+        if (resources.limits.cpu) resourceRequirements.limits.cpu = resources.limits.cpu;
+        if (resources.limits.memory) resourceRequirements.limits.memory = resources.limits.memory;
+      }
+      return resourceRequirements;
     };
+
+    const containerList = (containers && containers.length > 0 ? containers : [createEmptyContainer(name)]).map((container, index) => {
+      const envList = buildEnvList(container.env || []);
+      const portsList = buildPortsList(container.ports || []);
+      const resourceRequirements = buildResourceRequirements(container.resources);
+
+      return {
+        name: container.containerName || (index === 0 ? name : `${name}-${index + 1}`),
+        image: container.image,
+        imagePullPolicy: container.imagePullPolicy,
+        ports: portsList.length > 0 ? portsList : undefined,
+        env: envList.length > 0 ? envList : undefined,
+        resources: Object.keys(resourceRequirements).length > 0 ? resourceRequirements : undefined,
+        command: container.command?.length ? container.command : undefined,
+        args: container.args?.length ? container.args : undefined,
+        livenessProbe: buildProbe(container.livenessProbe),
+        readinessProbe: buildProbe(container.readinessProbe),
+        volumeMounts: (container.volumeMounts || []).length > 0 ? (container.volumeMounts || []).map((m) => ({
+          name: m.name,
+          mountPath: m.mountPath,
+          subPath: m.subPath,
+          readOnly: m.readOnly,
+        })) : undefined,
+      };
+    }).filter((container) => container.image || container.name);
     
     // 构建存储卷定义
     const buildVolumes = () => {
@@ -3631,7 +3794,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             labels: labelsMap,
           },
           spec: {
-            containers: [container],
+            containers: containerList,
             imagePullSecrets: imagePullSecretsList.length > 0 ? imagePullSecretsList : undefined,
             nodeSelector: Object.keys(nodeSelectorMap).length > 0 ? nodeSelectorMap : undefined,
             affinity: Object.keys(affinity).length > 0 ? affinity : undefined,
@@ -3677,16 +3840,60 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         : 'deployment';
       
       // 提取容器配置
-      const container = resource.spec?.template?.spec?.containers?.[0] || {};
-      const ports = (container.ports || []).map((p: any) => ({
-        name: p.name,
-        containerPort: p.containerPort,
-        protocol: p.protocol || 'TCP',
-      }));
-      const env = (container.env || []).map((e: any) => ({
-        name: e.name,
-        value: e.value || '',
-      }));
+      const parseContainer = (container: any): WorkloadContainerFormValue => ({
+        containerName: container.name || '',
+        image: container.image || '',
+        imagePullPolicy: container.imagePullPolicy || 'IfNotPresent',
+        ports: (container.ports || []).map((p: any) => ({
+          name: p.name,
+          containerPort: p.containerPort,
+          protocol: p.protocol || 'TCP',
+        })),
+        env: (container.env || []).map((e: any) => ({
+          type: e?.valueFrom?.configMapKeyRef ? 'configMapKeyRef' : e?.valueFrom?.secretKeyRef ? 'secretKeyRef' : 'keyValue',
+          name: e.name,
+          value: e.value || '',
+          configMapName: e?.valueFrom?.configMapKeyRef?.name,
+          configMapKey: e?.valueFrom?.configMapKeyRef?.key,
+          secretName: e?.valueFrom?.secretKeyRef?.name,
+          secretKey: e?.valueFrom?.secretKeyRef?.key,
+        })),
+        resources: {
+          requests: container.resources?.requests || {},
+          limits: container.resources?.limits || {},
+        },
+        command: container.command,
+        args: container.args,
+        livenessProbe: container.livenessProbe ? {
+          enabled: true,
+          type: container.livenessProbe.httpGet ? 'httpGet' : 
+                container.livenessProbe.tcpSocket ? 'tcpSocket' : 'exec',
+          httpGet: container.livenessProbe.httpGet,
+          tcpSocket: container.livenessProbe.tcpSocket,
+          exec: container.livenessProbe.exec,
+          initialDelaySeconds: container.livenessProbe.initialDelaySeconds || 30,
+          periodSeconds: container.livenessProbe.periodSeconds || 10,
+        } : { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
+        readinessProbe: container.readinessProbe ? {
+          enabled: true,
+          type: container.readinessProbe.httpGet ? 'httpGet' : 
+                container.readinessProbe.tcpSocket ? 'tcpSocket' : 'exec',
+          httpGet: container.readinessProbe.httpGet,
+          tcpSocket: container.readinessProbe.tcpSocket,
+          exec: container.readinessProbe.exec,
+          initialDelaySeconds: container.readinessProbe.initialDelaySeconds || 5,
+          periodSeconds: container.readinessProbe.periodSeconds || 10,
+        } : { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
+        volumeMounts: (container.volumeMounts || []).map((mount: any) => ({
+          name: mount.name,
+          mountPath: mount.mountPath,
+          subPath: mount.subPath,
+          readOnly: mount.readOnly,
+        })),
+      });
+
+      const containers = (resource.spec?.template?.spec?.containers || []).map(parseContainer);
+      const firstContainer = containers[0] || createEmptyContainer(name);
       
       // 提取高级配置
       const replicas = resource.spec?.replicas || 1;
@@ -3796,17 +4003,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         namespace,
         workloadType,
         labels: Object.entries(labels).filter(([k]) => k !== 'app').map(([key, value]) => ({ key, value: String(value) })),
-        containerName: container.name || name,
-        image: container.image || '',
-        imagePullPolicy: container.imagePullPolicy || 'IfNotPresent',
-        ports,
-        env,
-        resources: {
-          requests: container.resources?.requests || {},
-          limits: container.resources?.limits || {},
-        },
-        command: container.command,
-        args: container.args,
+        containers,
+        ...toContainerEditorFields(firstContainer),
         replicas,
         imagePullSecrets,
         nodeSelector: Object.entries(nodeSelector).map(([key, value]) => ({ key, value: String(value) })),
@@ -3815,26 +4013,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         podAffinity: parsePodAffinityFromYaml(affinity?.podAffinity),
         podAntiAffinity: parsePodAffinityFromYaml(affinity?.podAntiAffinity),
         tolerations: tolerations.length > 0 ? tolerations : undefined,
-        livenessProbe: container.livenessProbe ? {
-          enabled: true,
-          type: container.livenessProbe.httpGet ? 'httpGet' : 
-                container.livenessProbe.tcpSocket ? 'tcpSocket' : 'exec',
-          httpGet: container.livenessProbe.httpGet,
-          tcpSocket: container.livenessProbe.tcpSocket,
-          exec: container.livenessProbe.exec,
-          initialDelaySeconds: container.livenessProbe.initialDelaySeconds || 30,
-          periodSeconds: container.livenessProbe.periodSeconds || 10,
-        } : { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
-        readinessProbe: container.readinessProbe ? {
-          enabled: true,
-          type: container.readinessProbe.httpGet ? 'httpGet' : 
-                container.readinessProbe.tcpSocket ? 'tcpSocket' : 'exec',
-          httpGet: container.readinessProbe.httpGet,
-          tcpSocket: container.readinessProbe.tcpSocket,
-          exec: container.readinessProbe.exec,
-          initialDelaySeconds: container.readinessProbe.initialDelaySeconds || 5,
-          periodSeconds: container.readinessProbe.periodSeconds || 10,
-        } : { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
       };
     } catch (e) {
       console.error('YAML 解析失败:', e);
@@ -3847,100 +4025,21 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     if (newMode === 'yaml' && mode === 'form') {
       // 表单 → YAML
       try {
-        const currentFormValues = form.getFieldsValue();
+        const currentFormValues = {
+          ...getSyncedFormValues(),
+          imagePullSecrets: watchedImagePullSecrets,
+        };
         
         if (isEditMode && editData) {
-          // 编辑模式：合并当前表单值和 editData 中的原始值
-          // 从 editData 提取完整表单值作为基础
-          const spec = editData?.spec || {};
-          const metadata = editData?.metadata || {};
-          const template = spec?.template || {};
-          const container = template?.spec?.containers?.[0] || {};
-          
-          const baseValues: WorkloadFormValues = {
-            name: metadata.name || '',
-            namespace: metadata.namespace || 'default',
-            workloadType: (editData?.kind?.toLowerCase() || defaultType) as WorkloadType,
-            labels: Object.entries(metadata?.labels || {})
-              .filter(([k]) => k !== 'app')
-              .map(([key, value]) => ({ key, value: String(value) })),
-            containerName: container.name || metadata.name || '',
-            image: container.image || '',
-            imagePullPolicy: container.imagePullPolicy || 'IfNotPresent',
-            ports: (container.ports || []).map((p: any) => ({
-              name: p.name,
-              containerPort: p.containerPort,
-              protocol: p.protocol || 'TCP',
-            })),
-            env: (container.env || []).map((e: any) => ({
-              name: e.name,
-              value: e.value || '',
-            })),
-            resources: {
-              requests: container.resources?.requests || {},
-              limits: container.resources?.limits || {},
-            },
-            command: container.command,
-            args: container.args,
-            replicas: spec.replicas || 1,
-            imagePullSecrets: (template.spec?.imagePullSecrets || []).map((s: any) => s.name),
-            nodeSelector: Object.entries(spec.template?.spec?.nodeSelector || {}).map(([key, value]) => ({
-              key,
-              value: String(value),
-            })),
-            nodeAffinity: undefined,
-            nodeAntiAffinity: undefined,
-            podAffinity: undefined,
-            podAntiAffinity: undefined,
-            tolerations: (template.spec?.tolerations || []).map((t: any) => ({
-              key: t.key,
-              operator: t.operator || 'Equal',
-              value: t.value,
-              effect: t.effect,
-              tolerationSeconds: t.tolerationSeconds,
-            })),
-            livenessProbe: container.livenessProbe ? {
-              enabled: true,
-              type: container.livenessProbe.httpGet ? 'httpGet' :
-                    container.livenessProbe.tcpSocket ? 'tcpSocket' : 'exec',
-              httpGet: container.livenessProbe.httpGet,
-              tcpSocket: container.livenessProbe.tcpSocket,
-              exec: container.livenessProbe.exec,
-              initialDelaySeconds: container.livenessProbe.initialDelaySeconds || 30,
-              periodSeconds: container.livenessProbe.periodSeconds || 10,
-            } : { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
-            readinessProbe: container.readinessProbe ? {
-              enabled: true,
-              type: container.readinessProbe.httpGet ? 'httpGet' :
-                    container.readinessProbe.tcpSocket ? 'tcpSocket' : 'exec',
-              httpGet: container.readinessProbe.httpGet,
-              tcpSocket: container.readinessProbe.tcpSocket,
-              exec: container.readinessProbe.exec,
-              initialDelaySeconds: container.readinessProbe.initialDelaySeconds || 5,
-              periodSeconds: container.readinessProbe.periodSeconds || 10,
-            } : { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
-          };
-          
-          // 合并：当前表单值覆盖 baseValues（只覆盖有值的字段）
-          const mergedValues = { ...baseValues };
-          Object.keys(currentFormValues).forEach((key) => {
-            const value = currentFormValues[key];
-            if (value !== undefined && value !== '' && 
-                !(Array.isArray(value) && value.length === 0)) {
-              (mergedValues as any)[key] = value;
-            }
-          });
-          
-          // 构建完整的 K8s 资源
-          const k8sResource = buildK8sResource(mergedValues);
+          const k8sResource = buildK8sResource(currentFormValues);
           // 保留原始 metadata 字段
           k8sResource.metadata = {
             ...editData.metadata,
-            name: mergedValues.name,
-            namespace: mergedValues.namespace,
+            name: currentFormValues.name,
+            namespace: currentFormValues.namespace,
             labels: {
               ...editData.metadata?.labels,
-              ...(mergedValues.labels || []).reduce((acc: any, l: any) => {
+              ...(currentFormValues.labels || []).reduce((acc: any, l: any) => {
                 if (l.key) acc[l.key] = l.value;
                 return acc;
               }, {}),
@@ -3972,7 +4071,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       }
     }
     setMode(newMode);
-  }, [mode, form, formToYaml, yamlToForm, yamlContent, message, getDefaultYaml, workloadType, isEditMode, editData, buildK8sResource, defaultType]);
+  }, [mode, form, formToYaml, yamlToForm, yamlContent, message, getDefaultYaml, workloadType, isEditMode, editData, buildK8sResource, getSyncedFormValues, watchedImagePullSecrets]);
   
   // 验证 YAML 格式
   const validateYaml = useCallback((content: string): boolean => {
@@ -4017,19 +4116,20 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         name = resource?.metadata?.name || '';
         
         // 编辑模式下，确保保留原有元数据
-        if (isEditMode && editData?.metadata) {
+        if (isEditMode && editMetadata) {
           resource.metadata = {
             ...resource.metadata,
-            uid: editData.metadata.uid,
-            resourceVersion: editData.metadata.resourceVersion,
-            creationTimestamp: editData.metadata.creationTimestamp,
-            managedFields: editData.metadata.managedFields,
+            uid: editMetadata.uid,
+            resourceVersion: editMetadata.resourceVersion,
+            creationTimestamp: editMetadata.creationTimestamp,
+            managedFields: editMetadata.managedFields,
           };
         }
       } else {
         // 表单模式提交 - 显式验证所有字段（分步骤表单需要）
         const values = await form.validateFields([
           'workloadType', 'name', 'namespace', 'labels',
+          'containers',
           'image', 'containerName', 'imagePullPolicy',
           'ports', 'env', 'resources', 'command', 'args',
           'replicas', 'imagePullSecrets', 'nodeSelector',
@@ -4037,21 +4137,32 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           'livenessProbe', 'readinessProbe',
           'volumes', 'volumeMounts'
         ]);
+
+        const syncedValues = getSyncedFormValues();
+        const invalidContainerIndex = (syncedValues.containers || []).findIndex((container) => !container.image);
+        if (invalidContainerIndex >= 0) {
+          setCurrentStep(1);
+          setActiveContainerIndex(invalidContainerIndex);
+          syncContainerEditorToForm(syncedValues.containers[invalidContainerIndex]);
+          message.error(`请完善容器 ${invalidContainerIndex + 1} 的镜像地址`);
+          setLoading(false);
+          return;
+        }
         
-        resource = buildK8sResource(values);
+        resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
         namespace = values.namespace;
         name = values.name;
         
         // 编辑模式下，保留原有元数据
-        if (isEditMode && editData?.metadata) {
-          resource.metadata.uid = editData.metadata.uid;
-          resource.metadata.resourceVersion = editData.metadata.resourceVersion;
-          resource.metadata.creationTimestamp = editData.metadata.creationTimestamp;
-          resource.metadata.managedFields = editData.metadata.managedFields;
+        if (isEditMode && editMetadata) {
+          resource.metadata.uid = editMetadata.uid;
+          resource.metadata.resourceVersion = editMetadata.resourceVersion;
+          resource.metadata.creationTimestamp = editMetadata.creationTimestamp;
+          resource.metadata.managedFields = editMetadata.managedFields;
           // 保留原有 annotations
-          if (editData.metadata.annotations) {
-            resource.metadata.annotations = editData.metadata.annotations;
+          if (editMetadata.annotations) {
+            resource.metadata.annotations = editMetadata.annotations;
           }
         }
       }
@@ -4075,7 +4186,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, onSuccess, isEditMode]);
+  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata]);
   
   // 下一步
   const handleNext = useCallback(async () => {
@@ -4091,13 +4202,110 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const handlePrev = useCallback(() => {
     setCurrentStep((prev) => prev - 1);
   }, []);
+
+  const handleStepClick = useCallback(async (targetStep: number) => {
+    if (targetStep === currentStep) return;
+    if (targetStep < currentStep) {
+      setCurrentStep(targetStep);
+      return;
+    }
+
+    try {
+      await form.validateFields();
+      setCurrentStep(targetStep);
+    } catch {
+      // 当前步骤校验失败，不允许前进
+    }
+  }, [currentStep, form]);
+
+  const renderContainerSwitchPanel = useCallback((title: string, description: string) => (
+    <>
+      <Card
+        size="small"
+        title={title}
+        style={{ marginBottom: 16 }}
+        extra={
+          <Space>
+            <Button type="dashed" size="small" htmlType="button" icon={<PlusOutlined />} onClick={handleAddContainer}>
+              添加容器
+            </Button>
+            <Button type="dashed" size="small" htmlType="button" icon={<CopyOutlined />} onClick={handleDuplicateContainer}>
+              复制容器
+            </Button>
+            <Button danger size="small" htmlType="button" icon={<DeleteOutlined />} onClick={handleRemoveContainer}>
+              删除容器
+            </Button>
+          </Space>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {(getSyncedFormValues().containers || []).map((container, index) => {
+            const isActive = index === activeContainerIndex;
+            return (
+              <div
+                key={`${container.containerName || 'container'}-${index}`}
+                onClick={() => handleSelectContainer(index)}
+                style={{
+                  border: isActive ? '1px solid #1677ff' : '1px solid #f0f0f0',
+                  background: isActive ? '#f0f7ff' : '#fff',
+                  borderRadius: 8,
+                  padding: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
+                    <span style={{ fontWeight: 500 }}>{container.containerName || `container-${index + 1}`}</span>
+                  </Space>
+                  {isActive && <Tag color="processing">编辑中</Tag>}
+                </div>
+                <div style={{ color: '#666', fontSize: 12, marginTop: 6 }}>{container.image || '未配置镜像'}</div>
+                <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
+                  端口 {container.ports?.length || 0} / 环境变量 {container.env?.length || 0} / 挂载 {container.volumeMounts?.length || 0}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message={`当前编辑：${getSyncedFormValues().containers?.[activeContainerIndex]?.containerName || `容器 ${activeContainerIndex + 1}`}`}
+        description={description}
+      />
+    </>
+  ), [activeContainerIndex, getSyncedFormValues, handleAddContainer, handleDuplicateContainer, handleRemoveContainer, handleSelectContainer]);
   
-  // 步骤配置
-  const steps = [
-    { title: '基本信息', description: '名称、命名空间、类型' },
-    { title: '容器配置', description: '镜像、端口、资源' },
-    { title: '高级配置', description: '副本、存储、调度' },
-  ];
+  const getFormSummary = useCallback(() => {
+    const values = getSyncedFormValues();
+    const containers = values.containers || [];
+    return {
+      name: values.name || '-',
+      namespace: values.namespace || '-',
+      workloadType: values.workloadType || '-',
+      replicas: values.workloadType === 'daemonset' ? '每节点 1 个' : String(values.replicas || 1),
+      imagePullSecrets: values.imagePullSecrets?.length || 0,
+      volumes: values.volumes?.length || 0,
+      containers: containers.map((container, index) => ({
+        key: `${container.containerName || 'container'}-${index}`,
+        name: container.containerName || `container-${index + 1}`,
+        image: container.image || '-',
+        ports: container.ports?.length || 0,
+        env: container.env?.length || 0,
+        mounts: container.volumeMounts?.length || 0,
+      })),
+    };
+  }, [getSyncedFormValues]);
+
+  const [summary, setSummary] = useState(getFormSummary());
+
+  useEffect(() => {
+    setSummary(getFormSummary());
+  }, [currentStep, activeContainerIndex, getFormSummary]);
   
   // 渲染步骤内容
   const renderStepContent = () => {
@@ -4164,6 +4372,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       case 1:
         return (
           <div>
+            {renderContainerSwitchPanel('容器列表', '容器级配置包括镜像、端口、环境变量、资源限制、启动命令和健康检查。切换容器不会丢失已填写内容。')}
+
             <Form.Item
               name="image"
               label="镜像地址"
@@ -4297,10 +4507,35 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 </Form.Item>
               </Col>
             </Row>
+
+            <Divider orientation="left">健康检查</Divider>
+            <ProbeEditor name="livenessProbe" label="存活探针 (Liveness Probe)" />
+            <ProbeEditor name="readinessProbe" label="就绪探针 (Readiness Probe)" />
           </div>
         );
         
       case 2:
+        return (
+          <div>
+            {renderContainerSwitchPanel('存储配置', '先定义工作负载共享的存储卷，再为当前选中的容器配置卷挂载。卷定义共享，卷挂载属于当前容器。')}
+
+            <Divider orientation="left">存储卷定义</Divider>
+            <VolumesEditor
+              cloudId={cloudId}
+              namespacesOptions={namespacesOptions}
+              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
+              configMaps={configMaps}
+              secrets={secrets}
+              persistentVolumeClaims={persistentVolumeClaims}
+              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
+              onRefreshSecrets={() => onRefreshSecrets?.()}
+              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
+              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+            />
+          </div>
+        );
+
+      case 3:
         return (
           <div>
             {workloadType !== 'daemonset' && (
@@ -4322,7 +4557,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             )}
             
             <Form.Item
-              name="imagePullSecrets"
               label={
                 <Space>
                   镜像拉取凭证
@@ -4343,6 +4577,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               }
             >
               <Space.Compact style={{ width: '100%' }}>
+                <Form.Item name="imagePullSecrets" noStyle>
                 <Select
                   mode="multiple"
                   style={{ width: 'calc(100% - 120px)' }}
@@ -4362,6 +4597,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     </div>
                   }
                 />
+                </Form.Item>
                 <Button
                   type="dashed"
                   icon={<PlusOutlined />}
@@ -4390,24 +4626,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             
             <Divider orientation="left">污点容忍</Divider>
             <TolerationsEditor />
-            
-            <Divider orientation="left">存储卷配置</Divider>
-            <VolumesEditor
-              cloudId={cloudId}
-              namespacesOptions={namespacesOptions}
-              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
-              configMaps={configMaps}
-              secrets={secrets}
-              persistentVolumeClaims={persistentVolumeClaims}
-              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
-              onRefreshSecrets={() => onRefreshSecrets?.()}
-              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
-              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
-            />
-            
-            <Divider orientation="left">健康检查</Divider>
-            <ProbeEditor name="livenessProbe" label="存活探针 (Liveness Probe)" />
-            <ProbeEditor name="readinessProbe" label="就绪探针 (Readiness Probe)" />
           </div>
         );
         
@@ -4461,6 +4679,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
       {/* 仓库浏览器抽屉 */}
       <RegistryBrowserDrawer
+        key={`registry-browser-${activeContainerIndex}-${form.getFieldValue('image') || 'empty'}`}
         visible={browserVisible}
         cloudId={cloudId}
         credential={browserCredential}
@@ -4479,14 +4698,19 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
       {mode === 'form' ? (
         <>
-          <Steps current={currentStep} items={steps} style={{ marginBottom: 24 }} />
-          
           <Form
             form={form}
             layout="vertical"
+            onValuesChange={() => {
+              if (!syncingContainerRef.current) {
+                persistActiveContainerToForm();
+              }
+              setSummary(getFormSummary());
+            }}
             initialValues={{
               workloadType: defaultType,
               namespace: defaultNamespace,
+              containers: [createEmptyContainer(defaultType === 'daemonset' ? 'daemonset-container' : 'main-container')],
               imagePullPolicy: 'IfNotPresent',
               replicas: 1,
               labels: [],
@@ -4506,26 +4730,108 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               volumeMounts: [],
             }}
           >
-            {renderStepContent()}
+            <Row gutter={[0, 0]} style={{ height: '100%' }}>
+              <Col span={5}>
+                <div className="wizard-sidebar" style={{ padding: '0 8px 0 0', minHeight: 'calc(80vh - 24px)' }}>
+                  <div>
+                    {WORKLOAD_STEPS.map((step, idx) => {
+                      const isActive = currentStep === idx;
+                      const isCompleted = currentStep > idx;
+                      return (
+                        <div
+                          key={step.key}
+                          className={`wizard-step ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+                          onClick={() => handleStepClick(idx)}
+                        >
+                          <div className="wizard-step-icon">
+                            {isCompleted ? <CheckOutlined /> : step.icon}
+                          </div>
+                          <span className="wizard-step-text">{step.title}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </Col>
+
+              <Col span={12} style={{ height: '100%' }}>
+                <div style={{ height: 'calc(80vh - 24px)', overflowY: 'auto', padding: '0 30px', scrollbarGutter: 'stable' }}>
+                  {renderStepContent()}
+                </div>
+              </Col>
+
+              <Col span={7} style={{ height: '100%' }}>
+                <div style={{ background: '#fff', border: '1px solid #eaeaea', borderRadius: 8, padding: 16, height: 'calc(80vh - 24px)', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 12, marginBottom: 12 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>配置预览</span>
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                        <span style={{ color: '#888' }}>名称</span>
+                        <span style={{ color: '#333', fontWeight: 500 }}>{summary.name}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                        <span style={{ color: '#888' }}>命名空间</span>
+                        <span style={{ color: '#333' }}>{summary.namespace}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                        <span style={{ color: '#888' }}>类型</span>
+                        <span style={{ color: '#333' }}>{summary.workloadType}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                        <span style={{ color: '#888' }}>副本</span>
+                        <span style={{ color: '#333' }}>{summary.replicas}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                        <span style={{ color: '#888' }}>镜像凭证</span>
+                        <span style={{ color: '#333' }}>{summary.imagePullSecrets} 个</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                        <span style={{ color: '#888' }}>存储卷</span>
+                        <span style={{ color: '#333' }}>{summary.volumes} 个</span>
+                      </div>
+                      <div style={{ padding: '8px 0' }}>
+                        <div style={{ color: '#888', marginBottom: 8 }}>容器列表</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {summary.containers.map((container, index) => (
+                            <div key={container.key} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10, background: index === activeContainerIndex ? '#f8fbff' : '#fff' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span style={{ fontWeight: 500 }}>{container.name}</span>
+                                <Tag color={index === activeContainerIndex ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
+                              </div>
+                              <div style={{ fontSize: 12, color: '#666', wordBreak: 'break-all' }}>{container.image}</div>
+                              <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                                端口 {container.ports} / 环境变量 {container.env} / 挂载 {container.mounts}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <Button htmlType="button" onClick={onCancel}>取消</Button>
+                      {currentStep > 0 && (
+                        <Button htmlType="button" onClick={handlePrev}>上一步</Button>
+                      )}
+                      {currentStep < WORKLOAD_STEPS.length - 1 ? (
+                        <Button type="primary" htmlType="button" onClick={handleNext}>
+                          下一步
+                        </Button>
+                      ) : (
+                        <Button type="primary" htmlType="button" loading={loading} onClick={handleSubmit}>
+                          {isEditMode ? '更新' : '创建'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Col>
+            </Row>
           </Form>
-          
-          <div style={{ marginTop: 24, textAlign: 'right' }}>
-            <Space>
-              <Button onClick={onCancel}>取消</Button>
-              {currentStep > 0 && (
-                <Button onClick={handlePrev}>上一步</Button>
-              )}
-              {currentStep < 2 ? (
-                <Button type="primary" onClick={handleNext}>
-                  下一步
-                </Button>
-              ) : (
-                <Button type="primary" loading={loading} onClick={handleSubmit}>
-                  {isEditMode ? '更新' : '创建'}
-                </Button>
-              )}
-            </Space>
-          </div>
         </>
       ) : (
         <>
@@ -4541,24 +4847,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           </div>
         </>
       )}
-
-      {/* 仓库浏览器抽屉 */}
-      <RegistryBrowserDrawer
-        visible={browserVisible}
-        cloudId={cloudId}
-        credential={browserCredential}
-        registries={allRegistries}
-        onRegistryChange={setBrowserCredential}
-        currentImage={form.getFieldValue('image')}
-        onClose={() => {
-          setBrowserVisible(false);
-        }}
-        onSelectImage={(image) => {
-          form.setFieldsValue({ image });
-          setBrowserVisible(false);
-          message.success(`已选择镜像: ${image}`);
-        }}
-      />
 
       {/* 快速创建镜像拉取凭证弹窗 */}
       <QuickCreateRegistrySecretModal

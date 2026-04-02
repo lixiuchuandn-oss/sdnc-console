@@ -15,7 +15,7 @@
  * - 出站规则: 目标配置 + 端口配置
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Form,
   Input,
@@ -29,10 +29,8 @@ import {
   Col,
   App,
   Alert,
-  Checkbox,
   Tooltip,
   Radio,
-  Collapse,
 } from 'antd';
 import {
   PlusOutlined,
@@ -41,8 +39,24 @@ import {
   SafetyCertificateOutlined,
   ArrowDownOutlined,
   ArrowUpOutlined,
+  ProfileOutlined,
+  ApartmentOutlined,
+  ImportOutlined,
+  ExportOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import { createNetworkPolicy, updateNetworkPolicy } from '../../../../../services/harvesterApi';
+import '../../modals/VmCreateWizard/InstanceWizard.css';
+
+// ============================================================
+// 步骤定义
+// ============================================================
+const STEPS = [
+  { key: 'basic', title: '基本信息', icon: <ProfileOutlined /> },
+  { key: 'selector', title: 'Pod 选择器', icon: <ApartmentOutlined /> },
+  { key: 'ingress', title: '入站规则', icon: <ImportOutlined /> },
+  { key: 'egress', title: '出站规则', icon: <ExportOutlined /> },
+];
 
 // ============================================================
 // 类型定义
@@ -67,7 +81,7 @@ interface PeerConfig {
   ipBlockCidr?: string;
   ipBlockExcept?: string;
   // 选择类型
-  peerType: 'podSelector' | 'namespaceSelector' | 'ipBlock';
+  peerType: 'all' | 'podSelector' | 'namespaceSelector' | 'ipBlock';
 }
 
 interface RuleConfig {
@@ -81,8 +95,6 @@ export interface NetworkPolicyFormValues {
   labels: LabelItem[];
   // Pod 选择器
   podSelector: LabelItem[];
-  // 策略类型
-  policyTypes: ('Ingress' | 'Egress')[];
   // 入站规则
   ingressRules: RuleConfig[];
   // 出站规则
@@ -149,6 +161,7 @@ const LabelEditor: React.FC<{
           <Button
             type="dashed"
             size="small"
+            htmlType="button"
             onClick={() => add()}
             icon={<PlusOutlined />}
           >
@@ -171,7 +184,7 @@ const PortsEditor: React.FC<{
     <div style={{ marginBottom: 8, fontWeight: 500 }}>
       <Space>
         <span>端口配置</span>
-        <Tooltip title="限制规则只对特定端口生效，不配置则对所有端口生效">
+        <Tooltip title="不添加端口表示允许所有端口">
           <InfoCircleOutlined style={{ color: '#999' }} />
         </Tooltip>
       </Space>
@@ -179,6 +192,14 @@ const PortsEditor: React.FC<{
     <Form.List name={name as any}>
       {(fields, { add, remove }) => (
         <div>
+          {fields.length === 0 && (
+            <Alert
+              message="允许所有端口（不限制）"
+              type="info"
+              showIcon
+              style={{ marginBottom: 8 }}
+            />
+          )}
           {fields.map(({ key, name: index, ...restField }) => (
             <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
               <Form.Item
@@ -208,6 +229,7 @@ const PortsEditor: React.FC<{
           <Button
             type="dashed"
             size="small"
+            htmlType="button"
             onClick={() => add({ protocol: 'TCP', port: '' })}
             icon={<PlusOutlined />}
           >
@@ -226,31 +248,24 @@ const PortsEditor: React.FC<{
 const PeerCard: React.FC<{
   restField: any;
   index: number;
-  name: string | number | (string | number)[];
+  absoluteFieldPath: (string | number)[];
   remove: (index: number) => void;
-}> = ({ restField, index, name, remove }) => {
+}> = ({ restField, index, absoluteFieldPath, remove }) => {
   const form = Form.useFormInstance();
-  const [peerType, setPeerType] = useState<string>('podSelector');
-  const initializedRef = useRef(false);
-  
-  // 只在首次挂载时从 form 读取值
-  useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-    
-    const path = [...(Array.isArray(name) ? name : [name]), index, 'peerType'];
-    const value = form.getFieldValue(path);
-    if (value && value !== 'podSelector') {
-      setPeerType(value);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const peerTypePath = [...absoluteFieldPath, 'peerType'];
+  const peerType = Form.useWatch(peerTypePath, form) || 'all';
 
   const handlePeerTypeChange = (e: any) => {
     const newType = e.target.value;
-    setPeerType(newType);
-    const path = [...(Array.isArray(name) ? name : [name]), index, 'peerType'];
-    form.setFieldValue(path, newType);
+    form.setFieldValue(peerTypePath, newType);
+    
+    // 清空之前的配置
+    if (newType === 'all') {
+      form.setFieldValue([...absoluteFieldPath, 'podSelectorLabels'], []);
+      form.setFieldValue([...absoluteFieldPath, 'namespaceSelectorLabels'], []);
+      form.setFieldValue([...absoluteFieldPath, 'ipBlockCidr'], undefined);
+      form.setFieldValue([...absoluteFieldPath, 'ipBlockExcept'], undefined);
+    }
   };
 
   return (
@@ -268,14 +283,24 @@ const PeerCard: React.FC<{
         {...restField}
         name={[index, 'peerType']}
         label="类型"
-        initialValue="podSelector"
       >
         <Radio.Group size="small" onChange={handlePeerTypeChange} value={peerType}>
+          <Radio.Button value="all">全部</Radio.Button>
           <Radio.Button value="podSelector">Pod 选择器</Radio.Button>
           <Radio.Button value="namespaceSelector">命名空间选择器</Radio.Button>
           <Radio.Button value="ipBlock">IP 地址块</Radio.Button>
         </Radio.Group>
       </Form.Item>
+      
+      {/* 全部 */}
+      {peerType === 'all' && (
+        <Alert
+          message="允许所有来源/目标（不限制）"
+          type="info"
+          showIcon
+          style={{ marginBottom: 8 }}
+        />
+      )}
       
       {/* Pod 选择器 */}
       {peerType === 'podSelector' && (
@@ -283,6 +308,14 @@ const PeerCard: React.FC<{
           <Form.List name={[index, 'podSelectorLabels']}>
             {(labelFields, { add: addLabel, remove: removeLabel }) => (
               <div>
+                {labelFields.length === 0 && (
+                  <Alert
+                    message="不添加标签表示选择所有 Pod"
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                  />
+                )}
                 {labelFields.map(({ key: lKey, name: lIndex, ...lRest }) => (
                   <Space key={lKey} style={{ marginBottom: 4 }} align="baseline">
                     <Form.Item
@@ -308,6 +341,7 @@ const PeerCard: React.FC<{
                 <Button
                   type="dashed"
                   size="small"
+                  htmlType="button"
                   onClick={() => addLabel()}
                   icon={<PlusOutlined />}
                 >
@@ -325,6 +359,14 @@ const PeerCard: React.FC<{
           <Form.List name={[index, 'namespaceSelectorLabels']}>
             {(labelFields, { add: addLabel, remove: removeLabel }) => (
               <div>
+                {labelFields.length === 0 && (
+                  <Alert
+                    message="不添加标签表示选择所有命名空间"
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                  />
+                )}
                 {labelFields.map(({ key: lKey, name: lIndex, ...lRest }) => (
                   <Space key={lKey} style={{ marginBottom: 4 }} align="baseline">
                     <Form.Item
@@ -350,6 +392,7 @@ const PeerCard: React.FC<{
                 <Button
                   type="dashed"
                   size="small"
+                  htmlType="button"
                   onClick={() => addLabel()}
                   icon={<PlusOutlined />}
                 >
@@ -392,9 +435,10 @@ const PeerCard: React.FC<{
 
 const PeerEditor: React.FC<{
   name: string | number | (string | number)[];
+  absoluteName: (string | number)[];
   label: string;
   isEgress?: boolean;
-}> = ({ name, label, isEgress }) => {
+}> = ({ name, absoluteName, label, isEgress }) => {
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ marginBottom: 8, fontWeight: 500 }}>
@@ -405,7 +449,7 @@ const PeerEditor: React.FC<{
           </Tooltip>
         </Space>
       </div>
-      <Form.List name={name as any}>
+      <Form.List name={name as any} initialValue={[{ peerType: 'all' }]}>
         {(fields, { add, remove }) => (
           <div>
             {fields.map(({ key, name: index, ...restField }) => (
@@ -413,14 +457,15 @@ const PeerEditor: React.FC<{
                 key={key}
                 restField={restField}
                 index={index}
-                name={name}
+                absoluteFieldPath={[...absoluteName, index]}
                 remove={remove}
               />
             ))}
             <Button
               type="dashed"
               size="small"
-              onClick={() => add({ peerType: 'podSelector', podSelectorLabels: [] })}
+              htmlType="button"
+              onClick={() => add({ peerType: 'all' })}
               icon={<PlusOutlined />}
             >
               添加{label}
@@ -442,7 +487,7 @@ const RuleEditor: React.FC<{
   isEgress?: boolean;
 }> = ({ name, label, isEgress }) => (
   <div>
-    <Form.List name={name as any}>
+    <Form.List name={name as any} initialValue={[{ peers: [{ peerType: 'all' }], ports: [] }]}>
       {(fields, { add, remove }) => (
         <div>
           {fields.map(({ key, name: index, ...restField }) => (
@@ -460,6 +505,7 @@ const RuleEditor: React.FC<{
             >
               <PeerEditor
                 name={[index, 'peers']}
+                absoluteName={[...(Array.isArray(name) ? name : [name]), index, 'peers']}
                 label={isEgress ? '目标' : '来源'}
                 isEgress={isEgress}
               />
@@ -469,7 +515,8 @@ const RuleEditor: React.FC<{
           ))}
           <Button
             type="dashed"
-            onClick={() => add({ peers: [], ports: [] })}
+            htmlType="button"
+            onClick={() => add({ peers: [{ peerType: 'all' }], ports: [] })}
             icon={<PlusOutlined />}
             block
           >
@@ -497,8 +544,40 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
-  const [policyTypes, setPolicyTypes] = useState<('Ingress' | 'Egress')[]>(['Ingress']);
+  const [currentStep, setCurrentStep] = useState(0);
   const isEdit = mode === 'edit';
+
+  // 固定4个步骤
+  const TOTAL_STEPS = 4;
+
+  // 处理步骤切换
+  const handleStepClick = async (stepIndex: number) => {
+    try {
+      await form.validateFields();
+      setCurrentStep(stepIndex);
+    } catch {
+      // 验证失败，留在当前步骤
+    }
+  };
+
+  // 处理下一步
+  const handleNext = async () => {
+    try {
+      await form.validateFields();
+      if (currentStep < TOTAL_STEPS - 1) {
+        setCurrentStep(currentStep + 1);
+      }
+    } catch {
+      // 验证失败
+    }
+  };
+
+  // 处理上一步
+  const handlePrev = () => {
+    if (currentStep > 0) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
 
   // 将 K8s NetworkPolicy 转换为表单数据
   const convertK8sToFormData = useCallback((data: any): any => {
@@ -523,7 +602,12 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
       if (!rules) return [];
       return rules.map((rule) => {
         const peerKey = isEgress ? 'to' : 'from';
-        const peers = (rule[peerKey] || []).map((peer: any) => {
+        const rawPeers = rule[peerKey];
+        const peers = (rawPeers || []).map((peer: any) => {
+          // 空的 peer 对象表示允许全部
+          if (!peer || Object.keys(peer).length === 0) {
+            return { peerType: 'all' };
+          }
           if (peer.podSelector !== undefined) {
             return {
               peerType: 'podSelector',
@@ -551,9 +635,13 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
           }
           return null;
         }).filter(Boolean);
+
+        const normalizedPeers = rawPeers === undefined || rawPeers.length === 0
+          ? [{ peerType: 'all' }]
+          : peers;
         
         return {
-          peers,
+          peers: normalizedPeers,
           ports: (rule.ports || []).map((p: any) => ({
             protocol: p.protocol,
             port: String(p.port),
@@ -565,7 +653,6 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
     return {
       name: data.metadata?.name,
       namespace: data.metadata?.namespace,
-      policyTypes: spec.policyTypes || ['Ingress'],
       labels,
       podSelector,
       ingressRules: convertRules(spec.ingress, false),
@@ -573,32 +660,28 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
     };
   }, []);
 
-  // 初始化默认值（只在首次挂载时执行）
+  // 初始化默认值
   useEffect(() => {
     if (isEdit && initialData) {
       // 编辑模式：回填数据
       const formData = convertK8sToFormData(initialData);
       form.setFieldsValue(formData);
-      setPolicyTypes(formData.policyTypes || ['Ingress']);
     } else {
       // 创建模式：设置默认值
       const currentValues = form.getFieldsValue();
-      form.setFieldsValue({
-        namespace: currentValues.namespace || defaultNamespace || namespacesOptions[0] || 'default',
-        policyTypes: currentValues.policyTypes || ['Ingress'],
-        labels: currentValues.labels || [],
-        podSelector: currentValues.podSelector || [],
-        ingressRules: currentValues.ingressRules || [],
-        egressRules: currentValues.egressRules || [],
-      });
+      // 只有当 namespace 未设置且有可用的 namespacesOptions 时才设置默认值
+      if (!currentValues.namespace && namespacesOptions.length > 0) {
+        form.setFieldsValue({
+          name: currentValues.name || '',
+          namespace: defaultNamespace || namespacesOptions[0] || 'default',
+          labels: currentValues.labels || [],
+          podSelector: currentValues.podSelector || [],
+          ingressRules: currentValues.ingressRules || [],
+          egressRules: currentValues.egressRules || [],
+        });
+      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, initialData]);
-
-  // 监听策略类型变化
-  const handlePolicyTypeChange = useCallback((checkedValues: ('Ingress' | 'Egress')[]) => {
-    setPolicyTypes(checkedValues);
-  }, []);
+  }, [isEdit, initialData, defaultNamespace, namespacesOptions, form, convertK8sToFormData]);
 
   // 构建 K8s NetworkPolicy 规则
   const buildRules = (rules: RuleConfig[], isEgress: boolean) => {
@@ -613,7 +696,10 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
         result[peerKey] = rule.peers.map((peer) => {
           const peerResult: any = {};
           
-          if (peer.peerType === 'podSelector') {
+          if (peer.peerType === 'all') {
+            // 全部来源/目标，返回空对象（不限制）
+            return {};
+          } else if (peer.peerType === 'podSelector') {
             const labels: Record<string, string> = {};
             (peer.podSelectorLabels || []).forEach((l) => {
               if (l.key && l.value) labels[l.key] = l.value;
@@ -644,6 +730,11 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
           
           return peerResult;
         }).filter((p: any) => Object.keys(p).length > 0);
+        
+        // 如果所有 peers 都是 'all' 类型，则移除 peerKey（表示允许所有）
+        if (result[peerKey].length === 0) {
+          delete result[peerKey];
+        }
       }
       
       // 构建 ports
@@ -657,14 +748,25 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
       }
       
       return result;
-    }).filter((r: any) => Object.keys(r).length > 0);
+    });
   };
 
   // 提交表单
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      const values = await form.validateFields();
+      await form.validateFields();
+      const values = form.getFieldsValue(true);
+      
+      // 验证至少配置一种规则
+      const hasIngressRules = values.ingressRules && values.ingressRules.length > 0;
+      const hasEgressRules = values.egressRules && values.egressRules.length > 0;
+      
+      if (!hasIngressRules && !hasEgressRules) {
+        message.error('请至少配置一种规则（入站规则或出站规则）');
+        setLoading(false);
+        return;
+      }
       
       // 构建 Pod 选择器
       const selector: Record<string, string> = {};
@@ -683,6 +785,11 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
         if (l.key && l.value) labels[l.key] = l.value;
       });
 
+      // 确定策略类型
+      const policyTypes: ('Ingress' | 'Egress')[] = [];
+      if (hasIngressRules) policyTypes.push('Ingress');
+      if (hasEgressRules) policyTypes.push('Egress');
+
       // 构建 NetworkPolicy 资源
       const npBody: any = {
         apiVersion: 'networking.k8s.io/v1',
@@ -694,29 +801,23 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
         },
         spec: {
           podSelector,
-          policyTypes: values.policyTypes || [],
+          policyTypes,
         },
       };
 
       // 添加入站规则
-      if (values.policyTypes?.includes('Ingress')) {
+      if (hasIngressRules) {
         const ingress = buildRules(values.ingressRules, false);
         if (ingress && ingress.length > 0) {
           npBody.spec.ingress = ingress;
-        } else {
-          // 空规则数组表示允许所有入站流量
-          npBody.spec.ingress = [{}];
         }
       }
 
       // 添加出站规则
-      if (values.policyTypes?.includes('Egress')) {
+      if (hasEgressRules) {
         const egress = buildRules(values.egressRules, true);
         if (egress && egress.length > 0) {
           npBody.spec.egress = egress;
-        } else {
-          // 空规则数组表示允许所有出站流量
-          npBody.spec.egress = [{}];
         }
       }
 
@@ -736,164 +837,219 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
     }
   };
 
+  // 获取当前表单值的摘要
+  const getFormSummary = useCallback(() => {
+    const values = form.getFieldsValue(true);
+    const ingressCount = values.ingressRules?.length || 0;
+    const egressCount = values.egressRules?.length || 0;
+    
+    let policyTypeStr = '未配置';
+    if (ingressCount > 0 && egressCount > 0) {
+      policyTypeStr = '入站 + 出站';
+    } else if (ingressCount > 0) {
+      policyTypeStr = '仅入站';
+    } else if (egressCount > 0) {
+      policyTypeStr = '仅出站';
+    }
+    
+    return {
+      name: values.name || '-',
+      namespace: values.namespace || '-',
+      podSelector: values.podSelector?.length > 0 
+        ? values.podSelector.filter((l: any) => l && l.key).map((l: any) => `${l.key}=${l.value}`).join(', ')
+        : '所有 Pod',
+      policyTypes: policyTypeStr,
+      ingressRules: ingressCount,
+      egressRules: egressCount,
+    };
+  }, [form]);
+
+  const [summary, setSummary] = useState(getFormSummary());
+
+  // 监听表单变化更新摘要
+  useEffect(() => {
+    const updateSummary = () => setSummary(getFormSummary());
+    updateSummary();
+  }, [currentStep, isEdit, initialData, defaultNamespace, namespacesOptions, getFormSummary]);
+
+  const renderStepContent = () => {
+    switch (currentStep) {
+      case 0:
+        return (
+          <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="name"
+                  label="名称"
+                  rules={[
+                    { required: true, message: '请输入名称' },
+                    { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '名称只能包含小写字母、数字和连字符' },
+                    { max: 253, message: '名称最多 253 个字符' },
+                  ]}
+                >
+                  <Input placeholder="my-network-policy" disabled={isEdit} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="namespace"
+                  label="命名空间"
+                  rules={[{ required: true, message: '请选择命名空间' }]}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+                    disabled={isEdit}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            <LabelEditor name="labels" label="标签" tooltip="可选，添加到 NetworkPolicy 资源的标签" />
+          </Card>
+        );
+      case 1:
+        return (
+          <Card title={<Space><SafetyCertificateOutlined /><span>Pod 选择器</span><Tag color="orange">必填</Tag></Space>} size="small" style={{ marginBottom: 16 }}>
+            <Alert
+              message="选择器用于匹配目标 Pod，规则将应用到匹配的 Pod 上。不添加标签表示选择命名空间下所有 Pod。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <LabelEditor name="podSelector" label="标签选择器" tooltip="需要与目标 Pod 的标签匹配" />
+          </Card>
+        );
+      case 2:
+        return (
+          <Card title={<Space><ArrowDownOutlined style={{ color: '#1890ff' }} /><span>入站规则 (Ingress)</span></Space>} size="small">
+            <Alert
+              message="入站规则控制进入 Pod 的流量。不添加规则将允许所有入站流量。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <RuleEditor name="ingressRules" label="入站" isEgress={false} />
+          </Card>
+        );
+      case 3:
+        return (
+          <Card title={<Space><ArrowUpOutlined style={{ color: '#52c41a' }} /><span>出站规则 (Egress)</span></Space>} size="small">
+            <Alert
+              message="出站规则控制从 Pod 流出的流量。不添加规则将允许所有出站流量。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <RuleEditor name="egressRules" label="出站" isEgress={true} />
+          </Card>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const isLastStep = currentStep === TOTAL_STEPS - 1;
+
   return (
-    <Form
-      form={form}
-      layout="vertical"
-      onFinish={handleSubmit}
-    >
-      {/* 基本信息 */}
-      <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              name="name"
-              label="名称"
-              rules={[
-                { required: true, message: '请输入名称' },
-                { 
-                  pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, 
-                  message: '名称只能包含小写字母、数字和连字符' 
-                },
-                { max: 253, message: '名称最多 253 个字符' },
-              ]}
-            >
-              <Input placeholder="my-network-policy" disabled={isEdit} />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              name="namespace"
-              label="命名空间"
-              rules={[{ required: true, message: '请选择命名空间' }]}
-            >
-              <Select
-                showSearch
-                optionFilterProp="label"
-                options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
-                disabled={isEdit}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-        <LabelEditor 
-          name="labels" 
-          label="标签" 
-          tooltip="可选，添加到 NetworkPolicy 资源的标签"
-        />
-      </Card>
+    <Form form={form} layout="vertical" onFinish={handleSubmit} onValuesChange={() => setSummary(getFormSummary())}>
+      <Row gutter={[0, 0]} style={{ height: '100%' }}>
+        {/* 左侧步骤导航 */}
+        <Col span={5}>
+          <div className="wizard-sidebar" style={{ padding: '0 8px 0 0', minHeight: 'calc(80vh - 24px)' }}>
+            <div>
+              {STEPS.map((step, idx) => {
+                const isActive = currentStep === idx;
+                const isCompleted = currentStep > idx;
+                
+                return (
+                  <div
+                    key={step.key}
+                    className={`wizard-step ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+                    onClick={() => handleStepClick(idx)}
+                  >
+                    <div className="wizard-step-icon">
+                      {isCompleted ? <CheckOutlined /> : step.icon}
+                    </div>
+                    <span className="wizard-step-text">{step.title}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Col>
 
-      {/* Pod 选择器 */}
-      <Card 
-        title={
-          <Space>
-            <SafetyCertificateOutlined />
-            <span>Pod 选择器</span>
-            <Tag color="orange">必填</Tag>
-          </Space>
-        } 
-        size="small" 
-        style={{ marginBottom: 16 }}
-      >
-        <Alert
-          message="选择器用于匹配目标 Pod，规则将应用到匹配的 Pod 上。不添加标签表示选择命名空间下所有 Pod。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-        <LabelEditor 
-          name="podSelector" 
-          label="标签选择器" 
-          tooltip="需要与目标 Pod 的标签匹配"
-        />
-      </Card>
+        {/* 中间表单内容 */}
+        <Col span={12} style={{ height: '100%' }}>
+          <div style={{ height: 'calc(80vh - 24px)', overflowY: 'auto', padding: '0 30px', scrollbarGutter: 'stable' }}>
+            {renderStepContent()}
+          </div>
+        </Col>
 
-      {/* 策略类型 */}
-      <Card 
-        title="策略类型" 
-        size="small" 
-        style={{ marginBottom: 16 }}
-      >
-        <Alert
-          message="至少选择一种策略类型。选择后需要配置对应的规则，否则将拒绝所有流量。"
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-        <Form.Item
-          name="policyTypes"
-          rules={[{ required: true, message: '请至少选择一种策略类型' }]}
-        >
-          <Checkbox.Group onChange={handlePolicyTypeChange as any}>
-            <Checkbox value="Ingress">
-              <Space>
-                <ArrowDownOutlined style={{ color: '#1890ff' }} />
-                入站规则 (Ingress)
-              </Space>
-            </Checkbox>
-            <Checkbox value="Egress">
-              <Space>
-                <ArrowUpOutlined style={{ color: '#52c41a' }} />
-                出站规则 (Egress)
-              </Space>
-            </Checkbox>
-          </Checkbox.Group>
-        </Form.Item>
-      </Card>
-
-      {/* 入站规则 */}
-      {policyTypes.includes('Ingress') && (
-        <Card 
-          title={
-            <Space>
-              <ArrowDownOutlined style={{ color: '#1890ff' }} />
-              <span>入站规则 (Ingress)</span>
-            </Space>
-          }
-          size="small" 
-          style={{ marginBottom: 16 }}
-        >
-          <Alert
-            message="入站规则控制进入 Pod 的流量。不添加规则将允许所有入站流量。"
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
-          <RuleEditor name="ingressRules" label="入站" isEgress={false} />
-        </Card>
-      )}
-
-      {/* 出站规则 */}
-      {policyTypes.includes('Egress') && (
-        <Card 
-          title={
-            <Space>
-              <ArrowUpOutlined style={{ color: '#52c41a' }} />
-              <span>出站规则 (Egress)</span>
-            </Space>
-          }
-          size="small" 
-          style={{ marginBottom: 16 }}
-        >
-          <Alert
-            message="出站规则控制从 Pod 流出的流量。不添加规则将允许所有出站流量。"
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
-          <RuleEditor name="egressRules" label="出站" isEgress={true} />
-        </Card>
-      )}
-
-      {/* 操作按钮 */}
-      <div style={{ textAlign: 'right' }}>
-        <Space>
-          <Button onClick={onCancel}>取消</Button>
-          <Button type="primary" htmlType="submit" loading={loading}>
-            {isEdit ? '更新' : '创建'}
-          </Button>
-        </Space>
-      </div>
+        {/* 右侧配置预览 */}
+        <Col span={7} style={{ height: '100%' }}>
+          <div style={{ background: '#fff', border: '1px solid #eaeaea', borderRadius: 8, padding: 16, height: 'calc(80vh - 24px)', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 12, marginBottom: 12 }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>配置预览</span>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                  <span style={{ color: '#888' }}>名称</span>
+                  <span style={{ color: '#333', fontWeight: 500 }}>{summary.name}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                  <span style={{ color: '#888' }}>命名空间</span>
+                  <span style={{ color: '#333' }}>{summary.namespace}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                  <span style={{ color: '#888' }}>Pod 选择器</span>
+                  <span style={{ color: '#333', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{summary.podSelector}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                  <span style={{ color: '#888' }}>规则配置</span>
+                  <span style={{ color: '#333' }}>{summary.policyTypes}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                  <span style={{ color: '#888' }}>入站规则数</span>
+                  <span style={{ color: '#1890ff' }}>{summary.ingressRules} 条</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                  <span style={{ color: '#888' }}>出站规则数</span>
+                  <span style={{ color: '#52c41a' }}>{summary.egressRules} 条</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <Button key="cancel" htmlType="button" onClick={onCancel}>取消</Button>
+                {currentStep > 0 && (
+                  <Button key="prev" htmlType="button" onClick={handlePrev}>上一步</Button>
+                )}
+                {!isLastStep ? (
+                  <Button
+                    key="next"
+                    type="primary"
+                    htmlType="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleNext();
+                    }}
+                  >
+                    下一步
+                  </Button>
+                ) : (
+                  <Button key="submit" type="primary" htmlType="submit" loading={loading}>
+                    {isEdit ? '更新' : '创建'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </Col>
+      </Row>
     </Form>
   );
 };
