@@ -626,6 +626,51 @@ router.post('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
   }
 });
 
+// 按角色查询该角色下的全部分配记录（用于授予用户抽屉一次拉取、稳定回显）
+router.get('/rbac/assignments/by-role', checkRbacPermission, async (req: any, res) => {
+  try {
+    const { roleId, userType } = req.query as any;
+    if (!roleId) return res.status(400).json({ message: '缺少必要参数' });
+    if (userType && userType !== 'system' && userType !== 'tenant') {
+      return res.status(400).json({ message: '无效的用户类型，必须是 system 或 tenant' });
+    }
+    const assignRepo = AppDataSource.getRepository(RoleAssignment);
+    const rows = await assignRepo.find({
+      where: userType ? { roleId, userType } : { roleId },
+    });
+    res.json({ assignments: rows });
+  } catch (e: any) {
+    res.status(500).json({ message: '查询分配失败', error: String(e) });
+  }
+});
+
+// 批量按用户 ID 查询分配记录（用于授予用户抽屉展示「是否拥有任意角色」等，避免 N+1）
+router.get('/rbac/assignments/by-users', checkRbacPermission, async (req: any, res) => {
+  try {
+    const { userType } = req.query as any;
+    const rawUserIds = (req.query as any).userIds;
+    if (!userType || (userType !== 'system' && userType !== 'tenant')) {
+      return res.status(400).json({ message: '无效的用户类型，必须是 system 或 tenant' });
+    }
+    const ids = Array.isArray(rawUserIds)
+      ? rawUserIds.map(String)
+      : String(rawUserIds || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+    if (ids.length === 0) return res.json({ assignments: [] });
+    if (ids.length > 500) return res.status(400).json({ message: 'userIds 数量过多' });
+
+    const assignRepo = AppDataSource.getRepository(RoleAssignment);
+    const rows = await assignRepo.find({
+      where: { userType, userId: In(ids) },
+    });
+    res.json({ assignments: rows });
+  } catch (e: any) {
+    res.status(500).json({ message: '查询分配失败', error: String(e) });
+  }
+});
+
 // 查询某个用户的角色分配列表
 // - 通过 query.userType + query.userId 来限定查询范围
 router.get('/rbac/assignments', checkRbacPermission, async (req: any, res) => {

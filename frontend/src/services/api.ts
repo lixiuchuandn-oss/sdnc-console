@@ -1,6 +1,9 @@
 // API服务函数
 // 远端访问时，如果 .env 指向 localhost，会导致请求打到访问者本机而非服务器。
-// 这里做一个健壮性处理：当检测到页面不在 localhost，但 REACT_APP_API_URL 包含 localhost 时，改用同主机的 4002 端口。
+// 当页面不在 localhost 但 REACT_APP_API_URL 仍指向 localhost 时，改为当前页的 origin（同源）。
+//
+// HTTPS + Nginx 反代时：页面为 https://host/ ，API 必须是同源 https://host/api/... ，不能写成 https://host:5001
+//（5001 仅在服务器本机监听，且常为 HTTP；浏览器直连会失败或混合内容被拦）。
 
 // 导入请求管理器（提供去重、缓存、重试功能）
 import { requestManager } from '../utils/requestManager';
@@ -14,13 +17,18 @@ const defaultApiBase = (() => {
       const isPageLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const envIsLocalhost = /localhost|127\.0\.0\.1/.test(envUrl);
       if (!isPageLocalhost && envIsLocalhost) {
-        return `${window.location.protocol}//${window.location.hostname}:5001`;
+        return window.location.origin;
       }
     }
     return envUrl;
   }
   if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:5001`;
+    const { protocol, hostname, port } = window.location;
+    const isLocalDevPort = port === '3000' || port === '5000' || port === '5173';
+    if ((hostname === 'localhost' || hostname === '127.0.0.1') && isLocalDevPort) {
+      return `${protocol}//${hostname}:5001`;
+    }
+    return window.location.origin;
   }
   return 'http://localhost:5001';
 })();

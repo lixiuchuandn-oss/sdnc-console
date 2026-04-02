@@ -74,6 +74,20 @@ function buildBasicCredentials(opts: HuaweiClientOptions): BasicCredentials {
   return new BasicCredentials().withAk(opts.ak).withSk(opts.sk).withProjectId(opts.projectId);
 }
 
+/** 华为云 API 网关 IAM 类错误（如 APIGW.0301）的友好中文说明 */
+export function formatHuaweiCloudErrorMessage(err: any, defaultFallback = 'HuaweiCloud 请求失败'): string {
+  const message = err?.message || err?.errorMsg || defaultFallback;
+  const code = err?.errorCode || err?.code;
+  const full = code ? `${code}: ${message}` : String(message);
+  if (/APIGW\.0301/i.test(full) || /APIGW\.0301/i.test(String(message))) {
+    return (
+      '华为云 IAM 鉴权失败（APIGW.0301）：获取 Token 被拒绝。请核对访问密钥（AK/SK）是否与账号一致且已启用，' +
+      '项目 ID（projectId）是否与所选区域一致；临时密钥请确认未过期。'
+    );
+  }
+  return full;
+}
+
 const __cesCache = new Map<string, { data: any; ts: number }>();
 function __getCache(k: string, ttl: number): any | null {
   const v = __cesCache.get(k);
@@ -94,9 +108,7 @@ export async function huaweiListVpcs(opts: HuaweiClientOptions): Promise<any> {
     const result = await client.listVpcs(request);
     return result;
   } catch (err: any) {
-    const message = err?.message || err?.errorMsg || 'HuaweiCloud VPC 查询失败';
-    const code = err?.errorCode || err?.code;
-    throw new Error(code ? `${code}: ${message}` : message);
+    throw new Error(formatHuaweiCloudErrorMessage(err, 'HuaweiCloud VPC 查询失败'));
   }
 }
 
@@ -1381,6 +1393,6 @@ export async function testHuaweiConnection(
     const ok = !!(data && (Array.isArray((data as any).vpcs) || (data as any).vpcs !== undefined));
     return { ok, message: ok ? '连接成功' : '连接失败，返回数据不完整' };
   } catch (err: any) {
-    return { ok: false, message: err?.message || '连接失败' };
+    return { ok: false, message: formatHuaweiCloudErrorMessage(err, '连接失败') };
   }
 }

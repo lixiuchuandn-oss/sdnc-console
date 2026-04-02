@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Dropdown, message, Table, Input, Select, Modal, Popover, Checkbox, Form, Typography, Progress } from 'antd';
-import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, EllipsisOutlined, SettingOutlined, AppstoreOutlined, HomeOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, EllipsisOutlined, SettingOutlined, AppstoreOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import SharedToolbar from '../../../components/SharedToolbar';
 import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCsmElementGroups, fetchCsmServiceChains, operateCsmVm, getCsmVmConsole, fetchCsmVRouters, fetchCsmAssets, createCsmAsset, deleteCsmAsset, csmSsoLogin } from '../../../services/api';
@@ -829,7 +829,31 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源状态">{cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}</Descriptions.Item>
-          <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Endpoint">
+            <Space>
+              {cloud?.endpoint || '-'}
+              {cloud?.endpoint && (
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<LoginOutlined />}
+                  style={{ padding: 0 }}
+                  title="在新窗口打开"
+                  onClick={() => {
+                    let url = cloud.endpoint || '';
+                    if (url.endsWith('/v3')) {
+                      url = url.substring(0, url.length - 3);
+                    } else if (url.endsWith('/v3/')) {
+                      url = url.substring(0, url.length - 4);
+                    }
+                    window.open(url, '_blank');
+                  }}
+                >
+                  打开
+                </Button>
+              )}
+            </Space>
+          </Descriptions.Item>
           <Descriptions.Item label="版本">{versionText}</Descriptions.Item>
           <Descriptions.Item label="TLS 忽略">{tlsIgnored ? <Tag color="orange">是</Tag> : <Tag>否</Tag>}</Descriptions.Item>
           <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>

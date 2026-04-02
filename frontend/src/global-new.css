@@ -136,6 +136,26 @@ html, body, #root {
   top: 32px !important;
 }
 
+/* 级联通道详情 — 拓扑：缩放/定位控件右上角、横向排列（避免与全局仅设 top 导致错位） */
+.cen-cascade-topology-flow .react-flow__controls {
+  top: 12px !important;
+  right: 12px !important;
+  bottom: auto !important;
+  left: auto !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+.cen-cascade-topology-flow .react-flow__controls-button {
+  border-bottom: none !important;
+  border-right: 1px solid #e8e8e8;
+}
+.cen-cascade-topology-flow .react-flow__controls-button:last-child {
+  border-right: none;
+}
+
 /* ==========================================================================
    Table Styles (std)
    Migration Source: Harvester Node Table Styles

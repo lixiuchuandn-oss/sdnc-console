@@ -33,7 +33,7 @@
  *    - MetricCard (统计卡片)
  * ==============================================================================
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Card, Row, Col, Button, Tag, Modal, Form, Input, Select,
   message, Space, Typography, Dropdown, Badge, Table, MenuProps
@@ -59,6 +59,7 @@ import { getSystemSetting, updateSystemSetting } from '../../services/systemApi'
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../utils/accessMapping';
+import { isMustChangePasswordApiError } from '../../utils/errorHandler';
 import CloudWizard from './CloudWizard';
 import CloudEditModal from './Harvester/modals/CloudEditModal';
  
@@ -131,6 +132,9 @@ const Clouds: React.FC = () => {
   const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
   const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
 
+  /** 改密完成或曾遇 MUST_CHANGE_PASSWORD 后，下一次拉取需 skipCache，避免缓存住空/失败结果 */
+  const skipNextCloudsFetchCacheRef = useRef(false);
+
   // ============================================================================
   // [功能块: 云资源列表数据获取]
   // 检索关键词: fetchClouds 获取云资源列表 API调用
@@ -146,8 +150,13 @@ const Clouds: React.FC = () => {
         ? await apiRequest('/api/clouds', { skipCache: true })
         : await fetchCloudsApi();
       setClouds(Array.isArray(response) ? response : (response?.data || []));
-    } catch (error: any) {
-      message.error('获取云资源列表失败：' + (error.response?.data?.message || error.message));
+    } catch (error: unknown) {
+      if (isMustChangePasswordApiError(error)) {
+        skipNextCloudsFetchCacheRef.current = true;
+        return;
+      }
+      const e = error as { responseData?: { message?: string }; message?: string };
+      message.error('获取云资源列表失败：' + (e?.responseData?.message || e?.message || '未知错误'));
     }
   }, []);
 
@@ -156,8 +165,15 @@ const Clouds: React.FC = () => {
   // 检索关键词: 初始化 useEffect fetchClouds
   // ============================================================================
   useEffect(() => {
-    fetchClouds();
-  }, [fetchClouds]);
+    if (!user?.id) return;
+    if (user.mustChangePassword) {
+      skipNextCloudsFetchCacheRef.current = true;
+      return;
+    }
+    const skipCache = skipNextCloudsFetchCacheRef.current;
+    skipNextCloudsFetchCacheRef.current = false;
+    void fetchClouds(skipCache);
+  }, [fetchClouds, user?.id, user?.mustChangePassword]);
 
   useEffect(() => {
     (async () => {

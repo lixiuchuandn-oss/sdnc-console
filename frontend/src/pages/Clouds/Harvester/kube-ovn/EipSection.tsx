@@ -176,19 +176,6 @@ export const EipSection: React.FC<EipSectionProps> = ({
     });
   }, [eips, keyword, statusFilter, typeFilter]);
 
-  // 筛选选项
-  const statusOptions = useMemo(() => {
-    const set = new Set<string>();
-    eips.forEach((item: any) => {
-      if (item.status?.ready) {
-        set.add('ready');
-      } else {
-        set.add('notready');
-      }
-    });
-    return Array.from(set);
-  }, [eips]);
-
   const typeOptions = useMemo(() => {
     const set = new Set<string>();
     eips.forEach((item: any) => {
@@ -407,7 +394,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
           </>
         )}
         primaryAction={{
-          label: '创建EIP',
+          label: '创建公网IP',
           onClick: () => { if (!hasEipWrite) return; setIsCreateVisible(true); },
           disabled: !hasEipWrite
         }}
@@ -455,7 +442,25 @@ export const EipSection: React.FC<EipSectionProps> = ({
             />
           )}
           
-          <Form.Item name="displayName" label="名称">
+          <Form.Item
+            name="displayName"
+            label="名称"
+            rules={[
+              {
+                validator: async (_, value) => {
+                  const s = String(value ?? '').trim();
+                  if (!s) return Promise.resolve();
+                  const dup = (Array.isArray(eips) ? eips : []).some((r: any) => {
+                    const name = String(r?.metadata?.name ?? '').trim();
+                    const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+                    return name === s || (alias.length > 0 && alias === s);
+                  });
+                  if (dup) return Promise.reject(new Error('名称已存在，请修改'));
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
             <Input placeholder="可选" />
           </Form.Item>
 

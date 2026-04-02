@@ -13,10 +13,10 @@
  * - 模板列表数据 templates、加载状态 loading 以及刷新函数 onRefresh 由上层 Harvester 页面注入
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Input, Button, Select, message, App, Tag, Tooltip, Modal, Switch, Dropdown } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, CheckCircleTwoTone  , SearchOutlined, ExclamationCircleOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CheckCircleTwoTone, SearchOutlined, ExclamationCircleOutlined, EllipsisOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -91,6 +91,9 @@ const getTemplateLatestVersion = (tpl: any): string => {
     return '-';
 };
 
+/** 从模板快速创建 VM：输入框 placeholder 与空值校验提示须一致 */
+const QUICK_CREATE_VM_NAME_HINT = '请输入云主机名称（支持中文）';
+
 /**
  * TemplatesSection 组件
  *
@@ -118,9 +121,6 @@ const TemplatesSection: React.FC<Props> = ({
     () => hasPermissionForAction(perms, 'clouds.templates:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
-  
-  // [推导] 视图控制变量
-  const showYaml = !isTenant && mode === 'ops'; // 租户不展示；标准视图下不展示 YAML
 
   /**
    * 搜索关键字（受控 Input）
@@ -144,35 +144,38 @@ const TemplatesSection: React.FC<Props> = ({
   const [quickCreateAutoStart, setQuickCreateAutoStart] = useState(true);
   const [quickCreating, setQuickCreating] = useState(false);
 
-  const handleDelete = async (tpl: any) => {
-    if (!hasTemplatesWrite) {
-      message.error('无权限执行该操作');
-      return;
-    }
-    const ns = getTemplateNamespace(tpl);
-    const name = getTemplateName(tpl);
-    const alias = getTemplateAlias(tpl);
-    const label = alias ? `${alias} (${name})` : name;
-    
-    modal.confirm({
-      title: '确认删除模板？',
-      icon: <ExclamationCircleOutlined />,
-      content: `确定要删除模板 ${label} 吗？此操作不可恢复。`,
-      okText: '删除',
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          // Template Path: /apis/harvesterhci.io/v1beta1/namespaces/{ns}/virtualmachinetemplates/{name}
-          const path = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
-          await deleteHarvesterResourceByLink(cloudId, path);
-          message.success('删除成功');
-          onRefresh?.(true);
-        } catch (e: any) {
-          message.error(`删除失败: ${e.message}`);
-        }
+  const handleDelete = useCallback(
+    async (tpl: any) => {
+      if (!hasTemplatesWrite) {
+        message.error('无权限执行该操作');
+        return;
       }
-    });
-  };
+      const ns = getTemplateNamespace(tpl);
+      const name = getTemplateName(tpl);
+      const alias = getTemplateAlias(tpl);
+      const label = alias ? `${alias} (${name})` : name;
+
+      modal.confirm({
+        title: '确认删除模板？',
+        icon: <ExclamationCircleOutlined />,
+        content: `确定要删除模板 ${label} 吗？此操作不可恢复。`,
+        okText: '删除',
+        okType: 'danger',
+        onOk: async () => {
+          try {
+            // Template Path: /apis/harvesterhci.io/v1beta1/namespaces/{ns}/virtualmachinetemplates/{name}
+            const path = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
+            await deleteHarvesterResourceByLink(cloudId, path);
+            message.success('删除成功');
+            onRefresh?.(true);
+          } catch (e: any) {
+            message.error(`删除失败: ${e.message}`);
+          }
+        },
+      });
+    },
+    [hasTemplatesWrite, modal, cloudId, onRefresh],
+  );
 
   /** 批量删除（与 VmSection 一致：下拉「⋯」触发，确认后逐条统计成功/失败） */
   const handleBatchDelete = () => {
@@ -219,17 +222,20 @@ const TemplatesSection: React.FC<Props> = ({
     });
   };
 
-  const openQuickCreate = (tpl: any) => {
-    if (!hasTemplatesWrite) {
-      message.error('无权限执行该操作');
-      return;
-    }
-    if (!tpl) return;
-    setQuickCreateTpl(tpl);
-    setQuickCreateName('');
-    setQuickCreateAutoStart(true);
-    setQuickCreateVisible(true);
-  };
+  const openQuickCreate = useCallback(
+    (tpl: any) => {
+      if (!hasTemplatesWrite) {
+        message.error('无权限执行该操作');
+        return;
+      }
+      if (!tpl) return;
+      setQuickCreateTpl(tpl);
+      setQuickCreateName('');
+      setQuickCreateAutoStart(true);
+      setQuickCreateVisible(true);
+    },
+    [hasTemplatesWrite],
+  );
 
   const doQuickCreate = async () => {
     if (!quickCreateTpl) return;
@@ -237,7 +243,7 @@ const TemplatesSection: React.FC<Props> = ({
     const tplName = getTemplateName(quickCreateTpl);
     const vmName = String(quickCreateName || '').trim();
     if (!vmName) {
-      message.warning('请输入虚拟机名称');
+      message.warning(QUICK_CREATE_VM_NAME_HINT);
       return;
     }
     try {
@@ -258,33 +264,33 @@ const TemplatesSection: React.FC<Props> = ({
     }
   };
 
-  const handleOpenDrawer = (tpl: any) => {
+  const handleOpenDrawer = useCallback((tpl: any) => {
     if (!tpl) return;
     const r = { ...tpl, kind: tpl?.kind || 'VirtualMachineTemplate' };
     setDetailRecord(r);
     setDetailVisible(true);
-  };
+  }, []);
 
-  const handleOpenOpsInfo = (tpl: any) => {
+  const handleOpenOpsInfo = useCallback((tpl: any) => {
     if (!tpl) return;
     const ns = getTemplateNamespace(tpl);
     const name = getTemplateName(tpl);
     // 构造 view link 用于 HarvesterOpsinfoDrawer 获取实时数据
     // Template 路径: /apis/harvesterhci.io/v1beta1/namespaces/{ns}/virtualmachinetemplates/{name}
     const viewLink = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
-    
-    const r = { 
-        ...tpl, 
-        kind: tpl?.kind || 'VirtualMachineTemplate',
-        links: {
-            ...(tpl?.links || {}),
-            view: viewLink
-        }
+
+    const r = {
+      ...tpl,
+      kind: tpl?.kind || 'VirtualMachineTemplate',
+      links: {
+        ...(tpl?.links || {}),
+        view: viewLink,
+      },
     };
     setOpsInfoRecord(r);
     setOpsInfoActiveTab('detail');
     setOpsInfoVisible(true);
-  };
+  }, []);
   
   /**
    * 表格列定义（allColumns）
@@ -435,7 +441,7 @@ const TemplatesSection: React.FC<Props> = ({
       },
     }
   ],
-    [isTenant, showYaml, hasTemplatesWrite, mode],
+    [isTenant, hasTemplatesWrite, mode, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete],
   );
 
   /**
@@ -632,7 +638,7 @@ const TemplatesSection: React.FC<Props> = ({
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Input
-              placeholder="请输入虚拟机名称"
+              placeholder={QUICK_CREATE_VM_NAME_HINT}
               value={quickCreateName}
               onChange={(e) => setQuickCreateName(e.target.value)}
               onPressEnter={() => doQuickCreate()}

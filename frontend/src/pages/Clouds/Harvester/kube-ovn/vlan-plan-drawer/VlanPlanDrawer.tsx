@@ -155,8 +155,9 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     if (!cloudId) return;
     setSubnetLoading(true);
     try {
-      const res = await fetchKubeOvnSubnets(cloudId, false, false);
+      const res = await fetchKubeOvnSubnets(cloudId, true, true);
       setSubnetItems(Array.isArray(res?.data?.items) ? res.data.items : []);
+      clearCache(`/api/clouds/${cloudId}/resources/subnets`, 'GET');
     } catch {
       setSubnetItems([]);
     } finally {
@@ -186,9 +187,8 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     [providers, effectiveProviderName],
   );
 
-  /** 一次遍历生成下拉选项与别名映射，避免对 providers 重复扫描 */
-  const { providerOptions, providerAliasMap } = useMemo(() => {
-    const aliasMap = new Map<string, string>();
+  /** 一次遍历生成下拉选项，避免对 providers 重复扫描 */
+  const providerOptions = useMemo(() => {
     const options: { label: string; value: string }[] = [];
     (providers || []).forEach((p) => {
       const name = String(p?.metadata?.name ?? '').trim();
@@ -196,11 +196,10 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
       const ann = p?.metadata?.annotations || {};
       const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
       const display = alias || name;
-      aliasMap.set(name, display);
       const label = alias && alias !== name ? `${alias} (${name})` : display;
       options.push({ label, value: name });
     });
-    return { providerOptions: options, providerAliasMap: aliasMap };
+    return options;
   }, [providers]);
 
   const lockProviderOption = useMemo(() => {
@@ -506,7 +505,10 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
   const pnDisplayName = String(pnAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
   const pnMetaName = String(effectivePn?.metadata?.name || '').trim();
   const pnReady = !!effectivePn?.status?.ready;
-  const pnReadyNodes = Array.isArray(effectivePn?.status?.readyNodes) ? effectivePn.status.readyNodes : [];
+  const pnReadyNodes = useMemo(
+    () => (Array.isArray(effectivePn?.status?.readyNodes) ? effectivePn.status.readyNodes : []),
+    [effectivePn],
+  );
   const pnCustom = Array.isArray(effectivePn?.spec?.customInterfaces) ? effectivePn.spec.customInterfaces : [];
 
   /** 头部：主标题为资源展示名/资源名；副标题为集群 ID 或场景说明 */
@@ -779,8 +781,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                 const metaName = String(item?.metadata?.name || '').trim();
                 const title = displayAlias || metaName || '—';
                 const vlanId = item?.spec?.id;
-                const provider = String(item?.spec?.provider || '').trim();
-                const created = item?.metadata?.creationTimestamp;
                 const busy = deletingName === metaName;
                 return (
                   <List.Item
@@ -873,7 +873,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                     const alias = String(item?.alias || '').trim();
                     const name = String(item?.name || '-').trim();
                     const cidr = String(item?.cidr || '-').trim();
-                    const vlan = String(item?.vlan || '-').trim();
                     const busy = deletingPublicSubnetName === name;
                     return (
                       <List.Item
@@ -913,7 +912,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span>{cidr}</span>
-                            <span style={{color: '#aaa'}}>运行在VLAN {item?.vlanId || '-'}</span>
+                            <span style={{color: '#aaa'}}>运行在VLAN {item?.vlanId ?? item?.vlan ?? '-'}</span>
                           </div> 
                         </div>
                       </List.Item>
@@ -948,7 +947,6 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                     const alias = String(item?.alias || '').trim();
                     const name = String(item?.name || '-').trim();
                     const cidr = String(item?.cidr || '-').trim();
-                    const vlan = String(item?.vlan || '-').trim();
                     const busy = deletingFlatSubnetName === name;
                     return (
                       <List.Item
@@ -988,7 +986,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span>{cidr}</span>
-                            <span style={{color: '#aaa'}}>运行在VLAN {item?.vlanId || '-'}</span>
+                            <span style={{color: '#aaa'}}>运行在VLAN {item?.vlanId ?? item?.vlan ?? '-'}</span>
                           </div> 
                         </div>
                       </List.Item>

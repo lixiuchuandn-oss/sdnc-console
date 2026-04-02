@@ -28,7 +28,6 @@ import {
 import {
   CreateFlatSubnetModal,
   CreatePublicSubnetModal,
-  KUBE_OVN_FLAT_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   SUBNET_TYPE_FLAT_OVERLAY_ANNOTATION_KEY,
   SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY,
@@ -71,6 +70,8 @@ type Props = {
   displayMode?: 'standard' | 'ops';
   /** 是否显示「查看YAML」并接入 HarvesterOpsinfoDrawer（与 VPC 子网列表一致） */
   showYaml?: boolean;
+  /** 外部持有的子网列表（如 EIP/SNAT/DNAT 依赖）需要联动刷新时使用 */
+  onSubnetsChanged?: () => void | Promise<void>;
 };
 
 function subnetRecordToFormValues(record: any, isFlatMode: boolean): Record<string, unknown> {
@@ -90,7 +91,7 @@ function subnetRecordToFormValues(record: any, isFlatMode: boolean): Record<stri
   return base;
 }
 
-const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displayMode = 'ops', showYaml = true }) => {
+const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displayMode = 'ops', showYaml = true, onSubnetsChanged }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
@@ -110,6 +111,14 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
     message.error('当前账号没有子网操作权限（租户角色仅允许查看）');
     return false;
   }, [hasUnderlayWrite]);
+
+  const notifySubnetsChanged = useCallback(async () => {
+    try {
+      await onSubnetsChanged?.();
+    } catch {
+      /* ignore */
+    }
+  }, [onSubnetsChanged]);
 
   /** 标准视图：隐藏 ACL 等运维列 */
   const isStandardView = displayMode === 'standard';
@@ -273,6 +282,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         setEditRecord(null);
         editForm.resetFields();
         await fetchData(true, true);
+        await notifySubnetsChanged();
         return;
       }
 
@@ -329,6 +339,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       setEditRecord(null);
       editForm.resetFields();
       await fetchData(true, true);
+      await notifySubnetsChanged();
     } catch (error: any) {
       const raw =
         error?.response?.data?.message ??
@@ -378,6 +389,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       setAclSubnetName(null);
       aclForm.resetFields();
       await fetchData(true, true);
+      await notifySubnetsChanged();
     } catch (e: any) {
       if (e?.errorFields) throw e;
       if (e?.aclFormValidated) throw e;
@@ -419,6 +431,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         await deleteKubeOvnSubnet(cloudId, name);
         message.success('删除成功');
         await fetchData(true, true);
+        await notifySubnetsChanged();
       } catch (error: any) {
         const raw =
           error?.response?.data?.message ??
@@ -432,7 +445,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         message.error(`删除失败: ${detail}`);
       }
     },
-    [cloudId, ensureUnderlayWrite, fetchData],
+    [cloudId, ensureUnderlayWrite, fetchData, notifySubnetsChanged],
   );
 
   const allColumns = useMemo(
@@ -813,7 +826,10 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
           vlans={vlans}
           providers={providers}
           aliasDupCheckItems={data}
-          onSuccess={() => fetchData(true, true)}
+          onSuccess={async () => {
+            await fetchData(true, true);
+            await notifySubnetsChanged();
+          }}
         />
       ) : (
         <CreatePublicSubnetModal
@@ -824,7 +840,10 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
           providers={providers}
           aliasDupCheckItems={data}
           title={`创建${subnetKindLabel}`}
-          onSuccess={() => fetchData(true, true)}
+          onSuccess={async () => {
+            await fetchData(true, true);
+            await notifySubnetsChanged();
+          }}
         />
       )}
 

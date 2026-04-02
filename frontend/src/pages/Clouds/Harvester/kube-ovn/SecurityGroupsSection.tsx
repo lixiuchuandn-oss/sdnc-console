@@ -350,7 +350,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     [cloudId, rulesForm],
   );
 
-  const openEditModal = (record: SecurityGroupRow) => {
+  const openEditModal = useCallback((record: SecurityGroupRow) => {
     setEditTarget(record);
     editForm.setFieldsValue({
       name: record.name,
@@ -358,7 +358,17 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       subnetName: record.subnetName,
     });
     setEditOpen(true);
-  };
+  }, [editForm]);
+
+  const closeRulesDrawer = useCallback(() => {
+    setRulesDrawerOpen(false);
+    setRulesDrawerDirection('inbound');
+    setRulesTarget(null);
+    rulesForm.resetFields();
+    setMembersList([]);
+    setMembersVmOptions([]);
+    setMemberTargetKeys([]);
+  }, [rulesForm]);
 
   const submitEdit = async () => {
     if (!cloudId || !editTarget) return;
@@ -399,33 +409,45 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     }
   };
 
-  const confirmDeleteSecurityGroup = (record: SecurityGroupRow) => {
-    Modal.confirm({
-      title: '删除安全组',
-      content: `确定删除安全组「${record.name}」吗？其访问规则将一并删除，且不可恢复。`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteKubeOvnSecurityGroup(cloudId, record.id);
-          message.success('已删除');
-          if (rulesDrawerOpen && rulesTarget?.id === record.id) {
-            closeRulesDrawer();
+  const confirmDeleteSecurityGroup = useCallback(
+    (record: SecurityGroupRow) => {
+      Modal.confirm({
+        title: '删除安全组',
+        content: `确定删除安全组「${record.name}」吗？其访问规则将一并删除，且不可恢复。`,
+        okText: '删除',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            await deleteKubeOvnSecurityGroup(cloudId, record.id);
+            message.success('已删除');
+            if (rulesDrawerOpen && rulesTarget?.id === record.id) {
+              closeRulesDrawer();
+            }
+            if (editOpen && editTarget?.id === record.id) {
+              setEditOpen(false);
+              setEditTarget(null);
+              editForm.resetFields();
+            }
+            await refresh();
+          } catch (e: any) {
+            message.error(`删除失败: ${e?.message || '未知错误'}`);
+            throw e;
           }
-          if (editOpen && editTarget?.id === record.id) {
-            setEditOpen(false);
-            setEditTarget(null);
-            editForm.resetFields();
-          }
-          await refresh();
-        } catch (e: any) {
-          message.error(`删除失败: ${e?.message || '未知错误'}`);
-          throw e;
-        }
-      },
-    });
-  };
+        },
+      });
+    },
+    [
+      cloudId,
+      rulesDrawerOpen,
+      rulesTarget,
+      editOpen,
+      editTarget,
+      editForm,
+      refresh,
+      closeRulesDrawer,
+    ],
+  );
 
   const reloadMembersPanelData = useCallback(
     async (sg: SecurityGroupRow) => {
@@ -586,16 +608,6 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     }
   };
 
-  const closeRulesDrawer = () => {
-    setRulesDrawerOpen(false);
-    setRulesDrawerDirection('inbound');
-    setRulesTarget(null);
-    rulesForm.resetFields();
-    setMembersList([]);
-    setMembersVmOptions([]);
-    setMemberTargetKeys([]);
-  };
-
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (memberFilter === 'has_members' && (r.memberCount || 0) <= 0) return false;
@@ -680,7 +692,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         },
       },
     ],
-    [canWrite, openRulesDrawer, subnetDisplayByName],
+    [canWrite, openRulesDrawer, subnetDisplayByName, openEditModal, confirmDeleteSecurityGroup],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -711,7 +723,8 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
               { label: '无成员', value: 'no_members' },
             ]}
           />
-          <a
+          <Button
+            type="link"
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
@@ -720,7 +733,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
             }}
           >
             重置
-          </a>
+          </Button>
         </div>
         <div className="toolbar-actions">
           {canWrite && (
@@ -773,6 +786,15 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
             rules={[
               { required: true, message: '请输入名称' },
               { max: 128, message: '最长 128 字符' },
+              {
+                validator: async (_, value) => {
+                  const s = String(value ?? '').trim();
+                  if (!s) return Promise.resolve();
+                  const dup = rows.some((r) => String(r?.name ?? '').trim() === s);
+                  if (dup) return Promise.reject(new Error('名称已存在，请修改'));
+                  return Promise.resolve();
+                },
+              },
             ]}
           >
             <Input placeholder="安全组显示名称" autoComplete="off" />

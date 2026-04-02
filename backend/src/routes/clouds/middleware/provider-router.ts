@@ -42,10 +42,11 @@ export function createProviderRouter(
       }
       
       const handler = handlers[provider];
+      // 同一 path 会多次注册（如先 Harvester 直连、后阿里云/华为云）。仅 Harvester/CloudMap
+      // 有 handler 时在此处理；公有云等由后续路由里的 isXxx(cloud) + next() 承接，此处必须 next()，
+      // 否则会误报「云平台 xxx 不支持此操作」且永远无法命中公有云实现。
       if (!handler) {
-        return res.status(400).json({ 
-          message: `云平台 ${provider} 不支持此操作` 
-        });
+        return next();
       }
       
       (req as any).cloud = cloud;

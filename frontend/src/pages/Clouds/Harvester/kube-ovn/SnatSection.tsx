@@ -413,7 +413,25 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         cancelText="取消"
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="displayName" label="名称">
+          <Form.Item
+            name="displayName"
+            label="名称"
+            rules={[
+              {
+                validator: async (_, value) => {
+                  const s = String(value ?? '').trim();
+                  if (!s) return Promise.resolve();
+                  const dup = (Array.isArray(snatRules) ? snatRules : []).some((r: any) => {
+                    const name = String(r?.metadata?.name ?? '').trim();
+                    const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+                    return name === s || (alias.length > 0 && alias === s);
+                  });
+                  if (dup) return Promise.reject(new Error('名称已存在，请修改'));
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
             <Input placeholder="可选，支持中文；留空则列表仅显示自动生成的资源名" />
           </Form.Item>
           <Form.Item name="ovnEip" label="选择公网IP" rules={[{ required: true, message: '请选择公网IP' }]}>

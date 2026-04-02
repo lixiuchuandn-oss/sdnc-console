@@ -41,6 +41,37 @@ function extractVmNetworks(body: any): any[] | null {
   return null;
 }
 
+/** 小写字母数字随机串（用于 id-vm-*、PVC 后缀等） */
+function randLowerAlnum(len: number): string {
+  let s = '';
+  while (s.length < len) s += Math.random().toString(36).slice(2);
+  return s.slice(0, len);
+}
+
+function toDns1123Label(raw: string, fallback: string): string {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+  const val = s || fallback;
+  const clipped = val.length > 63 ? val.slice(0, 63).replace(/-+$/, '') : val;
+  return clipped || fallback;
+}
+
+/** PVC 名：vmId-安全卷名-后缀，总长 ≤253（Kubernetes 对象名上限） */
+function buildPvcNameFromVmId(vmId: string, volName: string, suffix: string): string {
+  const safeVol = toDns1123Label(volName, 'disk');
+  let out = `${vmId}-${safeVol}-${suffix}`;
+  if (out.length <= 253) return out;
+  const maxVolLen = Math.max(1, 253 - (vmId.length + 1 + 1 + suffix.length));
+  const clippedVol = toDns1123Label(safeVol.slice(0, maxVolLen), 'disk');
+  out = `${vmId}-${clippedVol}-${suffix}`;
+  return out.length <= 253 ? out : `${vmId}-disk-${suffix}`;
+}
+
 async function assertNoDuplicateFlatSubnets(
   cloud: any,
   networks: any[] | null | undefined,
@@ -393,9 +424,11 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
   try {
     const { id, namespace, name } = req.params;
     const body = req.body || {};
-    const newVmName: string = String(body?.name || '').trim();
+    const displayName: string = String(body?.name || '').trim();
     const targetNamespace: string = String(body?.namespace || '').trim() || namespace;
-    if (!newVmName) return res.status(400).json({ message: '缺少虚拟机名称' });
+    if (!displayName) return res.status(400).json({ message: '缺少虚拟机名称' });
+
+    const vmId = `id-vm-${randLowerAlnum(11)}`;
 
     let tenantNamespace: string | undefined;
     const isTenantUser = (req as any).user?.tenantId && (req as any).user?.role !== 'sase_device';
@@ -497,8 +530,8 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
       }
     } catch {}
 
-    let primaryImageId: string | undefined = undefined;
-    let primaryImageName: string | undefined = undefined;
+    let primaryImageId: string | undefined;
+    let primaryImageName: string | undefined;
 
     if (Array.isArray(cleanSpec?.volumes)) {
       const waitForPvcCreated = async (ns: string, pvcName: string, timeoutMs = 20000) => {
@@ -521,8 +554,8 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
           if (vol?.persistentVolumeClaim?.claimName) {
             const oldClaim = String(vol.persistentVolumeClaim.claimName).trim();
             const volName = String(vol?.name || `disk-${idx}`).trim();
-            const suffix = Math.random().toString(36).substring(2, 7);
-            const newPvcName = `${newVmName}-${volName}-${suffix}`;
+            const suffix = randLowerAlnum(5);
+            const newPvcName = buildPvcNameFromVmId(vmId, volName, suffix);
 
             const pvcNamespacesToTry = Array.from(
               new Set([String(namespace).trim(), String(versionNs).trim(), String(targetNamespace).trim()]),
@@ -608,13 +641,20 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
       }
     }
 
+    if (!metaClean.labels) metaClean.labels = {};
+    metaClean.labels['harvesterhci.io/vmName'] = vmId;
+    if (!metaClean.annotations) metaClean.annotations = {};
+    metaClean.annotations['tower.io/alias'] = displayName;
+
+    cleanSpec.hostname = vmId;
+
     const autoStart = Boolean(body?.autoStart ?? true);
     const desiredRunStrategy = autoStart ? 'Always' : 'Manual';
     const payload: any = {
       apiVersion: 'kubevirt.io/v1',
       kind: 'VirtualMachine',
       metadata: {
-        name: newVmName,
+        name: vmId,
         namespace: targetNamespace,
         labels: metaClean.labels || {},
         annotations: metaClean.annotations || {},
@@ -641,11 +681,10 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
     const msg = String(errorBody?.message || '').toLowerCase();
 
     if (status === 409 && (reason === 'AlreadyExists' || msg.includes('already exists'))) {
-      const attemptedName = String((req as any)?.body?.name || '').trim();
       const attemptedNs =
         String((req as any)?.body?.namespace || '').trim() || String((req as any)?.params?.namespace || '').trim();
       return res.status(409).json({
-        message: `虚拟机已存在：${attemptedNs}/${attemptedName}，请更换名称后重试`,
+        message: `创建失败：资源名冲突，请重试（命名空间：${attemptedNs}）`,
         error: errorBody,
       });
     }

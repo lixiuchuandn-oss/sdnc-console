@@ -878,6 +878,7 @@ const CenDetailPage: React.FC = () => {
 
     return (
       <div 
+        className="cen-cascade-topology-flow"
         ref={!isFull ? setTopologyEl : undefined} 
         style={{ 
           height: isFull ? '100%' : topologyHeight, 

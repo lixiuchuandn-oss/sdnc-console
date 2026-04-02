@@ -128,7 +128,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
   ], []);
 
   // 列显示设置（需要在 columns 定义之后）
-  const { displayColumns: displayColumns } = useTableColumnSettings(columns, 'monitoring_prometheus_rules_table');
+  const { displayColumns } = useTableColumnSettings(columns, 'monitoring_prometheus_rules_table');
 
   if (!canReadRules) {
     return (

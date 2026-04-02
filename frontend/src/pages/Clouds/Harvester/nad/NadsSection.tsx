@@ -40,11 +40,11 @@
  * -----------------------------------------------------------------------------
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, message, Dropdown, Tooltip } from 'antd';
+import { Table, Input, Select, Tag, Button, Modal, message, Dropdown, Tooltip } from 'antd';
 import { ReloadOutlined, ApiTwoTone , SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchHarvesterNadDetail, deleteHarvesterNad, fetchKubeOvnSubnets } from '../../../../services/harvesterApi';
+import { deleteHarvesterNad, fetchKubeOvnSubnets } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -165,11 +165,11 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     () => hasPermissionForAction(perms, 'clouds.nads:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
-  const ensureNadsWrite = () => {
+  const ensureNadsWrite = useCallback(() => {
     if (hasNadsWrite) return true;
     message.error('当前账号没有附加网络操作权限（需要 clouds.nads:write 或 clouds:write 权限）');
     return false;
-  };
+  }, [hasNadsWrite]);
   const isStandardView = mode === 'standard';
 
   /** Kube-OVN Subnet 列表：用于表格「OVN 子网」关联列（与删除校验同源：通常 Subnet 名与 NAD 名一致） */
@@ -241,11 +241,11 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * 打开 HarvesterResourceDrawer，查看 NAD 详情
    * kind 固定为 NetworkAttachmentDefinition 以兼容事件等功能
    */
-  const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
+  const handleOpenOpsinfo = useCallback(async (record: any, tab: string = 'detail') => {
     setDetailRecord({ ...record, kind: 'NetworkAttachmentDefinition' });
     setDetailActiveTab(tab);
     setDetailVisible(true);
-  };
+  }, []);
 
   /**
    * 检查网络是否被虚拟机使用
@@ -262,7 +262,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * @param record - NAD 记录对象，需包含 _namespace 和 _name 字段
    * @returns 使用该网络的虚拟机名称列表，如果检查失败返回空数组
    */
-  const checkNetworkUsage = async (record: any): Promise<string[]> => {
+  const checkNetworkUsage = useCallback(async (record: any): Promise<string[]> => {
     try {
       const ecsRes = await fetchCloudProviderEcs(cloudId || '', true);
       const vms: any[] = ecsRes?.data || ecsRes || [];
@@ -309,7 +309,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       // 忽略占用检查错误，返回空数组
       return [];
     }
-  };
+  }, [cloudId]);
 
   /**
    * 检查 NAD 是否被 Kube-OVN Subnet 依赖
@@ -325,7 +325,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * @param record - NAD 记录对象，需包含 _name 字段
    * @returns 依赖该 NAD 的子网名称列表，如果检查失败返回空数组
    */
-  const checkSubnetDependency = async (record: any): Promise<string[]> => {
+  const checkSubnetDependency = useCallback(async (record: any): Promise<string[]> => {
     try {
       const subnetsRes = await fetchKubeOvnSubnets(cloudId || '', true);
       const subnets: any[] = subnetsRes?.data?.items || subnetsRes?.items || [];
@@ -343,7 +343,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       // 忽略检查错误，返回空数组
       return [];
     }
-  };
+  }, [cloudId]);
 
   /**
    * 删除单个网络
@@ -361,7 +361,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * 
    * @param record - NAD 记录对象
    */
-  const handleDelete = async (record: any) => {
+  const handleDelete = useCallback(async (record: any) => {
     if (!ensureNadsWrite()) return;
 
     // 租户不能删除公共命名空间的资源
@@ -420,7 +420,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             }
           },
     });
-  };
+  }, [ensureNadsWrite, isTenant, checkNetworkUsage, checkSubnetDependency, cloudId, onRefresh]);
 
   /**
    * 批量删除选中的网络
@@ -597,7 +597,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       </>
     );
 
-    const hasBlocked = blockedByVm.length > 0 || blockedBySubnet.length > 0;
     const hasDeletable = canDelete.length > 0;
 
     Modal.confirm({
@@ -1012,7 +1011,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasNadsWrite }} />;
       } 
     },
-  ], [hasNadsWrite, isTenant, isStandardView, subnetByNameLc, ovnSubnetsLoading]);
+  ], [hasNadsWrite, isTenant, isStandardView, subnetByNameLc, ovnSubnetsLoading, handleDelete, handleOpenOpsinfo]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nads_table');

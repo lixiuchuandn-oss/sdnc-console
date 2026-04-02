@@ -339,10 +339,16 @@ export async function harvesterSubnetDirectCreateHandler(
           if (r && rangesOverlap(reqRange, r)) {
             const conflictName = s?.metadata?.name || s?.name;
             if (conflictName) {
+              const conflictAlias = String(s?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+              const conflictShown =
+                conflictAlias && conflictAlias !== conflictName
+                  ? `${conflictAlias}（${conflictName}）`
+                  : String(conflictName);
               res.status(422).json({
-                message: `网段冲突：新子网的 CIDR 与同 VPC 内已有子网「${conflictName}」的网段重叠（VPC: ${currentVpc}）。请改用不重叠的网段，或调整已有子网。`,
+                message: `网段冲突：新子网的 CIDR 与已有子网「${conflictShown}」的网段重叠。请改用不重叠的网段，或调整已有子网。`,
                 code: 'SUBNET_CIDR_CONFLICT',
                 conflictSubnet: conflictName,
+                conflictSubnetAlias: conflictAlias || undefined,
                 vpc: currentVpc,
               });
               return;

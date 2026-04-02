@@ -912,7 +912,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
   );
 
   // 列显示设置（需要在 columns 定义之后）
-  const { displayColumns: displayColumns } = useTableColumnSettings(columns, 'monitoring_log_outputs_table');
+  const { displayColumns } = useTableColumnSettings(columns, 'monitoring_log_outputs_table');
 
   if (!canReadLogReceivers) {
     return (

@@ -64,8 +64,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
     // v：统一读取表单值，未填时使用空对象兜底，避免空指针
     const v = formSnapshot || {};
 
-    // [存储] 系统盘来源类型、额外数据盘数量与总数、系统盘大小
-    const rootType = String(v.rootSourceType || 'image');
+    // [存储] 额外数据盘数量与总数、系统盘大小
     const extras: any[] = Array.isArray(v.extraDisks) ? v.extraDisks : [];
     const extraDiskCnt = extras.length;
     const diskCount = 1 + extraDiskCnt; // 1 = 系统盘

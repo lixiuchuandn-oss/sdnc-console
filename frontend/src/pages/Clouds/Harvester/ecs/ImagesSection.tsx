@@ -25,7 +25,7 @@
  * - 下游: 调用 `createHarvesterImage`, `deleteHarvesterImage` 等 API。
  * - 外部: 依赖镜像与上传任务相关 API。
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Modal, Row, Col, Tabs, Typography, Tooltip, Upload, Drawer, Progress } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined, PaperClipOutlined, DownloadOutlined } from '@ant-design/icons';
@@ -43,6 +43,7 @@ import {
   fetchHarvesterImageUploadTask,
   fetchHarvesterImageUploadTasks,
   deleteHarvesterImageUploadTask,
+  cancelHarvesterImageUploadTask,
   type HarvesterImageUploadTask,
 } from '../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace, resolveVmImageKind } from '../../../../utils/harvesterUtils';
@@ -104,6 +105,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
+  const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const toolTaskListRef = useRef<HarvesterImageUploadTask[]>([]);
+  const onRefreshRef = useRef(onRefresh);
+  toolTaskListRef.current = toolTaskList;
+  onRefreshRef.current = onRefresh;
 
   React.useEffect(() => {
     if (!cloudId) return;
@@ -149,15 +155,18 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
 
   React.useEffect(() => {
     if (!cloudId) return;
-    const active = toolTaskList.filter((t) => ['pending', 'ingesting', 'proxying'].includes(String(t?.status || '')));
-    if (active.length === 0) return;
     const timer = window.setInterval(async () => {
+      const active = toolTaskListRef.current.filter((t) =>
+        ['pending', 'ingesting', 'proxying'].includes(String(t?.status || '')),
+      );
+      if (active.length === 0) return;
       try {
         const next = await Promise.all(
           active.map(async (t) => {
             try {
-              const resp: any = await fetchHarvesterImageUploadTask(cloudId, t.id);
-              return (resp?.data || resp) as HarvesterImageUploadTask;
+              const resp = await fetchHarvesterImageUploadTask(cloudId, t.id);
+              const r = resp as { data?: HarvesterImageUploadTask };
+              return (r?.data ?? r) as HarvesterImageUploadTask;
             } catch {
               return t;
             }
@@ -167,16 +176,18 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
           const map = new Map(prev.map((x) => [x.id, x]));
           next.forEach((x) => map.set(x.id, x));
           return Array.from(map.values()).sort(
-            (a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime(),
+            (a, b) =>
+              new Date(b.createdAt || b.updatedAt || 0).getTime() -
+              new Date(a.createdAt || a.updatedAt || 0).getTime(),
           );
         });
-        if (next.some((x) => x.status === 'success')) onRefresh?.(true, true);
+        if (next.some((x) => x.status === 'success')) onRefreshRef.current?.(true, true);
       } catch {
         // ignore polling failure
       }
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [cloudId, onRefresh, toolTaskList]);
+  }, [cloudId]);
 
   const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
     // Ensure kind is present for Events tab
@@ -527,6 +538,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       String(form.getFieldValue('toolDisplayName') || '').trim() ||
       toolFile.name.replace(/\.[^.]+$/, '');
     const imageType = String(form.getFieldValue('toolImageType') || '').trim() || undefined;
+    const file = toolFile;
     setUploadingTask(true);
     try {
       const created: any = await createHarvesterImageUploadTask(cloudId, {
@@ -537,32 +549,60 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       const task = (created?.data || created) as HarvesterImageUploadTask;
       if (!task?.id) throw new Error('创建任务失败：未返回 taskId');
       upsertTask(task);
-
-      const token = getToken();
-      const fd = new FormData();
-      fd.append('file', toolFile);
-      const uploadResp = await fetch(
-        `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`,
-        {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          body: fd,
-        },
-      );
-      if (!uploadResp.ok) {
-        const text = await uploadResp.text();
-        throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);
-      }
-      message.success('上传任务已提交，可继续操作其他页面');
+      setCreating(false);
       setToolFile(null);
       form.setFieldValue('toolDisplayName', '');
-      setCreating(false);
-      const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
-      upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
+      message.success('任务已创建，开始上传，可在「上传任务」查看/取消');
+      const controller = new AbortController();
+      uploadControllersRef.current.set(task.id, controller);
+      void (async () => {
+        try {
+          const token = getToken();
+          const fd = new FormData();
+          fd.append('file', file);
+          const uploadResp = await fetch(
+            `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`,
+            {
+              method: 'POST',
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+              body: fd,
+              signal: controller.signal,
+            },
+          );
+          if (!uploadResp.ok) {
+            const text = await uploadResp.text();
+            throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);
+          }
+          const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
+          upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
+        } catch (e: any) {
+          if (controller.signal.aborted) return;
+          message.error(e?.message || '文件上传失败');
+        } finally {
+          uploadControllersRef.current.delete(task.id);
+        }
+      })();
     } catch (e: any) {
       message.error(e?.message || '提交上传任务失败');
     } finally {
       setUploadingTask(false);
+    }
+  };
+
+  const handleCancelUploadTask = async (task: HarvesterImageUploadTask) => {
+    try {
+      if (!ensureImagesWrite()) return;
+      uploadControllersRef.current.get(task.id)?.abort();
+      const resp: any = await cancelHarvesterImageUploadTask(cloudId, task.id);
+      const next = (resp?.data || resp) as HarvesterImageUploadTask;
+      if (next?.id) upsertTask(next);
+      else {
+        const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
+        upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
+      }
+      message.success('已取消');
+    } catch (e: any) {
+      message.error(e?.message || '取消失败');
     }
   };
 
@@ -909,7 +949,17 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
                   <Typography.Text ellipsis style={{ maxWidth: 260 }}>
                     {t.displayName || t.filename || t.id}
                   </Typography.Text>
-                  <Tag color={t.status === 'success' ? 'green' : t.status === 'failed' ? 'red' : 'blue'}>
+                  <Tag
+                    color={
+                      t.status === 'success'
+                        ? 'green'
+                        : t.status === 'failed'
+                          ? 'red'
+                          : t.status === 'cancelled'
+                            ? 'default'
+                            : 'blue'
+                    }
+                  >
                     {uploadStatusText(t)}
                   </Tag>
                 </div>
@@ -919,7 +969,15 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
                 <Progress
                   percent={Number(t.progress || 0)}
                   size="small"
-                  status={t.status === 'failed' ? 'exception' : t.status === 'success' ? 'success' : 'active'}
+                  status={
+                    t.status === 'failed'
+                      ? 'exception'
+                      : t.status === 'success'
+                        ? 'success'
+                        : t.status === 'cancelled'
+                          ? 'normal'
+                          : 'active'
+                  }
                   style={{ marginTop: 6, marginBottom: 4 }}
                 />
                 {t.errorMessage ? (
@@ -927,7 +985,24 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
                     {t.errorMessage}
                   </Typography.Text>
                 ) : null}
-                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
+                  <Button
+                    size="small"
+                    disabled={
+                      !['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) || !hasImagesWrite
+                    }
+                    onClick={() =>
+                      Modal.confirm({
+                        title: '确认取消该上传任务？',
+                        content: `取消后将停止上传：${t.displayName || t.filename || t.id}`,
+                        onOk: async () => {
+                          await handleCancelUploadTask(t);
+                        },
+                      })
+                    }
+                  >
+                    取消
+                  </Button>
                   <Button
                     size="small"
                     danger

@@ -40,6 +40,7 @@ import {
   harvesterImageUploadTaskGetHandler,
   harvesterImageUploadTaskListHandler,
   harvesterImageUploadTaskDeleteHandler,
+  harvesterImageUploadTaskCancelHandler,
   harvesterImageUploadTaskFileHandler,
   harvesterImageUploadProxyHandler,
   harvesterImageUploadTokenHandler,
@@ -426,6 +427,18 @@ export function registerHarvesterCacheRoutesProvider(
     '/:id/resources/harvester/images/upload-tasks/:taskId/file',
     checkAdminPermission,
     createProviderRouter(imageUploadTaskFileHandlers)
+  );
+
+  const imageUploadTaskCancelHandlers = {
+    harvester: harvesterImageUploadTaskCancelHandler,
+    cloudmap: harvesterImageUploadTaskCancelHandler,
+    'cloudmap.private': harvesterImageUploadTaskCancelHandler,
+    'cloudmap.edge': harvesterImageUploadTaskCancelHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/images/upload-tasks/:taskId/cancel',
+    checkAdminPermission,
+    createProviderRouter(imageUploadTaskCancelHandlers)
   );
 
   const imageDetailHandlers = {

@@ -33,7 +33,7 @@
  * - 依赖外部传入的 gpuResources 列表进行渲染。
  */
 import React from 'react';
-import { Form, Input, Select, Radio, Space, Table, Checkbox, InputNumber, Collapse, Typography, Button, message, App } from 'antd';
+import { Form, Input, Select, Radio, Space, Table, Checkbox, InputNumber, Collapse, Typography, Button, App } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 
 /**
@@ -95,8 +95,6 @@ const StepCompute: React.FC<StepComputeProps> = ({
   const [gpuLoading, setGpuLoading] = React.useState<boolean>(false);
 
   // 监听表单字段变化
-  const cpu = Form.useWatch('cpu', form);
-  const hotExpandEnabled = Form.useWatch('hotExpandEnabled', form);
   const dedicatedCPUPlacement = Form.useWatch('dedicatedCPUPlacement', form);
 
   // 未启用 CPU 绑定时不能保留 CPU 隔离
@@ -121,7 +119,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
     }
     // 同步初始状态到快照
     try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
-  }, []);
+  }, [form, setFormSnapshot]);
 
   // [业务规则] ARM 架构强制禁用热扩容并清理拓扑配置
   React.useEffect(() => {

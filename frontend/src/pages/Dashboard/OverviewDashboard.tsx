@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Row, Col, Button, Empty, Spin } from 'antd';
 import {
   CloudServerOutlined,
@@ -24,8 +24,11 @@ import { useNavigate } from 'react-router-dom';
 import { 
   fetchDashboardStats, 
   fetchDashboardRecentActivities, 
-  fetchClouds
+  fetchClouds,
+  apiRequest,
 } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { isMustChangePasswordApiError } from '../../utils/errorHandler';
 import './Dashboard.css';
 import { getProviderChartOption, getRegionChartOption } from './chartUtils';
 
@@ -61,6 +64,9 @@ const MATRIX_ARRAY = [...Array(100)];
 
 const OverviewDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  /** 与资源池页一致：改密后首次拉取需 skipCache */
+  const skipNextCloudsFetchCacheRef = useRef(false);
   const [statsLoading, setStatsLoading] = useState(false);
   const [chartsLoading, setChartsLoading] = useState(false);
   
@@ -72,18 +78,24 @@ const OverviewDashboard: React.FC = () => {
   const [instanceCounts, setInstanceCounts] = useState<Record<string, { total: number, running: number }>>({});
   const [cloudStats, setCloudStats] = useState({ online: 0, total: 0 });
 
-  const loadCriticalData = useCallback(async () => {
+  const loadCriticalData = useCallback(async (skipCloudsCache?: boolean) => {
     setStatsLoading(true);
     try {
+      const cloudsFetch = skipCloudsCache
+        ? apiRequest('/api/clouds', { skipCache: true })
+        : fetchClouds();
       const results = await Promise.allSettled([
         fetchDashboardStats(),
-        fetchClouds(),
+        cloudsFetch,
       ]);
 
       const getValue = (res: PromiseSettledResult<any>, defaultVal: any) => 
         res.status === 'fulfilled' ? res.value : defaultVal;
 
       const statsData = getValue(results[0], {});
+      if (results[1].status === 'rejected' && isMustChangePasswordApiError(results[1].reason)) {
+        skipNextCloudsFetchCacheRef.current = true;
+      }
       const cloudsList = getValue(results[1], []);
 
       setStats(statsData);
@@ -132,19 +144,28 @@ const OverviewDashboard: React.FC = () => {
     }
   }, []);
 
-  const loadAllData = useCallback(() => {
-    loadCriticalData();
+  const loadAllData = useCallback((skipCloudsCache?: boolean) => {
+    loadCriticalData(skipCloudsCache);
     setTimeout(() => {
       loadSecondaryData();
     }, 100);
   }, [loadCriticalData, loadSecondaryData]);
 
   useEffect(() => {
-    loadAllData();
+    if (!user?.id) return;
+    if (user.mustChangePassword) {
+      skipNextCloudsFetchCacheRef.current = true;
+      return;
+    }
+    const skip = skipNextCloudsFetchCacheRef.current;
+    skipNextCloudsFetchCacheRef.current = false;
+    loadAllData(skip);
+  }, [loadAllData, user?.id, user?.mustChangePassword]);
+
+  useEffect(() => {
     const el = document.documentElement;
     if (el.getAttribute('data-theme') === 'dark') setIsDark(true);
-    
-    // Observer for theme changes
+
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
@@ -152,10 +173,10 @@ const OverviewDashboard: React.FC = () => {
         }
       });
     });
-    
+
     observer.observe(el, { attributes: true });
     return () => observer.disconnect();
-  }, [loadAllData]);
+  }, []);
 
   const providerData = useMemo(() => {
     const map: Record<string, number> = {};

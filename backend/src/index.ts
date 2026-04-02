@@ -71,7 +71,8 @@ import { getPublicAdminPasswordPolicy } from './services/adminPasswordPolicy';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+/** 必须为 number，否则 listen(port, host, cb) 会与 backlog 重载冲突 */
+const PORT = Number(process.env.PORT) || 5001;
 const server = http.createServer(app);
 
 // CORS 配置：
@@ -454,9 +455,16 @@ AppDataSource.initialize()
       }
     });
 
-    server.listen(PORT, () => {
-      logger.info(`后端服务运行在端口 ${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
-    });
+    const listenHost = process.env.LISTEN_HOST?.trim();
+    if (listenHost) {
+      server.listen(PORT, listenHost, () => {
+        logger.info(`后端服务运行在 ${listenHost}:${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
+      });
+    } else {
+      server.listen(PORT, () => {
+        logger.info(`后端服务运行在端口 ${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
+      });
+    }
   })
   .catch((error: any) => {
     logger.error('数据库连接失败:', error);

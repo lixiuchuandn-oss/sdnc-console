@@ -236,7 +236,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [kubeOvnSnatRules, setKubeOvnSnatRules] = useState<any[]>([]);
   const [kubeOvnDnatRules, setKubeOvnDnatRules] = useState<any[]>([]);
   const [kubeOvnFlatEips, setKubeOvnFlatEips] = useState<any[]>([]);
-  const [kubeOvnFlatFips, setKubeOvnFlatFips] = useState<any[]>([]);
+  const [, setKubeOvnFlatFips] = useState<any[]>([]);
   const [kubeOvnFlatSnatRules, setKubeOvnFlatSnatRules] = useState<any[]>([]);
   const [kubeOvnFlatDnatRules, setKubeOvnFlatDnatRules] = useState<any[]>([]);
 
@@ -1462,7 +1462,23 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '公共子网',
                       children: (
                         <>
-                          <UnderlaySubnetsSection cloudId={cloudId} mode="public" displayMode={mode} />
+                          <UnderlaySubnetsSection
+                            cloudId={cloudId}
+                            mode="public"
+                            displayMode={mode}
+                            onSubnetsChanged={() =>
+                              loadResource(
+                                'subnets',
+                                () => fetchKubeOvnSubnets(cloudId, true),
+                                (json) => {
+                                  const list: any[] = (json as any)?.data?.items || [];
+                                  setKubeOvnSubnets(Array.isArray(list) ? list : []);
+                                  setRawSubnets(json || null);
+                                },
+                                true,
+                              )
+                            }
+                          />
                           <DebugJSON data={rawSubnets} show={showLog} />
                         </>
                       )
@@ -1975,7 +1991,23 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '扁平子网',
                       children: (
                         <>
-                          <UnderlaySubnetsSection cloudId={cloudId} mode="flat" displayMode={mode} />
+                          <UnderlaySubnetsSection
+                            cloudId={cloudId}
+                            mode="flat"
+                            displayMode={mode}
+                            onSubnetsChanged={() =>
+                              loadResource(
+                                'subnets',
+                                () => fetchKubeOvnSubnets(cloudId, true),
+                                (json) => {
+                                  const list: any[] = (json as any)?.data?.items || [];
+                                  setKubeOvnSubnets(Array.isArray(list) ? list : []);
+                                  setRawSubnets(json || null);
+                                },
+                                true,
+                              )
+                            }
+                          />
                           <DebugJSON data={rawSubnets} show={showLog} />
                         </>
                       )

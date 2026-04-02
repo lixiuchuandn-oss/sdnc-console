@@ -65,7 +65,7 @@
  */
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge, Tag, Tooltip } from 'antd';
+import { Table, Input, Select, Button, Dropdown, Form, App, InputNumber, Checkbox, Badge, Tag, Tooltip } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined, HddTwoTone  } from '@ant-design/icons';
@@ -300,7 +300,7 @@ const VolumesSection: React.FC<Props> = ({
     if (hasDisksWrite) return true;
     message.error('当前账号没有云盘操作权限（需要 clouds.disks:write 或 clouds:write 权限）');
     return false;
-  }, [hasDisksWrite]);
+  }, [hasDisksWrite, message]);
 
   // ----------------------------------------------------------------
   // [状态管理] State
@@ -794,9 +794,6 @@ const VolumesSection: React.FC<Props> = ({
     // 3. 尝试解析磁盘名称 (diskName)
     const pvcName = r.name;
     const vmVolumes = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
-    const vmDisks = Array.isArray(vm?.spec?.template?.spec?.domain?.devices?.disks)
-      ? vm.spec.template.spec.domain.devices.disks
-      : [];
     // 在 VM spec 里找对应 claimName 的卷
     const volEntry = vmVolumes.find((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
     const volName = volEntry?.name || '';
@@ -1101,7 +1098,7 @@ const VolumesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasDisksWrite }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, isStandardView, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
+  ], [cloudId, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, isStandardView, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_volumes_table', ['namespace', 'volumeMode']);

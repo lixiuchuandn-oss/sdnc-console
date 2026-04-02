@@ -792,7 +792,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
   );
 
   // 列显示设置（需要在 allColumns 定义之后）
-  const { displayColumns: displayColumns } = useTableColumnSettings(allColumns, 'logs_config_clusterflow_table_v2');
+  const { displayColumns } = useTableColumnSettings(allColumns, 'logs_config_clusterflow_table_v2');
 
   if (!canReadLogConfigs) {
     return (

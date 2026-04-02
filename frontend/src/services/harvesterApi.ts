@@ -898,6 +898,13 @@ export const deleteHarvesterImageUploadTask = async (cloudId: string, taskId: st
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`);
 };
 
+export const cancelHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+  );
+};
+
 /**
  * 获取 Harvester 镜像详情
  * @param cloudId 云环境 ID

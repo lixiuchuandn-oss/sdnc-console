@@ -411,6 +411,34 @@ if (!fs.existsSync(imageTaskTempRoot)) {
 }
 const imageTaskUpload = multer({ dest: imageTaskTempRoot });
 const imageUploadInFlight = new Set<string>();
+const imageUploadAbortControllers = new Map<string, AbortController>();
+
+function isCancelError(e: any): boolean {
+  const code = String(e?.code || '');
+  const name = String(e?.name || '');
+  const msg = String(e?.message || '');
+  return code === 'ERR_CANCELED' || name === 'CanceledError' || msg === 'CANCELLED';
+}
+
+function abortUploadTask(taskId: string) {
+  const c = imageUploadAbortControllers.get(taskId);
+  if (c && !c.signal.aborted) c.abort();
+}
+
+async function throwIfUploadCancelled(taskId: string, abortController: AbortController): Promise<void> {
+  if (abortController.signal.aborted) {
+    const err: any = new Error('CANCELLED');
+    err.code = 'ERR_CANCELED';
+    throw err;
+  }
+  const t = await AppDataSource.getRepository(ImageUploadTask).findOne({ where: { id: taskId } });
+  if (t?.taskStatus === 'cancelled') {
+    if (!abortController.signal.aborted) abortController.abort();
+    const err: any = new Error('CANCELLED');
+    err.code = 'ERR_CANCELED';
+    throw err;
+  }
+}
 
 function clampProgress(v: number): number {
   if (!Number.isFinite(v)) return 0;
@@ -532,10 +560,13 @@ async function updateTaskProgress(
 async function runImageUploadTask(taskId: string, cloud: any, filePath: string) {
   if (imageUploadInFlight.has(taskId)) return;
   imageUploadInFlight.add(taskId);
+  const abortController = new AbortController();
+  imageUploadAbortControllers.set(taskId, abortController);
   const repo = AppDataSource.getRepository(ImageUploadTask);
   try {
     const task = await repo.findOne({ where: { id: taskId } });
     if (!task) return;
+    if (task.taskStatus === 'cancelled') return;
 
     task.startedAt = task.startedAt || new Date();
     task.errorCode = undefined;
@@ -646,6 +677,7 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
 
       // 轮询 20 次（约 20 秒），等待 controller 回填 upload URL
       for (let i = 0; i < 20 && !uploadUrl; i++) {
+        await throwIfUploadCancelled(taskId, abortController);
         for (const detailUrl of directDetailCandidates) {
           try {
             const detail = await getJsonOnce(detailUrl, cloud.secretKey || '', insecure, true);
@@ -669,6 +701,8 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
     }
 
     if (!uploadUrl) throw new Error('Harvester 未返回 upload URL');
+
+    await throwIfUploadCancelled(taskId, abortController);
 
     // 2) 通过 Tower 代传文件到 Harvester upload URL
     const stat = fs.statSync(filePath);
@@ -728,11 +762,13 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
       const contentLength = header.length + finalSize + footer.length;
       let sent = 0;
       let lastUpdateAt = 0;
+      let chunkCount = 0;
       const fileAndPaddingStream =
         padding > 0
           ? Readable.from(
               (async function* () {
                 for await (const chunk of fs.createReadStream(filePath) as any) {
+                  if (++chunkCount % 32 === 0) await throwIfUploadCancelled(taskId, abortController);
                   const n = typeof chunk === 'string' ? Buffer.byteLength(chunk) : (chunk?.length || 0);
                   sent += n;
                   const now = Date.now();
@@ -748,12 +784,14 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
                   }
                   yield chunk;
                 }
+                await throwIfUploadCancelled(taskId, abortController);
                 yield Buffer.alloc(padding);
               })(),
             )
           : Readable.from(
               (async function* () {
                 for await (const chunk of fs.createReadStream(filePath) as any) {
+                  if (++chunkCount % 32 === 0) await throwIfUploadCancelled(taskId, abortController);
                   const n = typeof chunk === 'string' ? Buffer.byteLength(chunk) : (chunk?.length || 0);
                   sent += n;
                   const now = Date.now();
@@ -773,7 +811,11 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
       const fullBody = Readable.from(
         (async function* () {
           yield header;
-          for await (const chunk of fileAndPaddingStream as any) yield chunk;
+          for await (const chunk of fileAndPaddingStream as any) {
+            await throwIfUploadCancelled(taskId, abortController);
+            yield chunk;
+          }
+          await throwIfUploadCancelled(taskId, abortController);
           yield footer;
         })(),
       );
@@ -806,6 +848,7 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
           timeout: 0,
           httpAgent: isHttp ? httpAgent : undefined,
           httpsAgent: !isHttp ? httpsAgent : undefined,
+          signal: abortController.signal,
           headers: {
             Authorization: `Bearer ${cloud.secretKey || ''}`,
             'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -825,6 +868,10 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
       let sent = 0;
       const readStream = fs.createReadStream(filePath);
       readStream.on('data', async (chunk: any) => {
+        if (abortController.signal.aborted) {
+          readStream.destroy(new Error('CANCELLED'));
+          return;
+        }
         const n = typeof chunk === 'string' ? Buffer.byteLength(chunk) : (chunk?.length || 0);
         sent += n;
         const p = total > 0 ? clampProgress((sent / total) * 100) : 0;
@@ -834,18 +881,25 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
           progress: clampProgress(1 + Math.floor(p * 0.7)),
         });
       });
-      await axios.put(uploadTarget, readStream, {
-        maxBodyLength: Infinity,
-        timeout: 0,
-        httpAgent: isHttp ? httpAgent : undefined,
-        httpsAgent: !isHttp ? httpsAgent : undefined,
-        headers: {
-          Authorization: `Bearer ${cloud.secretKey || ''}`,
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': total,
-        },
-        validateStatus: (s) => s >= 200 && s < 300,
-      });
+      const abortOnSignal = () => readStream.destroy(new Error('CANCELLED'));
+      abortController.signal.addEventListener('abort', abortOnSignal, { once: true });
+      try {
+        await axios.put(uploadTarget, readStream, {
+          maxBodyLength: Infinity,
+          timeout: 0,
+          httpAgent: isHttp ? httpAgent : undefined,
+          httpsAgent: !isHttp ? httpsAgent : undefined,
+          signal: abortController.signal,
+          headers: {
+            Authorization: `Bearer ${cloud.secretKey || ''}`,
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': total,
+          },
+          validateStatus: (s) => s >= 200 && s < 300,
+        });
+      } finally {
+        abortController.signal.removeEventListener('abort', abortOnSignal);
+      }
     }
 
     // 3) 上传动作完成后，继续跟踪 Harvester 导入进度（70-99）
@@ -853,6 +907,7 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
     const importDeadline = Date.now() + 30 * 60 * 1000;
     let imported = false;
     while (Date.now() < importDeadline && !imported) {
+      await throwIfUploadCancelled(taskId, abortController);
       let detail: any = null;
       for (const detailUrl of pollDetailCandidates) {
         try {
@@ -892,6 +947,14 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
       finishedAt: new Date(),
     });
   } catch (e: any) {
+    if (isCancelError(e)) {
+      await updateTaskProgress(taskId, {
+        taskStatus: 'cancelled',
+        phase: 'finished',
+        finishedAt: new Date(),
+      });
+      return;
+    }
     await updateTaskProgress(taskId, {
       taskStatus: 'failed',
       phase: 'finished',
@@ -901,6 +964,7 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
     });
   } finally {
     imageUploadInFlight.delete(taskId);
+    imageUploadAbortControllers.delete(taskId);
     try {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     } catch {}
@@ -1171,6 +1235,37 @@ export async function harvesterImageUploadTaskDeleteHandler(req: Request, res: R
   } catch (error: any) {
     if (res.headersSent) return;
     return res.status(500).json({ message: '删除任务失败', error: error.message });
+  }
+}
+
+/**
+ * POST /:id/resources/harvester/images/upload-tasks/:taskId/cancel - 取消上传任务
+ */
+export async function harvesterImageUploadTaskCancelHandler(req: Request, res: Response) {
+  try {
+    const { id, taskId } = req.params;
+    const user = (req as any)?.user;
+    const userId = String(user?.id || '');
+    const role = String(user?.role || '');
+    const isAdmin = ['super_admin', 'admin'].includes(role);
+    const repo = AppDataSource.getRepository(ImageUploadTask);
+    const task = await repo.findOne({ where: { id: taskId, cloudId: id } });
+    if (!task) return res.status(404).json({ message: '任务不存在' });
+    if (!isAdmin && task.createdBy !== userId) return res.status(403).json({ message: '无权操作该任务' });
+    if (!['pending', 'ingesting', 'proxying', 'failed'].includes(task.taskStatus)) {
+      return res.status(409).json({ message: '任务当前状态不允许取消' });
+    }
+    task.taskStatus = 'cancelled';
+    task.phase = 'finished';
+    task.finishedAt = new Date();
+    task.errorCode = undefined;
+    task.errorMessage = undefined;
+    await repo.save(task);
+    abortUploadTask(task.id);
+    return res.json({ message: '取消成功', data: sanitizeTask(task) });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    return res.status(500).json({ message: '取消任务失败', error: error.message });
   }
 }
 

@@ -11,6 +11,13 @@ export interface ApiError {
   response?: Response;
 }
 
+/** 与 requestManager 抛错一致：403 + body.code === MUST_CHANGE_PASSWORD */
+export function isMustChangePasswordApiError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const e = error as { status?: number; responseData?: { code?: string } };
+  return e.status === 403 && e.responseData?.code === 'MUST_CHANGE_PASSWORD';
+}
+
 /**
  * 统一错误处理工具
  * 

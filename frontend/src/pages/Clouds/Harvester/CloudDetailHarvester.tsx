@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Modal, Select, Popconfirm, message, Dropdown, Typography } from 'antd';
+import { Tag, Space, Button, Tabs, Descriptions, message } from 'antd';
 // 引入各个资源模块组件
 import NodesSection from './cluster/NodesSection';
 import ImagesSection from './ecs/ImagesSection';
@@ -36,7 +36,7 @@ import { getToken } from '../../../utils/tokenStorage';
 import { clearCache } from '../../../utils/requestManager';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
 import VmReconfigureModal from './modals/VmReconfigureModal';
 import VmSection from './ecs/VmSection';
 import RecycleBinSection from './ecs/RecycleBinSection';
@@ -52,8 +52,6 @@ import MonitoringOverview from './Monitoring/MonitoringOverview';
 import LogsConfig from './Monitoring/LogsConfig';
 import LogOutputs from './Monitoring/LogOutputs';
 import LogsTarget from './Monitoring/LogsTarget';
-import LogsFlowConfig from './Monitoring/LogsFlowConfig';
-import LogsOutputConfig from './Monitoring/LogsOutputConfig';
 import HarvesterMonitoringAlerts from './Monitoring/MonitoringAlerts';
 import MonitoringAlertNotificationPolicy from './Monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from './Monitoring/MonitoringAlertNotificationTargets';
@@ -66,15 +64,6 @@ import { LoggingProvider } from './Monitoring/context/LoggingContext';
  * 云资源项接口定义
  */
 interface CloudItem { id: string; name: string; region: string; type: string; config?: any; status?: string; endpoint?: string; description?: string; createdAt?: string; updatedAt?: string; }
-
-/**
- * 状态标签渲染辅助函数
- * @param s 状态字符串
- */
-const statusTag = (s?: string) => {
-  const color = s === 'Available' ? 'green' : s === 'Pending' ? 'orange' : 'blue';
-  return <Tag color={color}>{s || '-'}</Tag>;
-};
 
 /**
  * Harvester/CloudMap 云资源详情页组件
@@ -109,12 +98,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
 
   // 云资源池基础信息
   const [cloud, setCloud] = useState<CloudItem | null>(null);
-  // 全局加载状态（主要用于初始加载）
-  const [loading, setLoading] = useState(false);
   // 各个资源模块的独立加载状态 map
   const [resourceLoading, setResourceLoading] = useState<Record<string, boolean>>({});
-  // 全局错误信息
-  const [error, setError] = useState<string | null>(null);
   
   // --- 核心资源数据 ---
   const [ecs, setEcs] = useState<any[]>([]); // 虚拟机列表
@@ -158,7 +143,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [vmReconfTarget, setVmReconfTarget] = useState<any | null>(null); // 待调整的虚拟机对象
   const [nsFilter, setNsFilter] = useState<string>(''); // 命名空间筛选值
   const [nodeFilter, setNodeFilter] = useState<string>(''); // 节点筛选值
-  const [showLog, setShowLog] = useState<boolean>(false); // 是否显示原始 JSON 日志
+  /** 是否显示原始 JSON 调试块（当前固定为 false；需调试时可改为 true） */
+  const [showLog] = useState<boolean>(false);
 
   // --- 原始数据缓存 (用于日志展示) ---
   const [rawEcs, setRawEcs] = useState<any | null>(null);
@@ -728,7 +714,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
 
   // --- 初始化 Effect ---
   // 仅在组件挂载或 cloudId 变化时加载核心资源
-  useEffect(() => { loadEssentials(); }, [cloudId]);
+  useEffect(() => {
+    void loadEssentials();
+    // 刻意仅依赖 cloudId：loadEssentials 随闭包更新，若全量列入依赖会导致不必要的重复拉取
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上
+  }, [cloudId]);
 
   /**
    * 处理 Tab 切换事件，实现按需加载
@@ -951,18 +941,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
     return Array.from(new Set(list)).sort();
   }, [harvesterNamespaces]);
 
-  // 客户端过滤后的 VM 列表
-  const ecsFiltered = useMemo(() => {
-    return ecs.filter((r:any)=>{
-      const iid = String(r?.InstanceId || '');
-      const ns = iid.includes('/') ? iid.split('/')[0] : '';
-      const node = r?.Extra?.NodeName || '';
-      if (nsFilter && ns !== nsFilter) return false;
-      if (nodeFilter && node !== nodeFilter) return false;
-      return true;
-    });
-  }, [ecs, nsFilter, nodeFilter]);
-
   // 供应商类型判断
   const providerRaw = useMemo(() => String(cloud?.config?.provider || defaultProvider || ''), [cloud, defaultProvider]);
   const provider = useMemo(() => providerRaw.toLowerCase(), [providerRaw]);
@@ -1050,9 +1028,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
         </Descriptions>
       )}
     >
-      {error && (
-        <Alert type="error" message="查询失败" description={error} style={{ marginBottom: 16 }} showIcon />
-      )}
       <Tabs
           type="card"
           destroyOnHidden
@@ -1977,7 +1952,23 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             label: '公共子网',
                             children: (
                               <>
-                                <UnderlaySubnetsSection cloudId={cloudId} mode="public" displayMode={harvesterViewMode} />
+                                <UnderlaySubnetsSection
+                                  cloudId={cloudId}
+                                  mode="public"
+                                  displayMode={harvesterViewMode}
+                                  onSubnetsChanged={() =>
+                                    loadResource(
+                                      'subnets',
+                                      () => fetchKubeOvnSubnets(cloudId, true),
+                                      (json) => {
+                                        const list: any[] = (json as any)?.data?.items || [];
+                                        setKubeOvnSubnets(Array.isArray(list) ? list : []);
+                                        setRawSubnets(json || null);
+                                      },
+                                      true,
+                                    )
+                                  }
+                                />
                                 {showLog && (
                                   <div style={{ marginTop: 12 }}>
                                     <pre style={{ background: '#f7f7f7', padding: 12, borderRadius: 8, maxHeight: 300, overflow: 'auto' }}>
@@ -2042,7 +2033,23 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                               label: '公共子网',
                               children: (
                                 <>
-                                  <UnderlaySubnetsSection cloudId={cloudId} mode="public" displayMode={harvesterViewMode} />
+                                  <UnderlaySubnetsSection
+                                    cloudId={cloudId}
+                                    mode="public"
+                                    displayMode={harvesterViewMode}
+                                    onSubnetsChanged={() =>
+                                      loadResource(
+                                        'subnets',
+                                        () => fetchKubeOvnSubnets(cloudId, true),
+                                        (json) => {
+                                          const list: any[] = (json as any)?.data?.items || [];
+                                          setKubeOvnSubnets(Array.isArray(list) ? list : []);
+                                          setRawSubnets(json || null);
+                                        },
+                                        true,
+                                      )
+                                    }
+                                  />
                                   {showLog && (
                                     <div style={{ marginTop: 12 }}>
                                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
