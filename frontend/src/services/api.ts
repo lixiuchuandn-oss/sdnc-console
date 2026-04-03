@@ -1304,8 +1304,8 @@ export const fetchDashboardCloudUsage = async () => {
 };
 
 // ===== SRv6 隧道 =====
-export const fetchSrv6Tunnels = async () => {
-  return await apiRequest('/api/networks/srv6');
+export const fetchSrv6Tunnels = async (options?: { skipCache?: boolean }) => {
+  return await apiRequest('/api/networks/srv6', { skipCache: options?.skipCache });
 };
 
 // Harvester Extended Resources
@@ -1330,11 +1330,11 @@ export const fetchIPsecVPNs = async () => {
   return await apiRequest('/api/networks/ipsec');
 };
 
-export const fetchIPsecVPNsMerged = async (params?: { vrId?: string }) => {
+export const fetchIPsecVPNsMerged = async (params?: { vrId?: string; skipCache?: boolean }) => {
   const qs: string[] = ['includeDevice=1'];
   if (params?.vrId) qs.push(`vrId=${encodeURIComponent(params.vrId)}`);
   const url = `/api/networks/ipsec${qs.length ? ('?' + qs.join('&')) : ''}`;
-  return await apiRequest(url);
+  return await apiRequest(url, { skipCache: params?.skipCache });
 };
 
 export const createIPsecVPN = async (payload: any) => {

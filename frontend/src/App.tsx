@@ -35,10 +35,10 @@ const IPsecVPNWizard = lazy(() => import('./pages/InterConnect/IPsecVPN/IPsecVPN
 const VRPage = lazy(() => import('./pages/InterConnect/VR/index'));
 const AddVRInstance = lazy(() => import('./pages/InterConnect/VR/AddVRInstance'));
 const EditVRConfig = lazy(() => import('./pages/InterConnect/VR/EditVRConfig'));
-const PEWizard = lazy(() => import('./pages/InterConnect/VR/PEWizard'));
-const CEWizard = lazy(() => import('./pages/InterConnect/VR/CEWizard'));
-const StandardWizard = lazy(() => import('./pages/InterConnect/VR/StandardWizard'));
-const SASEWizard = lazy(() => import('./pages/InterConnect/VR/SASEWizard'));
+const PEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/PEWizard'));
+const CEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/CEWizard'));
+const StandardWizard = lazy(() => import('./pages/InterConnect/VR/wizards/StandardWizard'));
+const SASEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/SASEWizard'));
 const ACLPage = lazy(() => import('./pages/InterConnect/ACL/index'));
 const NATPage = lazy(() => import('./pages/InterConnect/NAT/index'));
 const SecurityDomainPage = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/index'));

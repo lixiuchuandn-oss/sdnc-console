@@ -2,21 +2,21 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Table, Button, Space, Modal, Input, Tag, Tooltip, Tabs, Form, Select, message, Switch, Radio } from 'antd';
 import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, SearchOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc, createHarvesterNad } from '../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
+import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc, createHarvesterNad } from '../../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import {
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
   KUBE_OVN_PROVIDER_VPC,
   isBuiltInKubeOvnVpc,
-} from './underlay-subnet/constants';
+} from '../lib/kubeOvnSubnetConstants';
 
 /**
  * 接口定义
@@ -518,7 +518,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const dataSource = useMemo(() => {
     let filtered = vpcs;
 
-    // 过滤内置 VPC（不展示）：与后端 kubeOvnNetworkScope / 前端 underlay-subnet/constants 一致
+    // 过滤内置 VPC（不展示）：与后端 kubeOvnNetworkScope / 前端 lib/kubeOvnSubnetConstants 一致
     filtered = filtered.filter((item) => {
       const name = SafeRead.name(item);
       return !isBuiltInKubeOvnVpc(name);
@@ -655,7 +655,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         }
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
-            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <ApartmentOutlined style={{ color: '#1677ff'}} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={alias || undefined}>
               {display}
             </span>

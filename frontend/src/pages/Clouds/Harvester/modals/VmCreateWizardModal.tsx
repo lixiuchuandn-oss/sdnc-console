@@ -37,6 +37,7 @@ import StepLoginSettings from './VmCreateWizard/StepLoginSettings';
 import StepOthers from './VmCreateWizard/StepOthers';
 import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
+import { generateVmWizardStyleDisplayName } from '../../../../utils/harvesterUtils';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
@@ -73,7 +74,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const [netModeState, setNetModeState] = useState<string>('flat_subnet');
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
   const [nodeKeyword, setNodeKeyword] = useState<string>('');
-  const [initialVmName] = useState<string>(()=> `vm-${Math.random().toString(36).slice(2,6)}-${Date.now().toString(36).slice(-4)}`);
+  const [initialVmName] = useState<string>(() => generateVmWizardStyleDisplayName('vm'));
   const [memPreset, setMemPreset] = useState<string>('4');
   const [memGi, setMemGi] = useState<number>(4);
   const [formSnapshot, setFormSnapshot] = useState<any>({});
@@ -700,6 +701,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   reloadKubeSubnets={reloadKubeSubnets}
                   selectedNetIdx={selectedNetIdx}
                   setSelectedNetIdx={setSelectedNetIdx}
+                  cloudId={currentCloudId || (cloudId !== 'all' ? cloudId : undefined)}
                 />
               </div>
               <div

@@ -3,19 +3,23 @@ import {
   KUBE_OVN_PUBLIC_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
-} from './underlay-subnet/constants';
+  isBuiltInKubeOvnVpc,
+} from '../lib/kubeOvnSubnetConstants';
+import { buildBusinessVpcPickerRows } from '../lib/kubeOvnUiHelpers';
 import { Table, Modal, Form, Input, Select, message, Alert, MenuProps, Badge, Button, Tooltip, Space } from 'antd';
 import { ApiTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnEip, deleteCloudProviderOvnEip } from '../../../../services/harvesterApi';
-import MetadataModal from './MetadataModal';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
-import { ovnDisplayName, ovnKeywordMatches } from './ovnResourceDisplay';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import { createCloudProviderOvnEip, deleteCloudProviderOvnEip } from '../../../../../services/harvesterApi';
+import MetadataModal from '../modals/MetadataModal';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { generateHarvesterCrMetadataName } from '../../../../../utils/harvesterUtils';
+import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
+
+const TOWER_IO_VPC_ANNOTATION = 'tower.io/vpc';
 
 function ipv4ToInt(ip: string): number | null {
   const m = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -86,6 +90,8 @@ interface BaseSectionProps {
 interface EipSectionProps extends BaseSectionProps {
   eips: any[];
   subnets: any[]; // Needed for creating EIP (external subnets)
+  /** VPC 分域创建/列表展示：传 Kube-OVN VPC 列表 */
+  vpcs?: any[];
   networkScope?: 'flat' | 'vpc';
 }
 
@@ -93,6 +99,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
   cloudId,
   eips,
   subnets,
+  vpcs,
   loading,
   onRefresh,
   bordered = true,
@@ -146,6 +153,51 @@ export const EipSection: React.FC<EipSectionProps> = ({
     });
   }, [subnets]);
 
+  const vpcOptionsForCreate = useMemo(() => {
+    if (networkScope !== 'vpc') return [];
+    return buildBusinessVpcPickerRows(vpcs);
+  }, [networkScope, vpcs]);
+
+  const vpcDisplayByName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const v of vpcs || []) {
+      const id = String(v?.name || v?.metadata?.name || '').trim();
+      if (!id) continue;
+      const alias = String(v?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+      m[id] = alias || id;
+    }
+    return m;
+  }, [vpcs]);
+
+  const publicSubnetDisplayByName = useMemo(() => {
+    const m: Record<string, { display: string; cidr: string }> = {};
+    for (const s of externalSubnets) {
+      const name = String(s?.metadata?.name || s?.name || '').trim();
+      if (!name) continue;
+      const alias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+      const cidr = subnetCidrOf(s);
+      m[name] = { display: alias || name, cidr };
+    }
+    return m;
+  }, [externalSubnets]);
+
+  const publicSubnetToVpcName = useMemo(() => {
+    const m: Record<string, string> = {};
+    if (networkScope !== 'vpc') return m;
+    for (const v of vpcs || []) {
+      const vpcName = String(v?.name || v?.metadata?.name || '').trim();
+      if (!vpcName || isBuiltInKubeOvnVpc(vpcName)) continue;
+      const extraRaw = (v?.spec?.extraExternalSubnets || v?.extraExternalSubnets || []) as any[];
+      const extra = (Array.isArray(extraRaw) ? extraRaw : [])
+        .map((x) => String(x ?? '').trim())
+        .filter(Boolean);
+      for (const subnetName of extra) {
+        if (!m[subnetName]) m[subnetName] = vpcName;
+      }
+    }
+    return m;
+  }, [networkScope, vpcs]);
+
   // 筛选数据
   const filteredData = useMemo(() => {
     return eips.filter((item: any) => {
@@ -196,10 +248,12 @@ export const EipSection: React.FC<EipSectionProps> = ({
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
       const v4 = String(values.v4Ip ?? '').trim();
       const displayName = String(values.displayName ?? '').trim();
+      const vpc = String(values.vpc ?? '').trim();
       const payload = {
-        name: generateHarvesterEntityId('eip'),
+        name: generateHarvesterCrMetadataName('kubeOvnEip'),
         ...(displayName ? { alias: displayName } : {}),
         externalSubnet: values.externalSubnet,
+        ...(networkScope === 'vpc' ? { vpc } : {}),
         ...(v4 ? { v4Ip: v4 } : {}),
         type: 'nat',
       };
@@ -287,10 +341,36 @@ export const EipSection: React.FC<EipSectionProps> = ({
         );
       },
     },
+    ...(networkScope === 'vpc'
+      ? [
+          {
+            title: 'VPC',
+            key: 'vpc',
+            render: (_: any, r: any) => {
+              const ext = String(r?.spec?.externalSubnet ?? '').trim();
+              const annVpc = String(r?.metadata?.annotations?.[TOWER_IO_VPC_ANNOTATION] ?? '').trim();
+              const vpcName = annVpc || (ext ? publicSubnetToVpcName[ext] : '');
+              const display = vpcName ? (vpcDisplayByName[vpcName] || vpcName) : '-';
+              return <span title={vpcName || undefined}>{display}</span>;
+            },
+          },
+        ]
+      : []),
     { 
       title: '所在公共子网', 
       key: 'externalSubnet', 
-      render: (_: any, r: any) => r.spec?.externalSubnet 
+      render: (_: any, r: any) => {
+        const name = String(r?.spec?.externalSubnet ?? '').trim();
+        if (!name) return '-';
+        const row = publicSubnetDisplayByName[name];
+        if (!row) return name;
+        return (
+          <span title={name}>
+            {row.display}
+            {row.cidr ? <span style={{ color: '#8c8c8c' }}>（{row.cidr}）</span> : null}
+          </span>
+        );
+      },
     },
     { 
       title: 'IP地址', 
@@ -337,7 +417,14 @@ export const EipSection: React.FC<EipSectionProps> = ({
       }
     },
     ],
-    [hasEipWrite, handleMenuClick],
+    [
+      hasEipWrite,
+      handleMenuClick,
+      networkScope,
+      publicSubnetDisplayByName,
+      publicSubnetToVpcName,
+      vpcDisplayByName,
+    ],
   );
 
   const eipTableSettingsKey = `harvester_ovn_eip_${networkScope ?? 'legacy'}`;
@@ -424,7 +511,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
       <MetadataModal visible={!!metadataRecord} record={metadataRecord} onClose={() => setMetadataRecord(null)} />
 
       <Modal
-        title="创建 EIP"
+        title="创建公网IP"
         open={isCreateVisible}
         centered
         onCancel={() => setIsCreateVisible(false)}
@@ -434,6 +521,13 @@ export const EipSection: React.FC<EipSectionProps> = ({
         cancelText="取消"
       >
         <Form form={form} layout="vertical">
+          {networkScope === 'vpc' && vpcOptionsForCreate.length === 0 && (
+            <Alert
+              type="warning"
+              message="没有可选的 VPC。请先在「VPC网络」中创建业务 VPC。"
+              style={{ marginBottom: 16 }}
+            />
+          )}
           {externalSubnets.length === 0 && (
             <Alert
               type="warning"
@@ -463,6 +557,27 @@ export const EipSection: React.FC<EipSectionProps> = ({
           >
             <Input placeholder="可选" />
           </Form.Item>
+
+          {networkScope === 'vpc' && (
+            <Form.Item name="vpc" label="VPC" rules={[{ required: true, message: '请选择 VPC' }]}>
+              <Select
+                showSearch
+                placeholder="请选择 VPC"
+                allowClear
+                optionFilterProp="data-search"
+                optionLabelProp="label"
+              >
+                {vpcOptionsForCreate.map((v) => (
+                  <Select.Option key={v.id} value={v.id} label={v.display} data-search={v.searchLabel}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span>{v.display}</span>
+                      <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>{`命名空间: ${v.namespacesDisplay}`}</span>
+                    </div>
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
 
           <Form.Item name="externalSubnet" label="公共子网" rules={[{ required: true, message: '请选择公共子网' }]}>
             <Select placeholder="请选择公共子网" allowClear>

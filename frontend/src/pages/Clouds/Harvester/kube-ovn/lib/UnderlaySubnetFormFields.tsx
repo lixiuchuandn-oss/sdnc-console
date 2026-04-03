@@ -2,7 +2,7 @@ import React from 'react';
 import type { FormInstance } from 'antd/es/form';
 import { Form, Input, Select } from 'antd';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../utils/towerKubeOvnNames';
-import { TOWER_ALIAS_ANNOTATION } from './constants';
+import { TOWER_ALIAS_ANNOTATION } from './kubeOvnSubnetConstants';
 
 const { Option } = Select;
 

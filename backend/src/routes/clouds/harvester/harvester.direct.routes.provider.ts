@@ -798,14 +798,15 @@ export function registerHarvesterDirectRoutesProvider(
     checkAdminPermission,
     createProviderRouter(subnetCreateHandlers)
   );
+  /** 路径参数 name = Kube-OVN Subnet CR 的 metadata.name（非 UID），与 DELETE 一致 */
   router.put(
-    '/:id/resources/subnets/:subnetId',
+    '/:id/resources/subnets/:name',
     checkAdminPermission,
     createProviderRouter(subnetUpdateHandlers)
   );
   // 与 PUT 等价：前端 harvesterApi.updateKubeOvnSubnet 使用 PATCH
   router.patch(
-    '/:id/resources/subnets/:subnetId',
+    '/:id/resources/subnets/:name',
     checkAdminPermission,
     createProviderRouter(subnetUpdateHandlers)
   );
@@ -945,6 +946,11 @@ export function registerHarvesterDirectRoutesProvider(
   router.delete('/:id/resources/network-flat/ovndnatrules/:name', checkAdminPermission, createProviderRouter(ovnDnatDeleteHandlers));
   router.get('/:id/resources/network-vpc/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatListVpcHandlers));
   router.post('/:id/resources/network-vpc/ovndnatrules', checkAdminPermission, createProviderRouter(ovnDnatCreateVpcHandlers));
+
+  router.delete('/:id/resources/network-vpc/ovneips/:name', checkAdminPermission, createProviderRouter(ovnEipDeleteHandlers));
+  router.delete('/:id/resources/network-vpc/ovnfips/:name', checkAdminPermission, createProviderRouter(ovnFipDeleteHandlers));
+  router.delete('/:id/resources/network-vpc/ovnsnatrules/:name', checkAdminPermission, createProviderRouter(ovnSnatDeleteHandlers));
+  router.delete('/:id/resources/network-vpc/ovndnatrules/:name', checkAdminPermission, createProviderRouter(ovnDnatDeleteHandlers));
 
   router.delete('/:id/resources/network-flat/ovneips/:name', checkAdminPermission, createProviderRouter(ovnEipDeleteHandlers));
   router.delete('/:id/resources/network-flat/ovnfips/:name', checkAdminPermission, createProviderRouter(ovnFipDeleteHandlers));

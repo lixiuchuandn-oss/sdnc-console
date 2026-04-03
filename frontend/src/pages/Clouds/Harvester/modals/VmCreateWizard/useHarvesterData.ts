@@ -47,8 +47,9 @@ import {
   fetchHarvesterVolume
 } from '../../../../../services/harvesterApi';
 
-import { isSystemNamespace, isPublicNamespace, pickDefaultStorageClassName } from '../../../../../utils/harvesterUtils';
+import { isPublicNamespace, pickDefaultStorageClassName } from '../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from './VmWizardUtils';
+import { kubeVpcOptionsForVmWizard } from '../../kube-ovn/lib/kubeOvnUiHelpers';
 
 /**
  * useHarvesterData Hook
@@ -396,8 +397,8 @@ export const useHarvesterData = (
   // [数据处理] Kube-OVN 子网选项
   const kubeSubnetOptions = useMemo(() => (kubeSubnets || []).map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })), [kubeSubnets]);
   
-  // [数据处理] Kube-OVN VPC 选项
-  const kubeVpcOptions = useMemo(() => (kubeVpcs || []).map((x: any) => ({ label: x?.name || '-', value: x?.name })), [kubeVpcs]);
+  // [数据处理] Kube-OVN VPC 选项（业务 VPC：别名展示，排除内置）
+  const kubeVpcOptions = useMemo(() => kubeVpcOptionsForVmWizard(kubeVpcs), [kubeVpcs]);
   
   // [数据处理] 云资源池选项
   // [业务规则] 仅显示 Harvester 或 CloudMap 类型的资源池，并确保当前选中的 ID 始终可见
@@ -427,7 +428,6 @@ export const useHarvesterData = (
   // [数据处理] SSH 密钥选项
   const sshKeyOptions = useMemo(() => (sshKeys || []).map((x: any) => {
     const name = x?.metadata?.name || x?.name;
-    const ns = x?.metadata?.namespace || x?.namespace;
     return {
       label: name,
       value: name // Harvester uses name reference

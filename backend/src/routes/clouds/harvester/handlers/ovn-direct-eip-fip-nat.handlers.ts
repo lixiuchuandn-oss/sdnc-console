@@ -39,6 +39,27 @@ function getOriginFromEndpoint(endpoint: string): string {
 }
 
 const TOWER_IO_ALIAS = 'tower.io/alias';
+const TOWER_IO_VPC = 'tower.io/vpc';
+
+/** 库存/API 列表：同 uid 优先，避免并发同步导致的重复行 */
+function dedupeOvnNatRules(list: any[]): any[] {
+  const items = Array.isArray(list) ? list : [];
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const r of items) {
+    const uid = String(r?.metadata?.uid || '').trim();
+    const name = String(r?.metadata?.name || '').trim();
+    const vpc = String(r?.spec?.vpc || '').trim();
+    const vpcSubnet = String(r?.spec?.vpcSubnet || '').trim();
+    const cidr = String(r?.spec?.cidr || '').trim();
+    const key = uid || `${name}|${vpc}|${vpcSubnet}|${cidr}`;
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
 
 /**
  * 扁平网络分域（/network-flat/ 或 scope=underlay）不应依赖「VPC 授权」license；
@@ -225,7 +246,7 @@ export async function harvesterOvnEipCreateHandler(req: any, res: Response, next
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
-    const { name, alias, externalSubnet, v4Ip, type } = req.body;
+    const { name, alias, externalSubnet, v4Ip, type, vpc } = req.body;
     if (!name || !externalSubnet) {
       return res.status(400).json({ message: '缺少必要参数: name, externalSubnet' });
     }
@@ -236,15 +257,51 @@ export async function harvesterOvnEipCreateHandler(req: any, res: Response, next
       });
     }
 
+    const isVpcScope = String(req.originalUrl || req.path || '').includes('/network-vpc/');
+    const vpcName = String(vpc ?? '').trim();
+    if (isVpcScope && !vpcName) {
+      return res.status(400).json({ message: '缺少必要参数: vpc' });
+    }
+
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+    const subnetName = String(externalSubnet ?? '').trim();
+
+    if (vpcName && subnetName && !isUnderlayVpcName(vpcName)) {
+      const vpcUrl = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(vpcName)}`;
+      const currentVpc = await getJsonOnce(vpcUrl, cloud.secretKey || '', insecure);
+      if (currentVpc?.spec) {
+        const extra: string[] = Array.isArray(currentVpc.spec.extraExternalSubnets)
+          ? [...currentVpc.spec.extraExternalSubnets]
+          : [];
+        if (!extra.includes(subnetName)) {
+          extra.push(subnetName);
+          const updatedVpc = {
+            ...currentVpc,
+            spec: {
+              ...currentVpc.spec,
+              extraExternalSubnets: extra,
+            },
+          };
+          await requestJson('PUT', vpcUrl, cloud.secretKey || '', insecure, updatedVpc);
+        }
+      }
+    }
+
+    const metadata = (() => {
+      const base = ovnCrMetadataWithOptionalAlias(name, alias);
+      const ann = { ...(base.annotations || {}) };
+      if (vpcName) ann[TOWER_IO_VPC] = vpcName;
+      return { name: base.name, ...(Object.keys(ann).length ? { annotations: ann } : {}) };
+    })();
+
     const payload = {
       apiVersion: 'kubeovn.io/v1',
       kind: 'OvnEip',
-      metadata: ovnCrMetadataWithOptionalAlias(name, alias),
+      metadata,
       spec: { externalSubnet, type: type || 'nat', ...(v4Ip ? { v4Ip } : {}) },
     };
 
@@ -759,6 +816,7 @@ async function harvesterOvnSnatListHandlerScoped(
     if (scope && subnetMap) {
       list = filterItemsByScope(list, scope, (raw) => classifySnatRule(raw, subnetMap));
     }
+    list = dedupeOvnNatRules(list);
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -920,6 +978,7 @@ async function harvesterOvnDnatListHandlerScoped(
     if (scope) {
       list = filterItemsByScope(list, scope, classifyFipOrDnat);
     }
+    list = dedupeOvnNatRules(list);
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
     if (res.headersSent) return;

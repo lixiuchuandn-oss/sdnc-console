@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Table, List, Modal, Form, Input, Select, message, Tag, Space, Alert, Tooltip, Badge, Segmented } from 'antd';
 import { ReloadOutlined, LayoutTwoTone, SearchOutlined } from '@ant-design/icons';
-import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import dayjs from 'dayjs';
 import {
   createKubeOvnProviderNetwork,
@@ -14,14 +14,14 @@ import {
   fetchKubeOvnVlans,
   fetchHarvesterNodes,
   fetchHarvesterClusterNetworks,
-} from '../../../../services/harvesterApi';
-import { clearCache } from '../../../../utils/requestManager';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import { CLOUD_PROVIDER_NETWORKS_READ, CLOUD_PROVIDER_NETWORKS_WRITE } from '../../../../constants/cloudPermissions';
-import VlanPlanDrawer from './vlan-plan-drawer';
-import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../utils/towerKubeOvnNames';
-import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from './underlay-subnet';
+} from '../../../../../services/harvesterApi';
+import { clearCache } from '../../../../../utils/requestManager';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { CLOUD_PROVIDER_NETWORKS_READ, CLOUD_PROVIDER_NETWORKS_WRITE } from '../../../../../constants/cloudPermissions';
+import VlanPlanDrawer from '../drawers/vlan-plan-drawer';
+import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../../utils/towerKubeOvnNames';
+import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../lib/kubeOvnSubnetConstants';
 
 const { Option } = Select;
 

@@ -26,7 +26,7 @@
  *    - 各 Section 内部通过 services/harvesterApi 发起资源操作/刷新
  * ==============================================================================
  */
-import React, { useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -43,12 +43,12 @@ import ScheduleVmBackupsSection from '../Harvester/cbr/ScheduleVmBackupsSection'
 import SnapshotsSection from '../Harvester/ebs/SnapshotsSection';
 import CloudInitsSection from '../Harvester/ecs/CloudInitsSection';
 import GpuSection from '../Harvester/cluster/GpusSection';
-import EipSection from '../Harvester/kube-ovn/EipSection';
-import FipSection from '../Harvester/kube-ovn/FipSection';
-import SnatSection from '../Harvester/kube-ovn/SnatSection';
-import DnatSection from '../Harvester/kube-ovn/DnatSection';
-import VpcsSection from '../Harvester/kube-ovn/VpcsSection';
-import UnderlaySubnetsSection from '../Harvester/kube-ovn/UnderlaySubnetsSection';
+import EipSection from '../Harvester/kube-ovn/sections/EipSection';
+import FipSection from '../Harvester/kube-ovn/sections/FipSection';
+import SnatSection from '../Harvester/kube-ovn/sections/SnatSection';
+import DnatSection from '../Harvester/kube-ovn/sections/DnatSection';
+import VpcsSection from '../Harvester/kube-ovn/sections/VpcsSection';
+import UnderlaySubnetsSection from '../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 
 
 
@@ -297,7 +297,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     return cat ? cat.resources[0].key : '';
   };
 
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     if (!ovnVpcEnabled && ['vpc-subnet', 'eip', 'fip', 'snat', 'dnat'].includes(activeResource)) {
       return <Empty description="未授权" />;
     }
@@ -499,6 +499,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             eips={eips}
             subnets={subnets}
+            vpcs={vpcs}
             loading={loading}
             onRefresh={onRefreshEips || (() => {})}
             bordered={bordered}
@@ -546,7 +547,64 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       default:
         return <Empty description="该功能暂未实现" />;
     }
-  };
+  }, [
+    ovnVpcEnabled,
+    activeResource,
+    vms,
+    templates,
+    sshKeys,
+    volumes,
+    images,
+    snapshots,
+    backups,
+    schedules,
+    cloudInits,
+    gpus,
+    vpcs,
+    subnets,
+    eips,
+    fips,
+    snatRules,
+    dnatRules,
+    storageClasses,
+    loading,
+    cloudId,
+    isTenantUser,
+    namespacesOptions,
+    namespaceObjects,
+    filteredNamespaces,
+    nodesOptions,
+    nsValue,
+    nodeValue,
+    onNsChange,
+    onNodeChange,
+    onRefreshVms,
+    onOpenReconfigure,
+    onStart,
+    onStop,
+    onReboot,
+    onSoftReboot,
+    onPause,
+    onUnpause,
+    onDelete,
+    onRefreshTemplates,
+    onRefreshSshKeys,
+    onRefreshVolumes,
+    onRefreshStorageClasses,
+    onRefreshImages,
+    onRefreshSnapshots,
+    onRefreshBackups,
+    onRefreshSchedules,
+    onRefreshCloudInits,
+    onRefreshGpus,
+    onRefreshVpcs,
+    onRefreshEips,
+    onRefreshFips,
+    onRefreshSnatRules,
+    onRefreshDnatRules,
+    bordered,
+    showYaml,
+  ]);
 
   const tabItems = useMemo(() => {
     // [二级导航] 非激活 Tab 仅显示标题；激活 Tab 渲染对应 Section 以降低无效渲染
@@ -592,7 +650,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         )
       };
     });
-  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, vms, templates, sshKeys, volumes, images, snapshots, backups, schedules, cloudInits, gpus, vpcs, subnets, eips, fips, snatRules, dnatRules, loading, namespacesOptions, namespaces, nodesOptions, nsValue, nodeValue, showYaml, cloudId, isTenantUser, bordered]);
+  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, renderContent]);
 
   return (
     <div style={{ height: '100%', background: '#fff'}}>

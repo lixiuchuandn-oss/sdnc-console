@@ -6,10 +6,10 @@ import NodesSection from './cluster/NodesSection';
 import ImagesSection from './ecs/ImagesSection';
 import VolumesSection from './ebs/VolumesSection';
 import NadsSection from './nad/NadsSection';
-import KubeOvnVpcsSection from './kube-ovn/VpcsSection';
-import KubeOvnSubnetsSection from './kube-ovn/SubnetsSection';
-import UnderlaySubnetsSection from './kube-ovn/UnderlaySubnetsSection';
-import VlansSection from './kube-ovn/VlansSection';
+import KubeOvnVpcsSection from './kube-ovn/sections/VpcsSection';
+import VpcSubnetsSection from './kube-ovn/sections/VpcSubnetsSection';
+import UnderlaySubnetsSection from './kube-ovn/sections/UnderlaySubnetsSection';
+import VlansSection from './kube-ovn/sections/VlansSection';
 import GpusSection from './cluster/GpusSection';
 import PciDevicesSection from './cluster/PciDevicesSection';
 import UsbDevicesSection from './cluster/UsbDevicesSection';
@@ -43,11 +43,11 @@ import RecycleBinSection from './ecs/RecycleBinSection';
 import TemplatesSection from './ecs/TemplatesSection';
 import ScheduleVmBackupsSection from './cbr/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from './cbr/VmRestoreTasksSection';
-import EipSection from './kube-ovn/EipSection';
-import FipSection from './kube-ovn/FipSection';
-import SnatSection from './kube-ovn/SnatSection';
-import DnatSection from './kube-ovn/DnatSection';
-import SecurityGroupsSection from './kube-ovn/SecurityGroupsSection';
+import EipSection from './kube-ovn/sections/EipSection';
+import FipSection from './kube-ovn/sections/FipSection';
+import SnatSection from './kube-ovn/sections/SnatSection';
+import DnatSection from './kube-ovn/sections/DnatSection';
+import SecurityGroupsSection from './kube-ovn/sections/SecurityGroupsSection';
 import MonitoringOverview from './Monitoring/MonitoringOverview';
 import LogsConfig from './Monitoring/LogsConfig';
 import LogOutputs from './Monitoring/LogOutputs';
@@ -2067,7 +2067,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VPC 子网',
                       children: (
                         <>
-                          <KubeOvnSubnetsSection subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} showYaml={harvesterViewMode === 'ops'} />
+                          <VpcSubnetsSection subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} showYaml={harvesterViewMode === 'ops'} displayMode={harvesterViewMode === 'ops' ? 'ops' : 'standard'} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>

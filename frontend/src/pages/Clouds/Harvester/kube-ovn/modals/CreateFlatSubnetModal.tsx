@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Form, Modal, message } from 'antd';
 import { createKubeOvnSubnet } from '../../../../../services/harvesterApi';
-import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName } from '../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { CLOUD_SUBNETS_FLAT_WRITE } from '../../../../../constants/cloudPermissions';
-import UnderlaySubnetFormFields from './UnderlaySubnetFormFields';
+import UnderlaySubnetFormFields from '../lib/UnderlaySubnetFormFields';
 import {
   SUBNET_FINALIZER,
   SUBNET_TYPE_ANNOTATION_KEY,
@@ -13,7 +13,7 @@ import {
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
   buildFlatUnderlayOverlayAnnotations,
-} from './constants';
+} from '../lib/kubeOvnSubnetConstants';
 
 export type CreateFlatSubnetModalProps = {
   open: boolean;
@@ -41,6 +41,8 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   title = '创建扁平子网',
 }) => {
   const [form] = Form.useForm();
+  /** 打开弹窗时预生成，与 CreateVpcSubnetModal / CreatePublicSubnetModal 一致，避免多次提交产生不同 CR 名 */
+  const pendingUnderlaySubnetCrNameRef = useRef<string>('');
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
@@ -55,6 +57,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
 
   useEffect(() => {
     if (!open) return;
+    pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
     form.resetFields();
     if (initialVlanCrName) {
       form.setFieldsValue({ vlan: initialVlanCrName });
@@ -70,7 +73,9 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
       try {
         const { alias, ...rest } = values;
         const aliasTrim = String(alias ?? '').trim();
-        const subnetId = generateHarvesterEntityId('sn');
+        const subnetId =
+          String(pendingUnderlaySubnetCrNameRef.current || '').trim() ||
+          generateHarvesterCrMetadataName('subnetUnderlay');
         const excludeIps = rest.excludeIps
           ? String(rest.excludeIps)
               .split('\n')

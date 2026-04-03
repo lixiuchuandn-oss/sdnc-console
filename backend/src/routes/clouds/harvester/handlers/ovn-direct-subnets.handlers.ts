@@ -92,6 +92,11 @@ import {
  *  · public：公共子网，默认挂 ovn-cluster，多用于 EIP/NAT 等南北向。
  *  · vpc：业务 VPC 内子网，spec.vpc 为用户 VPC 名。
  *
+ * ---------------------------------------------------------------------------
+ * 更新 / 删除（路径参数约定）
+ * ---------------------------------------------------------------------------
+ * PUT|PATCH|DELETE 均使用同一路径片段名：`/:name`
+ * - `name` 表示集群中 `kubeovn.io/v1/subnets` 资源的 `metadata.name`（DNS 子域名风格），不是 metadata.uid。
  * =============================================================================
  */
 
@@ -738,7 +743,15 @@ export async function harvesterSubnetDirectUpdateHandler(
   next: any,
 ) {
   try {
-    const { id, subnetId } = req.params;
+    const { id, name } = req.params;
+    const subnetName = String(name ?? '').trim();
+    if (!subnetName) {
+      res.status(400).json({
+        message: '缺少路径参数 name（Kube-OVN Subnet 的 metadata.name）',
+        code: 'SUBNET_NAME_REQUIRED',
+      });
+      return;
+    }
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed)
       return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -751,7 +764,7 @@ export async function harvesterSubnetDirectUpdateHandler(
     const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
     const apiBase = resolveHarvesterK8sApiBase(cloud.endpoint || '');
     const currentSubnet = await getJsonOnce(
-      `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnetId)}`,
+      `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnetName)}`,
       cloud.secretKey || '',
       insecure,
     );
@@ -760,7 +773,7 @@ export async function harvesterSubnetDirectUpdateHandler(
     // 校验 EIP：仅非 lrp 类型占用时禁止修改网段相关字段
     try {
       const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
-      const blocking = eipsReferencingSubnetExcludingLrp(eips, subnetId);
+      const blocking = eipsReferencingSubnetExcludingLrp(eips, subnetName);
       if (blocking.length > 0) {
         const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
         return res.status(409).json({
@@ -800,7 +813,7 @@ export async function harvesterSubnetDirectUpdateHandler(
 
     const data = await updateHarvesterSubnet(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      subnetId,
+      subnetName,
       body,
     );
 
@@ -815,7 +828,7 @@ export async function harvesterSubnetDirectUpdateHandler(
         const routeChanged = prevGateway !== newGw || prevRc !== newRc;
         await upsertOvnInternalForPublicSubnet({
           harvesterParams: { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          subnetName: subnetId,
+          subnetName,
           gateway: newGw,
           routeCidr: newRc,
           prevGateway: routeChanged ? prevGateway : undefined,

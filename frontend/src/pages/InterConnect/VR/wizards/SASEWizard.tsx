@@ -1,43 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Card, Descriptions, Form, Input, message, Row, Col, Space, Steps, Spin, Select, Switch, Modal, Checkbox } from 'antd';
-import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import PageContainer from '../../../components/PageContainer';
-import { getVRConfig, saveVRConfig, setVRRole, getVR2Config } from '../../../services/virtualRouterApi';
-import { proxyApiRequest } from '../../../services/api';
+import PageContainer from '../../../../components/PageContainer';
+import { getVRConfig, saveVRConfig, setVRRole } from '../../../../services/virtualRouterApi';
+import { proxyApiRequest } from '../../../../services/api';
 
-const StandardWizard: React.FC = () => {
+const SASEWizard: React.FC = () => {
   const navigate = useNavigate();
   const { uuid } = useParams();
   const [form] = Form.useForm();
   const [mirrorForm] = Form.useForm();
   const [current, setCurrent] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
-  const [existingCfg, setExistingCfg] = useState<any>({});
   const [deviceCfg, setDeviceCfg] = useState<any>(null);
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
-  // ... (keep existing code)
-
   useEffect(() => {
     if (!deviceCfg) return;
     
-    // 辅助函数：在 deviceCfg 中查找接口信息
-    const findInterfaceInDevice = (dev: any, ifaceName: string) => {
-      if (!dev || !ifaceName) return null;
-      let found: any = null;
-      Object.keys(dev).forEach(key => {
-        if (found) return;
-        if ((key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) && Array.isArray(dev[key])) {
-           found = dev[key].find((item: any) => item.name === ifaceName);
-        }
-      });
-      return found;
-    };
-
     // 辅助函数：查找默认路由网关
     const findDefaultGateway = (dev: any) => {
       if (!dev || !Array.isArray(dev.ipv4_route)) return undefined;
@@ -45,27 +29,95 @@ const StandardWizard: React.FC = () => {
       return route ? (route.via || route.dev) : undefined;
     };
 
-    const wanIfName = existingCfg?.ipsec_preset?.wan_interface;
-    const lanIfName = existingCfg?.ipsec_preset?.lan_interface;
-    const wanIfObj = findInterfaceInDevice(deviceCfg, wanIfName);
-    const lanIfObj = findInterfaceInDevice(deviceCfg, lanIfName);
+    // 重新界定 wan口和 lan口识别
+    // CSMCTL 扩展信息 (VR3)查询到的网卡名称，都是通过PCI号转换过来的
+    // 按照标准顺序：第一块是WAN口，第二块是LAN口
+    
+    let wanIfObj: any = null;
+    let lanIfObj: any = null;
+
+    // 辅助函数：解析网卡名称中的 PCI 编号并排序
+    // 格式如：GigabitEthernet 3/0/0
+    // 排序规则：先按物理类型（过滤虚拟卡），再按 PCI 号从小到大排序
+    const getSortedPhysicalInterfaces = (interfaces: any[]) => {
+      if (!Array.isArray(interfaces)) return [];
+      
+      return interfaces
+        .filter(iface => {
+          const name = String(iface?.name || '').toLowerCase();
+          // 排除非物理接口 (memif, loopback, tap, host-, etc.)
+          // 只保留明确的物理接口标识，如 GigabitEthernet, Ethernet, GE 等
+          return name.startsWith('gigabitethernet') || 
+                 name.startsWith('ethernet') || 
+                 name.startsWith('ge') ||
+                 name.startsWith('ten-gigabitethernet') ||
+                 name.startsWith('xe');
+        })
+        .sort((a, b) => {
+          // 提取 PCI 编号字符串，例如 "3/0/0"
+          const extractPci = (name: string) => {
+            const match = name.match(/[\d]+\/[\d]+\/[\d]+/);
+            return match ? match[0] : '';
+          };
+          
+          const pciA = extractPci(String(a.name || ''));
+          const pciB = extractPci(String(b.name || ''));
+          
+          // 如果都能提取到 PCI 号，按字符串（或拆分数字）排序
+          // "2/0/0" < "3/0/0"
+          if (pciA && pciB) {
+             return pciA.localeCompare(pciB, undefined, { numeric: true, sensitivity: 'base' });
+          }
+          // 如果提取不到，回退到按名称排序
+          return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
+        });
+    };
+
+    // 1. 尝试从 deviceCfg.interfaces 中获取并排序
+    if (deviceCfg.interfaces && Array.isArray(deviceCfg.interfaces)) {
+      const sorted = getSortedPhysicalInterfaces(deviceCfg.interfaces);
+      if (sorted.length > 0) wanIfObj = sorted[0]; // 第一块是 WAN
+      if (sorted.length > 1) lanIfObj = sorted[1]; // 第二块是 LAN
+    } 
+    
+    // 如果 interfaces 为空，尝试从其他 keys 收集 (兜底)
+    if (!wanIfObj && !lanIfObj) {
+        const all: any[] = [];
+        Object.keys(deviceCfg).forEach(k => {
+            if ((k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) && Array.isArray(deviceCfg[k])) {
+                all.push(...deviceCfg[k]);
+            }
+        });
+        const sorted = getSortedPhysicalInterfaces(all);
+        if (sorted.length > 0) wanIfObj = sorted[0];
+        if (sorted.length > 1) lanIfObj = sorted[1];
+    }
+
     const gateway = findDefaultGateway(deviceCfg);
     const wanNat = wanIfObj?.nat;
     const isNatEnabled = !!(wanNat && wanNat.type && wanNat.type !== '');
 
-    mirrorForm.setFieldsValue({
-      wanInterface: wanIfName,
+    const initialValues = {
+      wanInterface: wanIfObj?.name,
       wanIpv4: wanIfObj?.ipv4_static,
       wanIpv6: wanIfObj?.ipv6_static,
       ipsecPublicIp: gateway,
       enableNat: isNatEnabled,
-      lanInterface: lanIfName,
+      lanInterface: lanIfObj?.name,
       lanIpv4: lanIfObj?.ipv4_static,
       lanIpv6: lanIfObj?.ipv6_static,
-    });
-  }, [existingCfg, deviceCfg, mirrorForm]);
+    };
 
-  const fetchInterfaces = async (silent = false) => {
+    mirrorForm.setFieldsValue(initialValues);
+    
+    // 直接复用设备回读的数据初始化用户编辑表单
+    // 仅在表单未被修改过或需要重置时覆盖？
+    // 根据需求：全面废弃缓存，复用回读数据 -> 意味着每次回读更新，编辑框也应该更新
+    form.setFieldsValue(initialValues);
+
+  }, [deviceCfg, mirrorForm, form]);
+
+  const fetchInterfaces = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
     try {
@@ -92,9 +144,10 @@ const StandardWizard: React.FC = () => {
       const unique = Array.from(new Set(names)).filter((n) => !!n);
       if (unique.length) setIfaceOptions(unique);
 
-      // 2. 获取完整配置 (用于回读显示)
-      const dev2 = await getVR2Config(uuid);
-      setDeviceCfg(dev2 || null);
+      // 2. 使用 VR3 扩展信息作为设备配置 (用于回读显示)
+      // CSMCTL 扩展信息 (VR3)查询到的网卡名称，都是通过PCI号转换过来的
+      // 按照标准顺序：第一块是WAN口，第二块是LAN口
+      setDeviceCfg(data || null);
       
       if (!silent) message.success('设备数据已刷新');
     } catch (err) {
@@ -103,39 +156,21 @@ const StandardWizard: React.FC = () => {
     } finally {
       setIfaceLoading(false);
     }
-  };
+  }, [uuid]);
 
-  const refreshDeviceData = async (silent = false) => {
-    await fetchInterfaces(silent);
-  };
+  const refreshDeviceData = useCallback(
+    async (silent = false) => {
+      await fetchInterfaces(silent);
+    },
+    [fetchInterfaces],
+  );
 
   useEffect(() => {
-    if (!uuid) return;
-    (async () => {
-      try {
-        const cfg = await getVRConfig(uuid);
-        setExistingCfg(cfg || {});
-        const preset = cfg?.ipsec_preset || {};
-        // 判定版本: version >= 2 为新版 (public_ip 存设备IP, gateway 存网关)
-        const isV2 = (preset?.version || 0) >= 2;
-        
-        form.setFieldsValue({
-          ipsecLocalSubnet: preset?.local_subnet, // 兼容旧字段，实际对应 lanIpv4
-          // 如果是新版，仅读取 gateway；如果是旧版，优先读取 gateway，否则回退到 public_ip
-          ipsecPublicIp: isV2 ? preset?.gateway : (preset?.gateway || preset?.public_ip),
-          wanInterface: preset?.wan_interface,
-          wanIpv4: preset?.wan_ipv4,
-          wanIpv6: preset?.wan_ipv6,
-          enableNat: preset?.enable_nat,          // 加载 NAT 开关状态
-          lanInterface: preset?.lan_interface,
-          lanIpv4: preset?.lan_ipv4 || preset?.local_subnet, // 优先取新字段
-          lanIpv6: preset?.lan_ipv6,
-        });
-        // 初始加载设备数据
-        refreshDeviceData(true);
-      } catch {}
-    })();
-  }, [uuid, form]);
+    if (uuid) {
+      // 初始加载设备数据
+      refreshDeviceData(true);
+    }
+  }, [uuid, refreshDeviceData]);
 
   const buildConfigFromValues = (v: any) => {
     // 兼容旧字段名
@@ -219,7 +254,6 @@ const StandardWizard: React.FC = () => {
       };
       ifaceObjs.forEach((item) => {
         const name: string = String(item?.name || '');
-        const typePart = name.split(' ')[0];
         let bucketKey = 'interfaces_GigabitEthernet';
         const isSub = name.includes('.');
         
@@ -249,7 +283,11 @@ const StandardWizard: React.FC = () => {
 
   // 使用 useWatch 实时预览
   const watchedValues = Form.useWatch([], form);
-  const configPreview = useMemo(() => buildConfigFromValues(watchedValues || form.getFieldsValue(true) || {}), [watchedValues, form]);
+  const configPreview = useMemo(
+    () => buildConfigFromValues(watchedValues || form.getFieldsValue(true) || {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [watchedValues, form],
+  );
 
   const next = async () => {
     try {
@@ -314,7 +352,7 @@ const StandardWizard: React.FC = () => {
       const values = form.getFieldsValue(true);
       let cfg = buildConfigFromValues(values);
       if (uuid) cfg.uuid = uuid;
-      cfg.role = '标准'; // 确保 role 存在
+      cfg.role = 'SASE'; // 确保 role 存在
 
       // 1. 同步保存到本地数据库 (包含 ipsec_preset)
       try {
@@ -322,7 +360,7 @@ const StandardWizard: React.FC = () => {
         // 合并并排序，确保本地存储也是有序的
         const newCfg = sortJsonKeys({ ...(existing || {}), ...cfg });
         await saveVRConfig(uuid, newCfg);
-        await setVRRole(uuid, '标准');
+        await setVRRole(uuid, 'SASE');
       } catch (e) {
         console.warn('保存到本地数据库失败:', e);
       }
@@ -341,9 +379,8 @@ const StandardWizard: React.FC = () => {
       const method = 'POST';
       const other = `uuid=${uuid}`;
       const path = '/V2/ctcontrol/VR2/VRConfig';
-      const bodyStr = JSON.stringify(deviceCfg);
-      
-      const data = await proxyApiRequest(path, method, other, JSON.parse(bodyStr));
+
+      const data = await proxyApiRequest(path, method, other, deviceCfg);
       if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
@@ -527,6 +564,7 @@ const StandardWizard: React.FC = () => {
   return (
     <PageContainer
       titleLevel={3}
+      subtitle="预置 IPsec 所需的非协商参数，用于后续建链快速预填"
       extra={<Button icon={<ReloadOutlined />} onClick={() => refreshDeviceData()}>刷新设备回读</Button>}
       onBack={() => navigate(-1)}
       asCard={false}
@@ -610,7 +648,7 @@ const StandardWizard: React.FC = () => {
             建议在维护时段执行，并在下发前使用“刷新设备回读”确认当前状态，必要时通过专家模式备份配置，确保具备回滚方案。
           </div>
           <div style={{ marginBottom: 12 }}>
-            适用范围：标准、PE、CE 模式的配置下发均为全量覆盖。
+            适用范围：标准、PE、CE、SASE 模式的配置下发均为全量覆盖。
           </div>
           <Checkbox checked={confirmChecked} onChange={(e) => setConfirmChecked(e.target.checked)}>
             我已阅读并理解上述内容，确认继续执行全量覆盖下发
@@ -621,4 +659,4 @@ const StandardWizard: React.FC = () => {
   );
 };
 
-export default StandardWizard;
+export default SASEWizard;

@@ -27,7 +27,7 @@
  * - Subnet 依赖：检查是否有 Kube-OVN 子网依赖该 NAD（名称匹配）
  *
  * -----------------------------------------------------------------------------
- * 与「子网」类概念的区分（详见 kube-ovn/UnderlaySubnetsSection、SubnetsSection）
+ * 与「子网」类概念的区分（详见 kube-ovn/UnderlaySubnetsSection、VpcSubnetsSection）
  * -----------------------------------------------------------------------------
  *
  * 【NAD】本 Section：K8s Multus 的 NetworkAttachmentDefinition，定义附加网卡使用的 CNI（bridge、kube-ovn 等）。
@@ -56,7 +56,7 @@ import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
-} from '../kube-ovn/underlay-subnet/constants';
+} from '../kube-ovn/lib/kubeOvnSubnetConstants';
 
 /** 从 NAD 解析可能对应的 Kube-OVN Subnet 名称候选（同名 + provider 首段） */
 function collectKubeOvnSubnetNameCandidates(record: { _name?: string; _config?: any }): string[] {

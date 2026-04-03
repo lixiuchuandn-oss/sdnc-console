@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, InputNumber, Modal, Select, Tag, message, Space, Row, Col, Typography } from 'antd';
-import type { MenuProps } from 'antd';
-import { EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, Modal, Select, Tag, message, Space, Row, Col, Typography } from 'antd';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import { vrApi, getVRConfig, getVRConfigCached, saveVRConfig } from '../../../services/virtualRouterApi';
-import { apiRequest } from '../../../services/api';
+import { vrApi, getVRConfig, saveVRConfig, fetchVrCachePageList, getVRRoles } from '../../../services/virtualRouterApi';
+import { apiPost } from '../../../services/api';
 
 const { Option } = Select;
 const { Text } = Typography;
@@ -22,14 +20,14 @@ const NATPage: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createForm] = Form.useForm();
-  
-  // PageContainer handles column visibility
-  const defaultHiddenColumns: string[] = [];
-  
+
   // Fetch VRs and NAT Rules
-  const fetchData = async () => {
+  const fetchData = async (force?: boolean) => {
     setLoading(true);
     try {
+      if (force) {
+        await apiPost('/api/vr-instances/refresh', {});
+      }
       // Fetch VRs first to build map
       const res: any = await vrApi.getVRInstances(1000, 1);
       const dataObj = res?.data ?? res;
@@ -38,13 +36,12 @@ const NATPage: React.FC = () => {
                 Array.isArray(dataObj?.rows) ? dataObj.rows :
                 Array.isArray(dataObj) ? dataObj : [];
       if (!Array.isArray(vrs) || vrs.length === 0) {
-        const json = await apiRequest('/api/vr-cache/pagelist?page_num=1&page_size=1000');
+        const json = await fetchVrCachePageList(1000, 1, { skipCache: !!force });
         const d = json?.data ?? json;
         vrs = Array.isArray(d?.page) ? d.page : [];
       }
       if ((!Array.isArray(vrs) || vrs.length === 0)) {
-        const jsonRoles = await apiRequest('/api/vr-config/roles');
-        const roles = jsonRoles?.data?.roles || {};
+        const roles = await getVRRoles([], { skipCache: !!force });
         const uuids = Object.keys(roles || {});
         vrs = uuids.map(u => ({ uuid: u, name: u }));
       }
@@ -62,7 +59,7 @@ const NATPage: React.FC = () => {
         const vid = v.uuid || v.id || v.vm_id;
         if (!vid) continue;
         try {
-          const cfg = await getVRConfigCached(vid);
+          const cfg = await getVRConfig(vid, { skipCache: !!force });
           const natGroups = cfg?.nat_address_group || [];
           for (const g of Array.isArray(natGroups) ? natGroups : []) {
             const gid = g?.group_id ?? g?.groupId ?? '';
@@ -312,21 +309,6 @@ const NATPage: React.FC = () => {
     setTypeFilter(undefined);
   };
 
-  const moreMenu: MenuProps = {
-    items: [
-      {
-        key: 'refresh',
-        label: '刷新列表',
-        onClick: fetchData
-      },
-      {
-        key: 'reset',
-        label: '重置筛选',
-        onClick: resetFilters
-      }
-    ]
-  };
-
   return (
     <PageContainer
       titleLevel={3}
@@ -340,9 +322,10 @@ const NATPage: React.FC = () => {
         type: 'primary',
       }}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: fetchData },
+        { key: 'refresh', label: '刷新列表', onClick: () => { void fetchData(true); } },
         { key: 'reset', label: '重置筛选', onClick: resetFilters }
       ]}
+      onRefresh={() => { void fetchData(true); }}
       defaultHiddenColumns={[]}
       toolbarLeft={(
         <Form

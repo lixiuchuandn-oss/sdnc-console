@@ -1,23 +1,27 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   KUBE_OVN_FLAT_VPC,
-  KUBE_OVN_PUBLIC_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
-} from './underlay-subnet/constants';
+} from '../lib/kubeOvnSubnetConstants';
+import {
+  buildBusinessVpcPickerRows,
+  kubeSubnetChoiceLabel,
+  vpcDisplayMapFromVpcs,
+} from '../lib/kubeOvnUiHelpers';
 import { Table, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip } from 'antd';
 import { InteractionTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnSnatRule, deleteCloudProviderOvnSnatRule } from '../../../../services/harvesterApi';
-import MetadataModal from './MetadataModal';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
-import { ovnDisplayName, ovnKeywordMatches } from './ovnResourceDisplay';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import { createCloudProviderOvnSnatRule, deleteCloudProviderOvnSnatRule } from '../../../../../services/harvesterApi';
+import MetadataModal from '../modals/MetadataModal';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { generateHarvesterCrMetadataName } from '../../../../../utils/harvesterUtils';
+import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
 
 function subnetCidrOf(s: any): string {
   return String(s?.spec?.cidrBlock ?? s?.spec?.cidr ?? s?.cidr ?? '').trim();
@@ -43,6 +47,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
   cloudId,
   snatRules,
   eips,
+  vpcs,
   subnets,
   loading,
   onRefresh,
@@ -76,6 +81,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
   const [createLoading, setCreateLoading] = useState(false);
   const [form] = Form.useForm();
   const [metadataRecord, setMetadataRecord] = useState<any>(null);
+  const selectedVpcWatch = Form.useWatch('vpc', form);
   
   // 筛选条件
   const [keyword, setKeyword] = useState<string>('');
@@ -170,6 +176,31 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     });
   }, [subnets, networkScope]);
 
+  const vpcPickerRows = useMemo(() => {
+    const rows = buildBusinessVpcPickerRows(vpcs);
+    if (rows.length > 0 || networkScope !== 'vpc') return rows;
+    const ids = new Set<string>();
+    for (const s of subnetChoices) {
+      const vn = String(s?.spec?.vpc || s?.vpc || '').trim();
+      if (vn && !isBuiltInKubeOvnVpc(vn)) ids.add(vn);
+    }
+    return Array.from(ids).map((id) => ({
+      id,
+      display: id,
+      namespacesDisplay: '-',
+      searchLabel: id,
+    }));
+  }, [vpcs, networkScope, subnetChoices]);
+
+  const subnetChoicesForSelectedVpc = useMemo(() => {
+    if (networkScope !== 'vpc') return subnetChoices;
+    const v = String(selectedVpcWatch ?? '').trim();
+    if (!v) return [];
+    return subnetChoices.filter((s: any) => String(s?.spec?.vpc || s?.vpc || '').trim() === v);
+  }, [subnetChoices, networkScope, selectedVpcWatch]);
+
+  const vpcDisplayById = useMemo(() => vpcDisplayMapFromVpcs(vpcs), [vpcs]);
+
   const handleCreate = async () => {
     if (!hasNatWrite) {
       message.error('无权限执行该操作');
@@ -177,21 +208,31 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     }
     try {
       const values = await form.validateFields();
+      if (networkScope === 'vpc') {
+        const selVpc = String(values.vpc ?? '').trim();
+        const snName = String(values.vpcSubnet ?? '').trim();
+        const sn = subnetChoices.find((s: any) => String(s?.metadata?.name || s?.name || '') === snName);
+        const snVpc = String(sn?.spec?.vpc || sn?.vpc || '').trim();
+        if (selVpc && snVpc && selVpc !== snVpc) {
+          message.error('所选子网不属于当前 VPC，请重新选择');
+          return;
+        }
+      }
       setCreateLoading(true);
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
       const displayName = String(values.displayName ?? '').trim();
       const payload = {
         ...values,
-        name: generateHarvesterEntityId('snat'),
+        name: generateHarvesterCrMetadataName('kubeOvnSnat'),
         ...(displayName ? { alias: displayName } : {}),
       };
       delete (payload as any).displayName;
+      delete (payload as any).vpc;
       await createCloudProviderOvnSnatRule(cloudId, payload, scope);
       message.success('SNAT 规则创建成功');
       setIsCreateVisible(false);
       form.resetFields();
-      // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步
-      onRefresh(true, true);
+      onRefresh(true);
     } catch (e: any) {
       let errMsg = e?.message || '创建失败';
       let parsed: Record<string, unknown> | null = null;
@@ -291,7 +332,10 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           { 
             title: 'VPC', 
             key: 'vpc', 
-            render: (_: any, r: any) => String(r?.status?.vpc || r?.spec?.vpc || '').trim() || '-' 
+            render: (_: any, r: any) => {
+              const id = String(r?.status?.vpc || r?.spec?.vpc || '').trim();
+              return (id && vpcDisplayById.get(id)) || id || '-';
+            },
           },
         ]),
     { 
@@ -329,7 +373,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       }
     },
     ],
-    [hasNatWrite, handleMenuClick, networkScope, eipIpv4ByName],
+    [hasNatWrite, handleMenuClick, networkScope, eipIpv4ByName, vpcDisplayById],
   );
 
   const snatTableSettingsKey = `harvester_ovn_snat_${networkScope ?? 'legacy'}`;
@@ -357,7 +401,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
               className="toolbar-filter-sm"
               options={[
                 { value: '', label: '全部' },
-                ...vpcOptions.map(v => ({ value: v, label: v }))
+                ...vpcOptions.map((v) => ({ value: v, label: vpcDisplayById.get(v) || v }))
               ]} 
             />
             <button
@@ -374,7 +418,11 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         )}
         primaryAction={{
           label: '创建 SNAT 网关',
-          onClick: () => { if (!hasNatWrite) return; setIsCreateVisible(true); },
+          onClick: () => {
+            if (!hasNatWrite) return;
+            form.resetFields();
+            setIsCreateVisible(true);
+          },
           disabled: !hasNatWrite
         }}
         toolbarRight={
@@ -443,6 +491,27 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
               ))}
             </Select>
           </Form.Item>
+          {networkScope === 'vpc' && (
+            <Form.Item name="vpc" label="选择VPC" rules={[{ required: true, message: '请选择VPC' }]}>
+              <Select
+                showSearch
+                placeholder="请选择VPC"
+                allowClear
+                optionFilterProp="data-search"
+                optionLabelProp="label"
+                onChange={() => form.setFieldsValue({ vpcSubnet: undefined })}
+              >
+                {vpcPickerRows.map((v) => (
+                  <Select.Option key={v.id} value={v.id} label={v.display} data-search={v.searchLabel}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span>{v.display}</span>
+                      <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>{`命名空间: ${v.namespacesDisplay}`}</span>
+                    </div>
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
           <Form.Item
             name="vpcSubnet"
             label={networkScope === 'flat' ? '选择扁平子网' : '选择 VPC 子网'}
@@ -453,14 +522,22 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
               },
             ]}
           >
-            <Select placeholder={networkScope === 'flat' ? '请选择扁平子网' : '请选择子网'}>
-              {subnetChoices.map((s) => {
+            <Select
+              placeholder={
+                networkScope === 'flat'
+                  ? '请选择扁平子网'
+                  : networkScope === 'vpc' && !String(selectedVpcWatch || '').trim()
+                    ? '请先选择VPC'
+                    : '请选择子网'
+              }
+              disabled={networkScope === 'vpc' && !String(selectedVpcWatch || '').trim()}
+              showSearch
+              optionFilterProp="label"
+            >
+              {(networkScope === 'vpc' ? subnetChoicesForSelectedVpc : subnetChoices).map((s) => {
                 const name = String(s.metadata?.name || s.name || '');
                 const alias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
                 const cidr = subnetCidrOf(s);
-                const vpc =
-                  String(s.spec?.vpc || s.vpc || '').trim() ||
-                  (networkScope === 'flat' ? KUBE_OVN_FLAT_VPC : KUBE_OVN_PUBLIC_VPC);
                 if (networkScope === 'flat') {
                   const primary = alias || name;
                   const secondary = alias ? name : '';
@@ -474,9 +551,14 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
                     </Select.Option>
                   );
                 }
+                const label = `${kubeSubnetChoiceLabel(s)} ${cidr}`.trim();
                 return (
-                  <Select.Option key={name} value={name}>
-                    {name} (VPC: {vpc})
+                  <Select.Option key={name} value={name} label={label}>
+                    <span title={cidr ? `${kubeSubnetChoiceLabel(s)} ${cidr}` : kubeSubnetChoiceLabel(s)}>
+                      {kubeSubnetChoiceLabel(s)}
+                      {alias ? <span style={{ color: '#8c8c8c' }}>（{name}）</span> : null}
+                      {cidr ? <span style={{ color: '#8c8c8c' }}> {cidr}</span> : null}
+                    </span>
                   </Select.Option>
                 );
               })}

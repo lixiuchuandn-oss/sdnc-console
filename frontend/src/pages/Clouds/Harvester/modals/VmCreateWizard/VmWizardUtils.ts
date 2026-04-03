@@ -1,6 +1,6 @@
 import { startCloudProviderEcs } from '../../../../../services/api';
-import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
-import { KUBE_OVN_FLAT_VPC } from '../../kube-ovn/underlay-subnet/constants';
+import { generateHarvesterCrMetadataName, generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
+import { KUBE_OVN_FLAT_VPC } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 
 /**
  * ==============================================================================
@@ -85,7 +85,7 @@ export const parseSizeToGi = (raw: any): number => {
  *   通过此约定，将“集群实体 ID”与“展示名称”解耦。
  *
  * 当前生成算法（仅在前端生成，未向后端做唯一性校验）：
- * - 具体实现委托给 utils/harvesterUtils.generateHarvesterEntityId
+ * - 默认 vm 委托 generateHarvesterCrMetadataName('vm')；其它实体缩写仍用 generateHarvesterEntityId
  * - 对 VM 场景，实体缩写默认为 'vm'
  *
  * 注意：
@@ -99,8 +99,8 @@ export const parseSizeToGi = (raw: any): number => {
  * @returns {Promise<string>} 生成的 vmid（概率上唯一）
  */
 export const generateUniqueVmId = async (cloudId: string, namespace: string, baseName?: string): Promise<string> => {
-    // 简单封装：遵循 id-{实体缩写}-{11位随机字符串} 规范，实体缩写默认为 'vm'
-    const entity = baseName || 'vm';
+    const entity = String(baseName || 'vm').toLowerCase();
+    if (entity === 'vm') return generateHarvesterCrMetadataName('vm');
     return generateHarvesterEntityId(entity);
 };
 

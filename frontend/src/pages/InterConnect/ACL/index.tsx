@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Button, Form, Input, Select, Table, Tag, message, Modal, Space, Row, Col, InputNumber, Divider, Dropdown, Checkbox, Popover, Tabs, Card, List, Tooltip, Descriptions, Badge } from 'antd';
-import type { MenuProps } from 'antd';
-import { DeleteOutlined, EllipsisOutlined, SettingOutlined, PlusOutlined, RocketOutlined, FolderOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Button, Form, Input, Select, Table, Tag, message, Modal, Space, Row, Col, InputNumber, Tooltip, Badge } from 'antd';
+import { PlusOutlined, RocketOutlined, FolderOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
@@ -10,9 +9,10 @@ import {
   getACLRules, deleteACLRule, ACLRule,
   getACLGroups, createACLGroup, deleteACLGroup, addACLRuleToGroup, pushACLConfig, ACLGroup,
   bindACLGroupToVR, unbindACLGroupFromVR,
-  type ACLGroupBinding
+  type ACLGroupBinding,
+  fetchVrCachePageList,
 } from '../../../services/virtualRouterApi';
-import { vrApi, fetchVrCachePageList } from '../../../services/virtualRouterApi';
+import { apiPost } from '../../../services/api';
 
 const { Option } = Select;
 
@@ -57,9 +57,9 @@ const ACLPage: React.FC = () => {
 
   // --- Fetch Logic ---
 
-  const fetchVRs = async () => {
+  const fetchVRs = async (force?: boolean) => {
     try {
-      const json = await fetchVrCachePageList(1000, 1);
+      const json = await fetchVrCachePageList(1000, 1, { skipCache: !!force });
       const dataObj = json?.data ?? json;
       const vrs = Array.isArray(dataObj?.page) ? dataObj.page : 
                  Array.isArray(dataObj?.list) ? dataObj.list : 
@@ -81,10 +81,10 @@ const ACLPage: React.FC = () => {
     }
   };
 
-  const fetchGroups = async () => {
+  const fetchGroups = async (force?: boolean) => {
     setGroupsLoading(true);
     try {
-      const res = await getACLGroups();
+      const res = await getACLGroups(undefined, { skipCache: !!force });
       const list = Array.isArray(res) ? res : (res as any)?.data || [];
       setGroups(list);
     } catch (e: any) {
@@ -94,10 +94,10 @@ const ACLPage: React.FC = () => {
     }
   };
 
-  const fetchRules = async () => {
+  const fetchRules = async (force?: boolean) => {
     setRulesLoading(true);
     try {
-      const list = await getACLRules();
+      const list = await getACLRules(undefined, { skipCache: !!force });
       const normalized = Array.isArray(list) ? list : (list as any)?.data || [];
       setRules(normalized);
     } catch (e: any) {
@@ -112,6 +112,19 @@ const ACLPage: React.FC = () => {
     fetchGroups();
     fetchRules();
   }, []);
+
+  const forceRefresh = async () => {
+    message.loading({ content: '正在同步 VR 与 ACL 数据...', key: 'acl_refresh' });
+    try {
+      await apiPost('/api/vr-instances/refresh', {});
+      await fetchVRs(true);
+      await fetchGroups(true);
+      await fetchRules(true);
+      message.success({ content: '同步完成', key: 'acl_refresh' });
+    } catch {
+      message.error({ content: '同步失败，请稍后重试', key: 'acl_refresh' });
+    }
+  };
 
   // --- Group Handlers ---
 
@@ -403,7 +416,7 @@ const ACLPage: React.FC = () => {
     <PageContainer
       titleLevel={3}
       asCard={false}
-      onRefresh={() => { fetchGroups(); fetchRules(); }}
+      onRefresh={forceRefresh}
       primaryAction={activeTab === 'groups' ? {
         text: '新建 ACL 组',
         onClick: () => setGroupDrawerOpen(true),

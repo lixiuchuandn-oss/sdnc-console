@@ -26,6 +26,7 @@ import { apiRequest, apiPost, apiDelete, apiPatch, getProxyAuthInfo, proxyApiReq
  */
 function logDebug(message: string) {
   if (process.env.NODE_ENV === 'development') {
+    // eslint-disable-next-line no-console -- 仅开发环境调试
     console.log(`[VR_DEBUG] ${message}`);
   }
 }
@@ -35,12 +36,9 @@ function logDebug(message: string) {
  * @param message 错误消息
  */
 function logError(message: string) {
+  // eslint-disable-next-line no-console -- VR 代理错误日志
   console.error(`[VR_DEBUG_ERROR] ${message}`);
 }
-
-// 代理路径常量（用于直接访问 CSM CTL）
-const PROXY_BASE_URL = '/api-proxy';
-const PROXY_PATH = '/api-proxy';
 
 /**
  * CSM CTL 认证信息接口
@@ -228,11 +226,11 @@ export const vrApi = {
  * @param uuid 虚拟路由器 UUID
  * @returns Promise<any | null> VR 配置数据，失败时返回 null
  */
-export const getVRConfig = async (uuid: string) => {
+export const getVRConfig = async (uuid: string, options?: { skipCache?: boolean }) => {
   // Use the cached endpoint to ensure we get data from DB
   try {
     // 404 代表“尚未保存过配置”，属于预期情况：静默即可
-    const json = await apiRequest(`/api/vr-config/${uuid}/cached`, { silent: true });
+    const json = await apiRequest(`/api/vr-config/${uuid}/cached`, { silent: true, skipCache: options?.skipCache });
     return json?.data ?? null;
   } catch {
     return null;
@@ -245,6 +243,31 @@ export const getVRConfig = async (uuid: string) => {
  * @returns Promise<any | null> VR 配置数据
  */
 export const getVRConfigCached = getVRConfig;
+
+/**
+ * Tower 数据库中的 VR 配置缓存（GET /api/vr-config/:uuid/cached），含 meta（更新时间、角色等）
+ * 无记录时返回 null（404 静默）
+ */
+export const fetchVrTowerLocalConfigCache = async (
+  uuid: string,
+  options?: { skipCache?: boolean },
+): Promise<{ config: any; meta: { updatedAt?: string; role?: string } | null } | null> => {
+  const u = String(uuid || '').trim();
+  if (!u) return null;
+  try {
+    const json = await apiRequest(`/api/vr-config/${encodeURIComponent(u)}/cached`, {
+      silent: true,
+      skipCache: options?.skipCache,
+    });
+    return {
+      config: json?.data ?? null,
+      meta: json?.meta ?? null,
+    };
+  } catch (e: any) {
+    if (e?.status === 404) return null;
+    throw e instanceof Error ? e : new Error(String(e?.message || e));
+  }
+};
 
 /**
  * 保存虚拟路由器配置到数据库
@@ -278,9 +301,9 @@ export const setVRRole = async (uuid: string, role: 'PE' | 'CE' | '标准' | 'SA
  * @param uuids 虚拟路由器 UUID 数组
  * @returns Promise<Record<string, string>> UUID 到角色的映射对象
  */
-export const getVRRoles = async (uuids: string[]) => {
+export const getVRRoles = async (uuids: string[], options?: { skipCache?: boolean }) => {
   const qs = uuids && uuids.length ? `?uuids=${encodeURIComponent(uuids.join(','))}` : '';
-  const json = await apiRequest(`/api/vr-config/roles${qs}`);
+  const json = await apiRequest(`/api/vr-config/roles${qs}`, { skipCache: options?.skipCache });
   return (json?.data?.roles ?? {}) as Record<string, string>;
 };
 
@@ -331,17 +354,23 @@ export const getVR2ConfigRaw = getVR2Config;
  * @param pageNum 页码，默认 1
  * @returns Promise<any> 分页列表数据
  */
-export const fetchVrCachePageList = async (pageSize: number = 50, pageNum: number = 1) => {
-  return await apiRequest(`/api/vr-cache/pagelist?page_size=${pageSize}&page_num=${pageNum}`);
+export const fetchVrCachePageList = async (pageSize: number = 50, pageNum: number = 1, options?: { skipCache?: boolean }) => {
+  return await apiRequest(
+    `/api/vr-instances?page_size=${pageSize}&page_num=${pageNum}`,
+    { skipCache: options?.skipCache },
+  );
 };
 
 /**
- * 获取合并后的 VR 缓存（单个）：VR1 基本信息 + VR3 扩展信息 + 本地设备信息
+ * 获取合并后的 VR 缓存（单个）：VR1 基本信息 + VR3 扩展信息 + 本地设备信息 + vr2_info（CSMCTL 实时 VR2 全量，失败时为 null）
  */
 export const fetchVrCacheMerged = async (uuid: string) => {
   const u = String(uuid || '').trim();
   if (!u) throw new Error('缺少UUID');
-  const json = await apiRequest(`/api/vr-cache/${encodeURIComponent(u)}/merged`, { skipCache: true, silent: true });
+  const json = await apiRequest(`/api/vr-instances/${encodeURIComponent(u)}`, {
+    skipCache: true,
+    silent: true,
+  });
   return json?.data ?? null;
 };
 
@@ -349,7 +378,7 @@ export const fetchVrCacheMerged = async (uuid: string) => {
  * 获取合并后的 VR 缓存（全部）
  */
 export const fetchVrCacheMergedAll = async () => {
-  const json = await apiRequest(`/api/vr-cache/merged`, { skipCache: true, silent: true });
+  const json = await apiRequest(`/api/vr-instances?all=1`, { skipCache: true, silent: true });
   return (json?.data?.items ?? []) as any[];
 };
 
@@ -372,7 +401,7 @@ export const fetchVrRealtimeList = async (pageSize: number = 50, pageNum: number
  * @returns Promise<any> 操作结果
  */
 export const upsertVrCache = async (pageNum: number, pageSize: number, data: any) => {
-  return await apiPost('/api/vr-cache/upsert', { page_num: pageNum, page_size: pageSize, data });
+  return await apiPost('/api/vr-instances/upsert', { page_num: pageNum, page_size: pageSize, data });
 };
 
 /**
@@ -468,9 +497,9 @@ export interface ACLRule {
  * @param vrId 虚拟路由器 ID（可选）
  * @returns Promise<any>
  */
-export const getACLGroups = async (vrId?: string) => {
+export const getACLGroups = async (vrId?: string, options?: { skipCache?: boolean }) => {
   const qs = vrId ? `?vrId=${encodeURIComponent(vrId)}` : '';
-  return await apiRequest(`/api/networks/acl-groups${qs}`);
+  return await apiRequest(`/api/networks/acl-groups${qs}`, { skipCache: options?.skipCache });
 };
 
 /**
@@ -545,9 +574,9 @@ export const addACLRuleToGroup = async (groupId: string, data: Partial<ACLRule>)
  * @param vrId 虚拟路由器 ID（可选）
  * @returns Promise<any>
  */
-export const getACLRules = async (vrId?: string) => {
+export const getACLRules = async (vrId?: string, options?: { skipCache?: boolean }) => {
   const qs = vrId ? `?vrId=${encodeURIComponent(vrId)}` : '';
-  return await apiRequest(`/api/networks/acl${qs}`);
+  return await apiRequest(`/api/networks/acl${qs}`, { skipCache: options?.skipCache });
 };
 
 /**
@@ -660,7 +689,7 @@ export const deleteNATRule = async (id: string) => {
 // Default Export (向后兼容)
 // ============================================================================
 
-export default {
+const virtualRouterApiDefault = {
   // Lifecycle (CSM CTL 直接调用)
   vrApi,
   getAuthInfo,
@@ -701,3 +730,5 @@ export default {
   createNATRule,
   deleteNATRule,
 };
+
+export default virtualRouterApiDefault;

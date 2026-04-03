@@ -38,7 +38,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import {
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
-} from '../kube-ovn/underlay-subnet/constants';
+} from '../kube-ovn/lib/kubeOvnSubnetConstants';
 import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Descriptions, List, Space, Progress, Modal, Checkbox } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 

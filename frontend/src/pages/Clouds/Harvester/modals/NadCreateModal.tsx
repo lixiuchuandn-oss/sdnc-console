@@ -10,7 +10,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Input, Select, InputNumber, message } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
 import { createHarvesterNad, fetchHarvesterNamespaces, fetchHarvesterClusterNetworks } from '../../../../services/harvesterApi';
-import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参
@@ -84,7 +84,7 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
 
   /**
    * 提交创建 NAD：
-   * - 生成 ID：使用 generateHarvesterEntityId 生成 id-nad-{11位随机字符串} 格式的 ID
+   * - 生成 ID：使用 generateHarvesterCrMetadataName('nad')（id-nad-{11 位随机}）
    * - 别名处理：用户输入的 name 作为别名写入 tower.io/alias 注解
    * - 组装 CNI config（支持 bridge/macvlan 等类型，含 IPAM 配置）；
    * - 以 k8s.cni.cncf.io.networkattachmentdefinition 类型提交给 Harvester；
@@ -98,7 +98,7 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
       const bridgeName = cnName === 'mgmt' ? 'mgmt-br' : `${cnName}-br`;
 
       // 生成 ID：id-nad-{11位随机字符串}
-      const nadId = generateHarvesterEntityId('nad');
+      const nadId = generateHarvesterCrMetadataName('nad');
 
       // Construct config object for CNI (使用默认值)
       const config: any = {

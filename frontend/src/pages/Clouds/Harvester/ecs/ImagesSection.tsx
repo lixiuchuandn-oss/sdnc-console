@@ -1,6 +1,6 @@
 /**
  * Harvester - 镜像 (Image) 列表 Section
- * frontend/src/pages/Clouds/Harvester/sections/ImagesSection.tsx
+ * frontend/src/pages/Clouds/Harvester/ecs/ImagesSection.tsx
  *
  * === 功能描述 ===
  * 负责展示和管理 Harvester 集群中的虚拟机镜像资源。
@@ -533,12 +533,14 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       message.warning('请先选择镜像文件');
       return;
     }
+
     const namespace = String(form.getFieldValue('toolNamespace') || 'default');
     const displayName =
       String(form.getFieldValue('toolDisplayName') || '').trim() ||
       toolFile.name.replace(/\.[^.]+$/, '');
     const imageType = String(form.getFieldValue('toolImageType') || '').trim() || undefined;
     const file = toolFile;
+
     setUploadingTask(true);
     try {
       const created: any = await createHarvesterImageUploadTask(cloudId, {
@@ -548,27 +550,34 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       });
       const task = (created?.data || created) as HarvesterImageUploadTask;
       if (!task?.id) throw new Error('创建任务失败：未返回 taskId');
+
       upsertTask(task);
       setCreating(false);
       setToolFile(null);
       form.setFieldValue('toolDisplayName', '');
       message.success('任务已创建，开始上传，可在「上传任务」查看/取消');
+
       const controller = new AbortController();
       uploadControllersRef.current.set(task.id, controller);
+
+      const taskFileUrl = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`;
+
       void (async () => {
         try {
           const token = getToken();
-          const fd = new FormData();
-          fd.append('file', file);
-          const uploadResp = await fetch(
-            `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`,
-            {
-              method: 'POST',
-              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-              body: fd,
-              signal: controller.signal,
-            },
-          );
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/octet-stream',
+            'X-File-Name': encodeURIComponent(file.name),
+            'X-File-Size': String(file.size),
+          };
+          if (token) headers.Authorization = `Bearer ${token}`;
+
+          const uploadResp = await fetch(taskFileUrl, {
+            method: 'POST',
+            headers,
+            body: file,
+            signal: controller.signal,
+          });
           if (!uploadResp.ok) {
             const text = await uploadResp.text();
             throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);

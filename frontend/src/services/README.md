@@ -137,7 +137,7 @@ await apiDelete('/api/users/123');
 
 **API 路径**: 
 - CSM CTL 直接调用：`/api-proxy/V2/ctcontrol/VR1/*`
-- 后端 API：`/api/vr-config/*`, `/api/vr-cache/*`, `/api/networks/acl*`, `/api/networks/nat*`
+- 后端 API：`/api/vr-config/*`, `/api/vr-instances/*`, `/api/networks/acl*`, `/api/networks/nat*`
 
 **状态**: ✅ **已统一** - 使用 `apiRequest`, `apiPost`, `apiDelete`, `apiPatch`, `proxyApiRequest`
 
@@ -187,7 +187,7 @@ await apiDelete('/api/users/123');
 **API 路径**: 
 - `/api-proxy/*` - CSM CTL 代理（生命周期）
 - `/api/vr-config/*` - VR 配置管理
-- `/api/vr-cache/*` - VR 缓存
+- `/api/vr-instances/*` - VR 实例聚合（列表、单条、刷新）
 
 **状态**: ✅ **已统一** - 配置管理使用 `apiRequest`, `apiPost`，生命周期使用 `proxyApiRequest`
 

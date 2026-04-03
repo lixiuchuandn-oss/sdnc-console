@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Descriptions, Form, Input, InputNumber, Radio, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
-import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Card, Descriptions, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import PageContainer from '../../../components/PageContainer';
-import { getVR2Config, getVRConfig, saveVRConfig, setVRRole } from '../../../services/virtualRouterApi';
-import { proxyApiRequest } from '../../../services/api';
+import PageContainer from '../../../../components/PageContainer';
+import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../services/virtualRouterApi';
+import { proxyApiRequest } from '../../../../services/api';
+import { collectIfaceNamesFromMerged, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 
 const PEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -18,58 +19,41 @@ const PEWizard: React.FC = () => {
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [csmctlCfg, setCsmctlCfg] = useState<any | null>(null);
   const [activeLanTabKey, setActiveLanTabKey] = useState<string>('0');
-  const [activeLanTabKeyMirror, setActiveLanTabKeyMirror] = useState<string>('0');
+  const [, setActiveLanTabKeyMirror] = useState<string>('0');
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
-  const fetchInterfaces = async (silent = false) => {
+  const fetchInterfaces = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
     try {
-      const method = 'GET';
-      const other = `uuid=${uuid}`;
-      const path = '/V2/ctcontrol/VR3/VRConfig/list';
-      const raw = await proxyApiRequest(path, method, other);
-      const unwrapData = (obj: any) => {
-        let cur = obj;
-        while (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
-        return cur;
-      };
-      const data = unwrapData(raw);
-      // setCsmctlCfg(data || null);
-      const names: string[] = [];
-      const collectFromArray = (arr?: any[]) => { (arr || []).forEach((it) => { if (it && typeof it === 'object' && it.name) names.push(String(it.name)); }); };
-      if (data && typeof data === 'object') {
-        collectFromArray((data as any).interfaces);
-        Object.keys(data).forEach((key) => {
-          if (key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) collectFromArray((data as any)[key]);
-        });
+      const merged = await fetchVrCacheMerged(uuid);
+      if (!merged || typeof merged !== 'object') {
+        if (!silent) message.warning('未获取到聚合数据，请先同步 VR 缓存');
+        setCsmctlCfg(null);
+        return;
       }
-      const unique = Array.from(new Set(names)).filter((n) => !!n);
+      const unique = collectIfaceNamesFromMerged(merged);
       if (unique.length) setIfaceOptions(unique);
-
-      const vr2 = await getVR2Config(uuid);
-      setCsmctlCfg(vr2 || null);
-      
+      setCsmctlCfg(pickDeviceBlobForLookup(merged));
       try {
         const saved = await getVRConfig(uuid);
         setExistingCfg(saved || {});
       } catch (e) {
         console.warn('获取本地配置失败', e);
       }
-
       if (!silent) message.success('设备数据已刷新');
     } catch (err) {
-      console.warn('[PEWizard] 获取设备接口列表失败：', (err as any)?.message || err);
+      console.warn('[PEWizard] fetchVrCacheMerged:', (err as any)?.message || err);
       if (!silent) message.error('刷新失败');
     } finally {
       setIfaceLoading(false);
     }
-  };
+  }, [uuid]);
 
   useEffect(() => {
     fetchInterfaces(true);
-  }, [uuid]);
+  }, [fetchInterfaces]);
 
   useEffect(() => {
     if (!csmctlCfg) return;
@@ -404,7 +388,11 @@ const PEWizard: React.FC = () => {
   };
 
   const watchedValues = Form.useWatch([], form);
-  const configPreview = useMemo(() => buildConfigFromValues(watchedValues || form.getFieldsValue(true) || {}), [watchedValues, form]);
+  const configPreview = useMemo(
+    () => buildConfigFromValues(watchedValues || form.getFieldsValue(true) || {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [watchedValues, form],
+  );
 
   const next = async () => {
     try { await form.validateFields(); setCurrent((c) => Math.min(2, c + 1)); } catch {}
@@ -433,7 +421,6 @@ const PEWizard: React.FC = () => {
       const method = 'POST';
       const other = `uuid=${uuid}`;
       const path = '/V2/ctcontrol/VR2/VRConfig';
-      const bodyStr = JSON.stringify(cfg);
       const data = await proxyApiRequest(path, method, other, cfg);
       if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);

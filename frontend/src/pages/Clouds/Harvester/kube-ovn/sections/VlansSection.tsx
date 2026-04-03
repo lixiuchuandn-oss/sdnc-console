@@ -5,16 +5,16 @@ import { deleteKubeOvnVlan,
   fetchKubeOvnProviderNetworks,
   fetchKubeOvnSubnets,
   fetchKubeOvnVlans,
-} from '../../../../services/harvesterApi';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import { clearCache } from '../../../../utils/requestManager';
-import VlanPlanDrawer from './vlan-plan-drawer';
-import { TOWER_IO_ALIES_ANNOTATION } from '../../../../utils/towerKubeOvnNames';
+} from '../../../../../services/harvesterApi';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import { clearCache } from '../../../../../utils/requestManager';
+import VlanPlanDrawer from '../drawers/vlan-plan-drawer';
+import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../utils/towerKubeOvnNames';
 
 const { Option } = Select;
 

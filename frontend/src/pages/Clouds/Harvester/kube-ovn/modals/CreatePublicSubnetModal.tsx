@@ -1,19 +1,19 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Form, Input, Modal, Radio, message } from 'antd';
 import { createKubeOvnSubnet } from '../../../../../services/harvesterApi';
-import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName } from '../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { CLOUD_SUBNETS_PUBLIC_WRITE } from '../../../../../constants/cloudPermissions';
-import UnderlaySubnetFormFields from './UnderlaySubnetFormFields';
+import UnderlaySubnetFormFields from '../lib/UnderlaySubnetFormFields';
 import {
   SUBNET_FINALIZER,
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   KUBE_OVN_PUBLIC_VPC,
   OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
-} from './constants';
-import { defaultVlanCrNameByMinVlanId } from './vlanUtils';
+} from '../lib/kubeOvnSubnetConstants';
+import { defaultVlanCrNameByMinVlanId } from '../lib/vlanUtils';
 
 function isValidIpv4Cidr(s: string): boolean {
   const t = String(s ?? '').trim();
@@ -54,6 +54,8 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
   title = '创建公共子网',
 }) => {
   const [form] = Form.useForm();
+  /** 打开弹窗时预生成 CR metadata.name（与 CreateFlatSubnetModal / CreateVpcSubnetModal 一致） */
+  const pendingUnderlaySubnetCrNameRef = useRef<string>('');
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
@@ -68,6 +70,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
 
   useEffect(() => {
     if (!open) return;
+    pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
     form.resetFields();
     const vlanPreset =
       (initialVlanCrName && String(initialVlanCrName).trim()) || defaultVlanCrNameByMinVlanId(vlans);
@@ -93,7 +96,9 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
           message.error('请填写有效的 IPv4 CIDR（可访问范围）');
           return;
         }
-        const subnetId = generateHarvesterEntityId('sn');
+        const subnetId =
+          String(pendingUnderlaySubnetCrNameRef.current || '').trim() ||
+          generateHarvesterCrMetadataName('subnetUnderlay');
         const excludeIps = rest.excludeIps
           ? String(rest.excludeIps)
               .split('\n')

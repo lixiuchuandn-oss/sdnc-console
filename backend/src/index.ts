@@ -30,14 +30,14 @@ import { initializeAdmin } from './seeders/initAdmin';
 import { initializeRoles } from './seeders/initRoles';
 // SDN / 安全相关路由：
 // - cenRoutes：云企业网（跨 VPC/跨云互联）管理
-// - vrCacheRoutes：VR 设备缓存（本地列表缓存，前端无鉴权读取）
+// - vrInstancesRoutes：VR 实例聚合（合并后的列表/单条，无鉴权读取）
 // - vrConfigRoutes：VR 配置下发与管理
 // - saseGatewayRoutes：SASE 网关管理
 // - srv6Routes / ipsecRoutes / aclRoutes / aclGroupRoutes / natRoutes：
 //   对应 SRv6 隧道、IPsec 隧道、ACL 规则与分组、NAT 规则等
 import { toolRoutes } from './routes/tools';
 import { cenRoutes } from './routes/sdn/cens';
-import { vrCacheRoutes } from './routes/sdn/vrCache';
+import { vrInstancesRoutes } from './routes/sdn/vrInstances';
 import { vrConfigRoutes } from './routes/sdn/vrConfig';
 import { dashboardRoutes } from './routes/dashboard';
 import { saseGatewayRoutes } from './routes/sdn/saseGateways';
@@ -82,7 +82,7 @@ app.use(
   cors({
     origin: true,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'tonce'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'tonce', 'X-File-Name', 'X-File-Size'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 );
@@ -232,11 +232,11 @@ app.use('/api/tools', authMiddleware, toolRoutes);
 
 // 3) 仪表盘与 VR 相关：
 //    - /api/dashboard：总览面板数据
-//    - /api/vr-cache：VR 列表缓存接口，不要求登录，便于前端本地化存储
+//    - /api/vr-instances：VR 实例聚合（合并 VR1+VR3+本地 device，可选 VR2），不要求登录
 //    - /api/vr-config：VR 配置管理接口，必须登录
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
-// VR缓存接口不需要登录，允许前端保存和读取缓存
-app.use('/api/vr-cache', vrCacheRoutes);
+// VR 实例聚合接口不需要登录
+app.use('/api/vr-instances', vrInstancesRoutes);
 app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 // app.use('/api/vr-config', vrConfigRoutes); // Temporary debug: disable auth
 // 4) SASE / 网络与安全能力：
@@ -297,6 +297,22 @@ if (fs.existsSync(path.join(staticPath, 'index.html'))) {
 AppDataSource.initialize()
   .then(async () => {
     logger.info('数据库连接成功');
+    // 生产环境默认 DB_SYNC=false 且 migrations 为空时，全新 SQLite 不会自动建表，登录会报 no such table: users。
+    // 若检测到核心表缺失，则执行一次性 synchronize（与 DB_SYNC=true 等价，仅补全缺失结构）。
+    try {
+      const usersTable = await AppDataSource.query(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='users'`,
+      );
+      if (!Array.isArray(usersTable) || usersTable.length === 0) {
+        logger.warn(
+          '检测到 users 表不存在，执行一次性 schema 同步以创建表结构（可改用 DB_SYNC=true 首次启动或 npm run db:init）',
+        );
+        await AppDataSource.synchronize();
+      }
+    } catch (e) {
+      logger.error('核心表检查或 schema 同步失败:', e);
+      throw e;
+    }
     // 启用 WAL 模式以提升并发性能
     try {
       const { enableWalMode } = await import('./config/database');

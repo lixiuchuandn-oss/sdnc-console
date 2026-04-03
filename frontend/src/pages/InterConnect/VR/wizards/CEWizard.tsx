@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Descriptions, Form, Input, InputNumber, Select, Space, Steps, message, Row, Col, Spin, Modal, Checkbox } from 'antd';
-import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import PageContainer from '../../../components/PageContainer';
-import { getVRConfig, saveVRConfig, setVRRole, getVR2Config, fetchVrCacheMerged } from '../../../services/virtualRouterApi';
-import { proxyApiRequest } from '../../../services/api';
+import PageContainer from '../../../../components/PageContainer';
+import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../services/virtualRouterApi';
+import { proxyApiRequest } from '../../../../services/api';
+import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 
 const CEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -17,6 +18,8 @@ const CEWizard: React.FC = () => {
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [csmctlCfg, setCsmctlCfg] = useState<any | null>(null);
+  /** 右侧改网卡时 IP 优先跟 vr3_info 中的接口记录 */
+  const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
@@ -26,65 +29,121 @@ const CEWizard: React.FC = () => {
       .replace(/\s+/g, ' ')
       .toLowerCase();
 
+  const ifaceRowMatchesName = (it: any, ifaceName: string) => {
+    const name = normalizeIfaceName(ifaceName);
+    if (!name) return false;
+    const candidates = [it?.name, it?.iface, it?.interface, it?.ifName, it?.devName].filter(Boolean);
+    return candidates.some((c) => normalizeIfaceName(String(c)) === name);
+  };
+
   const findInterfaceInDevice = (dev: any, ifaceName: string) => {
     const nameRaw = String(ifaceName || '').trim();
-    const name = normalizeIfaceName(nameRaw);
-    if (!dev || !name) return null;
-    // 1) Preferred: dev.interfaces
-    if (Array.isArray(dev.interfaces)) {
-      const hit = dev.interfaces.find((it: any) => normalizeIfaceName(it?.name) === name);
+    if (!dev || !nameRaw) return null;
+    const root = dev?.data && typeof dev.data === 'object' ? dev.data : dev;
+    const lists: any[][] = [];
+    if (Array.isArray(root.interfaces)) lists.push(root.interfaces);
+    if (Array.isArray(dev.interfaces) && dev !== root) lists.push(dev.interfaces);
+    for (const arr of lists) {
+      const hit = arr.find((it: any) => ifaceRowMatchesName(it, nameRaw));
       if (hit) return hit;
     }
-    // 2) Buckets: interfaces_* / subinterfaces_*
-    for (const key of Object.keys(dev)) {
-      if ((key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) && Array.isArray(dev[key])) {
-        const hit = (dev[key] as any[]).find((it: any) => normalizeIfaceName(it?.name) === name);
-        if (hit) return hit;
+    const scanBuckets = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return null;
+      for (const key of Object.keys(obj)) {
+        if ((key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) && Array.isArray((obj as any)[key])) {
+          const hit = ((obj as any)[key] as any[]).find((it: any) => ifaceRowMatchesName(it, nameRaw));
+          if (hit) return hit;
+        }
       }
-    }
-    return null;
+      return null;
+    };
+    const fromRoot = scanBuckets(root);
+    if (fromRoot) return fromRoot;
+    return scanBuckets(dev);
   };
 
   const pickIfaceIpv4 = (iface: any) =>
-    iface?.ipv4_static ?? iface?.ipv4Static ?? iface?.ipv4 ?? iface?.ip_address ?? iface?.ipAddress ?? '';
+    iface?.ipv4_static ??
+    iface?.ipv4Static ??
+    iface?.ipv4 ??
+    iface?.ipv4_address ??
+    iface?.ipv4Address ??
+    iface?.ip_address ??
+    iface?.ipAddress ??
+    iface?.ip ??
+    iface?.address ??
+    '';
   const pickIfaceIpv6 = (iface: any) =>
-    iface?.ipv6_static ?? iface?.ipv6Static ?? iface?.ipv6 ?? '';
+    iface?.ipv6_static ??
+    iface?.ipv6Static ??
+    iface?.ipv6 ??
+    iface?.ipv6_address ??
+    iface?.ipv6Address ??
+    '';
 
-  const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string) => {
-    const obj = findInterfaceInDevice(csmctlCfg, ifaceName);
+  /** force：换网卡时必须为 true，否则 isFieldTouched 会挡住 IP 更新 */
+  const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string, opts?: { force?: boolean }) => {
+    const force = opts?.force ?? false;
+    const fromVr3 = findInterfaceInDevice(vr3Info, ifaceName);
+    const fromVr2 = findInterfaceInDevice(csmctlCfg, ifaceName);
+    const obj = fromVr3 || fromVr2;
     if (!obj) return;
     const v4 = String(pickIfaceIpv4(obj) || '').trim();
     const v6 = String(pickIfaceIpv6(obj) || '').trim();
 
     if (kind === 'wan') {
-      // 仅在用户未手动编辑时回显，避免覆盖用户输入
       const touchedV4 = form.isFieldTouched('wanIpv4');
       const touchedV6 = form.isFieldTouched('wanIpv6');
       form.setFieldsValue({
-        ...(touchedV4 ? {} : { wanIpv4: v4 || undefined }),
-        ...(touchedV6 ? {} : { wanIpv6: v6 || undefined }),
+        ...(force || !touchedV4 ? { wanIpv4: v4 || undefined } : {}),
+        ...(force || !touchedV6 ? { wanIpv6: v6 || undefined } : {}),
       });
     } else {
       const touchedV4 = form.isFieldTouched('lanIpv4');
       const touchedV6 = form.isFieldTouched('lanIpv6');
       form.setFieldsValue({
-        ...(touchedV4 ? {} : { lanIpv4: v4 || undefined }),
-        ...(touchedV6 ? {} : { lanIpv6: v6 || undefined }),
+        ...(force || !touchedV4 ? { lanIpv4: v4 || undefined } : {}),
+        ...(force || !touchedV6 ? { lanIpv6: v6 || undefined } : {}),
       });
     }
   };
 
-  // 兜底：监听字段变化（例如 setFieldsValue/回填或某些 Select 交互未触发 onChange）
+  const prevWanNameRef = useRef<string | undefined>(undefined);
+  const prevLanNameRef = useRef<string | undefined>(undefined);
+  const hadDeviceLookupRef = useRef(false);
+
+  useEffect(() => {
+    hadDeviceLookupRef.current = false;
+    prevWanNameRef.current = undefined;
+    prevLanNameRef.current = undefined;
+  }, [uuid]);
+
   const watchedWanName = Form.useWatch('wanName', form);
   const watchedLanName = Form.useWatch('lanName', form);
   useEffect(() => {
-    if (watchedWanName) autoFillFromIface('wan', String(watchedWanName));
+    const hasLookup = !!(vr3Info || csmctlCfg);
+    const dataJustArrived = hasLookup && !hadDeviceLookupRef.current;
+    if (hasLookup) hadDeviceLookupRef.current = true;
+
+    const wan = watchedWanName ? String(watchedWanName) : '';
+    if (wan) {
+      const nicChanged = prevWanNameRef.current !== wan;
+      prevWanNameRef.current = wan || undefined;
+      autoFillFromIface('wan', wan, { force: nicChanged || dataJustArrived });
+    } else {
+      prevWanNameRef.current = undefined;
+    }
+
+    const lan = watchedLanName ? String(watchedLanName) : '';
+    if (lan) {
+      const nicChanged = prevLanNameRef.current !== lan;
+      prevLanNameRef.current = lan || undefined;
+      autoFillFromIface('lan', lan, { force: nicChanged || dataJustArrived });
+    } else {
+      prevLanNameRef.current = undefined;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedWanName, csmctlCfg]);
-  useEffect(() => {
-    if (watchedLanName) autoFillFromIface('lan', String(watchedLanName));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedLanName, csmctlCfg]);
+  }, [watchedWanName, watchedLanName, csmctlCfg, vr3Info]);
 
   useEffect(() => {
     if (!uuid) return;
@@ -117,86 +176,33 @@ const CEWizard: React.FC = () => {
     })();
   }, [uuid, form]);
 
-  const refreshDeviceData = async (silent = false) => {
+  const refreshDeviceData = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
     try {
-      // 0) 优先走本地缓存合并接口（VR1 + VR3 + 本地设备信息），用于向导回显
-      // 该接口数据来自 vr_cache_extended（你贴的 interfaces/ipv4_static/ipv6_static 就在这里）
-      try {
-        const merged = await fetchVrCacheMerged(uuid);
-        if (merged && typeof merged === 'object') {
-          const names: string[] = [];
-          const collectFromArray = (arr?: any[]) => { (arr || []).forEach((it) => { if (it && typeof it === 'object' && it.name) names.push(String(it.name)); }); };
-          collectFromArray((merged as any).interfaces);
-          // 兼容：扩展信息也可能挂在 vr3_info 上
-          collectFromArray((merged as any).vr3_info?.interfaces);
-          const unique = Array.from(new Set(names)).filter((n) => !!n);
-          const hasIfaces = unique.length > 0;
-          if (hasIfaces) setIfaceOptions(unique);
-
-          // 用 merged 的 VR3 扩展信息作为“设备回读”主数据源（用于按接口名回显 IP）
-          const cfgCandidate = (merged as any).vr3_info || merged;
-          if (cfgCandidate && typeof cfgCandidate === 'object') {
-            setCsmctlCfg(cfgCandidate);
-          }
-
-          // 只有当缓存里确实有接口数据时，才认为“缓存命中成功”并提前返回；
-          // 否则继续走后续 VR3/VR2 直连逻辑，避免因缓存缺失导致向导无法回显。
-          if (hasIfaces) {
-            if (!silent) message.success('设备数据已刷新（来自缓存）');
-            return;
-          }
-        }
-      } catch {
-        // ignore, fallback to direct calls
+      const merged = await fetchVrCacheMerged(uuid);
+      if (!merged || typeof merged !== 'object') {
+        if (!silent) message.warning('未获取到聚合数据，请先同步 VR 缓存');
+        setCsmctlCfg(null);
+        setVr3Info(null);
+        return;
       }
-
-      const method = 'GET';
-      const other = `uuid=${uuid}`;
-      const path = '/V2/ctcontrol/VR3/VRConfig/list';
-      const raw = await proxyApiRequest(path, method, other);
-      const unwrapData = (obj: any) => {
-        let cur = obj;
-        while (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
-        return cur;
-      };
-      const data = unwrapData(raw);
-      
-      const names: string[] = [];
-      const collectFromArray = (arr?: any[]) => { (arr || []).forEach((it) => { if (it && typeof it === 'object' && it.name) names.push(String(it.name)); }); };
-      if (data && typeof data === 'object') {
-        collectFromArray((data as any).interfaces);
-        Object.keys(data).forEach((key) => {
-          if (key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) collectFromArray((data as any)[key]);
-        });
-      }
-
-      const dev2 = await getVR2Config(uuid);
-      setCsmctlCfg(dev2 || data || null);
-
-      if (dev2 && typeof dev2 === 'object') {
-        collectFromArray((dev2 as any).interfaces);
-        Object.keys(dev2).forEach((key) => {
-          if (key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) collectFromArray((dev2 as any)[key]);
-        });
-      }
-
-      const unique = Array.from(new Set(names)).filter((n) => !!n);
+      const unique = collectIfaceNamesForSelect(merged as Record<string, any>);
       if (unique.length) setIfaceOptions(unique);
-
+      setCsmctlCfg(pickDeviceBlobForLookup(merged));
+      setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
       if (!silent) message.success('设备数据已刷新');
     } catch (err) {
-      console.warn('[CEWizard] 获取设备接口列表失败：', (err as any)?.message || err);
+      console.warn('[CEWizard] fetchVrCacheMerged:', (err as any)?.message || err);
       if (!silent) message.error('刷新失败');
     } finally {
       setIfaceLoading(false);
     }
-  };
+  }, [uuid]);
 
   useEffect(() => {
     refreshDeviceData(true);
-  }, [uuid]);
+  }, [refreshDeviceData]);
 
   useEffect(() => {
     if (!csmctlCfg) return;
@@ -219,6 +225,8 @@ const CEWizard: React.FC = () => {
       lanIpv4: lanObj?.ipv4_static,
       lanIpv6: lanObj?.ipv6_static,
     });
+    // findInterfaceInDevice 随组件每次渲染更新；仅依赖 existingCfg / csmctlCfg / mirrorForm 已足够
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingCfg, csmctlCfg, mirrorForm]);
 
   const buildConfigFromValues = (v: any) => {
@@ -339,40 +347,18 @@ const CEWizard: React.FC = () => {
   };
 
   const watchedValues = Form.useWatch([], form);
-  const configPreview = useMemo(() => buildConfigFromValues(form.getFieldsValue(true) || {}), [watchedValues, form]);
+  const configPreview = useMemo(
+    () => buildConfigFromValues(form.getFieldsValue(true) || {}),
+    // buildConfigFromValues 为组件内函数，与 watchedValues 同步即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [watchedValues, form],
+  );
 
   const next = async () => {
     try { await form.validateFields(); setCurrent((c) => Math.min(2, c + 1)); } catch {}
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
-  const handleSave = async () => {
-    if (!uuid) {
-      message.error('缺少 VR 的 UUID，无法保存');
-      return;
-    }
-    try {
-      setLoading(true);
-      const values = form.getFieldsValue(true);
-      const cfg = buildConfigFromValues(values);
-      const existing = await getVRConfig(uuid);
-      
-      // Remove existing ce/role to ensure they are sorted correctly
-      const cleanExisting = { ...(existing || {}) };
-      delete cleanExisting.ce;
-      delete cleanExisting.role;
-
-      const newCfg = sortJsonKeys({ ...cleanExisting, ...cfg });
-      await saveVRConfig(uuid, newCfg);
-      await setVRRole(uuid, 'CE');
-      message.success('CE模式配置已保存');
-      navigate('/admin/interconnect/vr');
-    } catch (e: any) {
-      message.error(e?.message || '保存失败');
-    } finally {
-      setLoading(false);
-    }
-  };
   const handleDispatch = async () => {
     if (!uuid) {
       message.error('缺少 VR 的 UUID，无法下发');
@@ -448,7 +434,7 @@ const CEWizard: React.FC = () => {
               loading={ifaceLoading}
               options={ifaceOptions.map(n => ({ label: n, value: n }))}
               filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
-              onChange={(val) => autoFillFromIface('wan', String(val || ''))}
+              onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
             />
           </Form.Item>
           <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>}>
@@ -479,7 +465,7 @@ const CEWizard: React.FC = () => {
               loading={ifaceLoading}
               options={ifaceOptions.map(n => ({ label: n, value: n }))}
               filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
-              onChange={(val) => autoFillFromIface('lan', String(val || ''))}
+              onChange={(val) => autoFillFromIface('lan', String(val || ''), { force: true })}
             />
           </Form.Item>
           <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>}>

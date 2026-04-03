@@ -1,28 +1,33 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Table, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip, Alert, Row, Col } from 'antd';
 import { InteractionTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnDnatRule, deleteCloudProviderOvnDnatRule } from '../../../../services/harvesterApi';
-import { fetchCloudProviderEcs } from '../../../../services/api';
-import MetadataModal from './MetadataModal';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import { createCloudProviderOvnDnatRule, deleteCloudProviderOvnDnatRule } from '../../../../../services/harvesterApi';
+import { fetchCloudProviderEcs } from '../../../../../services/api';
+import MetadataModal from '../modals/MetadataModal';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { generateHarvesterCrMetadataName } from '../../../../../utils/harvesterUtils';
 import {
   KUBE_OVN_FLAT_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
-} from './underlay-subnet/constants';
-import { ovnDisplayName, ovnKeywordMatches } from './ovnResourceDisplay';
+} from '../lib/kubeOvnSubnetConstants';
+import {
+  buildBusinessVpcPickerRows,
+  kubeSubnetChoiceLabel,
+  vpcDisplayMapFromVpcs,
+} from '../lib/kubeOvnUiHelpers';
+import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
 import {
   buildVmNicIpOptions,
   subnetCidrOf,
   vmUsesSubnet,
-} from './subnetVmPicker';
+} from '../lib/subnetVmPicker';
 
 interface BaseSectionProps {
   cloudId: string;
@@ -51,7 +56,6 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   bordered = true,
   networkScope,
 }) => {
-  void vpcs;
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasVpcsWrite = useMemo(
@@ -118,16 +122,112 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
     });
   }, [subnets, networkScope]);
 
+  const vpcNameWatch = Form.useWatch('vpcName', form);
+  const subnetChoicesForDnatByVpc = useMemo(() => {
+    if (networkScope !== 'vpc') return subnetChoicesForDnat;
+    const vpc = String(vpcNameWatch ?? '').trim();
+    if (!vpc) return [];
+    return subnetChoicesForDnat.filter(
+      (s: any) => String(s?.spec?.vpc || s?.vpc || '').trim() === vpc,
+    );
+  }, [subnetChoicesForDnat, networkScope, vpcNameWatch]);
+
   const subnetNameWatch = Form.useWatch('subnetName', form);
 
   const selectedSubnet = useMemo(() => {
     if (!subnetNameWatch) return null;
+    const list = networkScope === 'vpc' ? subnetChoicesForDnatByVpc : subnetChoicesForDnat;
     return (
-      subnetChoicesForDnat.find(
-        (s: any) => String(s?.metadata?.name || s?.name || '') === String(subnetNameWatch),
-      ) || null
+      list.find((s: any) => String(s?.metadata?.name || s?.name || '') === String(subnetNameWatch)) || null
     );
-  }, [subnetChoicesForDnat, subnetNameWatch]);
+  }, [subnetChoicesForDnat, subnetChoicesForDnatByVpc, networkScope, subnetNameWatch]);
+
+  const vpcChoicesForDnat = useMemo(() => {
+    const rows = buildBusinessVpcPickerRows(vpcs);
+    if (rows.length > 0 || networkScope !== 'vpc') return rows;
+    const ids = new Set<string>();
+    for (const s of subnetChoicesForDnat) {
+      const vn = String(s?.spec?.vpc || s?.vpc || '').trim();
+      if (vn && !isBuiltInKubeOvnVpc(vn)) ids.add(vn);
+    }
+    return Array.from(ids).map((id) => ({
+      id,
+      display: id,
+      namespacesDisplay: '-',
+      searchLabel: id,
+    }));
+  }, [vpcs, networkScope, subnetChoicesForDnat]);
+
+  const vpcDisplayById = useMemo(() => vpcDisplayMapFromVpcs(vpcs), [vpcs]);
+
+  const renderDnatSubnetSelect = () => {
+    const list =
+      networkScope === 'vpc'
+        ? subnetChoicesForDnatByVpc
+        : subnetChoicesForDnat;
+    const disabled = networkScope === 'vpc' && !String(vpcNameWatch || '').trim();
+    return (
+      <Form.Item
+        name="subnetName"
+        label="子网"
+        rules={[{ required: true, message: '请选择子网' }]}
+      >
+        <Select
+          placeholder={
+            networkScope === 'vpc'
+              ? !String(vpcNameWatch || '').trim()
+                ? '请先选择 VPC'
+                : '请选择子网'
+              : '请选择子网（扁平 / VPC）'
+          }
+          allowClear
+          showSearch
+          disabled={disabled}
+          filterOption={(input, option) => {
+            const v = String((option as { value?: string })?.value ?? '');
+            const s = list.find((x: any) => String(x?.metadata?.name || x?.name || '') === v);
+            if (!s) return v.toLowerCase().includes(input.toLowerCase());
+            const aliasT = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+            const nm = String(s?.metadata?.name || s?.name || '');
+            const blob = [aliasT, nm, subnetCidrOf(s), s?.spec?.vpc || s?.vpc || '']
+              .join(' ')
+              .toLowerCase();
+            return blob.includes(input.toLowerCase());
+          }}
+          onChange={() => {
+            form.setFieldsValue({ vmKey: undefined, nicAttach: undefined });
+          }}
+        >
+          {list.map((s: any) => {
+            const name = String(s?.metadata?.name || s?.name || '');
+            const alias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+            const cidr = subnetCidrOf(s);
+            if (networkScope === 'flat') {
+              const primary = alias || name;
+              const searchBlob = [primary, name, cidr].filter(Boolean).join(' ');
+              return (
+                <Select.Option key={name} value={name} title={searchBlob}>
+                  <span title={cidr ? `${primary} ${cidr}` : primary}>
+                    {primary}
+                    {cidr ? <span style={{ color: '#8c8c8c' }}> {cidr}</span> : null}
+                  </span>
+                </Select.Option>
+              );
+            }
+            const searchBlob = [kubeSubnetChoiceLabel(s), name, cidr].filter(Boolean).join(' ');
+            return (
+              <Select.Option key={name} value={name} title={searchBlob}>
+                <span title={cidr ? `${kubeSubnetChoiceLabel(s)} ${cidr}` : kubeSubnetChoiceLabel(s)}>
+                  {kubeSubnetChoiceLabel(s)}
+                  {cidr ? <span style={{ color: '#8c8c8c' }}> {cidr}</span> : null}
+                </span>
+              </Select.Option>
+            );
+          })}
+        </Select>
+      </Form.Item>
+    );
+  };
 
   const vmsOnSubnet = useMemo(() => {
     if (!selectedSubnet) return [];
@@ -237,10 +337,20 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
       const displayName = String(values.displayName ?? '').trim();
       const subnetName = String(values.subnetName || '').trim();
-      const subnet = subnetChoicesForDnat.find(
+      const subnetList = networkScope === 'vpc' ? subnetChoicesForDnatByVpc : subnetChoicesForDnat;
+      const subnet = subnetList.find(
         (s: any) => String(s?.metadata?.name || s?.name || '') === subnetName,
       );
-      const vpc = String(subnet?.spec?.vpc || subnet?.vpc || '').trim() || KUBE_OVN_FLAT_VPC;
+      const selectedVpc = String(values.vpcName ?? '').trim();
+      const subnetVpc = String(subnet?.spec?.vpc || subnet?.vpc || '').trim();
+      if (networkScope === 'vpc' && selectedVpc && subnetVpc && selectedVpc !== subnetVpc) {
+        message.error('所选子网不属于当前 VPC，请重新选择');
+        return;
+      }
+      const vpc =
+        networkScope === 'vpc'
+          ? selectedVpc || subnetVpc || KUBE_OVN_FLAT_VPC
+          : String(subnet?.spec?.vpc || subnet?.vpc || '').trim() || KUBE_OVN_FLAT_VPC;
       let nic: { v4Ip?: string } | null = null;
       try {
         const raw = String(values.nicAttach || '');
@@ -266,7 +376,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         return;
       }
       const payload: Record<string, unknown> = {
-        name: generateHarvesterEntityId('dnat'),
+        name: generateHarvesterCrMetadataName('kubeOvnDnat'),
         ovnEip: values.ovnEip,
         protocol: values.protocol || 'tcp',
         externalPort: values.externalPort,
@@ -403,7 +513,10 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           { 
             title: 'VPC', 
             key: 'vpc', 
-            render: (_: any, r: any) => r.spec?.vpc || '-' 
+            render: (_: any, r: any) => {
+              const id = String(r?.spec?.vpc || r?.status?.vpc || '').trim();
+              return (id && vpcDisplayById.get(id)) || id || '-';
+            },
           },
         ]),
     {
@@ -426,7 +539,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       }
     },
     ],
-    [hasNatWrite, handleMenuClick, eipIpv4ByName, networkScope],
+    [hasNatWrite, handleMenuClick, eipIpv4ByName, networkScope, vpcDisplayById],
   );
 
   const dnatTableSettingsKey = `harvester_ovn_dnat_${networkScope ?? 'legacy'}`;
@@ -454,7 +567,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               className="toolbar-filter-sm"
               options={[
                 { value: '', label: '全部' },
-                ...vpcOptions.map(v => ({ value: v, label: v }))
+                ...vpcOptions.map((v) => ({ value: v, label: vpcDisplayById.get(v) || v }))
               ]} 
             />
             <Select 
@@ -486,7 +599,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           onClick: () => {
             if (!hasNatWrite) return;
             form.resetFields();
-            form.setFieldsValue({ protocol: 'tcp' });
+            form.setFieldsValue({ protocol: 'tcp', ...(networkScope === 'vpc' ? { vpcName: undefined } : {}) });
             setIsCreateVisible(true);
           },
           disabled: !hasNatWrite
@@ -521,7 +634,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         open={isCreateVisible}
         centered
         destroyOnClose
-        width={520}
+        width={networkScope === 'vpc' ? 640 : 520}
         onCancel={() => {
           setIsCreateVisible(false);
           form.resetFields();
@@ -579,53 +692,40 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               </Form.Item>
             </Col>
           </Row>
+          {networkScope === 'vpc' ? (
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item name="vpcName" label="VPC" rules={[{ required: true, message: '请选择 VPC' }]}>
+                  <Select
+                    showSearch
+                    placeholder="请选择 VPC"
+                    allowClear
+                    optionFilterProp="data-search"
+                    optionLabelProp="label"
+                    onChange={() => {
+                      form.setFieldsValue({ subnetName: undefined, vmKey: undefined, nicAttach: undefined });
+                    }}
+                  >
+                    {vpcChoicesForDnat.map((v) => (
+                      <Select.Option key={v.id} value={v.id} label={v.display} data-search={v.searchLabel}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span>{v.display}</span>
+                          <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>{`命名空间: ${v.namespacesDisplay}`}</span>
+                        </div>
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>{renderDnatSubnetSelect()}</Col>
+            </Row>
+          ) : (
+            <Row gutter={12}>
+              <Col span={24}>{renderDnatSubnetSelect()}</Col>
+            </Row>
+          )}
           <Row gutter={12}>
-            <Col span={9}>
-              <Form.Item
-            name="subnetName"
-            label="子网"
-            rules={[{ required: true, message: '请选择子网' }]}
-          >
-            <Select
-              placeholder="请选择子网（扁平 / VPC）"
-              allowClear
-              showSearch
-              filterOption={(input, option) => {
-                const v = String((option as { value?: string })?.value ?? '');
-                const s = subnetChoicesForDnat.find(
-                  (x: any) => String(x?.metadata?.name || x?.name || '') === v,
-                );
-                if (!s) return v.toLowerCase().includes(input.toLowerCase());
-                const aliasT = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
-                const nm = String(s?.metadata?.name || s?.name || '');
-                const blob = [aliasT, nm, subnetCidrOf(s), s?.spec?.vpc || s?.vpc || '']
-                  .join(' ')
-                  .toLowerCase();
-                return blob.includes(input.toLowerCase());
-              }}
-              onChange={() => {
-                form.setFieldsValue({ vmKey: undefined, nicAttach: undefined });
-              }}
-            >
-              {subnetChoicesForDnat.map((s: any) => {
-                const name = String(s?.metadata?.name || s?.name || '');
-                const alias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
-                const cidr = subnetCidrOf(s);
-                const primary = alias || name;
-                const searchBlob = [primary, name, cidr].filter(Boolean).join(' ');
-                return (
-                  <Select.Option key={name} value={name} title={searchBlob}>
-                    <span title={cidr ? `${primary} ${cidr}` : primary}>
-                      {primary}
-                      {cidr ? <span style={{ color: '#8c8c8c' }}> {cidr}</span> : null}
-                    </span>
-                  </Select.Option>
-                );
-              })}
-            </Select>
-          </Form.Item>
-          </Col>
-            <Col span={9}>
+            <Col span={12}>
               <Form.Item
                 noStyle
                 shouldUpdate={(prev, cur) => prev.subnetName !== cur.subnetName}
@@ -682,7 +782,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                 }}
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col span={12}>
               <Form.Item name="internalPort" label="内部端口" rules={[{ required: true, message: '请输入内部端口' }]}>
                 <Input placeholder="例如: 8080" />
               </Form.Item>

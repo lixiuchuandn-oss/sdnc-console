@@ -38,15 +38,17 @@
  *    - Form Values -> Harvester VM Spec (spec.template.spec.networks)
  * ==============================================================================
  */
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
-import { MinusCircleOutlined } from '@ant-design/icons';
+import { FileSearchOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import {
   ifaceTypeOption,
   NAD_MULTUS_INTERFACE_TYPES,
   PASSTHROUGH_VIRT_IFACE_OPTIONS,
 } from './harvesterVmIfaceTypeOptions';
-import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/underlay-subnet/constants';
+import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
+import { kubeSubnetChoiceLabel } from '../../kube-ovn/lib/kubeOvnUiHelpers';
+import SubnetDetailDrawer from '../../kube-ovn/drawers/subnet-detail-drawer';
 
 /**
  * [接口定义] StepNetworksProps
@@ -81,6 +83,8 @@ interface StepNetworksProps {
   selectedNetIdx: number | null;
   /** 设置当前选中网卡索引的函数 */
   setSelectedNetIdx: (idx: number | null) => void;
+  /** 当前云 ID：用于打开子网详情抽屉（拓扑 / ACL） */
+  cloudId?: string;
 }
 
 // --- 常量定义 ---
@@ -137,7 +141,23 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
   reloadKubeSubnets,
   selectedNetIdx,
   setSelectedNetIdx,
+  cloudId,
 }) => {
+  const [subnetDrawerOpen, setSubnetDrawerOpen] = useState(false);
+  const [subnetDrawerRecord, setSubnetDrawerRecord] = useState<any | null>(null);
+  const [subnetDrawerKindLabel, setSubnetDrawerKindLabel] = useState('扁平子网');
+
+  const openSubnetDrawer = useCallback(
+    (record: any) => {
+      if (!record || !cloudId) return;
+      const t = String(record?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION] ?? '').trim().toLowerCase();
+      const kind = t === 'vpc' ? 'VPC 子网' : t === 'public' ? '公共子网' : '扁平子网';
+      setSubnetDrawerRecord(record);
+      setSubnetDrawerKindLabel(kind);
+      setSubnetDrawerOpen(true);
+    },
+    [cloudId],
+  );
   // [修复] 初始加载时，如果主网卡名称为空字符串，需重置为 undefined 以便显示 Placeholder
   React.useEffect(() => {
     const pNic = form.getFieldValue('primaryNic') || {};
@@ -291,83 +311,109 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     <Form.Item name={['primaryNic', 'vpc']} hidden preserve>
                       <Input />
                     </Form.Item>
-                    <Form.Item label="扁平子网" name={['primaryNic', 'subnet']} preserve rules={[{ required: true, message: '请选择扁平子网' }]}>
-                      <Select
-                        placeholder="选择扁平子网（Kube-OVN / tower.io/subnet-type=flat）"
-                        options={(function () {
-                          const used = new Set<string>();
-                          try {
-                            const netIfaces = form.getFieldValue('netIfaces') || [];
-                            netIfaces.forEach((it: any) => {
-                              if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
-                            });
-                          } catch {}
-                          const currentSelected = (function () {
-                            try { return form.getFieldValue(['primaryNic', 'subnet']); } catch { return undefined; }
-                          })();
-                          return (kubeSubnets || [])
-                            .filter(
-                              (x: any) =>
-                                isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) && isKubeOvnFlatSubnet(x),
-                            )
-                            .filter((x: any) => {
-                              const n = x?.name;
-                              if (!n) return false;
-                              if (currentSelected && String(currentSelected) === String(n)) return true;
-                              return !used.has(String(n));
-                            })
-                            .map((x: any) => {
-                              const n = x?.name || '-';
-                              const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                              const vpcDisp =
-                                String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
-                              return {
-                                label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
-                                value: n,
-                              };
-                            });
-                        })()}
-                        onOpenChange={(open) => {
-                          if (open) reloadKubeSubnets();
-                        }}
-                        onChange={(val) => {
-                          let netName = val;
-                          const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
-                          let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-                          if (!subnetNs) {
-                            const provider = subnet?.provider || subnet?.spec?.provider;
-                            if (provider) {
-                              const parts = provider.split('.');
-                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                            }
-                          }
-                          if (subnetNs) {
-                            netName = `${subnetNs}/${val}`;
-                          } else {
-                            try {
-                              const found = (nadOptions || []).find((x: any) => {
-                                const vv = String(x?.value || '');
-                                const parts = vv.split('/');
-                                const name = parts.length > 1 ? parts[1] : parts[0];
-                                return name === val;
+                    <Form.Item label="扁平子网" preserve>
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Form.Item
+                          name={['primaryNic', 'subnet']}
+                          noStyle
+                          preserve
+                          rules={[{ required: true, message: '请选择扁平子网' }]}
+                        >
+                          <Select
+                            placeholder="选择扁平子网（Kube-OVN / tower.io/subnet-type=flat）"
+                            style={{ width: 'calc(100% - 40px)' }}
+                            options={(function () {
+                              const used = new Set<string>();
+                              try {
+                                const netIfaces = form.getFieldValue('netIfaces') || [];
+                                netIfaces.forEach((it: any) => {
+                                  if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
+                                });
+                              } catch {}
+                              const currentSelected = (function () {
+                                try { return form.getFieldValue(['primaryNic', 'subnet']); } catch { return undefined; }
+                              })();
+                              return (kubeSubnets || [])
+                                .filter(
+                                  (x: any) =>
+                                    isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) && isKubeOvnFlatSubnet(x),
+                                )
+                                .filter((x: any) => {
+                                  const n = x?.name;
+                                  if (!n) return false;
+                                  if (currentSelected && String(currentSelected) === String(n)) return true;
+                                  return !used.has(String(n));
+                                })
+                                .map((x: any) => {
+                                  const n = x?.name || '-';
+                                  const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                  const vpcDisp =
+                                    String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
+                                  return {
+                                    label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
+                                    value: n,
+                                  };
+                                });
+                            })()}
+                            onOpenChange={(open) => {
+                              if (open) reloadKubeSubnets();
+                            }}
+                            onChange={(val) => {
+                              let netName = val;
+                              const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
+                              let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                              if (!subnetNs) {
+                                const provider = subnet?.provider || subnet?.spec?.provider;
+                                if (provider) {
+                                  const parts = provider.split('.');
+                                  if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                                }
+                              }
+                              if (subnetNs) {
+                                netName = `${subnetNs}/${val}`;
+                              } else {
+                                try {
+                                  const found = (nadOptions || []).find((x: any) => {
+                                    const vv = String(x?.value || '');
+                                    const parts = vv.split('/');
+                                    const name = parts.length > 1 ? parts[1] : parts[0];
+                                    return name === val;
+                                  });
+                                  if (found) netName = found.value;
+                                } catch {}
+                              }
+                              const flatVpc =
+                                String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                KUBE_OVN_FLAT_VPC;
+                              form.setFieldsValue({
+                                primaryNic: {
+                                  vpc: flatVpc,
+                                  subnet: val,
+                                  name: netName,
+                                  type: 'managedtap',
+                                },
                               });
-                              if (found) netName = found.value;
-                            } catch {}
-                          }
-                          const flatVpc =
-                            String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
-                            KUBE_OVN_FLAT_VPC;
-                          form.setFieldsValue({
-                            primaryNic: {
-                              vpc: flatVpc,
-                              subnet: val,
-                              name: netName,
-                              type: 'managedtap',
-                            },
-                          });
-                        }}
-                        allowClear={false}
-                      />
+                            }}
+                            allowClear={false}
+                          />
+                        </Form.Item>
+                        <Button
+                          type="default"
+                          icon={<FileSearchOutlined />}
+                          title="查看子网"
+                          disabled={!cloudId}
+                          onClick={() => {
+                            const sn = form.getFieldValue(['primaryNic', 'subnet']);
+                            const rec = (kubeSubnets || []).find(
+                              (x: any) =>
+                                x?.name === sn &&
+                                isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
+                                isKubeOvnFlatSubnet(x),
+                            );
+                            if (rec) openSubnetDrawer(rec);
+                          }}
+                        />
+                      </Space.Compact>
                     </Form.Item>
                     <Form.Item name={['primaryNic', 'name']} hidden preserve>
                       <Input />
@@ -413,59 +459,81 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   </Form.Item>
                 </Col>
                 <Col span={8}>
-                  <Form.Item label="子网" name={["primaryNic", 'subnet']} preserve rules={[{ required: true }]}>
-                    <Select
-                      placeholder="选择 VPC 子网"
-                      options={(function () { 
-                        // [过滤逻辑] 仅显示当前选中 VPC 下的子网
-                        const vpc = form.getFieldValue(['primaryNic', 'vpc']); 
-                        const list = kubeSubnets || []; 
-                        const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
-                        return filtered.map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })); 
-                      })()}
-                      onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
-                      onChange={(val) => { 
-                        // [状态同步] 选择子网时，自动将其名称作为网络名称
-                        // [修复] Kube-OVN 子网生成的 NAD 通常与子网资源本身位于同一 Namespace
-                        // 优先从 kubeSubnets 中获取子网对象，提取其 Namespace 并拼装为 <ns>/<name> 格式
-                        // 若未找到子网对象，则回退到 nadOptions 查找逻辑
-                        let netName = val;
-                        
-                        // 1. 尝试从子网列表查找 (最准确，直接反映子网归属)
-                        const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
-                        
-                        // [修复] 从 Subnet 对象中获取正确的 Namespace
-                        // 后端 /subnets 接口已增强，会自动将关联 NAD 的 Namespace 注入到 metadata.namespace 字段
-                        // 优先使用该字段，如果不存在则回退到 Provider 解析逻辑
-                        let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-                        if (!subnetNs) {
-                            const provider = subnet?.provider || subnet?.spec?.provider;
-                            if (provider) {
-                                const parts = provider.split('.');
-                                // 倒数第二个部分通常是 Namespace
-                                if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                  <Form.Item label="子网" preserve>
+                    <Space.Compact style={{ width: '100%' }}>
+                      <Form.Item name={['primaryNic', 'subnet']} noStyle preserve rules={[{ required: true }]}>
+                        <Select
+                          placeholder="选择 VPC 子网"
+                          style={{ width: 'calc(100% - 40px)' }}
+                          options={(function () { 
+                            // [过滤逻辑] 仅显示当前选中 VPC 下的子网
+                            const vpc = form.getFieldValue(['primaryNic', 'vpc']); 
+                            const list = kubeSubnets || []; 
+                            const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
+                            return filtered.map((x: any) => ({ label: kubeSubnetChoiceLabel(x), value: x?.name })); 
+                          })()}
+                          onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
+                          onChange={(val) => { 
+                            // [状态同步] 选择子网时，自动将其名称作为网络名称
+                            // [修复] Kube-OVN 子网生成的 NAD 通常与子网资源本身位于同一 Namespace
+                            // 优先从 kubeSubnets 中获取子网对象，提取其 Namespace 并拼装为 <ns>/<name> 格式
+                            // 若未找到子网对象，则回退到 nadOptions 查找逻辑
+                            let netName = val;
+                            
+                            const vpcCur = form.getFieldValue(['primaryNic', 'vpc']);
+                            // 1. 按 VPC + 子网名匹配，避免跨 VPC 同名子网误绑 NAD
+                            const subnet = (kubeSubnets || []).find(
+                              (x: any) => x.name === val && x?.vpc === vpcCur,
+                            );
+                            
+                            // [修复] 从 Subnet 对象中获取正确的 Namespace
+                            // 后端 /subnets 接口已增强，会自动将关联 NAD 的 Namespace 注入到 metadata.namespace 字段
+                            // 优先使用该字段，如果不存在则回退到 Provider 解析逻辑
+                            let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                            if (!subnetNs) {
+                                const provider = subnet?.provider || subnet?.spec?.provider;
+                                if (provider) {
+                                    const parts = provider.split('.');
+                                    // 倒数第二个部分通常是 Namespace
+                                    if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                                }
                             }
-                        }
 
-                        if (subnetNs) {
-                           netName = `${subnetNs}/${val}`;
-                        } else {
-                           // 2. 回退：尝试从 nadOptions 中查找匹配的 NAD
-                           try {
-                             const found = (nadOptions || []).find((x: any) => {
-                               const v = String(x?.value || '');
-                               const parts = v.split('/');
-                               const name = parts.length > 1 ? parts[1] : parts[0];
-                               return name === val;
-                             });
-                             if (found) netName = found.value;
-                           } catch {}
-                        }
+                            if (subnetNs) {
+                               netName = `${subnetNs}/${val}`;
+                            } else {
+                               // 2. 回退：尝试从 nadOptions 中查找匹配的 NAD
+                               try {
+                                 const found = (nadOptions || []).find((x: any) => {
+                                   const v = String(x?.value || '');
+                                   const parts = v.split('/');
+                                   const name = parts.length > 1 ? parts[1] : parts[0];
+                                   return name === val;
+                                 });
+                                 if (found) netName = found.value;
+                               } catch {}
+                            }
 
-                        // 使用合并更新，确保不覆盖 subnet 字段自身的更新
-                        form.setFieldsValue({ primaryNic: { name: netName } }); 
-                      }}
-                    />
+                            // 使用合并更新，确保不覆盖 subnet 字段自身的更新
+                            form.setFieldsValue({ primaryNic: { name: netName } }); 
+                          }}
+                        />
+                      </Form.Item>
+                      <Button
+                        type="default"
+                        icon={<FileSearchOutlined />}
+                        title="查看子网"
+                        disabled={!cloudId}
+                        onClick={() => {
+                          const sn = form.getFieldValue(['primaryNic', 'subnet']);
+                          const vpcCur = form.getFieldValue(['primaryNic', 'vpc']);
+                          const rec = (kubeSubnets || []).find(
+                            (x: any) => x?.name === sn && x?.vpc === vpcCur,
+                          );
+                          if (rec) openSubnetDrawer(rec);
+                        }}
+                      />
+                    </Space.Compact>
                   </Form.Item>
                   {/* [修复] 在 VPC 模式下必须注册 name 字段，否则 getFieldsValue 无法获取到该值，导致 payload 中丢失网络名称进而回退到 Management Network */}
                   <Form.Item name={["primaryNic", 'name']} hidden preserve>
@@ -691,56 +759,58 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               <Form.Item name={[name, 'vpc']} initialValue={KUBE_OVN_FLAT_VPC} hidden>
                                 <Input />
                               </Form.Item>
-                              <Form.Item
-                                label="扁平子网"
-                                name={[name, 'subnet']}
-                                rules={[{ required: true, message: '请选择扁平子网' }]}
-                                key={`secondary-nic-flat-subnet-${name}`}
-                              >
-                                <Select
-                                  placeholder="选择扁平子网"
-                                  options={(function () {
-                                    const used = new Set<string>();
-                                    try {
-                                      const primarySubnet = form.getFieldValue(['primaryNic', 'subnet']);
-                                      if (primarySubnet) used.add(String(primarySubnet));
-                                      const netIfaces = form.getFieldValue('netIfaces') || [];
-                                      netIfaces.forEach((it: any, idx2: number) => {
-                                        if (idx2 === name) return;
-                                        if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
-                                      });
-                                    } catch {}
-                                    const currentSelected = (function () {
-                                      try { return form.getFieldValue(['netIfaces', name, 'subnet']); } catch { return undefined; }
-                                    })();
-                                    return (kubeSubnets || [])
-                                      .filter(
-                                        (x: any) =>
-                                          isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
-                                          isKubeOvnFlatSubnet(x),
-                                      )
-                                      .filter((x: any) => {
-                                        const n = x?.name;
-                                        if (!n) return false;
-                                        if (currentSelected && String(currentSelected) === String(n)) return true;
-                                        return !used.has(String(n));
-                                      })
-                                      .map((x: any) => {
-                                        const n = x?.name || '-';
-                                        const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                                        const vpcDisp =
-                                          String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
-                                          KUBE_OVN_FLAT_VPC;
-                                        return {
-                                          label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
-                                          value: n,
-                                        };
-                                      });
-                                  })()}
-                                  onOpenChange={(open) => {
-                                    if (open) reloadKubeSubnets();
-                                  }}
-                                  onChange={(val) => {
+                              <Form.Item label="扁平子网" key={`secondary-nic-flat-subnet-${name}`}>
+                                <Space.Compact style={{ width: '100%' }}>
+                                  <Form.Item
+                                    name={[name, 'subnet']}
+                                    noStyle
+                                    rules={[{ required: true, message: '请选择扁平子网' }]}
+                                  >
+                                    <Select
+                                      placeholder="选择扁平子网"
+                                      style={{ width: 'calc(100% - 40px)' }}
+                                      options={(function () {
+                                        const used = new Set<string>();
+                                        try {
+                                          const primarySubnet = form.getFieldValue(['primaryNic', 'subnet']);
+                                          if (primarySubnet) used.add(String(primarySubnet));
+                                          const netIfaces = form.getFieldValue('netIfaces') || [];
+                                          netIfaces.forEach((it: any, idx2: number) => {
+                                            if (idx2 === name) return;
+                                            if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
+                                          });
+                                        } catch {}
+                                        const currentSelected = (function () {
+                                          try { return form.getFieldValue(['netIfaces', name, 'subnet']); } catch { return undefined; }
+                                        })();
+                                        return (kubeSubnets || [])
+                                          .filter(
+                                            (x: any) =>
+                                              isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
+                                              isKubeOvnFlatSubnet(x),
+                                          )
+                                          .filter((x: any) => {
+                                            const n = x?.name;
+                                            if (!n) return false;
+                                            if (currentSelected && String(currentSelected) === String(n)) return true;
+                                            return !used.has(String(n));
+                                          })
+                                          .map((x: any) => {
+                                            const n = x?.name || '-';
+                                            const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                            const vpcDisp =
+                                              String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                              KUBE_OVN_FLAT_VPC;
+                                            return {
+                                              label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
+                                              value: n,
+                                            };
+                                          });
+                                      })()}
+                                      onOpenChange={(open) => {
+                                        if (open) reloadKubeSubnets();
+                                      }}
+                                      onChange={(val) => {
                                     let netName = val;
                                     const subnet = (kubeSubnets || []).find(
                                       (x: any) => (x?.name || x?.metadata?.name) === val,
@@ -783,7 +853,25 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                       form.setFieldsValue({ netIfaces: next });
                                     } catch {}
                                   }}
-                                />
+                                    />
+                                  </Form.Item>
+                                  <Button
+                                    type="default"
+                                    icon={<FileSearchOutlined />}
+                                    title="查看子网"
+                                    disabled={!cloudId}
+                                    onClick={() => {
+                                      const sn = form.getFieldValue(['netIfaces', name, 'subnet']);
+                                      const rec = (kubeSubnets || []).find(
+                                        (x: any) =>
+                                          x?.name === sn &&
+                                          isFlatKubeOvnSubnetVpc(x?.vpc || x?.spec?.vpc) &&
+                                          isKubeOvnFlatSubnet(x),
+                                      );
+                                      if (rec) openSubnetDrawer(rec);
+                                    }}
+                                  />
+                                </Space.Compact>
                               </Form.Item>
                               <Form.Item name={[name, 'name']} hidden>
                                 <Input />
@@ -835,53 +923,72 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           </Form.Item>
                         </Col>
                         <Col span={8}>
-                          <Form.Item label="子网" name={[name, 'subnet']} rules={[{ required: true }]}>
-                            <Select
-                              placeholder="选择 VPC 子网"
-                              options={(function () { 
-                                // [过滤逻辑] 根据当前网卡的 VPC 过滤子网
-                                const vpc = form.getFieldValue(['netIfaces', name, 'vpc']); 
-                                const list = kubeSubnets || []; 
-                                const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
-                                return filtered.map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })); 
-                              })()}
-                              onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
-                              onChange={(val) => {
-                                try {
-                                  const curr = form.getFieldValue('netIfaces') || [];
-                                  const next = [...curr];
-                                  const vpc = form.getFieldValue(['netIfaces', name, 'vpc']);
-                                  // 与主网卡 VPC 一致：Multus 需 namespace/name，不能仅写子网 CR 名（否则 webhook 报 NAD not found）
-                                  let netName = val;
-                                  const subnet = (kubeSubnets || []).find(
-                                    (x: any) => x?.name === val && x?.vpc === vpc,
-                                  );
-                                  let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-                                  if (!subnetNs) {
-                                    const provider = subnet?.provider || subnet?.spec?.provider;
-                                    if (provider) {
-                                      const parts = String(provider).split('.');
-                                      if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                                    }
-                                  }
-                                  if (subnetNs) {
-                                    netName = `${subnetNs}/${val}`;
-                                  } else {
+                          <Form.Item label="子网">
+                            <Space.Compact style={{ width: '100%' }}>
+                              <Form.Item name={[name, 'subnet']} noStyle rules={[{ required: true }]}>
+                                <Select
+                                  placeholder="选择 VPC 子网"
+                                  style={{ width: 'calc(100% - 40px)' }}
+                                  options={(function () { 
+                                    // [过滤逻辑] 根据当前网卡的 VPC 过滤子网
+                                    const vpc = form.getFieldValue(['netIfaces', name, 'vpc']); 
+                                    const list = kubeSubnets || []; 
+                                    const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
+                                    return filtered.map((x: any) => ({ label: kubeSubnetChoiceLabel(x), value: x?.name })); 
+                                  })()}
+                                  onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
+                                  onChange={(val) => {
                                     try {
-                                      const found = (nadOptions || []).find((x: any) => {
-                                        const vv = String(x?.value || '');
-                                        const parts = vv.split('/');
-                                        const nm = parts.length > 1 ? parts[1] : parts[0];
-                                        return nm === val;
-                                      });
-                                      if (found) netName = found.value;
+                                      const curr = form.getFieldValue('netIfaces') || [];
+                                      const next = [...curr];
+                                      const vpc = form.getFieldValue(['netIfaces', name, 'vpc']);
+                                      // 与主网卡 VPC 一致：Multus 需 namespace/name，不能仅写子网 CR 名（否则 webhook 报 NAD not found）
+                                      let netName = val;
+                                      const subnet = (kubeSubnets || []).find(
+                                        (x: any) => x?.name === val && x?.vpc === vpc,
+                                      );
+                                      let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                                      if (!subnetNs) {
+                                        const provider = subnet?.provider || subnet?.spec?.provider;
+                                        if (provider) {
+                                          const parts = String(provider).split('.');
+                                          if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                                        }
+                                      }
+                                      if (subnetNs) {
+                                        netName = `${subnetNs}/${val}`;
+                                      } else {
+                                        try {
+                                          const found = (nadOptions || []).find((x: any) => {
+                                            const vv = String(x?.value || '');
+                                            const parts = vv.split('/');
+                                            const nm = parts.length > 1 ? parts[1] : parts[0];
+                                            return nm === val;
+                                          });
+                                          if (found) netName = found.value;
+                                        } catch {}
+                                      }
+                                      next[name] = { ...next[name], subnet: val, name: netName, type: 'bridge' };
+                                      form.setFieldsValue({ netIfaces: next });
                                     } catch {}
-                                  }
-                                  next[name] = { ...next[name], subnet: val, name: netName, type: 'bridge' };
-                                  form.setFieldsValue({ netIfaces: next });
-                                } catch {}
-                              }}
-                            />
+                                  }}
+                                />
+                              </Form.Item>
+                              <Button
+                                type="default"
+                                icon={<FileSearchOutlined />}
+                                title="查看子网"
+                                disabled={!cloudId}
+                                onClick={() => {
+                                  const sn = form.getFieldValue(['netIfaces', name, 'subnet']);
+                                  const vpcCur = form.getFieldValue(['netIfaces', name, 'vpc']);
+                                  const rec = (kubeSubnets || []).find(
+                                    (x: any) => x?.name === sn && x?.vpc === vpcCur,
+                                  );
+                                  if (rec) openSubnetDrawer(rec);
+                                }}
+                              />
+                            </Space.Compact>
                           </Form.Item>
                         </Col>
                         <Col span={8}>
@@ -1000,6 +1107,20 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           </div>
         )}
       </Form.List>
+
+      {cloudId ? (
+        <SubnetDetailDrawer
+          open={subnetDrawerOpen}
+          onClose={() => {
+            setSubnetDrawerOpen(false);
+            setSubnetDrawerRecord(null);
+          }}
+          cloudId={cloudId}
+          subnet={subnetDrawerRecord}
+          kindLabel={subnetDrawerKindLabel}
+          onSubnetAclSaved={() => reloadKubeSubnets()}
+        />
+      ) : null}
     </>
   );
 };

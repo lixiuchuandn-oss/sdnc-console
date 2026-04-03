@@ -1,4 +1,4 @@
-import { TOWER_ALIAS_ANNOTATION } from './underlay-subnet/constants';
+import { TOWER_ALIAS_ANNOTATION } from './kubeOvnSubnetConstants';
 
 /** 列表/下拉展示：优先注解 tower.io/alias，否则 metadata.name */
 export function ovnDisplayName(record: any): string {

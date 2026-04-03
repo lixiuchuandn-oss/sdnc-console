@@ -26,7 +26,7 @@ import {
   SearchOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import type { SubnetAclFormRow } from './SubnetAclFormItems';
+import type { SubnetAclFormRow } from '../../lib/SubnetAclFormItems';
 
 const { Text } = Typography;
 

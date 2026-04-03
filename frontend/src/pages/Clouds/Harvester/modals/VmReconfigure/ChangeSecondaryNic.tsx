@@ -5,7 +5,7 @@ import {
   ifaceTypeOption,
   PASSTHROUGH_VIRT_IFACE_OPTIONS,
 } from '../VmCreateWizard/harvesterVmIfaceTypeOptions';
-import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/underlay-subnet/constants';
+import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 
 type Props = {
   form: any;

@@ -60,7 +60,7 @@ import {
   fetchHarvesterNodes,
 } from '../../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../../services/api';
-import { KUBE_OVN_FLAT_VPC } from '../../kube-ovn/underlay-subnet/constants';
+import { KUBE_OVN_FLAT_VPC } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 
 /** 将 Kubernetes 资源量字符串（如 `1Gi`、`500Mi`、`1000`）解析为字节数。 */
 const parseQuantity = (s: string | number | undefined): number => {

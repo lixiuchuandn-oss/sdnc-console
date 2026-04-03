@@ -35,19 +35,16 @@ import {
   fetchKubeOvnSubnets,
   fetchKubeOvnVlans,
   updateKubeOvnSubnet,
-} from '../../../../../services/harvesterApi';
-import { clearCache } from '../../../../../utils/requestManager';
-import { useAuth } from '../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../utils/accessMapping';
-import { CLOUD_SUBNETS_FLAT_WRITE, CLOUD_SUBNETS_PUBLIC_WRITE } from '../../../../../constants/cloudPermissions';
-import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../../utils/towerKubeOvnNames';
-import {
-  CreateFlatSubnetModal,
-  CreatePublicSubnetModal,
-  SUBNET_TYPE_ANNOTATION_KEY,
-  TOWER_ALIAS_ANNOTATION,
-  UnderlaySubnetFormFields,
-} from '../underlay-subnet';
+} from '../../../../../../services/harvesterApi';
+import { clearCache } from '../../../../../../utils/requestManager';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { CLOUD_SUBNETS_FLAT_WRITE, CLOUD_SUBNETS_PUBLIC_WRITE } from '../../../../../../constants/cloudPermissions';
+import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../../../utils/towerKubeOvnNames';
+import CreateFlatSubnetModal from '../../modals/CreateFlatSubnetModal';
+import CreatePublicSubnetModal from '../../modals/CreatePublicSubnetModal';
+import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../../lib/kubeOvnSubnetConstants';
+import UnderlaySubnetFormFields from '../../lib/UnderlaySubnetFormFields';
 import ProviderNetworkTopologyGraph from './ProviderNetworkTopologyGraph';
 
 export type VlanPlanDrawerProps = {

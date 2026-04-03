@@ -13,14 +13,14 @@ import {
   message,
 } from 'antd';
 import type { MenuProps } from 'antd';
-import type { SubnetAclFormRow } from './SubnetAclFormItems';
+import type { SubnetAclFormRow } from '../lib/SubnetAclFormItems';
 import { ReloadOutlined, SafetyCertificateTwoTone , SearchOutlined } from '@ant-design/icons';
-import { useAuth } from '../../../../contexts/AuthContext';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import { fetchCloudProviderEcs } from '../../../../services/api';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { fetchCloudProviderEcs } from '../../../../../services/api';
 import {
   addKubeOvnSecurityGroupMembers,
   createKubeOvnSecurityGroup,
@@ -31,9 +31,9 @@ import {
   removeKubeOvnSecurityGroupMember,
   replaceKubeOvnSecurityGroupRules,
   updateKubeOvnSecurityGroup,
-} from '../../../../services/harvesterApi';
-import { normalizeAclRowForForm, normalizeAclsForApi } from './SubnetAclFormItems';
-import SecurityGroupAccessControlDrawer, { type SgAclDirection } from './SecurityGroupAclDrawer';
+} from '../../../../../services/harvesterApi';
+import { normalizeAclRowForForm, normalizeAclsForApi } from '../lib/SubnetAclFormItems';
+import SecurityGroupAccessControlDrawer, { type SgAclDirection } from '../drawers/security-group-acl-drawer';
 
 const { Paragraph } = Typography;
 const SUBNET_TYPE_KEY = 'tower.io/subnet-type';

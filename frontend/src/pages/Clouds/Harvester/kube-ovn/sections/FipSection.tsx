@@ -1,24 +1,24 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Table, Tag, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip, Space, Alert } from 'antd';
 import { SearchOutlined, ShareAltOutlined, ReloadOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnFip, deleteCloudProviderOvnFip } from '../../../../services/harvesterApi';
-import { fetchCloudProviderEcs } from '../../../../services/api';
-import MetadataModal from './MetadataModal';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
-import { KUBE_OVN_FLAT_VPC, TOWER_ALIAS_ANNOTATION } from './underlay-subnet/constants';
-import { ovnDisplayName, ovnKeywordMatches } from './ovnResourceDisplay';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import { createCloudProviderOvnFip, deleteCloudProviderOvnFip } from '../../../../../services/harvesterApi';
+import { fetchCloudProviderEcs } from '../../../../../services/api';
+import MetadataModal from '../modals/MetadataModal';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { generateHarvesterCrMetadataName } from '../../../../../utils/harvesterUtils';
+import { KUBE_OVN_FLAT_VPC, TOWER_ALIAS_ANNOTATION } from '../lib/kubeOvnSubnetConstants';
+import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
 import {
   buildVmNicIpOptions,
   subnetChoicesForOvnAttach,
   subnetCidrOf,
   vmUsesSubnet,
-} from './subnetVmPicker';
+} from '../lib/subnetVmPicker';
 
 interface BaseSectionProps {
   cloudId: string;
@@ -298,7 +298,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
         return;
       }
       const payload: Record<string, unknown> = {
-        name: generateHarvesterEntityId('fip'),
+        name: generateHarvesterCrMetadataName('kubeOvnFip'),
         ovnEip: values.ovnEip,
         vpc,
         ipType: 'eip',

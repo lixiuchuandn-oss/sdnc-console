@@ -12,11 +12,11 @@ import NodesSection from '../Harvester/cluster/NodesSection';
 import ImagesSection from '../Harvester/ecs/ImagesSection';
 import VolumesSection from '../Harvester/ebs/VolumesSection';
 import NadsSection from '../Harvester/nad/NadsSection';
-import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
-import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
-import UnderlaySubnetsSection from '../Harvester/kube-ovn/UnderlaySubnetsSection';
-import SecurityGroupsSection from '../Harvester/kube-ovn/SecurityGroupsSection';
-import VlansSection from '../Harvester/kube-ovn/VlansSection';
+import KubeOvnVpcsSection from '../Harvester/kube-ovn/sections/VpcsSection';
+import VpcSubnetsSection from '../Harvester/kube-ovn/sections/VpcSubnetsSection';
+import UnderlaySubnetsSection from '../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
+import SecurityGroupsSection from '../Harvester/kube-ovn/sections/SecurityGroupsSection';
+import VlansSection from '../Harvester/kube-ovn/sections/VlansSection';
 import GpusSection from '../Harvester/cluster/GpusSection';
 import MigrationsSection from '../Harvester/ecs/MigrationsSection';
 import StorageClassesSection from '../Harvester/cluster/StorageClassesSection';
@@ -28,7 +28,7 @@ import ServicesSection from '../Harvester/cluster/ServicesSection';
 import LoadBalancersSection from '../Harvester/nad/LoadBalancersSection';
 import IPPoolsSection from '../Harvester/nad/IPPoolsSection';
 import ClusterNetworksSection from '../Harvester/cluster/ClusterNetworksSection';
-import ProviderNetworksSection from '../Harvester/kube-ovn/ProviderNetworksSection';
+import ProviderNetworksSection from '../Harvester/kube-ovn/sections/ProviderNetworksSection';
 import RecycleBinSection from '../Harvester/ecs/RecycleBinSection';
 import PciDevicesSection from '../Harvester/cluster/PciDevicesSection';
 import UsbDevicesSection from '../Harvester/cluster/UsbDevicesSection';
@@ -55,8 +55,8 @@ import VmSection from '../Harvester/ecs/VmSection';
 import TemplatesSection from '../Harvester/ecs/TemplatesSection';
 import ScheduleVmBackupsSection from '../Harvester/cbr/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from '../Harvester/cbr/VmRestoreTasksSection';
-import EipSection from '../Harvester/kube-ovn/EipSection';
-import FipSection from '../Harvester/kube-ovn/FipSection';
+import EipSection from '../Harvester/kube-ovn/sections/EipSection';
+import FipSection from '../Harvester/kube-ovn/sections/FipSection';
 import MonitoringOverview from '../Harvester/Monitoring/MonitoringOverview';
 import MonitoringAlerts from '../Harvester/Monitoring/MonitoringAlerts';
 import LogsConfig from '../Harvester/Monitoring/LogsConfig';
@@ -68,8 +68,8 @@ import MonitoringAlertNotificationTargets from '../Harvester/Monitoring/Monitori
 import MonitoringAlertSecrets from '../Harvester/Monitoring/MonitoringAlertSecrets';
 import { MonitoringProvider } from '../Harvester/Monitoring/context/MonitoringContext';
 import { LoggingProvider } from '../Harvester/Monitoring/context/LoggingContext';
-import SnatSection from '../Harvester/kube-ovn/SnatSection';
-import DnatSection from '../Harvester/kube-ovn/DnatSection';
+import SnatSection from '../Harvester/kube-ovn/sections/SnatSection';
+import DnatSection from '../Harvester/kube-ovn/sections/DnatSection';
 import { getToken } from '../../../utils/tokenStorage';
 import { clearCache } from '../../../utils/requestManager';
 import { useLicense } from '../../../contexts/LicenseContext';
@@ -2171,11 +2171,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: 'VPC 子网',
                       children: (
                         <>
-                          <KubeOvnSubnetsSection 
+                          <VpcSubnetsSection 
                             subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} 
                             vpcList={kubeOvnVpcs} 
                             loading={resourceLoading.subnets} 
                             showYaml={mode === 'ops'}
+                            displayMode={mode === 'ops' ? 'ops' : 'standard'}
                             onRefresh={() => loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => {
                               setKubeOvnSubnets(json?.data?.items || []);
                               setRawSubnets(json || null);
@@ -2190,7 +2191,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '弹性公网IP',
                       children: (
                         <>
-                          <EipSection cloudId={cloudId} eips={kubeOvnEips} subnets={kubeOvnSubnets} loading={resourceLoading.eips} onRefresh={() => loadTabResource('eips', true)} networkScope="vpc" />
+                          <EipSection cloudId={cloudId} eips={kubeOvnEips} subnets={kubeOvnSubnets} vpcs={kubeOvnVpcs} loading={resourceLoading.eips} onRefresh={() => loadTabResource('eips', true)} networkScope="vpc" />
                           <DebugJSON data={rawEips} show={showLog} />
                         </>
                       )

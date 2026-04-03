@@ -35,7 +35,7 @@ import {
 import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
-} from '../kube-ovn/underlay-subnet/constants';
+} from '../kube-ovn/lib/kubeOvnSubnetConstants';
 import { isSystemStorageClass, pickDefaultStorageClassName } from '../../../../utils/harvesterUtils';
 export type SimpleVmCreateModalProps = {
   open: boolean;

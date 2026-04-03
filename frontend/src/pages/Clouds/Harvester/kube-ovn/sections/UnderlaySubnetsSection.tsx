@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Form, Input, Modal, Select, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { ApartmentOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import {
   deleteKubeOvnSubnet,
   fetchCloudProviderOvnEips,
@@ -11,34 +11,35 @@ import {
   fetchKubeOvnSubnets,
   fetchKubeOvnVlans,
   updateKubeOvnSubnet,
-} from '../../../../services/harvesterApi';
-import { clearCache } from '../../../../utils/requestManager';
+} from '../../../../../services/harvesterApi';
+import { clearCache } from '../../../../../utils/requestManager';
 import SubnetAclFormItems, {
   normalizeAclRowForForm,
   validateAclsFormRowsForSubmit,
-} from './SubnetAclFormItems';
-import UnderlaySubnetDetailDrawer from './UnderlaySubnetDetailDrawer';
-import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
+} from '../lib/SubnetAclFormItems';
+import SubnetDetailDrawer from '../drawers/subnet-detail-drawer';
+import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import {
   CLOUD_SUBNETS_FLAT_WRITE,
   CLOUD_SUBNETS_PUBLIC_WRITE,
-} from '../../../../constants/cloudPermissions';
+} from '../../../../../constants/cloudPermissions';
+import CreateFlatSubnetModal from '../modals/CreateFlatSubnetModal';
+import CreatePublicSubnetModal from '../modals/CreatePublicSubnetModal';
 import {
-  CreateFlatSubnetModal,
-  CreatePublicSubnetModal,
   SUBNET_TYPE_ANNOTATION_KEY,
   SUBNET_TYPE_FLAT_OVERLAY_ANNOTATION_KEY,
   SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
-  UnderlaySubnetFormFields,
-  providerDisplayName,
   resolveTowerUnderlaySubnetCategory,
+} from '../lib/kubeOvnSubnetConstants';
+import UnderlaySubnetFormFields, {
+  providerDisplayName,
   vlanRecordLabelForSelect,
   vlanRecordSearchBlob,
-} from './underlay-subnet';
+} from '../lib/UnderlaySubnetFormFields';
 
 const { Option } = Select;
 
@@ -59,7 +60,7 @@ const { Option } = Select;
  * 【公共子网】本组件 mode=public，注解 tower.io/subnet-type=public
  *   - 挂在内置 VPC ovn-cluster，产品侧用于 EIP/NAT/浮动 IP 等南北向能力常用网段；创建默认 natOutgoing=true。
  *
- * 【VPC 子网】见 SubnetsSection / VpcsSection，注解 tower.io/subnet-type=vpc
+ * 【VPC 子网】见 VpcSubnetsSection / VpcsSection，注解 tower.io/subnet-type=vpc
  *   - 挂在用户业务 VPC（非 ovn-cluster / ovn-internal）内，租户隔离网段。
  *
  * =============================================================================
@@ -184,7 +185,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       if (!rec) return;
       const spec = rec.spec || {};
       aclForm.setFieldsValue({
-        allowEWTraffic: spec.allowEWTraffic ?? false,
         acls: Array.isArray(spec.acls) ? spec.acls.map((a: any) => normalizeAclRowForForm({ ...a })) : [],
       });
     } catch {
@@ -794,7 +794,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
       />
 
-      <UnderlaySubnetDetailDrawer
+      <SubnetDetailDrawer
         open={detailDrawerOpen}
         onClose={() => {
           setDetailDrawerOpen(false);
@@ -803,6 +803,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         cloudId={cloudId}
         subnet={detailSubnetRecord}
         kindLabel={subnetKindLabel}
+        onSubnetAclSaved={() => void handleForceRefresh()}
       />
 
       <HarvesterResourceDrawer
@@ -889,7 +890,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         destroyOnHidden
       >
         <Form form={aclForm} layout="vertical" className="std-form">
-          <SubnetAclFormItems showAllowEW={false} />
+          <SubnetAclFormItems />
         </Form>
       </Modal>
     </div>

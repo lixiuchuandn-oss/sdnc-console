@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, Tag, Modal, Row, Col, message, Dropdown, Steps, Descriptions, Badge, Popover, Checkbox } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Dropdown, Steps, Descriptions, Badge } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined, ShareAltOutlined, SettingOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import { vrApi, getVRRoles, fetchVrCachePageList } from '../../../services/virtualRouterApi';
+import { apiPost } from '../../../services/api';
 // 复用 VR 页的样式（page-toolbar / toolbar-container / toolbar-actions / vr-table）
 
 interface Srv6TunnelRow {
@@ -17,12 +17,6 @@ interface Srv6TunnelRow {
   ceB: string;
   status: 'creating' | 'available';
   createdAt: string;
-}
-
-interface VRRowLite {
-  id: string;
-  name?: string;
-  status?: string;
 }
 
 // 健康巡检步骤类型定义，兼容 antd Steps 的状态枚举
@@ -37,14 +31,7 @@ interface HealthStep {
 const SRv6Page: React.FC = () => {
   const navigate = useNavigate();
   const [tunnels, setTunnels] = useState<Srv6TunnelRow[]>([]);
-  const [vrs, setVrs] = useState<any[]>([]);
-  const [rolesMap, setRolesMap] = useState<Record<string, string>>({});
-  const rolesMapRef = useRef<Record<string, string>>({});
 
-  // PageContainer handles column visibility
-  const defaultHiddenColumns: string[] = [];
-
-  const [loading, setLoading] = useState<boolean>(false);
   const [filterForm] = Form.useForm();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string[] | undefined>();
@@ -143,46 +130,6 @@ const SRv6Page: React.FC = () => {
 
   const columns = fullColumns;
 
-  // 加载VR列表与角色映射（用于PE/CE选项）
-  const fetchVRsAndRoles = async (pageSize: number = 100, pageNum: number = 1) => {
-    setLoading(true);
-    try {
-      const resp = await fetchVrCachePageList(1000, 1);
-      const data = resp?.data || resp;
-      const list: any[] = Array.isArray(data?.page)
-        ? data.page
-        : Array.isArray(data?.list)
-        ? data.list
-        : [];
-      setVrs(list);
-  
-      const ids = list.map((r: any) => r.uuid || r.id || r.vm_id).filter(Boolean) as string[];
-      try {
-        const roles = await getVRRoles(ids);
-        setRolesMap(roles || {});
-        rolesMapRef.current = roles || {};
-      } catch (e: any) {
-        console.warn('获取角色映射失败:', e?.message || e);
-        setRolesMap({});
-        rolesMapRef.current = {};
-      }
-    } catch (error: any) {
-      console.error('[SRV6_DEBUG_ERROR] 获取VR列表失败:', error);
-      message.error(`获取VR列表失败: ${error.message || '请稍后重试'}`);
-      setVrs([]);
-      setRolesMap({});
-      rolesMapRef.current = {};
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 页面加载时拉取一次
-  useEffect(() => {
-    fetchVRsAndRoles(100, 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // 过滤后的隧道
   const filteredTunnels = useMemo(() => {
     return tunnels.filter((t) => {
@@ -193,25 +140,10 @@ const SRv6Page: React.FC = () => {
     });
   }, [tunnels, keyword, statusFilter]);
 
-  const peOptions = useMemo(() => (
-    (vrs || [])
-      .map((r: any) => ({ id: r.uuid || r.id || r.vm_id, label: r.name || (r.uuid || r.id || r.vm_id) }))
-      .filter((o: any) => o.id && rolesMap[o.id] === 'PE')
-      .map((o: any) => ({ value: o.id, label: o.label }))
-  ), [vrs, rolesMap]);
-
-  const ceOptions = useMemo(() => (
-    (vrs || [])
-      .map((r: any) => ({ id: r.uuid || r.id || r.vm_id, label: r.name || (r.uuid || r.id || r.vm_id) }))
-      .filter((o: any) => o.id && rolesMap[o.id] === 'CE')
-      .map((o: any) => ({ value: o.id, label: o.label }))
-  ), [vrs, rolesMap]);
-
-
-  const loadSrv6Tunnels = async () => {
+  const loadSrv6Tunnels = async (force?: boolean) => {
     try {
       const { fetchSrv6Tunnels } = await import('../../../services/api');
-      const list = await fetchSrv6Tunnels();
+      const list = await fetchSrv6Tunnels({ skipCache: !!force });
       const rows: Srv6TunnelRow[] = (Array.isArray(list) ? list : []).map((it: any) => ({
         id: it.id,
         name: it.name,
@@ -234,19 +166,15 @@ const SRv6Page: React.FC = () => {
     loadSrv6Tunnels();
   }, []);
 
-  const forceRefresh = () => {
-    fetchVRsAndRoles(100, 1);
-    loadSrv6Tunnels();
-  };
-
-  const moreMenu: MenuProps = {
-    items: [
-      {
-        key: 'refresh',
-        label: '刷新列表',
-        onClick: forceRefresh
-      }
-    ]
+  const forceRefresh = async () => {
+    message.loading({ content: '正在同步 VR 与隧道数据...', key: 'srv6_refresh' });
+    try {
+      await apiPost('/api/vr-instances/refresh', {});
+      await loadSrv6Tunnels(true);
+      message.success({ content: '同步完成', key: 'srv6_refresh' });
+    } catch {
+      message.error({ content: '同步失败，请稍后重试', key: 'srv6_refresh' });
+    }
   };
 
   // 开始健康巡检（占位逻辑：依次推进步骤状态）
@@ -292,8 +220,9 @@ const SRv6Page: React.FC = () => {
         onClick: () => navigate('/admin/interconnect/srv6/create'),
         type: 'primary',
       }}
+      onRefresh={() => { void forceRefresh(); }}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: forceRefresh }
+        { key: 'refresh', label: '刷新列表', onClick: () => { void forceRefresh(); } }
       ]}
       defaultHiddenColumns={[]} // Display all columns by default
       toolbarLeft={(
@@ -327,7 +256,7 @@ const SRv6Page: React.FC = () => {
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         },
-        loading: loading,
+        loading: false,
         scroll: { x: 'max-content' },
         bordered: false
       }}

@@ -712,21 +712,15 @@ export const createKubeOvnSubnet = async (cloudId: string, payload: any) => {
 };
 
 /**
- * 更新 KubeOVN 子网
- * @param cloudId 云环境 ID
- * @param name 子网名称
- * @param payload 更新的配置数据
- * @returns Promise<any>
+ * 更新 KubeOVN 子网（Harvester 直连）
+ * @param name 路径参数，对应集群 Subnet CR 的 metadata.name（非 UID）
  */
 export const updateKubeOvnSubnet = async (cloudId: string, name: string, payload: any) => {
   return await apiPut(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`, payload);
 };
 
 /**
- * 删除 KubeOVN 子网
- * @param cloudId 云环境 ID
- * @param name 子网名称
- * @returns Promise<any>
+ * 删除 KubeOVN 子网（路径参数 name 与更新接口一致，均为 metadata.name）
  */
 export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`);

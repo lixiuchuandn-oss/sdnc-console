@@ -3,7 +3,7 @@ import {
   KUBE_OVN_PUBLIC_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   isBuiltInKubeOvnVpc,
-} from './underlay-subnet/constants';
+} from './kubeOvnSubnetConstants';
 
 export function subnetCidrOf(s: any): string {
   return String(s?.spec?.cidrBlock ?? s?.spec?.cidr ?? s?.cidr ?? '').trim();

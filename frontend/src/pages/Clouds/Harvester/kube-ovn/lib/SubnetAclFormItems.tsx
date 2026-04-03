@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Col, Form, Input, InputNumber, Row, Segmented, Select } from 'antd';
+import { Button, Col, Form, Input, InputNumber, Row, Select } from 'antd';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 
 export type MatchL4 = 'ip4' | 'tcp' | 'udp' | 'icmp';
@@ -242,10 +242,6 @@ export function validateAclsFormRowsForSubmit(
   return { ok: true, normalized };
 }
 
-type Props = {
-  showAllowEW?: boolean;
-};
-
 const itemNoMargin = { marginBottom: 0 };
 
 /** 单条 ACL 一行：优先级 → 动作 → 方向 → 协议 → 源/目的/端口 → 删除 */
@@ -324,49 +320,36 @@ const AclRuleOneRow: React.FC<{
   );
 };
 
-const SubnetAclFormItems: React.FC<Props> = ({ showAllowEW = true }) => (
+const SubnetAclFormItems: React.FC = () => (
   <div>
-    {showAllowEW ? (
-      <Form.Item name="allowEWTraffic" label="东西向流量">
-        <Segmented
-          options={[
-            { label: '默认放行', value: true },
-            { label: '默认阻断', value: false },
-          ]}
-        />
-      </Form.Item>
-    ) : null}
-
-    <div>
-      <Form.List name="acls">
-        {(fields, { add, remove }) => (
-          <>
-            {fields.map(({ key, name, ...restField }) => (
-              <AclRuleOneRow key={key} restField={restField} listIndex={name} onRemove={() => remove(name)} />
-            ))}
-            <Button
-              type="dashed"
-              block
-              icon={<PlusOutlined />}
-              onClick={() =>
-                add({
-                  action: 'drop',
-                  direction: 'from-lport',
-                  priority: 1000,
-                  matchL4: 'ip4',
-                  matchSrcIp: '',
-                  matchDstIp: '',
-                  matchSrcPort: null,
-                  matchDstPort: null,
-                })
-              }
-            >
-              添加规则
-            </Button>
-          </>
-        )}
-      </Form.List>
-    </div>
+    <Form.List name="acls">
+      {(fields, { add, remove }) => (
+        <>
+          {fields.map(({ key, name, ...restField }) => (
+            <AclRuleOneRow key={key} restField={restField} listIndex={name} onRemove={() => remove(name)} />
+          ))}
+          <Button
+            type="dashed"
+            block
+            icon={<PlusOutlined />}
+            onClick={() =>
+              add({
+                action: 'drop',
+                direction: 'from-lport',
+                priority: 1000,
+                matchL4: 'ip4',
+                matchSrcIp: '',
+                matchDstIp: '',
+                matchSrcPort: null,
+                matchDstPort: null,
+              })
+            }
+          >
+            添加规则
+          </Button>
+        </>
+      )}
+    </Form.List>
   </div>
 );
 

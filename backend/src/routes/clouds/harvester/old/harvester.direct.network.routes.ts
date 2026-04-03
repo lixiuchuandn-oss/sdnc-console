@@ -47,8 +47,8 @@ import { syncHarvesterLoadBalancers, syncHarvesterLoadBalancerIPPools, syncKubeO
  * - GET    /:id/resources/nads                                     获取 NAD 列表
  * - GET    /:id/resources/harvester/nads/:namespace/:name          获取 NAD 详情
  * - POST   /:id/resources/subnets                                  创建子网 (含 NAD 联动)
- * - PUT    /:id/resources/subnets/:subnetId                        更新子网
- * - DELETE /:id/resources/subnets/:name                            删除子网 (含关联检查)
+ * - PUT    /:id/resources/subnets/:name                          更新子网（name = Subnet metadata.name）
+ * - DELETE /:id/resources/subnets/:name                          删除子网 (含关联检查)
  * - GET    /:id/resources/harvester-loadbalancers                  获取负载均衡列表
  * - POST   /:id/resources/harvester-loadbalancers                  创建负载均衡
  * - GET    /:id/resources/switch-lbrules                           获取 Switch LB 规则
@@ -1044,18 +1044,18 @@ export const registerHarvesterDirectNetworkRoutes = (
   );
 
   /**
-   * [PUT] /:id/resources/subnets/:subnetId
+   * [PUT] /:id/resources/subnets/:name
    * 更新子网配置。
    *
    * [说明]:
    * 调用 updateHarvesterSubnet 辅助函数执行更新操作。
    */
   router.put(
-    '/:id/resources/subnets/:subnetId',
+    '/:id/resources/subnets/:name',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
-        const { id, subnetId } = req.params;
+        const { id, name } = req.params;
         const { allowed } = await checkTenantAccess(req, id);
         if (!allowed)
           return res
@@ -1082,7 +1082,7 @@ export const registerHarvesterDirectNetworkRoutes = (
             token: cloud.secretKey || '',
             insecure,
           } as any,
-          subnetId,
+          name,
           req.body,
         );
         res.json({ message: '更新成功', data });
