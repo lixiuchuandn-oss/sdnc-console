@@ -10,9 +10,10 @@ import StdFormModal from '../../../../components/StdFormModal';
 
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, namespaceSectionType } from '../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { clearGetCacheForPath } from '../../../../utils/requestManager';
 
 /**
  * 组件属性定义
@@ -71,7 +72,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
   const [creating, setCreating] = useState<boolean>(false);
   // 当前正在编辑的命名空间对象 (null 表示新建)
   const [editingNamespace, setEditingNamespace] = useState<any>(null);
-  // 类型过滤器: ''(全部) | system(系统) | user(业务)
+  // 类型过滤器: ''(全部) | system | public | tenant
   const [filterType, setFilterType] = useState<string>('');
   // 状态过滤器: ''(全部) | Active | Terminating
   const [filterStatus, setFilterStatus] = useState<string>('');
@@ -118,13 +119,9 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
   const filtered = useMemo(() => {
     let res = Array.isArray(namespaces) ? namespaces : [];
 
-    // 1. 类型过滤 (系统/业务)
+    // 1. 类型过滤（系统 / 公共 / 租户）
     if (filterType) {
-      res = res.filter((r: any) => {
-        const name = r?.metadata?.name || r?.name || '';
-        const isSys = isSystemNamespace(name);
-        return filterType === 'system' ? isSys : !isSys;
-      });
+      res = res.filter((r: any) => namespaceSectionType(r) === filterType);
     }
 
     // 2. 状态过滤 (Active/Terminating)
@@ -194,7 +191,17 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         return;
       }
       
-      const labels = parseLabels(v.labels);
+      const parsed = parseLabels(v.labels) || {};
+      // 本页「新增命名空间」入口：统一标记为公共场景（与租户组织分配创建的租户命名空间区分）
+      const labels = editingNamespace
+        ? parsed
+        : {
+            ...parsed,
+            'kubernetes.io/metadata.name': name,
+            'tower.io/managed': 'true',
+            'tower.io/creator': 'compute-tower',
+            'tower.io/scenario': 'public',
+          };
 
       // 构造符合 K8s Manifest 标准的 Payload
       const payload = {
@@ -218,11 +225,12 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       setCreating(false);
       setEditingNamespace(null);
       form.resetFields();
-      
-      // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
-      // 静默刷新，不显示提示信息
+
+      clearGetCacheForPath(`/api/clouds/${cloudId}/resources/harvester/namespaces`);
+
+      // 刷新数据列表（创建后已直接入库；force=true 触发后端同步语义）
       if (onRefresh) {
-        onRefresh(true, true); // force=true 跳过缓存，silent=true 静默刷新
+        onRefresh(true, true);
       }
     } catch (e: any) {
       message.error(e?.message || (editingNamespace ? '更新失败' : '创建失败'));
@@ -271,10 +279,14 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       title: '类型',
       key: 'type',
       render: (_: any, r: any) => {
-        const isSys = isSystemNamespace(r?.metadata?.name || r?.name);
-        return isSys ? 
-          <span className="std-badge std-badge-default">System</span> : 
-          <span className="std-badge std-badge-info">User</span>;
+        const t = namespaceSectionType(r);
+        if (t === 'system') {
+          return <span className="std-badge std-badge-default">系统</span>;
+        }
+        if (t === 'public') {
+          return <span className="std-badge std-badge-info">公共</span>;
+        }
+        return <span className="std-badge std-badge-success">租户</span>;
       }
     },
     {
@@ -408,7 +420,8 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
             onChange={(v) => setFilterType(v || '')}
             options={[
               { label: '系统', value: 'system' },
-              { label: '业务', value: 'user' },
+              { label: '公共', value: 'public' },
+              { label: '租户', value: 'tenant' },
             ]}
             className="toolbar-filter-sm"
           />
@@ -439,7 +452,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       // === 工具栏右侧：操作按钮 ===
       toolbarRight={
         <>
-          <Button type="primary" disabled={!hasNamespacesWrite} onClick={() => { if (!hasNamespacesWrite) return; form.resetFields(); setCreating(true); }}>新增命名空间</Button>
+          <Button type="primary" disabled={!hasNamespacesWrite} onClick={() => { if (!hasNamespacesWrite) return; form.resetFields(); setCreating(true); }}>创建公共命名空间</Button>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey="harvester_namespaces_table_v3"
@@ -483,7 +496,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       {/* === 创建/编辑 模态框 === */}
       <StdFormModal
         open={creating}
-        title={editingNamespace ? "编辑命名空间" : "新增命名空间"}
+        title={editingNamespace ? "编辑命名空间" : "创建公共命名空间"}
         width={600}
         onCancel={() => { setCreating(false); setEditingNamespace(null); form.resetFields(); }}
         onFinish={handleCreate}

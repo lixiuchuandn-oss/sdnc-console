@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 模块名称: Harvester 卷快照列表 (Harvester Volume Snapshot List)
- * 文件路径: src/pages/Clouds/Harvester/sections/SnapshotsSection.tsx
+ * 文件路径: src/pages/Clouds/Harvester/ebs/sections/SnapshotsSection.tsx
  * ==============================================================================
  * 
  * [功能描述]
@@ -30,23 +30,37 @@
  *    - [恢复]: 唤起 VolumeSnapshotRestoreModal。
  *    - [详情]: 唤起 HarvesterResourceDrawer (仅当 showYaml=true)。
  *    - [删除]: 调用 deleteHarvesterSnapshot API。
+ *
+ * 【页面结构对照（便于改 UI 时定位代码）】
+ * - `PageDetailSection.toolbarLeft`  → 搜索、命名空间(运维)、状态筛选、重置
+ * - `PageDetailSection.toolbarRight` → 批量操作、列设置、刷新
+ * - `PageDetailSection` 子节点      → 主表格 `Table`
+ * - `VolumeSnapshotRestoreModal`     → 从表格行「恢复」打开
+ * - `HarvesterResourceDrawer`        → 运维「查看 YAML」打开
  * 
  * ==============================================================================
  */
+
+// -----------------------------------------------------------------------------
+// 依赖
+// -----------------------------------------------------------------------------
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Badge, Button, Modal, Input, message, Dropdown, Select } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone  } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
-import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
-import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone } from '@ant-design/icons';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import { deleteHarvesterSnapshot } from '../../../../../services/harvesterApi';
+import VolumeSnapshotRestoreModal from '../../modals/VolumeSnapshotRestoreModal';
+import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
+import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
+import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
+import { useAuth } from '../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 
+// -----------------------------------------------------------------------------
+// Props（云详情「卷快照」Tab 注入）
+// -----------------------------------------------------------------------------
 /**
  * 组件 Props 定义
  * @property cloudId - 当前云环境 ID，用于 API 调用
@@ -105,8 +119,6 @@ const SnapshotsSection: React.FC<Props> = ({
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
-  // 列设置状态
-
   // ==============================================================================
   // 2. 数据处理与过滤 (Data Processing)
   // ==============================================================================
@@ -161,7 +173,7 @@ const SnapshotsSection: React.FC<Props> = ({
         (x.alias && x.alias.toLowerCase().includes(k))
       );
     }
-    if (namespaceFilter) {
+    if (mode === 'ops' && namespaceFilter) {
       d = d.filter((x: any) => x.namespace === namespaceFilter);
     }
     if (statusFilter) {
@@ -172,7 +184,7 @@ const SnapshotsSection: React.FC<Props> = ({
       }
     }
     return d;
-  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter]);
+  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter, mode]);
 
   // ==============================================================================
   // 3. 交互处理 (Action Handlers)
@@ -241,37 +253,39 @@ const SnapshotsSection: React.FC<Props> = ({
   // 1. 过滤出选中的数据对象。
   // 2. 使用 Promise.allSettled 并发执行删除请求，而不是串行阻塞。
   // 3. 汇总成功/失败结果并提示用户。
-  const handleBatchDelete = () => {
+  const handleBatchDelete = useCallback(() => {
     if (!hasSnapshotsWrite) {
       message.error('无权限执行该操作');
       return;
     }
     if (selectedRowKeys.length === 0) return;
-    const targets = dataSource.filter(s => selectedRowKeys.includes(s.key));
-    
+    const targets = dataSource.filter((s) => selectedRowKeys.includes(s.key));
+
     Modal.confirm({
       title: '批量删除确认',
-      content: `即将删除 ${targets.length} 个快照：${targets.map(t => t.alias !== '-' ? t.alias : t.name).join(', ')}`,
+      content: `即将删除 ${targets.length} 个快照：${targets.map((t) => (t.alias !== '-' ? t.alias : t.name)).join(', ')}`,
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          const results = await Promise.allSettled(targets.map(t => deleteHarvesterSnapshot(cloudId, t.namespace, t.name)));
-          const ok = results.filter(x => x.status === 'fulfilled').length;
+          const results = await Promise.allSettled(
+            targets.map((t) => deleteHarvesterSnapshot(cloudId, t.namespace, t.name)),
+          );
+          const ok = results.filter((x) => x.status === 'fulfilled').length;
           const fail = results.length - ok;
-          
+
           if (ok > 0) message.success(`成功删除 ${ok} 个快照`);
           if (fail > 0) message.error(`${fail} 个快照删除失败`);
-          
+
           setSelectedRowKeys([]);
           onRefresh?.(true);
         } catch (e: any) {
           message.error(e.message || '批量删除失败');
         }
-      }
+      },
     });
-  };
+  }, [hasSnapshotsWrite, selectedRowKeys, dataSource, cloudId, onRefresh]);
 
   // ==============================================================================
   // 4. 表格列定义 (Columns)
@@ -285,20 +299,52 @@ const SnapshotsSection: React.FC<Props> = ({
     { 
       title: '快照名称', 
       dataIndex: 'alias', 
-      key: 'alias', 
-      render: (_: any, r: any) => (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <CameraTwoTone/>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-            {r.alias !== '-' ? r.alias : r.name}
+      key: 'alias',
+      width: 280,
+      render: (_: any, r: any) => {
+        const label = r.alias !== '-' ? r.alias : r.name;
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: 280, minWidth: 0, width: '100%' }}>
+            <CameraTwoTone style={{ flexShrink: 0 }} />
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={label || undefined}
+            >
+              {label}
+            </span>
           </span>
-        </span>
-      )
+        );
+      },
     },
-    { title: '快照ID', dataIndex: 'name', key: 'name' },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    {
+      title: '快照ID',
+      dataIndex: 'name',
+      key: 'name',
+      render: (v: string) => (
+        <span
+          className="text-secondary"
+          style={{
+            display: 'block',
+            maxWidth: 280,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={v || undefined}
+        >
+          {v || '-'}
+        </span>
+      ),
+    },
+    ...(mode === 'ops' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
     { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc'  },
-    { title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName' },
+    ...(mode === 'ops' ? [{ title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName' }] : []),
     { 
       title: '状态', 
       dataIndex: 'readyToUse', 
@@ -311,8 +357,16 @@ const SnapshotsSection: React.FC<Props> = ({
     { 
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
-      key: 'creationTimestamp', 
-      render: (t: string) => <span className="std-time">{t}</span>
+      key: 'creationTimestamp',
+      sorter: (a: any, b: any) => {
+        const ta = a?.creationTimestamp ? new Date(a.creationTimestamp).getTime() : 0;
+        const tb = b?.creationTimestamp ? new Date(b.creationTimestamp).getTime() : 0;
+        return ta - tb;
+      },
+      defaultSortOrder: 'descend' as const,
+      render: (t: string) => (
+        <span>{t ? new Date(t).toLocaleString() : '-'}</span>
+      ),
     },
     {
       title: '操作',
@@ -337,13 +391,13 @@ const SnapshotsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, isStandardView, handleOpenDrawer, handleRestore, handleDelete, hasSnapshotsWrite]);
+  ], [isTenant, isStandardView, mode, handleOpenDrawer, handleRestore, handleDelete, hasSnapshotsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_volume_snapshots_list');
 
   // ==============================================================================
-  // 5. 渲染视图 (Render)
+  // 5. 渲染视图 (Render) — 与云详情「卷快照」Tab 页面对应
   // ==============================================================================
 
   return (
@@ -359,7 +413,7 @@ const SnapshotsSection: React.FC<Props> = ({
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
           />
-          {!isTenant && (
+          {!isTenant && mode === 'ops' && (
             <Select
               allowClear
               showSearch
@@ -424,6 +478,7 @@ const SnapshotsSection: React.FC<Props> = ({
         </>
       }
     >
+      {/* --- 主内容：快照列表表格（行选择用于批量删除）--- */}
       <Table
         className="std-table"
         bordered={false}
@@ -440,6 +495,8 @@ const SnapshotsSection: React.FC<Props> = ({
           showTotal: (total) => `共 ${total} 条`,
         }}
       />
+
+      {/* --- 弹层：将快照恢复为新 PVC（跨 Harvester/modals）--- */}
       <VolumeSnapshotRestoreModal
         visible={restoreVisible}
         cloudId={cloudId}
@@ -451,6 +508,7 @@ const SnapshotsSection: React.FC<Props> = ({
         }}
       />
 
+      {/* --- 抽屉：YAML / Events（运维入口）--- */}
       <HarvesterResourceDrawer
         open={detailVisible}
         onClose={() => setDetailVisible(false)}

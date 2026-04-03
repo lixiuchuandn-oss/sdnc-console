@@ -97,8 +97,16 @@ const parseErrorResponse = async (response: Response) => {
     throw err;
 };
 
-// 通用请求函数（带缓存、去重、重试）
-export const apiRequest = async (endpoint: string, options?: { skipCache?: boolean; silent?: boolean }) => {
+/** GET 请求选项：默认不启用内存缓存（控制台资源以新鲜为准）；少数慢变接口可 enableCache: true */
+export type ApiGetOptions = {
+  skipCache?: boolean;
+  silent?: boolean;
+  enableCache?: boolean;
+  cacheTTL?: number;
+};
+
+// 通用请求函数（去重、重试；GET 默认不缓存，按需 opt-in）
+export const apiRequest = async (endpoint: string, options?: ApiGetOptions) => {
   try {
     return await requestManager(
       {
@@ -107,9 +115,10 @@ export const apiRequest = async (endpoint: string, options?: { skipCache?: boole
         headers: getAuthHeaders(),
         options: {
           enableDeduplication: true,
-          enableCache: true,
+          enableCache: options?.enableCache ?? false,
           enableRetry: true,
           skipCache: options?.skipCache || false,
+          ...(typeof options?.cacheTTL === 'number' ? { cacheTTL: options.cacheTTL } : {}),
         },
       },
       API_BASE_URL
@@ -278,7 +287,7 @@ export const fetchCloudById = async (id: string, options?: { skipCache?: boolean
 
 // 获取用户数据
 export const fetchUsers = async () => {
-  return await apiRequest('/api/users');
+  return await apiRequest('/api/users', { enableCache: true });
 };
 
 
@@ -288,16 +297,16 @@ export const fetchUsers = async () => {
 
 // 获取租户数据
 export const fetchTenants = async () => {
-  return await apiRequest('/api/tenants');
+  return await apiRequest('/api/tenants', { enableCache: true });
 };
 
 export const fetchAvailableResourcePools = async () => {
-  return await apiRequest('/api/tenants/available-resource-pools');
+  return await apiRequest('/api/tenants/available-resource-pools', { enableCache: true });
 };
 
 // User Spaces
 export const fetchUserSpaces = async () => {
-  return await apiRequest('/api/user-spaces');
+  return await apiRequest('/api/user-spaces', { enableCache: true });
 };
 
 export const createUserSpace = async (payload: any) => {
@@ -1292,15 +1301,15 @@ export const detachVpcFromCen = async (cenId:string, attachmentId:string)=> {
  
 
 export const fetchDashboardStats = async () => {
-  return await apiRequest('/api/dashboard/stats');
+  return await apiRequest('/api/dashboard/stats', { enableCache: true });
 }; 
 
 export const fetchDashboardRecentActivities = async () => {
-  return await apiRequest('/api/dashboard/recent-activities');
+  return await apiRequest('/api/dashboard/recent-activities', { enableCache: true });
 }; 
 
 export const fetchDashboardCloudUsage = async () => {
-  return await apiRequest('/api/dashboard/cloud-usage');
+  return await apiRequest('/api/dashboard/cloud-usage', { enableCache: true });
 };
 
 // ===== SRv6 隧道 =====
@@ -1347,7 +1356,7 @@ export const deleteIPsecVPN = async (id: string) => {
 
 // ===== 服务目录（Service Catalog）=====
 export const fetchServices = async () => {
-  return await apiRequest('/api/services');
+  return await apiRequest('/api/services', { enableCache: true });
 };
 
 export const createService = async (payload: any) => {

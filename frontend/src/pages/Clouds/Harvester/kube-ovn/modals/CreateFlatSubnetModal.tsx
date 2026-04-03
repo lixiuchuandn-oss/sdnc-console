@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Form, Modal, message } from 'antd';
-import { createKubeOvnSubnet } from '../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../utils/harvesterUtils';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Form, Modal, Select, message } from 'antd';
+import { createKubeOvnSubnet, fetchHarvesterNamespaces } from '../../../../../services/harvesterApi';
+import {
+  generateHarvesterCrMetadataName,
+  namespaceSectionType,
+} from '../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { CLOUD_SUBNETS_FLAT_WRITE } from '../../../../../constants/cloudPermissions';
@@ -27,6 +30,8 @@ export type CreateFlatSubnetModalProps = {
   /** 打开时预填 VLAN（CR metadata.name） */
   initialVlanCrName?: string | null;
   title?: string;
+  /** 运维模式：可在公共命名空间中选择 NAD 所在命名空间；标准模式固定 default、不展示命名空间 */
+  displayMode?: 'standard' | 'ops';
 };
 
 const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
@@ -39,8 +44,10 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   onSuccess,
   initialVlanCrName,
   title = '创建扁平子网',
+  displayMode = 'ops',
 }) => {
   const [form] = Form.useForm();
+  const [nsOptions, setNsOptions] = useState<{ value: string; label: string }[]>([]);
   /** 打开弹窗时预生成，与 CreateVpcSubnetModal / CreatePublicSubnetModal 一致，避免多次提交产生不同 CR 名 */
   const pendingUnderlaySubnetCrNameRef = useRef<string>('');
   const { user } = useAuth();
@@ -55,14 +62,54 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
     return hasWrite && !isTenantUser;
   }, [perms, isTenantUser]);
 
+  const refreshNamespaces = useCallback(async () => {
+    if (displayMode !== 'ops') {
+      setNsOptions([]);
+      return;
+    }
+    try {
+      const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
+      const items: any[] = res?.data?.items || res?.items || [];
+      const publicItems = items.filter((x: any) => namespaceSectionType(x) === 'public');
+      const list = publicItems
+        .map((x: any) => String(x?.metadata?.name || x?.name || '').trim())
+        .filter(Boolean);
+      const names =
+        list.length > 0
+          ? [...new Set(list)].sort((a, b) => {
+              if (a === 'default') return -1;
+              if (b === 'default') return 1;
+              return a.localeCompare(b);
+            })
+          : ['default', 'cloud-public', 'harvester-public'];
+      setNsOptions(names.map((n: string) => ({ value: n, label: n })));
+    } catch {
+      setNsOptions([
+        { value: 'default', label: 'default' },
+        { value: 'cloud-public', label: 'cloud-public' },
+        { value: 'harvester-public', label: 'harvester-public' },
+      ]);
+    }
+  }, [cloudId, displayMode]);
+
   useEffect(() => {
     if (!open) return;
     pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
+    void refreshNamespaces();
     form.resetFields();
-    if (initialVlanCrName) {
-      form.setFieldsValue({ vlan: initialVlanCrName });
-    }
-  }, [open, initialVlanCrName, form]);
+    form.setFieldsValue({
+      ...(initialVlanCrName ? { vlan: initialVlanCrName } : {}),
+    });
+  }, [open, initialVlanCrName, form, displayMode, refreshNamespaces]);
+
+  /** 运维模式：公共命名空间列表异步返回后补默认选中（优先 default） */
+  useEffect(() => {
+    if (!open || displayMode !== 'ops') return;
+    const cur = form.getFieldValue('namespace');
+    if (cur) return;
+    const prefer = nsOptions.find((o) => o.value === 'default')?.value ?? nsOptions[0]?.value;
+    if (prefer) form.setFieldValue('namespace', prefer);
+  }, [open, displayMode, nsOptions, form]);
 
   const handleSubmit = useCallback(
     async (values: any) => {
@@ -71,7 +118,19 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         return;
       }
       try {
-        const { alias, ...rest } = values;
+        const { alias, namespace: nsField, ...rest } = values;
+        const namespace =
+          displayMode === 'ops'
+            ? String(nsField ?? '').trim() || 'default'
+            : 'default';
+        if (
+          displayMode === 'ops' &&
+          nsOptions.length > 0 &&
+          !nsOptions.some((o) => o.value === namespace)
+        ) {
+          message.error('请选择有效的公共命名空间');
+          return;
+        }
         const aliasTrim = String(alias ?? '').trim();
         const subnetId =
           String(pendingUnderlaySubnetCrNameRef.current || '').trim() ||
@@ -99,6 +158,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
 
         const payload: Record<string, unknown> = {
           ...rest,
+          namespace,
           name: subnetId,
           excludeIps,
           ...(providerFromVlan ? { provider: providerFromVlan } : {}),
@@ -135,7 +195,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         message.error(`创建扁平子网失败: ${detail}`);
       }
     },
-    [canSubmit, cloudId, form, onClose, onSuccess, vlans],
+    [canSubmit, cloudId, displayMode, form, nsOptions, onClose, onSuccess, vlans],
   );
 
   return (
@@ -161,6 +221,24 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           aliasDupCheckItems={aliasDupCheckItems}
           aliasFieldTooltip="展示名称，支持中文。集群内资源 ID（metadata.name）为系统自动生成，格式 id-sn- 加 11 位随机字符。"
         />
+        {displayMode === 'ops' ? (
+          <Form.Item
+            label="命名空间"
+            name="namespace"
+            rules={[{ required: true, message: '请选择公共命名空间' }]}
+            tooltip="仅公共命名空间可选。NetworkAttachmentDefinition（NAD）将创建在所选命名空间，供该命名空间内工作负载挂载此网络。"
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={nsOptions}
+              placeholder="选择公共命名空间"
+              onOpenChange={(dropdownOpen) => {
+                if (dropdownOpen) void refreshNamespaces();
+              }}
+            />
+          </Form.Item>
+        ) : null}
       </Form>
     </Modal>
   );

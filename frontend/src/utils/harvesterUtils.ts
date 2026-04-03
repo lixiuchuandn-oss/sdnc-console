@@ -3,7 +3,7 @@
  * @description Harvester 相关的前端通用工具函数集合
  *
  * 功能分组（与下方代码块顺序一致）：
- * 1. 命名空间 / 存储类：isSystemNamespace、isPublicNamespace、isSystemStorageClass、
+ * 1. 命名空间 / 存储类：isSystemNamespace、isPublicNamespace、namespaceSectionType、isSystemStorageClass、
  *    isClusterDefaultStorageClass、pickDefaultStorageClassName
  * 2. VM 状态文案：VM_STATUS_MAP、cnVmStatus
  * 3. 集群实体 ID / CR metadata.name：generateHarvesterEntityId、HARVESTER_CR_METADATA_ENTITY、
@@ -47,6 +47,25 @@ export const isPublicNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
   return ['cloud-public', 'default', 'harvester-public'].includes(n);
 };
+
+/** 命名空间管理页「类型」：系统 / 公共 / 租户 */
+export type NamespaceSectionKind = 'system' | 'public' | 'tenant';
+
+/**
+ * 解析命名空间在列表中的业务类型（与 NamespacesTab 列、筛选一致）
+ * - 系统：isSystemNamespace(名称)
+ * - 公共/租户：优先 label tower.io/scenario；无则名称命中 isPublicNamespace 视为公共，否则租户
+ */
+export function namespaceSectionType(record: any): NamespaceSectionKind {
+  const name = String(record?.metadata?.name || record?.name || '').trim();
+  if (!name) return 'tenant';
+  if (isSystemNamespace(name)) return 'system';
+  const scenario = String(record?.metadata?.labels?.['tower.io/scenario'] || '').trim().toLowerCase();
+  if (scenario === 'public') return 'public';
+  if (scenario === 'tenant') return 'tenant';
+  if (isPublicNamespace(name)) return 'public';
+  return 'tenant';
+}
 
 /**
  * 判断存储类是否为 Harvester 系统 / 内部存储类
@@ -261,4 +280,63 @@ export function resolveVmImageKind(img: any): 'iso' | 'disk' | 'unknown' {
   if (/\.iso$/i.test(disp)) return 'iso';
   if (/\.(qcow2|img|raw)$/i.test(disp)) return 'disk';
   return 'unknown';
+}
+
+/**
+ * 列表/下拉筛选：与 ImagesSection.resolveImageListStateKey 语义一致（state / Imported / progress / phase）。
+ */
+function mapVmImageListStateRaw(raw: string): string {
+  const k = String(raw || '').trim().toLowerCase();
+  if (k === 'active') return 'ready';
+  if (k === 'imported') return 'ready';
+  if (k === 'failed') return 'failed';
+  if (k === 'downloading') return 'downloading';
+  if (k === 'unknown') return 'unknown';
+  return k || 'unknown';
+}
+
+function vmImageConditionStatusIsTrue(v: unknown): boolean {
+  return v === true || v === 'True' || v === 'true';
+}
+
+function vmImageConditionStatusIsFalse(v: unknown): boolean {
+  return v === false || v === 'False' || v === 'false';
+}
+
+function getVmImageConditionsList(r: any): any[] {
+  const fromStatus = r?.status?.conditions;
+  const top = r?.conditions;
+  if (Array.isArray(fromStatus) && fromStatus.length > 0) return fromStatus;
+  if (Array.isArray(top) && top.length > 0) return top;
+  if (Array.isArray(fromStatus)) return fromStatus;
+  if (Array.isArray(top)) return top;
+  return [];
+}
+
+export function resolveVmImageListStateKey(r: any): string {
+  if (typeof r?.state === 'string' && r.state.trim() !== '') {
+    const mapped = mapVmImageListStateRaw(r.state);
+    if (mapped !== 'unknown') return mapped;
+  }
+  const conditions = getVmImageConditionsList(r);
+  const imported = conditions.find((c: any) => c?.type === 'Imported');
+  if (vmImageConditionStatusIsTrue(imported?.status)) return 'ready';
+  if (vmImageConditionStatusIsFalse(imported?.status)) return 'failed';
+
+  const progress = Number(r?.status?.progress ?? r?.progress);
+  if (Number.isFinite(progress)) {
+    if (progress >= 100) return 'ready';
+    if (progress > 0 && progress < 100) return 'downloading';
+  }
+
+  if (typeof r?.status === 'string' && r.status.trim() !== '') return mapVmImageListStateRaw(r.status);
+  const phase = r?.status?.phase ?? r?.status?.status;
+  if (phase != null && String(phase).trim() !== '') return mapVmImageListStateRaw(String(phase));
+
+  return 'unknown';
+}
+
+/** 创建虚拟机等场景：仅展示已就绪（可安全选用）的镜像 */
+export function isHarvesterVmImageReady(img: any): boolean {
+  return resolveVmImageListStateKey(img) === 'ready';
 }

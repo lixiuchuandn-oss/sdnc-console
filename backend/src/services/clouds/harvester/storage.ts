@@ -341,9 +341,8 @@ export const listHarvesterImagesRaw = async ({
  * 获取 Harvester 标准化镜像列表，包含详细元数据和链接。
  *
  * [数据处理]
- * -统, na:mspace, displayName, size, status。
- * -链生成: 成 view/download 等操作链接。
- * -容处理: 动处理 v1beta1/v1 差异。
+ * - 顶层补充 name、namespace、displayName、size、links；须保留完整 Kubernetes `status`（含 conditions、progress），供镜像列表 state 推断。
+ * - 兼容 v1beta1/v1 等返回差异。
  *
  * @param params 连接参数
  * @returns Promise<any[]> 标准化镜像对象数组
@@ -392,11 +391,10 @@ export const listHarvesterImagesStandard = async ({
       : [];
 
   return items.map((img: any) => ({
+    ...img,
     name: img?.metadata?.name || img?.name || '',
     namespace: img?.metadata?.namespace || img?.namespace || '',
-    metadata: img?.metadata, // Ensure metadata is passed for consumers expecting raw-like structure
     displayName: img?.spec?.displayName || img?.spec?.name || '',
-    status: img?.status?.conditions?.[0]?.type || img?.status?.phase || 'Unknown',
     size: img?.status?.size || img?.spec?.size || img?.status?.downloadedBytes || 0,
     virtualSize: img?.status?.virtualSize || img?.status?.virtualsize || 0,
     storageClassName:
@@ -406,7 +404,9 @@ export const listHarvesterImagesStandard = async ({
       '',
     links: {
       download: img?.links?.download || '',
-      view: img?.links?.view || `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${img?.metadata?.namespace || 'default'}/virtualmachineimages/${img?.metadata?.name || img?.name}`,
+      view:
+        img?.links?.view ||
+        `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${img?.metadata?.namespace || 'default'}/virtualmachineimages/${img?.metadata?.name || img?.name}`,
       remove: img?.links?.remove || '',
       self: img?.links?.self || '',
       update: img?.links?.update || '',

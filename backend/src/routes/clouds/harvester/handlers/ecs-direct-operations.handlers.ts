@@ -36,6 +36,7 @@ import {
   watchJsonStream,
   requestJson,
   logVmWatchStreamError,
+  isBenignWatchDisconnect,
 } from '../../../../services/clouds/harvester/utils';
 import {
   checkTenantAccess,
@@ -76,29 +77,60 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    // 反向代理（如 Nginx）默认会缓冲流式响应，导致本地/线上 SSE 长时间「空白」后一次性吐出
+    res.setHeader('X-Accel-Buffering', 'no');
     (res as any).flushHeaders?.();
 
+    // 关闭 Nagle，避免大量小 chunk（ping / vm_status）在协议栈侧被合并，表现为长时间无增量、随后成批到达
+    try {
+      (req as any).socket?.setNoDelay?.(true);
+    } catch {}
+
     let closed = false;
+
+    const flushSse = () => {
+      try {
+        (res as any).flush?.();
+      } catch {}
+    };
+
+    const sseWrite = (chunk: string) => {
+      if (closed) return;
+      try {
+        res.write(chunk);
+        flushSse();
+      } catch {}
+    };
+
+    // 立即写出首字节，避免「仅 headers、正文长时间为空」及中间层积压小 chunk
+    sseWrite(': ok\n\n');
 
     const pingInterval = setInterval(() => {
       if (closed) {
         clearInterval(pingInterval);
         return;
       }
-      try {
-        res.write(': ping\n\n');
-      } catch {}
+      sseWrite(': ping\n\n');
     }, 3000);
 
-    let activeWatchers: any[] = [];
+    /** 当前到 K8s 的 watch 句柄；良性断开后在同一条 SSE 上重连，避免 res.end → 浏览器重连才刷到 vms 的循环 */
+    let vmWatchRef: { abort: () => void } | null = null;
+    let vmiWatchRef: { abort: () => void } | null = null;
     req.on('close', () => {
       closed = true;
       try {
         clearInterval(pingInterval);
       } catch {}
-      activeWatchers.forEach((w) => w.abort());
+      try {
+        vmWatchRef?.abort();
+      } catch {}
+      try {
+        vmiWatchRef?.abort();
+      } catch {}
+      vmWatchRef = null;
+      vmiWatchRef = null;
     });
 
     const vmCache = new Map<string, any>();
@@ -110,6 +142,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
       try {
         res.write(`event: ${event}\n`);
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        flushSse();
       } catch {}
     };
 
@@ -253,15 +286,23 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
       }
       send('vms', { items: initialItems });
 
-      const watchers: any[] = [];
+      /** 连续良性断开超过阈值则结束 SSE，避免与上游死循环重连 */
+      const BENIGN_WATCH_FAIL_CAP = 40;
+      let vmBenignFailStreak = 0;
+      let vmiBenignFailStreak = 0;
 
-      if (vmsResult?.url) {
+      const startVmWatch = () => {
+        if (closed || !vmsResult?.url) return;
         const vmRv = vmsResult.resourceVersion;
         const vmUrl = vmRv
           ? `${vmsResult.url}?watch=true&resourceVersion=${encodeURIComponent(vmRv)}`
           : `${vmsResult.url}?watch=true`;
 
-        const w1 = watchJsonStream(
+        try {
+          vmWatchRef?.abort();
+        } catch {}
+
+        vmWatchRef = watchJsonStream(
           vmUrl,
           cloud.secretKey || '',
           insecure,
@@ -269,6 +310,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
             if (closed) return;
             const obj = event.object;
             if (!obj?.metadata) return;
+            vmBenignFailStreak = 0;
             const ns = obj.metadata.namespace || '';
             const name = obj.metadata.name || '';
             if (!ns || !name) return;
@@ -287,6 +329,24 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
           },
           (err: any) => {
             logVmWatchStreamError('vm', err);
+            if (closed) return;
+            if (isBenignWatchDisconnect(err)) {
+              vmBenignFailStreak += 1;
+              if (vmBenignFailStreak > BENIGN_WATCH_FAIL_CAP) {
+                try {
+                  send('stream_error', {
+                    message: '虚拟机列表监听流异常',
+                    cause: 'watch 反复中断，已停止重连',
+                  });
+                  if (!(res as any).writableEnded) res.end();
+                } catch {}
+                return;
+              }
+              setTimeout(() => {
+                if (!closed) startVmWatch();
+              }, 800);
+              return;
+            }
             try {
               send('stream_error', {
                 message: '虚拟机列表监听流异常',
@@ -296,16 +356,20 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
             } catch {}
           },
         );
-        watchers.push(w1);
-      }
+      };
 
-      if (vmisResult?.url) {
+      const startVmiWatch = () => {
+        if (closed || !vmisResult?.url) return;
         const vmiRv = vmisResult.resourceVersion;
         const vmiUrl = vmiRv
           ? `${vmisResult.url}?watch=true&resourceVersion=${encodeURIComponent(vmiRv)}`
           : `${vmisResult.url}?watch=true`;
 
-        const w2 = watchJsonStream(
+        try {
+          vmiWatchRef?.abort();
+        } catch {}
+
+        vmiWatchRef = watchJsonStream(
           vmiUrl,
           cloud.secretKey || '',
           insecure,
@@ -313,6 +377,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
             if (closed) return;
             const obj = event.object;
             if (!obj?.metadata) return;
+            vmiBenignFailStreak = 0;
             const ns = obj.metadata.namespace || '';
             const name = obj.metadata.name || '';
             if (!ns || !name) return;
@@ -333,6 +398,24 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
           },
           (err: any) => {
             logVmWatchStreamError('vmi', err);
+            if (closed) return;
+            if (isBenignWatchDisconnect(err)) {
+              vmiBenignFailStreak += 1;
+              if (vmiBenignFailStreak > BENIGN_WATCH_FAIL_CAP) {
+                try {
+                  send('stream_error', {
+                    message: '实例（VMI）监听流异常',
+                    cause: 'watch 反复中断，已停止重连',
+                  });
+                  if (!(res as any).writableEnded) res.end();
+                } catch {}
+                return;
+              }
+              setTimeout(() => {
+                if (!closed) startVmiWatch();
+              }, 800);
+              return;
+            }
             try {
               send('stream_error', {
                 message: '实例（VMI）监听流异常',
@@ -342,13 +425,13 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
             } catch {}
           },
         );
-        watchers.push(w2);
-      }
+      };
 
-      return watchers;
+      startVmWatch();
+      startVmiWatch();
     };
 
-    activeWatchers = await init();
+    await init();
   } catch (error: any) {
     try {
       if (!res.headersSent) {

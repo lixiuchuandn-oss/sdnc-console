@@ -285,7 +285,7 @@ const AccessRolesPage: React.FC = () => {
   useEffect(() => {
     const loadActions = async () => {
       try {
-        const json = await apiRequest('/api/system/rbac/actions');
+        const json = await apiRequest('/api/system/rbac/actions', { enableCache: true });
         const arr: string[] = Array.isArray(json?.actions) ? json.actions : [];
         setActionAtoms(arr);
       } catch {

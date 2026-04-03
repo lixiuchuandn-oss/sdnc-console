@@ -164,7 +164,7 @@ export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
     name: item.name || item.metadata?.name,
     namespace: item.namespace || item.metadata?.namespace,
     displayName: item.displayName || item.spec?.displayName,
-    progress: item.status?.progress || 0,
+    progress: item.status?.progress ?? 0,
     size: String(item.size || item.status?.size || item.status?.downloadedBytes || '0'),
     storageClassName: item.storageClassName || item.spec?.storageClassName,
     labels: item.metadata?.labels,

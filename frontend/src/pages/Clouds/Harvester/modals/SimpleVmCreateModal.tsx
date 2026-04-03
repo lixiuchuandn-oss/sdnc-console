@@ -36,7 +36,11 @@ import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
 } from '../kube-ovn/lib/kubeOvnSubnetConstants';
-import { isSystemStorageClass, pickDefaultStorageClassName } from '../../../../utils/harvesterUtils';
+import {
+  isHarvesterVmImageReady,
+  isSystemStorageClass,
+  pickDefaultStorageClassName,
+} from '../../../../utils/harvesterUtils';
 export type SimpleVmCreateModalProps = {
   open: boolean;
   onClose: () => void;
@@ -338,7 +342,10 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   }, [selectedFlatSubnet, subnetIpSegmentByName]);
 
   const diskImages = useMemo(
-    () => (images || []).filter((x: any) => resolveImageKind(x) !== 'iso'),
+    () =>
+      (images || []).filter(
+        (x: any) => resolveImageKind(x) !== 'iso' && isHarvesterVmImageReady(x),
+      ),
     [images],
   );
 

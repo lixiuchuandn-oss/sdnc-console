@@ -42,11 +42,11 @@ const pendingRequests = new Map<string, PendingRequest>();
 // 缓存清理间隔（5分钟）
 const CACHE_CLEANUP_INTERVAL = 5 * 60 * 1000;
 
-// 默认配置
+// 默认配置（GET 默认不缓存；需缓存的调用方显式 enableCache: true）
 const DEFAULT_CONFIG = {
   enableDeduplication: true,
-  enableCache: true,
-  cacheTTL: 5 * 60 * 1000, // 5分钟
+  enableCache: false,
+  cacheTTL: 5 * 60 * 1000, // 5分钟（仅当 enableCache 为 true 时生效）
   enableRetry: true,
   retryCount: 2,
   retryDelay: 1000,
@@ -323,6 +323,20 @@ export async function requestManager(
 export function clearCache(endpoint: string, method: string = 'GET') {
   const key = generateRequestKey({ method, endpoint });
   requestCache.delete(key);
+}
+
+/**
+ * 清除某 GET 路径下所有缓存条目（忽略 query；不匹配子路径，如 .../namespaces/foo）
+ */
+export function clearGetCacheForPath(path: string) {
+  const prefix = `GET-${path}`;
+  for (const key of [...requestCache.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    const next = key[prefix.length];
+    if (next === '-' || next === '?') {
+      requestCache.delete(key);
+    }
+  }
 }
 
 /**

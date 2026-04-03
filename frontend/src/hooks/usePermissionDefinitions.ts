@@ -40,7 +40,9 @@ export function usePermissionDefinitions() {
         setLoading(true);
         setError(null);
         
-        const response = await apiRequest('/api/system/rbac/permissions') as PermissionDefinitionsResponse;
+        const response = (await apiRequest('/api/system/rbac/permissions', {
+          enableCache: true,
+        })) as PermissionDefinitionsResponse;
         
         if (mounted) {
           setDefinitions(response?.permissions || []);

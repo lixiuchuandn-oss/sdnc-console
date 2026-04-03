@@ -959,14 +959,18 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
           if (endpoint && token) {
             for (const ns of namespacesToCreate) {
               try {
-                // 判断场景类型：cloud-public 是公共场景，其他是租户场景
-                const isPublic = ns === 'cloud-public';
+                // 组织分配：集群级公共空间为 public；其余（含 default、ns-{orgId}、自定义名）均为 tenant
+                const publicClusterNamespaces = new Set(['cloud-public', 'harvester-public']);
+                const isPublic = publicClusterNamespaces.has(ns);
                 const scenario: 'public' | 'tenant' = isPublic ? 'public' : 'tenant';
-                
-                const annotations = (!isPublic && ns !== 'default') ? {
-                  'tower.io/tenant': tenantName,
-                  'tower.io/organization': organization.name
-                } : undefined;
+
+                const annotations =
+                  !isPublic && ns !== 'default'
+                    ? {
+                        'tower.io/tenant': tenantName,
+                        'tower.io/organization': organization.name,
+                      }
+                    : undefined;
 
                 await createHarvesterNamespace(
                   { endpoint, token, insecure }, 

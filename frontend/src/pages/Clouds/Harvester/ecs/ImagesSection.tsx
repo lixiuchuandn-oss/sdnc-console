@@ -69,6 +69,65 @@ type Props = {
   bordered?: boolean;
 };
 
+/** 列表/筛选共用：与 harvesterImageListHandler 的 state 语义对齐（UI 用小写 key） */
+function mapBackendVmImageState(raw: string): string {
+  const k = String(raw || '').trim().toLowerCase();
+  if (k === 'active') return 'ready';
+  // 旧版 list 曾把 status 写成 condition.type 字符串
+  if (k === 'imported') return 'ready';
+  if (k === 'failed') return 'failed';
+  if (k === 'downloading') return 'downloading';
+  if (k === 'unknown') return 'unknown';
+  return k || 'unknown';
+}
+
+function conditionStatusIsTrue(v: unknown): boolean {
+  return v === true || v === 'True' || v === 'true';
+}
+
+function conditionStatusIsFalse(v: unknown): boolean {
+  return v === false || v === 'False' || v === 'false';
+}
+
+/** status.conditions 与列表接口顶层的 conditions 二选一（缓存可能只带其一） */
+function getVmImageConditions(r: any): any[] {
+  const fromStatus = r?.status?.conditions;
+  const top = r?.conditions;
+  if (Array.isArray(fromStatus) && fromStatus.length > 0) return fromStatus;
+  if (Array.isArray(top) && top.length > 0) return top;
+  if (Array.isArray(fromStatus)) return fromStatus;
+  if (Array.isArray(top)) return top;
+  return [];
+}
+
+/**
+ * 优先使用接口下发的 state；否则仅用 Imported + 有效进度推断。
+ * 注意：progress 为 0 不表示「下载中」，避免缓存缺 conditions 时全员误判。
+ */
+function resolveImageListStateKey(r: any): string {
+  // 仅当后端给出确定枚举时才短路；Unknown 继续用 conditions/progress 推断（修复后 rawData 会带全量 status）
+  if (typeof r?.state === 'string' && r.state.trim() !== '') {
+    const mapped = mapBackendVmImageState(r.state);
+    if (mapped !== 'unknown') return mapped;
+  }
+  const conditions = getVmImageConditions(r);
+  const imported = conditions.find((c: any) => c?.type === 'Imported');
+  if (conditionStatusIsTrue(imported?.status)) return 'ready';
+  if (conditionStatusIsFalse(imported?.status)) return 'failed';
+
+  const progress = Number(r?.status?.progress ?? r?.progress);
+  if (Number.isFinite(progress)) {
+    if (progress >= 100) return 'ready';
+    if (progress > 0 && progress < 100) return 'downloading';
+  }
+
+  if (typeof r?.status === 'string' && r.status.trim() !== '') return mapBackendVmImageState(r.status);
+  const phase = r?.status?.phase ?? r?.status?.status;
+  if (phase != null && String(phase).trim() !== '') return mapBackendVmImageState(String(phase));
+
+  return 'unknown';
+}
+
 const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false, mode = 'ops', bordered = true }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -257,7 +316,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const filtered = useMemo(() => {
     const base = Array.isArray(images) ? images : [];
     // 如果没有过滤条件，直接返回所有镜像
-    const hasFilters = keyword.trim() || (mode === 'ops' ? statusFilter : '') || typeFilter || osFilter || (mode === 'ops' ? scopeFilter : '');
+    const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || (mode === 'ops' ? scopeFilter : '');
     let list: any[];
     if (!hasFilters && !isTenant) {
       list = base;
@@ -298,10 +357,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         }
 
         // 状态过滤 - 只有用户选择时才过滤
-        if (mode === 'ops' && st) {
-          const stateValue = r?.state || (typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '';
-          const key = String(stateValue).toLowerCase();
-          if (key !== st) return false;
+        if (st) {
+          if (resolveImageListStateKey(r) !== st) return false;
         }
 
         // 镜像类型过滤 - 只有用户主动选择类型时才过滤
@@ -324,7 +381,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     return [...list].sort((a, b) => getImageCreatedMs(b) - getImageCreatedMs(a));
   }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, mode, expandOsKeywords, getImageCreatedMs]);
 
-  const statusOptions = ['imported','pending','downloading','ready','failed','unknown'];
+  /** 与 resolveImageListStateKey 返回值一致（去掉易与 ready 混淆的 imported/pending） */
+  const statusOptions = ['ready', 'failed', 'downloading', 'unknown'];
   const osOptions = [
     { value: '', label: '全部' },
     { value: 'windows', label: 'Windows' },
@@ -408,9 +466,13 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         );
     } },
     { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
-    { title: '命名空间', key: 'namespace', render: (_:any, r:any)=> getNs(r) },
-    ...(mode === 'ops' ? [{ title: '作用域', key: 'scope', render: (_:any, r:any)=> isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像' }] : []),
-    ...(mode === 'ops' ? [{ title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) }] : []),
+    ...(mode === 'ops'
+      ? [
+          { title: '命名空间', key: 'namespace', render: (_: any, r: any) => getNs(r) },
+          { title: '作用域', key: 'scope', render: (_: any, r: any) => (isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像') },
+        ]
+      : []),
+    { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(resolveImageListStateKey(r)) },
     { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
         const kind = resolveVmImageKind(r);
         const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? 'Qcow2' : '其他';
@@ -432,7 +494,16 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         }
         return '-';
       } },
-    { title: '存储类', key: 'sc', render: (_:any, r:any)=> r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-' },
+    ...(mode === 'ops'
+      ? [
+          {
+            title: '存储类',
+            key: 'sc',
+            render: (_: any, r: any) =>
+              r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-',
+          },
+        ]
+      : []),
     {
       title: '创建时间',
       key: 'created_at',
@@ -769,16 +840,14 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
               ]}
             />
           )}
-          {mode === 'ops' && (
-            <Select
-              allowClear
-              placeholder="镜像状态"
-              value={statusFilter || undefined}
-              onChange={(v)=> setStatusFilter(v || '')}
-              className="toolbar-filter-sm"
-              options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
-            />
-          )}
+          <Select
+            allowClear
+            placeholder="镜像状态"
+            value={statusFilter || undefined}
+            onChange={(v)=> setStatusFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
+          />
           <Select
             allowClear
             placeholder="镜像类型"

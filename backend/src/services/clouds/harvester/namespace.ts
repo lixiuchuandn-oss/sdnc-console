@@ -43,6 +43,46 @@ export const isProtectedNamespace = (name: string): boolean => {
 };
 
 /**
+ * 与前端 `harvesterUtils.isPublicNamespace` 一致：列表 excludeSystem 时仍返回这些名字
+ */
+export const isPublicNamespaceName = (name: string): boolean => {
+  const n = String(name || '').trim().toLowerCase();
+  return ['cloud-public', 'default', 'harvester-public'].includes(n);
+};
+
+/**
+ * 与前端 `harvesterUtils.isSystemNamespace` 一致（前缀判定）
+ */
+export const isSystemNamespaceName = (name: string): boolean => {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return false;
+  const prefixes = [
+    'cattle',
+    'fleet',
+    'longhorn',
+    'kube',
+    'harvester',
+    'cluster-fleet',
+    'cluster',
+    'local',
+    'ingress',
+  ];
+  return prefixes.some((p) => n.startsWith(p));
+};
+
+/**
+ * GET 列表 `excludeSystem=true` 时是否应从结果中移除。
+ * 规则：先放行公共名（与前端一致）；再按前端系统前缀隐藏；其余仍按 isProtectedNamespace（如 monitoring-system、user-*）
+ */
+export const shouldHideNamespaceWhenExcludeSystem = (name: string): boolean => {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return false;
+  if (isPublicNamespaceName(trimmed)) return false;
+  if (isSystemNamespaceName(trimmed)) return true;
+  return isProtectedNamespace(trimmed);
+};
+
+/**
  * 判断命名空间是否由 Tower 平台创建和管理
  * @param namespace 命名空间对象（包含 metadata.labels）
  * @returns 如果是平台创建的返回 true，否则返回 false

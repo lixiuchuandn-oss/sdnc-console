@@ -10,11 +10,17 @@ import { In } from 'typeorm';
 import { HarvesterNamespaceInventory } from '../../../../entities/harvester/HarvesterNamespaceInventory';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncHarvesterNamespaces } from '../../../../services/clouds/harvester/inventory';
-import { isProtectedNamespace } from '../../../../services/clouds/harvester/namespace';
+import { isProtectedNamespace, shouldHideNamespaceWhenExcludeSystem } from '../../../../services/clouds/harvester/namespace';
 import { requestJson, getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
 /**
  * GET /:id/resources/harvester/namespaces - 获取命名空间列表
+ *
+ * 查询参数：
+ * - force / skipSync：同步策略（见实现内注释）
+ * - excludeSystem=true：在返回前过滤「系统/受保护」命名空间；规则与前端 `harvesterUtils` 对齐——
+ *   公共名（cloud-public、default、harvester-public）始终保留；系统前缀与 `isSystemNamespace` 一致；
+ *   其余仍受 `isProtectedNamespace` 约束（如 monitoring-system、user-*）。
  */
 export async function harvesterNamespaceListHandler(req: Request, res: Response) {
   try {
@@ -148,11 +154,11 @@ export async function harvesterNamespaceListHandler(req: Request, res: Response)
     console.log(`[Namespace-Refresh] 查询结果数量: ${items.length}, whereCondition:`, JSON.stringify(whereCondition));
     let list = items.map((i) => i.rawData);
     
-    // [系统命名空间过滤] 如果 excludeSystem=true，过滤掉系统/受保护的命名空间
+    // excludeSystem=true：与前端 harvesterUtils 系统/公共语义对齐（见 namespace.shouldHideNamespaceWhenExcludeSystem）
     if (String(excludeSystem) === 'true') {
       list = list.filter((item: any) => {
         const name = item?.metadata?.name || item?.name || '';
-        return !isProtectedNamespace(name);
+        return !shouldHideNamespaceWhenExcludeSystem(name);
       });
     }
     

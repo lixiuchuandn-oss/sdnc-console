@@ -683,6 +683,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   storageClassLoading={storageClassLoading}
                   selectedDiskIdx={selectedDiskIdx}
                   setSelectedDiskIdx={setSelectedDiskIdx}
+                  isArm64={isArm64}
                 />
               </div>
               <div

@@ -4,7 +4,7 @@ import { Tag, Space, Button, Tabs, Descriptions, message } from 'antd';
 // 引入各个资源模块组件
 import NodesSection from './cluster/NodesSection';
 import ImagesSection from './ecs/ImagesSection';
-import VolumesSection from './ebs/VolumesSection';
+import VolumesSection from './ebs/sections/VolumesSection';
 import NadsSection from './nad/NadsSection';
 import KubeOvnVpcsSection from './kube-ovn/sections/VpcsSection';
 import VpcSubnetsSection from './kube-ovn/sections/VpcSubnetsSection';
@@ -15,7 +15,7 @@ import PciDevicesSection from './cluster/PciDevicesSection';
 import UsbDevicesSection from './cluster/UsbDevicesSection';
 import MigrationsSection from './ecs/MigrationsSection';
 import StorageClassesSection from './cluster/StorageClassesSection';
-import SnapshotsSection from './ebs/SnapshotsSection';
+import SnapshotsSection from './ebs/sections/SnapshotsSection';
 import BackupsSection from './cbr/BackupsSection';
 import SshKeysSection from './ecs/SshKeysSection';
 import CloudInitsSection from './ecs/CloudInitsSection';
@@ -372,7 +372,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             if (checkPerm('clouds.namespaces:read') || checkPerm('clouds.ecs:read')) {
               setResourceLoading((prev) => ({ ...prev, namespaces: true }));
               try {
-                const json = await fetchHarvesterNamespaces(cloudId, force, false, skipSync);
+                // 始终 force=true 绕过 requestManager 缓存；否则切换 Tab 后再回来会拿到创建前的旧列表
+                // 是否触发集群全量同步：仅当显式 force 刷新且非 silent（skipSync=false）时
+                const skipSyncParam = skipSync || !force;
+                const json = await fetchHarvesterNamespaces(cloudId, true, false, skipSyncParam);
                 const list: any[] = Array.isArray((json as any)?.data?.items)
                   ? (json as any).data.items
                   : Array.isArray((json as any)?.items)

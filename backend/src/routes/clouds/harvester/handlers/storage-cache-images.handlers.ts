@@ -127,7 +127,8 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
       const imported = conditions.find((c: any) => c.type === 'Imported');
       if (imported?.status === 'True') state = 'Active';
       else if (imported?.status === 'False') state = 'Failed';
-      else if (progress < 100) state = 'Downloading';
+      // progress 为 0 且尚无 Imported 结论时勿标成 Downloading（缓存缺 conditions 时易全员误判）
+      else if (progress > 0 && progress < 100) state = 'Downloading';
 
       return {
         ...r,

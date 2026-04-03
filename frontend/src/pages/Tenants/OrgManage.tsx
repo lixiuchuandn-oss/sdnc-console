@@ -184,7 +184,7 @@ const OrgManagePage: React.FC = () => {
   const fetchTenantRoles = async () => {
     try {
       // 显式请求更多记录以防止分页截断
-      const raw = await apiRequest('/api/system/rbac/roles?limit=1000');
+      const raw = await apiRequest('/api/system/rbac/roles?limit=1000', { enableCache: true });
       const list: RBACRole[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.roles) ? raw.roles : []);
       // 只显示租户级角色（修复逻辑问题：租户用户只能分配租户级角色）
       const filtered = list.filter(r => 

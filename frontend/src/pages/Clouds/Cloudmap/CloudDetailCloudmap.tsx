@@ -10,7 +10,7 @@ import { Tag, Space, Button,  Alert, Tabs, Descriptions, message, Segmented } fr
 // 引入各个资源模块组件 (注意路径调整，指向 Harvester 目录)
 import NodesSection from '../Harvester/cluster/NodesSection';
 import ImagesSection from '../Harvester/ecs/ImagesSection';
-import VolumesSection from '../Harvester/ebs/VolumesSection';
+import VolumesSection from '../Harvester/ebs/sections/VolumesSection';
 import NadsSection from '../Harvester/nad/NadsSection';
 import KubeOvnVpcsSection from '../Harvester/kube-ovn/sections/VpcsSection';
 import VpcSubnetsSection from '../Harvester/kube-ovn/sections/VpcSubnetsSection';
@@ -20,7 +20,7 @@ import VlansSection from '../Harvester/kube-ovn/sections/VlansSection';
 import GpusSection from '../Harvester/cluster/GpusSection';
 import MigrationsSection from '../Harvester/ecs/MigrationsSection';
 import StorageClassesSection from '../Harvester/cluster/StorageClassesSection';
-import SnapshotsSection from '../Harvester/ebs/SnapshotsSection';
+import SnapshotsSection from '../Harvester/ebs/sections/SnapshotsSection';
 import BackupsSection from '../Harvester/cbr/BackupsSection';
 import SshKeysSection from '../Harvester/ecs/SshKeysSection';
 import CloudInitsSection from '../Harvester/ecs/CloudInitsSection';
@@ -512,7 +512,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             if (checkPerm('clouds.namespaces:read') || checkPerm('clouds.ecs:read')) {
               setResourceLoading((prev) => ({ ...prev, namespaces: true }));
               try {
-                const json = await fetchHarvesterNamespaces(cloudId, force, false, skipSync);
+                const skipSyncParam = skipSync || !force;
+                const json = await fetchHarvesterNamespaces(cloudId, true, false, skipSyncParam);
                 const list: any[] = Array.isArray((json as any)?.data?.items)
                   ? (json as any).data.items
                   : Array.isArray((json as any)?.items)

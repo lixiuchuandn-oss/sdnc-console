@@ -1062,6 +1062,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
         open={flatSubnetModalOpen}
         onClose={() => setFlatSubnetModalOpen(false)}
         cloudId={cloudId}
+        displayMode="ops"
         vlans={displayedVlans}
         providers={providers}
         aliasDupCheckItems={flatSubnetRecordsForForm}

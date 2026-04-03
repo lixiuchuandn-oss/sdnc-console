@@ -1188,7 +1188,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           const imported = conditions.find((c: any) => c.type === 'Imported');
           if (imported?.status === 'True') state = 'Active';
           else if (imported?.status === 'False') state = 'Failed';
-          else if (progress < 100) state = 'Downloading';
+          else if (progress > 0 && progress < 100) state = 'Downloading';
 
           const createdAt = r.metadata?.creationTimestamp;
 

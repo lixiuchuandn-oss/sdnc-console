@@ -824,6 +824,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
           open={isModalVisible}
           onClose={() => setIsModalVisible(false)}
           cloudId={cloudId}
+          displayMode={displayMode}
           vlans={vlans}
           providers={providers}
           aliasDupCheckItems={data}
