@@ -18,7 +18,7 @@ const CEWizard: React.FC = () => {
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [csmctlCfg, setCsmctlCfg] = useState<any | null>(null);
-  /** 右侧改网卡时 IP 优先跟 vr3_info 中的接口记录 */
+  /** 聚合 vr3_info：仅用户主动改「外网口」Select 时用其跟 IP（接口权威） */
   const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
@@ -81,12 +81,29 @@ const CEWizard: React.FC = () => {
     iface?.ipv6Address ??
     '';
 
-  /** force：换网卡时必须为 true，否则 isFieldTouched 会挡住 IP 更新 */
-  const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string, opts?: { force?: boolean }) => {
+  /**
+   * WAN：ifaceDataSource vr2=右翼默认（仅 csmctlCfg）；vr3=用户主动改外网口 Select。
+   * LAN：仍为 vr3∪vr2（未单独约定内网口权威来源）。
+   * force：换网卡或设备初到时应为 true，否则 isFieldTouched 会挡住 IP 更新。
+   */
+  const autoFillFromIface = (
+    kind: 'wan' | 'lan',
+    ifaceName: string,
+    opts?: { force?: boolean; ifaceDataSource?: 'vr2' | 'vr3' },
+  ) => {
     const force = opts?.force ?? false;
-    const fromVr3 = findInterfaceInDevice(vr3Info, ifaceName);
-    const fromVr2 = findInterfaceInDevice(csmctlCfg, ifaceName);
-    const obj = fromVr3 || fromVr2;
+    const src = opts?.ifaceDataSource;
+    let obj: any = null;
+    if (kind === 'wan') {
+      obj =
+        src === 'vr3'
+          ? findInterfaceInDevice(vr3Info, ifaceName)
+          : findInterfaceInDevice(csmctlCfg, ifaceName);
+    } else {
+      const fromVr3 = findInterfaceInDevice(vr3Info, ifaceName);
+      const fromVr2 = findInterfaceInDevice(csmctlCfg, ifaceName);
+      obj = fromVr3 || fromVr2;
+    }
     if (!obj) return;
     const v4 = String(pickIfaceIpv4(obj) || '').trim();
     const v6 = String(pickIfaceIpv6(obj) || '').trim();
@@ -111,9 +128,11 @@ const CEWizard: React.FC = () => {
   const prevWanNameRef = useRef<string | undefined>(undefined);
   const prevLanNameRef = useRef<string | undefined>(undefined);
   const hadDeviceLookupRef = useRef(false);
+  const hadVr2LookupRef = useRef(false);
 
   useEffect(() => {
     hadDeviceLookupRef.current = false;
+    hadVr2LookupRef.current = false;
     prevWanNameRef.current = undefined;
     prevLanNameRef.current = undefined;
   }, [uuid]);
@@ -121,6 +140,9 @@ const CEWizard: React.FC = () => {
   const watchedWanName = Form.useWatch('wanName', form);
   const watchedLanName = Form.useWatch('lanName', form);
   useEffect(() => {
+    const vr2JustArrived = !!csmctlCfg && !hadVr2LookupRef.current;
+    if (csmctlCfg) hadVr2LookupRef.current = true;
+
     const hasLookup = !!(vr3Info || csmctlCfg);
     const dataJustArrived = hasLookup && !hadDeviceLookupRef.current;
     if (hasLookup) hadDeviceLookupRef.current = true;
@@ -129,7 +151,7 @@ const CEWizard: React.FC = () => {
     if (wan) {
       const nicChanged = prevWanNameRef.current !== wan;
       prevWanNameRef.current = wan || undefined;
-      autoFillFromIface('wan', wan, { force: nicChanged || dataJustArrived });
+      autoFillFromIface('wan', wan, { force: nicChanged || vr2JustArrived, ifaceDataSource: 'vr2' });
     } else {
       prevWanNameRef.current = undefined;
     }
@@ -176,6 +198,7 @@ const CEWizard: React.FC = () => {
     })();
   }, [uuid, form]);
 
+  /** 聚合 /api/vr-instances/:uuid → vr1/2/3；左翼 mirror 与右翼默认跟 vr2；改外网口 Select 时 WAN IP 跟 vr3 */
   const refreshDeviceData = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
@@ -434,7 +457,9 @@ const CEWizard: React.FC = () => {
               loading={ifaceLoading}
               options={ifaceOptions.map(n => ({ label: n, value: n }))}
               filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
-              onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
+              onChange={(val) =>
+                autoFillFromIface('wan', String(val || ''), { force: true, ifaceDataSource: 'vr3' })
+              }
             />
           </Form.Item>
           <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>}>

@@ -1,7 +1,10 @@
 /**
- * 与 GET /api/vr-instances/:uuid 返回的合并对象对齐：
- * - 左侧设备回读：仅 vr2_info（见 pickDeviceBlobForLookup）
- * - 右侧下拉：VR2 ∪ VR3 接口名（见 collectIfaceNamesForSelect）
+ * 与 GET /api/vr-instances/:uuid 聚合接口对齐（含 vr1 元数据、vr2_info、vr3_info 等）：
+ *
+ * 1）进入 PE/CE 等向导应调用该聚合接口拉全量。
+ * 2）左侧「设备回读」仅展示/推断 vr2_info（pickDeviceBlobForLookup）。
+ * 3）右侧「配置编辑」默认用 vr2_info 跟接口 IP 等；用户主动改「公网口」Select 时，
+ *    该次对齐仅查 vr3_info（接口权威）。网卡下拉选项见 collectIfaceNamesForSelect（vr3）。
  */
 
 function collectIfaceNamesFromDeviceBlob(dev: any): string[] {
@@ -29,11 +32,9 @@ export function collectIfaceNamesFromMerged(merged: Record<string, any>): string
   return collectIfaceNamesFromDeviceBlob(merged?.vr2_info);
 }
 
-/** 右侧编辑区网卡下拉：VR2 与 VR3 并集，避免只存在于某一侧的口选不到 */
+/** 向导网卡下拉：仅以 vr3_info 为接口数据权威（与 PE/CE 等产品约定一致） */
 export function collectIfaceNamesForSelect(merged: Record<string, any>): string[] {
-  const a = collectIfaceNamesFromDeviceBlob(merged?.vr2_info);
-  const b = collectIfaceNamesFromDeviceBlob(merged?.vr3_info);
-  return Array.from(new Set([...a, ...b])).filter(Boolean);
+  return collectIfaceNamesFromDeviceBlob(merged?.vr3_info);
 }
 
 /** 仅 VR2：按接口查 IP/BGP；无 vr2_info 时为 null */

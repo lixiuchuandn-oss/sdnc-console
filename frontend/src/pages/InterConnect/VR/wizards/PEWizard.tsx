@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Descriptions, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../../services/api';
-import { collectIfaceNamesFromMerged, pickDeviceBlobForLookup } from '../vrMergedHelpers';
+import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 
 const PEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -18,11 +18,105 @@ const PEWizard: React.FC = () => {
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [csmctlCfg, setCsmctlCfg] = useState<any | null>(null);
+  /** 聚合接口中的 vr3_info：仅用户主动改公网口 Select 时用其跟 IP（接口权威） */
+  const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [activeLanTabKey, setActiveLanTabKey] = useState<string>('0');
-  const [, setActiveLanTabKeyMirror] = useState<string>('0');
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
+  const normalizeIfaceName = (s: string) =>
+    String(s || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+
+  const ifaceRowMatchesName = (it: any, ifaceName: string) => {
+    const name = normalizeIfaceName(ifaceName);
+    if (!name) return false;
+    const candidates = [it?.name, it?.iface, it?.interface, it?.ifName, it?.devName].filter(Boolean);
+    return candidates.some((c) => normalizeIfaceName(String(c)) === name);
+  };
+
+  const findInterfaceInDevice = (dev: any, ifaceName: string) => {
+    const nameRaw = String(ifaceName || '').trim();
+    if (!dev || !nameRaw) return null;
+    const root = dev?.data && typeof dev.data === 'object' ? dev.data : dev;
+    const lists: any[][] = [];
+    if (Array.isArray(root.interfaces)) lists.push(root.interfaces);
+    if (Array.isArray(dev.interfaces) && dev !== root) lists.push(dev.interfaces);
+    for (const arr of lists) {
+      const hit = arr.find((it: any) => ifaceRowMatchesName(it, nameRaw));
+      if (hit) return hit;
+    }
+    const scanBuckets = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return null;
+      for (const key of Object.keys(obj)) {
+        if ((key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) && Array.isArray((obj as any)[key])) {
+          const hit = ((obj as any)[key] as any[]).find((it: any) => ifaceRowMatchesName(it, nameRaw));
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+    const fromRoot = scanBuckets(root);
+    if (fromRoot) return fromRoot;
+    return scanBuckets(dev);
+  };
+
+  const pickIfaceIpv4 = (iface: any) =>
+    iface?.ipv4_static ??
+    iface?.ipv4Static ??
+    iface?.ipv4 ??
+    iface?.ipv4_address ??
+    iface?.ipv4Address ??
+    iface?.ip_address ??
+    iface?.ipAddress ??
+    iface?.ip ??
+    iface?.address ??
+    '';
+  const pickIfaceIpv6 = (iface: any) =>
+    iface?.ipv6_static ??
+    iface?.ipv6Static ??
+    iface?.ipv6 ??
+    iface?.ipv6_address ??
+    iface?.ipv6Address ??
+    '';
+
+  /**
+   * 右翼默认跟 vr2；仅 dataSource==='vr3' 时跟 vr3（用户主动改公网口 Select）。
+   * force：换网卡或设备初到时应为 true，否则 isFieldTouched 会挡住 IP 更新。
+   */
+  const autoFillWanFromIface = (
+    ifaceName: string,
+    opts?: { force?: boolean; dataSource?: 'vr2' | 'vr3' },
+  ) => {
+    const force = opts?.force ?? false;
+    const dataSource = opts?.dataSource ?? 'vr2';
+    const obj =
+      dataSource === 'vr3'
+        ? findInterfaceInDevice(vr3Info, ifaceName)
+        : findInterfaceInDevice(csmctlCfg, ifaceName);
+    if (!obj) return;
+    const v4 = String(pickIfaceIpv4(obj) || '').trim();
+    const v6 = String(pickIfaceIpv6(obj) || '').trim();
+    const touchedV4 = form.isFieldTouched('wanIpv4');
+    const touchedV6 = form.isFieldTouched('wanIpv6');
+    form.setFieldsValue({
+      ...(force || !touchedV4 ? { wanIpv4: v4 || undefined } : {}),
+      ...(force || !touchedV6 ? { wanIpv6: v6 || undefined } : {}),
+    });
+  };
+
+  const prevWanDevRef = useRef<string | undefined>(undefined);
+  /** 仅 vr2：首次拉到 csmctlCfg 时要 force 跟公网 IP（与 vr3 晚到无关） */
+  const hadVr2LookupRef = useRef(false);
+
+  useEffect(() => {
+    hadVr2LookupRef.current = false;
+    prevWanDevRef.current = undefined;
+  }, [uuid]);
+
+  /** 聚合 /api/vr-instances/:uuid → vr1/2/3；左翼 mirror 与右翼默认推断用 vr2，公网口选项与手动改口跟 vr3 */
   const fetchInterfaces = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
@@ -31,11 +125,13 @@ const PEWizard: React.FC = () => {
       if (!merged || typeof merged !== 'object') {
         if (!silent) message.warning('未获取到聚合数据，请先同步 VR 缓存');
         setCsmctlCfg(null);
+        setVr3Info(null);
         return;
       }
-      const unique = collectIfaceNamesFromMerged(merged);
+      const unique = collectIfaceNamesForSelect(merged as Record<string, any>);
       if (unique.length) setIfaceOptions(unique);
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
+      setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
       try {
         const saved = await getVRConfig(uuid);
         setExistingCfg(saved || {});
@@ -56,7 +152,29 @@ const PEWizard: React.FC = () => {
   }, [fetchInterfaces]);
 
   useEffect(() => {
-    if (!csmctlCfg) return;
+    const applySavedPeToForm = () => {
+      if (!existingCfg?.pe || !Object.keys(existingCfg.pe).length) return;
+      const pe = existingCfg.pe;
+      let lanConfigs = (pe.lanConfigs || []).map((l: any) => ({
+        ...l,
+        ifName: l.lanName || l.ifName,
+        asn: l.bgpAsn || l.asn,
+        routerId: l.bgpRouterId || l.routerId,
+      }));
+      if (!lanConfigs.length) lanConfigs = [{}];
+      form.setFieldsValue({
+        ...pe,
+        wanDev: pe.wanName || pe.wanDev,
+        lanConfigs,
+      });
+    };
+
+    // vr2_info 为 null/undefined 时 csmctlCfg 为空：不能从设备推断，但仍应回填 Tower 已保存的 pe 元数据
+    if (!csmctlCfg) {
+      applySavedPeToForm();
+      return;
+    }
+
     const dev = csmctlCfg || {};
     const keys = Object.keys(dev || {});
     const findAnyInterface = () => {
@@ -71,6 +189,13 @@ const PEWizard: React.FC = () => {
     const anyIface = findAnyInterface();
     const ipv4RouteTop = Array.isArray((dev as any)?.ipv4_route) ? (dev as any).ipv4_route[0] : undefined;
     const ipv6RouteTop = Array.isArray((dev as any)?.ipv6_route) ? (dev as any).ipv6_route[0] : undefined;
+    const wanDevCandidate = ipv4RouteTop?.dev || anyIface?.name;
+    const wanIfaceResolved = wanDevCandidate
+      ? findInterfaceInDevice(dev, String(wanDevCandidate))
+      : undefined;
+    const ifaceForWanIp = wanIfaceResolved || anyIface;
+    const v4Wan = String(pickIfaceIpv4(ifaceForWanIp) || '').trim();
+    const v6Wan = String(pickIfaceIpv6(ifaceForWanIp) || '').trim();
     const bgpTop = Array.isArray((dev as any)?.bgp) ? (dev as any).bgp[0] : undefined;
     const fam = Array.isArray(bgpTop?.address_family) ? bgpTop.address_family : [];
     const af4 = fam.find((f: any) => f?.address_family === 'ipv4');
@@ -78,12 +203,13 @@ const PEWizard: React.FC = () => {
     const nets4 = Array.isArray(af4?.network) ? af4.network.join(', ') : undefined;
     const nets6 = Array.isArray(af6?.network) ? af6.network.join(', ') : undefined;
 
+    // 右翼编辑：vr2 无 ipv4_route/ipv6_route 时，下面路由字段为向导内置默认值，并非设备回读
     const inferredTop = {
       locatorName: (dev as any)?.segment_routing_srv6?.locator,
       sidPrefix: (dev as any)?.segment_routing_srv6?.prefix,
-      wanDev: ipv4RouteTop?.dev || anyIface?.name,
-      wanIpv4: anyIface?.ipv4_static,
-      wanIpv6: anyIface?.ipv6_static,
+      wanDev: wanDevCandidate,
+      wanIpv4: v4Wan || undefined,
+      wanIpv6: v6Wan || undefined,
       wanRouteDest: ipv4RouteTop?.destination || '0.0.0.0/0',
       wanRoutePriority: ipv4RouteTop?.priority ?? 100,
       // 注意：IPv6 默认路由应为 ::/0；0::0/0 不是合法 IPv6 前缀写法（会触发控制器校验错误）
@@ -95,6 +221,31 @@ const PEWizard: React.FC = () => {
         return `${raw}/128`;
       })(),
       ipv6Via: ipv6RouteTop?.via || '500::1',
+      bgpAsn: bgpTop?.asn,
+      bgpRouterId: bgpTop?.router_id,
+      bgpNetworkIpv4: nets4,
+      bgpNetworkIpv6: nets6,
+    };
+
+    // 左翼「设备回读」：字段全部仅来自 vr2_info（dev），不 spread 右翼推断（避免把向导默认值当成设备数据）
+    const ipv6DestMirror =
+      ipv6RouteTop &&
+      (() => {
+        const raw = String(ipv6RouteTop.destination || '').trim();
+        if (!raw) return undefined;
+        if (raw.includes('/')) return raw;
+        return `${raw}/128`;
+      })();
+    const mirrorInferredTop = {
+      locatorName: (dev as any)?.segment_routing_srv6?.locator,
+      sidPrefix: (dev as any)?.segment_routing_srv6?.prefix,
+      wanDev: wanDevCandidate,
+      wanIpv4: v4Wan || undefined,
+      wanIpv6: v6Wan || undefined,
+      wanRouteDest: ipv4RouteTop?.destination,
+      wanRoutePriority: ipv4RouteTop?.priority,
+      ipv6Dest: ipv6DestMirror,
+      ipv6Via: ipv6RouteTop?.via,
       bgpAsn: bgpTop?.asn,
       bgpRouterId: bgpTop?.router_id,
       bgpNetworkIpv4: nets4,
@@ -157,12 +308,14 @@ const PEWizard: React.FC = () => {
       });
     }
 
-    // Form.List 在 lanConfigs 为 [] 时 fields 长度为 0，Tabs 无面板，表现为「整步无输入框」
+    // 无内网组时：右翼给 [{}] 便于编辑；左翼同样给 [{}] 仅作布局占位（字段全空，不表示 vr2 有数据）
     const lanConfigsForForm = groups.length > 0 ? groups : [{}];
+    const lanConfigsForMirror = lanConfigsForForm;
 
-    const fullInferred = { ...inferredTop, lanConfigs: lanConfigsForForm };
-    mirrorForm.setFieldsValue(fullInferred);
-    
+    const fullInferredForForm = { ...inferredTop, lanConfigs: lanConfigsForForm };
+    const fullInferredForMirror = { ...mirrorInferredTop, lanConfigs: lanConfigsForMirror };
+    mirrorForm.setFieldsValue(fullInferredForMirror);
+
     if (existingCfg && existingCfg.pe && Object.keys(existingCfg.pe).length > 0) {
       const pe = existingCfg.pe;
       let lanConfigs = (pe.lanConfigs || []).map((l: any) => ({
@@ -181,10 +334,25 @@ const PEWizard: React.FC = () => {
       };
       form.setFieldsValue(mapped);
     } else {
-      form.setFieldsValue(fullInferred);
+      form.setFieldsValue(fullInferredForForm);
     }
-    setActiveLanTabKeyMirror('0');
   }, [csmctlCfg, existingCfg, mirrorForm, form]);
+
+  const watchedWanDev = Form.useWatch('wanDev', form);
+  useEffect(() => {
+    const vr2JustArrived = !!csmctlCfg && !hadVr2LookupRef.current;
+    if (csmctlCfg) hadVr2LookupRef.current = true;
+
+    const wan = watchedWanDev ? String(watchedWanDev) : '';
+    if (wan) {
+      const nicChanged = prevWanDevRef.current !== wan;
+      prevWanDevRef.current = wan || undefined;
+      autoFillWanFromIface(wan, { force: nicChanged || vr2JustArrived, dataSource: 'vr2' });
+    } else {
+      prevWanDevRef.current = undefined;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 右翼公网 IP 默认仅随 vr2 与当前公网口变化
+  }, [watchedWanDev, csmctlCfg]);
 
   const sortJsonKeys = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
@@ -340,8 +508,10 @@ const PEWizard: React.FC = () => {
         if (g?.asn || g?.routerId) {
           const vrfNum = g?.vrf != null && String(g.vrf).trim() !== '' ? Number(g.vrf) : undefined;
           const enableAutoSid = Number.isFinite(vrfNum as any) && (vrfNum as number) >= 4001;
+          const asnRaw = Number(g?.asn);
+          const asn = Number.isFinite(asnRaw) ? asnRaw : undefined;
           bgpArr.push({
-            asn: Number(g?.asn),
+            ...(asn != null ? { asn } : {}),
             ...(enableAutoSid ? { vrf: vrfNum } : {}), // 没有私网 VRF 时不要下发 vrf，避免被当作私网策略
             router_id: g?.routerId,
             bgp_ebgp_requires_policy: 'disable',
@@ -399,9 +569,30 @@ const PEWizard: React.FC = () => {
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
+  /** 点击左侧步骤：后退不校验；前进需通过校验，避免绕过「下一步」直达确认页 */
+  const handleStepsChange = async (idx: number) => {
+    if (idx === current) return;
+    if (idx < current) {
+      setCurrent(idx);
+      return;
+    }
+    try {
+      await form.validateFields();
+      setCurrent(idx);
+    } catch {
+      /* 保留在当前步 */
+    }
+  };
+
   const handleDispatch = async () => {
     if (!uuid) {
       message.error('缺少 VR 的 UUID，无法下发配置');
+      return;
+    }
+    try {
+      await form.validateFields();
+    } catch {
+      message.warning('请先修正表单校验错误后再下发');
       return;
     }
     try {
@@ -433,6 +624,15 @@ const PEWizard: React.FC = () => {
     }
   };
 
+  /** 确认页展示：空则「-」，不用常数冒充有值 */
+  const previewStr = (v: any) =>
+    v !== undefined && v !== null && String(v).trim() !== '' ? String(v) : '-';
+  const previewNum = (v: any) => {
+    if (v === undefined || v === null || v === '') return '-';
+    const n = Number(v);
+    return Number.isFinite(n) ? n : '-';
+  };
+
   const renderCoreContent = () => {
     // values for preview (step 3)
     const values = form.getFieldsValue(true);
@@ -456,6 +656,9 @@ const PEWizard: React.FC = () => {
               loading={ifaceLoading}
               options={ifaceOptions.map(n => ({ label: n, value: n }))}
               filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
+              onChange={(val) =>
+                autoFillWanFromIface(String(val || ''), { force: true, dataSource: 'vr3' })
+              }
             />
           </Form.Item>
           <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>公网口 IPv4 地址</span>}>
@@ -534,9 +737,7 @@ const PEWizard: React.FC = () => {
                   size="small"
                   activeKey={activeLanTabKey ?? (items.length ? String(0) : undefined)}
                   onChange={(key) => {
-                    const k = String(key);
-                    setActiveLanTabKey(k);
-                    setActiveLanTabKeyMirror(k);
+                    setActiveLanTabKey(String(key));
                   }}
                 />
               );
@@ -550,12 +751,12 @@ const PEWizard: React.FC = () => {
             <Descriptions.Item label="SRv6 Locator">{values.locatorName || '-'}</Descriptions.Item>
             <Descriptions.Item label="SRv6 SID Prefix">{values.sidPrefix || '-'}</Descriptions.Item>
             <Descriptions.Item label="公网口设备">{values.wanDev || '-'}</Descriptions.Item>
-            <Descriptions.Item label="默认路由目的">{values.wanRouteDest || '0.0.0.0/0'}</Descriptions.Item>
-            <Descriptions.Item label="路由优先级">{values.wanRoutePriority ?? 100}</Descriptions.Item>
-            <Descriptions.Item label="公网口 IPv4">{values.wanIpv4 || '-'}</Descriptions.Item>
-            <Descriptions.Item label="公网口 IPv6">{values.wanIpv6 || '-'}</Descriptions.Item>
-            <Descriptions.Item label="IPv6 路由目的">{values.ipv6Dest || '0::0/0'}</Descriptions.Item>
-            <Descriptions.Item label="IPv6 next-hop">{values.ipv6Via || '500::1'}</Descriptions.Item>
+            <Descriptions.Item label="默认路由目的">{previewStr(values.wanRouteDest)}</Descriptions.Item>
+            <Descriptions.Item label="路由优先级">{previewNum(values.wanRoutePriority)}</Descriptions.Item>
+            <Descriptions.Item label="公网口 IPv4">{previewStr(values.wanIpv4)}</Descriptions.Item>
+            <Descriptions.Item label="公网口 IPv6">{previewStr(values.wanIpv6)}</Descriptions.Item>
+            <Descriptions.Item label="IPv6 路由目的">{previewStr(values.ipv6Dest)}</Descriptions.Item>
+            <Descriptions.Item label="IPv6 next-hop">{previewStr(values.ipv6Via)}</Descriptions.Item>
           </Descriptions>
           {(values.lanConfigs || []).map((lan: any, idx: number) => (
             <div key={idx} style={{ marginTop: 12 }}>
@@ -585,7 +786,7 @@ const PEWizard: React.FC = () => {
       <Row gutter={16}>
         <Col span={4}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={(idx) => setCurrent(idx)} items={[{ title: '公网配置（PE to PE）' }, { title: '内网配置（PE to CE）' }, { title: '确认下发' }]} />
+            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={[{ title: '公网配置（PE to PE）' }, { title: '内网配置（PE to CE）' }, { title: '确认下发' }]} />
           </Card>
         </Col>
         <Col span={7}>
@@ -647,7 +848,7 @@ const PEWizard: React.FC = () => {
                     <Tabs
                       type="card"
                       items={(() => {
-                        const groups: any[] = mirrorForm.getFieldValue('lanConfigs') || [];
+                        const groups: any[] = mirrorForm.getFieldValue('lanConfigs') || [{}];
                         return groups.map((g, idx) => ({
                           key: String(idx),
                           label: `内网配置组 #${idx + 1}`,
@@ -689,9 +890,7 @@ const PEWizard: React.FC = () => {
                       size="small"
                       activeKey={activeLanTabKey ?? '0'}
                       onChange={(key) => {
-                        const k = String(key);
-                        setActiveLanTabKey(k);
-                        setActiveLanTabKeyMirror(k);
+                        setActiveLanTabKey(String(key));
                       }}
                     />
                   </>
@@ -699,15 +898,15 @@ const PEWizard: React.FC = () => {
                 {current === 2 && (
                   <>
                     <Descriptions column={1} bordered size="small">
-                      <Descriptions.Item label="SRv6 Locator">{mirrorForm.getFieldValue('locatorName') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="SRv6 SID Prefix">{mirrorForm.getFieldValue('sidPrefix') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="公网口设备">{mirrorForm.getFieldValue('wanDev') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="默认路由目的">{mirrorForm.getFieldValue('wanRouteDest') || '0.0.0.0/0'}</Descriptions.Item>
-                      <Descriptions.Item label="路由优先级">{mirrorForm.getFieldValue('wanRoutePriority') ?? 100}</Descriptions.Item>
-                      <Descriptions.Item label="公网口 IPv4">{mirrorForm.getFieldValue('wanIpv4') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="公网口 IPv6">{mirrorForm.getFieldValue('wanIpv6') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="IPv6 路由目的">{mirrorForm.getFieldValue('ipv6Dest') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="IPv6 next-hop">{mirrorForm.getFieldValue('ipv6Via') || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="SRv6 Locator">{previewStr(mirrorForm.getFieldValue('locatorName'))}</Descriptions.Item>
+                      <Descriptions.Item label="SRv6 SID Prefix">{previewStr(mirrorForm.getFieldValue('sidPrefix'))}</Descriptions.Item>
+                      <Descriptions.Item label="公网口设备">{previewStr(mirrorForm.getFieldValue('wanDev'))}</Descriptions.Item>
+                      <Descriptions.Item label="默认路由目的">{previewStr(mirrorForm.getFieldValue('wanRouteDest'))}</Descriptions.Item>
+                      <Descriptions.Item label="路由优先级">{previewNum(mirrorForm.getFieldValue('wanRoutePriority'))}</Descriptions.Item>
+                      <Descriptions.Item label="公网口 IPv4">{previewStr(mirrorForm.getFieldValue('wanIpv4'))}</Descriptions.Item>
+                      <Descriptions.Item label="公网口 IPv6">{previewStr(mirrorForm.getFieldValue('wanIpv6'))}</Descriptions.Item>
+                      <Descriptions.Item label="IPv6 路由目的">{previewStr(mirrorForm.getFieldValue('ipv6Dest'))}</Descriptions.Item>
+                      <Descriptions.Item label="IPv6 next-hop">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
                     </Descriptions>
                     {(mirrorForm.getFieldValue('lanConfigs') || []).map((lan: any, idx: number) => (
                       <div key={idx} style={{ marginTop: 12 }}>
