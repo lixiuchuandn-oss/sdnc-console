@@ -87,7 +87,7 @@
     "@types/novnc__novnc": "^1.6.0",
     "husky": "^8.0.3",
     "lint-staged": "^15.5.2",
-    "patch-package": "^8.0.0",
+    "patch-package": "^8.0.1",
     "prettier": "^3.8.1"
   },
   "jest": {

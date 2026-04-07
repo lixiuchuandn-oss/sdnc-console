@@ -73,7 +73,10 @@ export const registerHarvesterRoutes = (
         res.status(500).json({
           message: 'Proxy request failed',
           error: error.message || String(error),
-  });
+        });
+      }
+    }
+  );
 
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）
   registerHarvesterCacheRoutesProvider(router, checkAdminPermission);

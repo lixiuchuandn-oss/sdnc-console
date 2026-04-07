@@ -273,30 +273,6 @@ export const apiPatch = async (endpoint: string, body: any = {}, options?: { con
   }
 };
 
-// 通用 PUT 请求（带重试，不缓存，不去重）
-// 注意：更新操作禁用去重，确保每次更新都能真正执行
-export const apiPut = async (endpoint: string, body: any = {}) => {
-  try {
-    return await requestManager(
-      {
-        method: 'PUT',
-        endpoint,
-        body,
-        headers: getAuthHeaders(),
-        options: {
-          enableDeduplication: false,
-          enableCache: false,
-          enableRetry: true,
-        },
-      },
-      API_BASE_URL
-    );
-  } catch (error) {
-    console.error(`API请求失败 ${endpoint}:`, error);
-    throw error;
-  }
-};
-
 // 获取云资源池数据
 export const fetchClouds = async () => {
   return await apiRequest('/api/clouds');

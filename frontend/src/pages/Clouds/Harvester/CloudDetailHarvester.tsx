@@ -26,6 +26,7 @@ import ClusterNetworksSection from './cluster/ClusterNetworksSection';
 import NamespacesTab from './cluster/NamespacesTab';
 // 引入容器组件
 import { WorkloadsSection, PodsSection, JobsSection, ConfigsSection, RegistriesSection, GatewayApiSection, PDBSection, NetworkPoliciesSection, ServiceTopologySection } from './containers';
+import IngressesSection from './sections/IngressesSection';
 import { CloudUploadOutlined, ArrowLeftOutlined, ReloadOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
@@ -37,7 +38,7 @@ import { getToken } from '../../../utils/tokenStorage';
 import { clearCache } from '../../../utils/requestManager';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices, fetchHarvesterDeployments, fetchHarvesterStatefulSets, fetchHarvesterDaemonSets, fetchHarvesterPods, fetchHarvesterJobs, fetchHarvesterCronJobs, fetchHarvesterConfigMaps, fetchHarvesterSecrets, fetchHarvesterImagePullSecrets, checkGatewayApiStatus, fetchGatewayClasses, fetchGateways, fetchHttpRoutes, fetchGrpcRoutes, fetchHarvesterPDBs, fetchNetworkPolicies } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterServices, fetchHarvesterIngresses, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchKubeOvnVlans, fetchKubeOvnProviderNetworks, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices, fetchHarvesterDeployments, fetchHarvesterStatefulSets, fetchHarvesterDaemonSets, fetchHarvesterPods, fetchHarvesterJobs, fetchHarvesterCronJobs, fetchHarvesterConfigMaps, fetchHarvesterSecrets, fetchHarvesterImagePullSecrets, checkGatewayApiStatus, fetchGatewayClasses, fetchGateways, fetchHttpRoutes, fetchGrpcRoutes, fetchHarvesterPDBs, fetchNetworkPolicies } from '../../../services/harvesterApi';
 import VmReconfigureModal from './modals/VmReconfigureModal';
 import VmSection from './ecs/VmSection';
 import RecycleBinSection from './ecs/RecycleBinSection';
@@ -146,6 +147,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [harvesterPods, setHarvesterPods] = useState<any[]>([]); // Pod 列表
   const [harvesterJobs, setHarvesterJobs] = useState<any[]>([]); // Job 列表
   const [harvesterCronJobs, setHarvesterCronJobs] = useState<any[]>([]); // CronJob 列表
+  const [harvesterIngresses, setHarvesterIngresses] = useState<any[]>([]); // Ingress 列表
   const [harvesterConfigMaps, setHarvesterConfigMaps] = useState<any[]>([]); // ConfigMap 列表
   const [harvesterSecrets, setHarvesterSecrets] = useState<any[]>([]); // Secret 列表
   const [harvesterImagePullSecrets, setHarvesterImagePullSecrets] = useState<any[]>([]); // 镜像凭证列表
@@ -189,6 +191,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [rawCloudInits, setRawCloudInits] = useState<any | null>(null);
   const [rawVlans, setRawVlans] = useState<any | null>(null);
   const [rawServices, setRawServices] = useState<any | null>(null);
+  const [rawIngresses, setRawIngresses] = useState<any | null>(null);
   const [rawLoadBalancers, setRawLoadBalancers] = useState<any | null>(null);
   const [rawTemplates, setRawTemplates] = useState<any | null>(null);
   const [rawScheduleVmBackups, setRawScheduleVmBackups] = useState<any | null>(null);
@@ -1372,11 +1375,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'K8s 服务 ',
                       children: (
                         <>
-<<<<<<< HEAD
-                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} namespacesOptions={namespacesOptions} pods={harvesterPods} />
-=======
-                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} mode={harvesterViewMode} />
->>>>>>> origin/main
+<ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} namespacesOptions={namespacesOptions} pods={harvesterPods} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawServices, null, 2)}</pre>

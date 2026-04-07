@@ -254,16 +254,6 @@ export const fetchHarvesterCloudInits = async (cloudId: string, force = false) =
 };
 
 /**
- * 获取 Harvester Ingress 列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterIngresses = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/ingresses${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
-};
-
-/**
  * 获取 Harvester Service 列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
@@ -271,6 +261,16 @@ export const fetchHarvesterIngresses = async (cloudId: string, force = false) =>
  */
 export const fetchHarvesterServices = async (cloudId: string, force = false) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/services${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
+};
+
+/**
+ * 获取 Harvester Ingress 列表
+ * @param cloudId 云环境 ID
+ * @param force 是否强制刷新，默认 false
+ * @returns Promise<any>
+ */
+export const fetchHarvesterIngresses = async (cloudId: string, force = false) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
 };
 
 /**
@@ -1539,11 +1539,7 @@ export const deleteHarvesterIngress = async (cloudId: string, namespace: string,
  * @returns Promise<any>
  */
 export const deleteHarvesterService = async (cloudId: string, namespace: string, name: string) => {
-<<<<<<< HEAD
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-=======
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester-loadbalancers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
->>>>>>> origin/main
+return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
 
 /**
