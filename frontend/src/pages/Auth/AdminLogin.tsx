@@ -3,7 +3,11 @@ import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDefaultAdminPath } from '../../utils/accessMapping';
+import { useLicense } from '../../contexts/LicenseContext';
+import { getDefaultAdminPath, hasPermissionForAction } from '../../utils/accessMapping';
+import { getSystemSetting } from '../../services/systemApi';
+import { useSettings } from '../../contexts/SettingsContext';
+import { renderMarkdownBold } from '../../utils/markdown';
 import './Login.css';
 
 const AdminLogin: React.FC = () => {
@@ -13,6 +17,17 @@ const AdminLogin: React.FC = () => {
   const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { settings } = useSettings();
+  const { hasFeature } = useLicense();
+  const enableParticleBackground = settings.loginEnableParticleBackground;
+
+  const backgroundColor = settings.loginBackgroundColor;
+  const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
+  const gradientEnd = settings.loginBackgroundGradientEnd || backgroundColor;
+  const useGradient = Boolean(gradientStart && gradientEnd && gradientStart !== gradientEnd);
+
+  const buttonColor = settings.loginButtonColor;
+  const buttonHoverColor = settings.loginButtonHoverColor;
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -20,12 +35,33 @@ const AdminLogin: React.FC = () => {
       const loggedInUser = await login(values.username, values.password);
       message.success('登录成功');
       const role = String((loggedInUser as any)?.role || '').toLowerCase();
-      if (role === 'super_admin' || role === 'admin') {
-        navigate('/admin/dashboard');
-        return;
-      }
       const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];
-      const target = getDefaultAdminPath(perms);
+      
+      // 如果是 admin 用户，优先检查 favorite cloud（需要权限）
+      if (role === 'super_admin' || role === 'admin') {
+        try {
+          const fav = await getSystemSetting('favorite.cloudId');
+          const cloudId = String(fav?.value || '').trim();
+          if (cloudId) {
+            const canAccessCloudPools =
+              hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
+              hasPermissionForAction(perms, 'clouds:read');
+            if (canAccessCloudPools) {
+              navigate(`/admin/clouds/${cloudId}`);
+              return;
+            }
+            if (hasPermissionForAction(perms, 'clouds.console:read')) {
+              navigate('/admin/clouds/console');
+              return;
+            }
+          }
+        } catch {
+          // 如果获取 favorite 失败，继续使用 getDefaultAdminPath
+        }
+      }
+      
+      // 统一使用 getDefaultAdminPath（包括 admin 用户），同时考虑 license feature（requiredFeature）
+      const target = getDefaultAdminPath(perms, hasFeature);
       navigate(target);
     } catch (error) {
       message.error('登录失败，请检查用户名和密码');
@@ -38,10 +74,30 @@ const AdminLogin: React.FC = () => {
     // 表单验证失败，由 Ant Design Form 自动处理错误提示
   };
 
+  // 将十六进制颜色转换为RGB
+  const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result
+      ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16),
+        }
+      : null;
+  };
+
   useEffect(() => {
+    // 如果禁用了粒子背景，不执行动画
+    if (!enableParticleBackground) return;
+    
     const canvasEl = canvasRef.current;
     const containerEl = containerRef.current;
     if (!canvasEl || !containerEl) return;
+    
+    // 获取背景颜色的RGB值（使用渐变起始颜色）
+    const parsedRgb = hexToRgb(gradientStart || '');
+    if (!parsedRgb) return;
+    const { r: br0, g: bg0, b: bb0 } = parsedRgb;
     const ctxEl = canvasEl.getContext('2d');
     if (!ctxEl) return;
     const canvasNN = canvasEl as HTMLCanvasElement;
@@ -109,7 +165,7 @@ const AdminLogin: React.FC = () => {
           const v = fbm(nx * 5, ny * 5, t);
           const m0 = Math.max(0, Math.min(1, v));
           const m = m0 * m0 * (3 - 2 * m0);
-          const br = 16, bg = 98, bb = 254;
+          const br = br0, bg = bg0, bb = bb0;
           const r = Math.round(br + (255 - br) * m);
           const g = Math.round(bg + (255 - bg) * m);
           const b = Math.round(bb + (255 - bb) * m);
@@ -131,15 +187,24 @@ const AdminLogin: React.FC = () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
     };
-  }, []);
+  }, [enableParticleBackground, gradientStart]);
+
+  const containerStyle: React.CSSProperties =
+    (!backgroundColor && !useGradient)
+      ? {}
+      : {
+          background: useGradient
+            ? `linear-gradient(135deg, ${gradientStart} 0%, ${gradientEnd} 100%)`
+            : backgroundColor,
+        };
 
   return (
-    <div className="login-container" ref={containerRef}>
-      <canvas className="particle-canvas" ref={canvasRef} />
+    <div className="login-container" ref={containerRef} style={containerStyle}>
+      {enableParticleBackground && <canvas className="particle-canvas" ref={canvasRef} />}
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">Compute Tower</h1>
-          <p className="login-subtitle">后台管理登录</p>
+          <h1 className="login-title">{renderMarkdownBold(settings.loginTitle ?? '')}</h1>
+          <p className="login-subtitle">{settings.loginSubtitle ?? ''}</p>
         </div>
         <Card className="login-card" variant="borderless" style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}>
           <Form
@@ -156,7 +221,42 @@ const AdminLogin: React.FC = () => {
             <Form.Item name="username" rules={[{ required: true, message: '请输入用户名!' }]}><Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username"/></Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码!' }]}><Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password"/></Form.Item>
             <Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading} block size="large">登录</Button>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={loading}
+                block
+                size="large"
+                style={
+                  buttonColor
+                    ? {
+                        background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
+                        border: 'none !important',
+                        boxShadow: `0 4px 12px ${buttonColor}40 !important`,
+                      }
+                    : undefined
+                }
+                onMouseEnter={(e) => {
+                  if (!buttonColor || !buttonHoverColor) return;
+                  e.currentTarget.style.setProperty(
+                    'background',
+                    `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`,
+                    'important'
+                  );
+                  e.currentTarget.style.setProperty('box-shadow', `0 6px 16px ${buttonHoverColor}60`, 'important');
+                }}
+                onMouseLeave={(e) => {
+                  if (!buttonColor) return;
+                  e.currentTarget.style.setProperty(
+                    'background',
+                    `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`,
+                    'important'
+                  );
+                  e.currentTarget.style.setProperty('box-shadow', `0 4px 12px ${buttonColor}40`, 'important');
+                }}
+              >
+                登录
+              </Button>
             </Form.Item>
           </Form>
         </Card>

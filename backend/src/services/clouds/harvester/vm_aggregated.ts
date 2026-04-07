@@ -1,3 +1,49 @@
+/**
+ * ==============================================================================
+ * 服务名称: Harvester 虚拟机聚合查询服务 (Harvester VM Aggregated Query Service)
+ * 文件路径: backend/src/services/clouds/harvester/vm_aggregated.ts
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 提供基于 VM ID (Namespace/Name) 的聚合查询接口，一次性返回 VM 详情及其关联的
+ * 核心资源（镜像、卷、网络定义等），解决前端多次分散查询导致的数据不一致和性能问题。
+ * 
+ * [核心功能]
+ * 1. [VM 详情聚合]:
+ *    - 获取 VM 定义（Spec）和状态（Status）
+ *    - 获取 VMI（运行时实例）信息并合并到 VM 对象
+ *    - 优先使用 VMI 的运行时状态（IP、节点、迁移状态等）
+ * 
+ * 2. [关联资源查询]:
+ *    - 镜像（Images）: 根据 VM 或 PVC 的 imageId 注解查找关联镜像
+ *    - 卷（Volumes）: 获取 VM 所在 Namespace 下的所有 PVC，并过滤出 VM 实际使用的卷
+ *    - 网络（NADs/VPCs/Subnets）: 获取集群级别的网络定义，并过滤出 VM 实际使用的网络
+ * 
+ * 3. [数据过滤优化]:
+ *    - 仅返回 VM 实际关联的资源，减少数据传输量
+ *    - 通过并行查询提升性能
+ * 
+ * [设计优势]
+ * - 减少前端 API 调用次数：从多次分散查询合并为一次聚合查询
+ * - 保证数据一致性：所有数据基于同一时间点的 VM 状态
+ * - 提升性能：并行查询多个资源，总耗时接近最慢的单个查询
+ * 
+ * ------------------------------------------------------------------------------
+ * [使用场景]
+ * ------------------------------------------------------------------------------
+ * - VM 详情页面：需要显示 VM 的完整信息和关联资源
+ * - VM 编辑页面：需要加载 VM 配置和可选资源列表
+ * - VM 列表页面的详情展开：需要快速获取 VM 的关联信息
+ * 
+ * ------------------------------------------------------------------------------
+ * [依赖关系]
+ * ------------------------------------------------------------------------------
+ * - vm.ts: 依赖 getHarvesterVM、getHarvesterVMI
+ * - network.ts: 依赖 listHarvesterNADsStandard、listKubeOvnVpcs、listKubeOvnSubnets
+ * - storage.ts: 依赖 getHarvesterImage
+ * - utils.ts: 依赖 getJsonOnce
+ * ==============================================================================
+ */
 
 import { HarvesterTestParams } from './types';
 import { getHarvesterVM, getHarvesterVMI } from './vm';
@@ -10,26 +56,17 @@ import { getHarvesterImage } from './storage';
 import { getJsonOnce } from './utils';
 
 /**
- * ==============================================================================
- * 模块名称: Harvester VM 聚合查询服务
- * 文件路径: backend/src/services/clouds/harvester/vm_aggregated.ts
- * ==============================================================================
+ * 获取指定命名空间下的 PVC 列表
  * 
  * [功能描述]
- * 提供基于 VM ID (Namespace/Name) 的聚合查询接口，一次性返回 VM 详情及其关联的
- * 核心资源（镜像、卷、网络定义等），解决前端多次分散查询导致的数据不一致和性能问题。
+ * 查询指定命名空间下的所有 PersistentVolumeClaim 资源。
  * 
- * [核心逻辑]
- * 1. [VM 详情]: 获取 VM 的最新状态 (Source of Truth)。
- * 2. [关联资源]:
- *    - NADs/VPCs/Subnets: 获取集群/Namespace 下的网络定义，用于渲染网卡信息。
- *    - Images: 获取所有可用镜像，用于匹配 OS 信息。
- *    - Volumes: 仅获取 VM 所在 Namespace 下的 PVC，避免全量查询。
- * 3. [数据聚合]: 将所有数据打包返回，前端无需再进行多次 API 调用。
- */
-
-/**
- * 获取指定 Namespace 下的 PVC 列表
+ * [实现原理]
+ * 使用 Kubernetes 标准 API: GET /api/v1/namespaces/{namespace}/persistentvolumeclaims
+ * 
+ * @param params Harvester 连接参数
+ * @param namespace 命名空间
+ * @returns PVC 对象数组，查询失败返回空数组
  */
 const listHarvesterPVCsInNamespace = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -59,6 +96,43 @@ const listHarvesterPVCsInNamespace = async (
   }
 };
 
+/**
+ * 获取虚拟机聚合信息
+ * 
+ * [功能描述]
+ * 一次性获取 VM 详情及其所有关联资源，包括镜像、卷、网络定义等。
+ * 
+ * [查询流程]
+ * 1. [并行查询]: 同时查询 VM、VMI、NADs、VPCs、Subnets、Volumes
+ * 2. [数据合并]: 将 VMI 信息合并到 VM 对象中
+ * 3. [镜像解析]: 从 VM Annotation 或 PVC Annotation 中解析镜像 ID，并查询镜像详情
+ * 4. [资源过滤]: 仅返回 VM 实际使用的资源（卷、网络等）
+ * 
+ * [返回结构]
+ * {
+ *   vm: VM 对象（包含合并后的 VMI 信息）,
+ *   related: {
+ *     nads: VM 使用的网络附件定义数组,
+ *     vpcs: VM 使用的 VPC 数组,
+ *     subnets: VM 使用的子网数组,
+ *     volumes: VM 使用的 PVC 数组,
+ *     images: VM 使用的镜像数组（通常只有一个）
+ *   }
+ * }
+ * 
+ * [网络资源过滤逻辑]
+ * 1. 从 VM Spec 中提取 networks 配置
+ * 2. 解析 networkName（支持 ns/name 或 name 格式）
+ * 3. 匹配 NADs（根据命名空间和名称）
+ * 4. 从匹配的 NADs 中提取 Kube-OVN 配置，获取 Subnet 名称
+ * 5. 根据 Subnet 名称查找 Subnets
+ * 6. 从 Subnets 中提取 VPC 名称，查找 VPCs
+ * 
+ * @param params Harvester 连接参数
+ * @param namespace 虚拟机命名空间
+ * @param name 虚拟机名称
+ * @returns 聚合后的 VM 信息对象
+ */
 export const getHarvesterVMAggregated = async (
   params: HarvesterTestParams,
   namespace: string,

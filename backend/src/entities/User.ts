@@ -11,8 +11,8 @@ import { Cloud } from './Cloud';
 
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
+  ADMIN = 'admin',
   TENANT = 'tenant',
-  LEASED_LINES_ADMIN = 'leased_lines_admin',
 }
 
 export enum UserStatus {
@@ -77,4 +77,8 @@ export class User {
 
   @Column({ nullable: true })
   lastLoginAt?: Date;
+
+  /** 管理员密码最后修改时间；用于密码有效期。存量用户可为空，按 createdAt 推算 */
+  @Column({ type: 'datetime', nullable: true })
+  passwordChangedAt?: Date | null;
 }

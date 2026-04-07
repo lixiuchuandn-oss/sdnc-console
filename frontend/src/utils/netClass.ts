@@ -15,7 +15,7 @@ export function getDomainClass(domain: any): NetClass {
 
 export function netClassLabel(cls: NetClass): string {
   if (cls === 'vpc') return 'VPC网络';
-  if (cls === 'flat') return '扁平网络';
+  if (cls === 'flat') return 'NAD网络';
   return '未绑定';
 }
 
@@ -27,6 +27,6 @@ export function netClassColor(cls: NetClass): string {
 
 // 映射
 // 1. vpc: VPC网络
-// 2. flat: 扁平网络
+// 2. flat: NAD网络（Multus NetworkAttachmentDefinition，向导中与 VPC/直通并列）
 // 3. security-domain: 安全域
 // 4. unclassified: 未分类

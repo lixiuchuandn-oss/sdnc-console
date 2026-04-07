@@ -30,15 +30,15 @@
  * ============================================================================
  */
 
-import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Input, Divider, Typography, Space, Tag, Badge, App, Select, Dropdown, Tooltip, Spin, Empty } from 'antd';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Layout, Button, Input, Divider, Typography, Space, Tag, App, Dropdown, Tooltip, Spin, Empty, Modal, Form } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
-  CodeOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, CaretDownOutlined,
-  ApiOutlined, DatabaseOutlined, BellOutlined, CloudServerOutlined, DeploymentUnitOutlined,
-  AppstoreOutlined, LogoutOutlined, CodeFilled, DatabaseFilled, SearchOutlined,
+  CodeOutlined, UserOutlined, SettingOutlined, CaretDownOutlined,
+  DatabaseOutlined, CloudServerOutlined, DeploymentUnitOutlined,
+  AppstoreOutlined, LogoutOutlined, DatabaseFilled, SearchOutlined,
   SafetyCertificateOutlined,
-  AliyunOutlined, AmazonOutlined, GoogleOutlined, CheckCircleFilled, StopFilled
+  AliyunOutlined, AmazonOutlined, GoogleOutlined, CheckCircleFilled, StopFilled, LockOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useLicense } from '../contexts/LicenseContext';
@@ -47,10 +47,14 @@ import { getRequiredActionForPath, hasPermissionForAction } from '../utils/acces
 import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../constants/navigation';
 import { routeSpecs } from '../routes/RouteSpec';
 import { iconOf } from '../components/PageContainer';
-import { fetchClouds } from '../services/api';
+import { fetchClouds, apiPost } from '../services/api';
+import { getPublicAdminPasswordPolicy } from '../services/systemApi';
+import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../utils/adminPasswordPolicy';
+import { renderMarkdownBold } from '../utils/markdown';
 import '../pages/Dashboard/Dashboard.css';
+import AdminSidebar from './AdminSidebar';
 
-const { Header, Sider, Content } = Layout;
+const { Header, Content } = Layout;
 
 const AdminLayout: React.FC = () => {
   // ============================================================================
@@ -61,14 +65,13 @@ const AdminLayout: React.FC = () => {
   // 【侧边栏状态】
   const [collapsed, setCollapsed] = useState(true); // 侧边栏是否折叠，默认折叠
   const [activeSidebarKey, setActiveSidebarKey] = useState<string>('/admin/cen_compute'); // 当前激活的平台 key (cen_compute/cen_sdn/cen_secops/cen_settings)
-  const [openKeys, setOpenKeys] = useState<string[]>([]); // 菜单展开的分组 keys（SETTINGS 平台不需要）
-  const [menuKey, setMenuKey] = useState<number>(0); // 菜单 key，用于强制重新渲染菜单
+  const [openKeys, setOpenKeys] = useState<string[]>([]); // 菜单展开的分组 keys
   
   // 【快速导航抽屉状态】
   const [navOpen, setNavOpen] = useState(false); // 资源池快速展示抽屉是否打开
   const [navSection, setNavSection] = useState<'resources'|'favorites'|'products'>('products'); // 导航抽屉的标签页（保留用于未来扩展）
-  const [selectedGroupKey, setSelectedGroupKey] = useState<string>(''); // 选中的平台分组 key（用于 StandardHeader 中的逻辑）
-  const [activeTab, setActiveTab] = useState<string>('全部'); // 当前激活的标签（保留用于未来扩展）
+  // (侧边栏平台切换相关的状态由 AdminSidebar 管理；保留 collapsed/openKeys 即可)
+  // const [activeTab, setActiveTab] = useState<string>('全部'); // 当前激活的标签（保留用于未来扩展）
   
   // 【资源池数据】
   const [resourceClouds, setResourceClouds] = useState<any[]>([]); // 资源池列表
@@ -86,9 +89,9 @@ const AdminLayout: React.FC = () => {
   // ============================================================================
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const { hasFeature } = useLicense();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
   const isProConsole = location.pathname.startsWith('/admin/clouds/console'); // 是否为 Pro 控制台模式
 
   const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)'; // 导航分隔线颜色
@@ -97,7 +100,49 @@ const AdminLayout: React.FC = () => {
   const [searchOpen, setSearchOpen] = useState(false); // 搜索弹窗是否打开
   const [searchText, setSearchText] = useState(''); // 搜索关键词
   const [searchActiveIndex, setSearchActiveIndex] = useState(0); // 当前选中的搜索结果索引
+  const searchActiveIndexRef = useRef(0); // 用于在 useEffect 中获取最新值
   const { message } = App.useApp(); // Ant Design 消息提示
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [changePasswordSaving, setChangePasswordSaving] = useState(false);
+  const [changePasswordForm] = Form.useForm();
+  const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
+
+  const forcePasswordChange = user?.mustChangePassword === true && user?.role !== 'tenant';
+
+  useEffect(() => {
+    getPublicAdminPasswordPolicy().then(setAdminPwdPolicy);
+  }, []);
+
+  useEffect(() => {
+    if (forcePasswordChange) {
+      changePasswordForm.resetFields();
+      setChangePasswordOpen(true);
+    }
+  }, [forcePasswordChange, user?.id, changePasswordForm]);
+
+  const openChangePassword = () => {
+    changePasswordForm.resetFields();
+    setChangePasswordOpen(true);
+  };
+
+  const submitChangePassword = async () => {
+    try {
+      const values = await changePasswordForm.validateFields();
+      setChangePasswordSaving(true);
+      await apiPost('/api/users/me/password', {
+        oldPassword: String(values.oldPassword || ''),
+        newPassword: String(values.newPassword || ''),
+      });
+      await refreshUser();
+      message.success('密码修改成功');
+      setChangePasswordOpen(false);
+    } catch (e: any) {
+      if (Array.isArray(e?.errorFields) && e.errorFields.length > 0) return;
+      message.error(e?.message || '修改密码失败');
+    } finally {
+      setChangePasswordSaving(false);
+    }
+  };
 
   // ============================================================================
   // 【权限控制】Permission Control
@@ -117,15 +162,21 @@ const AdminLayout: React.FC = () => {
    * 3. 通过 getRequiredActionForPath 获取路径所需的权限动作
    * 4. 通过 hasPermissionForAction 检查用户是否有该权限
    */
-  const canAccessPath = (p: string): boolean => {
+  const canAccessPath = useCallback((p: string): boolean => {
     const pure = String(p || '').split('?')[0];
     if (!user) return false;
     const role = String(user.role || '').toLowerCase();
-    if (role === 'super_admin' || role === 'admin') return true;
+    // 只有 super_admin 才跳过权限检查，admin 也需要检查权限（与后端保持一致）
+    if (role === 'super_admin') return true;
     const act = getRequiredActionForPath(pure);
     const perms = Array.isArray(user.permissions) ? user.permissions : [];
-    return hasPermissionForAction(perms, act);
-  };
+    const hasAccess = hasPermissionForAction(perms, act);
+    // 开发环境调试（已禁用）
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log(`[canAccessPath] Path: "${pure}", Action: "${act}", Permissions:`, perms, `HasAccess: ${hasAccess}`);
+    // }
+    return hasAccess;
+  }, [user]);
 
   /**
    * 处理用户登出
@@ -149,79 +200,135 @@ const AdminLayout: React.FC = () => {
    * 
    * 【功能模块】
    * 1. 左侧：Logo、页面内搜索
-   * 2. 右侧：告警中心、用户信息、登出按钮
+   * 2. 右侧：用户信息、登出按钮
    */
-  const ProHeader: React.FC = () => (
-    <Header style={{ background:'#fff', color:'#1f2a44', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 50, lineHeight:'50px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
-      <div style={{display:'inline-flex', alignItems:'center', gap:4}}>
-          <AppstoreOutlined style={{color:'#1062fe',fontSize:18}} />
-          <span style={{ fontSize:14, color:'#1062fe', marginTop:-2 }}><span style={{ fontWeight:700 }}>Compute</span>.Tower Pro</span>
-          <Input.Search allowClear placeholder="搜索当前页面" size="middle" style={{ marginLeft:8, width:240 }}
-            onSearch={(v)=> window.dispatchEvent(new CustomEvent('pro-search',{ detail: String(v||'').trim() }))}
-          />
-      </div>
+  const ProHeader: React.FC = () => {
+    const primaryColor = settings.primaryColor;
 
-      <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
-        <Tooltip title="告警中心">
-          <Badge size="small" offset={[-2, 2]}>
-             <BellOutlined style={{color:'#555555',fontSize:16, cursor:'pointer'}} onClick={()=>navigate('/admin/alarms')} />
-          </Badge>
-        </Tooltip>
-        
-        {user && (
-          <div style={{ display:'flex', alignItems:'center', gap: 12 }}>
-            <div style={{ display:'flex', alignItems:'center', gap: 8, flexWrap:'nowrap', whiteSpace:'nowrap' }}>
-              <UserOutlined style={{  fontSize: 16 }} />
-              <span
-                style={{
-                  fontSize: 14,
-                  maxWidth: 160,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {(() => {
-                  const full = String(user.fullName || '').trim();
-                  const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
-                  return shouldUseUsername ? (user.username || '') : full;
-                })()}
-              </span>
+    const headerTitle = settingsLoading ? '' : String(settings.headerTitle ?? '');
 
-              {user.tenantName && (
-                <Tooltip title={`当前租户: ${user.tenantName}`}>
-                  <Tag bordered={false} color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '24px', padding: '0 6px', display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}>
-                    
-                    <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.tenantName}</span>
-                  </Tag>
+    return (
+      <Header
+        style={{
+          background: '#fff',
+          color: '#1f2a44',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 20px',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000,
+          height: 50,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          borderBottom: '1px solid ' + NAV_DIVIDER_COLOR,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
+          {settings.headerIcon ? (
+            <img src={settings.headerIcon} alt="Logo" style={{ height: 28, width: 'auto', display: 'block' }} />
+          ) : (
+            <AppstoreOutlined style={{ color: primaryColor || undefined, fontSize: 18 }} />
+          )}
+
+          <span style={{ fontSize: 14, lineHeight: '14px', display: 'flex', alignItems: 'center' }}>
+            {renderMarkdownBold(headerTitle)}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%' }}>
+          {user && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                <UserOutlined style={{ fontSize: 16 }} />
+                <span
+                  style={{
+                    fontSize: 14,
+                    maxWidth: 160,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {(() => {
+                    const full = String(user.fullName || '').trim();
+                    const shouldUseUsername = !full || /\?/.test(full);
+                    return shouldUseUsername ? user.username || '' : full;
+                  })()}
+                </span>
+
+                {user.tenantName && (
+                  <Tooltip title={`当前租户: ${user.tenantName}`}>
+                    <Tag
+                      bordered={false}
+                      color="blue"
+                      style={{
+                        margin: 0,
+                        fontSize: 10,
+                        lineHeight: '24px',
+                        padding: '0 6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        borderRadius: 4,
+                      }}
+                    >
+                      <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {user.tenantName}
+                      </span>
+                    </Tag>
+                  </Tooltip>
+                )}
+
+                {user.organizationName && (
+                  <Tooltip title={`当前组织: ${user.organizationName}`}>
+                    <Tag
+                      bordered={false}
+                      color="pink"
+                      style={{
+                        margin: 0,
+                        fontSize: 10,
+                        lineHeight: '24px',
+                        padding: '0 6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        borderRadius: 4,
+                      }}
+                    >
+                      <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {user.organizationName}
+                      </span>
+                    </Tag>
+                  </Tooltip>
+                )}
+              </div>
+
+              <Divider type="vertical" style={{ height: 24, margin: 0, borderColor: 'rgba(255,255,255,0.35)' }} />
+
+              {user.role !== 'tenant' && (
+                <Tooltip title="修改密码">
+                  <Button
+                    type="text"
+                    icon={<LockOutlined style={{ color: '#595959', fontSize: 16 }} />}
+                    onClick={openChangePassword}
+                    style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  />
                 </Tooltip>
               )}
 
-              {user.organizationName && (
-                <Tooltip title={`当前组织: ${user.organizationName}`}>
-                  <Tag bordered={false} color="pink" style={{ margin: 0, fontSize: 10, lineHeight: '24px', padding: '0 6px', display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}>
-                    
-                    <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.organizationName}</span>
-                  </Tag>
-                </Tooltip>
-              )}
+              <Tooltip title="退出登录">
+                <Button
+                  type="text"
+                  icon={<LogoutOutlined style={{ color: '#595959', fontSize: 16 }} />}
+                  onClick={handleLogout}
+                  style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                />
+              </Tooltip>
             </div>
-
-            <Divider type="vertical" style={{ height: 24, margin: 0, borderColor: '#e8e8e8' }} />
-
-            <Tooltip title="退出登录">
-              <Button 
-                type="text" 
-                icon={<LogoutOutlined style={{ color: '#595959', fontSize: 16 }} />} 
-                onClick={handleLogout} 
-                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              />
-            </Tooltip>
-          </div>
-        )}
-      </div>
-    </Header>
-  );
+          )}
+        </div>
+      </Header>
+    );
+  };
 
   
 
@@ -239,11 +346,17 @@ const AdminLayout: React.FC = () => {
    * @returns React 图标组件
    */
   const groupIconOf = (pf: string, grp: string) => {
-    const firstSpec = routeSpecs
+    const visible = routeSpecs
+      .filter(s => s.layout === 'admin' && s.platform === pf && s.group === grp && !s.hidden)
+      .sort((a:any, b:any) => Number(a.order ?? 9999) - Number(b.order ?? 9999));
+
+    const all = routeSpecs
       .filter(s => s.layout === 'admin' && s.platform === pf && s.group === grp)
-      .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))[0];
-    const iconKey = firstSpec?.icon;
-    return iconOf(iconKey);
+      .sort((a:any, b:any) => Number(a.order ?? 9999) - Number(b.order ?? 9999));
+
+    const list = visible.length > 0 ? visible : all;
+    const firstWithIcon = list.find(s => !!s.icon) || list[0];
+    return iconOf(firstWithIcon?.icon);
   };
 
   /**
@@ -266,20 +379,17 @@ const AdminLayout: React.FC = () => {
    *   ]
    * }
    */
-  const adminSpecs = routeSpecs.filter(s => s.layout === 'admin' && !s.hidden);
+  const adminSpecs = React.useMemo(() => routeSpecs.filter(s => s.layout === 'admin' && !s.hidden), []);
   
-  const centers = React.useMemo(() => PLATFORMS.filter(p => p !== '全部').map((pf: any) => ({
-    key: pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : pf === 'CNSOC' ? '/admin/cen_secops' : '/admin/cen_settings',
-    label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
-    icon: pf === 'SETTINGS' ? <SettingOutlined /> : <CodeOutlined />,
-    // 对于 SETTINGS 平台，直接平铺子菜单，不进行分组嵌套
-    items: pf === 'SETTINGS' ? 
-      adminSpecs.filter(s => s.platform === pf)
-        .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
-        .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature }))
-      :
-      // 其他平台保持原有的分组逻辑
-      Array.from(new Set(adminSpecs.filter(s => s.platform === pf).map(s => String(s.group || ''))))
+  const centers = React.useMemo(() => PLATFORMS.filter(p => p !== '全部').map((pf: any) => {
+    const key = pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : pf === 'CNSOC' ? '/admin/cen_secops' : '/admin/cen_settings';
+    const platformSpecs = adminSpecs.filter(s => s.platform === pf);
+    const topLevelSpecs = platformSpecs.filter(s => !s.group);
+    const groupedSpecs = platformSpecs.filter(s => !!s.group);
+    const topLevelItems = topLevelSpecs
+      .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
+      .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature }));
+    const groupItems = Array.from(new Set(groupedSpecs.map(s => String(s.group || ''))))
       .sort((a, b) => {
         const idxA = GROUPS.indexOf(a as any);
         const idxB = GROUPS.indexOf(b as any);
@@ -288,21 +398,28 @@ const AdminLayout: React.FC = () => {
         return safeA - safeB;
       })
       .map((grp) => ({
-      key: `${pf}_${grp}`,
-      label: grp,
-      icon: groupIconOf(pf, grp),
-      children: adminSpecs
-        .filter(s => s.platform === pf && s.group === grp)
-        .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
-        .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature })),
-    })),
-  })), []);
+        key: `${pf}_${grp}`,
+        label: grp,
+        icon: groupIconOf(pf, grp),
+        children: groupedSpecs
+          .filter(s => s.group === grp)
+          .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
+          .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature })),
+      }));
+    return ({
+      key,
+      label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
+      icon: pf === 'SETTINGS' ? <SettingOutlined /> : <CodeOutlined />,
+      // SETTINGS 平台也按 group 构建，确保系统管理侧边栏满足“分组块”展示需求
+      items: [...topLevelItems, ...groupItems],
+    });
+  }), [adminSpecs]);
 
   /**
    * 移除菜单项中的自定义属性（避免传递给 DOM 元素）
    * 检索关键词: cleanMenuItem remove custom props 清理菜单项
    */
-  const cleanMenuItem = (item: any): any => {
+  const cleanMenuItem = useCallback((item: any): any => {
     const { requiredFeature, ...rest } = item;
     if (rest.children) {
       return {
@@ -311,7 +428,7 @@ const AdminLayout: React.FC = () => {
       };
     }
     return rest;
-  };
+  }, []);
 
   /**
    * 过滤后的可见平台中心（根据权限过滤）
@@ -330,35 +447,32 @@ const AdminLayout: React.FC = () => {
       return true;
     })
     .map((c:any) => {
-      // SETTINGS 平台的菜单项是直接平铺的（没有 children 结构）
-      if (c.key === '/admin/cen_settings') {
-        return {
-          ...c,
-          items: (c.items || [])
-            .filter((it:any) => 
-              canAccessPath(String(it.key || '')) &&
-              (!it.requiredFeature || hasFeature(it.requiredFeature))
-            )
-            .map(cleanMenuItem),
-        };
-      }
-      // 其他平台保持原有的分组逻辑
       return {
         ...c,
         items: (c.items || [])
-          .map((p:any) => ({
-            ...p,
-            children: (p.children || [])
-              .filter((it:any) => 
-                canAccessPath(String(it.key || '')) &&
-                (!it.requiredFeature || hasFeature(it.requiredFeature))
-              )
-              .map(cleanMenuItem),
-          }))
-          .filter((p:any) => (p.children || []).length > 0),
+          .map((p:any) => {
+            if (!p.children) return p;
+            return {
+              ...p,
+              children: (p.children || [])
+                .filter((it:any) => 
+                  canAccessPath(String(it.key || '')) &&
+                  (!it.requiredFeature || hasFeature(it.requiredFeature))
+                )
+                .map(cleanMenuItem),
+            };
+          })
+          .filter((p:any) => {
+            if (p.children) return (p.children || []).length > 0;
+            return (
+              canAccessPath(String(p.key || '')) &&
+              (!p.requiredFeature || hasFeature(p.requiredFeature))
+            );
+          })
+          .map(cleanMenuItem),
       };
     })
-    .filter((c:any) => (c.items || []).length > 0), [centers, user, hasFeature]);
+    .filter((c:any) => (c.items || []).length > 0), [centers, hasFeature, canAccessPath, cleanMenuItem]);
 
   /**
    * 标准 Header 组件
@@ -367,23 +481,22 @@ const AdminLayout: React.FC = () => {
    * 【功能模块】
    * 1. 左侧：Logo、平台切换下拉菜单
    * 2. 中间：全局搜索框（Ctrl+K）
-   * 3. 右侧：API 文档、告警中心、系统设置（齿轮图标）、用户信息、登出按钮
+   * 3. 右侧：API 文档、系统设置（齿轮图标）、用户信息、登出按钮
    */
   const StandardHeader: React.FC = () => {
-    const headerColor = settings.headerColor || '#0A4CC0';
-    const headerColorEnd = settings.headerColorEnd || '#1B64ED';
-    const gradient = `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`;
+    const headerColor = settings.headerColor;
+    const headerColorEnd = settings.headerColorEnd;
+    const gradient =
+      headerColor && headerColorEnd
+        ? `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`
+        : 'transparent';
     
     return (
-    <Header style={{ background: gradient, color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 64, lineHeight:'64px', boxShadow:'0 4px 16px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
+    <Header style={{ background: gradient, color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 64, boxShadow:'0 4px 16px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
       <div style={{ display:'flex', alignItems:'center', height:64 }}>
         <Button type="text" icon={(navOpen ? <DatabaseOutlined style={{color:'#fff',fontSize:20}} /> : <DatabaseFilled style={{color:'#fff',fontSize:20}} />)} onClick={()=> {
           setNavOpen(v => {
             const next = !v;
-            if (next && !selectedGroupKey) {
-              const first = (centers || [])[0]?.key;
-              if (first) setSelectedGroupKey(first);
-            }
             if (next) setNavSection('resources');
             return next;
           });
@@ -396,15 +509,13 @@ const AdminLayout: React.FC = () => {
               style={{ height: 28, width: 'auto', display: 'block' }} 
             />
           )}
-          <span style={{ fontSize:18, color:'#fff' }}>
-            <span style={{ fontWeight: 700 }}>{((settings.headerTitle || 'Compute.Tower').split('.')[0])}</span>
-            {((settings.headerTitle || 'Compute.Tower').includes('.') ? '.' + (settings.headerTitle || 'Compute.Tower').split('.').slice(1).join('.') : '')}
+          <span style={{ fontSize:18, color:'#fff', lineHeight: '18px', display: 'flex', alignItems: 'center' }}>
+            {settingsLoading ? '' : renderMarkdownBold(settings.headerTitle ?? '')}
           </span>
         </Space>
          <Dropdown
             menu={{
               items: visibleCenters
-                .filter((c: any) => c.key !== '/admin/cen_settings') // 过滤掉系统设置
                 .map((c: any) => ({
                   key: c.key,
                   label: (
@@ -414,15 +525,13 @@ const AdminLayout: React.FC = () => {
                     </Space>
                   ),
                   onClick: () => {
-                    const firstGroup = (c.items || [])[0];
-                    const firstPage = (firstGroup?.children || [])[0];
-                    if (firstPage?.key) {
-                      navigate(firstPage.key);
-                    }
+                    const first = (c.items || [])[0];
+                    const firstPage = first?.children ? (first.children || [])[0] : first;
+                    if (firstPage?.key) navigate(firstPage.key);
                   },
                 })),
               selectable: true,
-              selectedKeys: [visibleCenters.find(c => c.key === activeSidebarKey && c.key !== '/admin/cen_settings')?.key || ''],
+              selectedKeys: [visibleCenters.find(c => c.key === activeSidebarKey)?.key || ''],
             }}
             trigger={['click']}
           >
@@ -483,7 +592,7 @@ const AdminLayout: React.FC = () => {
             height: 36,
             borderRadius: 10,
             border: '1px solid rgba(255,255,255,0.6)',
-            background: settings.searchBackgroundColor || '#1062fe',
+            background: settings.searchBackgroundColor || 'transparent',
             display:'flex',
             alignItems:'center',
             justifyContent:'space-between',
@@ -500,15 +609,29 @@ const AdminLayout: React.FC = () => {
         </div>
       </div>
       <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
-        <ApiOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/api-docs')} />
-        <BellOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/alarms')} />
-        <SettingOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/settings/general')} />
+        <SettingOutlined style={{color:'#fff',fontSize:18}} onClick={()=>{
+          // 找到 SETTINGS 平台的第一个可访问页面
+          const settingsCenter = visibleCenters.find((c: any) => c.key === '/admin/cen_settings');
+          if (settingsCenter) {
+            const first = (settingsCenter.items || [])[0];
+            const firstPage = first?.children ? (first.children || [])[0] : first;
+            if (firstPage?.key) {
+              navigate(firstPage.key);
+            } else {
+              // 如果没有找到可访问的页面，跳转到默认设置页面
+              navigate('/admin/settings/general');
+            }
+          } else {
+            // 如果没有 SETTINGS 平台，跳转到默认设置页面
+            navigate('/admin/settings/general');
+          }
+        }} />
         {user && (<>
           <div>
           <UserOutlined style={{color:'#fff',fontSize:18,marginRight:6}} />
           {(() => {
             const full = String(user.fullName || '').trim();
-            const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
+            const shouldUseUsername = !full || /\?/.test(full);
             const display = shouldUseUsername ? (user.username || '') : full;
             
             return (
@@ -520,6 +643,16 @@ const AdminLayout: React.FC = () => {
             );
           })()}
           </div>
+          {user.role !== 'tenant' && (
+            <Button
+              type="link"
+              size="small"
+              onClick={openChangePassword}
+              style={{ color: '#fff', padding: 0 }}
+            >
+              修改密码
+            </Button>
+          )}
           <Button style={{color:'#1062fe',borderRadius:16,fontSize:12}} size="small" onClick={handleLogout}>Logout</Button>
         </>)}
       </div>
@@ -561,8 +694,22 @@ const AdminLayout: React.FC = () => {
           });
         });
       } else {
-        // 其他平台保持原有的分组逻辑
         (c.items || []).forEach((p:any) => {
+          if (!p.children) {
+            const title = `${String(p.label || '')} ${String(c.label || '')}`;
+            opts.push({
+              value: String(p.key || ''),
+              title,
+              label: (
+                <Space size={8}>
+                  <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{p.icon}</span>
+                  <span style={{ fontSize:13 }}>{p.label}</span>
+                  <Typography.Text type="secondary" style={{ marginLeft:8 }}>{c.label}</Typography.Text>
+                </Space>
+              ),
+            });
+            return;
+          }
           (p.children || []).forEach((it:any) => {
             const title = `${String(it.label || '')} ${String(p.label || '')} ${String(c.label || '')}`;
             opts.push({
@@ -614,6 +761,11 @@ const AdminLayout: React.FC = () => {
    * - ArrowUp: 向上选择
    * - Enter: 打开选中的页面
    */
+  // 同步 searchActiveIndex 到 ref
+  useEffect(() => {
+    searchActiveIndexRef.current = searchActiveIndex;
+  }, [searchActiveIndex]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -628,15 +780,23 @@ const AdminLayout: React.FC = () => {
         }
         if (e.key === 'ArrowDown') {
           e.preventDefault();
-          setSearchActiveIndex(i => Math.min(i + 1, Math.max(filteredSearchList.length - 1, 0)));
+          setSearchActiveIndex(i => {
+            const newIndex = Math.min(i + 1, Math.max(filteredSearchList.length - 1, 0));
+            searchActiveIndexRef.current = newIndex;
+            return newIndex;
+          });
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault();
-          setSearchActiveIndex(i => Math.max(i - 1, 0));
+          setSearchActiveIndex(i => {
+            const newIndex = Math.max(i - 1, 0);
+            searchActiveIndexRef.current = newIndex;
+            return newIndex;
+          });
         }
         if (e.key === 'Enter') {
           e.preventDefault();
-          const sel = filteredSearchList[searchActiveIndex];
+          const sel = filteredSearchList[searchActiveIndexRef.current];
           if (sel) {
             const path = sel.path;
             navigate(path);
@@ -648,7 +808,7 @@ const AdminLayout: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [searchOpen, filteredSearchList]);
+  }, [searchOpen, filteredSearchList, navigate]);
 
 
   // ============================================================================
@@ -712,41 +872,58 @@ const AdminLayout: React.FC = () => {
    * 检索关键词: openKeys auto expand 自动展开菜单
    * 
    * 【逻辑说明】
-   * - SETTINGS 平台：菜单项直接平铺，不需要展开分组，openKeys 设为空数组
-   * - 其他平台：找到包含当前路径的分组，展开该分组
+   * - 找到包含当前路径的分组，展开该分组
+   * - 如果当前路径是顶级菜单项（无分组），则不展开任何分组
    */
   useEffect(() => {
-    if (!collapsed) {
-      const center = (visibleCenters.find(c => c.key === activeSidebarKey) || (visibleCenters || [])[0]);
-      const currentPath = location.pathname;
-      
-      // SETTINGS 平台的菜单项是直接平铺的（没有 children 结构），不需要设置 openKeys
-      if (center?.key === '/admin/cen_settings') {
-        setOpenKeys([]);
-        return;
+    if (collapsed) {
+      // 折叠状态下不展开任何分组
+      return;
+    }
+    
+    const center = visibleCenters.find(c => c.key === activeSidebarKey) || visibleCenters[0];
+    if (!center) return;
+    
+    const currentPath = location.pathname.split('?')[0]; // 移除查询参数
+    
+    // 查找包含当前路径的分组
+    const activeGroup = (center.items || []).find((item: any) => {
+      // 如果是分组（有 children），检查其子项是否包含当前路径
+      if (item.children && Array.isArray(item.children)) {
+        return item.children.some((child: any) => {
+          const childPath = String(child.key || '').split('?')[0];
+          return childPath === currentPath;
+        });
       }
-      
-      // 其他平台保持原有的分组逻辑
-      const activeGroup = (center?.items || []).find((p:any) => (p.children || []).some((it:any) => String(it.key || '').split('?')[0] === currentPath));
-      const nextKeys = activeGroup ? [activeGroup.key] : [];
-      
+      // 如果是顶级菜单项，检查是否匹配当前路径
+      const itemPath = String(item.key || '').split('?')[0];
+      return itemPath === currentPath;
+    });
+    
+    // 如果找到分组，展开它；否则保持当前展开状态
+    if (activeGroup && activeGroup.children) {
+      const groupKey = activeGroup.key;
       setOpenKeys(prev => {
-        if (prev.length === nextKeys.length && prev.every((k, i) => k === nextKeys[i])) {
-          return prev;
-        }
-        return nextKeys;
+        if (prev.includes(groupKey)) return prev;
+
+        // 只保留当前平台的展开状态，避免切平台后残留其它平台的 openKeys
+        const pfPrefix = String(groupKey).split('_')[0];
+        const nextBase = prev.filter(k => String(k).startsWith(pfPrefix + '_'));
+
+        // 保留其它已展开分组，只新增当前分组到 openKeys，避免“点第一个分组导致其它折叠”
+        return [...nextBase, groupKey];
       });
     }
   }, [collapsed, activeSidebarKey, location.pathname, visibleCenters]);
 
   /**
-   * 导航抽屉标签页切换时重置标签
+   * 导航抽屉标签页切换时重置标签（保留用于未来扩展）
    */
-  useEffect(() => {
-    if (navSection === 'products') {
-      setActiveTab('全部');
-    }
-  }, [navSection]);
+  // useEffect(() => {
+  //   if (navSection === 'products') {
+  //     setActiveTab('全部');
+  //   }
+  // }, [navSection]);
 
   /**
    * 打开导航抽屉时加载资源池数据
@@ -782,6 +959,72 @@ const AdminLayout: React.FC = () => {
       {/* 根据路径选择 Header 组件 */}
       {isProConsole ? <ProHeader /> : <StandardHeader />}
       <>
+        <Modal
+          title={forcePasswordChange ? '密码已过期，请修改密码' : '修改密码'}
+          open={changePasswordOpen}
+          onCancel={() => {
+            if (!forcePasswordChange) setChangePasswordOpen(false);
+          }}
+          onOk={submitChangePassword}
+          confirmLoading={changePasswordSaving}
+          okText="确认修改"
+          cancelText="取消"
+          closable={!forcePasswordChange}
+          maskClosable={!forcePasswordChange}
+          destroyOnHidden
+        >
+          <Form form={changePasswordForm} layout="vertical">
+            <Form.Item
+              label="原密码"
+              name="oldPassword"
+              rules={[{ required: true, message: '请输入原密码' }]}
+            >
+              <Input.Password autoComplete="current-password" />
+            </Form.Item>
+            <Form.Item
+              label="新密码"
+              name="newPassword"
+              rules={[
+                { required: true, message: '请输入新密码' },
+                {
+                  validator: async (_, v) => {
+                    const pol =
+                      adminPwdPolicy || {
+                        minLength: 8,
+                        maxLength: 64,
+                        requireUppercase: false,
+                        requireLowercase: false,
+                        requireDigit: false,
+                        requireSpecial: false,
+                        maxPasswordAgeDays: 0,
+                        requirePasswordChangeOnFirstLogin: false,
+                      };
+                    const err = validateAdminPasswordClient(pol, String(v || ''), user?.username);
+                    if (err) throw new Error(err);
+                  },
+                },
+              ]}
+            >
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
+            <Form.Item
+              label="确认新密码"
+              name="confirmPassword"
+              dependencies={['newPassword']}
+              rules={[
+                { required: true, message: '请再次输入新密码' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
+                    return Promise.reject(new Error('两次输入的新密码不一致'));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
+          </Form>
+        </Modal>
         {/* 全局搜索弹窗 */}
         {/* 检索关键词: search modal dialog 搜索弹窗 */}
         {searchOpen && (
@@ -1008,99 +1251,33 @@ const AdminLayout: React.FC = () => {
             background: #ffffff !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected {
-            background-color: ${settings.sidebarMenuItemSelectedColor || '#e6f7ff'} !important;
+            background-color: ${settings.sidebarMenuItemSelectedColor || 'transparent'} !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected::after {
-            border-right-color: ${settings.sidebarMenuItemSelectedColor || '#e6f7ff'} !important;
+            border-right-color: ${settings.sidebarMenuItemSelectedColor || 'transparent'} !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected > span {
-            color: ${settings.sidebarMenuItemSelectedTextColor || '#1677ff'} !important;
+            color: ${settings.sidebarMenuItemSelectedTextColor || 'inherit'} !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected .anticon {
-            color: ${settings.sidebarMenuItemSelectedIconColor || '#1677ff'} !important;
+            color: ${settings.sidebarMenuItemSelectedIconColor || 'inherit'} !important;
           }
         `}</style>
         {/* 侧边栏菜单 */}
-        {/* 检索关键词: sidebar sider menu navigation 侧边栏菜单 */}
-        {/* 在特定页面隐藏侧边栏：资源控制台、API 文档 */}
-        {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console') || location.pathname.includes('/admin/api-docs')) && (
-          <Sider 
-            collapsible 
-            collapsed={collapsed} 
-            trigger={null} 
-            className="admin-sidebar"
-            style={{
-              background: 'transparent', 
-              borderRight:'1px solid ' + NAV_DIVIDER_COLOR, 
-              position:'sticky', 
-              top: isProConsole ? 50 : 64, 
-              height:`calc(100vh - ${isProConsole ? 50 : 64}px)`, 
-              transition:'all 200ms ease'
-            }}
-          >
-            {(() => {
-              // 获取当前激活的平台中心，如果找不到则使用第一个
-              const center = (visibleCenters.find(c => c.key === activeSidebarKey) || (visibleCenters || [])[0]);
-              return (
-                <>
-                  {/* 侧边栏头部：平台名称和折叠按钮，默认折叠 */}
-                  <div 
-                    className="admin-sidebar-header" 
-                    style={{ 
-                      display:'flex', 
-                      alignItems:'center', 
-                      justifyContent: collapsed ? 'center' : 'space-between', 
-                      padding: collapsed ? '12px' : '12px', 
-                      borderBottom:'1px solid ' + NAV_DIVIDER_COLOR, 
-                      background: '#F9F9FA' 
-                    }}
-                  >
-                    {!collapsed && (
-                      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                        <Typography.Text>{center.label}</Typography.Text>
-                      </div>
-                    )}
-                    <Button 
-                      type="text" 
-                      icon={collapsed ? (
-                        <MenuUnfoldOutlined style={{fontSize:16}} />
-                      ) : (
-                        <MenuFoldOutlined style={{fontSize:16}} />
-                      )} 
-                      onClick={() => { 
-                        setOpenKeys([]); 
-                        setCollapsed(!collapsed); 
-                        setMenuKey(k => k + 1); 
-                      }} 
-                      style={{
-                        height:28,
-                        width:28,
-                        display:'flex',
-                        alignItems:'center',
-                        justifyContent:'center'
-                      }} 
-                    />
-                  </div>
-                  {/* 菜单组件 */}
-                  {/* 检索关键词: Menu component items selectedKeys openKeys 菜单组件 */}
-                  <Menu key={menuKey} mode="inline" theme="light" className="admin-sidebar-menu" style={{height:'calc(100% - 56px)', borderRight: '0', overflow: collapsed ? 'visible' : 'auto', background: '#ffffff'}}
-                    items={(center?.items || [])} // SETTINGS 平台直接是菜单项数组，其他平台是分组数组
-                    selectedKeys={[location.pathname + location.search]} // 根据当前路径高亮菜单项
-                    openKeys={collapsed ? undefined : openKeys} // 展开的分组（SETTINGS 平台为空数组）
-                    inlineCollapsed={collapsed} // 是否折叠
-                    onClick={({ key }) => {
-                      // 菜单项点击处理
-                      if (typeof key === 'string' && key.startsWith('/')) {
-                        if (key === '/admin/clouds/console') { navigate(key); return; }
-                        navigate(key);
-                      }
-                    }}
-                    onOpenChange={(keys)=> { if (!collapsed) setOpenKeys(keys as string[]); }} // 分组展开/收起处理
-                  />
-                </>
-              );
-            })()}
-          </Sider>
+        {/* 在特定页面隐藏侧边栏：资源控制台 */}
+        {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console')) && (
+          <AdminSidebar
+            collapsed={collapsed}
+            onCollapse={(next) => setCollapsed(next)}
+            openKeys={openKeys}
+            setOpenKeys={setOpenKeys}
+            activeSidebarKey={activeSidebarKey}
+            visibleCenters={visibleCenters as any}
+            selectedPathname={location.pathname}
+            navigate={navigate}
+            isProConsole={isProConsole}
+            dividerColor={NAV_DIVIDER_COLOR}
+          />
         )}
         {/* 内容区域 */}
         {/* 检索关键词: Content Outlet 内容区域 */}

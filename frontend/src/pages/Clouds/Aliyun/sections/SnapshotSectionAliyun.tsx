@@ -200,7 +200,7 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
       toolbarLeft={(
         <Space wrap>
           <Input 
-            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             placeholder="搜索名称/ID/磁盘ID" 
             allowClear 
             value={keyword} 
@@ -242,7 +242,10 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
         rowKey={(r: any) => r?.SnapshotId || r?.id} 
         dataSource={filtered} 
         columns={columns as any} 
-        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }} 
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }} 
         scroll={{ x: 1000 }}
       />
     </PageDetailSection>

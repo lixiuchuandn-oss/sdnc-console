@@ -23,8 +23,7 @@ services/
 ├── monitoringApi.ts         # 监控与告警 API
 ├── loggingApi.ts            # 日志管理 API
 ├── systemApi.ts             # 系统配置 API
-├── aiSocApi.ts              # AI SOC（威胁事件）API
-└── mockData.ts              # 模拟数据（开发测试用）
+└── aiSocApi.ts              # AI SOC（威胁事件）API
 ```
 
 ---
@@ -138,7 +137,7 @@ await apiDelete('/api/users/123');
 
 **API 路径**: 
 - CSM CTL 直接调用：`/api-proxy/V2/ctcontrol/VR1/*`
-- 后端 API：`/api/vr-config/*`, `/api/vr-cache/*`, `/api/networks/acl*`, `/api/networks/nat*`
+- 后端 API：`/api/vr-config/*`, `/api/vr-instances/*`, `/api/networks/acl*`, `/api/networks/nat*`
 
 **状态**: ✅ **已统一** - 使用 `apiRequest`, `apiPost`, `apiDelete`, `apiPatch`, `proxyApiRequest`
 
@@ -188,7 +187,7 @@ await apiDelete('/api/users/123');
 **API 路径**: 
 - `/api-proxy/*` - CSM CTL 代理（生命周期）
 - `/api/vr-config/*` - VR 配置管理
-- `/api/vr-cache/*` - VR 缓存
+- `/api/vr-instances/*` - VR 实例聚合（列表、单条、刷新）
 
 **状态**: ✅ **已统一** - 配置管理使用 `apiRequest`, `apiPost`，生命周期使用 `proxyApiRequest`
 
@@ -272,18 +271,6 @@ await apiDelete('/api/users/123');
 **API 路径**: `/api/threats/proxy/api/v1/report-tasks/*`
 
 **状态**: ✅ **已统一** - 使用 `apiRequest`
-
----
-
-### `mockData.ts` - 模拟数据
-
-**作用**: 开发测试用的模拟数据
-
-**主要功能**:
-- 定义模拟数据接口（Model、Dataset）
-- 提供空数组作为模拟数据源
-
-**状态**: ✅ **无需统一** - 仅用于开发测试
 
 ---
 

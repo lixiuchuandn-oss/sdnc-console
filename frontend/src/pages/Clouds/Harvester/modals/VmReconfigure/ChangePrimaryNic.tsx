@@ -1,5 +1,10 @@
 import React from 'react';
 import { Form, Select, Row, Col, Input, Typography } from 'antd';
+import {
+  ifaceTypeOption,
+  PASSTHROUGH_VIRT_IFACE_OPTIONS,
+} from '../VmCreateWizard/harvesterVmIfaceTypeOptions';
+import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 
 type Props = {
   form: any;
@@ -12,16 +17,19 @@ type Props = {
   setVpcs: (vpcs: any[]) => void;
 };
 
-const NIC_TYPES = [
-  { label: 'bridge', value: 'bridge' }
-];
-
 const NIC_MODELS = [
   { label: 'virtio', value: 'virtio' },
   { label: 'e1000', value: 'e1000' },
   { label: 'e1000e', value: 'e1000e' },
   { label: 'rtl8139', value: 'rtl8139' }
 ];
+
+const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
+
+function isKubeOvnFlatSubnet(s: any): boolean {
+  const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION] ?? '').trim().toLowerCase();
+  return t === 'flat';
+}
 
 const ChangePrimaryNic: React.FC<Props> = ({
   form,
@@ -36,25 +44,38 @@ const ChangePrimaryNic: React.FC<Props> = ({
   const nadInfos = (nads || []).map((n: any) => {
     let type = '' as any; let vlan: any = undefined;
     try { const cfg = JSON.parse(n?.spec?.config || '{}'); type = cfg?.type || ''; vlan = cfg?.vlan; } catch {}
-    const labelBase = n?.metadata?.name; const tag = type || '-';
+    const id = n?.metadata?.name || '-';
+    const alias = n?.metadata?.annotations?.['tower.io/alias'] || '';
+    const labelBase = (alias && alias !== id) ? `${alias} (${id})` : id;
+    const tag = type || '-';
     const label = vlan ? `${labelBase} (VLAN ${vlan}) · ${tag}` : `${labelBase} · ${tag}`;
     return { label, value: `${n.metadata.namespace}/${n.metadata.name}`, _type: String(type).toLowerCase() };
   });
-  const nadOptionsAll = nadInfos.map(x => ({ label: x.label, value: x.value }));
+  const nadOptionsFlat = nadInfos.filter(x => !String(x._type || '').includes('ovn')).map(x => ({ label: x.label, value: x.value }));
   const nadOptionsPassthrough = nadInfos.filter(x => x._type === 'sriov' || x._type === 'macvtap').map(x => ({ label: x.label, value: x.value }));
-  const kubeVpcOptions = (vpcs || []).map((v: any) => ({ label: v.metadata.name, value: v.metadata.name }));
+  const kubeVpcOptions = (vpcs || []).map((v: any) => {
+    const name = v?.metadata?.name || '-';
+    const alias = v?.metadata?.annotations?.['tower.io/alias'] || '';
+    const label = (alias && alias !== name) ? `${alias} (${name})` : name;
+    return { label, value: name };
+  });
 
   return (
     <>
-       <div style={{ marginBottom: 16, color: '#999' }}>变更主网卡将修改 eth0 接口配置（需重启生效）</div>
        <Row gutter={12}>
           <Col span={8}>
             <Form.Item label="网络类型" name="netMode" initialValue="flat" rules={[{ required: true, message: '请选择网络类型' }]}>
               <Select
-                options={[{ label: '扁平网络', value: 'flat' }, { label: 'VPC网络', value: 'vpc' }, { label: '直通网卡', value: 'passthrough' }]}
+                options={[
+                  { label: 'NAD网络', value: 'flat' },
+                  { label: '扁平子网', value: 'flat_subnet' },
+                  { label: 'VPC网络', value: 'vpc' },
+                  { label: '直通网卡', value: 'passthrough' },
+                ]}
                 placeholder="选择网络类型"
                 onChange={(v) => { 
-                   const initialType = v === 'vpc' ? 'bridge' : (v === 'passthrough' ? 'sriov' : 'bridge');
+                   const initialType =
+                     v === 'vpc' ? 'bridge' : v === 'flat_subnet' ? 'managedtap' : v === 'passthrough' ? 'sriov' : 'bridge';
                    try {
                      form.setFieldsValue({
                        netMode: v,
@@ -62,7 +83,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                          type: initialType,
                          model: 'virtio',
                          name: undefined,
-                         vpc: undefined,
+                         vpc: v === 'flat_subnet' ? KUBE_OVN_FLAT_VPC : undefined,
                          subnet: undefined,
                          macAddress: undefined,
                          ipAddress: undefined,
@@ -72,7 +93,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                      });
                    } catch {}
                    setVpcs([...vpcs]); 
-                   if (v === 'vpc') { reloadVpcs(); reloadSubnets(); }
+                   if (v === 'vpc' || v === 'flat_subnet') { reloadVpcs(); reloadSubnets(); }
                 }}
               />
             </Form.Item>
@@ -81,16 +102,17 @@ const ChangePrimaryNic: React.FC<Props> = ({
           <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
              {({ getFieldValue }) => {
                 const mode = getFieldValue('netMode') || 'flat';
-                return (mode === 'flat' || mode === 'passthrough') ? (
+                if (mode === 'flat' || mode === 'passthrough') {
+                  return (
                   <Col span={16}>
                     <Form.Item 
-                      label={mode === 'passthrough' ? '直通网络' : '选择网络'} 
+                      label={mode === 'passthrough' ? '直通网络' : 'NAD网络'} 
                       name={["primaryNic", 'name']} 
                       rules={[{ required: true, message: '请选择网络' }]}
                     >
                       <Select
                         placeholder={mode === 'passthrough' ? '选择直通网络（SR-IOV/macvtap NAD）' : '选择网络'}
-                        options={mode === 'passthrough' ? nadOptionsPassthrough : (nadOptionsAll || [])}
+                        options={mode === 'passthrough' ? nadOptionsPassthrough : (nadOptionsFlat || [])}
                         onDropdownVisibleChange={(open) => { if (open) reloadNads(); }}
                         allowClear={mode !== 'passthrough'}
                         onChange={(val) => {
@@ -109,7 +131,102 @@ const ChangePrimaryNic: React.FC<Props> = ({
                       />
                     </Form.Item>
                   </Col>
-                ) : (
+                  );
+                }
+                if (mode === 'flat_subnet') {
+                  const list = subnets || [];
+                  const flatList = list.filter(
+                    (x: any) =>
+                      isFlatKubeOvnSubnetVpc(x?.spec?.vpc || x?.vpc) && isKubeOvnFlatSubnet(x),
+                  );
+                  return (
+                    <>
+                      <Col span={8}>
+                        <Form.Item name={['primaryNic', 'vpc']} hidden>
+                          <Input />
+                        </Form.Item>
+                        <Form.Item label="扁平子网" name={['primaryNic', 'subnet']} rules={[{ required: true, message: '请选择扁平子网' }]}>
+                          <Select
+                            placeholder="选择扁平子网"
+                            options={(() => {
+                              const used = new Set<string>();
+                              try {
+                                const secs = form.getFieldValue('secondaryNics') || [];
+                                secs.forEach((it: any) => {
+                                  if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
+                                });
+                              } catch {}
+                              const currentSelected = (() => {
+                                try { return form.getFieldValue(['primaryNic', 'subnet']); } catch { return undefined; }
+                              })();
+                              return flatList
+                                .filter((x: any) => {
+                                  const n = x?.metadata?.name || x?.name;
+                                  if (!n) return false;
+                                  if (currentSelected && String(currentSelected) === String(n)) return true;
+                                  return !used.has(String(n));
+                                })
+                                .map((x: any) => {
+                                  const n = x?.metadata?.name || x?.name || '-';
+                                  const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                  const vpcDisp =
+                                    String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                    KUBE_OVN_FLAT_VPC;
+                                  return { label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`, value: n };
+                                });
+                            })()}
+                            onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
+                            onChange={(val) => {
+                              try {
+                                const subnet = flatList.find(
+                                  (x: any) => (x?.metadata?.name || x?.name) === val,
+                                );
+                                let netName = val;
+                                let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                                if (!subnetNs && subnet?.spec?.provider) {
+                                  const parts = String(subnet.spec.provider).split('.');
+                                  if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                                }
+                                if (subnetNs) netName = `${subnetNs}/${val}`;
+                                const flatVpc =
+                                  String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                  KUBE_OVN_FLAT_VPC;
+                                form.setFieldsValue({
+                                  primaryNic: {
+                                    vpc: flatVpc,
+                                    subnet: val,
+                                    name: netName,
+                                    type: 'managedtap',
+                                  },
+                                });
+                              } catch {}
+                            }}
+                          />
+                        </Form.Item>
+                        <Form.Item name={['primaryNic', 'name']} hidden>
+                          <Input />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          label="子网网段"
+                          shouldUpdate={(prev, curr) => prev.primaryNic?.subnet !== curr.primaryNic?.subnet}
+                        >
+                          {({ getFieldValue: gf }) => {
+                            const subnetName = gf(['primaryNic', 'subnet']);
+                            const subnet = flatList.find(
+                              (x: any) => (x?.metadata?.name || x?.name) === subnetName,
+                            );
+                            return (
+                              <Input value={subnet?.spec?.cidrBlock || subnet?.cidr || ''} disabled />
+                            );
+                          }}
+                        </Form.Item>
+                      </Col>
+                    </>
+                  );
+                }
+                return (
                    <>
                       <Col span={8}>
                         <Form.Item label="VPC" name={["primaryNic", 'vpc']} rules={[{ required: true }]}>
@@ -117,37 +234,56 @@ const ChangePrimaryNic: React.FC<Props> = ({
                             placeholder="选择 VPC"
                             options={kubeVpcOptions}
                             onDropdownVisibleChange={(open) => { if (open) reloadVpcs(); }}
-                            onChange={(val) => { 
+                            onChange={async (val) => { 
                                try {
                                  const curr = form.getFieldValue('primaryNic') || {}; 
                                  // Reset subnet when VPC changes
                                  form.setFieldsValue({ primaryNic: { ...curr, vpc: val, subnet: undefined, name: undefined, type: 'bridge' } }); 
+                                 // 重新加载子网列表，确保能获取到该VPC下的子网
+                                 await reloadSubnets();
                                } catch {}
                             }}
                           />
                         </Form.Item>
                       </Col>
                       <Col span={8}>
-                        <Form.Item label="子网" name={["primaryNic", 'subnet']} rules={[{ required: true, message: '请选择子网' }]}>
-                          <Select
-                            placeholder="选择 VPC 子网"
-                            options={(function () { 
-                                const vpc = form.getFieldValue(['primaryNic', 'vpc']); 
-                                const list = subnets || []; 
-                                // StepNetworks.tsx 使用 x.vpc，这里假设 subnets 已经是扁平化对象或者我们需要检查 spec
-                                // 为了安全起见，我们同时检查 x.vpc (如果是处理过的) 和 x.spec.vpc (如果是原始的)
-                                const filtered = vpc ? list.filter((x: any) => (x?.vpc === vpc) || (x?.spec?.vpc === vpc)) : []; 
-                                return filtered.map((x: any) => ({ label: `${x?.metadata?.name || x?.name || '-'}`, value: x?.metadata?.name || x?.name })); 
-                            })()}
-                            onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
-                            onChange={(val) => { 
-                               try {
-                                 const curr = form.getFieldValue('primaryNic') || {}; 
-                                 // Subnet name IS the network name in Harvester/Kube-OVN
-                                 form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'bridge' } }); 
-                               } catch {}
-                            }}
-                          />
+                        <Form.Item noStyle shouldUpdate={(prev: any, curr: any) => prev?.primaryNic?.vpc !== curr?.primaryNic?.vpc}>
+                          {({ getFieldValue }) => {
+                            const vpc = getFieldValue(['primaryNic', 'vpc']);
+                            const list = subnets || [];
+                            // 过滤出属于当前VPC的子网
+                            const filtered = vpc ? list.filter((x: any) => {
+                              const subnetVpc = x?.spec?.vpc || x?.vpc;
+                              return subnetVpc === vpc;
+                            }) : [];
+                            return (
+                              <Form.Item 
+                                label="子网" 
+                                name={["primaryNic", 'subnet']} 
+                                rules={[{ required: true, message: '请选择子网' }]}
+                              >
+                                <Select
+                                  placeholder="选择 VPC 子网"
+                                  options={filtered.map((x: any) => ({ 
+                                    label: (function () {
+                                      const name = x?.metadata?.name || x?.name || '-';
+                                      const alias = x?.metadata?.annotations?.['tower.io/alias'] || '';
+                                      return (alias && alias !== name) ? `${alias} (${name})` : name;
+                                    })(), 
+                                    value: x?.metadata?.name || x?.name 
+                                  }))}
+                                  onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
+                                  onChange={(val) => { 
+                                     try {
+                                       const curr = form.getFieldValue('primaryNic') || {}; 
+                                       // Subnet name IS the network name in Harvester/Kube-OVN
+                                       form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'bridge' } }); 
+                                     } catch {}
+                                  }}
+                                />
+                              </Form.Item>
+                            );
+                          }}
                         </Form.Item>
                       </Col>
                       {/* CIDR 回显 */}
@@ -177,10 +313,25 @@ const ChangePrimaryNic: React.FC<Props> = ({
                  const mode = getFieldValue('netMode') || 'flat';
                  const netName = getFieldValue(['primaryNic', 'name']) || '';
                  const t = getFieldValue(['primaryNic', 'type']);
-                 const initType = mode === 'passthrough' ? 'sriov' : (mode === 'vpc' ? 'bridge' : (netName ? 'bridge' : 'masquerade'));
+                 const initType =
+                   mode === 'passthrough'
+                     ? 'sriov'
+                     : mode === 'vpc'
+                       ? 'bridge'
+                       : mode === 'flat_subnet'
+                         ? 'managedtap'
+                         : netName
+                           ? 'bridge'
+                           : 'masquerade';
                  const typeOptions = mode === 'passthrough'
-                   ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]
-                   : (mode === 'vpc' ? [{ label: 'bridge', value: 'bridge' }] : (netName ? [{ label: 'bridge', value: 'bridge' }] : [{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }]));
+                   ? PASSTHROUGH_VIRT_IFACE_OPTIONS
+                   : mode === 'vpc'
+                     ? [ifaceTypeOption('bridge')]
+                     : mode === 'flat_subnet'
+                       ? [ifaceTypeOption('managedtap')]
+                       : (netName
+                           ? [ifaceTypeOption('bridge')]
+                           : [ifaceTypeOption('masquerade'), ifaceTypeOption('bridge')]);
                  return (
                    <>
                       <Col span={8}>

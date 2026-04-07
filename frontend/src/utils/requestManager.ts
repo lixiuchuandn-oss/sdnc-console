@@ -3,6 +3,8 @@
  * 提供请求去重、缓存、重试等功能
  */
 
+import { translateKnownApiErrorMessage } from './k8sErrorMessages';
+
 interface RequestConfig {
   method?: string;
   endpoint: string;
@@ -40,11 +42,11 @@ const pendingRequests = new Map<string, PendingRequest>();
 // 缓存清理间隔（5分钟）
 const CACHE_CLEANUP_INTERVAL = 5 * 60 * 1000;
 
-// 默认配置
+// 默认配置（GET 默认不缓存；需缓存的调用方显式 enableCache: true）
 const DEFAULT_CONFIG = {
   enableDeduplication: true,
-  enableCache: true,
-  cacheTTL: 5 * 60 * 1000, // 5分钟
+  enableCache: false,
+  cacheTTL: 5 * 60 * 1000, // 5分钟（仅当 enableCache 为 true 时生效）
   enableRetry: true,
   retryCount: 2,
   retryDelay: 1000,
@@ -98,15 +100,18 @@ if (typeof window !== 'undefined') {
  */
 async function parseErrorResponse(response: Response): Promise<never> {
   let errorMsg = `HTTP error! status: ${response.status}`;
+  let responseData: any = null;
   try {
-    const data = await response.json();
-    if (data && typeof data === 'object') {
+    // 克隆响应以便多次读取（因为 response.json() 会消费响应体）
+    const clonedResponse = response.clone();
+    responseData = await clonedResponse.json();
+    if (responseData && typeof responseData === 'object') {
       // 1. Prefer 'message' field
-      if (data.message) {
-        errorMsg = data.message;
+      if (responseData.message) {
+        errorMsg = responseData.message;
         // Append 'error' detail if exists
-        if (data.error) {
-          const detail = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+        if (responseData.error) {
+          const detail = typeof responseData.error === 'string' ? responseData.error : JSON.stringify(responseData.error);
           // Avoid duplication
           if (!errorMsg.includes(detail)) {
             errorMsg += `: ${detail}`;
@@ -114,16 +119,25 @@ async function parseErrorResponse(response: Response): Promise<never> {
         }
       }
       // 2. Fallback to 'error' field
-      else if (data.error) {
-        errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+      else if (responseData.error) {
+        errorMsg = typeof responseData.error === 'string' ? responseData.error : JSON.stringify(responseData.error);
       }
     }
   } catch (e) {
-    // ignore JSON parse error
+    // 非 JSON 体（如历史接口 res.send 纯文本）时回退为正文，便于用户看到 422 等原因
+    try {
+      const t = (await response.text()).trim();
+      if (t) errorMsg = t.length > 800 ? `${t.slice(0, 800)}…` : t;
+    } catch {
+      // ignore
+    }
   }
+  errorMsg = translateKnownApiErrorMessage(errorMsg);
   const err: any = new Error(errorMsg);
   err.status = response.status;
   err.response = response;
+  // 保存解析后的响应数据，方便前端访问 e?.response?.data
+  err.responseData = responseData;
   throw err;
 }
 
@@ -167,6 +181,7 @@ async function executeRequest(
     method,
     headers: requestHeaders,
     credentials: 'include',
+    cache: 'no-store',
   };
 
   if (body && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
@@ -233,6 +248,13 @@ export async function requestManager(
   const method = (config.method || 'GET').toUpperCase();
   const isGetRequest = method === 'GET';
 
+  // 如果 URL 中包含 force=true，自动跳过缓存和去重
+  const endpoint = config.endpoint || '';
+  const hasForceParam = endpoint.includes('force=true');
+  if (hasForceParam) {
+    options.skipCache = true;
+  }
+
   // 生成请求键
   const requestKey = generateRequestKey(config);
 
@@ -273,8 +295,8 @@ export async function requestManager(
           )
         : await executeRequest(config, apiBaseUrl);
 
-      // 4. 缓存结果（仅 GET 请求且启用缓存）
-      if (isGetRequest && options.enableCache) {
+      // 4. 缓存结果（仅 GET；skipCache 时不写入，避免「强制刷新」结果被 TTL 缓存、下次仍不请求后端）
+      if (isGetRequest && options.enableCache && !options.skipCache) {
         requestCache.set(requestKey, {
           data,
           timestamp: Date.now(),
@@ -306,6 +328,20 @@ export async function requestManager(
 export function clearCache(endpoint: string, method: string = 'GET') {
   const key = generateRequestKey({ method, endpoint });
   requestCache.delete(key);
+}
+
+/**
+ * 清除某 GET 路径下所有缓存条目（忽略 query；不匹配子路径，如 .../namespaces/foo）
+ */
+export function clearGetCacheForPath(path: string) {
+  const prefix = `GET-${path}`;
+  for (const key of [...requestCache.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    const next = key[prefix.length];
+    if (next === '-' || next === '?') {
+      requestCache.delete(key);
+    }
+  }
 }
 
 /**

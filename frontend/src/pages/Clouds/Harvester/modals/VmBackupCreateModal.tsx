@@ -52,6 +52,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [type, setType] = useState<'backup' | 'snapshot'>(initialType);
   const [selectedNamespace, setSelectedNamespace] = useState<string>('');
+  const lockToInitialVm = !!initialVm;
 
   // 弹窗打开时重置表单，并根据 initialType 初始化当前类型
   useEffect(() => {
@@ -109,10 +110,18 @@ const VmBackupCreateModal: React.FC<Props> = ({
     }
   };
 
-  // 根据所选命名空间过滤可选 VM；只展示当前命名空间内的虚机
-  const filteredVms = vms.filter(vm => !selectedNamespace || vm.namespace === selectedNamespace || (vm.metadata && vm.metadata.namespace === selectedNamespace));
+  const filteredVms = lockToInitialVm
+    ? [initialVm]
+    : vms.filter(vm => !selectedNamespace || vm.namespace === selectedNamespace || (vm.metadata && vm.metadata.namespace === selectedNamespace));
   // 过滤掉系统命名空间，仅保留业务命名空间
-  const filteredNamespaces = namespaces.filter(ns => !isSystemNamespace(ns.metadata?.name || ns.name));
+  // 当 initialVm 存在时，只显示该虚拟机所在的命名空间
+  const filteredNamespaces = namespaces
+    .filter(ns => !isSystemNamespace(ns.metadata?.name || ns.name))
+    .filter(ns => {
+      if (!initialVm) return true;
+      const vmNamespace = initialVm.namespace || initialVm.metadata?.namespace;
+      return ns.metadata?.name === vmNamespace || ns.name === vmNamespace;
+    });
 
   return (
     <Modal
@@ -132,12 +141,13 @@ const VmBackupCreateModal: React.FC<Props> = ({
       >
         <Form.Item
           name="name"
-          label="名称"
+          label="显示名称（别名）"
           rules={[
-            { required: true, message: '请输入名称' }
+            { required: true, message: '请输入显示名称' }
           ]}
+          tooltip="用于显示的友好名称，支持中文。K8s资源名称将自动生成（格式：id-vmb-随机字符串 或 id-vms-随机字符串）"
         >
-          <Input placeholder="请输入名称" />
+          <Input placeholder="例如：生产环境备份-2024" />
         </Form.Item>
 
         <Form.Item
@@ -153,6 +163,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
             }}
             showSearch
             optionFilterProp="children"
+            disabled={lockToInitialVm}
           >
             {filteredNamespaces.map(ns => (
               <Select.Option key={ns.metadata.name} value={ns.metadata.name}>
@@ -171,13 +182,18 @@ const VmBackupCreateModal: React.FC<Props> = ({
             placeholder="请选择虚拟机"
             showSearch
             optionFilterProp="children"
-            disabled={!selectedNamespace}
+            disabled={!selectedNamespace || lockToInitialVm}
           >
-            {filteredVms.map(vm => (
-              <Select.Option key={vm.id || vm.metadata.uid} value={vm.name || vm.metadata.name}>
-                {vm.name || vm.metadata.name}
-              </Select.Option>
-            ))}
+            {filteredVms.map(vm => {
+              const alias = vm.metadata?.annotations?.['tower.io/alias'];
+              const name = vm.name || vm.metadata.name;
+              const displayName = alias ? `${alias} (${name})` : name;
+              return (
+                <Select.Option key={vm.id || vm.metadata.uid} value={name}>
+                  {displayName}
+                </Select.Option>
+              );
+            })}
           </Select>
         </Form.Item>
       </Form>

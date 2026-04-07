@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, message } from 'antd';
+import { Modal, Form, Input, message } from 'antd';
 import { saveHarvesterVmAsTemplate } from '../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
-
+import { translateKnownApiErrorMessage } from '../../../../utils/k8sErrorMessages';
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -10,7 +9,6 @@ type Props = {
   vmNamespace: string;
   vmName: string;
   vmDisplayName?: string;
-  namespacesOptions?: string[];
   isTenant?: boolean;
   onSuccess?: () => void;
 };
@@ -22,7 +20,6 @@ const VmSaveAsTemplateModal: React.FC<Props> = ({
   vmNamespace,
   vmName,
   vmDisplayName,
-  namespacesOptions = [],
   isTenant = false,
   onSuccess,
 }) => {
@@ -35,9 +32,8 @@ const VmSaveAsTemplateModal: React.FC<Props> = ({
     form.setFieldsValue({
       alias: vmDisplayName || vmName,
       description: '',
-      targetNamespace: vmNamespace,
     });
-  }, [open, form, vmDisplayName, vmName, vmNamespace]);
+  }, [open, form, vmDisplayName, vmName]);
 
   const handleOk = async () => {
     try {
@@ -47,8 +43,9 @@ const VmSaveAsTemplateModal: React.FC<Props> = ({
       const payload: any = {};
       if (typeof values.alias === 'string' && values.alias.trim()) payload.alias = values.alias.trim();
       if (typeof values.description === 'string' && values.description.trim()) payload.description = values.description.trim();
-      if (!isTenant && typeof values.targetNamespace === 'string' && values.targetNamespace.trim()) {
-        payload.namespace = values.targetNamespace.trim();
+      /** 业务规则：模板必须与虚拟机同命名空间，不允许改存到其他 namespace */
+      if (!isTenant && String(vmNamespace || '').trim()) {
+        payload.namespace = String(vmNamespace).trim();
       }
 
       await saveHarvesterVmAsTemplate(cloudId, vmNamespace, vmName, payload);
@@ -57,19 +54,12 @@ const VmSaveAsTemplateModal: React.FC<Props> = ({
       onClose();
     } catch (e: any) {
       if (String(e?.errorFields?.length || 0) !== '0') return;
-      message.error(e?.message || '保存为模板失败');
+      const raw = String(e?.message ?? '').trim();
+      message.error(raw ? translateKnownApiErrorMessage(raw) : '保存为模板失败');
     } finally {
       setLoading(false);
     }
   };
-
-  const namespaceOptions = (namespacesOptions || [])
-    .filter((ns) => {
-      if (!ns) return false;
-      if (isSystemNamespace(ns)) return false;
-      return true;
-    })
-    .map((ns) => ({ value: ns, label: ns }));
 
   return (
     <Modal
@@ -88,17 +78,7 @@ const VmSaveAsTemplateModal: React.FC<Props> = ({
         <Form.Item name="description" label="描述">
           <Input.TextArea placeholder="请输入描述（可选）" rows={3} />
         </Form.Item>
-
-        {!isTenant && (
-          <Form.Item name="targetNamespace" label="保存到命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
-            <Select
-              showSearch
-              allowClear={false}
-              options={namespaceOptions}
-              placeholder="请选择命名空间"
-            />
-          </Form.Item>
-        )}
+        {/** 命名空间不展示：业务上模板必须与 VM 同 namespace，提交时仍写入 payload（见 handleOk） */}
       </Form>
     </Modal>
   );

@@ -3,9 +3,13 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
+import { logger } from '../utils/logger';
+
+const licenseLog = logger.child('License');
 
 // 存储 License 的文件路径
 const DATA_DIR = path.join(process.cwd(), 'data');
+const INSTALL_ID_FILE = path.join(DATA_DIR, 'install.id');
 const PREFERRED_LICENSE_FILE = process.env.LICENSE_FILE_PATH
   ? (path.isAbsolute(process.env.LICENSE_FILE_PATH)
       ? process.env.LICENSE_FILE_PATH
@@ -51,6 +55,27 @@ const getLicenseSecret = (): string | undefined => {
   }
 };
 
+/**
+ * 获取或生成本机唯一安装 ID（用于离线授权绑定）
+ * - 首次调用会生成随机 UUID 并写入 data/install.id
+ * - 后续启动复用该 ID，保证同一部署稳定不变
+ */
+export const getInstallId = (): string => {
+  try {
+    if (fs.existsSync(INSTALL_ID_FILE)) {
+      const v = fs.readFileSync(INSTALL_ID_FILE, 'utf-8').trim();
+      if (v) return v;
+    }
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const v = (crypto as any).randomUUID ? (crypto as any).randomUUID() : crypto.randomBytes(16).toString('hex');
+    fs.writeFileSync(INSTALL_ID_FILE, v, 'utf-8');
+    return v;
+  } catch {
+    // 退化策略：内存生成（不落盘），防止接口不可用
+    return (crypto as any).randomUUID ? (crypto as any).randomUUID() : crypto.randomBytes(16).toString('hex');
+  }
+};
+
 export interface LicensePayload {
   iss: string;       // Issuer
   sub: string;       // Subject (Customer Name)
@@ -63,6 +88,8 @@ export interface LicensePayload {
     maxVms: number;
     maxCloudAccounts: number;
   };
+  // 可选：绑定目标平台安装 ID（建议在新版授权中心启用）
+  instanceId?: string;
 }
 
 export type LicenseStatusType = 'valid' | 'expired' | 'invalid' | 'missing';
@@ -103,7 +130,7 @@ class LicenseService {
           iat: Math.floor(Date.now() / 1000),
           exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 默认一年有效期? 或者永久?
           type: 'trial',
-          features: ['platform.default'], // 仅基础功能
+          features: ['platform.default', 'sys.rbac-advanced'],
           limits: {
             maxNodes: 10,
             maxVms: 50,
@@ -134,7 +161,7 @@ class LicenseService {
             iat: Math.floor(Date.now() / 1000),
             exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60),
             type: 'trial',
-            features: ['platform.default'],
+            features: ['platform.default', 'sys.rbac-advanced'],
             limits: { maxNodes: 10, maxVms: 50, maxCloudAccounts: 1 },
           },
           daysRemaining: 365,
@@ -169,6 +196,21 @@ class LicenseService {
       const now = Math.floor(Date.now() / 1000);
       const daysRemaining = Math.ceil((payload.exp - now) / (24 * 60 * 60));
 
+      // 若授权中包含 instanceId 绑定字段，则强制校验与本机 installId 一致
+      if (payload.instanceId) {
+        const localId = getInstallId();
+        if (payload.instanceId !== localId) {
+          this.currentStatus = {
+            status: 'invalid',
+            active: false,
+            payload,
+            daysRemaining,
+            message: 'Instance ID mismatch',
+          };
+          return;
+        }
+      }
+
       if (payload.exp < now) {
         this.currentStatus = { 
           status: 'expired', 
@@ -187,7 +229,7 @@ class LicenseService {
         };
       }
     } catch (error: any) {
-      console.error('License verification failed:', error.message);
+      licenseLog.error('License verification failed:', error?.message ?? String(error));
       this.currentStatus = { status: 'invalid', active: false, message: `Invalid license: ${error.message}` };
     }
   }

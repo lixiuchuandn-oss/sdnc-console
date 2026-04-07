@@ -6,6 +6,8 @@ import { Organization } from '../../entities/Organization';
 import { TenantUser } from '../../entities/TenantUser';
 import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { UserSpace } from '../../entities/UserSpace';
+import { listKubevirtVMsRawWithMeta } from '../../services/clouds/harvester/client';
+import { listHarvesterPVCRaw } from '../../services/clouds/harvester/storage';
 import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
 import { Cloud } from '../../entities/Cloud';
 import { HarvesterNamespaceInventory } from '../../entities/harvester/HarvesterNamespaceInventory';
@@ -16,9 +18,13 @@ import { ServiceChain } from '../../entities/ServiceChain';
 import { SecurityZone } from '../../entities/SecurityZone';
 import { ProtectionObject } from '../../entities/ProtectionObject';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
-import { createHarvesterNamespace, deleteHarvesterNamespace, isProtectedNamespace } from '../../services/clouds/harvester/client';
-import { getJsonOnce } from '../../services/clouds/harvester/utils';
+import { createHarvesterNamespace } from '../../services/clouds/harvester/client';
 import bcrypt from 'bcryptjs';
+import { RoleAssignment } from '../../entities/RoleAssignment';
+import { RBACRole } from '../../entities/RBACRole';
+import { logger } from '../../utils/logger';
+
+const tenantLog = logger.child('Tenant');
 
 // 租户与组织/用户/资源池管理路由：
 // - 提供租户的增删改查接口
@@ -31,16 +37,16 @@ const router = Router();
 // - 由于存在 /:id 等参数化路由，为避免路由匹配冲突，该接口必须放在前面
 router.get('/available-resource-pools', async (req, res) => {
   try {
-    console.log('获取可分配资源池列表请求');
+    tenantLog.debug('获取可分配资源池列表请求');
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const resourcePools = await cloudRepository.find({
       order: { createdAt: 'DESC' },
     });
 
-    console.log('找到资源池数量:', resourcePools.length);
+    tenantLog.debug('找到资源池数量:', resourcePools.length);
     res.json(resourcePools);
   } catch (error) {
-    console.error('获取可分配资源池失败:', error);
+    tenantLog.error('获取可分配资源池失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取可分配资源池失败' });
   }
 });
@@ -55,7 +61,7 @@ router.get('/', async (req, res) => {
 
     res.json(tenants);
   } catch (error) {
-    console.error('获取租户列表失败:', error);
+    tenantLog.error('获取租户列表失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取租户列表失败' });
   }
 });
@@ -109,7 +115,7 @@ router.post('/', async (req, res) => {
       rootOrganization: savedRootOrg,
     });
   } catch (error) {
-    console.error('创建租户失败:', error);
+    tenantLog.error('创建租户失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '创建租户失败' });
   }
 });
@@ -128,7 +134,7 @@ router.get('/:id', async (req, res) => {
 
     res.json(tenant);
   } catch (error) {
-    console.error('获取租户详情失败:', error);
+    tenantLog.error('获取租户详情失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取租户详情失败' });
   }
 });
@@ -158,7 +164,7 @@ router.put('/:id', async (req, res) => {
     const updatedTenant = await tenantRepository.save(tenant);
     res.json(updatedTenant);
   } catch (error) {
-    console.error('更新租户失败:', error);
+    tenantLog.error('更新租户失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '更新租户失败' });
   }
 });
@@ -335,7 +341,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ message: '租户删除成功' });
   } catch (error) {
-    console.error('删除租户失败:', error);
+    tenantLog.error('删除租户失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '删除租户失败' });
   }
 });
@@ -378,7 +384,7 @@ router.get('/:id/organizations', async (req, res) => {
 
     res.json(rootOrgs);
   } catch (error) {
-    console.error('获取组织树失败:', error);
+    tenantLog.error('获取组织树失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取组织树失败' });
   }
 });
@@ -440,7 +446,7 @@ router.post('/:id/organizations', async (req, res) => {
     const savedOrganization = await organizationRepository.save(organization);
     res.status(201).json(savedOrganization);
   } catch (error) {
-    console.error('创建组织失败:', error);
+    tenantLog.error('创建组织失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '创建组织失败' });
   }
 });
@@ -516,7 +522,7 @@ router.put('/organizations/:orgId', async (req, res) => {
 
     return res.json(saved);
   } catch (error) {
-    console.error('更新组织失败:', error);
+    tenantLog.error('更新组织失败:', error instanceof Error ? error.message : String(error));
     return res.status(500).json({ message: '更新组织失败' });
   }
 });
@@ -650,6 +656,15 @@ router.delete('/organizations/:orgId', async (req, res) => {
 
     // 删除相关的资源池分配与租户用户
     await assignmentRepository.delete({ organizationId: In(toDeleteIds) });
+    const usersInOrgs = await userRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+      select: { id: true },
+    });
+    const tenantUserIds = usersInOrgs.map((u) => u.id);
+    if (tenantUserIds.length > 0) {
+      const rbacAssignRepo = AppDataSource.getRepository(RoleAssignment);
+      await rbacAssignRepo.delete({ userType: 'tenant', userId: In(tenantUserIds) });
+    }
     await userRepository.delete({ organizationId: In(toDeleteIds) });
 
     // 删除组织本身
@@ -664,7 +679,7 @@ router.delete('/organizations/:orgId', async (req, res) => {
 
     return res.json({ message: '组织删除成功', deletedCount: toDeleteIds.length });
   } catch (error) {
-    console.error('删除组织失败:', error);
+    tenantLog.error('删除组织失败:', error instanceof Error ? error.message : String(error));
     return res.status(500).json({ message: '删除组织失败' });
   }
 });
@@ -682,7 +697,7 @@ router.get('/:tenantId/users', async (req, res) => {
 
     res.json(users);
   } catch (error) {
-    console.error('获取租户用户列表失败:', error);
+    tenantLog.error('获取租户用户列表失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取租户用户列表失败' });
   }
 });
@@ -701,7 +716,7 @@ router.get('/:tenantId/organizations/:orgId/users', async (req, res) => {
 
     res.json(users);
   } catch (error) {
-    console.error('获取用户列表失败:', error);
+    tenantLog.error('获取用户列表失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取用户列表失败' });
   }
 });
@@ -737,7 +752,7 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
       email,
       fullName,
       password: hashedPassword,
-      role: role || 'user',
+      role: 'user', // 仅保留默认占位，真实角色仅存 RoleAssignment
       organizationId: orgId,
       tenantId,
       status: 'active',
@@ -745,22 +760,44 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
 
     const savedUser = await userRepository.save(user);
 
+    // 创建时分配的角色只写入 rbac_role_assignments，权限与「分配角色」均以此为准
+    const roleId = typeof role === 'string' ? role.trim() : '';
+    if (roleId) {
+      try {
+        const roleRepo = AppDataSource.getRepository(RBACRole);
+        const rbacRole = await roleRepo.findOne({ where: { id: roleId } });
+        if (rbacRole && rbacRole.scope === 'tenant' && rbacRole.status === 'active') {
+          const assignRepo = AppDataSource.getRepository(RoleAssignment);
+          const existed = await assignRepo.findOne({ where: { roleId: roleId, userType: 'tenant', userId: savedUser.id } });
+          if (!existed) {
+            const row = assignRepo.create({ roleId: roleId, userType: 'tenant', userId: savedUser.id });
+            await assignRepo.save(row);
+          }
+        }
+      } catch (e) {
+        tenantLog.error(
+          '创建用户时写入 RBAC 分配失败（不影响用户创建）:',
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    }
+
     // 返回时不包含密码字段，避免泄露
     const { password: _, ...userWithoutPassword } = savedUser;
     res.status(201).json(userWithoutPassword);
   } catch (error) {
-    console.error('创建用户失败:', error);
+    tenantLog.error('创建用户失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '创建用户失败' });
   }
 });
 
 // 更新租户用户信息：
-// - 支持更新邮箱/姓名/密码/角色/状态
+// - 支持更新邮箱/姓名/密码/状态（角色仅通过「分配角色」接口维护）
 // - 更新密码时重新进行哈希
 router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
   try {
     const { tenantId, orgId, userId } = req.params;
-    const { email, fullName, password, role, status } = req.body;
+    const { email, fullName, password, status } = req.body;
 
     const userRepository = AppDataSource.getRepository(TenantUser);
     const tenantUser = await userRepository.findOne({
@@ -787,9 +824,7 @@ router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => 
     if (password) {
       tenantUser.password = await bcrypt.hash(password, 10);
     }
-    if (role) {
-      tenantUser.role = role;
-    }
+    // 角色变更仅通过「分配角色」接口（RoleAssignment）维护，此处不再写入 TenantUser.role
     if (status) tenantUser.status = status;
 
     const updatedUser = await userRepository.save(tenantUser);
@@ -797,7 +832,7 @@ router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => 
     const { password: _, ...userWithoutPassword } = updatedUser;
     res.json(userWithoutPassword);
   } catch (error) {
-    console.error('更新用户失败:', error);
+    tenantLog.error('更新用户失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '更新用户失败' });
   }
 });
@@ -820,11 +855,13 @@ router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) 
       return res.status(404).json({ message: '用户不存在' });
     }
 
+    const rbacAssignRepo = AppDataSource.getRepository(RoleAssignment);
+    await rbacAssignRepo.delete({ userType: 'tenant', userId: userId });
     await userRepository.remove(user);
 
     res.json({ message: '用户删除成功' });
   } catch (error) {
-    console.error('删除用户失败:', error);
+    tenantLog.error('删除用户失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '删除用户失败' });
   }
 });
@@ -895,10 +932,9 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
         });
       }
 
-      if (withCloudPublic) {
-        if (!namespacesToCreate.includes('cloud-public')) {
-          namespacesToCreate.push('cloud-public');
-        }
+      // 模板空间固定分配：总是包含 cloud-public
+      if (!namespacesToCreate.includes('cloud-public')) {
+        namespacesToCreate.push('cloud-public');
       }
 
       if (withDefault) {
@@ -910,7 +946,7 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       // 更新 targetNamespace 以便保存到数据库 (逗号分隔)
       targetNamespace = namespacesToCreate.join(',');
 
-      console.log(`Harvester/Cloudmap 资源池需确保 Namespace: ${namespacesToCreate.join(', ')}`);
+      tenantLog.debug(`Harvester/Cloudmap 资源池需确保 Namespace: ${namespacesToCreate.join(', ')}`);
 
       for (const pool of harvesterPools) {
         try {
@@ -923,13 +959,28 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
           if (endpoint && token) {
             for (const ns of namespacesToCreate) {
               try {
-                const annotations = (ns !== 'default' && ns !== 'cloud-public') ? {
-                  'tower.io/tenant': tenantName,
-                  'tower.io/organization': organization.name
-                } : undefined;
+                // 组织分配：集群级公共空间为 public；其余（含 default、ns-{orgId}、自定义名）均为 tenant
+                const publicClusterNamespaces = new Set(['cloud-public', 'harvester-public']);
+                const isPublic = publicClusterNamespaces.has(ns);
+                const scenario: 'public' | 'tenant' = isPublic ? 'public' : 'tenant';
 
-                await createHarvesterNamespace({ endpoint, token, insecure }, ns, annotations);
-                console.log(`已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns}`);
+                const annotations =
+                  !isPublic && ns !== 'default'
+                    ? {
+                        'tower.io/tenant': tenantName,
+                        'tower.io/organization': organization.name,
+                      }
+                    : undefined;
+
+                await createHarvesterNamespace(
+                  { endpoint, token, insecure }, 
+                  ns, 
+                  annotations,
+                  { scenario, addFinalizer: true }
+                );
+                tenantLog.info(
+                  `已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns} (场景: ${scenario})`,
+                );
 
                 // Update Inventory immediately to ensure visibility without waiting for sync
                 try {
@@ -943,7 +994,10 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
                          });
                     }
                 } catch (e) {
-                    console.warn(`Failed to update local inventory for namespace ${ns}`, e);
+                    tenantLog.warn(
+                      `Failed to update local inventory for namespace ${ns}`,
+                      e instanceof Error ? e.message : String(e),
+                    );
                 }
               } catch (err: any) {
                  const isConflict =
@@ -952,20 +1006,23 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
                     .toLowerCase()
                     .includes('already exists');
                 if (isConflict) {
-                  console.log(`Namespace ${ns} 已存在于资源池 ${pool.name}`);
+                  tenantLog.debug(`Namespace ${ns} 已存在于资源池 ${pool.name}`);
                 } else {
-                  console.warn(
+                  tenantLog.warn(
                     `在资源池 ${pool.name} 创建 Namespace ${ns} 失败:`,
-                    err,
+                    err instanceof Error ? err.message : String(err),
                   );
                 }
               }
             }
           } else {
-            console.warn(`资源池 ${pool.name} 缺少连接信息，无法自动创建 Namespace`);
+            tenantLog.warn(`资源池 ${pool.name} 缺少连接信息，无法自动创建 Namespace`);
           }
         } catch (err: any) {
-           console.warn(`处理资源池 ${pool.name} Namespace 时发生错误:`, err);
+           tenantLog.warn(
+             `处理资源池 ${pool.name} Namespace 时发生错误:`,
+             err instanceof Error ? err.message : String(err),
+           );
         }
       }
     }
@@ -1023,7 +1080,7 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
     }
 
     if (assignments.length > 0) {
-      console.log('保存的 UserSpace 记录:', JSON.stringify(assignments, null, 2));
+      tenantLog.debug('保存的 UserSpace 记录:', JSON.stringify(assignments, null, 2).slice(0, 800));
     }
 
     res.json({
@@ -1032,7 +1089,7 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       skippedCount: resourcePoolIds.length - assignments.length,
     });
   } catch (error) {
-    console.error('资源池分配失败:', error);
+    tenantLog.error('资源池分配失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '资源池分配失败' });
   }
 });
@@ -1042,15 +1099,15 @@ router.get('/organizations/:orgId/resource-pools', async (req, res) => {
   try {
     const { orgId } = req.params;
 
-    console.log('获取组织资源池分配请求, orgId:', orgId);
+    tenantLog.debug('获取组织资源池分配请求, orgId:', orgId);
     const userSpaceRepository = AppDataSource.getRepository(UserSpace);
     const assignments = await userSpaceRepository.find({
       where: { organizationId: orgId },
       relations: ['cloud'],
     });
 
-    console.log('找到的 UserSpace 记录数量:', assignments.length);
-    console.log('UserSpace 记录详情:', JSON.stringify(assignments, null, 2));
+    tenantLog.debug('找到的 UserSpace 记录数量:', assignments.length);
+    tenantLog.debug('UserSpace 记录详情:', JSON.stringify(assignments, null, 2).slice(0, 800));
     const normalized = assignments.map((a: any) => {
       const v = a?.permissions;
       let arr: string[] = [];
@@ -1072,7 +1129,7 @@ router.get('/organizations/:orgId/resource-pools', async (req, res) => {
     });
     res.json(normalized);
   } catch (error) {
-    console.error('获取资源池分配失败:', error);
+    tenantLog.error('获取资源池分配失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取资源池分配失败' });
   }
 });
@@ -1096,7 +1153,7 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
     });
 
     if (userSpace) {
-      // 尝试删除远程 Harvester Namespace
+      // 检查该 UserSpace 下是否仍有 VM 存在
       if (userSpace.cloud && userSpace.name) {
         const isHarvesterLike = (pv: string) => {
           const p = String(pv || '').toLowerCase();
@@ -1104,73 +1161,134 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
         };
         const config = (userSpace.cloud as any).config || {};
         if (isHarvesterLike(config.provider)) {
-           // 优先使用 config.token，其次是 cloud.secretKey (Harvester 常用)，最后是 accessKey
-           const token = config.token || config.apiToken || (userSpace.cloud as any).secretKey || (userSpace.cloud as any).accessKey;
-           const endpoint = userSpace.cloud.endpoint || config.endpoint;
-           const insecure = config.insecure !== undefined ? config.insecure : (config.ignoreTls !== undefined ? config.ignoreTls : false);
-           
-           if (endpoint && token) {
-             const namespacesToDelete = userSpace.namespace 
-                ? userSpace.namespace.split(',').map(s => s.trim()).filter(Boolean)
-                : [userSpace.name];
-                
-                // 统一计算 origin，用于直连 Harvester API
-                const base = (endpoint || '').replace(/\/+$/, '');
-                let origin = base;
-                try {
-                  const u = new URL(base);
-                  origin = `${u.protocol}//${u.host}`;
-                } catch {
-                  origin = base.replace(/\/v[0-9].*$/, '');
+          const namespaces = userSpace.namespace
+            ? userSpace.namespace.split(',').map((s) => s.trim()).filter(Boolean)
+            : [userSpace.name];
+          
+          // 过滤掉公共空间（cloud-public）和默认空间（default），这些空间的资源不属于租户，无条件解绑
+          const publicNamespaces = ['cloud-public', 'default'];
+          const tenantNamespaces = namespaces.filter((ns: string) => !publicNamespaces.includes(ns));
+          const hasPublicNamespace = publicNamespaces.some((ns: string) => namespaces.includes(ns));
+          
+          // 如果没有租户专属命名空间，直接跳过检查，无条件解绑
+          if (tenantNamespaces.length === 0) {
+            tenantLog.debug(
+              `Unbind: skip resource check for userSpace ${userSpace.id}: only public namespaces (${namespaces.join(', ')}), allowing unbind`,
+            );
+          } else {
+            let activeVms: any[] = [];
+            let activeVolumes: any[] = [];
+            // 添加超时机制，防止云平台连接不好时一直卡住
+            const RESOURCE_CHECK_TIMEOUT = 15000; // 15秒超时
+            
+            try {
+              // 创建超时 Promise
+              const timeoutPromise = new Promise<[null, any[]]>((resolve) => {
+                setTimeout(() => {
+                  tenantLog.warn(
+                    `Unbind: resource check timeout after ${RESOURCE_CHECK_TIMEOUT}ms for userSpace ${userSpace.id}`,
+                  );
+                  resolve([null, []]);
+                }, RESOURCE_CHECK_TIMEOUT);
+              });
+              
+              // Check all associated namespaces for VMs and Volumes (excluding cloud-public)
+              // 使用 Promise.race 确保超时后不会一直等待
+              const [vmsResult, volumesResult] = await Promise.race([
+                Promise.all([
+                  listKubevirtVMsRawWithMeta({
+                    endpoint: userSpace.cloud.endpoint,
+                    token: userSpace.cloud.secretKey || '',
+                    insecure: !!config.ignoreTls,
+                  }).catch(() => null),
+                  listHarvesterPVCRaw({
+                    endpoint: userSpace.cloud.endpoint,
+                    token: userSpace.cloud.secretKey || '',
+                    insecure: !!config.ignoreTls,
+                  }).catch(() => [])
+                ]),
+                timeoutPromise
+              ]);
+              
+              if (vmsResult && vmsResult.items) {
+                // Filter VMs belonging to tenant namespaces (excluding cloud-public and default)
+                activeVms = vmsResult.items.filter((vm: any) => 
+                   vm.metadata?.namespace && tenantNamespaces.includes(vm.metadata.namespace)
+                );
+              }
+              
+              if (Array.isArray(volumesResult)) {
+                // Filter Volumes (PVCs) belonging to tenant namespaces (excluding cloud-public and default)
+                activeVolumes = volumesResult.filter((vol: any) => 
+                   vol.metadata?.namespace && tenantNamespaces.includes(vol.metadata.namespace)
+                );
+              }
+            } catch (e: any) {
+              tenantLog.error(
+                `Unbind: failed to check resources for userSpace ${userSpace.id}:`,
+                e instanceof Error ? e.message : String(e),
+              );
+              // 如果包含公共命名空间（cloud-public 或 default），检查失败时也允许解绑（因为这些空间的资源不属于租户）
+              if (hasPublicNamespace) {
+                tenantLog.debug(
+                  `Unbind: resource check failed but contains public namespace(s), allowing unbind for userSpace ${userSpace.id}`,
+                );
+                // 继续执行解绑逻辑，不阻止
+              } else {
+                // 检查失败时，区分超时和其他错误
+                const isTimeout = e?.message?.includes('timeout') || e?.message?.includes('超时');
+                if (isTimeout) {
+                  return res.status(504).json({ 
+                    message: '资源检查超时，请稍后重试',
+                    error: `系统在 ${RESOURCE_CHECK_TIMEOUT}ms 内无法完成资源检查，可能是资源池连接状态不佳。请检查资源池连接状态后重试，或联系管理员。`
+                  });
                 }
-                
-                // 在删除前做 VM 占用校验：如命名空间内存在 VM，则阻断解绑操作
-                try {
-                  const ecsList = await getJsonOnce(`${origin}/v1/harvester/kubevirt.io.virtualmachines`, token, insecure);
-                  const vms: any[] = Array.isArray(ecsList?.items) ? ecsList.items : Array.isArray(ecsList?.data) ? ecsList.data : [];
-                  for (const ns of namespacesToDelete) {
-                    // Skip check for protected namespaces as we won't delete them anyway
-                    if (isProtectedNamespace(ns)) continue;
-                    
-                    const inNs = vms.filter((vm: any) => (vm?.metadata?.namespace || vm?.namespace) === ns);
-                    if (inNs.length > 0) {
-                      const names = inNs
-                        .map((vm: any) => vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || vm?.name)
-                        .filter((n: any) => typeof n === 'string' && n.trim().length > 0);
-                      return res.status(409).json({
-                        message: `不能解绑资源池：命名空间 ${ns} 内存在虚拟机 ${names.slice(0, 5).join('，')}${names.length > 5 ? ' 等' : ''}`,
-                      });
-                    }
-                  }
-                } catch (e: any) {
-                  console.warn('[Tenant-Unbind] VM usage check failed:', e?.message || e);
-                }
-                
-             for (const ns of namespacesToDelete) {
-               // 绝对禁止删除公共/系统命名空间
-               if (isProtectedNamespace(ns)) {
-                 console.log(`跳过删除受保护的 Namespace: ${ns}`);
-                 continue;
-               }
+                // 其他错误，为安全起见阻止解绑操作
+                return res.status(503).json({ 
+                  message: '无法验证资源池状态，请稍后重试',
+                  error: '系统无法验证命名空间内是否存在虚拟机或虚拟卷，为安全起见已终止解绑操作。请检查资源池连接状态后重试。'
+                });
+              }
+            }
 
-               try {
-                 await deleteHarvesterNamespace({ endpoint, token, insecure }, ns);
-                 console.log(`已在资源池 ${userSpace.cloud.name} 中删除 Namespace: ${ns}`);
-               } catch (err: any) {
-                 // 忽略 404 错误，视为已删除
-                 const isNotFound = 
-                   err?.response?.status === 404 || 
-                   String(err?.message || '').includes('Not Found') ||
-                   String(err?.message || '').includes('404');
-                   
-                 if (isNotFound) {
-                   console.warn(`Namespace ${ns} 在资源池中不存在，跳过删除`);
-                 } else {
-                   console.warn(`在资源池 ${userSpace.cloud.name} 删除 Namespace ${ns} 失败（但这不应阻止数据库记录删除）:`, err);
-                 }
-               }
-             }
-           }
+            // 如果存在虚拟机或虚拟卷，阻止解绑（但 cloud-public 中的资源不阻止）
+            if (activeVms.length > 0 || activeVolumes.length > 0) {
+              const vmList = activeVms.map((vm: any) => ({
+                name: vm.metadata?.name || '未知',
+                namespace: vm.metadata?.namespace || '未知',
+                status: vm.status?.printableStatus || vm.status?.phase || '未知',
+              }));
+              
+              const volumeList = activeVolumes.map((vol: any) => ({
+                name: vol.metadata?.name || '未知',
+                namespace: vol.metadata?.namespace || '未知',
+                status: vol.status?.phase || vol.status?.state || '未知',
+                size: vol.status?.capacity?.storage || vol.spec?.resources?.requests?.storage || '未知',
+              }));
+              
+              const resourceTypes: string[] = [];
+              if (activeVms.length > 0) resourceTypes.push(`虚拟机(${activeVms.length}个)`);
+              if (activeVolumes.length > 0) resourceTypes.push(`虚拟卷(${activeVolumes.length}个)`);
+              
+              return res.status(409).json({ 
+                message: `该资源池下仍有资源存在，无法解绑。请先删除或迁移相关资源。存在资源：${resourceTypes.join('、')}`,
+                vms: vmList,
+                vmCount: activeVms.length,
+                volumes: volumeList,
+                volumeCount: activeVolumes.length
+              });
+            }
+          }
+
+           // [策略变更] 解绑资源池时，不再自动删除底层的 Namespace
+           // 原因为防止误删重要数据，将清理工作留给运维人员手动处理
+           // 仅解除 Tower 侧的绑定关系
+           const namespacesToDelete = userSpace.namespace 
+              ? userSpace.namespace.split(',').map(s => s.trim()).filter(Boolean)
+              : [userSpace.name];
+           tenantLog.info(
+             `Unbind: skipping Harvester Namespace deletion for userSpace: ${userSpace.id}, namespaces: ${namespacesToDelete.join(', ')} (manual cleanup if needed)`,
+           );
         }
       }
 
@@ -1204,7 +1322,7 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
 
     res.json({ message: '资源池分配已移除' });
   } catch (error) {
-    console.error('移除资源池分配失败:', error);
+    tenantLog.error('移除资源池分配失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '移除资源池分配失败' });
   }
 });

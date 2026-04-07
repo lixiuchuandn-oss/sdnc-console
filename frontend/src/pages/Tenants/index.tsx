@@ -9,9 +9,7 @@ import {
   Modal,
   Row,
   Col,
-  Tabs,
   Typography,
-  Select,
 } from 'antd';
 import { 
   EllipsisOutlined,
@@ -49,15 +47,15 @@ const TenantsPage: React.FC = () => {
   const [tenantOrgCountMap, setTenantOrgCountMap] = useState<Record<string, number>>({});
   const [tenantUserCountMap, setTenantUserCountMap] = useState<Record<string, number>>({});
   
-  // 展开的树节点
-  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
-  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const navigate = useNavigate();
 
   // 获取租户列表
-  const fetchTenants = async () => {
+  const fetchTenants = async (force: boolean = false) => {
     try {
-      const data = await apiRequest('/api/tenants');
+      setLoading(true);
+      const url = force ? '/api/tenants?force=true' : '/api/tenants';
+      // 强制刷新时跳过缓存，确保获取最新数据
+      const data = await apiRequest(url, force ? { skipCache: true } : undefined);
       const tenantsList = Array.isArray(data) ? data : (data?.tenants || []);
       setTenants(tenantsList);
       // 异步刷新组织数量
@@ -66,6 +64,8 @@ const TenantsPage: React.FC = () => {
       refreshUserCounts(tenantsList);
     } catch (error) {
       message.error('获取租户列表失败');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -159,7 +159,7 @@ const TenantsPage: React.FC = () => {
       setTenantDrawerOpen(false);
       setEditingTenant(null);
       tenantForm.resetFields();
-      fetchTenants();
+      fetchTenants(true);
     } catch (error: any) {
       message.error(error?.message || '操作失败');
     }
@@ -170,7 +170,7 @@ const TenantsPage: React.FC = () => {
     try {
       await apiDelete(`/api/tenants/${id}`);
       message.success('租户删除成功');
-      fetchTenants();
+      fetchTenants(true);
       if (selectedTenant?.id === id) {
         setSelectedTenant(null);
       }
@@ -191,7 +191,7 @@ const TenantsPage: React.FC = () => {
           await Promise.all(selectedTenantRowKeys.map(id => apiDelete(`/api/tenants/${id}`)));
           message.success('批量删除成功');
           setSelectedTenantRowKeys([]);
-          fetchTenants();
+          fetchTenants(true);
         } catch (error: any) {
           message.error(error.response?.data?.message || '批量删除失败');
         }
@@ -207,7 +207,14 @@ const TenantsPage: React.FC = () => {
       key: 'name',
       render: (text: string, record: Tenant) => (
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <a className="cell-link" onClick={()=>navigate(`/admin/tenants/${record.id}/organizations`)}>
+          <a
+            className="cell-link"
+            href={`/admin/tenants/${record.id}/organizations`}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(`/admin/tenants/${record.id}/organizations`);
+            }}
+          >
             {text}
           </a>
         </div>
@@ -357,7 +364,14 @@ const TenantsPage: React.FC = () => {
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             />
           </Form.Item>
-          <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); }}>重置</a>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); }}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            重置
+          </button>
         </Form>
         <div className="toolbar-actions">
           <Button type="primary" onClick={()=> setTenantDrawerOpen(true)}>添加租户</Button>
@@ -374,7 +388,7 @@ const TenantsPage: React.FC = () => {
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
           <Button icon={<SettingOutlined />} />
-          <Button icon={<ReloadOutlined />} onClick={fetchTenants} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchTenants(true)} loading={loading} />
         </div>
       </div>
 
@@ -383,17 +397,14 @@ const TenantsPage: React.FC = () => {
         <Col span={24}>
           <Table
             className="std-table"
-            bordered
+            bordered={false}
             columns={tenantColumns}
             dataSource={filteredTenants}
             rowKey="id"
             rowSelection={{ selectedRowKeys: selectedTenantRowKeys, onChange: (keys)=> setSelectedTenantRowKeys(keys as string[]) }}
-            pagination={{ 
-              size: 'small', 
-              showSizeChanger: true, 
-              pageSize: 10,
-              pageSizeOptions: ['10', '20', '50', '100'],
-              showQuickJumper: false 
+            pagination={{
+              size: 'small',
+              showTotal: (total) => `共 ${total} 条`,
             }}
           />
         </Col>

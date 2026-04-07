@@ -4,7 +4,7 @@ import {
   CloseOutlined, 
   ReloadOutlined,
   KeyOutlined,
-  InfoCircleOutlined
+  CheckCircleOutlined ,
 } from '@ant-design/icons';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
@@ -12,8 +12,6 @@ import { ReactComponent as CpuIcon } from '../../../../assets/clouds/cpu.svg';
 import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
-import { OsIcon } from '../../../../components/OsIcon';
-
 interface HarvesterTemplateDetailDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -257,25 +255,6 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
     return [];
   }, [versionData, template, imageAliases]);
 
-  // 计算操作系统镜像名称
-  const osImage = useMemo(() => {
-    if (!disks || !Array.isArray(disks) || disks.length === 0) return null;
-
-    // 优先找 bootOrder=1 的启动盘，其次第一个有 Image 的盘
-    const bootDisk = disks.find((d: any) => d.bootOrder === 1)
-      || disks.find((d: any) => typeof d.source === 'string' && d.source.startsWith('Image:'))
-      || disks[0];
-
-    if (!bootDisk || typeof bootDisk.source !== 'string') return null;
-
-    // disks 里 source 形如 "Image: xxx"，这里把前缀去掉
-    if (bootDisk.source.startsWith('Image:')) {
-      return bootDisk.source.replace(/^Image:\s*/, '');
-    }
-
-    return bootDisk.source;
-  }, [disks]);
-
   // 解析 Networks (优先 from versionData 解析)
   const networks = useMemo(() => {
     // 1. 尝试从 Version Data 解析
@@ -354,14 +333,8 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
       {/* Header */}
       <div style={{ background: '#f5f7fa', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ 
-                width: 38,
-                height: 38,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-            }}>
-                <OsIcon osName={osImage || ''} style={{ fontSize: 32 }} />
+            <div className="harvester-drawer-title-icon-wrap">
+              <CheckCircleOutlined  />
             </div>
             <div>
                 <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>

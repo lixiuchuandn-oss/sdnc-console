@@ -1,11 +1,20 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { AuditLog } from '../entities/AuditLog';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { UserRole } from '../entities/User';
+// 新权限体系
+import { requirePermission } from '../permissions';
 
 const router = Router();
 
-router.get('/', authMiddleware, async (req, res) => {
+// 权限检查中间件：检查操作审计权限（已迁移到新权限体系）
+// 审计日志只有读权限
+const checkAuditPermission = requirePermission('system.audit:read', {
+  allowSuperAdmin: true,
+});
+
+router.get('/', authMiddleware, checkAuditPermission, async (req, res) => {
   try {
     const { page = 1, limit = 20, search } = req.query;
     const skip = (Number(page) - 1) * Number(limit);

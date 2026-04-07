@@ -111,6 +111,73 @@ function getLevelIcon(level: string): string {
  * 包含精确匹配和正则替换
  */
 const TRANSLATION_RULES = [
+  // virt-launcher 域状态相关
+  { re: /kubevirt domain status:\s*Running\(Paused\)/i, repl: 'KubeVirt 域状态: 运行中(已暂停)' },
+  { re: /kubevirt domain status:\s*Paused\(Shutoff\)/i, repl: 'KubeVirt 域状态: 已暂停(已关闭)' },
+  { re: /kubevirt domain status:\s*Running\(Running\)/i, repl: 'KubeVirt 域状态: 运行中' },
+  { re: /kubevirt domain status:\s*Shutoff\(\)/i, repl: 'KubeVirt 域状态: 已关闭' },
+  { re: /kubevirt domain status:\s*(\w+)\((\w+)\)\s*reason:\s*(\w+)\((\w+)\)/i, repl: 'KubeVirt 域状态: $1($2) 原因: $3($4)' },
+  { re: /kubevirt domain status:\s*(\w+)\(\)\s*reason:\s*(\w+)\(\)/i, repl: 'KubeVirt 域状态: $1 原因: $2' },
+  
+  // DomainLifecycle 事件
+  { re: /DomainLifecycle event Domain event="defined"\s+detail="added"/i, repl: '域生命周期事件: 域已定义 (已添加)' },
+  { re: /DomainLifecycle event Domain event="defined"\s+detail="updated"/i, repl: '域生命周期事件: 域已定义 (已更新)' },
+  { re: /DomainLifecycle event Domain event="started"\s+detail="booted"/i, repl: '域生命周期事件: 域已启动 (已引导)' },
+  { re: /DomainLifecycle event Domain event="resumed"\s+detail="unpaused"/i, repl: '域生命周期事件: 域已恢复 (已取消暂停)' },
+  { re: /DomainLifecycle event Domain event="stopped"\s+detail="shutdown"/i, repl: '域生命周期事件: 域已停止 (已关闭)' },
+  { re: /DomainLifecycle event Domain event="stopped"\s+detail="destroyed"/i, repl: '域生命周期事件: 域已停止 (已销毁)' },
+  { re: /DomainLifecycle event Domain event="(\w+)"\s+detail="(\w+)"\s+with event id (\d+)\s+reason (\d+)\s+received/i, repl: '域生命周期事件: 域事件="$1" 详情="$2" (事件ID: $3, 原因: $4)' },
+  
+  // Domain 状态消息
+  { re: /Domain started\./i, repl: '域已启动' },
+  { re: /Domain defined\./i, repl: '域已定义' },
+  { re: /Domain stopped\./i, repl: '域已停止' },
+  { re: /Domain name event:\s*(.+)/i, repl: '域名称事件: $1' },
+  
+  // GuestAgentLifecycle 事件
+  { re: /GuestAgentLifecycle event state (\d+)\s+with reason (\d+)\s+received/i, repl: '客户机代理生命周期事件: 状态 $1, 原因 $2' },
+  { re: /GuestAgentLifecycle event state (\d+)\s+with reason (\d+)/i, repl: '客户机代理生命周期事件: 状态 $1, 原因 $2' },
+  
+  // Monitoring 监控相关
+  { re: /Monitoring loop:\s+rate (\d+[smh])\s+start timeout (\d+[smh])/i, repl: '监控循环: 频率 $1, 启动超时 $2' },
+  { re: /Successfully connected to domain notify socket at (.+)/i, repl: '成功连接到域通知套接字: $1' },
+  
+  // virt-launcher-monitor 进程管理
+  { re: /Reaped pid (\d+)\s+with status (\d+)/i, repl: '已回收进程 PID $1, 退出状态: $2' },
+  { re: /Found PID for (.+?):\s*(\d+)/i, repl: '找到 $1 的进程 ID: $2' },
+  
+  // Libvirt 连接相关
+  { re: /Connecting to libvirt daemon:\s*(.+)/i, repl: '正在连接到 Libvirt 守护进程: $1' },
+  { re: /Connected to libvirt daemon/i, repl: '已连接到 Libvirt 守护进程' },
+  { re: /Registered libvirt event notify callback/i, repl: '已注册 Libvirt 事件通知回调' },
+  
+  // 客户端请求限制
+  { re: /Client hit max requests limit (\d+)\.\s*This may result in keep-alive timeouts\.\s*Consider tuning the max_client_requests server parameter/i, repl: '客户端已达到最大请求限制 $1。这可能导致 keep-alive 超时。建议调整 max_client_requests 服务器参数' },
+  
+  // Hook 和 Sidecar 相关
+  { re: /Collected all requested hook sidecar sockets/i, repl: '已收集所有请求的 Hook Sidecar 套接字' },
+  { re: /Sorted all collected sidecar sockets per hook point based on their priority and name:\s*(.+)/i, repl: '已按优先级和名称对所有收集的 Sidecar 套接字按 Hook 点排序: $1' },
+  { re: /Executing PreStartHook on VMI pod environment/i, repl: '正在 VMI Pod 环境中执行 PreStartHook' },
+  { re: /Starting PreCloudInitIso hook/i, repl: '正在启动 PreCloudInitIso Hook' },
+  
+  // Domain 详细信息
+  { re: /Domain id=(\d+)\s+name='(.+?)'\s+uuid=(.+?)\s+is tainted:\s*(.+)/i, repl: '域 ID=$1 名称="$2" UUID=$3 已标记为污染: $4' },
+  
+  // 驱动模式设置
+  { re: /Driver IO mode for (.+?)\s+set to (\w+)/i, repl: '设备 $1 的驱动 IO 模式已设置为 $2' },
+  { re: /Driver cache mode for (.+?)\s+set to (\w+)/i, repl: '设备 $1 的驱动缓存模式已设置为 $2' },
+  
+  // 主机名和状态
+  { re: /hostname:\s*(.+)/i, repl: '主机名: $1' },
+  { re: /Marked as ready/i, repl: '已标记为就绪' },
+  
+  // 轮询和代理
+  { re: /Polling command:\s*\[(.+?)/i, repl: '轮询命令: [$1' },
+  { re: /Starting agent poller with commands:\s*\[(.+?)\]/i, repl: '正在启动代理轮询器，命令: [$1]' },
+  
+  // Libvirt 启动信息（匹配完整启动日志，包含版本、QEMU、内核、主机名）
+  { re: /starting up libvirt version:\s*([^,]+),\s*qemu version:\s*([^,]+),\s*kernel:\s*([^,]+),\s*hostname:\s*(.+)/i, repl: '正在启动 Libvirt 版本: $1, QEMU 版本: $2, 内核: $3, 主机名: $4' },
+  
   // 常见 Harvester/K8s/Libvirt 错误
   { re: /Failed to freeze vmi/i, repl: '虚拟机文件系统冻结失败 (通常由于未安装 QEMU Guest Agent 导致)' },
   { re: /unable to execute QEMU agent command '(.+?)'/i, repl: "无法执行 QEMU 代理命令 '$1' (请检查 VM 内是否安装 qemu-guest-agent 并正在运行)" },
@@ -142,9 +209,12 @@ const TRANSLATION_RULES = [
 function translateLogMessage(msg: string): string {
   if (!msg) return msg;
   let text = msg;
+  // 按顺序应用所有匹配的翻译规则
   for (const rule of TRANSLATION_RULES) {
-    if (rule.re.test(text)) {
-      text = text.replace(rule.re, rule.repl);
+    // 使用全局匹配，确保替换所有出现的地方
+    const globalRegex = new RegExp(rule.re.source, rule.re.flags + 'g');
+    if (globalRegex.test(text)) {
+      text = text.replace(globalRegex, rule.repl);
     }
   }
   return text;

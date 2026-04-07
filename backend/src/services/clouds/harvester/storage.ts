@@ -1,5 +1,8 @@
+import { logger } from '../../../utils/logger';
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
+
+const harvesterStorageLog = logger.child('Harvester-Storage');
 
 /**
  * ==============================================================================
@@ -65,7 +68,7 @@ export const listHarvesterPVCRaw = async ({
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester-API] 存储卷从 ${url} 获取失败: ${e.message}`);
+      harvesterStorageLog.debug(`存储卷候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
@@ -154,7 +157,7 @@ export const listHarvesterAvailableVolumesStandard = async (
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester可用卷] 获取失败: 请求地址=${url} 错误=${e.message}`);
+      harvesterStorageLog.debug(`可用卷候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
@@ -183,7 +186,15 @@ export const listHarvesterAvailableVolumesStandard = async (
         );
       const attached = state === 'attached' || inUse;
       const pvcName = v?.status?.kubernetesStatus?.pvcName || '';
-      return { name, pvcName, namespace: ns, size, state, attached };
+      return { 
+        name, 
+        pvcName, 
+        namespace: ns, 
+        size, 
+        state, 
+        attached,
+        workloadsStatus: workloads, // [修复] 保留 workloadsStatus 信息，用于过滤回收站虚拟机的卷
+      };
     })
     // [逻辑过滤] 仅保留未挂载且符合命名空间的卷
     .filter((x: any) => !x.attached)
@@ -229,7 +240,7 @@ export const listHarvesterStorageClassesStandard = async ({
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester-API] 存储类获取失败: 请求地址=${url} 错误=${e.message}`);
+      harvesterStorageLog.debug(`存储类候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
@@ -303,13 +314,16 @@ export const listHarvesterImagesRaw = async ({
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester-API] 镜像从 ${url} 获取失败: ${e.message}`);
+      harvesterStorageLog.debug(`镜像候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
 
   if (!json && lastErr) {
-    console.error(`[Harvester镜像] listHarvesterImagesRaw 执行失败: ${lastErr?.message || lastErr}`);
+    harvesterStorageLog.error(
+      'listHarvesterImagesRaw 执行失败:',
+      lastErr?.message ?? String(lastErr),
+    );
     return [];
   }
 
@@ -327,9 +341,8 @@ export const listHarvesterImagesRaw = async ({
  * 获取 Harvester 标准化镜像列表，包含详细元数据和链接。
  *
  * [数据处理]
- * -统, na:mspace, displayName, size, status。
- * -链生成: 成 view/download 等操作链接。
- * -容处理: 动处理 v1beta1/v1 差异。
+ * - 顶层补充 name、namespace、displayName、size、links；须保留完整 Kubernetes `status`（含 conditions、progress），供镜像列表 state 推断。
+ * - 兼容 v1beta1/v1 等返回差异。
  *
  * @param params 连接参数
  * @returns Promise<any[]> 标准化镜像对象数组
@@ -365,7 +378,10 @@ export const listHarvesterImagesStandard = async ({
     }
   }
   if (!json && lastErr) {
-    console.error(`[Harvester-API] listHarvesterImagesStandard 执行失败: ${lastErr?.message || lastErr}`);
+    harvesterStorageLog.error(
+      'listHarvesterImagesStandard 执行失败:',
+      lastErr?.message ?? String(lastErr),
+    );
     json = { items: [], data: [] };
   }
   const items = Array.isArray(json?.data)
@@ -375,11 +391,10 @@ export const listHarvesterImagesStandard = async ({
       : [];
 
   return items.map((img: any) => ({
+    ...img,
     name: img?.metadata?.name || img?.name || '',
     namespace: img?.metadata?.namespace || img?.namespace || '',
-    metadata: img?.metadata, // Ensure metadata is passed for consumers expecting raw-like structure
     displayName: img?.spec?.displayName || img?.spec?.name || '',
-    status: img?.status?.conditions?.[0]?.type || img?.status?.phase || 'Unknown',
     size: img?.status?.size || img?.spec?.size || img?.status?.downloadedBytes || 0,
     virtualSize: img?.status?.virtualSize || img?.status?.virtualsize || 0,
     storageClassName:
@@ -389,7 +404,9 @@ export const listHarvesterImagesStandard = async ({
       '',
     links: {
       download: img?.links?.download || '',
-      view: img?.links?.view || `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${img?.metadata?.namespace || 'default'}/virtualmachineimages/${img?.metadata?.name || img?.name}`,
+      view:
+        img?.links?.view ||
+        `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${img?.metadata?.namespace || 'default'}/virtualmachineimages/${img?.metadata?.name || img?.name}`,
       remove: img?.links?.remove || '',
       self: img?.links?.self || '',
       update: img?.links?.update || '',
@@ -489,6 +506,13 @@ export const createHarvesterPVCVolume = async (
     const g = Number((payload as any)?.sizeGi || 0);
     return g > 0 ? `${g}Gi` : '10Gi';
   })();
+  // [Feature] 平台托管标记 (Platform Managed)
+  // 添加 tower.io/managed Finalizer 和 tower.io/creator 标签，与虚拟机保持一致
+  const finalizers = ['tower.io/managed'];
+  const labels: Record<string, string> = {
+    'tower.io/creator': 'compute-tower',
+  };
+  
   const body = {
     apiVersion: 'v1',
     kind: 'PersistentVolumeClaim',
@@ -496,6 +520,8 @@ export const createHarvesterPVCVolume = async (
       name: String(payload.name || ''),
       namespace: ns,
       annotations: payload.annotations,
+      finalizers,
+      labels,
     },
     spec: {
       accessModes:
@@ -618,6 +644,7 @@ export const exportImageFromPVC = async (
       sourceType: 'export-from-volume',
       pvcName,
       pvcNamespace: namespace,
+      diskFormat: 'qcow2',
       ...(opts?.targetStorageClassName
         ? { targetStorageClassName: opts.targetStorageClassName }
         : {}),
@@ -925,7 +952,10 @@ export const restoreVolumeSnapshot = async (
         body.spec.resources = { requests: { storage: restoreSize } };
       }
     } catch (e) {
-      console.warn('Failed to fetch snapshot size for restoration, submitting without size.', e);
+      harvesterStorageLog.debug(
+        'Failed to fetch snapshot size for restoration, submitting without size.',
+        e instanceof Error ? e.message : String(e),
+      );
     }
   }
 
@@ -1230,7 +1260,37 @@ export const deleteHarvesterPVC = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(name)}`;
-  return requestJson('DELETE', url, token, insecure);
+  try {
+    const current = await getJsonOnce(url, token, insecure);
+    const finalizers = current?.metadata?.finalizers;
+    const managedFinalizer = 'tower.io/managed';
+    if (Array.isArray(finalizers) && finalizers.includes(managedFinalizer)) {
+      const indicesToRemove = finalizers
+        .map((f: any, i: number) => (f === managedFinalizer ? i : -1))
+        .filter((i: number) => i >= 0)
+        .sort((a: number, b: number) => b - a);
+      if (indicesToRemove.length > 0) {
+        const patchOps = indicesToRemove.map((index: number) => ({
+          op: 'remove',
+          path: `/metadata/finalizers/${index}`,
+        }));
+        await requestJson('PATCH', url, token, insecure, patchOps, {
+          'Content-Type': 'application/json-patch+json',
+        });
+      }
+    }
+  } catch {}
+  try {
+    return await requestJson('DELETE', url, token, insecure);
+  } catch (e: any) {
+    const status = Number(e?.status || 0);
+    const msg = String(e?.message || '').toLowerCase();
+    const body = String(e?.body || '').toLowerCase();
+    if (status === 404 || msg.includes('not found') || body.includes('not found')) {
+      return { status: 'AlreadyDeleted' };
+    }
+    throw e;
+  }
 };
 
 /**
@@ -1299,7 +1359,7 @@ export const listHarvesterSnapshotsStandard = async ({
       // 404 means this version is not supported, continue to next
       if (Number(e?.status) !== 404 && !String(e?.message).includes('404')) {
          // Log non-404 errors as warnings but don't crash
-         console.warn(`[Harvester] Snapshot list warning for ${url}: ${e.message}`);
+         harvesterStorageLog.debug(`Snapshot list candidate failed: ${url}`, e?.message ?? String(e));
       }
     }
   }
@@ -1440,16 +1500,38 @@ export const listHarvesterCloudInitsStandard = async ({
     origin = base.replace(/\/v[0-9].*$/, '');
   }
 
-  // 尝试 Harvester CloudInitTemplates CRD
-  const url = `${origin}/apis/harvesterhci.io/v1beta1/cloudinittemplates`;
-  
-  try {
-    const json = await getJsonOnce(url, token, insecure);
-    return Array.isArray(json?.items) ? json.items : [];
-  } catch (e: any) {
-    console.warn(`[Harvester] 获取 CloudInitTemplates 失败: ${e.message}`);
-    return [];
+  /**
+   * CloudInitTemplate 在多数官方 Harvester 发行版中未作为独立 CRD 注册，直连 apiserver 常为 404。
+   * 使用 silent 探测避免 Compute-Api 对「可选能力」打 error；成功路径与 Rancher 代理 URL 做兼容。
+   */
+  const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/cloudinittemplates`,
+    `${origin}/apis/harvesterhci.io/v1/cloudinittemplates`,
+    `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1beta1/cloudinittemplates`,
+  ];
+
+  let lastStatus: number | undefined;
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      if (Array.isArray(json?.items)) return json.items;
+      if (Array.isArray(json)) return json;
+    } catch (e: any) {
+      lastStatus = e?.status;
+    }
   }
+
+  if (lastStatus && lastStatus !== 404) {
+    harvesterStorageLog.debug(
+      '获取 CloudInitTemplates 失败（非 404，已返回空列表）',
+      lastStatus,
+    );
+  } else {
+    harvesterStorageLog.debug(
+      'CloudInitTemplates API 不可用或为空（404 常见于集群未注册该资源；VM 仍可使用内联 CloudInit）',
+    );
+  }
+  return [];
 };
 
 /**

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Button, Input, App, Upload, Image, Typography, ColorPicker } from 'antd';
-import { BgColorsOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Form, Button, Input, App, Upload, Image, Typography, ColorPicker, Switch } from 'antd';
+import { BgColorsOutlined, UploadOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { useSettings } from '../../contexts/SettingsContext';
 
@@ -9,6 +9,7 @@ const GeneralSettings: React.FC = () => {
   const [themeForm] = Form.useForm();
   const [sidebarForm] = Form.useForm();
   const [contentCardForm] = Form.useForm();
+  const [loginForm] = Form.useForm();
   const { settings, updateSetting, loading } = useSettings();
   const [previewIcon, setPreviewIcon] = useState<string | undefined>(undefined);
 
@@ -16,25 +17,34 @@ const GeneralSettings: React.FC = () => {
     themeForm.setFieldsValue({
       headerTitle: settings.headerTitle,
       headerIcon: settings.headerIcon,
-      headerColor: settings.headerColor || '#0A4CC0',
-      headerColorEnd: settings.headerColorEnd || '#1B64ED',
-      searchBackgroundColor: settings.searchBackgroundColor || '#1062fe',
+      headerColor: settings.headerColor,
+      headerColorEnd: settings.headerColorEnd,
+      searchBackgroundColor: settings.searchBackgroundColor,
     });
     sidebarForm.setFieldsValue({
-      sidebarMenuItemSelectedColor: settings.sidebarMenuItemSelectedColor || '#e6f7ff',
-      sidebarMenuItemSelectedTextColor: settings.sidebarMenuItemSelectedTextColor || '#1677ff',
-      sidebarMenuItemSelectedIconColor: settings.sidebarMenuItemSelectedIconColor || '#1677ff',
+      sidebarMenuItemSelectedColor: settings.sidebarMenuItemSelectedColor,
+      sidebarMenuItemSelectedTextColor: settings.sidebarMenuItemSelectedTextColor,
+      sidebarMenuItemSelectedIconColor: settings.sidebarMenuItemSelectedIconColor,
     });
     contentCardForm.setFieldsValue({
-      primaryColor: settings.primaryColor || '#1677ff',
+      primaryColor: settings.primaryColor,
+    });
+    loginForm.setFieldsValue({
+      loginTitle: settings.loginTitle,
+      loginSubtitle: settings.loginSubtitle,
+      loginBackgroundColor: settings.loginBackgroundColor,
+      loginBackgroundGradientStart: settings.loginBackgroundGradientStart,
+      loginBackgroundGradientEnd: settings.loginBackgroundGradientEnd,
+      loginEnableParticleBackground: settings.loginEnableParticleBackground,
+      loginButtonColor: settings.loginButtonColor,
+      loginButtonHoverColor: settings.loginButtonHoverColor,
     });
     setPreviewIcon(settings.headerIcon);
-  }, [settings, themeForm, sidebarForm, contentCardForm]);
+  }, [settings, themeForm, sidebarForm, contentCardForm, loginForm]);
 
   const handleSaveTheme = async (values: any) => {
-    // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
-    const getHexString = (color: any): string => {
-      if (!color) return '#0A4CC0';
+    const getHexString = (color: any, fallback: string): string => {
+      if (!color) return fallback;
       if (typeof color === 'string') {
         return color.startsWith('#') ? color : `#${color}`;
       }
@@ -44,30 +54,29 @@ const GeneralSettings: React.FC = () => {
       if (color && color.hex) {
         return color.hex.startsWith('#') ? color.hex : `#${color.hex}`;
       }
-      return '#0A4CC0';
+      return fallback;
     };
     
     if (values.headerTitle !== undefined) await updateSetting('headerTitle', values.headerTitle);
     if (values.headerIcon !== undefined) await updateSetting('headerIcon', values.headerIcon);
     if (values.headerColor !== undefined) {
-      const hexColor = getHexString(values.headerColor);
+      const hexColor = getHexString(values.headerColor, settings.headerColor ?? '');
       await updateSetting('headerColor', hexColor);
     }
     if (values.headerColorEnd !== undefined) {
-      const hexColor = getHexString(values.headerColorEnd);
+      const hexColor = getHexString(values.headerColorEnd, settings.headerColorEnd ?? '');
       await updateSetting('headerColorEnd', hexColor);
     }
     if (values.searchBackgroundColor !== undefined) {
-      const hexColor = getHexString(values.searchBackgroundColor);
+      const hexColor = getHexString(values.searchBackgroundColor, settings.searchBackgroundColor ?? '');
       await updateSetting('searchBackgroundColor', hexColor);
     }
     message.success('顶部导航栏设置已保存');
   };
 
   const handleSaveContentCard = async (values: any) => {
-    // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
-    const getHexString = (color: any): string => {
-      if (!color) return '#1677ff';
+    const getHexString = (color: any, fallback: string): string => {
+      if (!color) return fallback;
       if (typeof color === 'string') {
         return color.startsWith('#') ? color : `#${color}`;
       }
@@ -77,11 +86,11 @@ const GeneralSettings: React.FC = () => {
       if (color && color.hex) {
         return color.hex.startsWith('#') ? color.hex : `#${color.hex}`;
       }
-      return '#1677ff';
+      return fallback;
     };
-    
+
     if (values.primaryColor !== undefined) {
-      const hexColor = getHexString(values.primaryColor);
+      const hexColor = getHexString(values.primaryColor, settings.primaryColor ?? '');
       await updateSetting('primaryColor', hexColor);
     }
     message.success('Content card 设置已保存');
@@ -126,23 +135,66 @@ const GeneralSettings: React.FC = () => {
     };
     
     if (values.sidebarMenuItemSelectedColor !== undefined) {
-      const hexColor = getHexString(values.sidebarMenuItemSelectedColor, '#e6f7ff');
+      const hexColor = getHexString(values.sidebarMenuItemSelectedColor, settings.sidebarMenuItemSelectedColor ?? '');
       await updateSetting('sidebarMenuItemSelectedColor', hexColor);
     }
     if (values.sidebarMenuItemSelectedTextColor !== undefined) {
-      const hexColor = getHexString(values.sidebarMenuItemSelectedTextColor, '#1677ff');
+      const hexColor = getHexString(values.sidebarMenuItemSelectedTextColor, settings.sidebarMenuItemSelectedTextColor ?? '');
       await updateSetting('sidebarMenuItemSelectedTextColor', hexColor);
     }
     if (values.sidebarMenuItemSelectedIconColor !== undefined) {
-      const hexColor = getHexString(values.sidebarMenuItemSelectedIconColor, '#1677ff');
+      const hexColor = getHexString(values.sidebarMenuItemSelectedIconColor, settings.sidebarMenuItemSelectedIconColor ?? '');
       await updateSetting('sidebarMenuItemSelectedIconColor', hexColor);
     }
     message.success('侧边栏设置已保存');
   };
 
+  const handleSaveLogin = async (values: any) => {
+    // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
+    const getHexString = (color: any, defaultValue: string): string => {
+      if (!color) return defaultValue;
+      if (typeof color === 'string') {
+        return color.startsWith('#') ? color : `#${color}`;
+      }
+      if (color && typeof color.toHexString === 'function') {
+        return color.toHexString();
+      }
+      if (color && color.hex) {
+        return color.hex.startsWith('#') ? color.hex : `#${color.hex}`;
+      }
+      return defaultValue;
+    };
+    
+    if (values.loginTitle !== undefined) await updateSetting('loginTitle', values.loginTitle);
+    if (values.loginSubtitle !== undefined) await updateSetting('loginSubtitle', values.loginSubtitle);
+    if (values.loginBackgroundColor !== undefined) {
+      const hexColor = getHexString(values.loginBackgroundColor, settings.loginBackgroundColor ?? '');
+      await updateSetting('loginBackgroundColor', hexColor);
+    }
+    if (values.loginBackgroundGradientStart !== undefined) {
+      const hexColor = getHexString(values.loginBackgroundGradientStart, settings.loginBackgroundGradientStart ?? '');
+      await updateSetting('loginBackgroundGradientStart', hexColor);
+    }
+    if (values.loginBackgroundGradientEnd !== undefined) {
+      const hexColor = getHexString(values.loginBackgroundGradientEnd, settings.loginBackgroundGradientEnd ?? '');
+      await updateSetting('loginBackgroundGradientEnd', hexColor);
+    }
+    if (values.loginEnableParticleBackground !== undefined) {
+      await updateSetting('loginEnableParticleBackground', values.loginEnableParticleBackground);
+    }
+    if (values.loginButtonColor !== undefined) {
+      const hexColor = getHexString(values.loginButtonColor, settings.loginButtonColor ?? '');
+      await updateSetting('loginButtonColor', hexColor);
+    }
+    if (values.loginButtonHoverColor !== undefined) {
+      const hexColor = getHexString(values.loginButtonHoverColor, settings.loginButtonHoverColor ?? '');
+      await updateSetting('loginButtonHoverColor', hexColor);
+    }
+    message.success('登录页设置已保存');
+  };
+
   return (
     <PageContainer
-      title="通用设置"
       asCard={false}
       titleLevel={3}
     >
@@ -168,16 +220,9 @@ const GeneralSettings: React.FC = () => {
             className="general-settings-form"
             style={{ maxWidth: 360 }} 
             onFinish={handleSaveTheme}
-            initialValues={{ 
-              headerTitle: settings.headerTitle, 
-              headerIcon: settings.headerIcon, 
-              headerColor: settings.headerColor || '#0A4CC0', 
-              headerColorEnd: settings.headerColorEnd || '#1B64ED',
-              searchBackgroundColor: settings.searchBackgroundColor || '#1062fe',
-            }}
           >
             <Form.Item label="系统标题 (Header Title)" name="headerTitle">
-              <Input placeholder="Compute Tower" style={{ width: 260 }} />
+              <Input placeholder="请输入系统标题" style={{ width: 260 }} />
             </Form.Item>
             <Form.Item label="系统图标 (Header Icon)" name="headerIcon">
               <div>
@@ -283,9 +328,6 @@ const GeneralSettings: React.FC = () => {
             className="general-settings-form"
             style={{ maxWidth: 360 }} 
             onFinish={handleSaveContentCard}
-            initialValues={{ 
-              primaryColor: settings.primaryColor || '#1677ff',
-            }}
           >
             <Form.Item label="主按钮颜色 (Primary Button Color)" name="primaryColor">
               <ColorPicker 
@@ -321,11 +363,6 @@ const GeneralSettings: React.FC = () => {
             className="general-settings-form"
             style={{ maxWidth: 360 }} 
             onFinish={handleSaveSidebar}
-            initialValues={{ 
-              sidebarMenuItemSelectedColor: settings.sidebarMenuItemSelectedColor || '#e6f7ff',
-              sidebarMenuItemSelectedTextColor: settings.sidebarMenuItemSelectedTextColor || '#1677ff',
-              sidebarMenuItemSelectedIconColor: settings.sidebarMenuItemSelectedIconColor || '#1677ff',
-            }}
           >
             <Form.Item label="菜单项选中背景颜色 (Selected Background)" name="sidebarMenuItemSelectedColor">
               <ColorPicker 
@@ -385,6 +422,134 @@ const GeneralSettings: React.FC = () => {
                       '#1890ff',
                       '#096dd9',
                       '#0050b3',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
+            </Form.Item>
+          </Form>
+        </Card>
+
+        <Card title={<span><LoginOutlined style={{ marginRight: 8 }} />登录页个性化设置</span>} style={{ marginBottom: 24 }}>
+          <Form 
+            form={loginForm}
+            layout="vertical" 
+            className="general-settings-form"
+            style={{ maxWidth: 360 }} 
+            onFinish={handleSaveLogin}
+          >
+            <Form.Item label="登录页标题 (Login Title)" name="loginTitle">
+              <Input placeholder="请输入登录页标题" style={{ width: 260 }} />
+            </Form.Item>
+            <Form.Item label="登录页副标题 (Login Subtitle)" name="loginSubtitle">
+              <Input placeholder="请输入登录页副标题" style={{ width: 260 }} />
+            </Form.Item>
+            <Form.Item label="背景颜色 (Background Color)" name="loginBackgroundColor">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1062FE',
+                      '#1677ff',
+                      '#1890ff',
+                      '#52c41a',
+                      '#fa8c16',
+                      '#f5222d',
+                      '#722ed1',
+                      '#eb2f96',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="背景渐变起始颜色 (Gradient Start)" name="loginBackgroundGradientStart">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1062FE',
+                      '#1677ff',
+                      '#1890ff',
+                      '#0A4CC0',
+                      '#52c41a',
+                      '#fa8c16',
+                      '#f5222d',
+                      '#722ed1',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="背景渐变结束颜色 (Gradient End)" name="loginBackgroundGradientEnd">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1062FE',
+                      '#1B64ED',
+                      '#4096ff',
+                      '#40a9ff',
+                      '#73d13d',
+                      '#ffa940',
+                      '#ff7875',
+                      '#9254de',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="启用动态粒子背景 (Enable Particle Background)" name="loginEnableParticleBackground" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item label="登录按钮颜色 (Login Button Color)" name="loginButtonColor">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1890ff',
+                      '#1677ff',
+                      '#4096ff',
+                      '#40a9ff',
+                      '#52c41a',
+                      '#fa8c16',
+                      '#f5222d',
+                      '#722ed1',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="按钮悬停效果颜色 (Button Hover Color)" name="loginButtonHoverColor">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#40a9ff',
+                      '#1890ff',
+                      '#69c0ff',
+                      '#91d5ff',
+                      '#73d13d',
+                      '#ffa940',
+                      '#ff7875',
+                      '#f759ab',
                     ],
                   },
                 ]}

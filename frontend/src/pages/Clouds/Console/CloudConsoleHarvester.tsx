@@ -26,30 +26,29 @@
  *    - 各 Section 内部通过 services/harvesterApi 发起资源操作/刷新
  * ==============================================================================
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLicense } from '../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import VmSection from '../Harvester/sections/VmSection';
-import RecycleBinSection from '../Harvester/sections/RecycleBinSection';
-import TemplatesSection from '../Harvester/sections/TemplatesSection';
-import SshKeysSection from '../Harvester/sections/SshKeysSection';
-import VolumesSection from '../Harvester/sections/VolumesSection';
-import ImagesSection from '../Harvester/sections/ImagesSection';
-import BackupsSection from '../Harvester/sections/BackupsSection';
-import ScheduleVmBackupsSection from '../Harvester/sections/ScheduleVmBackupsSection';
-import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
-import CloudInitsSection from '../Harvester/sections/CloudInitsSection';
-import GpuSection from '../Harvester/sections/GpusSection';
-import IPPoolsSection from '../Harvester/sections/IPPoolsSection';
-import EipSection from '../Harvester/kube-ovn/EipSection';
-import FipSection from '../Harvester/kube-ovn/FipSection';
-import SnatSection from '../Harvester/kube-ovn/SnatSection';
-import DnatSection from '../Harvester/kube-ovn/DnatSection';
-import NadsSection from '../Harvester/sections/NadsSection';
-import LoadBalancersSection from '../Harvester/sections/LoadBalancersSection';
-import VpcsSection from '../Harvester/kube-ovn/VpcsSection'; 
+import VmSection from '../Harvester/ecs/VmSection';
+import RecycleBinSection from '../Harvester/ecs/RecycleBinSection';
+import TemplatesSection from '../Harvester/ecs/TemplatesSection';
+import SshKeysSection from '../Harvester/ecs/SshKeysSection';
+import VolumesSection from '../Harvester/ebs/sections/VolumesSection';
+import ImagesSection from '../Harvester/ecs/ImagesSection';
+import BackupsSection from '../Harvester/cbr/BackupsSection';
+import ScheduleVmBackupsSection from '../Harvester/cbr/ScheduleVmBackupsSection';
+import SnapshotsSection from '../Harvester/ebs/sections/SnapshotsSection';
+import CloudInitsSection from '../Harvester/ecs/CloudInitsSection';
+import GpuSection from '../Harvester/cluster/GpusSection';
+import EipSection from '../Harvester/kube-ovn/sections/EipSection';
+import FipSection from '../Harvester/kube-ovn/sections/FipSection';
+import SnatSection from '../Harvester/kube-ovn/sections/SnatSection';
+import DnatSection from '../Harvester/kube-ovn/sections/DnatSection';
+import VpcsSection from '../Harvester/kube-ovn/sections/VpcsSection';
+import UnderlaySubnetsSection from '../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 
 
 
@@ -74,9 +73,6 @@ interface Props {
   schedules?: any[];
   cloudInits?: any[];
   gpus?: any[];
-  ippools?: any[];
-  nads?: any[];
-  lbs?: any[];
   vpcs?: any[];
   subnets?: any[];
   eips?: any[];
@@ -114,15 +110,13 @@ interface Props {
   onRefreshTemplates: (force?: boolean) => void;
   onRefreshSshKeys: () => void;
   onRefreshVolumes?: () => void;
+  onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: () => void;
   onRefreshSnapshots?: () => void;
   onRefreshBackups?: () => void;
   onRefreshSchedules?: () => void;
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
-  onRefreshIPPools?: () => void;
-  onRefreshNads?: () => void;
-  onRefreshLbs?: () => void;
   onRefreshVpcs?: () => void;
   onRefreshEips?: () => void;
   onRefreshFips?: () => void;
@@ -146,9 +140,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   schedules = [],
   cloudInits = [],
   gpus = [],
-  ippools = [],
-  nads = [],
-  lbs = [],
   vpcs = [],
   subnets = [],
   eips = [],
@@ -183,15 +174,13 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   onRefreshTemplates,
   onRefreshSshKeys,
   onRefreshVolumes,
+  onRefreshStorageClasses,
   onRefreshImages,
   onRefreshSnapshots,
   onRefreshBackups,
   onRefreshSchedules,
   onRefreshCloudInits,
   onRefreshGpus,
-  onRefreshIPPools,
-  onRefreshNads,
-  onRefreshLbs,
   onRefreshVpcs,
   onRefreshEips,
   onRefreshFips,
@@ -202,6 +191,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   showSys = true
 }) => {
   const { user } = useAuth();
+  const { hasFeature } = useLicense();
+  const ovnVpcEnabled = hasFeature('network.ovn.vpc');
   
   // [租户判断] 根据用户角色动态判断是否为租户
   const isTenantUser = useMemo(() => {
@@ -228,63 +219,88 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   }, [namespaces]);
 
   // [结构配置] 类目与资源的二级导航配置
-  const tabConfig = useMemo(() => [
-    {
-      key: 'compute',
-      label: '云主机',
-      resources: [
-        { key: 'vm', label: '实例' },
-        { key: 'recycle-bin', label: '回收站' },
-        { key: 'template', label: '模板' },
-        { key: 'image', label: '镜像' },
-        { key: 'ssh', label: 'SSH密钥' },
-      ]
-    },
-    {
-      key: 'storage',
-      label: '云盘',
-      resources: [
-        { key: 'volume', label: '实例' },
-        { key: 'volume-snapshot', label: '快照' },
-      ]
-    },
-    {
-      key: 'backup',
-      label: '整机',
-      resources: [
-        { key: 'snapshot', label: '快照' },
-        { key: 'backup', label: '备份' },
-        { key: 'schedule', label: '定时策略' },
-      ]
-    },
-    {
-      key: 'flatnet',
-      label: 'VLAN',
-      resources: [
-        { key: 'nad', label: '网络' },
-        { key: 'lb', label: 'SLB' },
-        { key: 'ippool', label: '地址池' },
-      ]
-    },
-    {
-      key: 'vpc',
-      label: 'VPC',
-      resources: [
-         { key: 'vpc-subnet', label: '网络' },
-         { key: 'eip', label: 'EIP' },
-         { key: 'fip', label: 'FIP' },
-         { key: 'snat', label: 'SNAT' },
-         { key: 'dnat', label: 'DNAT' },
-      ]
+  const tabConfig = useMemo(() => {
+    const base: any[] = [
+      {
+        key: 'compute',
+        label: '云主机',
+        resources: [
+          { key: 'vm', label: '实例' },
+          { key: 'recycle-bin', label: '回收站' },
+          { key: 'template', label: '模板' },
+          { key: 'image', label: '镜像' },
+          { key: 'ssh', label: 'SSH密钥' },
+        ]
+      },
+      {
+        key: 'storage',
+        label: '云盘',
+        resources: [
+          { key: 'volume', label: '实例' },
+          { key: 'volume-snapshot', label: '快照' },
+        ]
+      },
+      {
+        key: 'backup',
+        label: '整机',
+        resources: [
+          { key: 'snapshot', label: '快照' },
+          { key: 'backup', label: '备份' },
+          { key: 'schedule', label: '定时策略' },
+        ]
+      },
+      {
+        key: 'flatnet',
+        label: '扁平',
+        resources: [
+          { key: 'flat-subnet', label: '子网' },
+        ]
+      },
+    ];
+    if (ovnVpcEnabled) {
+      base.push({
+        key: 'vpc',
+        label: 'VPC',
+        resources: [
+          { key: 'vpc-subnet', label: '网络' },
+          { key: 'eip', label: 'EIP' },
+          { key: 'fip', label: 'FIP' },
+          { key: 'snat', label: 'SNAT' },
+          { key: 'dnat', label: 'DNAT' },
+        ]
+      });
     }
-  ], []);
+    return base;
+  }, [ovnVpcEnabled]);
+
+  useEffect(() => {
+    if (!ovnVpcEnabled && activeCategory === 'vpc') {
+      setActiveCategory('compute');
+      setActiveResource('vm');
+    }
+  }, [activeCategory, ovnVpcEnabled, setActiveCategory, setActiveResource]);
+
+  /** NAD/VLAN、SLB、地址池、扁平安全组 已从控制台目录下线，旧状态迁到「扁平 · 子网」 */
+  useEffect(() => {
+    if (
+      activeResource === 'nad' ||
+      activeResource === 'lb' ||
+      activeResource === 'ippool' ||
+      activeResource === 'flat-sg'
+    ) {
+      setActiveResource('flat-subnet');
+    }
+  }, [activeResource, setActiveResource]);
 
   const getDefaultResource = (catKey: string) => {
     const cat = tabConfig.find(c => c.key === catKey);
     return cat ? cat.resources[0].key : '';
   };
 
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
+    if (!ovnVpcEnabled && ['vpc-subnet', 'eip', 'fip', 'snat', 'dnat'].includes(activeResource)) {
+      return <Empty description="未授权" />;
+    }
     // [内容渲染] 根据 activeResource 映射到具体 Section，并透传资源数据与刷新函数
     switch (activeResource) {
       // Compute
@@ -378,6 +394,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             volumes={volumes}
             loading={loading}
             onRefresh={onRefreshVolumes}
+            onRefreshStorageClasses={onRefreshStorageClasses}
             cloudId={cloudId}
             vms={vms}
             storageClasses={storageClasses}
@@ -451,42 +468,16 @@ const CloudConsoleHarvester: React.FC<Props> = ({
           />
         );
 
-      // Flat Network
-      case 'nad':
+      // 「扁平」类目：仅保留子网（Kube-OVN flat）；接替原 NAD/VLAN 网络
+      case 'flat-subnet':
         return (
-          <NadsSection 
-            nads={nads}
-            loading={loading}
-            onRefresh={onRefreshNads}
+          <UnderlaySubnetsSection
             cloudId={cloudId}
-            isTenant={isTenantUser}
-            bordered={bordered}
+            mode="flat"
+            displayMode="standard"
+            showYaml={showYaml}
           />
         );
-      case 'lb':
-        return (
-          <LoadBalancersSection 
-            loadBalancers={lbs}
-            loading={loading}
-            onRefresh={onRefreshLbs}
-            cloudId={cloudId}
-            namespaces={namespaceObjects}
-            isTenant={isTenantUser}
-            bordered={bordered}
-          />
-        );
-      case 'ippool':
-        return (
-          <IPPoolsSection
-            cloudId={cloudId}
-            ippools={ippools}
-            loading={loading}
-            onRefresh={onRefreshIPPools}
-            isTenant={isTenantUser}
-            bordered={bordered}
-          />
-        );
-
       // VPC Network
       case 'vpc-subnet':
          return (
@@ -508,6 +499,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             eips={eips}
             subnets={subnets}
+            vpcs={vpcs}
             loading={loading}
             onRefresh={onRefreshEips || (() => {})}
             bordered={bordered}
@@ -520,6 +512,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             fips={fips}
             eips={eips}
             vpcs={vpcs}
+            subnets={subnets}
             loading={loading}
             onRefresh={onRefreshFips || (() => {})}
             bordered={bordered}
@@ -545,6 +538,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             dnatRules={dnatRules}
             eips={eips}
             vpcs={vpcs}
+            subnets={subnets}
             loading={loading}
             onRefresh={onRefreshDnatRules || (() => {})}
             bordered={bordered}
@@ -553,7 +547,64 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       default:
         return <Empty description="该功能暂未实现" />;
     }
-  };
+  }, [
+    ovnVpcEnabled,
+    activeResource,
+    vms,
+    templates,
+    sshKeys,
+    volumes,
+    images,
+    snapshots,
+    backups,
+    schedules,
+    cloudInits,
+    gpus,
+    vpcs,
+    subnets,
+    eips,
+    fips,
+    snatRules,
+    dnatRules,
+    storageClasses,
+    loading,
+    cloudId,
+    isTenantUser,
+    namespacesOptions,
+    namespaceObjects,
+    filteredNamespaces,
+    nodesOptions,
+    nsValue,
+    nodeValue,
+    onNsChange,
+    onNodeChange,
+    onRefreshVms,
+    onOpenReconfigure,
+    onStart,
+    onStop,
+    onReboot,
+    onSoftReboot,
+    onPause,
+    onUnpause,
+    onDelete,
+    onRefreshTemplates,
+    onRefreshSshKeys,
+    onRefreshVolumes,
+    onRefreshStorageClasses,
+    onRefreshImages,
+    onRefreshSnapshots,
+    onRefreshBackups,
+    onRefreshSchedules,
+    onRefreshCloudInits,
+    onRefreshGpus,
+    onRefreshVpcs,
+    onRefreshEips,
+    onRefreshFips,
+    onRefreshSnatRules,
+    onRefreshDnatRules,
+    bordered,
+    showYaml,
+  ]);
 
   const tabItems = useMemo(() => {
     // [二级导航] 非激活 Tab 仅显示标题；激活 Tab 渲染对应 Section 以降低无效渲染
@@ -561,7 +612,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       const isActive = cat.key === activeCategory;
       // [展示规则] 未选中时展示默认资源标签；选中时展示当前 activeResource 标签
       const currentResKey = isActive ? activeResource : cat.resources[0].key;
-      const currentResLabel = cat.resources.find(r => r.key === currentResKey)?.label || cat.resources[0].label;
+      const currentResLabel = cat.resources.find((r: any) => r.key === currentResKey)?.label || cat.resources[0].label;
 
       return {
         key: cat.key,
@@ -570,7 +621,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             <span>{cat.label} {currentResLabel}</span>
             <Dropdown
               menu={{
-                items: cat.resources.map(res => ({
+                items: cat.resources.map((res: any) => ({
                   key: res.key,
                   label: res.label,
                   onClick: (e: any) => {
@@ -599,7 +650,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         )
       };
     });
-  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, vms, templates, sshKeys, volumes, images, snapshots, backups, schedules, cloudInits, gpus, ippools, nads, lbs, vpcs, subnets, eips, fips, snatRules, dnatRules, loading, namespacesOptions, namespaces, nodesOptions, nsValue, nodeValue]);
+  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, renderContent]);
 
   return (
     <div style={{ height: '100%', background: '#fff'}}>

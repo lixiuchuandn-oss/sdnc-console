@@ -24,6 +24,7 @@
     "**/*.test.ts",
     "tests/**/*",
     "src/standalone_test.ts",
-    "src/test_csm_assets_manual.ts"
+    "src/test_csm_assets_manual.ts",
+    "src/routes/clouds/harvester/old/**/*"
   ]
 }

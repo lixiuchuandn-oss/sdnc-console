@@ -4,6 +4,13 @@ import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
 import { vrController } from '../../services/vrouter/vrController';
 import { vrManagementService } from '../../services/vrouter/vrManagementService';
+import { logger } from '../../utils/logger';
+
+const vrConfigLog = logger.child('VR-Config');
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export const vrConfigRoutes = Router();
 
@@ -83,7 +90,7 @@ vrConfigRoutes.post('/bind', async (req, res) => {
 
     return res.json(result);
   } catch (err: any) {
-    console.error('[VR-CONFIG] bind error', err);
+    vrConfigLog.error('bind error', errMsg(err));
     if (err.message && err.message.includes('VR已绑定')) {
       return res.status(409).json({ message: err.message, ...err.details });
     }
@@ -150,7 +157,7 @@ vrConfigRoutes.get('/list', async (req, res) => {
         );
       }
     } catch (e) {
-      console.warn('[VR_CONFIG] Failed to fetch live VR list for sync check:', e);
+      vrConfigLog.warn('Failed to fetch live VR list for sync check:', errMsg(e));
       // If failed, we assume we can't determine, so we don't mark as deleted (or mark all as unknown?)
       // We leave liveUuids as null.
     }
@@ -182,7 +189,7 @@ vrConfigRoutes.get('/list', async (req, res) => {
 
     return res.json({ items: data });
   } catch (err: any) {
-    console.error('[VR_CONFIG] list error', err);
+    vrConfigLog.error('list error', errMsg(err));
     return res.status(500).json({ message: err?.message || '内部错误' });
   }
 });
@@ -202,7 +209,7 @@ vrConfigRoutes.delete('/:uuid', async (req, res) => {
 
     return res.json({ message: 'ok', uuid });
   } catch (err: any) {
-    console.error('[VR_CONFIG] delete error', err);
+    vrConfigLog.error('delete error', errMsg(err));
     return res.status(500).json({ message: err?.message || '内部错误' });
   }
 });
@@ -229,10 +236,10 @@ vrConfigRoutes.get('/pagelist', async (req, res) => {
     const pageSize = Number(req.query.page_size || 50);
 
     const data = await vrController.getVRList(pageSize, pageNum);
-    console.log('[VR_CONFIG] getVRList result:', JSON.stringify(data).slice(0, 500));
+    vrConfigLog.debug('getVRList result:', JSON.stringify(data).slice(0, 500));
     return res.json({ code: 200, msg: 'ok', data });
   } catch (err: any) {
-    console.error('[VR_CONFIG] pagelist error', err);
+    vrConfigLog.error('pagelist error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });
@@ -280,7 +287,7 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
 
     return res.json({ code: 200, msg: 'ok', data: { uuid } });
   } catch (err: any) {
-    console.error('[VR_CONFIG] upsert error', err);
+    vrConfigLog.error('upsert error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });
@@ -319,7 +326,7 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
 
     return res.json({ code: 200, msg: 'ok', data: { uuid, role: normalized } });
   } catch (err: any) {
-    console.error('[VR_CONFIG] set-role error', err);
+    vrConfigLog.error('set-role error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });
@@ -364,7 +371,7 @@ vrConfigRoutes.get('/roles', async (req, res) => {
     }
     return res.json({ code: 200, msg: 'ok', data: { roles } });
   } catch (err: any) {
-    console.error('[VR_CONFIG] roles error', err);
+    vrConfigLog.error('roles error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });
@@ -409,7 +416,7 @@ vrConfigRoutes.get('/:uuid', async (req, res) => {
 
     return res.json({ code: 200, msg: 'ok', data });
   } catch (err: any) {
-    console.error('[VR_CONFIG] get error', err);
+    vrConfigLog.error('get error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });
@@ -440,7 +447,7 @@ vrConfigRoutes.get('/:uuid/realtime', async (req, res) => {
     // Return raw data directly
     return res.json({ code: 200, msg: 'ok', data });
   } catch (err: any) {
-    console.error('[VR_CONFIG] realtime error', err);
+    vrConfigLog.error('realtime error', errMsg(err));
     // Forward upstream error details if available
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
@@ -468,7 +475,7 @@ vrConfigRoutes.delete('/:uuid', async (req, res) => {
 
     return res.json({ code: 200, msg: 'ok', data: { uuid } });
   } catch (err: any) {
-    console.error('[VR_CONFIG] delete error', err);
+    vrConfigLog.error('delete error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });

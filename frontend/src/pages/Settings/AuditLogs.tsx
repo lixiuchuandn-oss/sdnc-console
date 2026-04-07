@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Table, Input, Descriptions, Badge, Tag, DatePicker, Form, Select } from 'antd';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Table, Input, Descriptions, Badge, Tag, DatePicker, Form, Select, InputNumber, Button, Space, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import { apiRequest } from '../../services/api';
+import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
 
 const { RangePicker } = DatePicker;
 
@@ -21,6 +22,7 @@ interface AuditLog {
 }
 
 const AuditLogs: React.FC = () => {
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AuditLog[]>([]);
   const [total, setTotal] = useState(0);
@@ -29,7 +31,24 @@ const AuditLogs: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [actionFilter, setActionFilter] = useState<string | undefined>(undefined);
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [retentionDays, setRetentionDays] = useState<number>(180);
+  const [savingRetention, setSavingRetention] = useState(false);
   const [filterForm] = Form.useForm();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getSystemSetting('audit.logs.retention_days');
+        const raw = (res as any)?.value ?? '';
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          setRetentionDays(Math.max(1, Math.min(3650, parsed)));
+        }
+      } catch {
+        // 保持默认值即可
+      }
+    })();
+  }, []);
 
   const fetchLogs = async (page: number, limit: number, search?: string) => {
     setLoading(true);
@@ -45,7 +64,7 @@ const AuditLogs: React.FC = () => {
       const res = await apiRequest(endpoint);
       // apiRequest 直接返回后端 JSON 数据
       setData(res?.items || []);
-      setTotal(res?.total || 0);
+      setTotal(typeof res?.total === 'number' ? res.total : 0);
     } catch (error) {
       console.error('Failed to fetch audit logs', error);
     } finally {
@@ -58,7 +77,7 @@ const AuditLogs: React.FC = () => {
   }, [currentPage, pageSize, searchText]);
 
   // 动作英文到中文的映射
-  const actionMap: Record<string, string> = {
+  const actionMap = useMemo<Record<string, string>>(() => ({
     'START': '启动',
     'STOP': '停止',
     'REBOOT': '重启',
@@ -72,10 +91,34 @@ const AuditLogs: React.FC = () => {
     'DELETE': '删除',
     'ATTACH': '挂载',
     'DETACH': '卸载',
-  };
+    'SYNC': '同步',
+    'TEST': '测试',
+    'UPDATE_SPEC': '更新规格',
+    'SAVE_AS_TEMPLATE': '保存为模板',
+    'ATTACH_VOLUME': '挂载卷',
+    'DETACH_VOLUME': '卸载卷',
+    'ACTION': '操作',
+    'BACKUP': '备份',
+    'CREATE_FROM_TEMPLATE': '从模板创建',
+    'LOGIN': '登录',
+    'REGISTER': '注册',
+    'LOGOUT': '登出',
+    'REVEAL_CREDENTIAL': '查看凭证',
+    'SNAPSHOT': '快照',
+    'ALERT_RECEIVER': '告警接收器',
+    'ROLE_PERMISSIONS': '角色权限',
+    'CONNECTION': '连接',
+    'ORG': '组织',
+    'ASSIGN': '分配',
+    'UNASSIGN': '取消分配',
+    'ROLE': '角色',
+    'RECORD': '记录',
+    'RESOURCE_POOL': '资源池',
+    'PROVIDER_NETWORK': '提供网络',
+  }), []);
 
   // 从action中提取友好的动作名称（英文）
-  const formatAction = (action: string): string => {
+  const formatAction = (action: string, detailsText?: string): string => {
     if (!action) return action;
     
     // 如果已经是友好的格式（如 CREATE_VM, START_VM），直接返回
@@ -85,7 +128,7 @@ const AuditLogs: React.FC = () => {
     
     // 从路径中提取动作
     // 匹配模式：POST /api/clouds/.../resources/ecs/.../start
-    const vmActionMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^\/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/i);
+    const vmActionMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/i);
     if (vmActionMatch) {
       return `${vmActionMatch[2].toUpperCase()} VM`;
     }
@@ -100,28 +143,221 @@ const AuditLogs: React.FC = () => {
     if (action.includes('DELETE') && action.includes('/resources/ecs/')) {
       return 'DELETE VM';
     }
+
+    // 云资源池手动同步：路由挂在 /api/clouds 上时，审计里记录的 req.path 常为 /:id/sync（无 /api/clouds 前缀）
+    if (action.includes('POST') && /\/[^/]+\/sync$/i.test(action)) {
+      return 'SYNC CLOUD';
+    }
+
+    // 云资源池连接测试：同上，可能为 /:id/test
+    if (action.includes('POST') && /\/[^/]+\/test$/i.test(action)) {
+      return 'TEST CLOUD';
+    }
+
+    // Harvester：/resources/harvester/vms/:namespace/:name/:action（审计 path 常无 /api/clouds 前缀）
+    const harvesterVmNsNameAction = action.match(
+      /\/resources\/harvester\/vms\/[^/]+\/[^/]+\/(update-spec|save-as-template|start|stop|reboot|softreboot|pause|unpause|migrate|restore|action|add-volume|remove-volume)/i
+    );
+    if (harvesterVmNsNameAction) {
+      const seg = harvesterVmNsNameAction[1].toLowerCase();
+      if (seg === 'update-spec') return 'UPDATE_SPEC VM';
+      if (seg === 'save-as-template') return 'SAVE_AS_TEMPLATE VM';
+      if (seg === 'add-volume') return 'ATTACH_VOLUME VM';
+      if (seg === 'remove-volume') return 'DETACH_VOLUME VM';
+      if (seg === 'action') return 'ACTION VM';
+      return `${harvesterVmNsNameAction[1].toUpperCase()} VM`;
+    }
+
+    // Harvester：/resources/harvester/vms/:id/add-volume|remove-volume（单段实例 ID）
+    const harvesterVmIdVolume = action.match(/\/resources\/harvester\/vms\/[^/]+\/(add-volume|remove-volume)/i);
+    if (harvesterVmIdVolume) {
+      return harvesterVmIdVolume[1].toLowerCase() === 'add-volume' ? 'ATTACH_VOLUME VM' : 'DETACH_VOLUME VM';
+    }
+
+    // Harvester 卷：/resources/harvester/volumes...
+    if (action.includes('POST') && /\/resources\/harvester\/volumes$/i.test(action)) {
+      return 'CREATE VOLUME';
+    }
+    if (
+      (action.includes('PUT') || action.includes('PATCH')) &&
+      /\/resources\/harvester\/volumes\/[^/]+(?:\/[^/]+)?$/i.test(action)
+    ) {
+      return 'UPDATE VOLUME';
+    }
+    if (action.includes('DELETE') && /\/resources\/harvester\/volumes\/[^/]+(?:\/[^/]+)?$/i.test(action)) {
+      return 'DELETE VOLUME';
+    }
     
     // 匹配：POST /api/clouds/.../resources/ecs 或 /resources/harvester/vms (创建)
     if (action.includes('POST') && (action.match(/\/resources\/ecs$/) || action.match(/\/resources\/harvester\/vms$/))) {
       return 'CREATE VM';
     }
     
-    // 匹配：PUT /api/clouds/.../resources/ecs/... 或 /resources/harvester/vms/... (更新)
-    if (action.includes('PUT') && (action.includes('/resources/ecs/') || action.includes('/resources/harvester/vms/'))) {
+    // 匹配：PUT/PATCH .../resources/ecs/... 或 .../resources/harvester/vms/... (更新)
+    if (
+      (action.includes('PUT') || action.includes('PATCH')) &&
+      (action.includes('/resources/ecs/') || action.includes('/resources/harvester/vms/'))
+    ) {
       return 'UPDATE VM';
     }
     
     // 提取HTTP方法和资源类型
     const methodMatch = action.match(/^(GET|POST|PUT|PATCH|DELETE)\s+/i);
     const method = methodMatch ? methodMatch[1] : '';
+    const path = action.replace(/^(GET|POST|PUT|PATCH|DELETE)\s+/i, '');
+
+    // 单段 UUID 路径（如 /:id）在 /api/users 挂载下表示更新用户；
+    // 使用请求体字段辅助判断，避免误伤其它模块的 /:id 路由。
+    if ((method === 'PATCH' || method === 'PUT') && /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(path)) {
+      try {
+        const details = detailsText ? JSON.parse(detailsText) : undefined;
+        const body = details?.body;
+        if (body && typeof body === 'object') {
+          const userLikeKeys = ['username', 'email', 'fullName', 'status', 'role'];
+          if (userLikeKeys.some((k) => Object.prototype.hasOwnProperty.call(body, k))) {
+            return 'UPDATE USER';
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+      return 'UPDATE RECORD';
+    }
+
+    // 认证（审计里 path 常为 /login，不含 /api/auth 挂载前缀；否则会落到末尾只显示「POST」）
+    if (method === 'POST' && /\/(?:api\/auth\/login|api\/sase\/auth\/login|login)$/i.test(action)) {
+      return 'LOGIN';
+    }
+    if (method === 'POST' && /\/(?:api\/auth\/register|register)$/i.test(action)) {
+      return 'REGISTER';
+    }
+    if (method === 'POST' && /\/(?:api\/auth\/logout|logout)$/i.test(action)) {
+      return 'LOGOUT';
+    }
+    // 云连接测试：POST /test-connection（通常为新增云前的连通性校验）
+    if (method === 'POST' && /\/(?:api\/)?test-connection$/i.test(action)) {
+      return 'TEST CONNECTION CLOUD';
+    }
+    // RBAC：PATCH /rbac/roles/:id/permissions（通常挂在 /api/system 下，审计 path 可能不带前缀）
+    if (
+      (method === 'PATCH' || method === 'PUT') &&
+      /\/(?:api\/system\/)?rbac\/roles\/[^/]+\/permissions$/i.test(action)
+    ) {
+      return 'UPDATE ROLE_PERMISSIONS';
+    }
+    // RBAC 角色：POST/PUT/PATCH/DELETE /rbac/roles...
+    if (method === 'POST' && /\/(?:api\/system\/)?rbac\/roles$/i.test(action)) {
+      return 'CREATE ROLE';
+    }
+    if (
+      (method === 'PUT' || method === 'PATCH') &&
+      /\/(?:api\/system\/)?rbac\/roles\/[^/]+$/i.test(action)
+    ) {
+      return 'UPDATE ROLE';
+    }
+    if (method === 'DELETE' && /\/(?:api\/system\/)?rbac\/roles\/[^/]+$/i.test(action)) {
+      return 'DELETE ROLE';
+    }
+    // 组织资源池分配：.../organizations/:orgId/resource-pools
+    if (method === 'POST' && /\/organizations\/[^/]+\/resource-pools$/i.test(action)) {
+      return 'ASSIGN RESOURCE_POOL ORG';
+    }
+    if (
+      (method === 'PUT' || method === 'PATCH') &&
+      /\/organizations\/[^/]+\/resource-pools(?:\/[^/]+)?$/i.test(action)
+    ) {
+      return 'UPDATE RESOURCE_POOL ORG';
+    }
+    if (method === 'DELETE' && /\/organizations\/[^/]+\/resource-pools(?:\/[^/]+)?$/i.test(action)) {
+      return 'UNASSIGN RESOURCE_POOL ORG';
+    }
+    // RBAC 角色分配：POST/DELETE /rbac/assignments
+    if (method === 'POST' && /\/(?:api\/system\/)?rbac\/assignments$/i.test(action)) {
+      return 'ASSIGN ROLE';
+    }
+    if (method === 'DELETE' && /\/(?:api\/system\/)?rbac\/assignments\/[^/]+$/i.test(action)) {
+      return 'UNASSIGN ROLE';
+    }
+    // 租户 → 组织用户：/:tenantId/organizations/:orgId/users（审计 path 常无 /api/tenants 前缀）
+    if (method === 'POST' && /\/(?:api\/tenants\/)?[^/]+\/organizations\/[^/]+\/users$/i.test(action)) {
+      return 'CREATE ORG USER';
+    }
+    if (
+      (method === 'PUT' || method === 'PATCH') &&
+      /\/(?:api\/tenants\/)?[^/]+\/organizations\/[^/]+\/users\/[^/]+$/i.test(action)
+    ) {
+      return 'UPDATE ORG USER';
+    }
+    if (
+      method === 'DELETE' &&
+      /\/(?:api\/tenants\/)?[^/]+\/organizations\/[^/]+\/users\/[^/]+$/i.test(action)
+    ) {
+      return 'DELETE ORG USER';
+    }
+    // 云资源池凭证查看（需二次输入密码）：POST /:id/reveal 或 /api/clouds/:id/reveal
+    if (method === 'POST' && /\/(?:api\/clouds\/[^/]+\/reveal|[^/]+\/reveal)$/i.test(action)) {
+      return 'REVEAL_CREDENTIAL CLOUD';
+    }
+    // Harvester 监控告警接收器：.../monitoring/alertmanagerconfigs/receivers/:namespace/:name
+    if (method === 'POST' && /\/monitoring\/alertmanagerconfigs\/receivers\/[^/]+\/[^/]+$/i.test(action)) {
+      return 'CREATE ALERT_RECEIVER';
+    }
+    if (
+      (method === 'PUT' || method === 'PATCH') &&
+      /\/monitoring\/alertmanagerconfigs\/receivers\/[^/]+\/[^/]+$/i.test(action)
+    ) {
+      return 'UPDATE ALERT_RECEIVER';
+    }
+    if (method === 'DELETE' && /\/monitoring\/alertmanagerconfigs\/receivers\/[^/]+\/[^/]+$/i.test(action)) {
+      return 'DELETE ALERT_RECEIVER';
+    }
+    // Harvester 卷快照：POST .../resources/harvester/volumes/:namespace/:name/snapshots
+    if (method === 'POST' && /\/resources\/harvester\/volumes\/[^/]+\/[^/]+\/snapshots$/i.test(action)) {
+      return 'CREATE SNAPSHOT';
+    }
+    // Harvester 删除卷快照：DELETE .../resources/harvester/volumes/:namespace/:name/snapshots/:snapshot
+    if (method === 'DELETE' && /\/resources\/harvester\/volumes\/[^/]+\/[^/]+\/snapshots\/[^/]+$/i.test(action)) {
+      return 'DELETE SNAPSHOT';
+    }
+    // Harvester 快照恢复：POST .../resources/harvester/snapshots/:namespace/:snapshot/restore
+    if (
+      method === 'POST' &&
+      /\/resources\/harvester\/snapshots\/[^/]+\/[^/]+\/restore(?:\/)?(?:\?.*)?$/i.test(action)
+    ) {
+      return 'RESTORE SNAPSHOT';
+    }
+
+    // Harvester 备份：DELETE /.../resources/harvester/backups/:namespace/:name（pathMatch 只取到 harvester 会误判成「删除 HARVESTER」）
+    if (method === 'DELETE' && /\/resources\/harvester\/backups\/[^/]+\/[^/]+/i.test(action)) {
+      return 'DELETE BACKUP';
+    }
+    // 创建备份：POST .../resources/harvester/virtualmachinebackups/:namespace
+    if (method === 'POST' && /\/resources\/harvester\/virtualmachinebackups\/[^/]+/i.test(action)) {
+      return 'CREATE BACKUP';
+    }
+    // 从模板创建虚拟机：POST .../resources/harvester/templates/:namespace/:name/create-vm
+    if (method === 'POST' && /\/resources\/harvester\/templates\/[^/]+\/[^/]+\/create-vm$/i.test(action)) {
+      return 'CREATE_FROM_TEMPLATE VM';
+    }
     
     // 尝试从路径中提取资源类型
-    const pathMatch = action.match(/\/resources\/([^\/]+)/i);
+    const pathMatch = action.match(/\/resources\/([^/]+)/i);
     if (pathMatch) {
       let resource = pathMatch[1].toUpperCase();
+      // 资源名归一化：不同后端实现可能使用 providernetworks 或 provider-networks
+      if (resource === 'PROVIDERNETWORKS' || resource === 'PROVIDER-NETWORKS') {
+        resource = 'PROVIDER_NETWORK';
+      }
       // 将 harvester/vms 识别为 VM
       if (resource === 'HARVESTER' && action.includes('/harvester/vms')) {
         resource = 'VM';
+        // /resources/harvester/vms/ 下还有子路径时，POST 不是「仅创建」；避免误判 CREATE VM
+        if (method === 'POST' && /\/resources\/harvester\/vms\/.+/i.test(action)) {
+          const last = action.split('/').filter(Boolean).pop() || '';
+          if (last && last !== 'vms') {
+            return `${method} ${last.toUpperCase().replace(/-/g, '_')} VM`;
+          }
+        }
       }
       if (method) {
         const actionMap: Record<string, string> = {
@@ -145,8 +381,8 @@ const AuditLogs: React.FC = () => {
   };
 
   // 将动作英文转换为中文
-  const formatActionToChinese = (action: string): string => {
-    const englishAction = formatAction(action);
+  const formatActionToChinese = useCallback((action: string, detailsText?: string): string => {
+    const englishAction = formatAction(action, detailsText);
     // 提取动作关键词
     const actionWords = englishAction.split(' ');
     const translated = actionWords.map(word => {
@@ -168,20 +404,20 @@ const AuditLogs: React.FC = () => {
     else if (englishAction.includes('CLOUD')) translated.push('云资源池');
     
     return translated.length > 0 ? translated.join(' ') : englishAction;
-  };
+  }, [actionMap]);
 
   // 获取所有唯一的动作类型（用于筛选）
   const actionFilterOptions = useMemo(() => {
     const actions = new Set<string>();
     data.forEach(record => {
-      const action = formatAction(record.action);
+      const action = formatAction(record.action, record.details);
       if (action) actions.add(action);
     });
     return Array.from(actions).sort().map(action => ({
       label: formatActionToChinese(action),
       value: action,
     }));
-  }, [data]);
+  }, [data, formatActionToChinese]);
 
   // 从action或details中提取资源类型
   const extractResourceType = (action: string, resourceType?: string, details?: string): string => {
@@ -234,7 +470,7 @@ const AuditLogs: React.FC = () => {
     }
     
     // 从action中提取资源ID
-    const idMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^\/\s]+)/i);
+    const idMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^/\s]+)/i);
     if (idMatch) {
       try {
         return decodeURIComponent(idMatch[1]);
@@ -248,7 +484,7 @@ const AuditLogs: React.FC = () => {
       try {
         const detailsObj = JSON.parse(details);
         const path = detailsObj.path || '';
-        const pathMatch = path.match(/\/resources\/(?:ecs|harvester\/vms)\/([^\/]+)/i);
+        const pathMatch = path.match(/\/resources\/(?:ecs|harvester\/vms)\/([^/]+)/i);
         if (pathMatch) {
           try {
             return decodeURIComponent(pathMatch[1]);
@@ -262,6 +498,35 @@ const AuditLogs: React.FC = () => {
     }
     
     return resourceId || '-';
+  };
+
+  // 用户名兜底：兼容历史审计中 username=unknown，但 details 里有登录用户名
+  const resolveDisplayUsername = (username?: string, detailsText?: string): string => {
+    if (username && username !== 'unknown') {
+      return username;
+    }
+    if (!detailsText) {
+      return username || '-';
+    }
+
+    // 优先从 JSON 详情中提取 body.username
+    try {
+      const details = JSON.parse(detailsText);
+      const bodyUsername = details?.body?.username;
+      if (typeof bodyUsername === 'string' && bodyUsername.trim()) {
+        return bodyUsername.trim();
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // 兼容格式化后的文本：用户名: admin
+    const textMatch = detailsText.match(/用户名:\s*([^|,\n]+)/);
+    if (textMatch && textMatch[1]) {
+      return textMatch[1].trim();
+    }
+
+    return username || '-';
   };
 
   // 格式化详情为易读文本
@@ -433,12 +698,12 @@ const AuditLogs: React.FC = () => {
       if (details.path) {
         const pathInfo: string[] = [];
         // 提取云资源池ID
-        const cloudIdMatch = details.path.match(/\/clouds\/([^\/]+)/);
+        const cloudIdMatch = details.path.match(/\/clouds\/([^/]+)/);
         if (cloudIdMatch) {
           pathInfo.push(`云资源池ID: ${cloudIdMatch[1]}`);
         }
         // 提取资源ID
-        const resourceIdMatch = details.path.match(/\/resources\/[^\/]+\/([^\/]+)/);
+        const resourceIdMatch = details.path.match(/\/resources\/[^/]+\/([^/]+)/);
         if (resourceIdMatch) {
           try {
             const decodedId = decodeURIComponent(resourceIdMatch[1]);
@@ -543,7 +808,7 @@ const AuditLogs: React.FC = () => {
     return data.filter(record => {
       // 动作筛选
       if (actionFilter) {
-        const recordAction = formatAction(record.action);
+        const recordAction = formatAction(record.action, record.details);
         if (recordAction !== actionFilter) return false;
       }
       
@@ -559,6 +824,10 @@ const AuditLogs: React.FC = () => {
     });
   }, [data, actionFilter, dateRange]);
 
+  // 动作/时间筛选为前端筛选，仅作用于当前页数据；启用时 total 以当前筛选结果为准，避免分页显示错误
+  const hasClientSideFilter = Boolean(actionFilter || (dateRange && dateRange[0] && dateRange[1]));
+  const paginationTotal = hasClientSideFilter ? filteredData.length : total;
+
   const columns: ColumnsType<AuditLog> = [
     {
       title: '时间',
@@ -570,14 +839,15 @@ const AuditLogs: React.FC = () => {
       title: '用户',
       dataIndex: 'username',
       key: 'username',
+      render: (text, record) => resolveDisplayUsername(text, record.details),
     },
     {
       title: '动作',
       dataIndex: 'action',
       key: 'action',
-      render: (text) => {
-        const friendlyAction = formatAction(text);
-        const chineseAction = formatActionToChinese(text);
+      render: (text, record) => {
+        const friendlyAction = formatAction(text, record.details);
+        const chineseAction = formatActionToChinese(text, record.details);
         return <span className={getActionBadgeClass(friendlyAction)}>{chineseAction}</span>;
       },
     },
@@ -635,7 +905,6 @@ const AuditLogs: React.FC = () => {
 
   return (
     <PageContainer
-      title="操作审计"
       breadcrumb={[
         { label: '首页', href: '/' },
         { label: '通用设置', href: '/settings/general' },
@@ -681,7 +950,8 @@ const AuditLogs: React.FC = () => {
             />
           </Form.Item>
           <Form.Item>
-            <a
+            <button
+              type="button"
               className="toolbar-reset-btn"
               onClick={() => {
                 filterForm.resetFields();
@@ -690,33 +960,65 @@ const AuditLogs: React.FC = () => {
                 setDateRange(null);
                 setCurrentPage(1);
               }}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
             >
               重置
-            </a>
+            </button>
           </Form.Item>
         </Form>
+      }
+      toolbarRight={
+        <Space size={8} align="center">
+          <span className="std-muted">日志存储时长</span>
+          <InputNumber
+            min={1}
+            max={3650}
+            value={retentionDays}
+            onChange={(v) => setRetentionDays(Number(v) || 1)}
+            suffix="天"
+            style={{ width: 140 }}
+          />
+          <Button
+            type="primary"
+            loading={savingRetention}
+            onClick={async () => {
+              try {
+                setSavingRetention(true);
+                const value = String(Math.max(1, Math.min(3650, Number(retentionDays) || 1)));
+                await updateSystemSetting('audit.logs.retention_days', value);
+                message.success('日志存储时长已保存');
+              } catch {
+                message.error('保存日志存储时长失败');
+              } finally {
+                setSavingRetention(false);
+              }
+            }}
+          >
+            保存时长
+          </Button>
+        </Space>
       }
       onRefresh={() => fetchLogs(currentPage, pageSize, searchText)}
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         columns={columns}
         dataSource={filteredData}
         rowKey="id"
         loading={loading}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
           current: currentPage,
           pageSize: pageSize,
-          total: filteredData.length,
+          total: paginationTotal,
           onChange: (page, size) => {
             setCurrentPage(page);
-            setPageSize(size);
+            setPageSize(size || 20);
           },
           showSizeChanger: true,
           pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total) => `共 ${total} 条`,
         }}
         expandable={{
           expandedRowRender: (record) => renderExpandedDetails(record.details || ''),

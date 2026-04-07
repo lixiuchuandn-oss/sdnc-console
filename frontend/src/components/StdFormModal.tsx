@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, Form } from 'antd';
+import type { ButtonProps } from 'antd/es/button';
 
 type StdFormModalProps = {
   open: boolean;
@@ -15,9 +16,11 @@ type StdFormModalProps = {
   forceRender?: boolean;
   initialValues?: any;
   centered?: boolean;
+  /** 透传至 Modal，用于按需隐藏或禁用确定按钮 */
+  okButtonProps?: ButtonProps;
 };
 
-const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保存', width = 600, confirmLoading, form, onCancel, onFinish, children, destroyOnHidden = true, forceRender, initialValues, centered = true }) => {
+const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保存', width = 600, confirmLoading, form, onCancel, onFinish, children, destroyOnHidden = true, forceRender, initialValues, centered = true, okButtonProps }) => {
   return (
     <Modal
       className="stdform-modal"
@@ -27,6 +30,7 @@ const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保�
       onCancel={onCancel}
       onOk={() => form?.submit?.()}
       okText={okText}
+      okButtonProps={okButtonProps}
       confirmLoading={confirmLoading}
       destroyOnHidden={destroyOnHidden}
       forceRender={forceRender}

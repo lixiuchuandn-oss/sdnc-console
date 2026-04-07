@@ -328,7 +328,10 @@ const DiscoveredAssets: React.FC<Props> = ({ domains, existingApps, onCreateApp,
         columns={displayColumns} 
         dataSource={filteredAssets} 
         loading={loading}
-        pagination={{ pageSize: 10, showQuickJumper: false, showSizeChanger: true }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
       />
     </>
   );

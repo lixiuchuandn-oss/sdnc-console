@@ -1,9 +1,11 @@
 import axios from 'axios';
 import https from 'https';
 import { getSystemSetting } from '../../config/systemSettings';
+import { logger } from '../../utils/logger';
 import { csmRequest, CsmConfig } from '../clouds/csm/client';
 
-const DEFAULT_URL = 'https://47.111.13.103:8016';
+const vrCtlLog = logger.child('VR-Ctl');
+
 const ACCESS_KEY = 'Cloudmap%23123';
 const SECRET_KEY = 'Cloudmap%23123';
 
@@ -11,8 +13,17 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
 
+const getCsmctlBaseUrl = () => {
+  const raw = String(getSystemSetting('CSMCTL_ADDRESS') || '').trim();
+  if (!raw) {
+    throw new Error('CSMCTL_ADDRESS 未配置，请在系统设置中配置 CSMCTL 地址');
+  }
+  const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  return withProto.replace(/\/+$/, '');
+};
+
 const getClient = () => {
-  const baseURL = getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL;
+  const baseURL = getCsmctlBaseUrl();
   return axios.create({
     baseURL,
     httpsAgent,
@@ -53,14 +64,14 @@ export const vrController = {
 
       return response.data.data as AuthInfo;
     } catch (error: any) {
-      console.error('[VRCTL] 认证失败:', error.message);
+      vrCtlLog.error('认证失败:', error?.message ?? String(error));
       throw error;
     }
   },
 
   getVRConfig: async (uuid: string) => {
     const config: CsmConfig = {
-      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      endpoint: getCsmctlBaseUrl(),
       accessKey: ACCESS_KEY,
       secretKey: SECRET_KEY,
       ignoreTls: true,
@@ -99,7 +110,7 @@ export const vrController = {
 
     const body = { uuid, ...data };
 
-    console.log(`[VRCTL] POST ${path}?${other}`, JSON.stringify(body));
+    vrCtlLog.debug(`POST ${path}?${other}`, JSON.stringify(body));
 
     const auth = await vrController.getAuthInfo(path, method, other, body);
 
@@ -120,7 +131,7 @@ export const vrController = {
 
   getVR3List: async (pageSize: number = 1000, pageNum: number = 1) => {
     const config: CsmConfig = {
-      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      endpoint: getCsmctlBaseUrl(),
       accessKey: ACCESS_KEY,
       secretKey: SECRET_KEY,
       ignoreTls: true,
@@ -130,19 +141,20 @@ export const vrController = {
     const query = { page_size: pageSize, page_num: pageNum };
 
     try {
-      console.log(`[VR-CTL] 通过 csmRequest 获取 VR3 列表: ${path}`, query);
+      vrCtlLog.debug(`通过 csmRequest 获取 VR3 列表: ${path}`, query);
       const raw = await csmRequest(config, path, query);
       const dataField = raw && raw.data ? raw.data : raw;
       return dataField;
     } catch (error: any) {
-      console.error(`[VR-CTL] 获取 VR3 列表失败:`, error.message);
+      // 仅打 debug：上层（如 VR-Cache）会汇总 error（含 URL），避免同一次失败两条 error
+      vrCtlLog.debug('获取 VR3 列表失败:', error?.message ?? String(error));
       throw error;
     }
   },
 
   getVRList: async (pageSize: number = 50, pageNum: number = 1) => {
     const config: CsmConfig = {
-      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      endpoint: getCsmctlBaseUrl(),
       accessKey: ACCESS_KEY,
       secretKey: SECRET_KEY,
       ignoreTls: true,
@@ -152,12 +164,12 @@ export const vrController = {
     const query = { page_size: pageSize, page_num: pageNum };
 
     try {
-      console.log(`[VR-CTL] 通过 csmRequest 获取 VR 列表: ${path}`, query);
+      vrCtlLog.debug(`通过 csmRequest 获取 VR 列表: ${path}`, query);
       const raw = await csmRequest(config, path, query);
       const dataField = raw && raw.data ? raw.data : raw;
       return dataField;
     } catch (error: any) {
-      console.error(`[VR-CTL] 获取 VR 列表失败:`, error.message);
+      vrCtlLog.debug('获取 VR 列表失败:', error?.message ?? String(error));
       throw error;
     }
   },

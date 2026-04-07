@@ -43,22 +43,31 @@ import {
   fetchHarvesterStorageClasses,
   fetchHarvesterSshKeys,
   fetchKubeOvnSubnets,
-  fetchKubeOvnVpcs
+  fetchKubeOvnVpcs,
+  fetchHarvesterVolume
 } from '../../../../../services/harvesterApi';
 
-import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
+import { isPublicNamespace, pickDefaultStorageClassName } from '../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from './VmWizardUtils';
+import { kubeVpcOptionsForVmWizard } from '../../kube-ovn/lib/kubeOvnUiHelpers';
 
 /**
  * useHarvesterData Hook
  * 
  * @param cloudId - 当前选中的云资源池 ID (或 'all')
  * @param currentCloudId - (可选) 覆盖用的云资源池 ID，优先级高于 cloudId
- * @param form - Ant Design Form 实例，用于获取表单当前值 (如 namespace) 以进行级联查询
+ * @param form - Ant Design Form 实例（保留用于后续扩展）
  * @param isTenant - 是否为租户模式 (用于过滤系统命名空间)
+ * @param watchNamespace - 由父组件 Form.useWatch('namespace') 传入，用于卷列表过滤与刷新，避免在未挂载时读 form 触发警告
  * @returns 包含所有资源数据、加载状态、刷新方法和格式化后的选项列表
  */
-export const useHarvesterData = (cloudId: string, currentCloudId: string | undefined, form: any, isTenant?: boolean) => {
+export const useHarvesterData = (
+  cloudId: string,
+  currentCloudId: string | undefined,
+  form: any,
+  isTenant?: boolean,
+  watchNamespace?: string | null,
+) => {
   // [状态定义] 资源数据
   const [images, setImages] = useState<any[]>([]);
   const [imageLoading, setImageLoading] = useState<boolean>(false);
@@ -107,18 +116,40 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
 
   // [数据获取] 刷新可用卷列表
   // [业务规则] 依赖表单中的 namespace 字段进行过滤
+  // [别名补齐] 为避免 available-volumes 返回数据不含 annotations，打开下拉时逐条查询卷详情补齐 alias
   const reloadVolumes = useCallback(async () => {
     const cid = getCid();
     if (!cid) return;
     try {
-      const ns = form.getFieldValue('namespace') || 'default';
+      const ns = (watchNamespace && String(watchNamespace).trim()) || 'default';
       const vols: any = await fetchHarvesterAvailableVolumes(cid, ns);
       const items: any[] = vols?.data?.items || vols?.items || ([] as any[]);
-      setAvailableVolumes(items);
+      const normalized = (items || []).map((x: any) => {
+        const meta = x?.metadata || {};
+        const ann = meta?.annotations || x?.annotations || {};
+        const name = x?.pvcName || meta?.name || x?.name;
+        const namespace = meta?.namespace || x?.namespace || x?.ns;
+        const alias = ann?.['tower.io/alias'] || x?.Alias || x?.alias;
+        return { ...x, pvcName: name, namespace, alias };
+      });
+      const enriched = await Promise.all(
+        normalized.map(async (x: any) => {
+          if (x.alias) return x;
+          try {
+            const detail: any = await fetchHarvesterVolume(cid, x.namespace, x.pvcName);
+            const ann = detail?.metadata?.annotations || detail?.data?.metadata?.annotations || {};
+            const alias = ann?.['tower.io/alias'];
+            return alias ? { ...x, alias } : x;
+          } catch {
+            return x;
+          }
+        })
+      );
+      setAvailableVolumes(enriched);
     } catch (e: any) {
       message.warning(e?.message || '卷列表刷新失败');
     }
-  }, [getCid, form]);
+  }, [getCid, watchNamespace]);
 
   // [数据获取] 刷新命名空间
   // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建，使用 excludeSystem=true
@@ -289,22 +320,41 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   }), [images]);
   
   // [数据处理] 卷选项列表
-  // [业务规则] 过滤掉已挂载 (attached/inUse/mounted) 的卷，防止重复挂载
-  const volumeOptions = useMemo(() => (availableVolumes || [])
-    .filter((v: any) => {
-      if (!v?.pvcName) return false;
-      const attachedArr = Array.isArray(v?.attachedTo) ? v.attachedTo : [];
-      const attachedFlag = Boolean(v?.attached || v?.inUse || v?.used || v?.mounted);
-      return attachedArr.length === 0 && !attachedFlag;
-    })
-    .map((v: any) => {
-      const n = parseSizeToGi(v?.size);
-      const pvcName = v?.pvcName;
-      return {
-        label: `${pvcName || '-'}` + (n ? ` (${n} GiB)` : ''),
-        value: pvcName
-      };
-    }), [availableVolumes]);
+  // [业务规则] 仅显示当前命名空间、未挂载、状态正常的卷；标签优先展示 PVC 别名
+  const volumeOptions = useMemo(() => {
+    const nsTarget = String(watchNamespace ?? '');
+    return (availableVolumes || [])
+      .filter((v: any) => {
+        if (!v?.pvcName) return false;
+        const ns = v?.namespace || v?.metadata?.namespace || v?.ns;
+        if (nsTarget && ns && String(ns) !== nsTarget) return false;
+        const attachedArr = Array.isArray(v?.attachedTo) ? v.attachedTo : [];
+        const attachedFlag = Boolean(v?.attached || v?.inUse || v?.used || v?.mounted);
+        if (attachedArr.length > 0 || attachedFlag) return false;
+        const stRaw = v?.phase || v?.status?.phase || v?.status?.state || v?.state;
+        const st = String(stRaw || '').toLowerCase();
+        if (!st) return true;
+        const ok = ['healthy','bound','available','detached'].includes(st);
+        return ok;
+      })
+      .map((v: any) => {
+        const n = parseSizeToGi(v?.size);
+        const pvcName = v?.pvcName;
+        const alias = (
+          v?.metadata?.annotations?.['tower.io/alias']
+          || v?.annotations?.['tower.io/alias']
+          || v?.rawData?.metadata?.annotations?.['tower.io/alias']
+          || v?.Alias
+          || v?.alias
+          || v?.Annotation?.['tower.io/alias']
+          || v?.Annotations?.['tower.io/alias']
+          || (typeof (v as any)?.['tower.io/alias'] !== 'undefined' ? (v as any)['tower.io/alias'] : undefined)
+        );
+        const base = alias || (pvcName || '-');
+        const label = base + (n ? ` (${n} GiB)` : '');
+        return { label, value: pvcName };
+      });
+  }, [availableVolumes, watchNamespace]);
 
   // [数据处理] 命名空间选项
   // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建
@@ -313,7 +363,6 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     let list = namespaces || [];
 
     if (isTenant) {
-      // 租户模式下，创建 VM 时也不能选择公共命名空间 (如 harvester-public)
       list = list.filter((n: any) => {
         const name = n?.metadata?.name || n?.name;
         return !isPublicNamespace(name);
@@ -348,8 +397,8 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   // [数据处理] Kube-OVN 子网选项
   const kubeSubnetOptions = useMemo(() => (kubeSubnets || []).map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })), [kubeSubnets]);
   
-  // [数据处理] Kube-OVN VPC 选项
-  const kubeVpcOptions = useMemo(() => (kubeVpcs || []).map((x: any) => ({ label: x?.name || '-', value: x?.name })), [kubeVpcs]);
+  // [数据处理] Kube-OVN VPC 选项（业务 VPC：别名展示，排除内置）
+  const kubeVpcOptions = useMemo(() => kubeVpcOptionsForVmWizard(kubeVpcs), [kubeVpcs]);
   
   // [数据处理] 云资源池选项
   // [业务规则] 仅显示 Harvester 或 CloudMap 类型的资源池，并确保当前选中的 ID 始终可见
@@ -370,23 +419,15 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
         };
      }), [clouds, cloudId, currentCloudId]);
 
-  // [数据处理] 默认存储类
-  // [业务规则] 查找标记为 is-default-class 的存储类，如果没有则使用列表第一个
-  const defaultStorageClassName = useMemo(() => {
-    const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
-    const hit = list.find((x: any) => {
-      const flag = x?.annotations?.['storageclass.kubernetes.io/is-default-class']
-        || x?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class']
-        || x?.isDefault;
-      return String(flag || '').toLowerCase() === 'true';
-    });
-    return (hit?.name || list[0]?.name || undefined);
-  }, [storageClasses]);
+  // [数据处理] 默认存储类（与 harvesterUtils.pickDefaultStorageClassName 一致）
+  const defaultStorageClassName = useMemo(
+    () => pickDefaultStorageClassName(storageClasses),
+    [storageClasses],
+  );
 
   // [数据处理] SSH 密钥选项
   const sshKeyOptions = useMemo(() => (sshKeys || []).map((x: any) => {
     const name = x?.metadata?.name || x?.name;
-    const ns = x?.metadata?.namespace || x?.namespace;
     return {
       label: name,
       value: name // Harvester uses name reference

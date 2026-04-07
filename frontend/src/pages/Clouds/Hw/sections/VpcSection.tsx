@@ -187,7 +187,10 @@ const VpcSection: React.FC<VpcSectionProps> = ({ cloudId, vpcs, onSetVpcs, onOpe
           </>
         )}
       />
-      <Table bordered rowKey={(r: any) => r.id || r.VpcId} dataSource={filteredVpcs} columns={columns as any} pagination={{ pageSize: 10 }} />
+      <Table bordered rowKey={(r: any) => r.id || r.VpcId} dataSource={filteredVpcs} columns={columns as any} pagination={{
+        size: 'small',
+        showTotal: (total) => `共 ${total} 条`,
+      }} />
     </>
   );
 };

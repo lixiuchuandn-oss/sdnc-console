@@ -2,6 +2,9 @@ import axios from 'axios';
 import crypto from 'crypto';
 import https from 'https';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '../../../utils/logger';
+
+const csmLog = logger.child('CSM');
 
 export interface CsmConfig {
   endpoint: string;
@@ -149,7 +152,7 @@ export async function csmRequest(
       error.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
       error.message?.includes('self-signed certificate')
     ) {
-      console.warn('[CSM] Self-signed certificate detected, retrying with ignoreTls=true...');
+      csmLog.warn('Self-signed certificate detected, retrying with ignoreTls=true...');
       const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
       const retryHeaders: any = {
@@ -190,10 +193,14 @@ export async function csmRequest(
       });
       return resp.data;
     }
-    console.error(
-      '[CSM] Request Error:',
+    csmLog.error(
+      'Request Error:',
       error.response?.status,
-      error.response?.data || error.message,
+      typeof error.response?.data === 'string'
+        ? error.response.data.slice(0, 200)
+        : error.response?.data != null
+          ? JSON.stringify(error.response.data).slice(0, 200)
+          : error.message,
     );
     throw error;
   }
@@ -223,7 +230,7 @@ export const listCsmVms = async (config: CsmConfig, queryParams: any = {}) => {
 
     return [];
   } catch (e) {
-    console.error('[CSM Debug] Vms Error:', e);
+    csmLog.debug('listCsmVms error:', e instanceof Error ? e.message : String(e));
     return [];
   }
 };
@@ -235,7 +242,7 @@ export const getCsmVRouterDetail = async (config: CsmConfig, vrouterId: string) 
     const raw = await csmRequest(config, path, query);
     return raw?.data || raw;
   } catch (e: any) {
-    console.warn(`[CSM] Failed to get detail for vrouter ${vrouterId}: ${e.message}`);
+    csmLog.warn(`Failed to get detail for vrouter ${vrouterId}: ${e.message}`);
     return null;
   }
 };
@@ -257,10 +264,7 @@ export const listCsmVRouters = async (config: CsmConfig, queryParams: any = {}) 
   for (const path of endpoints) {
     try {
       const raw = await csmRequest(config, path, query);
-      console.log(
-        `[CSM Debug] vRouters raw response for ${path}:`,
-        JSON.stringify(raw).slice(0, 500),
-      );
+      csmLog.debug(`vRouters raw response for ${path}:`, JSON.stringify(raw).slice(0, 500));
 
       if (Array.isArray(raw)) {
         list = raw;
@@ -314,7 +318,7 @@ export const listCsmVRouters = async (config: CsmConfig, queryParams: any = {}) 
         break;
       }
     } catch (e: any) {
-      console.log(`[CSM Debug] Failed to list vRouters from ${path}: ${e.message}`);
+      csmLog.debug(`Failed to list vRouters from ${path}: ${e.message}`);
     }
   }
 
@@ -334,7 +338,7 @@ export const listCsmVRouters = async (config: CsmConfig, queryParams: any = {}) 
         if (item.vm_list && item.vrouter_port_list) return item;
 
         if (!vid) {
-          console.warn('[CSM Debug] vRouter item missing ID:', JSON.stringify(item));
+          csmLog.debug('vRouter item missing ID:', JSON.stringify(item).slice(0, 300));
           return item;
         }
 
@@ -344,7 +348,7 @@ export const listCsmVRouters = async (config: CsmConfig, queryParams: any = {}) 
           const portCount = Array.isArray(detail.vrouter_port_list)
             ? detail.vrouter_port_list.length
             : 0;
-          console.log(`[CSM Debug] Enriched vRouter ${vid}: ${vmCount} VMs, ${portCount} ports`);
+          csmLog.debug(`Enriched vRouter ${vid}: ${vmCount} VMs, ${portCount} ports`);
           return { ...item, ...detail };
         }
         return item;
@@ -368,7 +372,7 @@ export const getCsmPoolInfo = async (config: CsmConfig) => {
       return vrData.page[0]; // Returns object with pool_id
     }
   } catch (e: any) {
-    console.warn('[CSM] Failed to get pool info from VR1:', e.message);
+    csmLog.warn('Failed to get pool info from VR1:', e.message);
   }
 
   // Fallback to VM01/pool
@@ -378,7 +382,7 @@ export const getCsmPoolInfo = async (config: CsmConfig) => {
     const data = raw?.data || raw;
     return data || null;
   } catch (e: any) {
-    console.error('[CSM Debug] Get Pool Info Error:', e?.message || e);
+    csmLog.debug('Get pool info (VM01 fallback) error:', e?.message || String(e));
     return null;
   }
 };
@@ -546,7 +550,7 @@ export const getCsmHostDetail = async (config: CsmConfig, hostId: string) => {
     const raw = await csmRequest(config, path, query);
     return raw?.data || raw;
   } catch (e: any) {
-    console.warn(`[CSM] Failed to get detail for host ${hostId}: ${e.message}`);
+    csmLog.warn(`Failed to get detail for host ${hostId}: ${e.message}`);
     return null;
   }
 };
@@ -565,7 +569,7 @@ export const listCsmHosts = async (config: CsmConfig) => {
     else if (Array.isArray(data?.page)) list = data.page;
     else list = [];
   } catch (e) {
-    console.error('[CSM Debug] Hosts Error:', e);
+    csmLog.debug('listCsmHosts error:', e instanceof Error ? e.message : String(e));
     return [];
   }
 
@@ -608,7 +612,7 @@ export const operateCsmVm = async (
     const raw = await csmRequest(config, path, {}, 'POST');
     return raw;
   } catch (e) {
-    console.error(`[CSM] Action ${action} failed:`, e);
+    csmLog.error(`Action ${action} failed:`, e instanceof Error ? e.message : String(e));
     throw e;
   }
 };
@@ -619,7 +623,7 @@ export const getCsmVmConsole = async (config: CsmConfig, vmId: string) => {
     const raw = await csmRequest(config, path, {}, 'GET');
     return raw;
   } catch (e) {
-    console.error('[CSM] Console failed:', e);
+    csmLog.error('Console failed:', e instanceof Error ? e.message : String(e));
     throw e;
   }
 };
@@ -631,7 +635,7 @@ export const listCsmElementGroups = async (config: CsmConfig) => {
 
   try {
     const raw = await csmRequest(config, path, query);
-    console.log('[CSM Debug] VM Groups Raw:', JSON.stringify(raw).slice(0, 500));
+    csmLog.debug('VM Groups Raw:', JSON.stringify(raw).slice(0, 500));
 
     // Handle nested page structure as per example
     // { "page": { "page": [ ... ] } }
@@ -662,7 +666,7 @@ export const listCsmElementGroups = async (config: CsmConfig) => {
       };
     });
   } catch (e: any) {
-    console.error('[CSM Debug] Failed to list VM groups:', e.message);
+    csmLog.debug('Failed to list VM groups:', e.message);
     return [];
   }
 };
@@ -698,7 +702,7 @@ export const listCsmServiceChains = async (config: CsmConfig, queryParams: any =
       if (Array.isArray(data?.serviceChains)) return data.serviceChains;
       if (Array.isArray(raw?.serviceChains)) return raw.serviceChains;
     } catch (e: any) {
-      console.log(`[CSM Debug] Service Chain endpoint failed: ${p}`, e.message);
+      csmLog.debug(`Service Chain endpoint failed: ${p}`, e.message);
     }
   }
   return [];
@@ -718,7 +722,7 @@ export const listCsmVRPageList = async (config: CsmConfig, queryParams: any = {}
     if (Array.isArray(raw?.items)) return raw.items;
     return [];
   } catch (e) {
-    console.error('[CSM Debug] VR1 pagelist Error:', e);
+    csmLog.debug('VR1 pagelist error:', e instanceof Error ? e.message : String(e));
     return [];
   }
 };
@@ -791,7 +795,7 @@ export const createCsmAsset = async (config: CsmConfig, payload: any, queryParam
     const raw = await csmRequest(config, path, queryParams || {}, 'POST', payload);
     return raw?.data || raw;
   } catch (e: any) {
-    console.error(`[CSM] Failed to create asset: ${e.message}`);
+    csmLog.error('Failed to create asset:', e.message);
     throw e;
   }
 };
@@ -804,7 +808,7 @@ export const deleteCsmAsset = async (config: CsmConfig, assetId: string) => {
     const raw = await csmRequest(config, path, query, 'DELETE');
     return raw;
   } catch (e: any) {
-    console.error(`[CSM] Failed to delete asset ${assetId}: ${e.message}`);
+    csmLog.error(`Failed to delete asset ${assetId}:`, e.message);
     throw e;
   }
 };
@@ -816,7 +820,7 @@ export const getCsmAssetDetail = async (config: CsmConfig, assetId: string) => {
     const raw = await csmRequest(config, path, query);
     return raw?.data || raw;
   } catch (e: any) {
-    console.warn(`[CSM] Failed to get detail for asset ${assetId}: ${e.message}`);
+    csmLog.warn(`Failed to get detail for asset ${assetId}: ${e.message}`);
     return null;
   }
 };
@@ -852,7 +856,7 @@ export const listCsmAssets = async (config: CsmConfig, queryParams: any = {}) =>
 
       // Debug Log
       const rawStr = JSON.stringify(raw).slice(0, 500);
-      console.log(`[CSM Debug] Trying Asset Endpoint: ${path} | Response: ${rawStr}`);
+      csmLog.debug(`Trying Asset Endpoint: ${path} | Response: ${rawStr}`);
 
       let currentList: any[] = [];
       let found = false;
@@ -880,14 +884,14 @@ export const listCsmAssets = async (config: CsmConfig, queryParams: any = {}) =>
       // Strategy 5: Single Object (Detail-like) treated as List of 1
       // Only if it has an ID and looks like an asset
       else if (raw?.data?.network_id || raw?.data?.id) {
-        console.warn(
-          `[CSM Warning] Endpoint ${path} returned a single object (Detail format) instead of a list. Treating as list of 1.`,
+        csmLog.warn(
+          `Endpoint ${path} returned a single object (detail format) instead of a list; treating as list of 1.`,
         );
         currentList = [raw.data];
         found = true;
       } else if (raw?.network_id || raw?.id) {
-        console.warn(
-          `[CSM Warning] Endpoint ${path} returned a single object (Detail format) instead of a list. Treating as list of 1.`,
+        csmLog.warn(
+          `Endpoint ${path} returned a single object (detail format) instead of a list; treating as list of 1.`,
         );
         currentList = [raw];
         found = true;
@@ -909,11 +913,9 @@ export const listCsmAssets = async (config: CsmConfig, queryParams: any = {}) =>
   }
 
   if (!successEndpoint) {
-    console.warn('[CSM] All VM07 Asset endpoints failed or returned invalid data.');
+    csmLog.warn('All VM07 Asset endpoints failed or returned invalid data.');
   } else {
-    console.log(
-      `[CSM] Successfully fetched assets from: ${successEndpoint}, Count: ${list.length}`,
-    );
+    csmLog.info(`Successfully fetched assets from: ${successEndpoint}, count: ${list.length}`);
   }
 
   list.forEach((item: any) => {

@@ -1,19 +1,15 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { Button, Form, Input, Select, Table, Tag, message, Modal, Space, Row, Col, Typography, Divider, Dropdown, Checkbox, Popover } from 'antd';
-import type { MenuProps } from 'antd';
-import { DeleteOutlined, EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Form, Input, InputNumber, Modal, Select, Tag, message, Space, Row, Col, Typography } from 'antd';
 import PageContainer from '../../../components/PageContainer';
-import StdSideDrawer from '../../../components/StdSideDrawer';
 import type { ColumnsType } from 'antd/es/table';
-import { getNATRules, createNATRule, deleteNATRule, NATRule } from '../../../services/virtualRouterApi';
-import { vrApi } from '../../../services/virtualRouterApi';
-import { apiRequest } from '../../../services/api';
+import { vrApi, getVRConfig, saveVRConfig, fetchVrCachePageList, getVRRoles } from '../../../services/virtualRouterApi';
+import { apiPost } from '../../../services/api';
 
 const { Option } = Select;
 const { Text } = Typography;
 
 const NATPage: React.FC = () => {
-  const [data, setData] = useState<NATRule[]>([]);
+  const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [vrList, setVrList] = useState<any[]>([]);
   const [vrNameMap, setVrNameMap] = useState<Record<string, string>>({});
@@ -21,19 +17,17 @@ const NATPage: React.FC = () => {
   const [vrFilter, setVrFilter] = useState<string | undefined>();
   const [typeFilter, setTypeFilter] = useState<'snat' | 'dnat' | 'static' | undefined>();
   const [filterForm] = Form.useForm();
-  
-  // PageContainer handles column visibility
-  const defaultHiddenColumns: string[] = [];
-  
-  // Create Drawer State
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createForm] = Form.useForm();
-  const [submitting, setSubmitting] = useState(false);
 
   // Fetch VRs and NAT Rules
-  const fetchData = async () => {
+  const fetchData = async (force?: boolean) => {
     setLoading(true);
     try {
+      if (force) {
+        await apiPost('/api/vr-instances/refresh', {});
+      }
       // Fetch VRs first to build map
       const res: any = await vrApi.getVRInstances(1000, 1);
       const dataObj = res?.data ?? res;
@@ -42,13 +36,12 @@ const NATPage: React.FC = () => {
                 Array.isArray(dataObj?.rows) ? dataObj.rows :
                 Array.isArray(dataObj) ? dataObj : [];
       if (!Array.isArray(vrs) || vrs.length === 0) {
-        const json = await apiRequest('/api/vr-cache/pagelist?page_num=1&page_size=1000');
+        const json = await fetchVrCachePageList(1000, 1, { skipCache: !!force });
         const d = json?.data ?? json;
         vrs = Array.isArray(d?.page) ? d.page : [];
       }
       if ((!Array.isArray(vrs) || vrs.length === 0)) {
-        const jsonRoles = await apiRequest('/api/vr-config/roles');
-        const roles = jsonRoles?.data?.roles || {};
+        const roles = await getVRRoles([], { skipCache: !!force });
         const uuids = Object.keys(roles || {});
         vrs = uuids.map(u => ({ uuid: u, name: u }));
       }
@@ -61,18 +54,68 @@ const NATPage: React.FC = () => {
       });
       setVrNameMap(map);
 
-      // Fetch NAT Rules
-      const list = await getNATRules();
-      const normalized = Array.isArray(list)
-        ? list
-        : Array.isArray((list as any)?.data)
-          ? (list as any).data
-          : Array.isArray((list as any)?.list)
-            ? (list as any).list
-            : Array.isArray((list as any)?.rows)
-              ? (list as any).rows
-              : [];
-      setData(normalized);
+      const natRows: any[] = [];
+      for (const v of vrs) {
+        const vid = v.uuid || v.id || v.vm_id;
+        if (!vid) continue;
+        try {
+          const cfg = await getVRConfig(vid, { skipCache: !!force });
+          const natGroups = cfg?.nat_address_group || [];
+          for (const g of Array.isArray(natGroups) ? natGroups : []) {
+            const gid = g?.group_id ?? g?.groupId ?? '';
+            const ranges = g?.range ?? [];
+            const rangeArr = Array.isArray(ranges) ? ranges : (ranges ? [ranges] : []);
+            const rangeText = rangeArr.map((x: any) => (typeof x === 'string' ? x : JSON.stringify(x))).join('；');
+
+            const mappingsRaw =
+              (Array.isArray(g?.static_mapping) ? g.static_mapping : null) ??
+              (Array.isArray(g?.staticMapping) ? g.staticMapping : null) ??
+              null;
+
+            if (mappingsRaw) {
+              mappingsRaw.forEach((sm: any, idx: number) => {
+                natRows.push({
+                  id: `${vid}:${gid}:${idx}:${sm?.inside || ''}:${sm?.local_port || ''}:${sm?.outside || ''}:${sm?.external_port || ''}`,
+                  groupId: String(gid),
+                  rangeText,
+                  vrId: vid,
+                  type: 'static',
+                  proto: sm?.proto || '',
+                  inside: sm?.inside || '',
+                  localPort: sm?.local_port ?? '',
+                  outside: sm?.outside || '',
+                  externalPort: sm?.external_port ?? '',
+                  vrf: sm?.vrf ?? '',
+                  twiceNat: sm?.twice_nat || '',
+                });
+              });
+              continue;
+            }
+
+            const nested = rangeArr
+              .map((r: any) => r?.static_mapping || r?.staticMapping)
+              .filter(Boolean);
+            nested.forEach((sm: any, idx: number) => {
+              natRows.push({
+                id: `${vid}:${gid}:nested:${idx}:${sm?.inside || ''}:${sm?.local_port || ''}:${sm?.outside || ''}:${sm?.external_port || ''}`,
+                groupId: String(gid),
+                rangeText,
+                vrId: vid,
+                type: 'static',
+                proto: sm?.proto || '',
+                inside: sm?.inside || '',
+                localPort: sm?.local_port ?? '',
+                outside: sm?.outside || '',
+                externalPort: sm?.external_port ?? '',
+                vrf: sm?.vrf ?? '',
+                twiceNat: sm?.twice_nat || '',
+              });
+            });
+          }
+        } catch (e) {
+        }
+      }
+      setData(natRows);
     } catch (e: any) {
       console.error(e);
       message.error('加载 NAT 规则列表失败: ' + (e.message || 'Unknown error'));
@@ -85,55 +128,87 @@ const NATPage: React.FC = () => {
     fetchData();
   }, []);
 
-  const handleDelete = (record: NATRule) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除 NAT 规则 "${record.name}" 吗？`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteNATRule(record.id);
-          message.success('删除成功');
-          fetchData();
-        } catch (e: any) {
-          message.error('删除失败: ' + (e.message || 'Unknown error'));
-        }
-      },
-    });
-  };
+  const vrOptions = useMemo(
+    () =>
+      (vrList || [])
+        .map((v: any) => {
+          const id = v.uuid || v.id || v.vm_id;
+          const name = v.name || id;
+          return id ? { value: String(id), label: String(name) } : null;
+        })
+        .filter(Boolean) as Array<{ value: string; label: string }>,
+    [vrList],
+  );
 
-  const handleCreate = async () => {
+  const handleCreateNat = async () => {
     try {
       const values = await createForm.validateFields();
-      setSubmitting(true);
-      await createNATRule(values);
-      message.success('创建成功');
-      setDrawerOpen(false);
+      const vrId = String(values.vrId || '').trim();
+      if (!vrId) throw new Error('请选择 VR');
+
+      setCreateSubmitting(true);
+
+      // 读取当前 DB 配置（没有则从空开始）
+      const existing = (await getVRConfig(vrId)) || {};
+      const cfg: any = (existing && typeof existing === 'object') ? { ...existing } : {};
+
+      const groupId = Number(values.groupId);
+      const rangeText = String(values.range || '').trim();
+      const rangeArr = rangeText ? rangeText.split(/[\n,;，；\s]+/).map((s) => s.trim()).filter(Boolean) : [];
+
+      const mapping: any = {
+        proto: String(values.proto || '').trim(),
+        inside: String(values.inside || '').trim(),
+        local_port: Number(values.localPort),
+        vrf: String(values.vrf || '').trim(),
+        outside: String(values.outside || '').trim(),
+        external_port: Number(values.externalPort),
+        twice_nat: String(values.twiceNat || '').trim(),
+      };
+
+      const groups = Array.isArray(cfg.nat_address_group) ? [...cfg.nat_address_group] : [];
+      const idx = groups.findIndex((g: any) => Number(g?.group_id ?? g?.groupId) === groupId);
+      if (idx >= 0) {
+        const g = { ...(groups[idx] || {}) };
+        const curRange = Array.isArray(g.range) ? g.range : (g.range ? [g.range] : []);
+        const nextRange = rangeArr.length ? rangeArr : curRange;
+        g.group_id = groupId;
+        g.range = nextRange;
+        const curMappings = Array.isArray(g.static_mapping) ? g.static_mapping : [];
+        g.static_mapping = [...curMappings, mapping];
+        groups[idx] = g;
+      } else {
+        groups.push({
+          group_id: groupId,
+          range: rangeArr,
+          static_mapping: [mapping],
+        });
+      }
+      cfg.nat_address_group = groups;
+
+      await saveVRConfig(vrId, cfg);
+      message.success('NAT 规则已保存到平台（未下发）');
+      setCreateOpen(false);
       createForm.resetFields();
       fetchData();
     } catch (e: any) {
-      console.error(e);
-      // If validation error, don't show message
-      if (!e.errorFields) {
-        message.error('创建失败: ' + (e.message || 'Unknown error'));
-      }
+      if (e?.errorFields) return;
+      message.error(e?.message || '创建失败');
     } finally {
-      setSubmitting(false);
+      setCreateSubmitting(false);
     }
   };
 
-  const fullColumns: ColumnsType<NATRule> = [
+  const fullColumns: ColumnsType<any> = [
     {
-      title: '规则名称',
-      dataIndex: 'name',
-      key: 'name',
+      title: '地址池',
+      dataIndex: 'groupId',
+      key: 'groupId',
       width: 150,
       render: (text, record) => (
         <Space direction="vertical" size={0}>
-          <Text strong>{text}</Text>
-          {record.description && <Text type="secondary" style={{ fontSize: 12 }}>{record.description}</Text>}
+          <Text strong>{String(text || '-')}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.rangeText || '-'}</Text>
         </Space>
       ),
     },
@@ -157,55 +232,72 @@ const NATPage: React.FC = () => {
       },
     },
     {
-      title: '接口',
-      dataIndex: 'interface',
-      key: 'interface',
+      title: '协议',
+      dataIndex: 'proto',
+      key: 'proto',
       width: 100,
       render: (text) => text || '-',
     },
     {
-      title: '原始地址/端口',
-      key: 'original',
+      title: '内部地址/端口',
+      key: 'inside',
       width: 250,
       render: (_, r) => (
         <div style={{ fontSize: 13 }}>
-          <div>Src: {r.originalSourceIp || 'any'}:{r.originalSourcePort || 'any'}</div>
-          <div>Dst: {r.originalDestinationIp || 'any'}:{r.originalDestinationPort || 'any'}</div>
+          <div>{r.inside || '-'}</div>
+          <div>端口: {r.localPort !== undefined ? r.localPort : '-'}</div>
         </div>
       ),
     },
     {
-      title: '转换后地址/端口',
-      key: 'translated',
+      title: '外部地址/端口',
+      key: 'outside',
       width: 250,
       render: (_, r) => (
         <div style={{ fontSize: 13 }}>
-          <div>Src: {r.translatedSourceIp || '-'}:{r.translatedSourcePort || '-'}</div>
-          <div>Dst: {r.translatedDestinationIp || '-'}:{r.translatedDestinationPort || '-'}</div>
+          <div>{r.outside || '-'}</div>
+          <div>端口: {r.externalPort !== undefined ? r.externalPort : '-'}</div>
         </div>
       ),
+    },
+    {
+      title: 'VRF',
+      dataIndex: 'vrf',
+      key: 'vrf',
+      width: 100,
+      render: (t) => (t !== undefined && t !== null && String(t).trim() !== '' ? String(t) : '-'),
+    },
+    {
+      title: 'Twice NAT',
+      dataIndex: 'twiceNat',
+      key: 'twiceNat',
+      width: 120,
+      render: (t) => t || '-',
     },
     {
       title: '操作',
-      key: 'action',
-      width: 100,
-      render: (_, record) => (
-        <Button 
-          type="text" 
-          danger 
-          icon={<DeleteOutlined />} 
-          onClick={() => handleDelete(record)}
-        >
-          删除
-        </Button>
-      ),
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: () => <span style={{ color: '#999' }}>—</span>,
     },
   ];
 
   const columns = fullColumns;
 
   const filteredData = data.filter((r) => {
-    if (keyword && !String(r.name || '').toLowerCase().includes(keyword.toLowerCase())) return false;
+    if (keyword) {
+      const kw = keyword.toLowerCase();
+      const hay = [
+        r.groupId,
+        r.rangeText,
+        r.inside,
+        r.outside,
+        r.proto,
+        r.twiceNat,
+      ].map((x: any) => String(x || '').toLowerCase()).join(' ');
+      if (!hay.includes(kw)) return false;
+    }
     if (vrFilter && r.vrId !== vrFilter) return false;
     if (typeFilter && r.type !== typeFilter) return false;
     return true;
@@ -217,34 +309,23 @@ const NATPage: React.FC = () => {
     setTypeFilter(undefined);
   };
 
-  const moreMenu: MenuProps = {
-    items: [
-      {
-        key: 'refresh',
-        label: '刷新列表',
-        onClick: fetchData
-      },
-      {
-        key: 'reset',
-        label: '重置筛选',
-        onClick: resetFilters
-      }
-    ]
-  };
-
   return (
     <PageContainer
       titleLevel={3}
       asCard={false}
       primaryAction={{
-        text: '新建 NAT',
-        onClick: () => setDrawerOpen(true),
+        text: '创建 NAT',
+        onClick: () => {
+          createForm.resetFields();
+          setCreateOpen(true);
+        },
         type: 'primary',
       }}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: fetchData },
+        { key: 'refresh', label: '刷新列表', onClick: () => { void fetchData(true); } },
         { key: 'reset', label: '重置筛选', onClick: resetFilters }
       ]}
+      onRefresh={() => { void fetchData(true); }}
       defaultHiddenColumns={[]}
       toolbarLeft={(
         <Form
@@ -280,134 +361,111 @@ const NATPage: React.FC = () => {
         columns: columns,
         rowKey: "id",
         loading: loading,
-        pagination: { pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'] },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
         scroll: { x: 'max-content' },
-        bordered: true
+        bordered: false,
+        className: "std-table"
       }}
     >
-
-      <StdSideDrawer
-        title="新建 NAT 规则"
-        width={700}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onOk={handleCreate}
-        okText={submitting ? "提交中..." : "提交"}
+      <Modal
+        title="创建 NAT（静态映射）"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={handleCreateNat}
+        confirmLoading={createSubmitting}
+        okText="保存"
+        cancelText="取消"
+        destroyOnHidden
+        width={720}
       >
         <Form form={createForm} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item 
-                name="name" 
-                label="规则名称" 
-                rules={[{ required: true, message: '请输入名称' }]}
-              >
-                <Input placeholder="例如: nat-rule-01" />
+              <Form.Item name="vrId" label="所属 VR" rules={[{ required: true, message: '请选择 VR' }]}>
+                <Select showSearch optionFilterProp="label" options={vrOptions} placeholder="选择 VR" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item 
-                name="vrId" 
-                label="所属 VR" 
-                rules={[{ required: true, message: '请选择 VR' }]}
+              <Form.Item
+                name="groupId"
+                label="地址池（group_id）"
+                rules={[{ required: true, message: '请输入地址池 ID' }]}
               >
-                <Select placeholder="选择 VR 实例">
-                  {vrList.map(vr => {
-                    const id = vr.uuid || vr.id || vr.vm_id;
-                    const name = vr.name || id;
-                    return id ? (<Option key={id} value={id}>{name}</Option>) : null;
-                  })}
-                </Select>
+                <InputNumber style={{ width: '100%' }} min={0} placeholder="例如：1" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="range" label="地址池范围（range，可选，多值用逗号/换行分隔）">
+            <Input.TextArea rows={2} placeholder="例如：203.0.113.10-203.0.113.20 或 203.0.113.10/32" />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="proto" label="协议" initialValue="tcp" rules={[{ required: true, message: '请选择协议' }]}>
+                <Select
+                  options={[
+                    { value: 'tcp', label: 'TCP' },
+                    { value: 'udp', label: 'UDP' },
+                    { value: 'icmp', label: 'ICMP' },
+                    { value: 'any', label: 'ANY' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="vrf" label="VRF（可选）">
+                <Input placeholder="例如：4001" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="twiceNat" label="Twice NAT（可选）">
+                <Input placeholder="例如：enable/disable" />
               </Form.Item>
             </Col>
           </Row>
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item 
-                name="type" 
-                label="NAT 类型" 
-                initialValue="snat"
-                rules={[{ required: true }]}
-              >
-                <Select>
-                  <Option value="snat">SNAT (源地址转换)</Option>
-                  <Option value="dnat">DNAT (目的地址转换)</Option>
-                  <Option value="static">STATIC (静态一对一)</Option>
-                </Select>
+              <Form.Item name="inside" label="内部地址" rules={[{ required: true, message: '请输入内部地址' }]}>
+                <Input placeholder="例如：10.0.0.10" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item 
-                name="interface" 
-                label="接口 (可选)"
+              <Form.Item
+                name="localPort"
+                label="内部端口"
+                rules={[{ required: true, message: '请输入内部端口' }]}
               >
-                <Input placeholder="例如: eth0" />
+                <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：80" />
               </Form.Item>
             </Col>
           </Row>
-          
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} />
-          </Form.Item>
 
-          <div style={{ border: '1px solid #f0f0f0', padding: '16px', marginBottom: '16px', borderRadius: '4px' }}>
-            <Text strong style={{ display: 'block', marginBottom: '12px' }}>原始匹配条件</Text>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="originalSourceIp" label="原始源 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="originalSourcePort" label="原始源端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="originalDestinationIp" label="原始目的 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="originalDestinationPort" label="原始目的端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-          </div>
-
-          <div style={{ border: '1px solid #f0f0f0', padding: '16px', marginBottom: '16px', borderRadius: '4px', background: '#fafafa' }}>
-            <Text strong style={{ display: 'block', marginBottom: '12px' }}>转换后动作</Text>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="translatedSourceIp" label="转换后源 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="translatedSourcePort" label="转换后源端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="translatedDestinationIp" label="转换后目的 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="translatedDestinationPort" label="转换后目的端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-          </div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="outside" label="外部地址" rules={[{ required: true, message: '请输入外部地址' }]}>
+                <Input placeholder="例如：203.0.113.10" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="externalPort"
+                label="外部端口"
+                rules={[{ required: true, message: '请输入外部端口' }]}
+              >
+                <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：8080" />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
-      </StdSideDrawer>
+        <div style={{ fontSize: 12, color: '#999' }}>
+          说明：当前仅保存到平台 `vr-config`（`nat_address_group.static_mapping`），后续可在专家模式统一下发。
+        </div>
+      </Modal>
     </PageContainer>
   );
 };

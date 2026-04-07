@@ -1,114 +1,320 @@
 import React from 'react';
-import { Form, Radio, Input, Space, Button, Table, Typography } from 'antd';
-import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Form, Button, Card, Select, Row, Col, Input, message } from 'antd';
+import { MinusCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 
 type Props = {
   form: any;
   gpuResources: any[];
-  selectedGpuKey: string | null;
-  setSelectedGpuKey: (key: string | null) => void;
-  gpuKeyword: string;
-  setGpuKeyword: (val: string) => void;
+  selectedGpuKeys: string[];
+  setSelectedGpuKeys: (keys: string[]) => void;
   gpuLoading: boolean;
   reloadGpuResources: () => void;
+  currentVmGpuResourceNames?: string[]; // 当前VM正在使用的GPU资源名列表
 };
 
 const ChangeGpu: React.FC<Props> = ({
   form,
   gpuResources,
-  selectedGpuKey,
-  setSelectedGpuKey,
-  gpuKeyword,
-  setGpuKeyword,
+  selectedGpuKeys,
+  setSelectedGpuKeys,
   gpuLoading,
-  reloadGpuResources
+  reloadGpuResources,
+  currentVmGpuResourceNames = []
 }) => {
+  const updateSelection = (nextKeys: string[], keyToResName?: Map<string, string>, keyToDeviceName?: Map<string, string>, pinnedNode?: string | null) => {
+    const list = Array.isArray(nextKeys) ? nextKeys : [];
+    const normalized = list.map((k) => String(k || ''));
+    const seen = new Set<string>();
+    const orderedKeys = normalized.filter((k) => {
+      if (!k) return true;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    const lockedKeys = orderedKeys.filter((k) => !!k);
+    const nextResNames = keyToResName
+      ? lockedKeys.map((k) => keyToResName.get(String(k))).filter((x) => !!x)
+      : undefined;
+    const nextDeviceNames = keyToDeviceName
+      ? lockedKeys.map((k) => keyToDeviceName.get(String(k))).filter((x) => !!x)
+      : undefined;
+    setSelectedGpuKeys(orderedKeys);
+    if (nextResNames) form.setFieldsValue({ gpuResourceNames: nextResNames });
+    else form.setFieldsValue({ gpuResourceNames: undefined });
+    if (nextDeviceNames) form.setFieldsValue({ gpuDeviceNames: nextDeviceNames });
+    else form.setFieldsValue({ gpuDeviceNames: undefined });
+    if (pinnedNode !== undefined) {
+      form.setFieldsValue({ gpuNodeName: pinnedNode || null });
+    }
+  };
+
+  const modeLabel = (m?: string) => {
+    const v = String(m || '').toLowerCase();
+    if (v === 'passthrough') return '直通';
+    if (v === 'sriov') return 'SR-IOV';
+    if (v === 'vgpu') return 'vGPU';
+    if (v === 'none') return '无';
+    return v || '-';
+  };
+
   return (
     <>
-      <Form.Item label="GPU模式" name="gpuMode" initialValue="none">
-        <Radio.Group buttonStyle="solid" onChange={() => { setSelectedGpuKey(null); form.setFieldsValue({ gpuResourceName: undefined }); }}>
-          <Radio.Button value="none">无</Radio.Button>
-          <Radio.Button value="passthrough">直通GPU</Radio.Button>
-          <Radio.Button value="vgpu">vGPU</Radio.Button>
-          <Radio.Button value="sriov">SR-IOV GPU</Radio.Button>
-        </Radio.Group>
-      </Form.Item>
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ color: '#999' }}>变更 GPU 资源配置（需重启生效）</div>
+        <Button type="link" icon={<ReloadOutlined />} onClick={() => reloadGpuResources()} disabled={gpuLoading} style={{ padding: 0 }}>
+          刷新
+        </Button>
+      </div>
+      <Form.Item name="gpuMode" initialValue="none" hidden />
+      <Form.Item name="gpuResourceNames" initialValue={[]} hidden />
+      <Form.Item name="gpuDeviceNames" initialValue={[]} hidden />
       <Form.Item noStyle shouldUpdate={(prev, curr) => prev.gpuMode !== curr.gpuMode}>
         {({ getFieldValue }) => {
             const mode = getFieldValue('gpuMode') || 'none';
-            if (mode === 'none') return null;
             
             const list = Array.isArray(gpuResources) ? gpuResources : [];
             const byMode = list.filter((x: any) => String(x?.type) === mode);
             const onlyNode = byMode.filter((x: any) => !!(x?.node || x?.nodeName));
-            const src = (onlyNode.length ? onlyNode : byMode.length ? byMode : list);
+            const src = (onlyNode.length ? onlyNode : byMode);
+
+            const getGpuDisplayName = (x: any) => {
+              return x?.raw?.status?.description
+                || x?.status?.description
+                || x?.raw?.status?.deviceName
+                || x?.raw?.spec?.deviceName
+                || x?.raw?.metadata?.name
+                || x?.name
+                || x?.description
+                || x?.desc
+                || x?.resourceName
+                || '-';
+            };
             
-            let data = src.map((x: any) => ({
+            const data = src.map((x: any) => ({
               key: `${(x?.raw?.metadata?.name || x?.name || x?.resourceName) || '-'}|${x?.node || x?.nodeName}|${x?.pciAddress || x?.address || x?.pci}`,
               node: x?.node || x?.nodeName || '-',
               bus: x?.pciAddress || x?.address || x?.pci || '-',
-              name: x?.raw?.metadata?.name || x?.raw?.spec?.deviceName || x?.name || x?.description || x?.desc || x?.resourceName,
+              name: getGpuDisplayName(x),
               resourceName: x?.resourceName || x?.raw?.status?.resourceName || x?.raw?.spec?.resourceName,
               type: x?.type,
+              claimed: x?.claimed, // [修复] 保留claimed字段，用于过滤被其他VM使用的GPU
               raw: x
             }));
-            
-            const kw = String(gpuKeyword || '').trim().toLowerCase();
-            if (kw) {
-              data = data.filter((r: any) => (
-                String(r.node || '').toLowerCase().includes(kw) ||
-                String(r.bus || '').toLowerCase().includes(kw) ||
-                String(r.name || '').toLowerCase().includes(kw) ||
-                String(r.resourceName || '').toLowerCase().includes(kw)
-              ));
-            }
-            
-            const columns = [
-              { title: '', key: 'select', width: 52, align: 'center', render: (_: any, r: any) => (
-                <Radio style={{ margin: 0 }} checked={selectedGpuKey === r?.key} onChange={(e) => { e.stopPropagation(); const k = String(r?.key); setSelectedGpuKey(k); const rn = r?.resourceName; form.setFieldsValue({ gpuResourceName: rn }); }} />
-              ) },
-              { title: '节点', dataIndex: 'node', key: 'node' },
-              { title: '总线', dataIndex: 'bus', key: 'bus' },
-              { title: '设备', key: 'dev', render: (_: any, r: any) => (
-                <div>
-                  <div>{r?.name || '-'}</div>
-                  <div style={{ color: '#999' }}>{r?.resourceName || '-'}</div>
-                </div>
-              ) },
-            ];
+
+            const keyToResName = new Map<string, string>();
+            const keyToNode = new Map<string, string>();
+            const keyToRow = new Map<string, any>();
+            const keyToDeviceName = new Map<string, string>();
+            data.forEach((r: any) => {
+              if (r?.key) keyToResName.set(String(r.key), String(r.resourceName || ''));
+              if (r?.key) keyToNode.set(String(r.key), String(r.node || ''));
+              if (r?.key) keyToRow.set(String(r.key), r);
+              if (r?.key) keyToDeviceName.set(String(r.key), String(String(r.key).split('|')[0] || ''));
+            });
+
+            const parseKey = (k: string) => {
+              const [n, node, bus] = String(k || '').split('|');
+              return { key: String(k), name: n || '-', node: node || '-', bus: bus || '-', resourceName: '-' };
+            };
+            const keys = Array.isArray(selectedGpuKeys) ? selectedGpuKeys : [];
+            const selectedRows = keys.map((k) => keyToRow.get(String(k)) || parseKey(String(k))).filter((x) => !!x);
+            const lockedNode = (() => {
+              const first = selectedRows.find((x: any) => String(x?.node || '') && String(x?.node || '') !== '-');
+              return first ? String(first?.node) : undefined;
+            })();
+
+            const trySetModeAndAdd = (targetMode: string) => {
+              const currentMode = String(form.getFieldValue('gpuMode') || 'none');
+              const hasLocked = keys.some((x) => !!String(x || ''));
+              const hasEmpty = keys.some((x) => !String(x || ''));
+              if (hasLocked && currentMode !== targetMode) {
+                message.warning('请先解绑已添加GPU后再切换GPU模式');
+                return;
+              }
+              if (hasEmpty && currentMode === targetMode) {
+                message.warning('请先选择GPU或删除空卡片');
+                return;
+              }
+              if (!hasLocked && hasEmpty && currentMode !== targetMode) {
+                setSelectedGpuKeys([]);
+                form.setFieldsValue({ gpuResourceNames: [] });
+              }
+              if (currentMode !== targetMode) {
+                form.setFieldsValue({ gpuMode: targetMode });
+              }
+              reloadGpuResources();
+              const base = hasLocked ? keys : [];
+              const next = [...base, ''];
+              updateSelection(next, keyToResName, keyToDeviceName, lockedNode || null);
+            };
+            const removeSlot = (idx: number) => {
+              const next = keys.filter((_, i) => i !== idx);
+              const hasAny = next.filter((x) => !!String(x || '')).length > 0;
+              updateSelection(next, keyToResName, keyToDeviceName, hasAny ? (lockedNode || null) : null);
+              if (next.filter((x) => !!String(x || '')).length === 0) {
+                form.setFieldsValue({ gpuMode: 'none', gpuResourceNames: [], gpuDeviceNames: [] });
+                setSelectedGpuKeys([]);
+              }
+            };
+            const updateSlot = (idx: number, nextKey?: string) => {
+              if (String(keys?.[idx] || '') && String(nextKey || '') && String(nextKey || '') !== String(keys?.[idx] || '')) {
+                message.warning('已添加GPU不支持变更，请先解绑');
+                return;
+              }
+              const normalized = String(nextKey || '');
+              if (normalized) {
+                const node = String(keyToNode.get(normalized) || '');
+                const currentLocked = lockedNode;
+                if (currentLocked && node && currentLocked !== node) {
+                  message.error('多块GPU需在同一节点上');
+                  return;
+                }
+              }
+              const next = [...keys];
+              next[idx] = normalized;
+              const pinned = normalized ? (String(keyToNode.get(normalized) || '') || lockedNode || null) : (lockedNode || null);
+              updateSelection(next, keyToResName, keyToDeviceName, pinned);
+            };
+
+            const buildOptions = (idx: number) => {
+              const used = new Set(keys.filter((k, i) => i !== idx).map((k) => String(k || '')).filter(Boolean));
+              // 当前VM正在使用的资源名集合（用于保留当前VM使用的资源）
+              const currentVmResourceNames = new Set(
+                (Array.isArray(currentVmGpuResourceNames) ? currentVmGpuResourceNames : []).map((n) => String(n || '').trim()).filter(Boolean)
+              );
+              return data
+                .filter((r: any) => {
+                  const k = String(r?.key || '');
+                  if (!k) return false;
+                  if (used.has(k)) return false;
+                  if (lockedNode && String(r?.node || '') && String(r?.node || '') !== '-' && String(r?.node || '') !== lockedNode) return false;
+                  // 过滤被其他VM使用的GPU（但保留当前VM正在使用的）
+                  const resourceName = String(r?.resourceName || '').trim();
+                  // 如果resourceName为空，跳过claimed检查（可能是数据不完整）
+                  if (resourceName && r?.claimed === true) {
+                    // 如果资源被使用，检查是否是当前VM使用的
+                    if (!currentVmResourceNames.has(resourceName)) {
+                      // 被其他VM使用，过滤掉
+                      return false;
+                    }
+                    // 是当前VM使用的，保留
+                  }
+                  return true;
+                })
+                .map((r: any) => {
+                  return { label: String(r?.name || '-'), value: String(r?.key) };
+                });
+            };
 
             return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography.Text>可用 GPU 资源</Typography.Text>
+              <>
+                {mode !== 'none' && !gpuLoading && byMode.length === 0 ? (
+                  <div style={{ marginBottom: 12, color: '#999' }}>
+                    暂无可用{mode === 'passthrough' ? '直通GPU' : mode === 'sriov' ? 'SR-IOV GPU' : mode === 'vgpu' ? 'vGPU' : 'GPU'}资源
+                  </div>
+                ) : null}
+                {mode === 'none' ? null : keys.map((k, idx) => {
+                  const r = keyToRow.get(String(k)) || parseKey(String(k));
+                  const locked = !!String(k || '');
+                  return (
+                    <Card
+                      key={`${idx}-${String(k || '')}`}
+                      size="small"
+                      title={`GPU #${idx + 1}`}
+                      extra={
+                        <Button type="text" icon={<MinusCircleOutlined />} onClick={() => removeSlot(idx)} danger />
+                      }
+                      style={{ marginBottom: 12, border: '1px solid #d9d9d9' }}
+                    >
+                      <Row gutter={12}>
+                        <Col span={24}>
+                          {locked ? (
+                            <Form.Item label="GPU名称" style={{ marginBottom: 12 }}>
+                              <Input value={r?.name || '-'} disabled />
+                            </Form.Item>
+                          ) : (
+                            <Form.Item label="选择GPU" required style={{ marginBottom: 12 }}>
+                              <Select
+                                placeholder="选择 GPU 资源"
+                                options={buildOptions(idx)}
+                                value={k ? String(k) : undefined}
+                                loading={gpuLoading}
+                                notFoundContent={gpuLoading ? '加载中...' : '暂无可选GPU'}
+                                onDropdownVisibleChange={(open) => {
+                                  if (open) reloadGpuResources();
+                                }}
+                                onChange={(val) => updateSlot(idx, val)}
+                              />
+                            </Form.Item>
+                          )}
+                        </Col>
+                        <Col span={8}>
+                          <Form.Item label="节点" style={{ marginBottom: 0 }}>
+                            <Input value={r?.node || '-'} disabled />
+                          </Form.Item>
+                        </Col>
+                        <Col span={8}>
+                          <Form.Item label="总线" style={{ marginBottom: 0 }}>
+                            <Input value={r?.bus || '-'} disabled />
+                          </Form.Item>
+                        </Col>
+                        <Col span={8}>
+                          <Form.Item label="类型" style={{ marginBottom: 0 }}>
+                            <Input value={modeLabel(mode)} disabled />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </Card>
+                  );
+                })}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    type="dashed"
+                    onClick={() => trySetModeAndAdd('passthrough')}
+                    style={{ flex: 1 }}
+                    icon={<PlusOutlined />}
+                    disabled={gpuLoading}
+                  >
+                    添加直通GPU
+                  </Button>
+                  <Button
+                    type="dashed"
+                    onClick={() => trySetModeAndAdd('vgpu')}
+                    style={{ flex: 1 }}
+                    icon={<PlusOutlined />}
+                    disabled={gpuLoading}
+                  >
+                    添加vGPU
+                  </Button>
+                  <Button
+                    type="dashed"
+                    onClick={() => trySetModeAndAdd('sriov')}
+                    style={{ flex: 1 }}
+                    icon={<PlusOutlined />}
+                    disabled={gpuLoading}
+                  >
+                    添加SR-IOV GPU
+                  </Button>
                 </div>
-                <Space style={{ width: '100%', margin: 0 }}>
-                  <Input allowClear size="middle" placeholder="搜索GPU/节点/总线" value={gpuKeyword} onChange={(e) => setGpuKeyword(e.target.value)} style={{ flex: 1 }} />
-                  {gpuLoading ? (
-                    <LoadingOutlined style={{ fontSize: 16, color: '#1677ff' }} />
-                  ) : (
-                    <Button
-                      size="middle"
-                      icon={<ReloadOutlined style={{ fontSize: 14, color: '#8c8c8c' }} />}
-                      type="default"
-                      onClick={reloadGpuResources}
-                    />
-                  )}
-                </Space>
-                <Table
-                  size="middle"
-                  bordered
-                  rowKey={(r: any) => r.key}
-                  style={{ margin: 0 }}
-                  columns={columns as any}
-                  dataSource={data}
-                  pagination={false}
-                  loading={gpuLoading}
-                  onRow={(record: any) => ({ onClick: () => { setSelectedGpuKey(String(record?.key)); const rn = record?.resourceName; form.setFieldsValue({ gpuResourceName: rn }); } })}
-                  rowClassName={(record: any) => (selectedGpuKey && record?.key === selectedGpuKey) ? 'ant-table-row-selected' : ''}
+                <Form.Item
+                  name="gpuResourceNames"
+                  hidden
+                  rules={[
+                    {
+                      validator: async () => {
+                        const m = form.getFieldValue('gpuMode') || 'none';
+                        if (m === 'none') return;
+                        const ks = Array.isArray(selectedGpuKeys) ? selectedGpuKeys : [];
+                        if (ks.length === 0) throw new Error('请添加GPU');
+                        if (ks.some((x) => !String(x || ''))) throw new Error('请选择GPU');
+                        const names = ks.map((x) => keyToResName.get(String(x))).filter((x) => !!x);
+                        if (names.length !== ks.length) throw new Error('请选择GPU');
+                      }
+                    }
+                  ]}
                 />
-                <Form.Item name="gpuResourceName" hidden rules={[{ required: true, message: '请选择GPU' }]}><Input /></Form.Item>
-              </div>
+                <Form.Item name="gpuNodeName" hidden />
+              </>
             );
         }}
       </Form.Item>

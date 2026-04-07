@@ -178,7 +178,12 @@ export interface PageContainerProps<T = any> {
   tableProps?: TableProps<T>;
   /** 默认隐藏的列 keys（用于表格列控制器） */
   defaultHiddenColumns?: string[];
-  
+  /**
+   * 为 true 时：表格列完全由外部传入（如 useTableColumnSettings 的 displayColumns），
+   * 不再走内置「列展示」过滤与去 width 逻辑，且不显示齿轮列设置按钮。
+   */
+  externalColumnControl?: boolean;
+
   // ========== Tab 标签页相关 ==========
   /** Tab 列表 */
   tabList?: Array<{ key: string; tab: React.ReactNode }>;
@@ -234,6 +239,7 @@ const PageContainer = <T extends Record<string, any> = any>({
   onTabChange,
   tabBarExtraContent,
   defaultHiddenColumns,
+  externalColumnControl,
   hideDivider,
   className,
   style,
@@ -271,6 +277,9 @@ const PageContainer = <T extends Record<string, any> = any>({
    */
   const filteredColumns = useMemo(() => {
     if (!tableProps?.columns) return undefined;
+    if (externalColumnControl) {
+      return tableProps.columns;
+    }
     return tableProps.columns
       .filter((c: any) => {
         const k = String(c.key || c.dataIndex || '');
@@ -281,7 +290,7 @@ const PageContainer = <T extends Record<string, any> = any>({
         const { width, ...rest } = c;
         return rest;
       });
-  }, [tableProps?.columns, hiddenColumns]);
+  }, [tableProps?.columns, hiddenColumns, externalColumnControl]);
 
   /**
    * 列控制器弹窗内容
@@ -532,8 +541,8 @@ const PageContainer = <T extends Record<string, any> = any>({
           </Dropdown>
         )}
         
-        {/* 表格列控制器按钮（仅在提供 tableProps 时显示） */}
-        {tableProps && (
+        {/* 表格列控制器按钮（仅在提供 tableProps 且未使用外部列控制时显示） */}
+        {tableProps && !externalColumnControl && (
           <Popover trigger="click" placement="bottomRight" content={columnControllerContent}>
             <Button size={actionsSize} icon={<SettingOutlined />} />
           </Popover>

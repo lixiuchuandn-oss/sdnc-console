@@ -33,7 +33,7 @@
  *    - MetricCard (统计卡片)
  * ==============================================================================
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Card, Row, Col, Button, Tag, Modal, Form, Input, Select,
   message, Space, Typography, Dropdown, Badge, Table, MenuProps
@@ -42,21 +42,24 @@ import type { ColumnsType } from 'antd/es/table';
 import { 
   EllipsisOutlined,
   ReloadOutlined,
-  SyncOutlined
+  SearchOutlined
 } from '@ant-design/icons';
-import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi, apiPost, apiDelete } from '../../services/api';
+import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi, apiPost, apiDelete, apiRequest } from '../../services/api';
 import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
 import { 
   getProviderLogo, getProviderName, cloudProviders,
-  CLOUD_TYPE_MAP, CLOUD_STATUS_MAP, getCredentialLabels,
-  Cloud, ComputeResource
+  CLOUD_TYPE_MAP, CLOUD_STATUS_MAP,
+  Cloud, 
 } from './providers';
 import PageContainer from '../../components/PageContainer';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../utils/accessMapping';
+import { isMustChangePasswordApiError } from '../../utils/errorHandler';
 import CloudWizard from './CloudWizard';
 import CloudEditModal from './Harvester/modals/CloudEditModal';
  
@@ -73,7 +76,7 @@ const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;mi
     <Card styles={{ body: { padding:12 } }} style={{ borderRadius:6, border: '1px solid #1677ff' }}>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
         <span style={{ fontWeight:600, fontSize:13 }}>{title}</span>
-        <span style={{ color:'#8c8c8c', fontSize:12 }}>总{unit} {total}{unit}</span>
+        <span style={{ color:'#8c8c8c', fontSize:12 }}>总共 {total}{unit}</span>
       </div>
       <div style={{ height:8, background:trail, borderRadius:4, overflow:'hidden', marginBottom:8 }}>
         <div style={{ width:`${percent}%`, height:'100%', background:mainColor }} />
@@ -107,7 +110,6 @@ const Clouds: React.FC = () => {
   
   // [状态管理] 云资源数据与UI状态
   const [clouds, setClouds] = useState<Cloud[]>([]);
-  const [loading, setLoading] = useState(false);
   const [wizardVisible, setWizardVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingCloud, setEditingCloud] = useState<Cloud | null>(null);
@@ -123,18 +125,65 @@ const Clouds: React.FC = () => {
   const [vendorFilter, setVendorFilter] = useState<string|undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   
-  // [权限管理] 用户权限检查
+  // [权限管理] 与 RouteSpec「资源池管理」一致：写 clouds.resource-pools:write（全量 clouds:write 仍兼容）。默认资源池写入系统设置键需 system.settings:write。
   const { user } = useAuth();
-  const hasAdminPermission = user?.role === 'super_admin';
+  const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
+  const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
+  const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
+  const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
 
-  
+  /** 改密完成或曾遇 MUST_CHANGE_PASSWORD 后，下一次拉取需 skipCache，避免缓存住空/失败结果 */
+  const skipNextCloudsFetchCacheRef = useRef(false);
+
+  // ============================================================================
+  // [功能块: 云资源列表数据获取]
+  // 检索关键词: fetchClouds 获取云资源列表 API调用
+  // ============================================================================
+  // [核心逻辑] 资源列表加载
+  // 1. 调用后端 API 获取所有云资源。
+  // 2. 处理 loading 状态。
+  // 3. 异常处理：显示错误提示。
+  const fetchClouds = useCallback(async (skipCache: boolean = false) => {
+    try {
+      // fetchCloudsApi 内部使用 apiRequest，需要传递 skipCache 选项
+      const response = skipCache 
+        ? await apiRequest('/api/clouds', { skipCache: true })
+        : await fetchCloudsApi();
+      setClouds(Array.isArray(response) ? response : (response?.data || []));
+    } catch (error: unknown) {
+      if (isMustChangePasswordApiError(error)) {
+        skipNextCloudsFetchCacheRef.current = true;
+        return;
+      }
+      const e = error as { responseData?: { message?: string }; message?: string };
+      message.error('获取云资源列表失败：' + (e?.responseData?.message || e?.message || '未知错误'));
+    }
+  }, []);
 
   // ============================================================================
   // [功能块: 初始化数据加载]
   // 检索关键词: 初始化 useEffect fetchClouds
   // ============================================================================
   useEffect(() => {
-    fetchClouds();
+    if (!user?.id) return;
+    if (user.mustChangePassword) {
+      skipNextCloudsFetchCacheRef.current = true;
+      return;
+    }
+    const skipCache = skipNextCloudsFetchCacheRef.current;
+    skipNextCloudsFetchCacheRef.current = false;
+    void fetchClouds(skipCache);
+  }, [fetchClouds, user?.id, user?.mustChangePassword]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const fav = await getSystemSetting('favorite.cloudId');
+        setFavoriteCloudId(String(fav?.value || '').trim());
+      } catch {
+        setFavoriteCloudId('');
+      }
+    })();
   }, []);
 
   // ============================================================================
@@ -173,7 +222,8 @@ const Clouds: React.FC = () => {
     const loadVpcStats = async () => {
       try {
         const ids = (clouds || []).map(c => c.id);
-        const results = await Promise.all(ids.map(async id => {
+        // 使用 Promise.allSettled 确保单个云平台连接失败不会阻塞其他
+        const results = await Promise.allSettled(ids.map(async id => {
           try {
             const prov = String((clouds.find(c => c.id === id)?.config?.provider) || '').toLowerCase();
             if (prov === 'harvester') {
@@ -184,11 +234,16 @@ const Clouds: React.FC = () => {
             const json: any = await fetchCloudProviderVpcs(id);
             const list: any[] = json?.data?.Vpcs?.Vpc || json?.data?.vpcs || json?.vpcs || [];
             return Array.isArray(list) ? list : [];
-          } catch {
+          } catch (e) {
+            console.warn(`Failed to load VPC stats for cloud ${id}:`, e);
             return [];
           }
         }));
-        const flat = results.flat();
+        // 提取成功的结果
+        const successfulResults = results
+          .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
+          .map(r => r.value);
+        const flat = successfulResults.flat();
         const total = flat.length;
         const online = flat.filter(r => {
           const s = r?.Status || r?.status;
@@ -206,26 +261,6 @@ const Clouds: React.FC = () => {
     if (clouds.length > 0) loadVpcStats();
   }, [clouds]);
 
-  // ============================================================================
-  // [功能块: 云资源列表数据获取]
-  // 检索关键词: fetchClouds 获取云资源列表 API调用
-  // ============================================================================
-  // [核心逻辑] 资源列表加载
-  // 1. 调用后端 API 获取所有云资源。
-  // 2. 处理 loading 状态。
-  // 3. 异常处理：显示错误提示。
-  const fetchClouds = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetchCloudsApi();
-      setClouds(Array.isArray(response) ? response : (response?.data || []));
-    } catch (error: any) {
-      message.error('获取云资源列表失败：' + (error.response?.data?.message || error.message));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   // 已移除算力配额相关方法
 
   // ============================================================================
@@ -233,17 +268,21 @@ const Clouds: React.FC = () => {
   // 检索关键词: testConnection 连接测试 测试云资源连接
   // ============================================================================
   const testConnection = useCallback(async (cloudId: string) => {
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
+      return;
+    }
     setTestingConnection(cloudId);
     try {
       const response = await apiPost(`/api/clouds/${cloudId}/test`, {});
       message.success(response.message || '连接测试成功');
-      fetchClouds(); // 刷新列表以更新状态
+      fetchClouds(true); // 强制刷新列表以更新状态，跳过缓存
     } catch (error: any) {
       message.error('连接测试失败：' + (error?.message || '未知错误'));
     } finally {
       setTestingConnection(null);
     }
-  }, [fetchClouds]);
+  }, [canWriteClouds, fetchClouds]);
 
   // ============================================================================
   // [功能块: 工具函数 - 状态和类型文本映射]
@@ -260,13 +299,13 @@ const Clouds: React.FC = () => {
   // 检索关键词: handleEdit 编辑云资源 编辑模态框
   // ============================================================================
   const handleEdit = useCallback((cloud: Cloud) => {
-    if (!hasAdminPermission) {
-      message.error('权限不足，只有超级管理员可以编辑云资源');
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
       return;
     }
     setEditingCloud(cloud);
     setEditModalVisible(true);
-  }, [hasAdminPermission]);
+  }, [canWriteClouds]);
 
   // ============================================================================
   // [功能块: 删除云资源]
@@ -277,11 +316,11 @@ const Clouds: React.FC = () => {
   // 2. 二次确认 (Confirm Modal)。
   // 3. 执行删除并刷新列表。
   const handleDelete = useCallback((cloudId: string) => {
-    if (!hasAdminPermission) {
-      message.error('权限不足，只有超级管理员可以删除云资源');
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
       return;
     }
-    
+
     Modal.confirm({
       title: '确认删除',
       content: '确定要删除这个云资源吗？如果有关联的计算资源，将无法删除。',
@@ -291,13 +330,13 @@ const Clouds: React.FC = () => {
         try {
           await apiDelete(`/api/clouds/${cloudId}`);
           message.success('云资源删除成功');
-          fetchClouds();
+          fetchClouds(true); // 强制刷新，跳过缓存
         } catch (error: any) {
           message.error('删除失败：' + (error?.message || '未知错误'));
         }
       },
     });
-  }, [hasAdminPermission, fetchClouds]);
+  }, [canWriteClouds, fetchClouds]);
 
   // ============================================================================
   // [功能块: 表格列定义]
@@ -311,13 +350,20 @@ const Clouds: React.FC = () => {
       width: 220,
       fixed:'left' as 'left',
       render: (text: string, record: Cloud) => (
-        <Button 
-          type="link" 
-          onClick={() => navigate(`/admin/clouds/${record.id}`)}
-          style={{ padding: 0, height: 'auto' }}
-        >
-          {record.name}
-        </Button>
+        <Space size={6}>
+          <Button 
+            type="link" 
+            onClick={() => navigate(`/admin/clouds/${record.id}`)}
+            style={{ padding: 0, height: 'auto' }}
+          >
+            {record.name}
+          </Button>
+          {favoriteCloudId && String(record.id) === String(favoriteCloudId) && (
+            <Tag bordered={false} color="gold" style={{ marginInlineEnd: 0 }}>
+              默认
+            </Tag>
+          )}
+        </Space>
       )
     },
 
@@ -374,17 +420,44 @@ const Clouds: React.FC = () => {
       fixed: 'right' as 'right',
       align: 'center' as 'center',
       render: (record: Cloud) => {
+        const isFavorite = !!favoriteCloudId && String(record.id) === String(favoriteCloudId);
         const items = [
           { key: 'detail', label: '资源详情' },
-          { key: 'edit', label: '编辑信息', disabled: !hasAdminPermission },
-          { key: 'test', label: '连接测试', disabled: !hasAdminPermission || testingConnection===record.id },
+          { key: 'edit', label: '编辑信息', disabled: !canWriteClouds },
+          { key: 'test', label: '连接测试', disabled: !canWriteClouds || testingConnection === record.id },
+          { key: 'setFavorite', label: '设为默认资源池', disabled: !canSetDefaultPool || isFavorite },
+          { key: 'unsetFavorite', label: '取消默认资源池', disabled: !canSetDefaultPool || !isFavorite },
           { type: 'divider' as const },
-          { key: 'del', label: '删除', danger: true, disabled: !hasAdminPermission },
+          { key: 'del', label: '删除', danger: true, disabled: !canWriteClouds },
         ];
         const onMenuClick = ({ key }: { key: string }) => {
           if (key === 'test') return testConnection(record.id);
           if (key === 'detail') return navigate(`/admin/clouds/${record.id}`);
           if (key === 'edit') return handleEdit(record);
+          if (key === 'setFavorite') {
+            (async () => {
+              try {
+                await updateSystemSetting('favorite.cloudId', record.id);
+                setFavoriteCloudId(String(record.id));
+                message.success('已设为默认资源池');
+              } catch (e) {
+                message.error('设置失败');
+              }
+            })();
+            return;
+          }
+          if (key === 'unsetFavorite') {
+            (async () => {
+              try {
+                await updateSystemSetting('favorite.cloudId', '');
+                setFavoriteCloudId('');
+                message.success('已取消默认资源池');
+              } catch (e) {
+                message.error('取消失败');
+              }
+            })();
+            return;
+          }
           if (key === 'del') return handleDelete(record.id);
         };
         return (
@@ -394,7 +467,7 @@ const Clouds: React.FC = () => {
         );
       }
     }
-  ], [navigate, hasAdminPermission, testingConnection, testConnection, handleEdit, handleDelete]);
+  ], [navigate, canWriteClouds, canSetDefaultPool, favoriteCloudId, testingConnection, testConnection, handleEdit, handleDelete]);
 
   // ============================================================================
   // [功能块: 表格列设置管理]
@@ -454,7 +527,10 @@ const Clouds: React.FC = () => {
   // 检索关键词: handleBulkDelete 批量删除 批量操作
   // ============================================================================
   const handleBulkDelete = useCallback(async () => {
-    if (!hasAdminPermission) { message.error('权限不足，只有超级管理员可以删除云资源'); return; }
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
+      return;
+    }
     Modal.confirm({
       title: '确认批量删除',
       content: `将删除选中的 ${selectedRowKeys.length} 个资源池，操作不可恢复。`,
@@ -479,7 +555,7 @@ const Clouds: React.FC = () => {
         }
       }
     });
-  }, [hasAdminPermission, selectedRowKeys, fetchClouds]);
+  }, [canWriteClouds, selectedRowKeys, fetchClouds]);
 
   // ============================================================================
   // [功能块: 批量操作菜单配置]
@@ -487,8 +563,14 @@ const Clouds: React.FC = () => {
   // ============================================================================
   const bulkActionsMenu: MenuProps = {
     items: [
-      { key: 'bulkDelete', label: '批量删除', danger: true, disabled: !hasAdminPermission || selectedRowKeys.length === 0, onClick: handleBulkDelete }
-    ]
+      {
+        key: 'bulkDelete',
+        label: '批量删除',
+        danger: true,
+        disabled: !canWriteClouds || selectedRowKeys.length === 0,
+        onClick: handleBulkDelete,
+      },
+    ],
   };
 
   // ============================================================================
@@ -515,7 +597,7 @@ const Clouds: React.FC = () => {
           onValuesChange={handleFilterChange}
         >
           <Form.Item name="keyword">
-            <Input className="toolbar-search" allowClear placeholder="关键字" onChange={(e) => setKeyword(e.target.value)} />
+            <Input className="toolbar-search" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} allowClear placeholder="关键字" onChange={(e) => setKeyword(e.target.value)} />
           </Form.Item>
           <Form.Item name="vendor">
             <Select className="toolbar-filter-sm" allowClear placeholder="供应商">
@@ -539,38 +621,41 @@ const Clouds: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item>
-            <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined); }}>重置</a>
+            <Button type="link" className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined); }}>重置</Button>
           </Form.Item>
         </Form>
       )}
       toolbarRight={(
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => setWizardVisible(true)}>新增资源池</Button>
+          <Button type="primary" disabled={!canWriteClouds} onClick={() => setWizardVisible(true)}>
+            新增资源池
+          </Button>
           <Dropdown menu={bulkActionsMenu}>
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
           <TableColumnSettingsButton allColumns={tableColumns} settingsKey="clouds-list" />
-          <Button icon={<ReloadOutlined />} onClick={fetchClouds} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchClouds(true)} />
         </div>
       )}
       actionsSize="middle"
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         columns={activeColumns}
         dataSource={filteredClouds}
         rowKey="id"
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
-        }}
+        rowSelection={
+          canWriteClouds
+            ? {
+                selectedRowKeys,
+                onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
+              }
+            : undefined
+        }
         pagination={{
           size: 'small',
-          showSizeChanger: true,
-          pageSize: 10,
-          pageSizeOptions: ['10', '20', '50', '100'],
-          showQuickJumper: false
+          showTotal: (total) => `共 ${total} 条`,
         }}
         scroll={{ x: 'max-content' }}
         tableLayout="auto"
@@ -580,7 +665,7 @@ const Clouds: React.FC = () => {
       <CloudWizard
         visible={wizardVisible}
         onCancel={() => setWizardVisible(false)}
-        onSuccess={fetchClouds}
+        onSuccess={() => fetchClouds(true)}
       />
 
       {/* 编辑云资源模态框（随云厂商动态） */}
@@ -593,7 +678,7 @@ const Clouds: React.FC = () => {
         onSuccess={() => {
           setEditModalVisible(false);
           setEditingCloud(null);
-          fetchClouds();
+          fetchClouds(true);
         }}
         cloud={editingCloud}
       />

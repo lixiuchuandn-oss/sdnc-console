@@ -1,5 +1,6 @@
 import { startCloudProviderEcs } from '../../../../../services/api';
-import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
+import { KUBE_OVN_FLAT_VPC } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 
 /**
  * ==============================================================================
@@ -30,25 +31,40 @@ import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
 // 1. 基础工具函数 (Utils)
 // ==========================================
 
+const BYTES_PER_GIB = 1024 ** 3;
+
 /**
- * 将各种格式的大小字符串解析为 GiB 数值
- * 支持 '10Gi', '1024Mi', '1073741824' 等格式
- * 
- * @param raw 原始大小值 (string | number)
- * @returns 解析后的 GiB 数值 (number)
+ * 将各种格式的大小字符串解析为 GiB 数值（整数，用于表单与校验）
+ * 支持：字节数 number、纯数字字符串（字节）、Kubernetes 风格 Gi/Mi/Ti/Ki（含小数，如 8.43Gi、8.43GiB）
+ * 换算规则：凡需从更小单位合入 GiB 时一律向上取整，避免容量小于镜像实际需求。
  */
-export const parseSizeToGi = (raw: any) => {
-  let gi = 0;
-  if (typeof raw === 'number') { 
-      gi = Math.max(1, Math.round(Number(raw) / (1024 * 1024 * 1024))); 
-  } else { 
-      const ss = String(raw || '').toUpperCase(); 
-      const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
-      if (/GI$/.test(ss)) gi = num; 
-      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024); 
-      else gi = Math.round(num / (1024 * 1024 * 1024)); 
+export const parseSizeToGi = (raw: any): number => {
+  if (raw === undefined || raw === null || raw === '') return 0;
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.max(1, Math.ceil(raw / BYTES_PER_GIB));
   }
-  return gi;
+  const s = String(raw).trim();
+  if (!s) return 0;
+  const lead = s.match(/^([\d.]+)/);
+  const num = lead ? parseFloat(lead[1]) : NaN;
+  if (!Number.isFinite(num) || num < 0) return 0;
+
+  // 后缀优先匹配长形式 (GiB) 再匹配短形式 (Gi)，避免误伤
+  if (/(GIB|GI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num));
+  }
+  if (/(MIB|MI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num / 1024));
+  }
+  if (/(TIB|TI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num * 1024));
+  }
+  if (/(KIB|KI)$/i.test(s)) {
+    return Math.max(1, Math.ceil(num / (1024 * 1024)));
+  }
+  // 无单位：按字节
+  return Math.max(1, Math.ceil(num / BYTES_PER_GIB));
 };
 
 /**
@@ -69,7 +85,7 @@ export const parseSizeToGi = (raw: any) => {
  *   通过此约定，将“集群实体 ID”与“展示名称”解耦。
  *
  * 当前生成算法（仅在前端生成，未向后端做唯一性校验）：
- * - 具体实现委托给 utils/harvesterUtils.generateHarvesterEntityId
+ * - 默认 vm 委托 generateHarvesterCrMetadataName('vm')；其它实体缩写仍用 generateHarvesterEntityId
  * - 对 VM 场景，实体缩写默认为 'vm'
  *
  * 注意：
@@ -83,8 +99,8 @@ export const parseSizeToGi = (raw: any) => {
  * @returns {Promise<string>} 生成的 vmid（概率上唯一）
  */
 export const generateUniqueVmId = async (cloudId: string, namespace: string, baseName?: string): Promise<string> => {
-    // 简单封装：遵循 id-{实体缩写}-{11位随机字符串} 规范，实体缩写默认为 'vm'
-    const entity = baseName || 'vm';
+    const entity = String(baseName || 'vm').toLowerCase();
+    if (entity === 'vm') return generateHarvesterCrMetadataName('vm');
     return generateHarvesterEntityId(entity);
 };
 
@@ -126,8 +142,9 @@ export const validateAndGetGpu = (params: {
 }) => {
   const { v, gpuResources, hostModeState, selectedNodeName } = params;
   
-  // 1. 基础检查
-  if (!v.gpuMode) return { selectedGpu: null, finalGpuResName: undefined };
+  // 1. 基础检查（'none' 为非空字符串，不能用 !v.gpuMode 判断）
+  const gm = String(v.gpuMode || '').toLowerCase();
+  if (!gm || gm === 'none') return { selectedGpu: null, finalGpuResName: undefined };
 
   const list = Array.isArray(gpuResources) ? gpuResources : [];
   if (list.length === 0) return { selectedGpu: null, finalGpuResName: undefined };
@@ -145,7 +162,8 @@ export const validateAndGetGpu = (params: {
   }
   
   if (!found) {
-    throw new Error(`GPU 资源不可用：${v.gpuPcideviceName || v.gpuResourceName}`);
+    const hint = v.gpuPcideviceName || v.gpuResourceName || '未选择或列表中无匹配项';
+    throw new Error(`GPU 资源不可用：${hint}`);
   }
 
   // 3. 提取信息
@@ -236,7 +254,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   extraDisks: [],
   nodeSelectorPairs: [],
   hostMode: 'auto',
-  netMode: 'flat',
+  netMode: 'flat_subnet',
   gpuMode: 'none',
   gpuCount: 0,
   hotExpandEnabled: false,
@@ -251,7 +269,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   evictionStrategy: 'LiveMigrateIfPossible',
   loginMethod: 'later',
   loginAccount: 'root',
-  primaryNic: { name: '', type: 'bridge', model: 'virtio' },
+  primaryNic: { name: '', type: 'managedtap', model: 'virtio', vpc: KUBE_OVN_FLAT_VPC },
   netIfaces: [],
   usbDevices: []
 });
@@ -308,7 +326,6 @@ export const applyTemplateToWizardForm = (params: {
   const domain = vmSpec.domain || {};
   const devices = domain.devices || {};
   const cpu = domain.cpu || {};
-  const resources = domain.resources || {};
 
   const next: any = {};
 
@@ -482,6 +499,8 @@ export const applyTemplateToWizardForm = (params: {
     })();
 
     p.type = (function () {
+      const bindingName = String(primary?.binding?.name ?? '').toLowerCase();
+      if (bindingName === 'managedtap') return 'managedtap';
       const method = primary?.masquerade ? 'masquerade' : primary?.bridge ? 'bridge' : undefined;
       if (method) return method;
       if (primary?.sriov) return 'sriov';
@@ -515,6 +534,8 @@ export const applyTemplateToWizardForm = (params: {
         return '';
       })();
       it.type = (function () {
+        const bindingName = String(iface?.binding?.name ?? '').toLowerCase();
+        if (bindingName === 'managedtap') return 'managedtap';
         const method = iface?.masquerade ? 'masquerade' : iface?.bridge ? 'bridge' : undefined;
         if (method) return method;
         if (iface?.sriov) return 'sriov';
@@ -561,6 +582,15 @@ export const buildHarvesterVmPayload = (params: {
   const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64, vmId } = params;
   
   // --- 1. GPU 资源处理 ---
+  const gpuMode = String(v.gpuMode || 'none').toLowerCase();
+  const selectedGpuDeviceName = (function () {
+      if (!selectedGpu) return undefined;
+      const rawName = selectedGpu?.raw?.metadata?.name;
+      if (rawName) return String(rawName);
+      const n = selectedGpu?.name;
+      if (n) return String(n);
+      return undefined;
+  })();
   const finalGpuResName = (function() {
       if (selectedGpu) {
            return selectedGpu?.resourceName || selectedGpu?.raw?.status?.resourceName || selectedGpu?.raw?.spec?.resourceName || undefined;
@@ -583,9 +613,42 @@ export const buildHarvesterVmPayload = (params: {
   const memory = String(v.memory || `${memGi}Gi`);
   const actualMemGi = parseSizeToGi(memory);
 
-  // --- 3. 调度策略 (Node Selector/Affinity) ---
-  // 处理 Label 调度
-  const nodeSelector = (function () { 
+  // --- 3. 调度策略 (Node Selector) ---
+  // [重要] 使用 nodeSelector 而不是 nodeAffinity 来固定节点
+  // 原因：Harvester 的 mutator 会清除 nodeAffinity 中的 kubernetes.io/hostname
+  // 但 nodeSelector 不会被清除，所以应该使用 nodeSelector
+  
+  // 处理节点调度逻辑
+  const nodeSelector = (function () {
+      // 优先 GPU 节点（如果选择了 GPU）
+      const gpuNode = selectedGpu && String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
+      if (gpuNode) {
+          return { 'kubernetes.io/hostname': gpuNode };
+      }
+      
+      // 如果没有选择 GPU，尝试从 GPU 资源中获取节点
+      if (!selectedGpu && v.gpuPcideviceName) {
+          try {
+              const list = Array.isArray(gpuResources) ? gpuResources : [];
+              const found = list.find((x: any) => String(x?.raw?.metadata?.name || x?.name || '') === String(v.gpuPcideviceName));
+              const gn = found && String(found?.node || found?.nodeName || '').trim();
+              if (gn) {
+                  return { 'kubernetes.io/hostname': gn };
+              }
+          } catch {}
+      }
+      if (!selectedGpu && v.gpuResourceName) {
+          try {
+              const list = Array.isArray(gpuResources) ? gpuResources : [];
+              const found = list.find((x:any)=> String(x?.resourceName)===String(v.gpuResourceName));
+              const gn = found && String(found?.node||found?.nodeName||'').trim();
+              if (gn) {
+                  return { 'kubernetes.io/hostname': gn };
+              }
+          } catch {}
+      }
+      
+      // 标签选择模式
       if (hostModeState === 'label') {
           const arr = Array.isArray(v.nodeSelectorPairs) ? v.nodeSelectorPairs : []; 
           const obj: any = {}; 
@@ -596,22 +659,14 @@ export const buildHarvesterVmPayload = (params: {
           }); 
           return Object.keys(obj).length > 0 ? obj : undefined; 
       }
-      return undefined;
-  })();
-  
-  // 处理 Node 亲和性 (优先 GPU 节点)
-  const nodeName = (function () {
-      const gpuNode = selectedGpu && String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
-      if (gpuNode) return gpuNode;
-      if (!selectedGpu && v.gpuResourceName) {
-           try {
-            const list = Array.isArray(gpuResources) ? gpuResources : [];
-            const found = list.find((x:any)=> String(x?.resourceName)===String(v.gpuResourceName));
-            const gn = found && String(found?.node||found?.nodeName||'').trim();
-            if (gn) return gn;
-           } catch {}
+      
+      // 指定主机模式
+      if (hostModeState === 'node' && selectedNodeName) {
+          return { 'kubernetes.io/hostname': selectedNodeName };
       }
-      return hostModeState === 'node' ? (selectedNodeName || undefined) : undefined;
+      
+      // 自动调度模式：返回 undefined
+      return undefined;
   })();
 
   // --- 4. 资源集合初始化 ---
@@ -657,7 +712,9 @@ export const buildHarvesterVmPayload = (params: {
       if (mac) iface.macAddress = mac;
       
       const type = nic.type || 'bridge';
-      if (type === 'bridge') iface.bridge = {};
+      // Kube-OVN 扁平子网：须使用 managedTap 绑定，使 DHCP/RA 由子网侧提供（非 bridge 拦截）
+      if (type === 'managedtap') iface.binding = { name: 'managedtap' };
+      else if (type === 'bridge') iface.bridge = {};
       else if (type === 'masquerade') iface.masquerade = {};
       else if (type === 'sriov') iface.sriov = {};
       else if (type === 'macvtap') iface.macvtap = {};
@@ -853,19 +910,6 @@ export const buildHarvesterVmPayload = (params: {
                 evictionStrategy: (v.evictionStrategy && v.evictionStrategy !== 'None') ? v.evictionStrategy : undefined,
                 hostname: vmId || v.name,
                 nodeSelector: nodeSelector,
-                affinity: nodeName ? {
-                    nodeAffinity: {
-                        requiredDuringSchedulingIgnoredDuringExecution: {
-                            nodeSelectorTerms: [{
-                                matchExpressions: [{
-                                    key: "kubernetes.io/hostname",
-                                    operator: "In",
-                                    values: [nodeName]
-                                }]
-                            }]
-                        }
-                    }
-                } : undefined,
                 domain: {
                     cpu: {
                         cores: cores,
@@ -887,23 +931,27 @@ export const buildHarvesterVmPayload = (params: {
                     resources: {
                         limits: (function () {
                           const obj: any = {};
-                          
-                          // CPU Limit
-                          if (!v.cpuBurstUnlimited) {
-                            if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) {
+                          // CPU 总 vCPU = sockets × cores × threads；limit 必须为该乘积
+                          const totalCpu = sockets * cores * threads;
+                          // CPU Limit（开启热扩容时设为热扩容上限即 maxSockets×cores×threads，否则按自定义或与 Request 一致）
+                          if (!v.cpuBurstUnlimited && !v.dedicatedCPUPlacement) {
+                            if (hotExpandEnabled) {
+                              const maxSockets = sockets * 4;
+                              obj.cpu = String(maxSockets * cores * threads);
+                            } else if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) {
                               obj.cpu = String(v.cpuLimit);
-                            } else if (!hotExpandEnabled) {
-                              // 仅在未开启热扩容时，默认设置 Limit = Request
-                              // 开启热扩容时，不设置 Limit，避免限制扩容能力或触发后端自动调整 Guest 内存
-                              obj.cpu = String(cpu);
+                            } else {
+                              obj.cpu = String(totalCpu);
                             }
                           }
 
-                          // Memory Limit
+                          // Memory Limit（开启热扩容时设为热扩容上限，否则按自定义或与 Request 一致）
                           if (!v.memoryBurstUnlimited) {
-                            if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) {
+                            if (hotExpandEnabled) {
+                              obj.memory = `${actualMemGi * 4}Gi`;
+                            } else if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) {
                               obj.memory = `${v.memoryLimitGi}Gi`;
-                            } else if (!hotExpandEnabled) {
+                            } else {
                               obj.memory = memory;
                             }
                           }
@@ -914,10 +962,12 @@ export const buildHarvesterVmPayload = (params: {
                             const obj: any = {};
                             
                             // CPU Request
-                            if (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) {
-                                obj.cpu = String(v.cpuRequest);
-                            } else {
-                                obj.cpu = String(cpu);
+                            if (!v.dedicatedCPUPlacement) {
+                              if (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) {
+                                  obj.cpu = String(v.cpuRequest);
+                              } else {
+                                  obj.cpu = String(cpu);
+                              }
                             }
 
                             // Memory Request
@@ -947,8 +997,11 @@ export const buildHarvesterVmPayload = (params: {
                         interfaces: interfaces,
                         disks: disks,
                         tpm: v.tpmEnabled ? { persistent: !!v.tpmPersistent } : undefined,
-                        hostDevices: finalGpuResName ? [
+                        gpus: (gpuMode === 'vgpu' && finalGpuResName) ? [
                             { name: "gpu-0", deviceName: finalGpuResName }
+                        ] : [],
+                        hostDevices: (gpuMode !== 'vgpu' && finalGpuResName) ? [
+                            { name: selectedGpuDeviceName || "gpu-0", deviceName: finalGpuResName }
                         ] : []
                     },
                     machine: {
@@ -969,6 +1022,22 @@ export const buildHarvesterVmPayload = (params: {
 
   if (v.sshNames && v.sshNames.length > 0) {
       manifest.spec.template.metadata.annotations["harvesterhci.io/sshNames"] = JSON.stringify(v.sshNames);
+  }
+  if (gpuMode !== 'vgpu' && finalGpuResName && selectedGpuDeviceName) {
+      manifest.metadata.annotations["harvesterhci.io/deviceAllocationDetails"] = JSON.stringify({
+          hostdevices: {
+              [finalGpuResName]: [selectedGpuDeviceName],
+          },
+      });
+  }
+  // [修复] 创建虚拟机时开启热扩容，需要设置 Annotation 以便列表正确显示
+  // 注意：Annotation 必须设置在 VM 顶层的 metadata.annotations，而不是 spec.template.metadata.annotations
+  // 因为列表显示时检查的是 r?.metadata?.annotations（见 VmSection.tsx:369）
+  if (hotExpandEnabled) {
+      if (!manifest.metadata.annotations) {
+          manifest.metadata.annotations = {};
+      }
+      manifest.metadata.annotations["harvesterhci.io/enableCPUAndMemoryHotplug"] = "true";
   }
 
   return manifest;

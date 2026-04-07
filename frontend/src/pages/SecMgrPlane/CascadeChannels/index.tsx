@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Card, Row, Col, Table, Tag, Space as AntSpace, Button, Modal, Form, Input, message, Select, Badge, Dropdown } from 'antd';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Card, Row, Col, Tag, Button, Modal, Form, Input, message, Select, Badge, Dropdown } from 'antd';
 import PageContainer from '../../../components/PageContainer';
 import { 
   DeleteOutlined, 
@@ -8,8 +8,7 @@ import {
   EyeOutlined, 
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, detachVpcFromCen, fetchCloudProviderVpcs, fetchClouds, updateCen, fetchServices } from '../../../services/api';
-import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
+import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, fetchServices } from '../../../services/api';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
 
 const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;midLabel:string;midValue:number;mainColor:string;usedLabel?:string}> = ({title,total,unit='',used,midLabel,midValue,mainColor,usedLabel})=>{
@@ -67,6 +66,7 @@ interface SecurityDomainOption { id:string; name:string; type?:string; category?
 const CenPage: React.FC = () => {
   const navigate = useNavigate();
   const [cens, setCens] = useState<Cen[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [planeTotal, setPlaneTotal] = useState(0);
@@ -79,13 +79,15 @@ const CenPage: React.FC = () => {
 
   const [planeActive, setPlaneActive] = useState(0);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [attachmentCache, setAttachmentCache] = useState<{[k:string]:any[]}>({});
   const [filterForm] = Form.useForm();
 
   const [appTotal, setAppTotal] = useState(0);
   const [appRunning, setAppRunning] = useState(0);
   const [domainTotal,setDomainTotal]=useState(0);
-  const [attachedDomain,setAttachedDomain]=useState(0);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [attachedDomain, setAttachedDomain] = useState(0);
   const [attachedDomainUnique,setAttachedDomainUnique]=useState(0);
   
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -95,9 +97,10 @@ const CenPage: React.FC = () => {
     try {
       const data = await fetchCens();
       const attachedVpcSet = new Set<string>();
-      let attachedTimes = 0;
       const attachedDomainSet = new Set<string>();
       let attachedDomainTimes = 0;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      let attachedTimes = 0;
       const dataWithCnt = await Promise.all(data.map(async (c:any)=>{
         try{
           const list = await fetchCenAttachments(c.id);
@@ -190,7 +193,7 @@ const CenPage: React.FC = () => {
 
   const columns = [
     { title:'名称', dataIndex:'name', key:'name', render:(text: string, record: Cen) => (
-      <a onClick={() => openDetail(record)} style={{ color: '#1677ff' }}>{text}</a>
+      <Button type="link" onClick={() => openDetail(record)} style={{ color: '#1677ff', padding: 0 }}>{text}</Button>
     ) },
     { title:'租户', dataIndex:'tenantId', key:'tenant', render:(tid:string)=>tenantNameById(tid) },
     { title:'策略', dataIndex:'strategy', key:'strategy', render:(s:string)=><Tag color={s==='IPsec'?'cyan':'blue'}>{s||'SRv6'}</Tag> },
@@ -199,7 +202,7 @@ const CenPage: React.FC = () => {
     { title:'延迟', dataIndex:'latency', key:'latency', render:(v:number)=> v? <Tag color={v<50?'green':v<100?'orange':'red'}>{v}ms</Tag>:'--' },
     { title:'SLA', dataIndex:'sla', key:'sla', render:(v:number)=> v? <Tag color={v>99?'green':v>95?'orange':'red'}>{v}%</Tag>:'--', onCell:(r:any)=>({onClick:()=>openDetail(r,'metrics')}) },
     { title:'级联通道', key:'planes', render:(_:any, r:Cen)=>{ const { total, active } = planeStatsByAttachCount(r.attachCount||0); return <Tag color={active>0?'green':'default'}>{`${active}/${total}`}</Tag>; }, onCell:(r:any)=>({onClick:()=>openDetail(r,'topology')}) },
-    { title:'已挂载安全域', dataIndex:'attachCount', key:'cnt', render:(v:number,r:Cen)=>(<a onClick={()=>openDetail(r,'domains')}>{v||0}</a>) },
+    { title:'已挂载安全域', dataIndex:'attachCount', key:'cnt', render:(v:number,r:Cen)=>(<Button type="link" onClick={()=>openDetail(r,'domains')} style={{ padding: 0 }}>{v||0}</Button>) },
     { title:'创建时间', dataIndex:'createdAt', key:'time' },
     { title:'操作', key:'act', render:(_:any, r:Cen)=>{
       const items = [
@@ -392,7 +395,10 @@ const CenPage: React.FC = () => {
           selectedRowKeys,
           onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
         },
-        pagination: { pageSize: 10, showSizeChanger: true },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
         scroll: { x: 'max-content' },
         tableLayout: "auto",
       }}

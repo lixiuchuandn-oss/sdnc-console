@@ -1,29 +1,26 @@
 import 'antd/dist/reset.css';
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
-import { getDefaultAdminPath } from './utils/accessMapping';
+import { getDefaultAdminPath, hasPermissionForAction } from './utils/accessMapping';
 import { ConfigProvider, Modal, theme as antdTheme, Spin } from 'antd';
-import { CloseOutlined } from '@ant-design/icons';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
-import { LicenseProvider } from './contexts/LicenseContext';
+import { LicenseProvider, useLicense } from './contexts/LicenseContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
 import { routeSpecs } from './routes/RouteSpec';
+import { getSystemSetting } from './services/systemApi';
 
-// 关键路由保持同步加载（首屏必需，体积小）
 import Login from './pages/Auth/Login';
 import AdminLogin from './pages/Auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
 
-// 懒加载主要页面组件
 const OverviewDashboard = lazy(() => import('./pages/Dashboard/OverviewDashboard'));
-const SdnDashboard = lazy(() => import('./pages/Dashboard/SdnDashboard'));
 const Users = lazy(() => import('./pages/Tenants/Users'));
 const Clouds = lazy(() => import('./pages/Clouds'));
-const CloudDetail = lazy(() => import('./pages/Clouds/CloudDetail'));
+const CloudDetailGate = lazy(() => import('./pages/Clouds/CloudDetailGate'));
 const InstanceDetail = lazy(() => import('./pages/Clouds/InstanceDetail'));
 const Tenants = lazy(() => import('./pages/Tenants'));
 const GeneralSettings = lazy(() => import('./pages/Settings/GeneralSettings'));
@@ -31,7 +28,6 @@ const AuditLogs = lazy(() => import('./pages/Settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/Settings/AdvancedSettings'));
 
 const LicenseSettingsPage = lazy(() => import('./pages/Settings/LicenseSettings'));
-const Alarms = lazy(() => import('./pages/Alarms/index'));
 const SRv6Page = lazy(() => import('./pages/InterConnect/SRv6/index'));
 const SRv6CreatePage = lazy(() => import('./pages/InterConnect/SRv6/Create'));
 const IPsecVPNPage = lazy(() => import('./pages/InterConnect/IPsecVPN/index'));
@@ -39,10 +35,10 @@ const IPsecVPNWizard = lazy(() => import('./pages/InterConnect/IPsecVPN/IPsecVPN
 const VRPage = lazy(() => import('./pages/InterConnect/VR/index'));
 const AddVRInstance = lazy(() => import('./pages/InterConnect/VR/AddVRInstance'));
 const EditVRConfig = lazy(() => import('./pages/InterConnect/VR/EditVRConfig'));
-const PEWizard = lazy(() => import('./pages/InterConnect/VR/PEWizard'));
-const CEWizard = lazy(() => import('./pages/InterConnect/VR/CEWizard'));
-const StandardWizard = lazy(() => import('./pages/InterConnect/VR/StandardWizard'));
-const SASEWizard = lazy(() => import('./pages/InterConnect/VR/SASEWizard'));
+const PEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/PEWizard'));
+const CEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/CEWizard'));
+const StandardWizard = lazy(() => import('./pages/InterConnect/VR/wizards/StandardWizard'));
+const SASEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/SASEWizard'));
 const ACLPage = lazy(() => import('./pages/InterConnect/ACL/index'));
 const NATPage = lazy(() => import('./pages/InterConnect/NAT/index'));
 const SecurityDomainPage = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/index'));
@@ -53,9 +49,8 @@ const CENDetailPage = lazy(() => import('./pages/SecMgrPlane/CascadeChannels/Det
 const ComingSoon = lazy(() => import('./pages/ComingSoon'));
 const SecurityApps = lazy(() => import('./pages/SecMgrPlane/Applications/index'));
 const SecurityServices = lazy(() => import('./pages/SecMgrPlane/SecurityServices/index'));
-const AccessRolesPage = lazy(() => import('./pages/Access/Roles'));
-const AccessActionsPage = lazy(() => import('./pages/Access/Actions'));
-const AccessUsersPage = lazy(() => import('./pages/Access/Users'));
+const AccessRolesPage = lazy(() => import('./pages/Settings/Roles/Index'));
+const AccessUsersPage = lazy(() => import('./pages/Settings/Users/Index'));
 const ProtectedObjects = lazy(() => import('./pages/Security/TrafficOrchestration/ProtectedObjects'));
 const ServiceChains = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains'));
 const CreateServiceChainWizard = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains/CreateWizard'));
@@ -64,12 +59,10 @@ const WebSSHPage = lazy(() => import('./pages/Clouds/WebSSH'));
 const CloudConsolePage = lazy(() => import('./pages/Clouds/Console/CloudConsole'));
 const HarvesterVNCPage = lazy(() => import('./pages/Clouds/Harvester/HarvesterVNC'));
 const OrgManagePage = lazy(() => import('./pages/Tenants/OrgManage'));
-const ApiDocs = lazy(() => import('./pages/ApiDocs'));
 const VmCreateWizardModal = lazy(() => import('./pages/Clouds/Harvester/modals/VmCreateWizardModal'));
 const AiSocPlaceholder = lazy(() => import('./pages/SecOps/AiSocPlaceholder'));
 const AiSocFrame = lazy(() => import('./pages/SecOps/AiSocFrame'));
 
-// 加载中组件
 const LoadingFallback: React.FC = () => (
   <div style={{ 
     display: 'flex', 
@@ -78,12 +71,11 @@ const LoadingFallback: React.FC = () => (
     minHeight: '400px',
     width: '100%'
   }}>
-    <Spin size="large" tip="加载中..." />
+    <Spin size="large" tip="加载中...">
+      <div style={{ minHeight: 200 }} />
+    </Spin>
   </div>
 );
-
-
-  
 
 const InstanceDetailModal: React.FC = () => {
   const navigate = useNavigate();
@@ -121,9 +113,8 @@ const AppRoutes: React.FC = () => {
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
           <Route index element={<AdminIndex />} />
           <Route path="dashboard" element={<OverviewDashboard />} />
-          <Route path="sdn-dashboard" element={<SdnDashboard />} />
           <Route path="clouds" element={<Clouds />} />
-          <Route path="clouds/:id" element={<CloudDetail />} />
+          <Route path="clouds/:id" element={<CloudDetailGate />} />
           
           <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
@@ -132,8 +123,6 @@ const AppRoutes: React.FC = () => {
           <Route path="tenants" element={<Tenants />} />
           <Route path="tenants/:tenantId/organizations" element={<OrgManagePage />} />
           
-          {/* 租户专线管理功能已迁移到 AISOC 平台，相关路由已移除 */}
-
           <Route path="tenants/users" element={<Users />} />
           <Route path="interconnect/srv6" element={<SRv6Page />} />
           <Route path="interconnect/srv6/create" element={<SRv6CreatePage />} />
@@ -156,8 +145,6 @@ const AppRoutes: React.FC = () => {
           <Route path="sec-mgr-plane/cascade-channels/:id" element={<CENDetailPage />} />
           <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="sec-mgr-plane/security-services" element={<SecurityServices />} />
-          <Route path="alarms" element={<Alarms />} />
-          <Route path="api-docs" element={<ApiDocs />} />
           {/* AI SOC Integration Placeholders */}
           <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />
           <Route path="aisoc/data-source" element={<AiSocFrame path="data-source" />} />
@@ -178,7 +165,7 @@ const AppRoutes: React.FC = () => {
           <Route path="settings/license" element={<LicenseSettingsPage />} />
           
           <Route path="coming-soon" element={<ComingSoon />} />
-          <Route path="access/actions" element={<AccessActionsPage />} />
+          <Route path="access/actions" element={<Navigate to="/admin/access/roles" replace />} />
           <Route path="access/roles" element={<AccessRolesPage />} />
           <Route path="access/users" element={<AccessUsersPage />} />
           
@@ -222,12 +209,49 @@ const AppRoutes: React.FC = () => {
 
 const AdminIndex: React.FC = () => {
   const { user, loading } = useAuth();
+  const { hasFeature } = useLicense();
   const perms = Array.isArray(user?.permissions) ? user!.permissions! : [];
-  if (loading || !user) return <></>;
-  const role = String(user.role || '').toLowerCase();
-  const target = (role === 'super_admin' || role === 'admin') ? '/admin/dashboard' : getDefaultAdminPath(perms);
+  const role = String(user?.role || '').toLowerCase();
+  const isAdmin = role === 'super_admin' || role === 'admin';
+  const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
+  const [favoriteReady, setFavoriteReady] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    if (!isAdmin) {
+      setFavoriteCloudId('');
+      setFavoriteReady(true);
+      return;
+    }
+    setFavoriteReady(false);
+    (async () => {
+      try {
+        const fav = await getSystemSetting('favorite.cloudId');
+        setFavoriteCloudId(String(fav?.value || '').trim());
+      } catch {
+        setFavoriteCloudId('');
+      } finally {
+        setFavoriteReady(true);
+      }
+    })();
+  }, [user, isAdmin]);
+
+  if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
+  if (isAdmin && favoriteCloudId) {
+    const canAccessCloudPools =
+      hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
+      hasPermissionForAction(perms, 'clouds:read');
+    if (canAccessCloudPools) {
+      return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
+    }
+    if (hasPermissionForAction(perms, 'clouds.console:read')) {
+      return <Navigate to="/admin/clouds/console" replace />;
+    }
+  }
+  const target = getDefaultAdminPath(perms, hasFeature);
   return <Navigate to={target} replace />;
 };
+
 
   const AppContent: React.FC = () => {
   const { settings } = useSettings();
@@ -237,18 +261,16 @@ const AdminIndex: React.FC = () => {
       theme={{
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: settings.primaryColor || '#1677ff',
+          ...(settings.primaryColor ? { colorPrimary: settings.primaryColor } : {}),
           borderRadius: 6,
         },
       }}
     >
-      <AuthProvider>
-        <LicenseProvider>
-          <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-            <AppRoutes />
-          </Router>
-        </LicenseProvider>
-      </AuthProvider>
+      <LicenseProvider>
+        <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+          <AppRoutes />
+        </Router>
+      </LicenseProvider>
     </ConfigProvider>
   );
 };
@@ -256,9 +278,11 @@ const AdminIndex: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ErrorBoundary>
-      <SettingsProvider>
-        <AppContent />
-      </SettingsProvider>
+      <AuthProvider>
+        <SettingsProvider>
+          <AppContent />
+        </SettingsProvider>
+      </AuthProvider>
     </ErrorBoundary>
   );
 };

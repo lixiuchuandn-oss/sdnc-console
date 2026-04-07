@@ -11,6 +11,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import dotenv from 'dotenv';
+import { logger, resolveMorganFormat } from './utils/logger';
 import { AppDataSource } from './config/database';
 // 认证与用户相关路由：
 // - authRoutes：登录/登出、令牌校验等认证能力
@@ -29,14 +30,14 @@ import { initializeAdmin } from './seeders/initAdmin';
 import { initializeRoles } from './seeders/initRoles';
 // SDN / 安全相关路由：
 // - cenRoutes：云企业网（跨 VPC/跨云互联）管理
-// - vrCacheRoutes：VR 设备缓存（本地列表缓存，前端无鉴权读取）
+// - vrInstancesRoutes：VR 实例聚合（合并后的列表/单条，无鉴权读取）
 // - vrConfigRoutes：VR 配置下发与管理
 // - saseGatewayRoutes：SASE 网关管理
 // - srv6Routes / ipsecRoutes / aclRoutes / aclGroupRoutes / natRoutes：
 //   对应 SRv6 隧道、IPsec 隧道、ACL 规则与分组、NAT 规则等
 import { toolRoutes } from './routes/tools';
 import { cenRoutes } from './routes/sdn/cens';
-import { vrCacheRoutes } from './routes/sdn/vrCache';
+import { vrInstancesRoutes } from './routes/sdn/vrInstances';
 import { vrConfigRoutes } from './routes/sdn/vrConfig';
 import { dashboardRoutes } from './routes/dashboard';
 import { saseGatewayRoutes } from './routes/sdn/saseGateways';
@@ -64,11 +65,14 @@ import apiProxyRoutes from './routes/apiProxy';
 
 import path from 'path';
 import fs from 'fs';
+import { getPublicUiSettings } from './config/systemSettings';
+import { getPublicAdminPasswordPolicy } from './services/adminPasswordPolicy';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+/** 必须为 number，否则 listen(port, host, cb) 会与 backlog 重载冲突 */
+const PORT = Number(process.env.PORT) || 5001;
 const server = http.createServer(app);
 
 // CORS 配置：
@@ -78,7 +82,7 @@ app.use(
   cors({
     origin: true,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Expires'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Expires', 'tonce', 'X-File-Name', 'X-File-Size'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 );
@@ -107,7 +111,12 @@ app.use(
     originAgentCluster: false,
   }),
 );
-app.use(morgan('combined'));
+{
+  const httpFmt = resolveMorganFormat();
+  if (httpFmt !== 'off') {
+    app.use(morgan(httpFmt));
+  }
+}
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(auditMiddleware);
@@ -116,25 +125,27 @@ app.use(auditMiddleware);
 // 静态文件托管：
 // - 只要检测到 public 目录存在，就对外提供静态文件访问（前端构建产物）
 // - 兼容两种运行模式：
-//   a) 源码模式：backend/src/index.ts，对应 ../public
-//   b) 编译后模式：dist/src/index.js，对应 ../../public（backend/public）
-let staticPath = path.join(__dirname, '../public');
-
-// 智能路径检测：优先查找 backend/public，兼容 dist/src/index.js (运行时) 和 src/index.ts (开发时)
-// 1. 默认尝试 ../public (相对于当前文件)
-// 2. 如果当前在 dist/src 下，且 ../public (dist/public) 不存在，则尝试 ../../public (backend/public)
-const rootPublicPath = path.join(__dirname, '../../public');
-
-if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
-  staticPath = rootPublicPath;
-  console.log('Using root public directory for static files:', staticPath);
+//   a) 源码模式：backend/src/index.ts → ../public 即 backend/public
+//   b) 编译后模式：dist/src/index.js → ../../public 即与 dist 同级的应用根 public
+// - 远程部署（deploy_tool）把前端解压到「应用根/public」，必须把该目录排在 dist/public 之前：
+//   否则若 backend/dist 里残留过时的 dist/public，会被整包打进 zip，运行时会错误地托管旧前端，而本地 dev 走 react-scripts 看不出问题。
+const nestedPublicPath = path.join(__dirname, '../public');
+const appRootPublicPath = path.join(__dirname, '../../public');
+let staticPath: string;
+if (fs.existsSync(appRootPublicPath)) {
+  staticPath = appRootPublicPath;
+  logger.info('静态资源目录（应用根 public，优先）:', staticPath);
+} else if (fs.existsSync(nestedPublicPath)) {
+  staticPath = nestedPublicPath;
+  logger.info('静态资源目录（相对路径）:', staticPath);
 } else {
-  console.log('Using relative public directory for static files:', staticPath);
+  staticPath = nestedPublicPath;
+  logger.info('静态资源目录（默认路径，可能不存在）:', staticPath);
 }
 
 // 只要最终解析出的 staticPath 存在，就开启静态托管
 if (fs.existsSync(staticPath)) {
-  console.log('Static files found, enabling static serving from:', staticPath);
+  logger.info('已启用静态文件托管:', staticPath);
   app.use(
     express.static(staticPath, {
       maxAge: '1y',
@@ -147,33 +158,50 @@ if (fs.existsSync(staticPath)) {
     }),
   );
 } else {
-  console.log('Static files directory not found. Static serving disabled.');
+  logger.warn('未找到静态资源目录，已关闭静态托管');
 }
 
-// 工具下载路由（Cloudmap 上传工具别名）：
-// - 固定从后端服务器上的 tools 目录读取 CloudmapUploader.exe
-// - 方便运维/用户从 Web 界面直接获取上传工具
-app.get('/api/tools/cloudmap-uploader.exe', (req, res) => {
-    try {
-      const toolPath = path.join('d:', 'ComputeTower', 'Compute.Tower', 'tools', 'harvester-uploader', 'CloudmapUploader.exe');
-      console.log(`[Download] Requesting tool at: ${toolPath}`);
-      if (fs.existsSync(toolPath)) {
-        console.log(`[Download] File exists, sending...`);
-        res.download(toolPath, 'CloudmapUploader.exe', (err) => {
-           if (err) {
-             console.error(`[Download] Send error:`, err);
-             if (!res.headersSent) res.status(500).send('Send error');
-           }
-        });
-      } else {
-        console.error(`[Download] File NOT found at: ${toolPath}`);
-        res.status(404).send('File not found');
-      }
-    } catch (e: any) {
-      console.error(`[Download] Exception:`, e);
-      res.status(500).send(e?.message || 'Server error');
+// 工具下载路由（镜像直传上传工具）：
+// - 磁盘默认路径：{cwd}/tools/uploader/ImageUploader.exe；在 backend 目录启动时另尝试 {cwd}/../tools/uploader/ImageUploader.exe
+// - 也可通过 CLOUDMAP_UPLOADER_PATH 指向任意绝对路径
+// - 浏览器下载文件名与磁盘一致为 ImageUploader.exe；保留 cloudmap-uploader.exe 别名 URL 以兼容旧链接
+const IMAGE_UPLOADER_EXE = 'ImageUploader.exe';
+const resolveHarvesterUploaderToolPath = (): { path: string; found: boolean } => {
+  const rel = path.join('tools', 'uploader', IMAGE_UPLOADER_EXE);
+  const candidates = [
+    process.env.CLOUDMAP_UPLOADER_PATH?.trim(),
+    path.join(process.cwd(), rel),
+    path.join(process.cwd(), '..', rel),
+  ].filter((p): p is string => Boolean(p));
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return { path: p, found: true };
+  }
+  return { path: candidates[0] || path.join(process.cwd(), rel), found: false };
+};
+
+const sendHarvesterImageUploaderTool = (req: express.Request, res: express.Response) => {
+  try {
+    const { path: toolPath, found } = resolveHarvesterUploaderToolPath();
+    logger.debug('工具下载路径:', toolPath, 'found:', found);
+    if (found) {
+      logger.debug('工具文件存在，开始下发');
+      res.download(toolPath, IMAGE_UPLOADER_EXE, (err) => {
+        if (err) {
+          logger.error('工具下发失败:', err);
+          if (!res.headersSent) res.status(500).send('Send error');
+        }
+      });
+    } else {
+      logger.warn('工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:', toolPath);
+      res.status(404).send('File not found');
     }
-  });
+  } catch (e: any) {
+    logger.error('工具下载异常:', e);
+    res.status(500).send(e?.message || 'Server error');
+  }
+};
+app.get('/api/tools/imageuploader.exe', sendHarvesterImageUploaderTool);
+app.get('/api/tools/cloudmap-uploader.exe', sendHarvesterImageUploaderTool);
 
 // 路由挂载区域：
 // 1) CSMCTL 代理路由（/api-proxy）：
@@ -187,6 +215,14 @@ app.use('/api-proxy', apiProxyRoutes);
 //    - /api/tenants：租户/组织/租户用户管理
 app.use('/api/auth', authRoutes);
 app.use('/auth', authRoutes);
+// 界面整包只读：system-settings 中全部 ui.*（合并默认值），不要求 Token；写仍走 PATCH /api/system/settings/:key
+app.get('/api/public/system-ui', (_req, res) => {
+  res.json({ data: getPublicUiSettings() });
+});
+/** 未登录可读：管理员密码复杂度规则（用于登录页/改密表单提示） */
+app.get('/api/public/admin-password-policy', (_req, res) => {
+  res.json({ data: getPublicAdminPasswordPolicy() });
+});
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/clouds', authMiddleware, cloudRoutes);
 
@@ -196,11 +232,11 @@ app.use('/api/tools', authMiddleware, toolRoutes);
 
 // 3) 仪表盘与 VR 相关：
 //    - /api/dashboard：总览面板数据
-//    - /api/vr-cache：VR 列表缓存接口，不要求登录，便于前端本地化存储
+//    - /api/vr-instances：VR 实例聚合（合并 VR1+VR3+本地 device，可选 VR2），不要求登录
 //    - /api/vr-config：VR 配置管理接口，必须登录
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
-// VR缓存接口不需要登录，允许前端保存和读取缓存
-app.use('/api/vr-cache', vrCacheRoutes);
+// VR 实例聚合接口不需要登录
+app.use('/api/vr-instances', vrInstancesRoutes);
 app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 // app.use('/api/vr-config', vrConfigRoutes); // Temporary debug: disable auth
 // 4) SASE / 网络与安全能力：
@@ -260,18 +296,63 @@ if (fs.existsSync(path.join(staticPath, 'index.html'))) {
 // - 初始化 WebSSH/WebVNC/KubeVirt VNC WebSocket 服务，并复用 HTTP Server 的 upgrade 事件
 AppDataSource.initialize()
   .then(async () => {
-    console.log('数据库连接成功');
+    logger.info('数据库连接成功');
+    // 生产环境默认 DB_SYNC=false 且 migrations 为空时，全新 SQLite 不会自动建表，登录会报 no such table: users。
+    // 若检测到核心表缺失，则执行一次性 synchronize（与 DB_SYNC=true 等价，仅补全缺失结构）。
+    try {
+      const usersTable = await AppDataSource.query(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='users'`,
+      );
+      if (!Array.isArray(usersTable) || usersTable.length === 0) {
+        logger.warn(
+          '检测到 users 表不存在，执行一次性 schema 同步以创建表结构（可改用 DB_SYNC=true 首次启动或 npm run db:init）',
+        );
+        await AppDataSource.synchronize();
+      }
+    } catch (e) {
+      logger.error('核心表检查或 schema 同步失败:', e);
+      throw e;
+    }
+    // 启用 WAL 模式以提升并发性能
+    try {
+      const { enableWalMode } = await import('./config/database');
+      await enableWalMode();
+    } catch (e) {
+      logger.warn('启用 WAL 模式失败:', e);
+    }
+    try {
+      const { ensureUsersPasswordChangedAtColumn } = await import('./config/database');
+      await ensureUsersPasswordChangedAtColumn();
+    } catch (e) {
+      logger.warn('users.passwordChangedAt 检查失败:', e);
+    }
     // 初始化管理员账户
     await initializeAdmin();
     // 初始化默认角色
     await initializeRoles();
+    
+    // 初始化数据库表（如果不存在则创建）
+    try {
+      const {
+        ensureRecycleBinTables,
+        ensureKubeOvnSecurityGroupTables,
+        dropObsoleteKubeOvnIngressInventoryTable,
+        ensureImageUploadTaskTable,
+      } = await import('./config/database');
+      await ensureRecycleBinTables();
+      await ensureKubeOvnSecurityGroupTables();
+      await dropObsoleteKubeOvnIngressInventoryTable();
+      await ensureImageUploadTaskTable();
+    } catch (e) {
+      logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
+    }
 
     // 启动云资源同步任务
     try {
       const { CloudSyncService } = await import('./services/CloudSyncService');
       CloudSyncService.getInstance().startSyncJob();
     } catch (e) {
-      console.warn('启动云资源同步任务失败:', e);
+      logger.warn('启动云资源同步任务失败:', e);
     }
 
     // 启动 VR 列表同步任务
@@ -282,18 +363,30 @@ AppDataSource.initialize()
         VRCacheService.getInstance().startSyncJob();
       }, 10000);
     } catch (e) {
-      console.warn('启动 VR 列表同步任务失败:', e);
+      logger.warn('启动 VR 列表同步任务失败:', e);
     }
 
-    // 启动回收站清理任务
+
+    // 启动回收站定时任务
     try {
-      const { RecycleBinCleanupService } = await import('./services/clouds/harvester/recycleBinCleanup');
-      // 延迟 30s 启动，避免和启动时的数据库操作冲突
+      const { RecycleBinTaskService } = await import('./services/clouds/harvester/RecycleBinTaskService');
+      // 延迟 15s 启动，避免和启动时的数据库操作冲突
       setTimeout(() => {
-        RecycleBinCleanupService.getInstance().startCleanupJob();
-      }, 30000);
+        logger.info('启动回收站定时任务服务');
+        RecycleBinTaskService.getInstance().startTasks();
+      }, 15000);
     } catch (e) {
-      console.warn('启动回收站清理任务失败:', e);
+      logger.error('启动回收站定时任务失败:', e);
+    }
+
+    // 启动审计日志清理任务（每天执行一次）
+    try {
+      const { AuditLogRetentionService } = await import('./services/AuditLogRetentionService');
+      setTimeout(() => {
+        AuditLogRetentionService.getInstance().start();
+      }, 20000);
+    } catch (e) {
+      logger.error('启动审计日志清理任务失败:', e);
     }
 
     // WebSocket 服务实例
@@ -305,25 +398,25 @@ AppDataSource.initialize()
     try {
       const { createSshWsServer } = await import('./ws/ssh');
       sshWss = createSshWsServer();
-      console.log('WebSSH 服务已创建 (Headless)');
+      logger.info('WebSSH 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 WebSSH 服务失败:', e?.message || e);
+      logger.warn('创建 WebSSH 服务失败:', e?.message || e);
     }
 
     try {
       const { createVncWsServer } = await import('./ws/vnc');
       vncWss = createVncWsServer();
-      console.log('WebVNC 服务已创建 (Headless)');
+      logger.info('WebVNC 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 WebVNC 服务失败:', e?.message || e);
+      logger.warn('创建 WebVNC 服务失败:', e?.message || e);
     }
 
     try {
       const { createKvVncWss } = await import('./ws/kvVnc');
       kvVncWss = createKvVncWss();
-      console.log('KubeVirt WebVNC 服务已创建 (Headless)');
+      logger.info('KubeVirt WebVNC 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
+      logger.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
     }
     
     // 初始化 Pod 日志 WebSocket 服务
@@ -331,9 +424,9 @@ AppDataSource.initialize()
     try {
       const { createKvPodLogWss } = await import('./ws/kvPodLog');
       kvPodLogWss = createKvPodLogWss();
-      console.log('KubeVirt Pod Log 服务已创建 (Headless)');
+      logger.info('KubeVirt Pod Log 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
+      logger.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
     }
 
     // 初始化 Pod 终端 WebSocket 服务
@@ -396,13 +489,19 @@ AppDataSource.initialize()
       }
     });
 
-    server.listen(PORT, () => {
-      console.log(`后端服务运行在端口 ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV}`);
-    });
+    const listenHost = process.env.LISTEN_HOST?.trim();
+    if (listenHost) {
+      server.listen(PORT, listenHost, () => {
+        logger.info(`后端服务运行在 ${listenHost}:${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
+      });
+    } else {
+      server.listen(PORT, () => {
+        logger.info(`后端服务运行在端口 ${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
+      });
+    }
   })
   .catch((error: any) => {
-    console.error('数据库连接失败:', error);
+    logger.error('数据库连接失败:', error);
     // 数据库不可用时直接退出，避免以不稳定状态对外提供服务
     process.exit(1);
   });

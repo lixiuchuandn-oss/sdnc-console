@@ -185,6 +185,51 @@ export const fetchCloudOr404 = async (id: string, res: Response) => {
 };
 
 /**
+ * 解析 Harvester / Rancher 下游 K8s API 的基址（与 NAD 创建 handler 一致）。
+ * 若 endpoint 含 `/k8s/clusters/{id}`，必须整段保留；禁止只用 protocol//host，否则 NAD/CRD 请求会 404。
+ */
+export const resolveHarvesterK8sApiBase = (endpoint: string): string => {
+  let base = String(endpoint || '').replace(/\/+$/, '');
+  if (!base.includes('/k8s/clusters/')) {
+    base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
+  }
+  return base;
+};
+
+/**
+ * 从 KubeVirt VirtualMachine 列表中找出 multus.networkName 指向给定 NAD/子网引用的虚拟机显示名（删除前占用检查）。
+ * @param networkRefNsName 已小写的 namespace/name，如 default/my-subnet
+ * @param nameOnly 资源名小写，用于匹配以 /name 结尾的引用
+ */
+export function findVmDisplayNamesUsingMultusNetwork(
+  vms: any[],
+  networkRefNsName: string,
+  nameOnly: string,
+): string[] {
+  const targetRef = networkRefNsName.toLowerCase();
+  const nameLower = nameOnly.toLowerCase();
+  const out: string[] = [];
+  for (const vm of vms) {
+    const networks: any[] = vm?.spec?.template?.spec?.networks || [];
+    const nets = networks
+      .map((n: any) => n?.multus?.networkName)
+      .filter((n: any) => typeof n === 'string');
+    const matched = nets.some((n: string) => {
+      const s = String(n || '').toLowerCase();
+      const baseName = s.includes('@') ? s.split('@')[0] : s;
+      return baseName === targetRef || baseName.endsWith(`/${nameLower}`);
+    });
+    if (matched) {
+      const alias =
+        vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || '';
+      const t = String(alias).trim();
+      if (t) out.push(t);
+    }
+  }
+  return out;
+}
+
+/**
  * 校验云资源 Provider 类型是否符合预期
  *
  * @description
@@ -243,6 +288,27 @@ export const ensureProvider = (
  * @returns {string} 标准化后的状态字符串
  */
 export const resolveVMStatus = (vm: any, vmi: any): string => {
+  // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
+  // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
+  // 也可能在 status.migrationState 中（不同版本可能不同）
+  // 注意：如果 migrationState.Completed === true，说明迁移已完成，不应该返回 'Migrating'
+  const migrationState = vmi?.status?.migrationState;
+  const migrationAnnotation = vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'];
+  
+  // 检查是否真的在迁移中（排除已完成的迁移）
+  if (migrationState) {
+    // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
+    // 注意：JSON 中的字段名是小写的 "completed"，但代码中可能有大写的情况
+    const isCompleted = migrationState.completed === true || migrationState.Completed === true;
+    if (!isCompleted) {
+      return 'Migrating';
+    }
+  } else if (migrationAnnotation) {
+    // 如果只有注解但没有 migrationState，也认为在迁移中
+    // 但需要排除已完成的状态（Harvester 会在完成后删除注解，但可能有延迟）
+    return 'Migrating';
+  }
+
   let status = 'Unknown';
 
   // [Status Normalization] 状态优先级解析

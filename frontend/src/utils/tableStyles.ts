@@ -4,6 +4,14 @@ export const commonTableStyles = {
     flexDirection: 'column' as const,
     justifyContent: 'center',
   },
+  /** 表格单元格内多行内容（指标、地址等）纵向排列，统一行距 */
+  cellMultiLineStack: {
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 2,
+    lineHeight: 1.5,
+  },
   primaryText: {
     fontSize: '14px',
     color: '#000000E0',

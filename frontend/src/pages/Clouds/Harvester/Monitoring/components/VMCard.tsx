@@ -30,8 +30,8 @@ const SEGMENT_COLORS: Record<string, string> = {
 export const VMCard: React.FC = () => {
   const slowCtx = useDashboardSlowDataContext();
   const summary = useMemo(
-    () => parseVMInstancesToStatusCounts(slowCtx?.vmInstances ?? null),
-    [slowCtx?.vmInstances]
+    () => parseVMInstancesToStatusCounts(slowCtx?.virtualMachines ?? null, slowCtx?.vmInstances ?? null),
+    [slowCtx?.virtualMachines, slowCtx?.vmInstances]
   );
   const loading = slowCtx?.loading ?? false;
 

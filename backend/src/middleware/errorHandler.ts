@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger';
+
+const errLog = logger.child('Tower-Error');
 
 export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.stack);
+  errLog.error(err?.message || String(err), err?.name || '');
 
   if (err.name === 'ValidationError') {
     return res.status(400).json({

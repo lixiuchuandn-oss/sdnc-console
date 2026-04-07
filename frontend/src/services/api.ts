@@ -1,6 +1,9 @@
 // API服务函数
 // 远端访问时，如果 .env 指向 localhost，会导致请求打到访问者本机而非服务器。
-// 这里做一个健壮性处理：当检测到页面不在 localhost，但 REACT_APP_API_URL 包含 localhost 时，改用同主机的 4002 端口。
+// 当页面不在 localhost 但 REACT_APP_API_URL 仍指向 localhost 时，改为当前页的 origin（同源）。
+//
+// HTTPS + Nginx 反代时：页面为 https://host/ ，API 必须是同源 https://host/api/... ，不能写成 https://host:5001
+//（5001 仅在服务器本机监听，且常为 HTTP；浏览器直连会失败或混合内容被拦）。
 
 // 导入请求管理器（提供去重、缓存、重试功能）
 import { requestManager } from '../utils/requestManager';
@@ -14,13 +17,18 @@ const defaultApiBase = (() => {
       const isPageLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const envIsLocalhost = /localhost|127\.0\.0\.1/.test(envUrl);
       if (!isPageLocalhost && envIsLocalhost) {
-        return `${window.location.protocol}//${window.location.hostname}:5001`;
+        return window.location.origin;
       }
     }
     return envUrl;
   }
   if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:5001`;
+    const { protocol, hostname, port } = window.location;
+    const isLocalDevPort = port === '3000' || port === '5000' || port === '5173';
+    if ((hostname === 'localhost' || hostname === '127.0.0.1') && isLocalDevPort) {
+      return `${protocol}//${hostname}:5001`;
+    }
+    return window.location.origin;
   }
   return 'http://localhost:5001';
 })();
@@ -89,8 +97,16 @@ const parseErrorResponse = async (response: Response) => {
     throw err;
 };
 
-// 通用请求函数（带缓存、去重、重试）
-export const apiRequest = async (endpoint: string, options?: { skipCache?: boolean }) => {
+/** GET 请求选项：默认不启用内存缓存（控制台资源以新鲜为准）；少数慢变接口可 enableCache: true */
+export type ApiGetOptions = {
+  skipCache?: boolean;
+  silent?: boolean;
+  enableCache?: boolean;
+  cacheTTL?: number;
+};
+
+// 通用请求函数（去重、重试；GET 默认不缓存，按需 opt-in）
+export const apiRequest = async (endpoint: string, options?: ApiGetOptions) => {
   try {
     return await requestManager(
       {
@@ -99,22 +115,39 @@ export const apiRequest = async (endpoint: string, options?: { skipCache?: boole
         headers: getAuthHeaders(),
         options: {
           enableDeduplication: true,
-          enableCache: true,
+          enableCache: options?.enableCache ?? false,
           enableRetry: true,
           skipCache: options?.skipCache || false,
+          ...(typeof options?.cacheTTL === 'number' ? { cacheTTL: options.cacheTTL } : {}),
         },
       },
       API_BASE_URL
     );
-  } catch (error) {
-    console.error(`API请求失败 ${endpoint}:`, error);
+  } catch (error: any) {
+    // 如果是预期的 404 错误且设置了 silent，不记录到控制台
+    // 这对于诊断功能很重要，因为 Pod 不存在、PVC 不存在是预期的情况
+    const is404 = error?.status === 404 || 
+                  error?.message?.includes('404') || 
+                  error?.message?.includes('Not Found') ||
+                  error?.message?.includes('未找到');
+    if (!is404 || !options?.silent) {
+      console.error(`API请求失败 ${endpoint}:`, error);
+    }
     throw error;
   }
 };
 
-// 通用 POST 请求（带重试，不缓存，不去重）
+// 通用 POST 请求（默认带重试，不缓存，不去重）
 // 注意：创建操作禁用去重，确保每次点击都能真正创建
-export const apiPost = async (endpoint: string, body: any = {}) => {
+export const apiPost = async (
+  endpoint: string,
+  body: any = {},
+  options?: {
+    enableRetry?: boolean;
+    retryCount?: number;
+    retryDelay?: number;
+  }
+) => {
   try {
     return await requestManager(
       {
@@ -125,7 +158,9 @@ export const apiPost = async (endpoint: string, body: any = {}) => {
         options: {
           enableDeduplication: false, // 创建操作不去重，允许重复创建
           enableCache: false, // POST 请求不缓存
-          enableRetry: true, // 保留重试功能
+          enableRetry: options?.enableRetry ?? true, // 默认保留重试功能
+          retryCount: options?.retryCount,
+          retryDelay: options?.retryDelay,
         },
       },
       API_BASE_URL
@@ -238,16 +273,45 @@ export const apiPatch = async (endpoint: string, body: any = {}, options?: { con
   }
 };
 
+// 通用 PUT 请求（带重试，不缓存，不去重）
+// 注意：更新操作禁用去重，确保每次更新都能真正执行
+export const apiPut = async (endpoint: string, body: any = {}) => {
+  try {
+    return await requestManager(
+      {
+        method: 'PUT',
+        endpoint,
+        body,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: false,
+          enableCache: false,
+          enableRetry: true,
+        },
+      },
+      API_BASE_URL
+    );
+  } catch (error) {
+    console.error(`API请求失败 ${endpoint}:`, error);
+    throw error;
+  }
+};
+
 // 获取云资源池数据
 export const fetchClouds = async () => {
   return await apiRequest('/api/clouds');
+};
+
+// 获取单个云资源池详情
+export const fetchCloudById = async (id: string, options?: { skipCache?: boolean }) => {
+  return await apiRequest(`/api/clouds/${id}`, { skipCache: options?.skipCache || false });
 };
 
 
 
 // 获取用户数据
 export const fetchUsers = async () => {
-  return await apiRequest('/api/users');
+  return await apiRequest('/api/users', { enableCache: true });
 };
 
 
@@ -257,16 +321,16 @@ export const fetchUsers = async () => {
 
 // 获取租户数据
 export const fetchTenants = async () => {
-  return await apiRequest('/api/tenants');
+  return await apiRequest('/api/tenants', { enableCache: true });
 };
 
 export const fetchAvailableResourcePools = async () => {
-  return await apiRequest('/api/tenants/available-resource-pools');
+  return await apiRequest('/api/tenants/available-resource-pools', { enableCache: true });
 };
 
 // User Spaces
 export const fetchUserSpaces = async () => {
-  return await apiRequest('/api/user-spaces');
+  return await apiRequest('/api/user-spaces', { enableCache: true });
 };
 
 export const createUserSpace = async (payload: any) => {
@@ -1261,20 +1325,20 @@ export const detachVpcFromCen = async (cenId:string, attachmentId:string)=> {
  
 
 export const fetchDashboardStats = async () => {
-  return await apiRequest('/api/dashboard/stats');
+  return await apiRequest('/api/dashboard/stats', { enableCache: true });
 }; 
 
 export const fetchDashboardRecentActivities = async () => {
-  return await apiRequest('/api/dashboard/recent-activities');
+  return await apiRequest('/api/dashboard/recent-activities', { enableCache: true });
 }; 
 
 export const fetchDashboardCloudUsage = async () => {
-  return await apiRequest('/api/dashboard/cloud-usage');
+  return await apiRequest('/api/dashboard/cloud-usage', { enableCache: true });
 };
 
 // ===== SRv6 隧道 =====
-export const fetchSrv6Tunnels = async () => {
-  return await apiRequest('/api/networks/srv6');
+export const fetchSrv6Tunnels = async (options?: { skipCache?: boolean }) => {
+  return await apiRequest('/api/networks/srv6', { skipCache: options?.skipCache });
 };
 
 // Harvester Extended Resources
@@ -1299,11 +1363,11 @@ export const fetchIPsecVPNs = async () => {
   return await apiRequest('/api/networks/ipsec');
 };
 
-export const fetchIPsecVPNsMerged = async (params?: { vrId?: string }) => {
+export const fetchIPsecVPNsMerged = async (params?: { vrId?: string; skipCache?: boolean }) => {
   const qs: string[] = ['includeDevice=1'];
   if (params?.vrId) qs.push(`vrId=${encodeURIComponent(params.vrId)}`);
   const url = `/api/networks/ipsec${qs.length ? ('?' + qs.join('&')) : ''}`;
-  return await apiRequest(url);
+  return await apiRequest(url, { skipCache: params?.skipCache });
 };
 
 export const createIPsecVPN = async (payload: any) => {
@@ -1316,7 +1380,7 @@ export const deleteIPsecVPN = async (id: string) => {
 
 // ===== 服务目录（Service Catalog）=====
 export const fetchServices = async () => {
-  return await apiRequest('/api/services');
+  return await apiRequest('/api/services', { enableCache: true });
 };
 
 export const createService = async (payload: any) => {
@@ -1366,16 +1430,27 @@ export const getProxyAuthInfo = async (
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
   other: string = '',
   bodyRaw: string = '',
-  accessKey: string = 'Cloudmap%23123',
-  secretKey: string = 'Cloudmap%23123'
+  accessKey: string = 'Cloudmap#123',
+  secretKey: string = 'Cloudmap#123'
 ): Promise<{ Authorization: string; tonce: string }> => {
   const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
-  // 对于签名请求，bodyRaw 可能是字符串，需要直接传递
+  // 注意：
+  // 1) 这里如果把 JSON 字符串直接作为 body 交给 requestManager，会被再次 JSON.stringify，导致后端解析为非法 JSON（""{\"uuid\""...）。
+  // 2) 因此 bodyRaw 存在时先尝试 JSON.parse 成对象再发送；空 body 发送 {}。
+  let signBody: any = {};
+  if (bodyRaw && typeof bodyRaw === 'string') {
+    try {
+      signBody = JSON.parse(bodyRaw);
+    } catch {
+      // bodyRaw 非 JSON 时退回空对象，避免签名接口因解析失败直接 500
+      signBody = {};
+    }
+  }
   const response = await requestManager(
     {
       method: 'POST',
       endpoint: authUrl,
-      body: bodyRaw || '',
+      body: signBody,
       headers: {
         'Content-Type': 'application/json',
       },

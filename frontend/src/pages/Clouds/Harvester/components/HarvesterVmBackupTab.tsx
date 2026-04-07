@@ -1,14 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Card, Button, List, Tag, Tooltip, Space, Typography, Dropdown, MenuProps, Modal, message, Empty } from 'antd';
+import { Card, Button, List, Tag, Tooltip, Space, Dropdown, MenuProps, Modal, message, Empty } from 'antd';
 import { 
   PlusOutlined, 
-  DeleteOutlined, 
   HistoryOutlined, 
   DatabaseOutlined, 
   ScheduleOutlined, 
   EllipsisOutlined, 
-  PlayCircleOutlined, 
-  PauseCircleOutlined,
   ReloadOutlined,
   WarningOutlined
 } from '@ant-design/icons';
@@ -18,8 +15,8 @@ import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
-
-const { Text } = Typography;
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 const formatAge = (timestamp: string) => {
   if (!timestamp) return '-';
@@ -49,7 +46,7 @@ interface HarvesterVmBackupTabProps {
   schedules: any[];
   backupsLoading: boolean;
   schedulesLoading: boolean;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: (force?: boolean, silent?: boolean) => void;
   namespaces: any[];
 }
 
@@ -63,7 +60,13 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   onRefresh,
   namespaces
 }) => {
-  // Modals state
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasBackupsWrite = useMemo(() => {
+    return hasPermissionForAction(perms, 'clouds.backups:write') || hasPermissionForAction(perms, 'clouds:write');
+  }, [perms]);
+
+  // 弹窗状态
   const [createBackupVisible, setCreateBackupVisible] = useState(false);
   const [createSnapshotVisible, setCreateSnapshotVisible] = useState(false);
   const [createScheduleVisible, setCreateScheduleVisible] = useState(false);
@@ -74,11 +77,11 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   const [currentRestoreType, setCurrentRestoreType] = useState<'backup' | 'snapshot'>('backup');
   const [currentScheduleItem, setCurrentScheduleItem] = useState<any>(null);
 
-  // Derived data
+  // 派生数据
   const vmId = record?.metadata?.name;
   const namespace = record?.metadata?.namespace;
 
-  // Filter Backups and Snapshots
+  // 过滤备份/快照（仅保留当前虚拟机）
   const { backupList, snapshotList } = useMemo(() => {
     const all = backups || [];
     const vmBackups = all.filter((b: any) => {
@@ -97,7 +100,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
       return (raw.spec?.type || 'backup') === 'snapshot';
     });
 
-    // Sort by creation time desc
+    // 按创建时间倒序
     const sorter = (a: any, b: any) => {
       const ta = new Date(a.rawData?.metadata?.creationTimestamp || a.createdAt).getTime();
       const tb = new Date(b.rawData?.metadata?.creationTimestamp || b.createdAt).getTime();
@@ -110,7 +113,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
     };
   }, [backups, vmId]);
 
-  // Filter Schedules
+  // 过滤定时策略（仅保留当前虚拟机）
   const scheduleList = useMemo(() => {
     const all = schedules || [];
     const vmSchedules = all.filter((s: any) => {
@@ -119,7 +122,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
       return targetName === vmId;
     });
     
-    // Sort by creation time desc
+    // 按创建时间倒序
     return vmSchedules.sort((a: any, b: any) => {
       const ta = new Date(a.rawData?.metadata?.creationTimestamp || a.createdAt).getTime();
       const tb = new Date(b.rawData?.metadata?.creationTimestamp || b.createdAt).getTime();
@@ -127,17 +130,23 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
     });
   }, [schedules, vmId]);
 
-  // Actions
+  // 动作
   const handleDeleteBackup = (item: any, type: 'backup' | 'snapshot') => {
+    if (!hasBackupsWrite) {
+      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+      return;
+    }
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const ns = raw.metadata?.namespace;
     
     Modal.confirm({
       title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
       content: (
         <div>
-          <p>确定要删除 {type === 'backup' ? '备份' : '快照'} <b>{name}</b> 吗？</p>
+          <p>确定要删除 {type === 'backup' ? '备份' : '快照'} <b>{displayName}</b> 吗？</p>
           <p style={{ color: '#ff4d4f', fontSize: 12 }}><WarningOutlined /> 此操作不可恢复。</p>
         </div>
       ),
@@ -157,21 +166,31 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   };
 
   const handleRestore = (item: any, type: 'backup' | 'snapshot') => {
+    if (!hasBackupsWrite) {
+      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+      return;
+    }
     setCurrentRestoreItem(item.rawData || item);
     setCurrentRestoreType(type);
     setRestoreVisible(true);
   };
 
   const handleDeleteSchedule = (item: any) => {
+    if (!hasBackupsWrite) {
+      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+      return;
+    }
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const ns = raw.metadata?.namespace;
 
     Modal.confirm({
       title: '确认删除定时策略',
       content: (
         <div>
-          <p>确定要删除定时策略 <b>{name}</b> 吗？</p>
+          <p>确定要删除定时策略 <b>{displayName}</b> 吗？</p>
           <p style={{ color: '#ff4d4f', fontSize: 12 }}><WarningOutlined /> 此操作不可恢复。</p>
         </div>
       ),
@@ -191,6 +210,10 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   };
 
   const handleSuspendSchedule = async (item: any) => {
+    if (!hasBackupsWrite) {
+      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+      return;
+    }
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
     const ns = raw.metadata?.namespace;
@@ -207,14 +230,20 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   };
 
   const handleEditSchedule = (item: any) => {
+    if (!hasBackupsWrite) {
+      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+      return;
+    }
     setCurrentScheduleItem(item.rawData || item);
     setEditScheduleVisible(true);
   };
 
-  // Renderers
+  // 渲染
   const renderBackupItem = (item: any, type: 'backup' | 'snapshot') => {
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const readyToUse = raw.status?.readyToUse;
     const createdAt = raw.metadata?.creationTimestamp;
     const timeAgo = formatAge(createdAt);
@@ -223,8 +252,12 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
       <List.Item
         style={{ padding: '16px 24px' }}
         actions={[
-          <Button type="link" size="small" disabled={!readyToUse} onClick={() => handleRestore(item, type)}>恢复</Button>,
-          <Button type="link" size="small" danger onClick={() => handleDeleteBackup(item, type)}>删除</Button>
+          <Tooltip title={undefined}>
+            <Button type="link" size="small" disabled={!readyToUse || !hasBackupsWrite} onClick={() => handleRestore(item, type)}>恢复</Button>
+          </Tooltip>,
+          <Tooltip title={undefined}>
+            <Button type="link" size="small" danger disabled={!hasBackupsWrite} onClick={() => handleDeleteBackup(item, type)}>删除</Button>
+          </Tooltip>
         ]}
       >
         <List.Item.Meta
@@ -239,7 +272,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           }
           title={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{ fontWeight: 500 }}>{name}</span>
+                <span style={{ fontWeight: 500 }}>{displayName}</span>
                 {readyToUse ? <Tag color="success" style={{ fontSize: 10 }}>READY</Tag> : <Tag color="warning" style={{ fontSize: 10 }}>NOT READY</Tag>}
             </div>
           }
@@ -258,6 +291,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   const renderScheduleItem = (item: any) => {
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const cron = raw.spec?.cron;
     const suspend = raw.spec?.suspend === true;
     const retain = raw.spec?.retain;
@@ -270,10 +305,10 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
 
     const menuProps: MenuProps = {
       items: [
-        { key: 'edit', label: '编辑策略', onClick: () => handleEditSchedule(item) },
-        { key: 'suspend', label: suspend ? '启用' : '停用', onClick: () => handleSuspendSchedule(item) },
+        { key: 'edit', label: '编辑策略', disabled: !hasBackupsWrite, onClick: () => handleEditSchedule(item) },
+        { key: 'suspend', label: suspend ? '启用' : '停用', disabled: !hasBackupsWrite, onClick: () => handleSuspendSchedule(item) },
         { type: 'divider' },
-        { key: 'delete', label: '删除', danger: true, onClick: () => handleDeleteSchedule(item) }
+        { key: 'delete', label: '删除', danger: true, disabled: !hasBackupsWrite, onClick: () => handleDeleteSchedule(item) }
       ]
     };
 
@@ -293,7 +328,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           }
           title={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{ fontWeight: 500 }}>{name}</span>
+                <span style={{ fontWeight: 500 }}>{displayName}</span>
                 {suspend ? <Tag color="default" style={{ fontSize: 10 }}>已暂停</Tag> : <Tag color="processing" style={{ fontSize: 10 }}>运行中</Tag>}
                 <Tag style={{ fontSize: 10 }}>{type === 'snapshot' ? '快照' : '备份'}</Tag>
             </div>
@@ -308,16 +343,20 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
             </div>
           }
         />
-        <Dropdown menu={menuProps} trigger={['click']}>
-            <Button type="text" icon={<EllipsisOutlined />} />
-        </Dropdown>
+        <Tooltip title={undefined}>
+          <span>
+            <Dropdown menu={menuProps} trigger={['click']}>
+              <Button type="text" icon={<EllipsisOutlined />} disabled={!hasBackupsWrite} />
+            </Dropdown>
+          </span>
+        </Tooltip>
       </List.Item>
     );
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* 1. Snapshots Card */}
+      {/* 1. 快照 */}
       <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ color: '#666' }}>快照</span>
@@ -325,8 +364,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={backupsLoading} />
                   </Tooltip>
-                  <Tooltip title="创建快照">
-                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateSnapshotVisible(true)} />
+                  <Tooltip title={hasBackupsWrite ? '创建快照' : undefined}>
+                      <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateSnapshotVisible(true)} />
                   </Tooltip>
               </Space>
           </div>
@@ -341,7 +380,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           </Card>
       </div>
 
-      {/* 2. Backups Card */}
+      {/* 2. 备份 */}
       <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ color: '#666' }}>备份</span>
@@ -349,8 +388,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={backupsLoading} />
                   </Tooltip>
-                  <Tooltip title="创建备份">
-                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateBackupVisible(true)} />
+                  <Tooltip title={hasBackupsWrite ? '创建备份' : undefined}>
+                      <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateBackupVisible(true)} />
                   </Tooltip>
               </Space>
           </div>
@@ -365,7 +404,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           </Card>
       </div>
 
-      {/* 3. Schedules Card */}
+      {/* 3. 定时策略 */}
       <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ color: '#666' }}>定时策略</span>
@@ -373,8 +412,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={schedulesLoading} />
                   </Tooltip>
-                  <Tooltip title="创建定时策略">
-                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateScheduleVisible(true)} />
+                  <Tooltip title={hasBackupsWrite ? '创建定时策略' : undefined}>
+                      <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateScheduleVisible(true)} />
                   </Tooltip>
               </Space>
           </div>
@@ -389,7 +428,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           </Card>
       </div>
 
-      {/* Modals */}
+      {/* 弹窗 */}
       <VmBackupCreateModal
         open={createBackupVisible}
         onCancel={() => setCreateBackupVisible(false)}
@@ -416,7 +455,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
         onSuccess={() => {
           setCreateSnapshotVisible(false);
           message.success('快照创建指令已发送');
-          onRefresh(true);
+          // 刷新数据列表：force=true 跳过前端缓存；silent=true 不弹提示
+          onRefresh(true, true);
         }}
         initialNamespace={namespace}
         initialVm={record}
@@ -429,7 +469,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
         onSuccess={() => {
           setCreateScheduleVisible(false);
           message.success('定时策略创建成功');
-          onRefresh(true);
+          // 刷新数据列表：force=true 跳过前端缓存；silent=true 不弹提示
+          onRefresh(true, true);
         }}
         initialNamespace={namespace}
         initialVmName={vmId}
@@ -442,7 +483,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           cloudId={cloudId}
           resource={currentRestoreItem}
           resourceType={currentRestoreType}
-          vms={[record]} // Current VM as target options (usually restore to same or new)
+          vms={[record]} // 恢复目标列表：默认仅当前虚拟机
           onSuccess={() => {
             setRestoreVisible(false);
             setCurrentRestoreItem(null);

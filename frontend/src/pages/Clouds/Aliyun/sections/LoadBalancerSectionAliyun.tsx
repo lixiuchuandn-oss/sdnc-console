@@ -80,7 +80,10 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
       )}
       asCard={false}
     >
-      <Table rowKey={(r: any) => r?.LoadBalancerId || r?.id} dataSource={filtered} columns={columns as any} pagination={{ pageSize: 10, size: 'default' }} />
+      <Table rowKey={(r: any) => r?.LoadBalancerId || r?.id} dataSource={filtered} columns={columns as any} pagination={{
+        size: 'small',
+        showTotal: (total) => `共 ${total} 条`,
+      }} />
     </PageDetailSection>
   );
 };

@@ -1,62 +1,199 @@
-export const PATH_PERMISSION_MAPPING = [
-  { path: '/admin/dashboard', action: 'ops.dashboard:read' },
-  { path: '/admin/clouds/console', action: 'clouds.console:read' },
-  { path: '/admin/clouds', action: 'clouds:read' },
+import { routeSpecs } from '../routes/RouteSpec';
+
+/**
+ * 从 RouteSpec 自动生成路径权限映射
+ * 
+ * 【单点生效机制】
+ * - 只需在 RouteSpec 中修改 requiredActions.page，accessMapping 会自动更新
+ * - 修改一个路由的权限，不会影响其他路由
+ * - 符合 DRY 原则（Don't Repeat Yourself）
+ */
+const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }> => {
+  return routeSpecs
+    .map((spec) => ({
+      path: spec.path,
+      action: spec.requiredActions?.page,
+    }))
+    .filter((mapping): mapping is { path: string; action: string } => !!mapping.action)
+    // 按路径长度降序排序，确保更具体的路径优先匹配（如 /admin/clouds/console 在 /admin/clouds 之前）
+    .sort((a, b) => b.path.length - a.path.length);
+};
+
+/**
+ * 手动补充的特殊映射（用于没有 requiredActions 的路由或特殊路径）
+ * 
+ * 【使用场景】
+ * - 路径前缀匹配（如 /admin/clouds 匹配所有 /admin/clouds/* 的子路径）
+ * - 没有在 RouteSpec 中定义的路由
+ * - 需要特殊权限逻辑的路径
+ * 
+ * 【注意】
+ * - 资源池管理（/admin/clouds）现在已在 RouteSpec 中配置 requiredActions，无需手动映射
+ */
+const MANUAL_MAPPINGS: Array<{ path: string; action: string }> = [
   // 租户专线管理功能已迁移到 AISOC 平台，相关权限映射已移除
-  { path: '/admin/tenants/users', action: 'tenants.users:read' },
-  { path: '/admin/tenants', action: 'tenants:read' },
-  { path: '/admin/interconnect/nat', action: 'networks.nat:read' },
-  { path: '/admin/interconnect/acl', action: 'networks.acl:read' },
-  { path: '/admin/interconnect/ipsec', action: 'networks.ipsec:read' },
-  { path: '/admin/interconnect/srv6', action: 'networks.srv6:read' },
-  { path: '/admin/interconnect/vr', action: 'networks.vr-config:read' },
-  { path: '/admin/sec-mgr-plane/security-domain', action: 'networks.security-domain:read' },
-  { path: '/admin/sec-mgr-plane/cascade-channels', action: 'sec-mgr-plane.cascade-channels:read' },
-  { path: '/admin/sec-mgr-plane/apps', action: 'security.services:read' },
-  { path: '/admin/alarms', action: 'secops.alerts:read' },
-  { path: '/admin/access', action: 'access:read' },
-  { path: '/admin/coming-soon', action: 'ops:read' },
-  { path: '/admin/soc/overview', action: 'secops.dashboard:read' },
-  { path: '/admin/soc/threat/events', action: 'secops.alerts:read' },
-  // 租户专线管理功能已迁移到 AISOC 平台，相关权限映射已移除
-  // { path: '/admin/soc/threat/offline-logs', action: 'tenants.leased-lines.alert-logs:read' },
-  { path: '/admin/soc/threat/rules', action: 'secops.rules:read' },
+  // 资源池管理（/admin/clouds）现在从 RouteSpec 自动生成，无需手动映射
 ];
+
+/**
+ * 路径权限映射表
+ * 
+ * 【数据来源】
+ * - 主要来源：从 RouteSpec 自动生成（单点生效）
+ * - 补充来源：手动映射（特殊情况）
+ * 
+ * 【修改方式】
+ * - ✅ 推荐：在 RouteSpec 中修改 requiredActions.page
+ * - ⚠️ 特殊：在 MANUAL_MAPPINGS 中添加手动映射
+ */
+export const PATH_PERMISSION_MAPPING: Array<{ path: string; action: string }> = [
+  ...generateMappingFromRouteSpecs(),
+  ...MANUAL_MAPPINGS,
+];
+
+// 开发环境调试：打印生成的映射表（已禁用）
+// if (process.env.NODE_ENV === 'development') {
+//   console.log('[accessMapping] Generated mappings:', PATH_PERMISSION_MAPPING);
+// }
 
 export const getRequiredActionForPath = (path: string): string | null => {
   const purePath = String(path || '').split('?')[0];
+
+  const matchesPath = (targetPath: string, patternPath: string): boolean => {
+    const targetSegments = targetPath.split('/').filter(Boolean);
+    const patternSegments = patternPath.split('/').filter(Boolean);
+    if (targetSegments.length < patternSegments.length) return false;
+
+    for (let i = 0; i < patternSegments.length; i += 1) {
+      const patternSeg = patternSegments[i];
+      const targetSeg = targetSegments[i];
+      if (!patternSeg.startsWith(':') && patternSeg !== targetSeg) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   for (const mapping of PATH_PERMISSION_MAPPING) {
-    if (purePath.startsWith(mapping.path)) {
+    if (matchesPath(purePath, mapping.path)) {
+      // 开发环境调试（已禁用）
+      // if (process.env.NODE_ENV === 'development') {
+      //   console.log(`[accessMapping] Path "${purePath}" matched mapping:`, mapping);
+      // }
       return mapping.action;
     }
   }
+  // 开发环境调试（已禁用）
+  // if (process.env.NODE_ENV === 'development') {
+  //   console.warn(`[accessMapping] No mapping found for path: "${purePath}"`);
+  // }
   return null;
 };
 
 export const hasPermissionForAction = (perms: string[], act: string | null): boolean => {
-  if (!act) return true;
+  if (!act) return false; // 未映射的路径默认拒绝访问
+  const permsArray = perms || [];
   const base = act.split(':')[0];
+  const isDashboardOrPools = base === 'clouds.dashboard' || base === 'clouds.resource-pools';
   const segments = base.split('.');
   const hasDomainPrefix = segments.length >= 2 ? `${segments[0]}.${segments[1]}` : null;
-  return (perms || []).includes(act)
-    || (perms || []).includes(act.replace(':read', ':write'))
-    || (perms || []).includes('*')
-    || (perms || []).includes(`${base}:*`)
-    || (!!hasDomainPrefix && (perms || []).includes(`${hasDomainPrefix}:*`));
+  
+  // 精确匹配
+  if (permsArray.includes(act)) return true;
+  
+  // 超级管理员权限
+  if (permsArray.includes('*')) return true;
+  
+  // write 权限包含 read 权限
+  if (permsArray.includes(act.replace(':read', ':write'))) return true;
+  
+  // 通配符匹配：base:* 或 domain.feature:*
+  if (permsArray.includes(`${base}:*`)) return true;
+  if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
+  
+  // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
+  // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read
+  if (base.startsWith('clouds.') && act.endsWith(':read') && !isDashboardOrPools) {
+    if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
+      return true;
+    }
+  }
+
+  // 特殊规则：clouds.console:write 包含所有 clouds.*:write（与只读继承对称）
+  if (base.startsWith('clouds.') && act.endsWith(':write') && !isDashboardOrPools) {
+    if (permsArray.includes('clouds.console:write')) {
+      return true;
+    }
+  }
+
+  // clouds:write 包含所有 clouds.*:write（与 clouds:read 对读权限的对称）
+  if (base.startsWith('clouds.') && act.endsWith(':write')) {
+    if (permsArray.includes('clouds:write')) {
+      return true;
+    }
+  }
+  
+  // clouds:read 包含所有 clouds.*:read（含 clouds.resource-pools、资源总览路由仍用独立原子）
+  // 注意：clouds:read 本身不会被 clouds.console:read 继承（格式为 clouds:read vs clouds.*:read）
+  if (base.startsWith('clouds.') && act.endsWith(':read')) {
+    if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
+      return true;
+    }
+  }
+  
+  return false;
 };
 
-export const getDefaultAdminPath = (perms: string[] = []): string => {
-  const candidates = [
-    '/admin/clouds/console',
-    // 租户专线管理功能已迁移到 AISOC 平台，相关路径已移除
-    '/admin/dashboard',
-    '/admin/clouds',
-    '/admin/tenants',
-    '/admin/tenants/users',
-  ];
-  for (const p of candidates) {
-    const act = getRequiredActionForPath(p);
-    if (hasPermissionForAction(perms, act)) return p;
+/**
+ * 获取默认首页路径
+ * 
+ * 【逻辑说明】
+ * 1. 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由
+ * 2. 按 homePagePriority 升序排序（数值越小优先级越高）
+ * 3. 依次检查每个候选路由的权限和授权
+ * 4. 返回第一个通过检查的路由路径
+ * 
+ * 【优势】
+ * - 无需硬编码路径列表，所有配置集中在 RouteSpec
+ * - 新增首页候选只需在 RouteSpec 中添加 homePagePriority 字段
+ * - 符合 DRY 原则，单点维护
+ * 
+ * @param perms - 用户权限列表
+ * @param hasFeature - 授权检查函数（可选）
+ * @returns 默认首页路径，如果没有可访问的页面则返回 '/admin/coming-soon'
+ */
+export const getDefaultAdminPath = (perms: string[] = [], hasFeature?: (feature: string) => boolean): string => {
+  // 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由
+  // 过滤条件：
+  // 1. 不是隐藏的路由
+  // 2. 设置了 homePagePriority 字段
+  // 3. 有 requiredActions.page 配置（需要权限检查）
+  const candidates = routeSpecs
+    .filter(spec => 
+      !spec.hidden && 
+      spec.homePagePriority !== undefined &&
+      spec.requiredActions?.page
+    )
+    // 按 homePagePriority 升序排序（数值越小优先级越高）
+    .sort((a, b) => (a.homePagePriority || 999) - (b.homePagePriority || 999));
+
+  // 依次检查每个候选路由
+  for (const spec of candidates) {
+    const act = getRequiredActionForPath(spec.path);
+    // 权限检查
+    if (!hasPermissionForAction(perms, act)) continue;
+    
+    // 授权检查（如果提供了 hasFeature 函数）
+    if (hasFeature) {
+      if (spec.requiredFeature && !hasFeature(spec.requiredFeature)) {
+        continue; // 跳过没有 feature 的页面
+      }
+    }
+    
+    return spec.path;
   }
+  
+  // 如果没有可访问的页面，返回默认页面
   return '/admin/coming-soon';
 };

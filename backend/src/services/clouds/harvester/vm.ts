@@ -5,41 +5,66 @@ import { createHarvesterSecret, createHarvesterPVCVolume, deleteHarvesterPVC, up
 
 /**
  * ==============================================================================
- * 服务名称: Harvester 虚拟机服务 (Harvester VM Service)
+ * 服务名称: Harvester 虚拟机基础服务 (Harvester VM Base Service)
  * 文件路径: backend/src/services/clouds/harvester/vm.ts
  * ==============================================================================
  * 
  * [功能描述]
- * 提供对 Harvester (KubeVirt) 虚拟机的全生命周期管理能力，包括列表查询、详情获取、
- * 创建、变更规格 (Spec)、电源管理、VNC 访问等核心功能。
- * 它是后端与 Harvester API 交互的主要入口。
+ * 提供 Harvester (KubeVirt) 虚拟机的基础管理能力，包括列表查询、详情获取、创建、
+ * VNC 访问、卷管理（挂载/卸载）等核心功能。本模块专注于 VM 的基础操作，不涉及
+ * 生命周期管理（启动/停止等）和规格变更（CPU/内存调整等）。
  * 
- * [核心逻辑]
- * 1. [数据获取]: 
- *    - 支持通过 KubeVirt 原生 API 和 Harvester Steve API 双路径探测，确保兼容性。
- *    - 提供 Raw (原始) 和 Standard (标准化) 两种数据视图。
+ * [核心功能]
+ * 1. [数据查询]:
+ *    - VM 列表查询: 支持 Raw（原始）和 Standard（标准化）两种视图
+ *    - VM 详情获取: 根据命名空间和名称获取完整 VM 定义
+ *    - VMI 查询: 获取虚拟机运行时实例信息
+ *    - 双路径探测: 自动尝试 KubeVirt 原生 API 和 Harvester Steve API，确保兼容性
  * 
- * 2. [规格变更 (Update Spec)]: 
- *    - [智能分流]: 区分“简单变更”和“复杂变更”。
- *    - [最小 Patch]: 对于仅修改 CPU/内存的请求，构造极简 Patch 包，避免由大 JSON 引起的 ECONNRESET。
- *    - [完整 Patch]: 对于涉及磁盘、网络、CloudInit 的变更，采用“读-改-写”模式。
+ * 2. [VM 创建]:
+ *    - 创建虚拟机: 支持完整的 VM Spec 创建
+ *    - CloudInit 自动化: 自动提取 userData/networkData 并封装为 Secret
+ *    - SSH 密钥注入: 自动从 KeyPair 资源注入 SSH 公钥
+ *    - 平台托管标记: 自动添加 tower.io/managed Finalizer 和 creator 标签
  * 
- * 3. [高级特性]:
- *    - [热扩容]: 管理 maxSockets/maxGuest 以启用 KubeVirt 热插拔能力。
- *    - [重装系统]: 自动化处理 PVC 创建、Volume 替换、Annotation 更新流程。
- *    - [CloudInit]: 自动提取 userData/networkData 并封装为 Secret，避免内联数据过大。
+ * 3. [卷管理]:
+ *    - 挂载卷: 将 PVC 挂载到 VM（支持通过实例ID或直接指定命名空间/名称）
+ *    - 卸载卷: 从 VM 卸载已挂载的卷
+ *    - 总线类型修正: 自动处理 Harvester addVolume API 的限制（仅支持 SCSI），
+ *      通过 PATCH VM spec 实现其他总线类型
+ * 
+ * 4. [辅助功能]:
+ *    - VNC 访问: 生成 VNC 控制台访问 URL
+ *    - 磁盘规格同步: 同步 PVC 扩容后的 VM Annotation
+ * 
+ * [设计原则]
+ * - 数据查询采用双路径探测，优先使用 KubeVirt API，失败时降级到 Harvester API
+ * - Standard 视图聚合 VM 和 VMI 数据，提供前端友好的扁平化结构
+ * - 卷管理函数位于本文件，因为它们属于 VM 的基础操作，而非生命周期管理
  * 
  * ------------------------------------------------------------------------------
- * [下游接口调用说明 (Downstream API Reference)]
+ * [模块划分]
  * ------------------------------------------------------------------------------
- * 1. 涉及后端接口 (KubeVirt/Harvester):
- *    - GET /apis/kubevirt.io/v1/virtualmachines
- *    - GET /apis/kubevirt.io/v1/virtualmachineinstances
- *    - PATCH /apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{name}
+ * - lifecycle.ts: VM 生命周期管理（启动/停止/重启/删除等）
+ * - vm_update.ts: VM 规格变更（CPU/内存/磁盘/网络等配置修改）
+ * - vm_aggregated.ts: VM 聚合查询（一次性获取 VM 及关联资源）
  * 
- * 2. 关键依赖:
- *    - storage.ts: 处理 PVC 和 Volume 相关的底层操作。
- *    - utils.ts: 封装 HTTP 请求与错误处理。
+ * ------------------------------------------------------------------------------
+ * [API 接口]
+ * ------------------------------------------------------------------------------
+ * - GET /apis/kubevirt.io/v1/virtualmachines - 获取 VM 列表
+ * - GET /apis/kubevirt.io/v1/virtualmachineinstances - 获取 VMI 列表
+ * - GET /apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{name} - 获取 VM 详情
+ * - POST /apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines - 创建 VM
+ * - POST /v1/harvester/kubevirt.io.virtualmachines/{ns}/{name}?action=addVolume - 挂载卷
+ * - POST /v1/harvester/kubevirt.io.virtualmachines/{ns}/{name}?action=removeVolume - 卸载卷
+ * 
+ * ------------------------------------------------------------------------------
+ * [依赖关系]
+ * ------------------------------------------------------------------------------
+ * - storage.ts: 处理 PVC 和 Secret 的创建与管理
+ * - cluster.ts: 获取集群配置信息（如热扩容比例）
+ * - utils.ts: HTTP 请求封装与错误处理
  * ==============================================================================
  */
 
@@ -310,7 +335,26 @@ export const listHarvesterVMsStandard = async ({
     const vmi = vmiMap.get(namespace && name ? `${namespace}/${name}` : uid);
     
     // Simple Status
-    const status = vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
+    // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
+    // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
+    // 也可能在 status.migrationState 中（不同版本可能不同）
+    // 注意：如果 migrationState.completed 为 true，说明迁移已完成，不应该返回 'Migrating'
+    let status = vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
+    const migrationState = vmi?.status?.migrationState;
+    const migrationAnnotation = vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'];
+    
+    // 检查是否真的在迁移中（排除已完成的迁移）
+    if (migrationState) {
+      // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
+      // 注意：JSON 中的字段名是小写的 "completed"，但代码中可能有大写的情况
+      const isCompleted = migrationState.completed === true || migrationState.Completed === true;
+      if (!isCompleted) {
+        status = 'Migrating';
+      }
+    } else if (migrationAnnotation) {
+      // 如果只有注解但没有 migrationState，也认为在迁移中
+      status = 'Migrating';
+    }
     
     // IP/Mac resolution (Merge VM Status & VMI Status)
     const ips: string[] = [];
@@ -350,10 +394,19 @@ export const listHarvesterVMsStandard = async ({
       .filter((s: string) => !!s);
 
     // CPU/Memory
-    const cpu =
-      vm?.spec?.template?.spec?.domain?.cpu?.cores ||
-      vm?.spec?.template?.spec?.domain?.cpu?.sockets ||
-      undefined;
+    // [修复] 正确计算CPU数量：sockets * cores * threads
+    // 热扩容模式下，sockets会变化，需要完整计算
+    const cpuSpec = vm?.spec?.template?.spec?.domain?.cpu;
+    let cpu: number | undefined = undefined;
+    if (cpuSpec?.sockets !== undefined && cpuSpec?.cores !== undefined && cpuSpec?.threads !== undefined) {
+      cpu = Number(cpuSpec.sockets) * Number(cpuSpec.cores) * Number(cpuSpec.threads);
+    } else if (cpuSpec?.sockets !== undefined && cpuSpec?.cores !== undefined) {
+      cpu = Number(cpuSpec.sockets) * Number(cpuSpec.cores) * (cpuSpec?.threads || 1);
+    } else if (cpuSpec?.cores !== undefined) {
+      cpu = Number(cpuSpec.cores);
+    } else if (cpuSpec?.sockets !== undefined) {
+      cpu = Number(cpuSpec.sockets);
+    }
     const memory =
       vm?.spec?.template?.spec?.domain?.resources?.requests?.memory ||
       vm?.spec?.template?.spec?.domain?.memory?.guest ||
@@ -544,6 +597,43 @@ export const createHarvesterVM = async (
   
   // Clone payload to avoid side effects
   const vmPayload = JSON.parse(JSON.stringify(payload));
+
+  // --- [Fix] SSH Key Injection ---
+  // Harvester uses a MutatingWebhook to inject SSH keys from spec.sshKeys into CloudInit.
+  // However, when using direct Kubevirt API or if the webhook is bypassed/fails, we need to manually inject them.
+  // The frontend sends `sshNames` (list of KeyPair names). We fetch them and append to userData.
+  if (vmPayload.sshNames && Array.isArray(vmPayload.sshNames) && vmPayload.sshNames.length > 0) {
+      try {
+          const kpUrl = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/keypairs`;
+          const kpRes = await getJsonOnce(kpUrl, token, insecure);
+          const keypairs = kpRes?.items || [];
+          
+          const publicKeys: string[] = [];
+          for (const name of vmPayload.sshNames) {
+              const kp = keypairs.find((k: any) => k.metadata.name === name);
+              if (kp && kp.spec && kp.spec.publicKey) {
+                  publicKeys.push(kp.spec.publicKey);
+              }
+          }
+          
+          if (publicKeys.length > 0) {
+              let currentUserData = vmPayload.userData || '';
+              if (!currentUserData) currentUserData = '#cloud-config\n';
+              
+              // Robust append: ensure newline before appending keys
+              if (!currentUserData.endsWith('\n')) currentUserData += '\n';
+              
+              const keysBlock = `ssh_authorized_keys:\n${publicKeys.map(k => `  - ${k}`).join('\n')}\n`;
+              currentUserData += keysBlock;
+              
+              vmPayload.userData = currentUserData;
+          }
+      } catch (e) {
+          console.warn(`[Harvester] Failed to inject SSH keys: ${e}`);
+      }
+      // Cleanup custom field to avoid API error
+      delete vmPayload.sshNames;
+  }
 
   // [Feature] 平台托管标记 (Platform Managed)
   // 1. 添加 tower.io/managed Finalizer：防止在 Tower 平台之外（如 Harvester UI）误删。
@@ -743,793 +833,13 @@ export const patchHarvesterVM = async (
  * @param name 虚拟机名称
  * @param spec 变更请求体 (包含 cpu, memory, enableHotPlug, maxSockets, maxMemory 等字段)
  */
-export const updateHarvesterVMSpec = async (
-  { endpoint, token, insecure = false }: HarvesterTestParams,
-  namespace: string,
-  name: string,
-  spec: any,
-): Promise<any> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  // Fetch current to get resourceVersion
-  const current = await getHarvesterVM({ endpoint, token, insecure }, namespace, name);
+/**
+ * [Harvester 兼容] 判断虚拟机是否启用了 CPU 和内存热扩容
+ * 复刻 Harvester 的逻辑：通过 Annotation harvesterhci.io/enableCPUAndMemoryHotplug 判断
+ */
 
-  // [性能优化] 最小 Patch 策略
-  // ---------------------------------------------------------
-  // 为什么需要这个优化？
-  // KubeVirt 的 VirtualMachine 对象通常非常庞大（包含 status、详细配置等）。
-  // 如果每次微小的 CPU/内存变更都发送全量 Spec，不仅浪费带宽，
-  // 还容易因为 Payload 过大触发 Node.js HTTP 客户端的 ECONNRESET 错误。
-  // 
-  // 实现原理：
-  // 1. 检查 spec 是否仅包含白名单内的简单字段。
-  // 2. 如果是，构造一个极其精简的 JSON Patch，只包含变化的字段。
-  // ---------------------------------------------------------
-  const simpleFields = ['cpu', 'memory', 'enableHotPlug', 'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'cpuRequest', 'cpuLimit', 'memoryLimit', 'runStrategy', 'maxSockets', 'maxMemory'];
-  const hasComplexFields = Object.keys(spec).some(k => !simpleFields.includes(k));
-  
-  if (!hasComplexFields) {
-      const patch: any = { spec: { template: { spec: { domain: {} } } } };
-      const domain = patch.spec.template.spec.domain;
-      
-      const ensureResources = () => {
-          if (!domain.resources) domain.resources = {};
-          if (!domain.resources.requests) domain.resources.requests = {};
-          if (!domain.resources.limits) domain.resources.limits = {};
-      };
-      const ensureCpu = () => {
-          if (!domain.cpu) domain.cpu = {};
-      };
 
-      // 1. Simple CPU
-      // ---------------------------------------------------------
-      // [核心逻辑] CPU 规格变更与热扩容拓扑策略
-      // ---------------------------------------------------------
-      if (spec.cpu !== undefined) {
-          ensureCpu();
 
-          // [状态检测] 判定是否处于“热扩容”模式
-          // 判定逻辑：
-          // 1. 本次请求明确启用了热扩容 (spec.enableHotPlug === true)
-          // 2. 或者，本次请求未明确禁用 (spec.enableHotPlug !== false) 且虚拟机当前已配置了 maxSockets
-          // 注意：maxSockets 是 KubeVirt 判断是否启用 CPU 热插拔的关键标志。
-          const currentCpu = current?.spec?.template?.spec?.domain?.cpu || {};
-          const currentMaxSockets = currentCpu.maxSockets;
-          const isHotPlug = (spec.enableHotPlug === true) || (spec.enableHotPlug !== false && !!currentMaxSockets);
-
-          if (isHotPlug) {
-              if (currentCpu.cores !== 1 || currentCpu.threads !== 1) {
-                  throw new Error('热扩容失败：当前 CPU 拓扑必须为 cores=1, threads=1。请先锁定拓扑（cores=1, threads=1）后再进行 CPU 热扩容。');
-              }
-              // [策略分支 A] 热扩容模式 (Hot Plug Mode)
-              // ---------------------------------------------------------
-              // [强制约束]: 必须将所有 CPU 资源映射到 Sockets 上。
-              // 拓扑公式: Sockets = Total CPU, Cores = 1, Threads = 1
-              //
-              // [关键修正]: 在热扩容模式下，禁止修改 domain.resources (requests/limits)。
-              // KubeVirt 仅通过监控 sockets 的数值变化来触发后端 Pod 的资源热更。
-              // 如果 Patch 包中包含了 resources.requests.cpu 字段，KubeVirt 会认为
-              // 用户试图修改 Pod 的 Template Spec（非热更字段），从而触发 RestartRequired。
-              //
-              // [优化技巧]: 仅当数值发生变化时才包含在 Patch 中，减少冗余。
-              // ---------------------------------------------------------
-              const targetSockets = Number(spec.cpu);
-              if (currentCpu.sockets !== targetSockets) {
-                  domain.cpu.sockets = targetSockets;
-              }
-              
-              // 强制锁定拓扑为 1 Core, 1 Thread
-              // 如果当前已经是 1，则无需在 Patch 中重复声明
-          } else {
-              // [策略分支 B] 标准模式 (Standard Mode)
-              // ---------------------------------------------------------
-              // 允许用户自定义 CPU 拓扑结构 (Sockets/Cores/Threads)。
-              // 这种变更通常需要重启虚拟机生效。
-              // ---------------------------------------------------------
-              
-              // 仅在非热扩容模式下，同步更新 K8s 资源配额
-              ensureResources();
-              domain.resources.requests.cpu = String(spec.cpu);
-              domain.resources.limits.cpu = String(spec.cpu);
-
-              if (spec.cpuSockets && spec.cpuCores && spec.cpuThreads) {
-                   // 如果前端传入了完整拓扑，则直接使用
-                   domain.cpu.sockets = Number(spec.cpuSockets);
-                   domain.cpu.cores = Number(spec.cpuCores);
-                   domain.cpu.threads = Number(spec.cpuThreads);
-              } else {
-                   // [兼容性默认值]
-                   // 如果未指定拓扑，默认采用 1 Socket * N Cores 的传统结构。
-                   domain.cpu.sockets = 1;
-                   domain.cpu.cores = Number(spec.cpu);
-                   domain.cpu.threads = 1;
-              }
-          }
-      }
-
-      // [核心逻辑] 热扩容 (Hot Plug) 配置
-      // ---------------------------------------------------------
-      // 1. CPU 热扩容: 
-      //    - 必须设置 maxSockets 才能启用 CPU 热插拔。
-      //    - KubeVirt 要求在热扩容模式下，Spec.sockets 必须 <= maxSockets。
-      //    - [Strict Validation] 前端必须明确传入 maxSockets，禁止使用默认值。
-      // 2. 内存热扩容:
-      //    - 必须设置 maxGuest (通过 maxMemory 参数) 才能启用内存热插拔。
-      //    - maxGuest 定义了虚拟机最大可扩容到的物理内存上限。
-      //    - [Strict Validation] 前端必须明确传入 maxMemory。
-      // ---------------------------------------------------------
-      if (spec.enableHotPlug !== undefined) {
-          ensureCpu();
-          if (spec.enableHotPlug) {
-              // [Strict Validation]
-              // 必须传入 maxSockets 和 maxMemory 才能启用热扩容
-              if (!spec.maxSockets) {
-                  throw new Error('maxSockets is required when enabling hot plug');
-              }
-              try {
-                  const ratioStr = await getHarvesterSettingValue({ endpoint, token, insecure }, 'max-hotplug-ratio');
-                  const ratioNum = Number(ratioStr);
-                  if (Number.isFinite(ratioNum) && ratioNum > 0) {
-                      const currentCpuObj = current?.spec?.template?.spec?.domain?.cpu || {};
-                      const baseTotalCpu = Number((currentCpuObj.sockets || 1) * (currentCpuObj.cores || 1) * (currentCpuObj.threads || 1));
-                      const maxAllowed = Math.floor(baseTotalCpu * ratioNum);
-                      if (Number(spec.maxSockets) > maxAllowed) {
-                          throw new Error(`启用热扩容失败：目标 maxSockets=${spec.maxSockets} 超出集群设置 max-hotplug-ratio=${ratioNum} 基于当前总CPU=${baseTotalCpu} 的允许上限=${maxAllowed}。请先通过集群 Setting 提升比值或降低目标值。`);
-                      }
-                  }
-              } catch {}
-              
-              // [防止 RestartRequired]: 仅在 maxSockets 确实变更时才修改。
-              const currentMaxSockets = current?.spec?.template?.spec?.domain?.cpu?.maxSockets;
-              if (currentMaxSockets !== Number(spec.maxSockets)) {
-                  domain.cpu.maxSockets = Number(spec.maxSockets);
-              }
-
-              if (!spec.maxMemory) {
-                  throw new Error('maxMemory is required when enabling hot plug');
-              }
-          } else {
-              // 关闭热扩容时，清理相关字段
-              domain.cpu.maxSockets = null;
-          }
-      }
-
-      if (spec.maxMemory) {
-          if (!domain.memory) domain.memory = {};
-          // [防止 RestartRequired]: 仅在 maxGuest 确实变更时才修改。
-          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
-          if (currentMaxGuest !== spec.maxMemory) {
-              domain.memory.maxGuest = spec.maxMemory;
-          }
-      }
-
-      // 2. Simple Memory
-      // ---------------------------------------------------------
-      // [核心逻辑] 内存规格变更与热扩容策略
-      // ---------------------------------------------------------
-      if (spec.memory !== undefined) {
-          // [状态检测] 判定是否处于“内存热扩容”模式
-          // 判定逻辑：
-          // 1. 本次请求包含 maxMemory (正在启用热扩容)
-          // 2. 或者，虚拟机当前已配置了 maxGuest (已启用热扩容)
-          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
-          const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
-
-          if (isMemHotPlug) {
-              // [策略分支 A] 热扩容模式 (Hot Plug Mode)
-              // ---------------------------------------------------------
-              // [强制约束]: 必须通过 domain.memory.guest 字段来调整内存。
-              // 
-              // [关键修正]: 禁止修改 domain.resources.requests/limits。
-              // KubeVirt 的内存热插拔控制器会根据 guest 内存自动调整 Pod 资源。
-              // 如果手动修改 resources，会被视为非热更字段变更，导致 RestartRequired。
-              // ---------------------------------------------------------
-              if (!domain.memory) domain.memory = {};
-              
-              // [优化技巧]: 仅当内存值确实变化时才包含在 Patch 中
-              const currentGuest = current?.spec?.template?.spec?.domain?.memory?.guest;
-              if (currentGuest !== spec.memory) {
-                  domain.memory.guest = spec.memory;
-              }
-          } else {
-              // [策略分支 B] 标准模式 (Standard Mode)
-              // ---------------------------------------------------------
-              // 通过标准的 Kubernetes Resource Requests/Limits 调整内存。
-              // 这种变更通常需要重启虚拟机生效。
-              // ---------------------------------------------------------
-              ensureResources();
-              domain.resources.requests.memory = spec.memory;
-              domain.resources.limits.memory = spec.memory;
-          }
-      }
-
-      // 3. Advanced CPU
-      if (spec.cpuSockets || spec.cpuCores || spec.cpuThreads) {
-          ensureCpu();
-          
-          // [防御性编程] 再次检查热扩容状态
-          const currentCpu = current?.spec?.template?.spec?.domain?.cpu || {};
-          const currentMaxSockets = currentCpu.maxSockets;
-          const isHotPlug = (spec.enableHotPlug === true) || (spec.enableHotPlug !== false && !!currentMaxSockets);
-
-          if (isHotPlug) {
-              // 热扩容模式下，强制锁定 Cores=1, Threads=1，仅允许修改 Sockets
-              if (spec.cpuSockets) {
-                  const targetSockets = Number(spec.cpuSockets);
-                  if (currentCpu.sockets !== targetSockets) {
-                      domain.cpu.sockets = targetSockets;
-                  }
-              }
-              
-              // [防止 RestartRequired]: 仅在 cores/threads 确实不符合热扩容拓扑要求时才修改。
-              // 如果当前已经是 1，则无需在 Patch 中重复声明，避免 KubeVirt 误判为变更。
-              if (currentCpu.cores !== 1) domain.cpu.cores = 1;
-              if (currentCpu.threads !== 1) domain.cpu.threads = 1;
-          } else {
-              if (spec.cpuSockets) domain.cpu.sockets = Number(spec.cpuSockets);
-              if (spec.cpuCores) domain.cpu.cores = Number(spec.cpuCores);
-              if (spec.cpuThreads) domain.cpu.threads = Number(spec.cpuThreads);
-          }
-      }
-      
-      if (spec.dedicatedCPUPlacement !== undefined) {
-          ensureCpu();
-          const currentDedicated = current?.spec?.template?.spec?.domain?.cpu?.dedicatedCpuPlacement;
-          if (spec.dedicatedCPUPlacement) {
-              if (currentDedicated !== true) {
-                  domain.cpu.dedicatedCpuPlacement = true;
-              }
-          } else {
-              if (currentDedicated !== null && currentDedicated !== undefined) {
-                  domain.cpu.dedicatedCpuPlacement = null;
-              }
-          }
-      }
-      
-      // [Hot Plug Fix] 在热扩容模式下，忽略 cpuRequest/cpuLimit 的显式修改
-      // 以避免触发 RestartRequired。
-      const currentMaxSockets = current?.spec?.template?.spec?.domain?.cpu?.maxSockets;
-      const isCpuHotPlug = (spec.enableHotPlug === true) || (spec.enableHotPlug !== false && !!currentMaxSockets);
-
-      if (!isCpuHotPlug) {
-          if (spec.cpuRequest !== undefined) {
-              ensureResources();
-              domain.resources.requests.cpu = String(spec.cpuRequest);
-          }
-          if (spec.cpuLimit !== undefined) {
-              ensureResources();
-              domain.resources.limits.cpu = String(spec.cpuLimit);
-          }
-      }
-
-      // 4. Advanced Memory
-      if (spec.memoryLimit !== undefined) {
-          // [Hot Plug Fix] 内存热扩容模式下，忽略 memoryLimit
-          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
-          const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
-          
-          if (!isMemHotPlug) {
-              ensureResources();
-              domain.resources.limits.memory = spec.memoryLimit;
-          }
-      }
-      
-      // 5. RunStrategy
-      if (spec.runStrategy) {
-          const currentRunStrategy = current?.spec?.runStrategy;
-          if (currentRunStrategy !== spec.runStrategy) {
-              patch.spec.runStrategy = spec.runStrategy;
-          }
-          const currentRunning = current?.spec?.running;
-          const desiredRunning = spec.runStrategy !== 'Halted';
-          if (currentRunning !== desiredRunning) {
-              patch.spec.running = desiredRunning;
-          }
-      }
-
-      const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines/${encodeURIComponent(name)}`;
-      // Use minimal patch
-      return await requestJson('PATCH', url, token, insecure, patch, {
-        'Content-Type': 'application/merge-patch+json',
-      });
-  }
-  
-  // [复杂变更] 全量 Patch 策略
-  // ---------------------------------------------------------
-  // 当涉及复杂字段（如磁盘、网络、CloudInit）时，我们不能简单地 merge-patch。
-  // 必须采用 "Read -> Clone -> Modify -> Patch" 的模式：
-  // 1. 获取当前 VM 完整 Spec。
-  // 2. 深拷贝以避免副作用。
-  // 3. 在副本上应用复杂的业务逻辑（如 CloudInit Secret 生成）。
-  // 4. 发送全量 Spec 更新。
-  // ---------------------------------------------------------
-  const newSpec = current.spec ? JSON.parse(JSON.stringify(current.spec)) : {};
-  
-  // Ensure structure exists
-  if (!newSpec.template) newSpec.template = {};
-  if (!newSpec.template.spec) newSpec.template.spec = {};
-  if (!newSpec.template.spec.domain) newSpec.template.spec.domain = {};
-  const domain = newSpec.template.spec.domain;
-  
-  const ensureResources = () => {
-      if (!domain.resources) domain.resources = {};
-      if (!domain.resources.requests) domain.resources.requests = {};
-      if (!domain.resources.limits) domain.resources.limits = {};
-  };
-  const ensureCpu = () => {
-      if (!domain.cpu) domain.cpu = {};
-  };
-
-  // --- 1. [业务逻辑] CloudInit (UserData / NetworkData) ---
-  // ---------------------------------------------------------
-  // 为了避免 VM Spec 过大，我们不建议将 CloudInit 数据内联在 Spec 中。
-  // 最佳实践：
-  // 1. [提取数据]: 将 userData 和 networkData 从 Spec 中剥离。
-  // 2. [保留旧数据]: 尝试读取旧的 Secret，防止只更新 UserData 时丢失 NetworkData (反之亦然)。
-  // 3. [创建 Secret]: 将合并后的数据封装为新的 K8s Secret。
-  // 4. [引用 Secret]: 在 VM Spec 中通过 cloudInitNoCloud.secretRef 引用该新 Secret。
-  // ---------------------------------------------------------
-  // If the patch spec contains networkData or userData, we need to create/update the CloudInit Secret
-  // and update the VM's volume reference.
-  if (spec.networkData || spec.userData) {
-      const vmName = name;
-      const volumes = newSpec.template.spec.volumes || [];
-      let ciVolIndex = volumes.findIndex((v: any) => v.cloudInitNoCloud);
-      
-      // If no CloudInit volume exists, create one
-      if (ciVolIndex === -1) {
-          ciVolIndex = volumes.length;
-          volumes.push({
-              name: 'cloudinitdisk',
-              cloudInitNoCloud: {}
-          });
-          // Ensure disk exists for this volume
-          if (!domain.devices) domain.devices = {};
-          if (!domain.devices.disks) domain.devices.disks = [];
-          const disks = domain.devices.disks;
-          if (!disks.find((d: any) => d.name === 'cloudinitdisk')) {
-              disks.push({
-                  name: 'cloudinitdisk',
-                  disk: { bus: 'virtio' }
-              });
-          }
-      }
-      
-      const ciVol = volumes[ciVolIndex];
-      // Generate new secret name to ensure update
-      const secretName = `${vmName}-${Math.random().toString(36).substring(2, 7)}-cloudinit`;
-      
-      // Prepare Secret Data
-      const data: any = {};
-      
-      // Inherit existing data if only one field is being updated
-      // We need to fetch the existing secret if we want to preserve the *other* field (e.g. update IP but keep UserData)
-      // For now, let's assume if the user provides one, they might provide both or we might overwrite.
-      // BUT, safely, we should try to read the old secret if it exists.
-      // However, reading secrets might require extra permissions or logic.
-      // Strategy: If the user provides `networkData`, we use it. If `userData` is provided, use it.
-      // If one is missing in the update, we ideally want to keep the old value.
-      // To keep it simple and robust:
-      // 1. If we have a secretRef, try to read the old secret content?
-      //    That's expensive. 
-      //    Alternative: The frontend should send BOTH if it wants to preserve BOTH.
-      //    Frontend `useVmReconfigure` currently doesn't fetch UserData.
-      //    Harvester UI typically re-sends the whole CloudInit config or just updates what changed.
-      //    Let's stick to: "Update what is provided". If `networkData` is provided, we write it.
-      //    If `userData` is NOT provided, we might lose it if we create a NEW secret.
-      //    
-      //    CRITICAL: If we replace the secretRef, we MUST ensure the new secret has all necessary data.
-      //    If we can't read the old secret, we risk data loss (e.g. SSH keys in UserData).
-      //    
-      //    Solution: The frontend should be responsible for providing the FULL CloudInit data if it wants to replace it.
-      //    OR, we implement a "Fetch old secret" logic here.
-      //    Given this is a backend service, we CAN fetch the secret.
-      
-      let oldUserData = '';
-      let oldNetworkData = '';
-      
-      if (ciVol.cloudInitNoCloud?.secretRef?.name) {
-          try {
-              const oldSecretName = ciVol.cloudInitNoCloud.secretRef.name;
-              // Fetch old secret
-               const oldSecret = await requestJson(
-                  'GET', 
-                  `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets/${encodeURIComponent(oldSecretName)}`, 
-                  token, 
-                  insecure
-               );
-               if (oldSecret && oldSecret.data) {
-                   if (oldSecret.data.userdata) oldUserData = Buffer.from(oldSecret.data.userdata, 'base64').toString();
-                   if (oldSecret.data.networkdata) oldNetworkData = Buffer.from(oldSecret.data.networkdata, 'base64').toString();
-               }
-          } catch (e) {
-              console.warn(`[UpdateVM] Failed to fetch old CloudInit secret: ${e}`);
-          }
-      } else if (ciVol.cloudInitNoCloud?.userData) {
-          oldUserData = ciVol.cloudInitNoCloud.userData;
-      } else if (ciVol.cloudInitNoCloud?.networkData) {
-          oldNetworkData = ciVol.cloudInitNoCloud.networkData;
-      }
-
-      // Merge new data
-      const finalUserData = spec.userData !== undefined ? spec.userData : oldUserData;
-      const finalNetworkData = spec.networkData !== undefined ? spec.networkData : oldNetworkData;
-
-      if (finalUserData) data.userdata = Buffer.from(finalUserData).toString('base64');
-      if (finalNetworkData) data.networkdata = Buffer.from(finalNetworkData).toString('base64');
-      
-      const cloudInitSecret = {
-          apiVersion: 'v1',
-          kind: 'Secret',
-          metadata: {
-              name: secretName,
-              namespace,
-              labels: { "harvesterhci.io/cloud-init-template": "harvester" }
-          },
-          type: "Opaque",
-          data
-      };
-      
-      // Create Secret
-      await createHarvesterSecret({ endpoint, token, insecure }, namespace, cloudInitSecret);
-      
-      // Update VM Volume to point to new secret
-      volumes[ciVolIndex] = {
-          name: ciVol.name,
-          cloudInitNoCloud: {
-              secretRef: { name: secretName }
-          }
-      };
-      
-      newSpec.template.spec.volumes = volumes;
-      
-      // Cleanup spec
-      delete spec.networkData;
-      delete spec.userData;
-  }
-
-  // --- 0. [业务逻辑] 重装系统 (Reinstall System Disk) ---
-  // ---------------------------------------------------------
-  // 这是一个破坏性操作，流程非常严谨：
-  // 1. [创建新 PVC]: 根据新的镜像 ID 创建全新的 PVC。
-  // 2. [替换 Volume]: 修改 VM Spec 中的 Volumes 列表，将 rootdisk 指向新 PVC。
-  // 3. [更新注解]: 更新 volumeClaimTemplates，确保 Harvester UI 显示正确的镜像信息。
-  // 4. [清理旧数据]: (可选) 异步删除旧的 PVC。
-  // ---------------------------------------------------------
-  if (spec.action === 'reinstall') {
-      const image = spec.image || spec.imageId;
-      if (!image) throw new Error('Reinstall requires target image');
-
-      console.log(`[Reinstall] Reinstalling VM ${namespace}/${name} with image ${image}`);
-
-      // 1. Identify Root Disk (first disk or bootOrder 1)
-      const disks = domain.devices?.disks || [];
-      const volumes = newSpec.template.spec.volumes || [];
-      let rootDiskName = '';
-      
-      const bootDisk = disks.find((d: any) => d.bootOrder === 1) || disks.find((d: any) => d.name === 'disk-0') || disks[0];
-      if (bootDisk) {
-          rootDiskName = bootDisk.name;
-      }
-
-      if (!rootDiskName) throw new Error('Cannot identify root disk for reinstall');
-
-      // 2. Create NEW PVC
-      const newPvcName = `${name}-disk-0-${Math.random().toString(36).substring(2, 7)}`;
-      console.log(`[Reinstall] Creating new root PVC: ${newPvcName} for VM ${namespace}/${name} using image ${image}`);
-      
-      await createHarvesterPVCVolume({ endpoint, token, insecure }, {
-          namespace,
-          name: newPvcName,
-          size: spec.rootSize || '40Gi',
-          storageClassName: spec.storageClassName,
-          volumeMode: 'Block',
-          annotations: {
-              'harvesterhci.io/imageId': image
-          }
-      });
-
-      // 3. Update VM Spec to point to new PVC
-      const volIndex = volumes.findIndex((v: any) => v.name === rootDiskName);
-      let oldPvcName = '';
-      if (volIndex !== -1) {
-          oldPvcName = volumes[volIndex].persistentVolumeClaim?.claimName;
-          volumes[volIndex] = {
-              name: rootDiskName,
-              persistentVolumeClaim: {
-                  claimName: newPvcName
-              }
-          };
-      } else {
-           throw new Error(`Volume definition for disk ${rootDiskName} not found`);
-      }
-      
-      // Update bus and device type if requested
-      if (spec.bus || spec.rootDeviceType) {
-           const dIndex = disks.findIndex((d: any) => d.name === rootDiskName);
-           if (dIndex !== -1) {
-               const currentBus = disks[dIndex].disk?.bus || disks[dIndex].cdrom?.bus || 'virtio';
-               const newBus = spec.bus || currentBus;
-               
-               // Handle Device Type Switching (disk <-> cdrom)
-               if (spec.rootDeviceType === 'cdrom') {
-                   disks[dIndex].cdrom = { bus: newBus };
-                   delete disks[dIndex].disk;
-               } else if (spec.rootDeviceType === 'disk') {
-                   disks[dIndex].disk = { bus: newBus };
-                   delete disks[dIndex].cdrom;
-               } else {
-                   // Just update bus on existing type
-                   if (disks[dIndex].disk) disks[dIndex].disk.bus = newBus;
-                   if (disks[dIndex].cdrom) disks[dIndex].cdrom.bus = newBus;
-               }
-           }
-      }
-
-      // 4. Update VM Template Annotation (Source of Truth for Image Display)
-      // We MUST update both VM-level metadata (for list display) and Template-level metadata (for consistency)
-      // And importantly, update 'harvesterhci.io/volumeClaimTemplates' to reflect new root disk size/image
-      if (!newSpec.metadata) newSpec.metadata = {};
-      if (!newSpec.metadata.annotations) newSpec.metadata.annotations = {};
-      if (!newSpec.template.metadata) newSpec.template.metadata = {};
-      if (!newSpec.template.metadata.annotations) newSpec.template.metadata.annotations = {};
-      
-      // Update imageId annotations
-      newSpec.metadata.annotations['harvesterhci.io/imageId'] = image;
-      newSpec.template.metadata.annotations['harvesterhci.io/imageId'] = image;
-
-      // Update volumeClaimTemplates to reflect new PVC config (Size, Image, StorageClass)
-      // This is crucial for UI to display correct "Image Size" in list view
-      try {
-        const vctStr = newSpec.metadata.annotations['harvesterhci.io/volumeClaimTemplates'];
-        let vct = [];
-        if (vctStr) {
-           try { vct = JSON.parse(vctStr); } catch {}
-        }
-        
-        // Construct new template for root disk
-        const newRootTemplate = {
-            metadata: {
-                name: newPvcName,
-                annotations: {
-                    "harvesterhci.io/imageId": image
-                }
-            },
-            spec: {
-                accessModes: ["ReadWriteMany"],
-                resources: {
-                    requests: {
-                        storage: spec.rootSize || '40Gi'
-                    }
-                },
-                volumeMode: "Block",
-                storageClassName: spec.storageClassName
-            }
-        };
-
-        if (Array.isArray(vct)) {
-            // Remove old root disk template (identify by old PVC name or simply reset if it's the only one)
-            // Strategy: Filter out the old PVC name if we found it, then append new one
-            if (oldPvcName) {
-                vct = vct.filter((t: any) => t?.metadata?.name !== oldPvcName);
-            }
-            // Also filter out any template that looks like a root disk (has imageId) to be safe? 
-            // No, user might have multiple disks with images. Better stick to PVC name replacement.
-            
-            // Add new template
-            vct.push(newRootTemplate);
-            
-            // Write back to annotation
-            newSpec.metadata.annotations['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify(vct);
-        } else {
-            // Initialize if empty
-            newSpec.metadata.annotations['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify([newRootTemplate]);
-        }
-      } catch (e) {
-        console.warn('Failed to update volumeClaimTemplates annotation during reinstall', e);
-      }
-
-      // 5. Delete Old PVC
-      if (oldPvcName) {
-           // We do NOT delete the old PVC here immediately.
-           // Harvester/Kubevirt might need it during termination or it might be handled by ownerReferences.
-           // However, for "Reinstall" semantics (replace disk), we usually want to clean up.
-           // BUT: If the user wants to keep data, this is dangerous. 
-           // Current logic: We detach it (remove from volumes) and user loses reference to it in VM.
-           // If we want to strictly follow "Reinstall = Wipe System Disk", we should delete it.
-           // Let's keep existing logic: delete it.
-           console.log(`[Reinstall] Scheduling deletion of old root PVC: ${oldPvcName}`);
-           // Fire and forget, or at least don't block main flow if deletion is slow
-           deleteHarvesterPVC({ endpoint, token, insecure }, namespace, oldPvcName)
-               .then(() => console.log(`[Reinstall] Successfully deleted old PVC: ${oldPvcName}`))
-               .catch((err: any) => console.warn(`[Reinstall] Failed to delete old PVC ${oldPvcName}:`, err.message || err));
-      }
-  } 
-  // --- 0.1 [业务逻辑] 扩容系统盘 (Resize Root Disk) ---
-  // ---------------------------------------------------------
-  // 注意：Harvester 不支持直接通过修改 VM Spec 来扩容磁盘。
-  // 必须直接操作底层的 PVC (PersistentVolumeClaim)。
-  // 流程：
-  // 1. [Resize PVC]: 调用 K8s API 修改 PVC.spec.resources.requests.storage。
-  // 2. [Sync Annotation]: 更新 VM 上的 volumeClaimTemplates 注解，
-  //    确保 Harvester UI 的“配置”页签显示的磁盘大小与实际 PVC 一致。
-  // ---------------------------------------------------------
-  else if (spec.rootSize && spec.action !== 'reinstall') {
-      const disks = domain.devices?.disks || [];
-      const volumes = newSpec.template.spec.volumes || [];
-      let rootDiskName = '';
-      
-      // Identify root disk
-      const validDisks = disks.filter((d: any) => d.disk);
-      const bootDisk = validDisks.find((d: any) => d.bootOrder === 1) || validDisks.find((d: any) => d.name === 'disk-0') || validDisks[0];
-      if (bootDisk) {
-          rootDiskName = bootDisk.name;
-      }
-      
-      if (rootDiskName) {
-          const volIndex = volumes.findIndex((v: any) => v.name === rootDiskName);
-          if (volIndex !== -1) {
-              const pvcName = volumes[volIndex].persistentVolumeClaim?.claimName;
-              if (pvcName) {
-                  console.log(`[Resize] Resizing root PVC: ${pvcName} for VM ${namespace}/${name} to ${spec.rootSize}`);
-                  // 1. Resize PVC
-                  await updatePVCSpec(
-                      { endpoint, token, insecure },
-                      namespace,
-                      pvcName,
-                      { size: spec.rootSize }
-                  );
-                  
-                  // 2. Sync VM Annotation (volumeClaimTemplates)
-                  await syncVmVolumeSize(
-                      { endpoint, token, insecure },
-                      namespace,
-                      name,
-                      pvcName,
-                      spec.rootSize
-                  );
-              }
-          }
-      }
-  }
-
-  // --- 1. [基础变更] CPU / 内存调整 ---
-  // ---------------------------------------------------------
-  // 常规的规格变更逻辑：
-  // 1. [CPU]: 同时更新 requests.cpu 和 limits.cpu (如果存在)。
-  //    - 重置拓扑结构：默认 sockets=1, cores=N, threads=1 以简化管理。
-  // 2. [Memory]: 同时更新 requests.memory 和 limits.memory。
-  //    - 确保 guest 内存设置一致。
-  // ---------------------------------------------------------
-  if (spec.cpu !== undefined) {
-      ensureResources();
-      domain.resources.requests.cpu = String(spec.cpu);
-      // Default topology for simple mode to avoid mismatch
-      ensureCpu();
-      domain.cpu.sockets = 1;
-      domain.cpu.cores = Number(spec.cpu);
-      domain.cpu.threads = 1;
-  }
-  
-  // --- 1.1 HotPlug Configuration ---
-  if (spec.enableHotPlug !== undefined) {
-      ensureCpu();
-      if (spec.enableHotPlug) {
-          // [Strict Validation]
-          // Enable HotPlug requires explicit maxSockets and maxMemory
-          if (!spec.maxSockets) {
-              throw new Error('maxSockets is required when enabling hot plug');
-          }
-          domain.cpu.maxSockets = Number(spec.maxSockets);
-
-          if (!spec.maxMemory) {
-              throw new Error('maxMemory is required when enabling hot plug');
-          }
-      } else {
-          // Disable HotPlug
-          delete domain.cpu.maxSockets;
-      }
-  }
-
-  // --- 1.2 Max Memory (HotPlug) ---
-  if (spec.maxMemory) {
-      if (!domain.memory) domain.memory = {};
-      domain.memory.maxGuest = spec.maxMemory;
-  }
-  
-  if (spec.memory !== undefined) {
-      ensureResources();
-      domain.resources.requests.memory = spec.memory;
-      domain.resources.limits.memory = spec.memory;
-  }
-
-  // --- 3. [高级配置] CPU 拓扑与绑定 (Topology & Pinning) ---
-  // ---------------------------------------------------------
-  // 处理 CPU 拓扑结构 (Sockets/Cores/Threads) 和专用 CPU 绑定。
-  // 注意：如果启用了热扩容，这些设置可能会受到限制或调整。
-  // ---------------------------------------------------------
-  if (spec.cpuSockets || spec.cpuCores || spec.cpuThreads) {
-      ensureCpu();
-      if (spec.cpuSockets) domain.cpu.sockets = Number(spec.cpuSockets);
-      if (spec.cpuCores) domain.cpu.cores = Number(spec.cpuCores);
-      if (spec.cpuThreads) domain.cpu.threads = Number(spec.cpuThreads);
-  }
-  
-  // [CPU 绑定] Dedicated CPU Placement
-  if (spec.dedicatedCPUPlacement !== undefined) {
-      ensureCpu();
-      if (spec.dedicatedCPUPlacement) {
-          domain.cpu.dedicatedCpuPlacement = true;
-      } else {
-          delete domain.cpu.dedicatedCpuPlacement;
-      }
-  }
-  
-  // [资源限制] CPU Requests / Limits
-  if (spec.cpuRequest !== undefined) {
-      ensureResources();
-      domain.resources.requests.cpu = String(spec.cpuRequest);
-  }
-  
-  if (spec.cpuLimit !== undefined) {
-      ensureResources();
-      domain.resources.limits.cpu = String(spec.cpuLimit);
-  }
-  
-  // --- 4. [高级配置] 内存限制 (Memory Limits) ---
-  if (spec.memoryLimit !== undefined) {
-      ensureResources();
-      domain.resources.limits.memory = spec.memoryLimit;
-  }
-
-  // --- 5. [硬件设备] GPU 配置 ---
-  // ---------------------------------------------------------
-  // Harvester 支持将物理 GPU 透传给虚拟机。
-  // 目前仅支持单个 GPU 设备的添加或移除。
-  // ---------------------------------------------------------
-  if (spec.gpuResourceName !== undefined) {
-      if (!domain.devices) domain.devices = {};
-      // If resourceName is empty, remove GPU
-      if (!spec.gpuResourceName) {
-          delete domain.devices.gpus;
-      } else {
-          domain.devices.gpus = [
-              {
-                  name: 'gpu-1',
-                  deviceName: spec.gpuResourceName
-              }
-          ];
-      }
-  }
-
-  // --- 6. [网络配置] 多网卡 (Multus Networks) ---
-  // ---------------------------------------------------------
-  // 支持 Multus CNI 多网卡配置。
-  // 直接替换 networks 数组，实现网卡的添加/删除/修改。
-  // ---------------------------------------------------------
-  if (spec.networks !== undefined) {
-      newSpec.template.spec.networks = spec.networks;
-  }
-  if (spec.interfaces !== undefined) {
-      if (!domain.devices) domain.devices = {};
-      domain.devices.interfaces = spec.interfaces;
-  }
-
-  const body = {
-    metadata: newSpec.metadata,
-    spec: newSpec,
-  };
-  const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines/${encodeURIComponent(name)}`;
-  return await requestJson('PATCH', url, token, insecure, body, {
-    'Content-Type': 'application/merge-patch+json',
-  });
-};
 
 /**
  * 获取 Harvester 虚拟机 VNC 访问 URL
@@ -1703,4 +1013,1046 @@ export const syncVmVolumeSize = async (
   } catch (e) {
     console.error(`[SyncVmVolumeSize] Failed to patch VM ${targetVmName}`, e);
   }
+};
+
+// ==================================================================================
+// VM Volume Management (挂载/卸载卷)
+// ==================================================================================
+
+/**
+ * 解析实例标识为命名空间和名称
+ * 
+ * [功能描述]
+ * 将前端传入的多种格式的实例标识统一解析为 { namespace, name } 格式。
+ * 用于卷管理函数中，支持通过实例ID挂载/卸载卷。
+ * 
+ * [支持的格式]
+ * 1. 命名空间/名称格式: "default/vm-01" 或 "default:vm-01"
+ * 2. 实例ID格式: 通过查询 VM 列表，根据 InstanceId 或 InstanceName 反推命名空间和名称
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 实例标识（支持多种格式）
+ * @returns 解析后的命名空间和名称，解析失败返回 null
+ */
+const resolveVmPath = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+): Promise<{ namespace: string; name: string } | null> => {
+  const s = String(instanceId || '');
+  const sep = s.includes('/') ? '/' : s.includes(':') ? ':' : null;
+  if (sep) {
+    const [ns, nm] = s.split(sep);
+    if (ns && nm) return { namespace: ns, name: nm };
+  }
+  const list = await listHarvesterVMsStandard({ endpoint, token, insecure });
+  const hit = list.find((x: any) => x.InstanceId === s || x.InstanceName === s);
+  if (hit && typeof hit.InstanceId === 'string' && hit.InstanceId.includes('/')) {
+    const [ns, nm] = String(hit.InstanceId).split('/');
+    if (ns && nm) return { namespace: ns, name: nm };
+  }
+  return null;
+};
+
+/**
+ * 挂载卷到虚拟机（通过实例ID）
+ * 
+ * [功能描述]
+ * 将 PersistentVolumeClaim (PVC) 挂载到指定的虚拟机，支持通过实例ID解析VM路径。
+ * 
+ * [核心逻辑]
+ * 1. [路径解析]: 支持多种实例标识格式 (ns/name, ns:name, InstanceId)
+ * 2. [PVC 就绪等待]: 新创建的 PVC 可能尚未 Bound，等待其就绪后再挂载（最多等待 90 秒）
+ * 3. [Longhorn 兼容]: 支持从 Longhorn Volume 解析 PVC 名称
+ * 4. [错误恢复]: 自动检测已挂载状态，避免重复挂载错误
+ * 
+ * [API 限制]
+ * **Harvester 的 addVolume API 不支持 bus 参数**，只接受精简格式 { diskName, volumeSourceName }，
+ * 且总线类型会被硬编码为 "scsi"。如果需要其他总线类型（如 virtio），请使用 
+ * harvesterAddVolumeToVMDirect 函数，它会在挂载后通过 PATCH VM spec 自动修改总线类型。
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识（支持 ns/name、ns:name 或 InstanceId）
+ * @param payload 挂载参数
+ *   - name: 磁盘名称（必填）
+ *   - bus: 总线类型（可选，但本函数不支持，会被忽略）
+ *   - pvcNamespace: PVC 命名空间（必填）
+ *   - pvcName: PVC 名称（必填）
+ * @returns API 响应结果
+ */
+export const harvesterAddVolumeToVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+  payload: { name: string; bus?: string; pvcNamespace: string; pvcName: string },
+) => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const waitForPvcBound = async (namespace: string, pvcName: string, timeoutMs = 90_000) => {
+    const base = (endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+    const start = Date.now();
+    let last: any = null;
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`;
+        const j = await getJsonOnce(url, token, insecure, true);
+        last = j;
+        const phase = String(j?.status?.phase || '').toLowerCase();
+        const pvName = String(j?.spec?.volumeName || '').trim();
+        if (phase === 'bound' || pvName) return { pvName: pvName || undefined, phase };
+      } catch (e: any) {
+        last = e;
+      }
+      await sleep(2000);
+    }
+    const phase = String(last?.status?.phase || '').toLowerCase();
+    const pvName = String(last?.spec?.volumeName || '').trim();
+    throw new Error(
+      `等待PVC就绪超时：${namespace}/${pvcName}（phase=${phase || 'unknown'} pv=${pvName || 'n/a'}）`,
+    );
+  };
+
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  let path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) {
+    const guessNs = String(payload.pvcNamespace || '').trim();
+    const guessName = String(instanceId || '').trim();
+    if (guessNs && guessName) {
+      try {
+        const probe = await getJsonOnce(
+          `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(guessNs)}/${encodeURIComponent(guessName)}`,
+          token,
+          insecure,
+          true,
+        );
+        if (probe && (probe?.metadata?.name || probe?.name)) {
+          path = { namespace: guessNs, name: guessName };
+        }
+      } catch {}
+    }
+  }
+  if (!path) throw new Error('无法解析实例标识');
+  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=addVolume`;
+  const isAttached = (vm: any, pvc: string) => {
+    const vols = vm?.spec?.template?.spec?.volumes || [];
+    return vols.some((v: any) => v?.persistentVolumeClaim?.claimName === pvc);
+  };
+  let pvcName = String(payload.pvcName || '').trim();
+  const volName = String(payload.name || '').trim();
+  let pvName: string | undefined = undefined;
+  // [Race Fix] 新创建的 PVC 可能尚未 Bound，直接 addVolume 可能 422/404。
+  // 尝试等待 PVC 就绪，以提高创建后立刻挂载的成功率。
+  if (payload.pvcNamespace && pvcName) {
+    try {
+      const w = await waitForPvcBound(String(payload.pvcNamespace).trim(), pvcName);
+      if (!pvName && w?.pvName) pvName = w.pvName;
+    } catch (e) {
+      // 不阻断后续兼容逻辑（仍会走 longhorn/pvcName 解析与多 body 尝试）
+      console.warn('[Harvester addVolume] wait PVC bound failed (continue)', (e as any)?.message || e);
+    }
+  }
+  if (!pvcName || pvcName.toLowerCase() === volName.toLowerCase()) {
+    const ns = String(payload.pvcNamespace || '').trim();
+    const candidates = [
+      `${origin}/apis/longhorn.io/v1beta1/namespaces/${encodeURIComponent(ns)}/volumes/${encodeURIComponent(volName)}`,
+      `${origin}/v1/harvester/longhorn.io.volumes/${encodeURIComponent(volName)}`,
+      `${origin}/v1/longhorn.io.volumes/${encodeURIComponent(volName)}`,
+    ];
+    for (const p of candidates) {
+      try {
+        const j = await getJsonOnce(p, token, insecure, true);
+        const k = j?.status?.kubernetesStatus?.pvcName || '';
+        const pv = j?.status?.kubernetesStatus?.pvName || '';
+        if (typeof k === 'string' && k.trim()) {
+          pvcName = String(k).trim();
+          pvName = typeof pv === 'string' && pv.trim() ? String(pv).trim() : pvName;
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (!pvcName) throw new Error('该卷缺少 PVC 名称，无法挂载');
+  if (!pvName) {
+    try {
+      const ns = String(payload.pvcNamespace || '').trim();
+      const urls = [
+        `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(ns)}/${encodeURIComponent(pvcName)}`,
+        `${origin}/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`,
+      ];
+      for (const u of urls) {
+        try {
+          const j = await getJsonOnce(u, token, insecure, true);
+          const pv = j?.spec?.volumeName || '';
+          if (typeof pv === 'string' && pv.trim()) {
+            pvName = String(pv).trim();
+            break;
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  // [重要] 根据 Harvester 源码，addVolume API 只接受精简格式 { diskName, volumeSourceName }
+  // AddVolumeInput 结构体只有两个字段（见 types.go:37-40），且 bus 被硬编码为 "scsi"（见 handler.go:1231）
+  // 该 API 不支持 bus 参数，如果用户需要其他总线类型，需要在挂载后通过修改 VM spec 来实现
+  const bodies: any[] = [
+    {
+      diskName: volName,
+      volumeSourceName: pvcName,
+    },
+  ];
+  let lastErr: any = null;
+  for (let i = 0; i < bodies.length; i++) {
+    const body = bodies[i];
+    try {
+      const tag = 'harvester addVolume request';
+      console.info(tag, {
+        url,
+        name: body.name,
+        diskBus: body.disk?.bus,
+        diskName: body.diskName,
+        volumeName: body.volumeName,
+        volumeSourceName: body.volumeSourceName,
+        claimName: body.volumeSource?.persistentVolumeClaim?.claimName,
+        ...(lastErr
+          ? { status: Number(lastErr?.status || 0), error: String(lastErr?.message || '') }
+          : {}),
+      });
+      const res = await requestJson('POST', url, token, insecure, body);
+      return res;
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      const m = String(e?.message || '').toLowerCase();
+
+      // [特殊处理] 422 Unprocessable Entity
+      // 如果错误信息包含 "already" (e.g. "Volume ... is already attached"), 则视为成功
+      if (s === 422 && (m.includes('already') || m.includes('exist'))) {
+          console.info('harvester addVolume 422 ignored (already attached)', { name: body.name, error: m });
+          return { status: 'AlreadyAttached', message: 'Volume is already attached' };
+      }
+
+      // 兜底：少数场景 Harvester 可能返回 5xx/422，但 addVolume 实际已生效；回查 VM，若已挂载则视为成功
+      if (s === 422 || s === 500) {
+        try {
+          const vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+          if (isAttached(vm, pvcName)) {
+            console.info('harvester addVolume recovered (already attached by vm check)', {
+              pvcName,
+              vm: `${path.namespace}/${path.name}`,
+            });
+            return { ok: true, alreadyAttached: true };
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const needContinue =
+        s === 422 ||
+        s === 500 ||
+        m.includes('invalid') ||
+        m.includes('required') ||
+        s === 404 ||
+        m.includes('not found');
+      if (!needContinue) throw e;
+    }
+  }
+  if (lastErr) throw lastErr;
+};
+
+/**
+ * 挂载卷到虚拟机（直接指定命名空间和名称）
+ * 
+ * [功能描述]
+ * 将 PersistentVolumeClaim (PVC) 挂载到指定的虚拟机，直接使用命名空间和名称。
+ * 相比 harvesterAddVolumeToVM，本函数支持总线类型修正功能。
+ * 
+ * [核心逻辑]
+ * 1. [PVC 就绪等待]: 新创建的 PVC 可能尚未 Bound，等待其就绪后再挂载（最多等待 90 秒）
+ * 2. [Longhorn 兼容]: 支持从 Longhorn Volume 解析 PVC 名称
+ * 3. [总线类型修正（重要）]: 
+ *    - **Harvester 的 addVolume API 不支持 bus 参数**，会被硬编码为 "scsi"
+ *    - 如果用户指定了非 SCSI 总线类型（如 virtio），本函数会通过两步操作实现：
+ *      1) 先调用 addVolume API 挂载（此时总线类型为 scsi）
+ *      2) 立即 PATCH VM spec 修改磁盘的总线类型为用户指定的值
+ *    - 注意：修改总线类型可能需要重启 VM 才能生效
+ * 4. [重启要求]: 
+ *    - **重要**：虽然 Harvester 设置了 Hotpluggable=true，但 addVolume 会修改 VM 的 spec.template
+ *    - 修改 spec.template 通常会导致 KubeVirt 设置 RestartRequired condition
+ *    - 因此添加/删除卷操作通常需要重启 VM 才能生效
+ * 5. [错误恢复]: 自动检测已挂载状态，避免重复挂载错误
+ * 
+ * [使用场景]
+ * - 需要指定非 SCSI 总线类型时使用本函数
+ * - 已知 VM 的命名空间和名称时，使用本函数可避免实例ID解析的开销
+ * 
+ * @param params Harvester 连接参数
+ * @param namespace 虚拟机命名空间
+ * @param name 虚拟机名称
+ * @param payload 挂载参数
+ *   - name: 磁盘名称（必填）
+ *   - bus: 总线类型（可选，支持 virtio/scsi/sata/nvme，默认为 virtio）
+ *          注意：Harvester addVolume API 不支持此参数，本函数通过两步操作实现总线类型设置
+ *   - pvcNamespace: PVC 命名空间（必填）
+ *   - pvcName: PVC 名称（必填）
+ * @returns API 响应结果
+ */
+export const harvesterAddVolumeToVMDirect = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+  payload: { name: string; bus?: string; pvcNamespace: string; pvcName: string },
+) => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const waitForPvcBound = async (ns: string, pvc: string, timeoutMs = 90_000) => {
+    const base = (endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+    const start = Date.now();
+    let last: any = null;
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const url = `${origin}/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(pvc)}`;
+        const j = await getJsonOnce(url, token, insecure, true);
+        last = j;
+        const phase = String(j?.status?.phase || '').toLowerCase();
+        const pvName = String(j?.spec?.volumeName || '').trim();
+        if (phase === 'bound' || pvName) return { pvName: pvName || undefined, phase };
+      } catch (e: any) {
+        last = e;
+      }
+      await sleep(2000);
+    }
+    const phase = String(last?.status?.phase || '').toLowerCase();
+    const pvName = String(last?.spec?.volumeName || '').trim();
+    throw new Error(`等待PVC就绪超时：${ns}/${pvc}（phase=${phase || 'unknown'} pv=${pvName || 'n/a'}）`);
+  };
+
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?action=addVolume`;
+  let pvcName = String(payload.pvcName || '').trim();
+  const volName = String(payload.name || '').trim() || String(pvcName || '').trim();
+  if (!volName) throw new Error('参数缺失：磁盘名(name/diskName)');
+  let pvName: string | undefined = undefined;
+
+  // [Race Fix] 新创建 PVC 可能未 Bound，先尽力等待一段时间
+  if (payload.pvcNamespace && pvcName) {
+    try {
+      const w = await waitForPvcBound(String(payload.pvcNamespace).trim(), pvcName);
+      if (!pvName && w?.pvName) pvName = w.pvName;
+    } catch (e) {
+      console.warn('[Harvester addVolume direct] wait PVC bound failed (continue)', (e as any)?.message || e);
+    }
+  }
+  const needResolveFromLonghorn =
+    !pvcName || pvcName.toLowerCase() === volName.toLowerCase() || !/^pvc-/.test(pvcName);
+  if (needResolveFromLonghorn) {
+    try {
+      const candidatesAll = [
+        `${origin}/v1/longhorn.io.volumes`,
+        `${origin}/v1/harvester/longhorn.io.volumes`,
+        `${origin}/apis/longhorn.io/v1beta1/volumes`,
+      ];
+      let listJson: any = null;
+      for (const u of candidatesAll) {
+        try {
+          listJson = await getJsonOnce(u, token, insecure, true);
+          if (listJson) break;
+        } catch {}
+      }
+      const items: any[] = Array.isArray(listJson?.data)
+        ? listJson?.data
+        : Array.isArray(listJson?.items)
+          ? listJson?.items
+          : [];
+      const hit = items.find((it: any) => {
+        const ks = it?.status?.kubernetesStatus || {};
+        const nm = it?.metadata?.name || it?.name || '';
+        const vname = ks?.volumeName || '';
+        return String(vname || '').trim() === volName || String(nm || '').trim() === volName;
+      });
+      if (hit) {
+        const ks = hit?.status?.kubernetesStatus || {};
+        const kPVC = ks?.pvcName || '';
+        const kPV = ks?.pvName || '';
+        if (typeof kPVC === 'string' && kPVC.trim()) pvcName = String(kPVC).trim();
+        if (typeof kPV === 'string' && kPV.trim()) pvName = String(kPV).trim();
+      }
+    } catch {}
+  }
+  if (!pvcName || pvcName.toLowerCase() === volName.toLowerCase()) {
+    const ns = String(payload.pvcNamespace || '').trim();
+    const candidates = [
+      `${origin}/apis/longhorn.io/v1beta1/namespaces/${encodeURIComponent(ns)}/volumes/${encodeURIComponent(volName)}`,
+      `${origin}/v1/harvester/longhorn.io.volumes/${encodeURIComponent(volName)}`,
+      `${origin}/v1/longhorn.io.volumes/${encodeURIComponent(volName)}`,
+    ];
+    for (const p of candidates) {
+      try {
+        const j = await getJsonOnce(p, token, insecure);
+        const k = j?.status?.kubernetesStatus?.pvcName || '';
+        const pv = j?.status?.kubernetesStatus?.pvName || '';
+        if (typeof k === 'string' && k.trim()) {
+          pvcName = String(k).trim();
+          pvName = typeof pv === 'string' && pv.trim() ? String(pv).trim() : pvName;
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (!pvcName) throw new Error('该卷缺少 PVC 名称，无法挂载');
+  const isAttached = (vm: any, pvc: string) => {
+    const vols = vm?.spec?.template?.spec?.volumes || [];
+    return vols.some((v: any) => v?.persistentVolumeClaim?.claimName === pvc);
+  };
+  if (!pvName) {
+    try {
+      const ns = String(payload.pvcNamespace || '').trim();
+      const urls = [
+        `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(ns)}/${encodeURIComponent(pvcName)}`,
+        `${origin}/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`,
+      ];
+      for (const u of urls) {
+        try {
+          const j = await getJsonOnce(u, token, insecure, true);
+          const pv = j?.spec?.volumeName || '';
+          if (typeof pv === 'string' && pv.trim()) {
+            pvName = String(pv).trim();
+            break;
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  // [重要] 根据 Harvester 源码，addVolume API 只接受精简格式 { diskName, volumeSourceName }
+  // AddVolumeInput 结构体只有两个字段（见 types.go:37-40），且 bus 被硬编码为 "scsi"（见 handler.go:1231）
+  // 该 API 不支持 bus 参数，如果用户需要其他总线类型，需要在挂载后通过修改 VM spec 来实现
+  // [总线类型修正函数] 提取为独立函数，确保在所有成功路径都能执行
+  // 添加重试机制，因为 addVolume 后磁盘可能需要一些时间才能出现在 VM spec 中
+  const updateDiskBusType = async (tag: string, vmCache?: any) => {
+    const requestedBus = payload.bus || 'virtio';
+    if (!requestedBus || requestedBus === 'scsi') {
+      return; // 不需要修正
+    }
+    
+    // 等待并重试，确保磁盘已经添加到 VM spec 中
+    const maxRetries = 5;
+    const retryDelay = 1000; // 1秒
+    
+    for (let retry = 0; retry < maxRetries; retry++) {
+      try {
+        console.info(`${tag} UPDATING BUS TO ${requestedBus} (attempt ${retry + 1}/${maxRetries})`, {
+          diskName: volName,
+          requestedBus,
+          vm: `${namespace}/${name}`,
+        });
+        
+        // 获取当前 VM spec（如果提供了缓存且是第一次尝试则使用缓存，否则重新获取）
+        let vm = (retry === 0 && vmCache) ? vmCache : null;
+        if (!vm) {
+          vm = await getHarvesterVM({ endpoint, token, insecure }, namespace, name);
+        }
+        if (!vm) throw new Error('无法获取 VM 信息');
+        
+        // 查找对应的磁盘并修改 bus
+        const disks = vm?.spec?.template?.spec?.domain?.devices?.disks || [];
+        const diskIndex = disks.findIndex((d: any) => d.name === volName);
+        
+        if (diskIndex === -1) {
+          if (retry < maxRetries - 1) {
+            console.info(`${tag} DISK NOT FOUND YET, RETRYING...`, {
+              diskName: volName,
+              attempt: retry + 1,
+              totalDisks: disks.length,
+              diskNames: disks.map((d: any) => d.name),
+            });
+            await sleep(retryDelay);
+            continue;
+          }
+          throw new Error(`未找到磁盘 ${volName}（已重试 ${maxRetries} 次）`);
+        }
+        
+        // 检查当前总线类型，如果已经是目标类型则跳过
+        const currentBus = disks[diskIndex]?.disk?.bus;
+        if (currentBus === requestedBus) {
+          console.info(`${tag} BUS ALREADY SET TO ${requestedBus}`, {
+            diskName: volName,
+            requestedBus,
+            vm: `${namespace}/${name}`,
+          });
+          return;
+        }
+        
+        // 构造 merge-patch 请求，只修改对应磁盘的 bus
+        // 使用 JSON Merge Patch 格式，只发送需要修改的部分
+        const patchPayload = {
+          spec: {
+            template: {
+              spec: {
+                domain: {
+                  devices: {
+                    disks: [
+                      ...disks.slice(0, diskIndex),
+                      {
+                        ...disks[diskIndex],
+                        disk: {
+                          ...(disks[diskIndex].disk || {}),
+                          bus: requestedBus,
+                        },
+                      },
+                      ...disks.slice(diskIndex + 1),
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        };
+        
+        // 使用正确的 KubeVirt API 路径和 Content-Type
+        const vmUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines/${encodeURIComponent(name)}`;
+        await requestJson('PATCH', vmUrl, token, insecure, patchPayload, {
+          'Content-Type': 'application/merge-patch+json',
+        });
+        
+        console.info(`${tag} BUS UPDATED SUCCESSFULLY`, {
+          diskName: volName,
+          requestedBus,
+          previousBus: currentBus,
+          vm: `${namespace}/${name}`,
+          note: '修改 bus 可能需要重启生效',
+        });
+        
+        // 成功，退出重试循环
+        return;
+      } catch (busErr: any) {
+        // 如果是最后一次重试，抛出错误
+        if (retry === maxRetries - 1) {
+          console.warn(`${tag} BUS UPDATE FAILED AFTER ${maxRetries} ATTEMPTS (disk mounted with scsi)`, {
+            diskName: volName,
+            requestedBus: payload.bus || 'virtio',
+            error: busErr?.message || busErr,
+            errorStatus: busErr?.status,
+            vm: `${namespace}/${name}`,
+          });
+          // 不抛出错误，让挂载操作继续
+          return;
+        }
+        
+        // 如果是 409 Conflict，等待后重试
+        if (busErr?.status === 409) {
+          console.info(`${tag} BUS UPDATE 409 CONFLICT, RETRYING...`, {
+            diskName: volName,
+            attempt: retry + 1,
+          });
+          await sleep(retryDelay);
+          continue;
+        }
+        
+        // 其他错误，等待后重试
+        console.warn(`${tag} BUS UPDATE ERROR, RETRYING...`, {
+          diskName: volName,
+          attempt: retry + 1,
+          error: busErr?.message || busErr,
+        });
+        await sleep(retryDelay);
+      }
+    }
+  };
+
+  const bodies: any[] = [
+    {
+      diskName: volName,
+      volumeSourceName: pvcName,
+    },
+  ];
+
+  let lastErr: any = null;
+  for (let i = 0; i < bodies.length; i++) {
+    const body = bodies[i];
+    try {
+      const tag = 'harvester addVolume direct request';
+      console.info(tag, {
+        url,
+        name: body.name,
+        diskBus: body.disk?.bus,
+        diskName: body.diskName,
+        volumeName: body.volumeName,
+        volumeSourceName: body.volumeSourceName,
+        claimName: body.volumeSource?.persistentVolumeClaim?.claimName,
+        ...(lastErr
+          ? { status: Number(lastErr?.status || 0), error: String(lastErr?.message || '') }
+          : {}),
+      });
+      const res = await requestJson('POST', url, token, insecure, body);
+      console.info(`${tag} SUCCESS`, {
+        url,
+        response: res,
+        pvcName,
+        vm: `${namespace}/${name}`,
+      });
+      
+      // [总线类型修正] 如果用户指定了 bus 且不是 scsi，需要在挂载后修改 VM spec
+      // 注意：Harvester 的 addVolume API 会强制使用 scsi，所以需要额外修改
+      // 等待一小段时间，确保磁盘已经添加到 VM spec 中
+      if (payload.bus && payload.bus !== 'scsi') {
+        await sleep(500); // 等待 500ms，让 Harvester/KubeVirt 完成磁盘添加
+        await updateDiskBusType(tag);
+      }
+      
+      return res;
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      const m = String(e?.message || '').toLowerCase();
+      
+      const tag =
+        i === 0
+          ? 'harvester addVolume direct request'
+          : i === 1
+            ? 'harvester addVolume direct retry'
+            : 'harvester addVolume direct fallback';
+      console.info(`${tag} FAILED`, {
+        url,
+        status: s,
+        error: m,
+        errorDetails: e?.body || e?.message,
+        pvcName,
+        vm: `${namespace}/${name}`,
+      });
+
+      // 兜底：少数场景 Harvester 可能返回 5xx/422，但 addVolume 实际已生效；回查 VM，若已挂载则视为成功
+      if (s === 422 || s === 500) {
+        try {
+          console.info(`${tag} CHECKING VM STATUS (422/500 fallback)`, {
+            url,
+            pvcName,
+            vm: `${namespace}/${name}`,
+            willCheckVM: true,
+          });
+          const vm = await getHarvesterVM({ endpoint, token, insecure }, namespace, name);
+          const attached = isAttached(vm, pvcName);
+          console.info(`${tag} VM STATUS CHECK RESULT`, {
+            url,
+            pvcName,
+            vm: `${namespace}/${name}`,
+            isAttached: attached,
+            volumes: (vm?.spec?.template?.spec?.volumes || []).map((v: any) => ({
+              name: v.name,
+              claimName: v?.persistentVolumeClaim?.claimName,
+            })),
+          });
+          if (attached) {
+            console.info(`${tag} RECOVERED (already attached by vm check)`, {
+              url,
+              pvcName,
+              vm: `${namespace}/${name}`,
+              attemptIndex: i,
+              finalStatus: 'SUCCESS',
+            });
+            // [重要] 即使是通过恢复路径成功，也需要执行总线类型修正
+            // 传递已获取的 VM 对象，避免重复请求和 resourceVersion 不一致
+            // 如果用户指定了 bus 且不是 scsi，需要修正总线类型
+            if (payload.bus && payload.bus !== 'scsi') {
+              await sleep(500); // 等待 500ms，确保磁盘已经完全添加
+              await updateDiskBusType(tag, vm);
+            }
+            return { ok: true, alreadyAttached: true };
+          } else {
+            console.info(`${tag} VM CHECK FAILED (not attached yet)`, {
+              url,
+              pvcName,
+              vm: `${namespace}/${name}`,
+              attemptIndex: i,
+              willContinue: true,
+            });
+          }
+        } catch (checkErr: any) {
+          console.warn(`${tag} VM STATUS CHECK ERROR`, {
+            url,
+            pvcName,
+            vm: `${namespace}/${name}`,
+            checkError: checkErr?.message || checkErr,
+            willContinue: true,
+          });
+          // ignore
+        }
+      }
+
+      const needContinue =
+        s === 422 ||
+        s === 500 ||
+        m.includes('invalid') ||
+        m.includes('required') ||
+        s === 404 ||
+        m.includes('not found');
+      if (!needContinue) throw e;
+    }
+  }
+  if (lastErr) throw lastErr;
+};
+
+/**
+ * 从虚拟机卸载卷
+ * 
+ * [功能描述]
+ * 从指定的虚拟机卸载已挂载的卷，优先使用 Harvester 的 removeVolume action API，失败时回退到直接修改 VM spec。
+ * 
+ * [实现原理]
+ * 1. [优先路径]: 调用 Harvester API: POST /v1/harvester/kubevirt.io.virtualmachines/{ns}/{name}?action=removeVolume
+ *    请求体包含磁盘名称（name、volumeName、diskName 三个字段都设置为磁盘名称，确保兼容性）。
+ * 2. [回退路径]: 如果 removeVolume API 失败且错误提示 "not hotpluggable"，则直接修改 VM spec：
+ *    - 从 spec.template.spec.domain.devices.disks 中移除对应的磁盘
+ *    - 从 spec.template.spec.volumes 中移除对应的卷
+ *    - 更新 volumeClaimTemplates annotation（如果有）
+ *    - 使用 PATCH 请求更新 VM spec
+ * 
+ * [并发控制]
+ * 实现重试机制处理 Kubernetes 409 Conflict 错误。
+ * 当资源在获取和更新之间被其他操作修改时，Kubernetes 会返回 409。
+ * 此时会等待一小段时间后重试，最多重试 3 次。
+ * 
+ * [热插拔说明]
+ * - **Harvester 的 addVolume/removeVolume 都是修改 spec.template.spec.volumes**
+ * - 即使设置了 Hotpluggable: true，修改 spec.template 通常也需要重启 VM 才能生效
+ * - 某些卷（如创建 VM 时添加的卷）可能没有 Hotpluggable: true 标记，无法通过 removeVolume API 删除
+ * - 本函数通过回退到直接修改 VM spec 的方式，可以处理所有类型的卷
+ * 
+ * [注意事项]
+ * - 卸载卷后，VM 将无法访问该卷的数据
+ * - 卷本身不会被删除，只是从 VM 中移除
+ * - **重启要求**：修改 spec.template 通常会导致 KubeVirt 设置 RestartRequired condition
+ * - 因此删除卷操作通常需要重启 VM 才能生效
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识（支持 ns/name、ns:name 或 InstanceId）
+ * @param payload 卸载参数
+ *   - name: 磁盘名称（必填）
+ * @param maxRetries 最大重试次数，默认为 3
+ * @returns API 响应结果
+ */
+export const harvesterRemoveVolumeFromVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+  payload: { name: string },
+  maxRetries: number = 5, // 增加重试次数，处理添加磁盘后立即解绑的场景
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=removeVolume`;
+  // Harvester/KubeVirt requires volumeName (or diskName) in the body
+  const body = { name: payload.name, volumeName: payload.name, diskName: payload.name };
+  
+  // [并发控制] 实现重试机制，处理 Kubernetes 409 Conflict 错误
+  let retryCount = 0;
+  while (retryCount < maxRetries) {
+    try {
+      return await requestJson('POST', url, token, insecure, body);
+    } catch (error: any) {
+      // [409 Conflict] 资源版本冲突，需要重试
+      // 但 409 也可能意味着操作已经成功（资源版本冲突但操作已完成）
+      if (error?.status === 409) {
+        // 先检查磁盘是否已经被删除（操作可能已经成功）
+        try {
+          const checkVm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+          if (checkVm) {
+            const checkDisks = checkVm?.spec?.template?.spec?.domain?.devices?.disks || [];
+            const diskStillExists = checkDisks.some((d: any) => d.name === payload.name);
+            if (!diskStillExists) {
+              // 磁盘已经被删除，操作实际上已经成功
+              console.info(`[Harvester removeVolume] 检测到 409 Conflict，但磁盘已不存在，操作已成功`, {
+                vm: `${path.namespace}/${path.name}`,
+                diskName: payload.name,
+              });
+              return { ok: true, alreadyRemoved: true };
+            }
+          }
+        } catch (checkErr: any) {
+          // 检查失败，继续重试流程
+          console.warn(`[Harvester removeVolume] 检查磁盘状态失败`, checkErr);
+        }
+        
+        retryCount++;
+        if (retryCount >= maxRetries) {
+          throw {
+            status: 409,
+            message: `操作无法完成：虚拟机 "${path.name}" 对象有更新；请更新到最新的版本后重试`,
+            body: error.body || error.message,
+          };
+        }
+        
+        console.info(`[Harvester removeVolume] 检测到 409 Conflict，重试 ${retryCount}/${maxRetries}...`, {
+          vm: `${path.namespace}/${path.name}`,
+          diskName: payload.name,
+        });
+        
+        // 等待一小段时间，避免立即重试（递增延迟，确保添加磁盘操作完全完成）
+        const delay = Math.min(500 * retryCount, 2000); // 最多等待 2 秒，延迟递增
+        console.info(`[Harvester removeVolume] 等待 ${delay}ms 后重试...`, {
+          vm: `${path.namespace}/${path.name}`,
+          diskName: payload.name,
+          retryCount,
+        });
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // [回退逻辑] 如果错误提示卷不是可热插拔的，回退到直接修改 VM spec
+      // 错误信息可能在 error.message、error.body（字符串）或 error.body.message 中
+      // 需要检查所有可能的错误信息位置
+      let errorMsg = '';
+      if (error?.message) {
+        errorMsg = String(error.message);
+      } else if (typeof error?.body === 'string') {
+        errorMsg = error.body;
+      } else if (error?.body?.message) {
+        errorMsg = String(error.body.message);
+      } else if (typeof error?.body === 'object') {
+        // 尝试从对象中提取错误信息
+        errorMsg = JSON.stringify(error.body);
+        // 如果 body 中有 error 字段，也检查
+        if (error.body.error) {
+          errorMsg += ' ' + String(error.body.error);
+        }
+      }
+      
+      // 将所有错误信息合并成一个字符串进行检查
+      const allErrorText = [
+        errorMsg,
+        error?.status ? `status: ${error.status}` : '',
+        JSON.stringify(error || {}),
+      ].filter(Boolean).join(' ').toLowerCase();
+      
+      // 检查错误信息中是否包含 "not hotpluggable" 相关提示
+      const isNotHotpluggable = 
+        allErrorText.includes('not hotpluggable') || 
+        allErrorText.includes('not hot-pluggable') ||
+        allErrorText.includes('unable to remove volume') ||
+        allErrorText.includes('because it is not hotpluggable');
+      
+      // 记录错误详情（用于调试）
+      console.info(`[Harvester removeVolume] 捕获错误`, {
+        vm: `${path.namespace}/${path.name}`,
+        diskName: payload.name,
+        status: error?.status,
+        errorMsg: errorMsg.substring(0, 300),
+        allErrorText: allErrorText.substring(0, 300),
+        isNotHotpluggable,
+        errorKeys: Object.keys(error || {}),
+        errorBodyType: typeof error?.body,
+      });
+      
+      if (isNotHotpluggable) {
+        console.info(`[Harvester removeVolume] 卷不是可热插拔的，回退到直接修改 VM spec`, {
+          vm: `${path.namespace}/${path.name}`,
+          diskName: payload.name,
+        });
+        
+        // 回退到直接修改 VM spec
+        return await removeVolumeByPatchingSpec(
+          { endpoint, token, insecure },
+          path.namespace,
+          path.name,
+          payload.name,
+          maxRetries
+        );
+      }
+      
+      // 其他错误直接抛出
+      throw error;
+    }
+  }
+  
+  throw new Error('卸载卷失败：达到最大重试次数');
+};
+
+/**
+ * 通过直接修改 VM spec 删除卷（回退方案）
+ * 
+ * [功能描述]
+ * 当 removeVolume API 失败时，直接修改 VM spec 删除卷和磁盘。
+ * 参考 Harvester 源码 handler.go:removeVolume 的实现。
+ * 
+ * @param params Harvester 连接参数
+ * @param namespace VM 命名空间
+ * @param name VM 名称
+ * @param diskName 磁盘名称
+ * @param maxRetries 最大重试次数
+ */
+const removeVolumeByPatchingSpec = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+  diskName: string,
+  maxRetries: number = 5, // 增加重试次数，处理添加磁盘后立即解绑的场景
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  let retryCount = 0;
+  while (retryCount < maxRetries) {
+    try {
+      // 获取当前 VM spec
+      const vm = await getHarvesterVM({ endpoint, token, insecure }, namespace, name);
+      if (!vm) throw new Error(`无法获取虚拟机 ${namespace}/${name}`);
+      
+      // 查找要删除的磁盘和卷
+      const oldDisks = vm?.spec?.template?.spec?.domain?.devices?.disks || [];
+      const oldVolumes = vm?.spec?.template?.spec?.volumes || [];
+      
+      // 检查磁盘是否存在
+      // 如果磁盘已经不存在，说明操作已经成功（可能是之前的重试已经成功）
+      const diskExists = oldDisks.some((d: any) => d.name === diskName);
+      if (!diskExists) {
+        console.info(`[Harvester removeVolume] 磁盘 "${diskName}" 已不存在，操作已成功`, {
+          vm: `${namespace}/${name}`,
+          diskName,
+        });
+        return { ok: true, alreadyRemoved: true };
+      }
+      
+      // 构建新的 disks 和 volumes 列表（排除要删除的磁盘）
+      const newDisks = oldDisks.filter((d: any) => d.name !== diskName);
+      const newVolumes = oldVolumes.filter((v: any) => v.name !== diskName);
+      
+      // 查找要删除的卷的 PVC 名称（用于更新 annotation）
+      const volumeToRemove = oldVolumes.find((v: any) => v.name === diskName);
+      const toRemoveClaimNames: string[] = [];
+      if (volumeToRemove?.persistentVolumeClaim?.claimName) {
+        toRemoveClaimNames.push(volumeToRemove.persistentVolumeClaim.claimName);
+      }
+      
+      // 使用 PATCH + merge-patch，只更新需要删除的磁盘和卷
+      // 这样不会影响其他数据盘的挂载状态
+      // 构建 PATCH payload，只包含需要修改的字段
+      const patchPayload = {
+        spec: {
+          template: {
+            spec: {
+              domain: {
+                devices: {
+                  disks: newDisks, // 只更新 disks 数组，移除要删除的磁盘
+                },
+              },
+              volumes: newVolumes, // 只更新 volumes 数组，移除要删除的卷
+            },
+          },
+        },
+      };
+      
+      // 如果有 volumeClaimTemplates annotation，需要更新它
+      // 注意：这里简化处理，实际 Harvester 的 removeVolumeClaimTemplatesFromVMAnnotation 逻辑更复杂
+      // 如果遇到问题，可能需要实现完整的 annotation 更新逻辑
+      
+      // 执行 PATCH 请求（使用 merge-patch，只更新指定字段，不影响其他数据盘）
+      const vmUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines/${encodeURIComponent(name)}`;
+      const result = await requestJson('PATCH', vmUrl, token, insecure, patchPayload, {
+        'Content-Type': 'application/merge-patch+json',
+      });
+      
+      console.info(`[Harvester removeVolume] 通过修改 VM spec 成功删除卷`, {
+        vm: `${namespace}/${name}`,
+        diskName,
+        note: '设置已保存，需要重启 VM 才能生效',
+      });
+      
+      return result;
+    } catch (error: any) {
+      // [409 Conflict] 资源版本冲突，需要重试
+      if (error?.status === 409) {
+        retryCount++;
+        
+        console.info(`[Harvester removeVolume] 检测到 409 Conflict，重试 ${retryCount}/${maxRetries}...`, {
+          vm: `${namespace}/${name}`,
+          diskName,
+          errorMsg: error?.message || error?.body,
+        });
+        
+        if (retryCount >= maxRetries) {
+          // 达到最大重试次数，先检查磁盘是否已经被删除（可能操作已经成功）
+          try {
+            const checkVm = await getHarvesterVM({ endpoint, token, insecure }, namespace, name);
+            if (checkVm) {
+              const checkDisks = checkVm?.spec?.template?.spec?.domain?.devices?.disks || [];
+              const diskStillExists = checkDisks.some((d: any) => d.name === diskName);
+              if (!diskStillExists) {
+                // 磁盘已经被删除，操作实际上已经成功
+                console.info(`[Harvester removeVolume] 达到最大重试次数，但磁盘已不存在，操作已成功`, {
+                  vm: `${namespace}/${name}`,
+                  diskName,
+                });
+                return { ok: true, alreadyRemoved: true };
+              }
+            }
+          } catch (checkErr: any) {
+            // 检查失败，继续抛出原始错误
+            console.warn(`[Harvester removeVolume] 检查磁盘状态失败`, checkErr);
+          }
+          
+          // 提取错误信息
+          const errorMsg = error?.body?.message || error?.body || error?.message || '';
+          const errorStr = typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg);
+          
+          throw {
+            status: 409,
+            message: `操作无法完成：虚拟机 "${name}" 对象有更新；请更新到最新的版本后重试`,
+            body: errorStr,
+          };
+        }
+        
+        // 等待一小段时间，避免立即重试（递增延迟，避免频繁重试）
+        // 增加延迟时间，确保添加磁盘操作完全完成后再重试
+        const delay = Math.min(500 * (retryCount + 1), 3000); // 最多等待 3 秒，延迟递增
+        console.info(`[Harvester removeVolume] 等待 ${delay}ms 后重试...`, {
+          vm: `${namespace}/${name}`,
+          diskName,
+          retryCount,
+        });
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // 其他错误直接抛出
+      throw error;
+    }
+  }
+  
+  throw new Error('卸载卷失败：达到最大重试次数');
 };

@@ -14,13 +14,14 @@ import {
   syncHarvesterNads,
   syncKubeOvnVpcs,
   syncKubeOvnSubnets,
+  syncKubeOvnProviderNetworks,
+  syncKubeOvnVlans,
   syncHarvesterGpus,
   syncHarvesterNamespaces,
   syncHarvesterSnapshots,
   syncHarvesterBackups,
   syncHarvesterSshKeys,
   syncHarvesterCloudInits,
-  syncHarvesterIngresses,
   syncHarvesterLoadBalancerIPPools,
   syncHarvesterPciDevices,
   syncHarvesterCapabilities,
@@ -31,6 +32,15 @@ import {
   syncHarvesterTemplates,
   syncHarvesterScheduleVmBackups,
 } from './clouds/harvester/inventory';
+import { logger } from '../utils/logger';
+
+const cloudSyncLog = logger.child('Cloud-Sync');
+
+function summarizeSyncError(err: unknown): string {
+  if (err == null) return '';
+  const e = err as any;
+  return e?.message || String(err);
+}
 
 /**
  * 云资源同步服务（后台任务）
@@ -77,7 +87,7 @@ export class CloudSyncService {
    * - 内部使用 isRunning 标记，避免上一次同步未结束时再次进入
    */
   public startSyncJob(intervalMs: number = 300000) {
-    console.log('[CloudSync] Starting background sync job...');
+    cloudSyncLog.info('Starting background sync job...');
     this.syncAllClouds(); // 立即运行一次
     setInterval(() => {
       this.syncAllClouds();
@@ -95,12 +105,12 @@ export class CloudSyncService {
    */
   public async syncAllClouds() {
     if (this.isRunning) {
-      console.log('[CloudSync] 同步正在进行中，跳过...');
+      cloudSyncLog.info('同步正在进行中，跳过...');
       return;
     }
 
     this.isRunning = true;
-    console.log('[CloudSync] 开始云同步...');
+    cloudSyncLog.info('开始云同步...');
 
     try {
       const cloudRepo = AppDataSource.getRepository(Cloud);
@@ -112,15 +122,15 @@ export class CloudSyncService {
         try {
           await this.syncSingleCloud(cloud);
         } catch (err) {
-          console.error(`[CloudSync] 同步云 ${cloud.name} (${cloud.id}) 时出错:`, err);
+          cloudSyncLog.error(`同步云 ${cloud.name} (${cloud.id}) 时出错:`, summarizeSyncError(err));
         }
       }
       
     } catch (err) {
-      console.error('[CloudSync] 同步任务发生严重错误:', err);
+      cloudSyncLog.error('同步任务发生严重错误:', summarizeSyncError(err));
     } finally {
       this.isRunning = false;
-      console.log('[CloudSync] 同步完成。');
+      cloudSyncLog.info('同步完成。');
     }
   }
 
@@ -215,13 +225,14 @@ export class CloudSyncService {
       await syncHarvesterNads(cloud, insecure);
       await syncKubeOvnVpcs(cloud, insecure);
       await syncKubeOvnSubnets(cloud, insecure);
+      await syncKubeOvnProviderNetworks(cloud, insecure);
+      await syncKubeOvnVlans(cloud, insecure);
       await syncHarvesterGpus(cloud, insecure);
       await syncHarvesterNamespaces(cloud, insecure);
       await syncHarvesterSnapshots(cloud, insecure);
       await syncHarvesterBackups(cloud, insecure);
       await syncHarvesterSshKeys(cloud, insecure);
       await syncHarvesterCloudInits(cloud, insecure);
-      await syncHarvesterIngresses(cloud, insecure);
       await syncHarvesterPciDevices(cloud, insecure);
       await syncHarvesterServices(cloud, insecure);
       await syncKubeOvnEips(cloud, insecure);

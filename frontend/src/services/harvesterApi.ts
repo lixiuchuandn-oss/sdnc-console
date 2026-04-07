@@ -18,7 +18,10 @@ export const createHarvesterVpc = async (cloudId: string, payload: any) => {
  * @returns Promise<any>
  */
 export const fetchHarvesterVMAggregated = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/aggregated`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/aggregated`,
+    { skipCache: true }
+  );
 };
 
 /**
@@ -39,7 +42,16 @@ export const deleteHarvesterVpc = async (cloudId: string, name: string) => {
  * @returns Promise<any>
  */
 export const updateHarvesterVpc = async (cloudId: string, name: string, payload: any) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(name)}`, payload);
+  const path = `/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(name)}`;
+  try {
+    return await apiPatch(path, payload);
+  } catch (e: any) {
+    const msg = String(e?.message ?? '');
+    if (msg.includes('Cannot PATCH') || e?.status === 404 || e?.response?.status === 404) {
+      return await apiPut(path, payload);
+    }
+    throw e;
+  }
 };
 
 /**
@@ -48,8 +60,15 @@ export const updateHarvesterVpc = async (cloudId: string, name: string, payload:
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterSnapshots = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/snapshots${force ? '?force=true' : ''}`);
+export const fetchHarvesterSnapshots = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/snapshots${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
 };
 
 
@@ -79,10 +98,17 @@ export const deleteHarvesterPVC = async (cloudId: string, namespace: string, nam
  * 获取 Harvester 计划虚拟机备份列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterScheduleVmBackups = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${force ? '?force=true' : ''}`);
+export const fetchHarvesterScheduleVmBackups = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  const url = `/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`;
+  // force=true 时，显式传递 skipCache=true 确保跳过前端缓存和去重
+  return await apiRequest(url, { skipCache: force });
 };
 
 /**
@@ -124,8 +150,15 @@ export const updateHarvesterScheduleVmBackup = async (cloudId: string, namespace
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterBackups = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/backups${force ? '?force=true' : ''}`);
+export const fetchHarvesterBackups = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/backups${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
 };
 
 /**
@@ -136,6 +169,31 @@ export const fetchHarvesterBackups = async (cloudId: string, force = false) => {
  */
 export const fetchHarvesterMigrations = async (cloudId: string, force = false) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/migrations${force ? '?force=true' : ''}`);
+};
+
+/**
+ * 查询回收站自动关机记录
+ * @param params 查询参数
+ * @returns Promise<any>
+ */
+export const getRecycleBinShutdownRecords = async (params?: {
+  cloudId?: string;
+  status?: string;
+  startTime?: string;
+  endTime?: string;
+  page?: number;
+  pageSize?: number;
+}) => {
+  const queryParams = new URLSearchParams();
+  if (params?.cloudId) queryParams.append('cloudId', params.cloudId);
+  if (params?.status) queryParams.append('status', params.status);
+  if (params?.startTime) queryParams.append('startTime', params.startTime);
+  if (params?.endTime) queryParams.append('endTime', params.endTime);
+  if (params?.page) queryParams.append('page', String(params.page));
+  if (params?.pageSize) queryParams.append('pageSize', String(params.pageSize));
+  
+  const queryString = queryParams.toString();
+  return await apiRequest(`/api/system/recycle-bin/shutdown-records${queryString ? `?${queryString}` : ''}`);
 };
  
 /**
@@ -175,8 +233,12 @@ export const abortHarvesterMigration = async (cloudId: string, instanceId: strin
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterSshKeys = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/sshkeys${force ? '?force=true' : ''}`);
+export const fetchHarvesterSshKeys = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/sshkeys${queryString ? `?${queryString}` : ''}`);
 };
 
 
@@ -215,39 +277,75 @@ export const fetchHarvesterServices = async (cloudId: string, force = false) => 
  * 获取 Harvester 负载均衡器列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester-loadbalancers${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
+export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester-loadbalancers${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
  * 获取 Harvester 模板列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterTemplates = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/templates${force ? '?force=true' : ''}`);
+export const fetchHarvesterTemplates = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/templates${queryString ? `?${queryString}` : ''}`);
+};
+
+export const createHarvesterVmFromTemplate = async (
+  cloudId: string,
+  namespace: string,
+  name: string,
+  payload: { name: string; namespace?: string; autoStart?: boolean },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/templates/${encodeURIComponent(namespace)}/${encodeURIComponent(
+      name,
+    )}/create-vm`,
+    payload,
+  );
 };
 
 /**
  * 获取 Harvester IP 池列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterIPPools = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ippools${force ? '?force=true' : ''}`);
+export const fetchHarvesterIPPools = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/ippools${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
  * 获取 Harvester NAD（网络附加定义）列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterNads = (cloudId: string, force = false) => apiRequest(`/api/clouds/${cloudId}/resources/nads${force ? '?force=true' : ''}`);
+export const fetchHarvesterNads = (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return apiRequest(`/api/clouds/${cloudId}/resources/harvester/nads${queryString ? `?${queryString}` : ''}`);
+};
 
 /**
  * 获取 Harvester 集群网络列表
@@ -256,7 +354,7 @@ export const fetchHarvesterNads = (cloudId: string, force = false) => apiRequest
  * @returns Promise<any>
  */
 export const fetchHarvesterClusterNetworks = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/cluster_networks${force ? '?force=true' : ''}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/cluster-networks${force ? '?force=true' : ''}`);
 };
 
 /**
@@ -317,10 +415,14 @@ export const createHarvesterVirtualMachineRestore = async (cloudId: string, name
  * 通过链接获取 Harvester 资源
  * @param cloudId 云环境 ID
  * @param path 资源路径
+ * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterResourceByLink = async (cloudId: string, path: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`);
+export const fetchHarvesterResourceByLink = async (cloudId: string, path: string, force = false) => {
+  const params = new URLSearchParams();
+  params.append('path', path);
+  if (force) params.append('force', 'true');
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/proxy?${params.toString()}`);
 };
 
 /**
@@ -333,13 +435,35 @@ export const deleteHarvesterResourceByLink = async (cloudId: string, path: strin
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`);
 };
 
+export const fetchHarvesterVirtualMachineRestores = async (cloudId: string, force = false) => {
+  const path = `/apis/harvesterhci.io/v1beta1/virtualmachinerestores`;
+  return await fetchHarvesterResourceByLink(cloudId, path, force);
+};
+
+export const deleteHarvesterVirtualMachineRestore = async (cloudId: string, namespace: string, name: string) => {
+  const path = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinerestores/${encodeURIComponent(name)}`;
+  return await deleteHarvesterResourceByLink(cloudId, path);
+};
+
 /**
  * 获取 Harvester USB 设备资源列表
  * @param cloudId 云环境 ID
  * @returns Promise<any>
  */
-export const fetchHarvesterUsbResources = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/usb-devices`);
+export const fetchHarvesterUsbResources = async (cloudId: string, force = false) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/usb-devices${force ? '?force=true' : ''}`);
+};
+
+export const claimHarvesterUsbDevice = async (cloudId: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/usb-devices/${encodeURIComponent(name)}/claim`, {});
+};
+
+export const unclaimHarvesterUsbDevice = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/usb-devices/${encodeURIComponent(name)}/claim`);
+};
+
+export const fetchHarvesterPciDevices = async (cloudId: string, force = false) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/pci-devices${force ? '?force=true' : ''}`);
 };
 
 /**
@@ -369,84 +493,132 @@ export const fetchHarvesterSystemPods = async (cloudId: string, params: { page: 
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/pods?${query}`);
 };
 
+/** OVN 网络分域：legacy 未分域（Harvester 全量）；flat/vpc 与 Cloudmap 分域 API 对齐 */
+export type CloudOvnNetworkScope = 'legacy' | 'flat' | 'vpc';
+
+function cloudOvnResourcePath(
+  cloudId: string,
+  resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
+  scope: CloudOvnNetworkScope,
+): string {
+  if (scope === 'legacy') {
+    return `/api/clouds/${cloudId}/resources/${resource}`;
+  }
+  const seg = scope === 'flat' ? 'network-flat' : 'network-vpc';
+  return `/api/clouds/${cloudId}/resources/${seg}/${resource}`;
+}
+
+function cloudOvnResourceItemPath(
+  cloudId: string,
+  resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
+  name: string,
+  scope: CloudOvnNetworkScope,
+): string {
+  const base = cloudOvnResourcePath(cloudId, resource, scope);
+  return `${base}/${encodeURIComponent(name)}`;
+}
+
 /**
  * 获取云提供商 OVN EIP（弹性 IP）列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
+ * @param scope legacy=全量；flat/vpc=仅默认 VPC / 仅业务 VPC 域
  */
-export const fetchCloudProviderOvnEips = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovneips${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnEips = async (
+  cloudId: string,
+  force = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  const base = cloudOvnResourcePath(cloudId, 'ovneips', scope);
+  return await apiRequest(`${base}${force ? '?force=true' : ''}`);
 };
 
 /**
  * 获取云提供商 OVN FIP（浮动 IP）列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
  */
-export const fetchCloudProviderOvnFips = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovnfips${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnFips = async (
+  cloudId: string,
+  force = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  const base = cloudOvnResourcePath(cloudId, 'ovnfips', scope);
+  return await apiRequest(`${base}${force ? '?force=true' : ''}`);
 };
 
 /**
  * 获取云提供商 OVN SNAT 规则列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
  */
-export const fetchCloudProviderOvnSnatRules = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovnsnatrules${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnSnatRules = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const base = cloudOvnResourcePath(cloudId, 'ovnsnatrules', scope);
+  return await apiRequest(`${base}${query}`);
 };
 
 /**
  * 获取云提供商 OVN DNAT 规则列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
  */
-export const fetchCloudProviderOvnDnatRules = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovndnatrules${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnDnatRules = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const base = cloudOvnResourcePath(cloudId, 'ovndnatrules', scope);
+  return await apiRequest(`${base}${query}`);
 };
 
 /**
  * 创建云提供商 OVN EIP
- * @param cloudId 云环境 ID
- * @param payload EIP 配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnEip = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovneips`, payload);
+export const createCloudProviderOvnEip = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovneips', scope), payload);
 };
 
 /**
  * 创建云提供商 OVN FIP
- * @param cloudId 云环境 ID
- * @param payload FIP 配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnFip = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovnfips`, payload);
+export const createCloudProviderOvnFip = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovnfips', scope), payload);
 };
 
 /**
  * 创建云提供商 OVN SNAT 规则
- * @param cloudId 云环境 ID
- * @param payload SNAT 规则配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnSnatRule = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovnsnatrules`, payload);
+export const createCloudProviderOvnSnatRule = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovnsnatrules', scope), payload);
 };
 
 /**
  * 创建云提供商 OVN DNAT 规则
- * @param cloudId 云环境 ID
- * @param payload DNAT 规则配置数据
- * @returns Promise<any>
  */
-export const createCloudProviderOvnDnatRule = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ovndnatrules`, payload);
+export const createCloudProviderOvnDnatRule = async (
+  cloudId: string,
+  payload: any,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiPost(cloudOvnResourcePath(cloudId, 'ovndnatrules', scope), payload);
 };
 
 /**
@@ -455,8 +627,12 @@ export const createCloudProviderOvnDnatRule = async (cloudId: string, payload: a
  * @param name EIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnEip = async (cloudId: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/ovneips/${encodeURIComponent(name)}`);
+export const deleteCloudProviderOvnEip = async (
+  cloudId: string,
+  name: string,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovneips', name, scope));
 };
 
 /**
@@ -465,8 +641,12 @@ export const deleteCloudProviderOvnEip = async (cloudId: string, name: string) =
  * @param name FIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnFip = async (cloudId: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/ovnfips/${encodeURIComponent(name)}`);
+export const deleteCloudProviderOvnFip = async (
+  cloudId: string,
+  name: string,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnfips', name, scope));
 };
 
 /**
@@ -475,8 +655,12 @@ export const deleteCloudProviderOvnFip = async (cloudId: string, name: string) =
  * @param name SNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnSnatRule = async (cloudId: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/ovnsnatrules/${encodeURIComponent(name)}`);
+export const deleteCloudProviderOvnSnatRule = async (
+  cloudId: string,
+  name: string,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnsnatrules', name, scope));
 };
 
 /**
@@ -485,8 +669,12 @@ export const deleteCloudProviderOvnSnatRule = async (cloudId: string, name: stri
  * @param name DNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnDnatRule = async (cloudId: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/ovndnatrules/${encodeURIComponent(name)}`);
+export const deleteCloudProviderOvnDnatRule = async (
+  cloudId: string,
+  name: string,
+  scope: CloudOvnNetworkScope = 'legacy',
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovndnatrules', name, scope));
 };
 
 /**
@@ -534,21 +722,15 @@ export const createKubeOvnSubnet = async (cloudId: string, payload: any) => {
 };
 
 /**
- * 更新 KubeOVN 子网
- * @param cloudId 云环境 ID
- * @param name 子网名称
- * @param payload 更新的配置数据
- * @returns Promise<any>
+ * 更新 KubeOVN 子网（Harvester 直连）
+ * @param name 路径参数，对应集群 Subnet CR 的 metadata.name（非 UID）
  */
 export const updateKubeOvnSubnet = async (cloudId: string, name: string, payload: any) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`, payload);
+  return await apiPut(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`, payload);
 };
 
 /**
- * 删除 KubeOVN 子网
- * @param cloudId 云环境 ID
- * @param name 子网名称
- * @returns Promise<any>
+ * 删除 KubeOVN 子网（路径参数 name 与更新接口一致，均为 metadata.name）
  */
 export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`);
@@ -561,11 +743,13 @@ export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
  * @param excludeSystem 是否排除系统命名空间，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterNamespaces = async (cloudId: string, force = false, excludeSystem = false) => {
+export const fetchHarvesterNamespaces = async (cloudId: string, force = false, excludeSystem = false, skipSync = false) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (excludeSystem) params.append('excludeSystem', 'true');
+  if (skipSync) params.append('skipSync', 'true');
   const queryString = params.toString();
+  // 当 force=true 时，URL 中包含 force=true，requestManager 会自动跳过缓存
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/namespaces${queryString ? `?${queryString}` : ''}`);
 };
 
@@ -606,8 +790,15 @@ export const deleteHarvesterNamespace = async (cloudId: string, name: string) =>
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterVolumes = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes${force ? '?force=true' : ''}`);
+export const fetchHarvesterVolumes = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/volumes${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
 };
 
 /**
@@ -627,8 +818,16 @@ export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterStorageClasses = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/storage-classes${force ? '?force=true' : ''}`);
+export const fetchHarvesterStorageClasses = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  const mustBypassCache = !!(force || skipSync);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/storage-classes${query ? `?${query}` : ''}`,
+    { skipCache: mustBypassCache }
+  );
 };
 
 /**
@@ -647,8 +846,67 @@ export const fetchHarvesterStorageClassDetail = async (cloudId: string, name: st
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterImages = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images${force ? '?force=true' : ''}`);
+export const fetchHarvesterImages = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images${queryString ? `?${queryString}` : ''}`,
+    { skipCache: force }
+  );
+};
+
+export type HarvesterImageUploadTask = {
+  id: string;
+  cloudId: string;
+  namespace: string;
+  displayName?: string;
+  imageType?: string;
+  filename?: string;
+  fileSize?: number;
+  status: 'pending' | 'ingesting' | 'proxying' | 'success' | 'failed' | 'cancelled';
+  phase: 'pending' | 'ingesting' | 'proxying' | 'finished';
+  progress: number;
+  ingestProgress: number;
+  proxyProgress: number;
+  bytesUploaded: number;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+export const createHarvesterImageUploadTask = async (
+  cloudId: string,
+  payload: { namespace: string; displayName?: string; imageType?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks`, payload);
+};
+
+export const fetchHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`, {
+    skipCache: true,
+  });
+};
+
+export const fetchHarvesterImageUploadTasks = async (cloudId: string, limit = 20) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks?limit=${Math.max(1, Math.min(100, limit))}`, {
+    skipCache: true,
+  });
+};
+
+export const deleteHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`);
+};
+
+export const cancelHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+  );
 };
 
 /**
@@ -674,7 +932,12 @@ export const attachHarvesterVolumeToVm = async (
   instanceId: string,
   payload: { name: string; bus?: string; pvcNamespace: string; pvcName: string }
 ) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/add-volume`, payload);
+  // add-volume 具备副作用，且后端可能出现“已生效但响应异常”的场景；禁用前端 5xx 重试避免重复提交
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/add-volume`,
+    payload,
+    { enableRetry: false }
+  );
 };
 
 /**
@@ -684,8 +947,11 @@ export const attachHarvesterVolumeToVm = async (
  * @param name 卷名称
  * @returns Promise<any>
  */
-export const fetchHarvesterVolume = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+export const fetchHarvesterVolume = async (cloudId: string, namespace: string, name: string, options?: { silent?: boolean; skipCache?: boolean }) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, { 
+    silent: options?.silent,
+    skipCache: options?.skipCache 
+  });
 };
 
 /**
@@ -702,7 +968,12 @@ export const attachHarvesterVolumeToVmByName = async (
   vmName: string,
   payload: { name?: string; diskName?: string; bus?: string; pvcNamespace: string; pvcName: string }
 ) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(vmNamespace)}/${encodeURIComponent(vmName)}/add-volume`, payload);
+  // add-volume 具备副作用，且后端可能出现"已生效但响应异常"的场景；禁用前端 5xx 重试避免重复提交
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(vmNamespace)}/${encodeURIComponent(vmName)}/add-volume`,
+    payload,
+    { enableRetry: false }
+  );
 };
 
 /**
@@ -759,7 +1030,7 @@ export const listHarvesterSnapshotClasses = async (cloudId: string) => {
  * @returns Promise<any>
  */
 export const updateHarvesterVolume = async (cloudId: string, namespace: string, pvcName: string, payload: { sizeGi?: number; size?: string; accessModes?: string[]; volumeMode?: string; storageClassName?: string; annotations?: Record<string,string>; labels?: Record<string,string> }) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(pvcName)}`, payload || {});
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(pvcName)}`, payload || {});
 };
 
 /**
@@ -786,7 +1057,12 @@ export const detachHarvesterVolumeFromVm = async (
   instanceId: string,
   payload: { name: string }
 ) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/remove-volume`, payload);
+  // remove-volume 具备副作用，禁用前端 5xx 重试避免重复提交
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/remove-volume`,
+    payload,
+    { enableRetry: false }
+  );
 };
 
 /**
@@ -816,8 +1092,12 @@ export const deleteHarvesterImage = async (cloudId: string, namespace: string, n
  * @param cloudId 云环境 ID
  * @returns Promise<any>
  */
-export const fetchKubeOvnProviderNetworks = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/providernetworks`);
+export const fetchKubeOvnProviderNetworks = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/provider-networks${query ? `?${query}` : ''}`);
 };
 
 /**
@@ -827,7 +1107,17 @@ export const fetchKubeOvnProviderNetworks = async (cloudId: string) => {
  * @returns Promise<any>
  */
 export const createKubeOvnProviderNetwork = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/providernetworks`, payload);
+  return await apiPost(`/api/clouds/${cloudId}/resources/provider-networks`, payload);
+};
+
+/**
+ * 删除 KubeOVN 提供商网络
+ * @param cloudId 云环境 ID
+ * @param name 提供商网络名称
+ * @returns Promise<any>
+ */
+export const deleteKubeOvnProviderNetwork = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/provider-networks/${encodeURIComponent(name)}`);
 };
 
 /**
@@ -835,8 +1125,12 @@ export const createKubeOvnProviderNetwork = async (cloudId: string, payload: any
  * @param cloudId 云环境 ID
  * @returns Promise<any>
  */
-export const fetchKubeOvnVlans = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/vlans`);
+export const fetchKubeOvnVlans = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vlans${query ? `?${query}` : ''}`);
 };
 
 /**
@@ -847,6 +1141,13 @@ export const fetchKubeOvnVlans = async (cloudId: string) => {
  */
 export const createKubeOvnVlan = async (cloudId: string, payload: any) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/vlans`, payload);
+};
+
+/**
+ * 删除 Kube-OVN VLAN
+ */
+export const deleteKubeOvnVlan = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/vlans/${encodeURIComponent(name)}`);
 };
 
 
@@ -866,7 +1167,7 @@ export const createHarvesterVolume = async (cloudId: string, payload: { namespac
  * @param payload 镜像配置数据，包含命名空间、名称、显示名称、源类型、URL、目标存储类名称和存储类参数
  * @returns Promise<any>
  */
-export const createHarvesterImage = async (cloudId: string, payload: { namespace: string; name?: string; displayName?: string; sourceType?: string; url?: string; targetStorageClassName?: string; storageClassParameters?: Record<string,string> }) => {
+export const createHarvesterImage = async (cloudId: string, payload: { namespace: string; name?: string; displayName?: string; sourceType?: string; url?: string; diskFormat?: string; targetStorageClassName?: string; storageClassParameters?: Record<string,string> }) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/images`, payload);
 };
 
@@ -935,8 +1236,19 @@ export const saveHarvesterVmAsTemplate = async (
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchKubeOvnVpcs = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs${force ? '?force=true' : ''}`);
+/**
+ * 获取 KubeOVN VPC 列表
+ * @param cloudId 云环境 ID
+ * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步，默认 false
+ * @returns Promise<any>
+ */
+export const fetchKubeOvnVpcs = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs${query ? `?${query}` : ''}`);
 };
 
 /**
@@ -945,8 +1257,83 @@ export const fetchKubeOvnVpcs = async (cloudId: string, force = false) => {
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchKubeOvnSubnets = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets${force ? '?force=true' : ''}`);
+export const fetchKubeOvnSubnets = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  const mustBypassCache = !!(force || skipSync);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets${query ? `?${query}` : ''}`, {
+    skipCache: mustBypassCache,
+  });
+};
+
+/** Tower 侧 Kube-OVN 安全组列表 */
+export const fetchKubeOvnSecurityGroups = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/kube-ovn-security-groups`, {
+    skipCache: true,
+  });
+};
+
+/** 创建 Kube-OVN 安全组（body: name, subnetName, description?） */
+export const createKubeOvnSecurityGroup = async (
+  cloudId: string,
+  payload: { name: string; subnetName: string; description?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/kube-ovn-security-groups`, payload);
+};
+
+export const fetchKubeOvnSecurityGroupDetail = async (cloudId: string, sgId: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}`,
+    { skipCache: true },
+  );
+};
+
+/** 整表替换安全组访问控制规则（与 Subnet.spec.acls 条目结构一致） */
+export const replaceKubeOvnSecurityGroupRules = async (
+  cloudId: string,
+  sgId: string,
+  payload: { rules: Array<{ action: string; direction: string; match: string; priority: number }> },
+) => {
+  return await apiPut(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}/rules`,
+    payload,
+  );
+};
+
+/** 更新安全组元数据（name、description；不可改子网） */
+export const updateKubeOvnSecurityGroup = async (
+  cloudId: string,
+  sgId: string,
+  payload: { name?: string; description?: string | null },
+) => {
+  return await apiPatch(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}`,
+    payload,
+  );
+};
+
+export const deleteKubeOvnSecurityGroup = async (cloudId: string, sgId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}`);
+};
+
+/** 批量添加安全组成员（虚拟机 namespace/name） */
+export const addKubeOvnSecurityGroupMembers = async (
+  cloudId: string,
+  sgId: string,
+  payload: { items: Array<{ vmNamespace: string; vmName: string }> },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}/members`,
+    payload,
+  );
+};
+
+export const removeKubeOvnSecurityGroupMember = async (cloudId: string, sgId: string, memberId: string) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}/members/${encodeURIComponent(memberId)}`,
+  );
 };
 
 /**
@@ -1131,6 +1518,7 @@ export const deleteHarvesterCloudInit = async (cloudId: string, namespace: strin
 };
 
 /**
+<<<<<<< HEAD
  * 删除 Harvester Ingress
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
@@ -1142,6 +1530,8 @@ export const deleteHarvesterIngress = async (cloudId: string, namespace: string,
 };
 
 /**
+=======
+>>>>>>> origin/main
  * 删除 Harvester Service
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
@@ -1149,7 +1539,11 @@ export const deleteHarvesterIngress = async (cloudId: string, namespace: string,
  * @returns Promise<any>
  */
 export const deleteHarvesterService = async (cloudId: string, namespace: string, name: string) => {
+<<<<<<< HEAD
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+=======
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester-loadbalancers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+>>>>>>> origin/main
 };
 
 /**
@@ -1160,6 +1554,28 @@ export const deleteHarvesterService = async (cloudId: string, namespace: string,
  */
 export const createHarvesterIPPool = async (cloudId: string, payload: any) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/ippools`, payload);
+};
+
+/**
+ * 执行 Harvester VM 操作（热插拔等）
+ * @param cloudId 云环境 ID
+ * @param namespace 虚拟机命名空间
+ * @param name 虚拟机名称
+ * @param action 操作类型：addNic, removeNic, findHotunpluggableNics 等
+ * @param payload 操作参数
+ * @returns Promise<any>
+ */
+export const harvesterVmAction = async (
+  cloudId: string,
+  namespace: string,
+  name: string,
+  action: string,
+  payload: any
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/action?action=${action}`,
+    payload
+  );
 };
 
 /**

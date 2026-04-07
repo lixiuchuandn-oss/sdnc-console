@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Card, Form, Input, Button, App, Select } from 'antd';
-import { RobotOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { ApiOutlined, RobotOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { getDifyConfig as apiGetDifyConfig, updateDifyConfig as apiUpdateDifyConfig, getSystemSetting as apiGetSystemSetting, updateSystemSetting as apiUpdateSystemSetting } from '../../services/systemApi';
 import PageContainer from '../../components/PageContainer';
 
@@ -8,6 +8,7 @@ const AdvancedSettings: React.FC = () => {
   const { message } = App.useApp();
   const [difyForm] = Form.useForm();
   const [aiSocForm] = Form.useForm();
+  const [csmctlForm] = Form.useForm();
 
   useEffect(() => {
     (async () => {
@@ -30,12 +31,22 @@ const AdvancedSettings: React.FC = () => {
           baseUrl: res?.value || 'http://192.168.2.22:5173',
         });
       } catch {}
+
+      try {
+        const res = await apiGetSystemSetting('CSMCTL_ADDRESS');
+        csmctlForm.setFieldsValue({
+          address: res?.value || 'https://127.0.0.1:8016',
+        });
+      } catch {
+        csmctlForm.setFieldsValue({
+          address: 'https://127.0.0.1:8016',
+        });
+      }
     })();
-  }, [difyForm, aiSocForm]);
+  }, [difyForm, aiSocForm, csmctlForm]);
 
   return (
     <PageContainer
-      title="高级集成"
       asCard={false}
       titleLevel={3}
     >
@@ -62,6 +73,42 @@ const AdvancedSettings: React.FC = () => {
              <Form.Item>
                <Button type="primary" htmlType="submit">保存配置</Button>
              </Form.Item>
+          </Form>
+        </Card>
+
+        <Card title={<span><ApiOutlined style={{ marginRight: 8 }} /> CSMCTL 配置</span>} style={{ marginBottom: 24 }}>
+          <Form
+            form={csmctlForm}
+            layout="vertical"
+            style={{ maxWidth: 480 }}
+            onFinish={async (values) => {
+              try {
+                await apiUpdateSystemSetting('CSMCTL_ADDRESS', String(values.address || '').trim());
+                message.success('CSMCTL 配置已更新');
+              } catch {
+                message.error('更新失败');
+              }
+            }}
+          >
+            <Form.Item
+              label="CSMCTL 地址 (Base URL)"
+              name="address"
+              extra="用于 /api-proxy 反向代理转发。示例：https://127.0.0.1:8016"
+              rules={[
+                {
+                  validator: async (_rule, value) => {
+                    const v = String(value || '').trim();
+                    if (!v) return;
+                    if (!/^https?:\/\/.+/i.test(v)) throw new Error('请输入以 http:// 或 https:// 开头的地址');
+                  },
+                },
+              ]}
+            >
+              <Input placeholder="https://127.0.0.1:8016" />
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit">保存配置</Button>
+            </Form.Item>
           </Form>
         </Card>
   

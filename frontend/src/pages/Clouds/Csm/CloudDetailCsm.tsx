@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Dropdown, message, Table, Input, Select, Modal, Popover, Checkbox, Form, Typography, Progress } from 'antd';
-import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, EllipsisOutlined, SettingOutlined, AppstoreOutlined, HomeOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, EllipsisOutlined, SettingOutlined, AppstoreOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import SharedToolbar from '../../../components/SharedToolbar';
 import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCsmElementGroups, fetchCsmServiceChains, operateCsmVm, getCsmVmConsole, fetchCsmVRouters, fetchCsmAssets, createCsmAsset, deleteCsmAsset, csmSsoLogin } from '../../../services/api';
@@ -165,7 +165,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     });
   };
 
-  const handleSingleOperation = async (record: any, action: 'start' | 'stop' | 'reboot') => {
+  const handleSingleOperation = useCallback(async (record: any, action: 'start' | 'stop' | 'reboot') => {
     const vmId = record.id || record.Id || record.uuid || record.vm_id;
     if (!vmId) return;
     try {
@@ -175,9 +175,9 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     } catch (e: any) {
       message.error(`操作失败: ${e.message}`);
     }
-  };
+  }, [cloudId, loadAll]);
 
-  const handleConsole = async (record: any) => {
+  const handleConsole = useCallback(async (record: any) => {
     const vmId = record.id || record.Id || record.uuid || record.vm_id;
     if (!vmId) return;
     try {
@@ -191,7 +191,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     } catch (e: any) {
       message.error(`获取控制台失败: ${e.message}`);
     }
-  };
+  }, [cloudId]);
 
   const filteredVirtualElements = useMemo(() => {
     return virtualElements.filter(item => {
@@ -245,7 +245,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     });
   }, [physicalElements, physicalSearch]);
 
-  const columnsHosts = [
+  const columnsHosts = React.useMemo(() => [
     { title: '主机名称', dataIndex: 'host_name', key: 'name', width: 120, ellipsis: true, render: (t: any, r: any) => t || r?.Name || '-' },
     { title: '管理IP', dataIndex: 'host_manage_ip', key: 'ip', width: 120, render: (t: any) => t || '-' },
     { title: '状态', dataIndex: 'host_active_status', key: 'status', width: 80, render: (s: any) => {
@@ -333,7 +333,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               width: 600,
               content: (
                 <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
-                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace' }}>
 {JSON.stringify(record, null, 2)}
                   </pre>
                 </div>
@@ -346,11 +346,11 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         buttonProps={{ style: { padding: 0 } }}
       />
     ) },
-  ];
+  ], []);
 
-  const physicalColumnOptions = React.useMemo(() => getColumnOptions(columnsHosts), []);
+  const physicalColumnOptions = React.useMemo(() => getColumnOptions(columnsHosts), [columnsHosts]);
 
-  const columnsHostsDisplay = React.useMemo(() => getDisplayColumns(columnsHosts, physicalVisibleColumnKeys), [physicalVisibleColumnKeys]);
+  const columnsHostsDisplay = React.useMemo(() => getDisplayColumns(columnsHosts, physicalVisibleColumnKeys), [columnsHosts, physicalVisibleColumnKeys]);
 
   const physicalRowSelection = createRowSelection(physicalSelectedRowKeys, setPhysicalSelectedRowKeys);
 
@@ -369,7 +369,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     });
   }, [elementGroups, groupSearch, groupTypeFilter, groupVendorFilter, groupDefendFilter]);
 
-  const columnsGroups = [
+  const columnsGroups = React.useMemo(() => [
     { title: '名称', dataIndex: 'vm_group_name', key: 'name', render: (t:any,r:any)=> t || r?.name || '-' },
     { title: 'ID', dataIndex: 'vm_group_id', key: 'id', render: (t:any,r:any)=> t || r?.id || '-' },
     { title: '类型', dataIndex: 'vm_type', key: 'type', render: (t:any) => {
@@ -407,7 +407,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               width: 600,
               content: (
                 <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
-                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace' }}>
 {JSON.stringify(record, null, 2)}
                   </pre>
                 </div>
@@ -420,11 +420,11 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         buttonProps={{ style: { padding: 0 } }}
       />
     ) },
-  ];
+  ], []);
 
-  const groupColumnOptions = React.useMemo(() => getColumnOptions(columnsGroups), []);
+  const groupColumnOptions = React.useMemo(() => getColumnOptions(columnsGroups), [columnsGroups]);
 
-  const columnsGroupsDisplay = React.useMemo(() => getDisplayColumns(columnsGroups, groupVisibleColumnKeys), [groupVisibleColumnKeys]);
+  const columnsGroupsDisplay = React.useMemo(() => getDisplayColumns(columnsGroups, groupVisibleColumnKeys), [columnsGroups, groupVisibleColumnKeys]);
 
   const groupRowSelection = createRowSelection(groupSelectedRowKeys, setGroupSelectedRowKeys);
 
@@ -441,7 +441,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     });
   }, [vRouters, vRouterSearch]);
 
-  const columnsVRouters = [
+  const columnsVRouters = React.useMemo(() => [
     { title: 'VSW ID', dataIndex: 'vrouter_id', key: 'id', render: (t: any, r: any) => t || r?.id || '-' },
     { title: 'IP地址', dataIndex: 'vrouter_ip', key: 'ip', render: (t: any) => t || '-' },
     { title: '宿主机IP', dataIndex: 'vrouter_host_ip', key: 'host_ip', render: (t: any) => t || '-' },
@@ -464,7 +464,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               width: 600,
               content: (
                 <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
-                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace' }}>
 {JSON.stringify(record, null, 2)}
                   </pre>
                 </div>
@@ -477,15 +477,15 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         buttonProps={{ style: { padding: 0 } }}
       />
     ) },
-  ];
+  ], []);
 
-  const vRouterColumnOptions = React.useMemo(() => getColumnOptions(columnsVRouters), []); // columnsVRouters is constant-like within render
+  const vRouterColumnOptions = React.useMemo(() => getColumnOptions(columnsVRouters), [columnsVRouters]);
 
-  const columnsVRoutersDisplay = React.useMemo(() => getDisplayColumns(columnsVRouters, vRouterVisibleColumnKeys), [vRouterVisibleColumnKeys]); // columnsVRouters dependency omitted as it is recreated but stable enough structurally
+  const columnsVRoutersDisplay = React.useMemo(() => getDisplayColumns(columnsVRouters, vRouterVisibleColumnKeys), [columnsVRouters, vRouterVisibleColumnKeys]);
 
   const vRouterRowSelection = createRowSelection(vRouterSelectedRowKeys, setVRouterSelectedRowKeys);
 
-  const columnsAssets = [
+  const columnsAssets = React.useMemo(() => [
     { title: '防护对象', dataIndex: 'value', key: 'value', render: (t: any) => t || '-' },
     { title: '资产ID', dataIndex: 'network_id', key: 'id', render: (t: any, r: any) => t || r?.id || r?.Id || r?.uuid || '-' },
     { title: '对象类型', dataIndex: 'type', key: 'type', render: (t: any) => {
@@ -540,9 +540,9 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         buttonProps={{ style: { padding: 0 } }}
       />
     ) },
-  ];
+  ], [cloudId, setEditingAsset, assetEditForm, setAssetEditOpen, loadAll]);
 
-  const columnsVirtual = [
+  const columnsVirtual = React.useMemo(() => [
     { title: '名称', dataIndex: 'name', key: 'name', render: (t: any, r: any) => (
       <Button type="link" style={{ padding: 0 }} onClick={() => { setCurrentVm(r); setVmModalOpen(true); }}>
         {t || r?.vm_name || r?.Name || r?.displayName || '-'}
@@ -590,7 +590,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               width: 600,
               content: (
                 <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
-                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace' }}>
 {JSON.stringify(record, null, 2)}
                   </pre>
                 </div>
@@ -675,12 +675,12 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         buttonProps={{ style: { padding: 0 } }}
       />
     ) },
-  ];
+  ], [cloudId, setCurrentVm, setVmModalOpen, handleSingleOperation, handleConsole]);
 
   React.useEffect(() => {
     const initKeys = columnsVirtual.map((c: any) => c.key).filter((k: string) => k !== 'action');
     setVisibleColumnKeys(initKeys);
-  }, []);
+  }, [columnsVirtual]);
 
   const columnOptions = React.useMemo(() => getColumnOptions(columnsVirtual), [columnsVirtual]);
 
@@ -829,7 +829,31 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源状态">{cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}</Descriptions.Item>
-          <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Endpoint">
+            <Space>
+              {cloud?.endpoint || '-'}
+              {cloud?.endpoint && (
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<LoginOutlined />}
+                  style={{ padding: 0 }}
+                  title="在新窗口打开"
+                  onClick={() => {
+                    let url = cloud.endpoint || '';
+                    if (url.endsWith('/v3')) {
+                      url = url.substring(0, url.length - 3);
+                    } else if (url.endsWith('/v3/')) {
+                      url = url.substring(0, url.length - 4);
+                    }
+                    window.open(url, '_blank');
+                  }}
+                >
+                  打开
+                </Button>
+              )}
+            </Space>
+          </Descriptions.Item>
           <Descriptions.Item label="版本">{versionText}</Descriptions.Item>
           <Descriptions.Item label="TLS 忽略">{tlsIgnored ? <Tag color="orange">是</Tag> : <Tag>否</Tag>}</Descriptions.Item>
           <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
@@ -879,7 +903,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   left={
                     <Input
                       placeholder="搜索主机名称/管理IP"
-                      prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                      prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                       value={physicalSearch}
                       onChange={(e) => setPhysicalSearch(e.target.value)}
                       style={{ width: 220 }}
@@ -919,7 +943,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsHostsDisplay as any}
                   dataSource={filteredPhysicalElements}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawPhysical, null, 2)}</pre></div>)}
               </>
@@ -940,7 +967,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   left={
                     <Input
                       placeholder="搜索ID/IP/宿主机IP"
-                      prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                      prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                       value={vRouterSearch}
                       onChange={(e) => setVRouterSearch(e.target.value)}
                       style={{ width: 220 }}
@@ -979,7 +1006,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsVRoutersDisplay as any}
                   dataSource={filteredVRouters}
                   rowKey={(r: any) => r.vrouter_id || r.id || r.Id || r.uuid || Math.random().toString()}
-                  pagination={{ showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                   loading={loading}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVRouters, null, 2)}</pre></div>)}
@@ -1002,7 +1032,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                     <>
                       <Input
                         placeholder="搜索资产ID/值/类型"
-                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                         value={assetSearch}
                         onChange={(e)=> setAssetSearch(e.target.value)}
                         style={{ width: 220 }}
@@ -1083,7 +1113,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsAssetsDisplay as any}
                   dataSource={filteredAssets}
                   rowKey={(r: any) => r.network_id || r.id || r.Id || r.uuid || Math.random().toString()}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                   loading={loading}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawAssets, null, 2)}</pre></div>)}
@@ -1150,7 +1183,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                     <>
                       <Input
                         placeholder="搜索名称/IP/类型/厂商"
-                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                         value={searchText}
                         onChange={e => setSearchText(e.target.value)}
                         style={{ width: 200 }}
@@ -1244,7 +1277,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsVirtualDisplay as any}
                   dataSource={filteredVirtualElements}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVirtual, null, 2)}</pre></div>)}
               </>
@@ -1266,7 +1302,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                     <>
                       <Input
                         placeholder="搜索网元组名称"
-                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                         value={groupSearch}
                         onChange={(e) => setGroupSearch(e.target.value)}
                         style={{ width: 220 }}
@@ -1338,7 +1374,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsGroupsDisplay as any}
                   dataSource={filteredGroups}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawGroups, null, 2)}</pre></div>)}
               </>

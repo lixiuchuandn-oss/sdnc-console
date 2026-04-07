@@ -592,6 +592,7 @@ const SecurityDomainWizardPage: React.FC = () => {
     loadVRList();
     loadClouds();
     loadTenants();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onPrev = () => setCurrent((c) => Math.max(0, c - 1));
@@ -1020,7 +1021,10 @@ const SecurityDomainWizardPage: React.FC = () => {
                                 bordered
                                 dataSource={debugEcs}
                                 rowKey={(r: any) => String(r?.id || r?.InstanceId || r?.instance_id || Math.random())}
-                                pagination={{ pageSize: 5 }}
+                                pagination={{
+                                  size: 'small',
+                                  showTotal: (total) => `共 ${total} 条`,
+                                }}
                                 columns={[
                                   { title: 'id', dataIndex: 'id' },
                                   { title: 'name', dataIndex: 'name' },
@@ -1033,7 +1037,10 @@ const SecurityDomainWizardPage: React.FC = () => {
                                 bordered
                                 dataSource={debugPorts}
                                 rowKey={(p: any) => String(p?.id || p?.port_id || Math.random())}
-                                pagination={{ pageSize: 5 }}
+                                pagination={{
+                                  size: 'small',
+                                  showTotal: (total) => `共 ${total} 条`,
+                                }}
                                 columns={[
                                   { title: 'id', dataIndex: 'id' },
                                   { title: 'network_id', dataIndex: 'network_id' },

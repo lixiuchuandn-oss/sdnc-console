@@ -33,7 +33,7 @@
  * - 依赖外部传入的 gpuResources 列表进行渲染。
  */
 import React from 'react';
-import { Form, Input, Select, Radio, Space, Table, Checkbox, InputNumber, Collapse, Typography, Button, message, App } from 'antd';
+import { Form, Input, Select, Radio, Space, Table, Checkbox, InputNumber, Collapse, Typography, Button, App } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 
 /**
@@ -95,8 +95,16 @@ const StepCompute: React.FC<StepComputeProps> = ({
   const [gpuLoading, setGpuLoading] = React.useState<boolean>(false);
 
   // 监听表单字段变化
-  const cpu = Form.useWatch('cpu', form);
-  const hotExpandEnabled = Form.useWatch('hotExpandEnabled', form);
+  const dedicatedCPUPlacement = Form.useWatch('dedicatedCPUPlacement', form);
+
+  // 未启用 CPU 绑定时不能保留 CPU 隔离
+  React.useEffect(() => {
+    if (!dedicatedCPUPlacement && form.getFieldValue('isolateEmulatorThread')) {
+      try {
+        form.setFieldsValue({ isolateEmulatorThread: false });
+      } catch {}
+    }
+  }, [dedicatedCPUPlacement, form]);
 
   // [初始化] 组件加载时同步 CPU 数据并设置默认值
   React.useEffect(() => {
@@ -111,7 +119,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
     }
     // 同步初始状态到快照
     try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
-  }, []);
+  }, [form, setFormSnapshot]);
 
   // [业务规则] ARM 架构强制禁用热扩容并清理拓扑配置
   React.useEffect(() => {
@@ -308,7 +316,17 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Form.Item label="CPU 绑定">
               <Space>
                 <Form.Item name="dedicatedCPUPlacement" valuePropName="checked" noStyle>
-                  <Checkbox>启用</Checkbox>
+                  <Checkbox onChange={(e) => {
+                    const checked = !!e.target.checked;
+                    if (!checked) return;
+                    message.warning('启用 CPU 绑定后，CPU QoS 将被清空且不再生效');
+                    try {
+                      form.setFieldsValue({
+                        cpuRequest: undefined,
+                        cpuLimit: undefined
+                      });
+                    } catch {}
+                  }}>启用</Checkbox>
                 </Form.Item>
                 <Typography.Text type="secondary">保证用固定的物理 CPU 核心，减少切换损耗</Typography.Text>
               </Space>
@@ -317,9 +335,9 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Form.Item label="CPU 隔离">
               <Space>
                 <Form.Item name="isolateEmulatorThread" valuePropName="checked" noStyle>
-                  <Checkbox>启用</Checkbox>
+                  <Checkbox disabled={!dedicatedCPUPlacement}>启用</Checkbox>
                 </Form.Item>
-                <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰</Typography.Text>
+                <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰（需先启用 CPU 绑定）</Typography.Text>
               </Space>
             </Form.Item>
             
@@ -433,8 +451,20 @@ const StepCompute: React.FC<StepComputeProps> = ({
                     name: x?.raw?.metadata?.name || x?.raw?.spec?.deviceName || x?.name || x?.description || x?.desc || x?.resourceName,
                     resourceName: x?.resourceName || x?.raw?.status?.resourceName || x?.raw?.spec?.resourceName,
                     type: x?.type,
+                    claimed: x?.claimed, // [修复] 保留claimed字段，用于过滤被其他VM使用的GPU
                     raw: x
                   }));
+                  
+                  // [修复] 过滤被其他VM使用的GPU
+                  data = data.filter((r: any) => {
+                    const resourceName = String(r?.resourceName || '').trim();
+                    // 如果resourceName为空，跳过claimed检查（可能是数据不完整）
+                    if (resourceName && r?.claimed === true) {
+                      // 被其他VM使用的GPU，过滤掉
+                      return false;
+                    }
+                    return true;
+                  });
                   
                   // 客户端搜索过滤
                   const kw = String(gpuKeyword || '').trim().toLowerCase();

@@ -705,8 +705,8 @@ const EditVRConfig: React.FC = () => {
       await saveVRConfig(uuid, obj, {}); // 移除 cloudId/vmId 绑定
 
       // 改为复用 AuthDirect 的直接认证与请求方式进行下发
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
+      const accesskey = 'Cloudmap#123';
+      const secretkey = 'Cloudmap#123';
       const path = '/V2/ctcontrol/VR2/VRConfig';
       const method = 'POST';
       // POST 的签名 other 为空；签名服务以 body 原文参与计算

@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Divider, Form, Input, Space, Table, Tag, message, Dropdown, Modal, Switch, Popover, Checkbox, Collapse, Typography, Row, Col, Select } from 'antd';
+import { Button, Form, Input, Tag, message, Dropdown, Modal, Switch, Select } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, ExclamationCircleOutlined, SettingOutlined, SearchOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ExclamationCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchIPsecVPNs, fetchIPsecVPNsMerged, deleteIPsecVPN } from '../../../services/api';
-import { vrApi, getVR2Config, fetchVrCachePageList } from '../../../services/virtualRouterApi';
+import { fetchIPsecVPNsMerged, deleteIPsecVPN, apiPost } from '../../../services/api';
+import { getVR2Config, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import ReactFlow, { Background, Controls } from 'react-flow-renderer';
 
 interface IPsecVPNRow {
@@ -250,25 +250,14 @@ const IPsecVPNPage: React.FC = () => {
   ];
   const columns = allColumns;
 
-  const fetchData = async () => {
+  const fetchData = async (force?: boolean) => {
     setLoading(true);
     try {
-      const res = await fetchIPsecVPNsMerged();
-      const list: IPsecVPNRow[] = Array.isArray(res) ? res : [];
-      setData(list);
-    } catch (error) {
-      console.error('Fetch failed:', error);
-      message.error('获取列表失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-    (async () => {
+      if (force) {
+        await apiPost('/api/vr-instances/refresh', {});
+      }
       try {
-        const resp = await fetchVrCachePageList(1000, 1);
+        const resp = await fetchVrCachePageList(1000, 1, { skipCache: !!force });
         const data = resp?.data || resp;
         const list: any[] = Array.isArray(data?.page)
           ? data.page
@@ -285,7 +274,19 @@ const IPsecVPNPage: React.FC = () => {
       } catch (e) {
         console.error('Failed to fetch VR list from cache', e);
       }
-    })();
+      const res = await fetchIPsecVPNsMerged({ skipCache: !!force });
+      const list: IPsecVPNRow[] = Array.isArray(res) ? res : [];
+      setData(list);
+    } catch (error) {
+      console.error('Fetch failed:', error);
+      message.error('获取列表失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
 
   return (
@@ -297,7 +298,7 @@ const IPsecVPNPage: React.FC = () => {
         onClick: () => navigate('/admin/interconnect/ipsec/create'),
         type: 'primary',
       }}
-      onRefresh={fetchData}
+      onRefresh={() => { void fetchData(true); }}
       moreMenuItems={[
         { 
           key: 'batchDelete', 
@@ -326,7 +327,7 @@ const IPsecVPNPage: React.FC = () => {
             <Input 
               allowClear 
               placeholder="搜索名称、ID" 
-              prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
+              prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               className="toolbar-search"
             />
           </Form.Item>
@@ -401,9 +402,13 @@ const IPsecVPNPage: React.FC = () => {
           return matchKw && matchStatus && matchIke && matchLocalIp && matchPeerGw;
         }),
         rowKey: "id",
-        pagination: { pageSize: 10, showSizeChanger: true },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
         loading: loading,
-        bordered: true,
+        bordered: false,
+        className: "std-table",
         scroll: { x: 'max-content' }
       }}
     >

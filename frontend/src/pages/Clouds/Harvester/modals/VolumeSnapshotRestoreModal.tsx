@@ -3,12 +3,13 @@
  *
  * 负责基于 VolumeSnapshot 创建新的 PVC：
  * - 默认用 `restore-{snapshotName}-{timestamp}` 作为新卷名称；
- * - 加载可用存储类列表，并优先选择默认存储类或 Longhorn；
- * - 支持覆写容量（size），否则使用快照原始大小。
+ * - 加载可用存储类列表（过滤系统存储类），并优先选择默认存储类或 Longhorn；
+ * - 容量由快照原始大小决定，不在此弹窗中配置。
  */
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
 import { restoreHarvesterVolumeSnapshot, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
+import { isSystemStorageClass } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参
@@ -38,39 +39,37 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
   const [scLoading, setScLoading] = useState(false);
 
-  // 弹窗打开时重置表单，填充默认名称/容量，并加载存储类列表
+  // 弹窗打开时重置表单，填充默认名称，并加载存储类列表
   useEffect(() => {
     if (visible && resource) {
       form.resetFields();
       form.setFieldsValue({
         name: `restore-${resource.name}-${Math.floor(Date.now() / 1000)}`,
-        size: resource.restoreSize, // Pre-fill with restore size
       });
       loadStorageClasses();
     }
   }, [visible, resource, form]);
 
-  // 加载存储类列表，并尽量自动选择默认存储类或 Longhorn
+  // 加载存储类列表（过滤系统存储类），并尽量自动选择默认存储类或 Longhorn
   const loadStorageClasses = async () => {
     try {
       setScLoading(true);
       const res = await fetchHarvesterStorageClasses(cloudId);
-      const items = res?.data?.items || [];
+      const rawItems = res?.data?.items || [];
+      const items = rawItems.filter((sc: any) => !isSystemStorageClass(sc?.metadata?.name || sc?.name || ''));
       setStorageClasses(items);
-      
-      // Auto-select 'longhorn' if available and no selection
+
       const currentSc = form.getFieldValue('storageClassName');
       if (!currentSc && items.length > 0) {
-         // Priority: 1. Default Class, 2. Longhorn, 3. First one
-         const def = items.find((sc: any) => sc.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true');
-         if (def) {
-            form.setFieldsValue({ storageClassName: def.metadata.name });
-         } else {
-             const longhorn = items.find((sc: any) => sc.metadata?.name?.includes('longhorn'));
-             if (longhorn) {
-                form.setFieldsValue({ storageClassName: longhorn.metadata.name });
-             }
-         }
+        const def = items.find((sc: any) => sc.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true');
+        if (def) {
+          form.setFieldsValue({ storageClassName: def.metadata.name });
+        } else {
+          const longhorn = items.find((sc: any) => sc.metadata?.name?.includes('longhorn'));
+          if (longhorn) {
+            form.setFieldsValue({ storageClassName: longhorn.metadata.name });
+          }
+        }
       }
     } catch (e) {
       console.warn('Failed to load storage classes', e);
@@ -82,8 +81,8 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
   /**
    * 校验表单并提交卷快照恢复任务：
    * - 必选：新卷名称；
-   * - 可选：存储类、容量；
-   * - 容量留空则在后端使用快照原始大小。
+   * - 可选：存储类；
+   * - 容量由后端按快照原始大小处理。
    */
   const handleOk = async () => {
     try {
@@ -97,7 +96,6 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
         {
           name: values.name,
           storageClassName: values.storageClassName,
-          size: values.size, 
         }
       );
 
@@ -152,14 +150,6 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
               value: sc.metadata?.name
             }))}
           />
-        </Form.Item>
-        
-        <Form.Item
-          name="size"
-          label="容量"
-          extra={`快照原始大小: ${resource.restoreSize || '未知'}`}
-        >
-           <Input placeholder="例如: 10Gi (留空则使用快照原始大小)" />
         </Form.Item>
       </Form>
     </Modal>

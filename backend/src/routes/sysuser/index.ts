@@ -9,6 +9,16 @@ import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 import { AuthRequest } from '../../middleware/auth';
 import bcrypt from 'bcryptjs';
+import { checkPermission } from '../../permissions';
+import { logger } from '../../utils/logger';
+import { isBuiltInSystemUser } from '../../constants/systemBuiltInUsers';
+import {
+  getAdminPasswordPolicy,
+  validatePasswordAgainstPolicy,
+  adminMustChangePassword,
+} from '../../services/adminPasswordPolicy';
+
+const sysUserLog = logger.child('Sysuser');
 
 const router = Router();
 
@@ -24,7 +34,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       role: u.role,
       status: u.status,
       createdAt: u.createdAt,
-      builtIn: u.username === 'admin',
+      builtIn: isBuiltInSystemUser(u.username),
     }));
 
     res.json(users);
@@ -93,7 +103,7 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
 
     res.json(enrichedUsers);
   } catch (error) {
-    console.error('获取租户用户列表失败:', error);
+    sysUserLog.error('获取租户用户列表失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取租户用户列表失败' });
   }
 });
@@ -123,7 +133,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
           tenantName = fullUser?.tenant?.name;
           organizationName = fullUser?.organization?.name;
       } catch (e) {
-          console.warn('Failed to fetch tenant/org info', e);
+          sysUserLog.warn('Failed to fetch tenant/org info', e instanceof Error ? e.message : String(e));
       }
       
       let permissions: string[] = [];
@@ -163,7 +173,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         // Deduplicate
         permissions = Array.from(new Set(permissions));
       } catch (e) {
-        console.warn('Failed to fetch permissions for tenant user', e);
+        sysUserLog.warn('Failed to fetch permissions for tenant user', e instanceof Error ? e.message : String(e));
       }
 
       resp = {
@@ -189,6 +199,8 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         relations: ['accessibleClouds'],
       });
       if (!user) return res.status(404).json({ message: '用户不存在' });
+      // 使用 authMiddleware 已经计算好的 permissions（包含 super_admin 的 ['*']）
+      const permissions = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
       resp = {
         id: user.id,
         username: user.username,
@@ -199,6 +211,8 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         accessibleClouds: user.accessibleClouds,
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
+        permissions, // 返回权限列表
+        mustChangePassword: adminMustChangePassword(user),
       };
     }
 
@@ -236,12 +250,56 @@ router.put('/me', async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.post('/me/password', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: '未授权' });
+    }
+
+    if ((req.user as any).isTenantUser || (req.user as any).role === 'tenant') {
+      return res.status(403).json({ message: '租户用户暂不支持此接口' });
+    }
+
+    const { oldPassword, newPassword } = req.body || {};
+    const oldPwd = String(oldPassword || '').trim();
+    const newPwd = String(newPassword || '').trim();
+
+    if (!oldPwd || !newPwd) {
+      return res.status(400).json({ message: '缺少 oldPassword 或 newPassword' });
+    }
+    const policy = getAdminPasswordPolicy();
+    const v = validatePasswordAgainstPolicy(newPwd, policy, { username: req.user?.username });
+    if (!v.ok) {
+      return res.status(400).json({ message: v.message });
+    }
+
+    const userRepository = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({ where: { id: req.user.id } });
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+
+    const ok = await bcrypt.compare(oldPwd, user.password);
+    if (!ok) {
+      return res.status(400).json({ message: '原密码错误' });
+    }
+
+    user.password = await bcrypt.hash(newPwd, 10);
+    user.passwordChangedAt = new Date();
+    await userRepository.save(user);
+
+    res.json({ message: '密码修改成功' });
+  } catch (error) {
+    res.status(500).json({ message: '修改密码失败' });
+  }
+});
+
 // 超级管理员：更新用户状态
 router.put('/:id/status', async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
 
     const { id } = req.params;
     const { status } = req.body;
@@ -262,23 +320,37 @@ router.put('/:id/status', async (req: AuthRequest, res: Response) => {
   }
 });
 
-export { router as userRoutes };
-
 // 创建系统用户（仅超级管理员）
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-    const { username, email, password, fullName, role = UserRole.LEASED_LINES_ADMIN } = req.body;
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
+    const { username, email, password, fullName, role } = req.body;
     if (!username?.trim() || !email?.trim() || !password?.trim() || !fullName?.trim()) {
       return res.status(400).json({ message: '缺少必填字段：username/email/password/fullName' });
+    }
+    if (role && String(role) !== UserRole.ADMIN) {
+      return res.status(400).json({ message: '创建系统用户时不允许指定为超级管理员，请先创建管理员后再按需赋权' });
     }
     const userRepository = AppDataSource.getRepository(User);
     const existed = await userRepository.findOne({ where: [{ username }, { email }] });
     if (existed) return res.status(400).json({ message: '用户名或邮箱已存在' });
+    const policy = getAdminPasswordPolicy();
+    const pv = validatePasswordAgainstPolicy(String(password), policy, { username: String(username) });
+    if (!pv.ok) {
+      return res.status(400).json({ message: pv.message });
+    }
     const hashed = await bcrypt.hash(password, 10);
-    const user = userRepository.create({ username, email, password: hashed, fullName, role });
+    const now = new Date();
+    const user = userRepository.create({
+      username,
+      email,
+      password: hashed,
+      fullName,
+      role: UserRole.ADMIN,
+      passwordChangedAt: policy.requirePasswordChangeOnFirstLogin ? null : now,
+    });
     const saved = await userRepository.save(user);
     res
       .status(201)
@@ -297,9 +369,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // 超级管理员：删除系统用户
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const userRepository = AppDataSource.getRepository(User);
     const user = await userRepository.findOne({ where: { id } });
@@ -309,7 +381,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     if (req.user.id === user.id) {
       return res.status(400).json({ message: '不能删除当前登录的账户' });
     }
-    if (user.username === 'admin') {
+    if (isBuiltInSystemUser(user.username)) {
       return res.status(400).json({ message: '内置用户不允许删除' });
     }
     if (user.role === UserRole.SUPER_ADMIN) {
@@ -318,6 +390,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ message: '不能删除最后一个超级管理员' });
       }
     }
+    const assignRepo = AppDataSource.getRepository(RoleAssignment);
+    await assignRepo.delete({ userType: 'system', userId: id });
     await userRepository.remove(user);
     res.json({ message: '用户删除成功' });
   } catch (error) {
@@ -325,12 +399,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// 超级管理员：编辑系统用户（支持更新基础信息与密码）
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+// 编辑系统用户的处理函数（PUT 和 PATCH 共用）
+const updateUserHandler = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const { username, email, fullName, role, status, password } = req.body as any;
     const userRepository = AppDataSource.getRepository(User);
@@ -352,7 +426,13 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     if (role) user.role = role;
     if (status) user.status = status;
     if (password && String(password).trim()) {
+      const policy = getAdminPasswordPolicy();
+      const pv = validatePasswordAgainstPolicy(String(password).trim(), policy, { username: user.username });
+      if (!pv.ok) {
+        return res.status(400).json({ message: pv.message });
+      }
       user.password = await bcrypt.hash(String(password).trim(), 10);
+      user.passwordChangedAt = new Date();
     }
 
     const saved = await userRepository.save(user);
@@ -368,5 +448,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   } catch (e: any) {
     res.status(500).json({ message: '更新用户失败', error: String(e) });
   }
-});
+};
 
+// 超级管理员：编辑系统用户（支持更新基础信息与密码）
+router.put('/:id', updateUserHandler);
+router.patch('/:id', updateUserHandler);
+
+export { router as userRoutes };

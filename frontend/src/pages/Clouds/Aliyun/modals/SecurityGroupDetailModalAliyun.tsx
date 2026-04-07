@@ -387,7 +387,10 @@ const SecurityGroupDetailModalAliyun: React.FC<Props> = ({ open, onCancel, cloud
             dataSource={associatedInstances}
             columns={instanceColumns}
             rowKey={(r: any) => r.InstanceId || r.id}
-            pagination={{ pageSize: 10 }}
+            pagination={{
+              size: 'small',
+              showTotal: (total) => `共 ${total} 条`,
+            }}
             size="small"
           />
         ) : (
@@ -395,7 +398,10 @@ const SecurityGroupDetailModalAliyun: React.FC<Props> = ({ open, onCancel, cloud
             dataSource={currentRules}
             columns={columns}
             rowKey={(r) => `${r.IpProtocol}-${r.PortRange}-${r.SourceCidrIp || r.DestCidrIp || r.SourceGroupId || r.DestGroupId}-${r.Priority}`}
-            pagination={{ pageSize: 10 }}
+            pagination={{
+              size: 'small',
+              showTotal: (total) => `共 ${total} 条`,
+            }}
             loading={loading}
             size="small"
           />

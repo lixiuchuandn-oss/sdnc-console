@@ -1,353 +1,419 @@
 /**
- * ==============================================================================
- * Harvester - 虚拟机创建向导 - 磁盘配置步骤 (StepDisks)
- * frontend/src/pages/Clouds/Harvester/modals/VmCreateWizard/StepDisks.tsx
- * ==============================================================================
+ * StepDisks — Harvester 创建虚拟机向导「存储与磁盘」步骤。
  *
- * [功能描述]
- * 负责配置虚拟机的存储资源，包括必须的系统盘 (Root Disk) 和可选的数据盘 (Data Disks)。
- * 支持从镜像、ISO、或现有 PVC 启动系统，并支持挂载多个数据盘或 ISO 镜像。
- * ------------------------------------------------------------------------------
+ * 职责：
+ * - 系统盘：来源（镜像 / ISO / 现有 PVC）、容量、块设备总线、设备类型、存储类。切换为「现有磁盘」时会复位为块设备 + 默认可编辑总线。
+ * - 数据盘：Form.List 动态增删；新建卷、已有卷、挂载 ISO；每条的总线与来源子表单。
  *
- * [核心逻辑]
- * 1. [系统盘来源]:
- *    - 镜像 (Image): 从 Harvester 镜像启动，支持 qcow2/raw。
- *    - ISO: 从 ISO 镜像启动，此时系统盘作为 CDROM，且必须挂载一块空白数据盘用于安装系统。
- *    - 现有卷 (Existing PVC): 使用已有的 PVC 作为系统盘。
- * 2. [数据盘管理]:
- *    - 支持动态添加/删除数据盘。
- *    - 类型支持：新建空白卷 (New)、挂载现有卷 (Existing)、挂载 ISO。
- * 3. [容量解析]:
- *    - 自动解析镜像或 PVC 的原始大小并转换为 GiB 显示。
- *    - 对于新建卷，提供数字输入框。
- * 4. [校验规则]:
- *    - 若系统盘为 CDROM 模式，强制校验必须存在至少一块非 CDROM 的数据盘。
- * ------------------------------------------------------------------------------
- *
- * [API 接口]
- * - 提交时作为 VM Spec 的一部分:
- *   - disks (Array): 包含系统盘和数据盘配置
- *     - name, size, bus, bootOrder
- *     - existingVolume / containerImage (Image) / newVolume (Empty)
- * ------------------------------------------------------------------------------
- *
- * [交互依赖]
- * - 依赖 Ant Design Form List 处理动态表单项。
- * - 依赖外部传入的 images/volumes/storageClasses 数据源。
+ * 约定：
+ * - 块设备总线可选 VirtIO / SCSI / SATA / IDE / NVMe；CD-ROM 总线由架构固定（见 VmWizardUtils），说明在表单项 label 的 tooltip。
+ * - 系统盘为 CD-ROM 时，校验必须存在至少一块非 CD-ROM 数据盘作为安装目标。
  */
 import React from 'react';
-import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
-import { MinusCircleOutlined } from '@ant-design/icons';
-import { isSystemStorageClass } from '../../../../../utils/harvesterUtils';
+import { Form, Input, Select, Space, Button, Row, Col, Card, Typography, Tooltip } from 'antd';
+import type { FormInstance } from 'antd/es/form';
+import { MinusCircleOutlined, InfoCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { isHarvesterVmImageReady, isSystemStorageClass, resolveVmImageKind } from '../../../../../utils/harvesterUtils';
+import { parseSizeToGi } from './VmWizardUtils';
 import { OsIcon } from '../../../../../components/OsIcon';
 
-/**
- * 组件 Props 定义
- */
-interface StepDisksProps {
-  /** Ant Design Form 实例 */
-  form: any;
-  /** 镜像下拉选项列表 */
-  imageOptions: any[];
-  /** 镜像加载状态 */
+// ---------------------------------------------------------------------------
+// 常量
+// ---------------------------------------------------------------------------
+
+const DISK_BUS_OPTIONS = [
+  { label: 'VirtIO（推荐）', value: 'virtio' },
+  { label: 'SCSI', value: 'scsi' },
+  { label: 'SATA', value: 'sata' },
+  { label: 'IDE', value: 'ide' },
+  { label: 'NVMe', value: 'nvme' },
+] as const;
+
+const WIN_OR_LEGACY_HINT = /windows|win|uefi/i;
+
+// ---------------------------------------------------------------------------
+// 类型
+// ---------------------------------------------------------------------------
+
+export interface StepDisksProps {
+  form: FormInstance;
+  /** 预计算的下拉项（当前步骤内未使用，由父级传入以保持接口稳定） */
+  imageOptions: unknown[];
   imageLoading: boolean;
-  /** 重新加载镜像数据的回调 */
   reloadImages: () => void;
-  /** 原始镜像数据列表 (用于查找详细信息) */
-  images: any[];
-  /** 默认存储类名称 */
+  images: unknown[];
   defaultStorageClassName: string | undefined;
-  /** 重新加载存储类的回调 */
   reloadStorageClasses: () => void;
-  /** 初始虚拟机名称 (未直接使用，保留属性) */
+  /** 预留：名称生成等 */
   initialVmName: string;
-  /** 现有卷 (PVC) 下拉选项 */
-  volumeOptions: any[];
-  /** 重新加载卷数据的回调 */
+  volumeOptions: unknown[];
   reloadVolumes: () => void;
-  /** 可用卷原始数据列表 */
-  availableVolumes: any[];
-  /** 存储类列表 */
-  storageClasses: any[];
-  /** 存储类加载状态 */
+  availableVolumes: unknown[];
+  storageClasses: unknown[];
   storageClassLoading: boolean;
-  /** 当前选中的磁盘索引 (用于 UI 高亮) */
+  /** 预留：磁盘卡片高亮 */
   selectedDiskIdx: number | null;
-  /** 设置选中磁盘索引的回调 */
   setSelectedDiskIdx: (idx: number | null) => void;
+  /** 与提交时 CD-ROM 总线逻辑一致（x86→SATA，ARM64→SCSI） */
+  isArm64?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// 纯函数与小型展示组件
+// ---------------------------------------------------------------------------
+
+function cdromBusFieldValue(isArm64: boolean): 'scsi' | 'sata' {
+  return isArm64 ? 'scsi' : 'sata';
+}
+
+/** 光驱固定总线说明：写在 Form.Item `tooltip`，与「总线」标签对齐，勿放在控件旁 */
+function cdromBusTooltipText(isArm64: boolean): string {
+  return isArm64
+    ? 'ARM64 集群上光驱设备固定为 SCSI，与下发的虚拟机规格一致。'
+    : 'x86/amd64 上光驱设备固定为 SATA，与下发的虚拟机规格一致。';
+}
+
+function generateDiskSuffix(): string {
+  return Math.random().toString(36).substring(2, 8);
+}
+
+function getImageRecordDisplayName(it: Record<string, unknown> | undefined | null): string {
+  if (!it) return '';
+  const meta = it.metadata as Record<string, unknown> | undefined;
+  const spec = it.spec as Record<string, unknown> | undefined;
+  const labels = meta?.labels as Record<string, string> | undefined;
+  const annotations = meta?.annotations as Record<string, string> | undefined;
+  return String(
+    spec?.displayName ||
+      labels?.['harvesterhci.io/imageDisplayName'] ||
+      annotations?.['harvesterhci.io/image-name'] ||
+      annotations?.['field.cattle.io/displayName'] ||
+      it.displayName ||
+      it.name ||
+      meta?.name ||
+      ''
+  );
+}
+
+function buildImageSelectOption(x: unknown) {
+  const rec = x as Record<string, unknown>;
+  const meta = rec.metadata as Record<string, unknown> | undefined;
+  const name = (meta?.name || rec.name) as string | undefined;
+  const ns = meta?.namespace as string | undefined;
+  const disp = getImageRecordDisplayName(rec);
+  const value = ns && name ? `${ns}/${name}` : name;
+  return {
+    label: (
+      <Space>
+        <OsIcon osName={String(disp || name || '')} />
+        {disp || name || '-'}
+      </Space>
+    ),
+    value,
+    labelString: disp || name || '',
+  };
+}
+
+function findImageBySelectValue(images: unknown[], val: string) {
+  return (images || []).find((raw) => {
+    const x = raw as Record<string, unknown>;
+    const meta = x.metadata as Record<string, unknown> | undefined;
+    const name = meta?.name || x.name;
+    const ns = meta?.namespace;
+    const v = ns && name ? `${ns}/${name}` : name;
+    return v === val;
+  }) as Record<string, unknown> | undefined;
+}
+
+function inferBusFromPvcName(pvcVal: string): 'sata' | 'virtio' {
+  return /windows|win/i.test(String(pvcVal || '').toLowerCase()) ? 'sata' : 'virtio';
+}
+
+/** isSystemStorageClass 需要 string，从列表项安全取存储类名 */
+function storageClassNameFromItem(x: unknown): string {
+  const o = x as { metadata?: { name?: string }; name?: string };
+  return String(o?.metadata?.name || o?.name || '');
+}
+
+/** 光驱总线：禁用 Select（与可编辑总线同边框）；说明由外层 Form.Item `tooltip` 承载 */
+const CDROM_BUS_FIXED_OPTIONS = [
+  { label: 'SATA（固定）', value: 'sata' },
+  { label: 'SCSI（固定）', value: 'scsi' },
+] as const;
+
+function CdromBusReadonly({ isArm64 }: { isArm64: boolean }) {
+  return (
+    <Select
+      disabled
+      style={{ width: '100%' }}
+      value={cdromBusFieldValue(isArm64)}
+      options={[...CDROM_BUS_FIXED_OPTIONS]}
+    />
+  );
+}
+
+function DiskBusLabel() {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      总线
+      <Tooltip title="VirtIO 性能最好；若客户机无驱动，可改用 SATA 或 SCSI。">
+        <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)', fontSize: 14 }} />
+      </Tooltip>
+    </span>
+  );
+}
+
+/** 数据盘卡片标题用：从 size 字段解析 GiB（展示） */
+function parseExtraDiskSizeGiB(raw: unknown, sourceType: string): number | '' {
+  if (raw == null || raw === '') return '';
+  const ss = String(raw).toUpperCase();
+  const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0;
+  if (sourceType === 'existing') {
+    if (/GI$/.test(ss)) return num;
+    if (/MI$/.test(ss)) return Math.ceil(num / 1024);
+    return Math.round(num / (1024 * 1024 * 1024));
+  }
+  if (/GI$/.test(ss)) return num;
+  if (/MI$/.test(ss)) return Math.ceil(num / 1024);
+  if (/^[0-9]+$/.test(ss)) return num;
+  return num;
+}
+
+/** 已有卷容量只读展示 */
+function formatExistingPvcSizeDisplay(
+  sizeField: unknown,
+  pvcKey: string | undefined,
+  availableVolumes: unknown[]
+): string {
+  if (sizeField !== undefined && sizeField !== null) {
+    const ss = String(sizeField).toUpperCase();
+    const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0;
+    let n = 0;
+    if (/GI$/.test(ss)) n = num;
+    else if (/MI$/.test(ss)) n = Math.ceil(num / 1024);
+    else n = Math.round(num / (1024 * 1024 * 1024));
+    if (n) return `${n} GiB`;
+  }
+  const it = (availableVolumes || []).find((v) => (v as { pvcName?: string })?.pvcName === pvcKey);
+  const raw = (it as { size?: unknown } | undefined)?.size;
+  if (typeof raw === 'number') {
+    const n = Math.round(raw / (1024 * 1024 * 1024));
+    return n ? `${n} GiB` : '';
+  }
+  const ss = String(raw || '').toUpperCase();
+  const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0;
+  let n = 0;
+  if (/GI$/.test(ss)) n = num;
+  else if (/MI$/.test(ss)) n = Math.ceil(num / 1024);
+  else n = Math.round(num / (1024 * 1024 * 1024));
+  return n ? `${n} GiB` : '';
+}
+
+// ---------------------------------------------------------------------------
+// 主组件
+// ---------------------------------------------------------------------------
 
 const StepDisks: React.FC<StepDisksProps> = ({
   form,
-  imageOptions,
+  imageOptions: _imageOptions,
   imageLoading,
   reloadImages,
   images,
   defaultStorageClassName,
   reloadStorageClasses,
-  initialVmName,
+  initialVmName: _initialVmName,
   volumeOptions,
   reloadVolumes,
   availableVolumes,
   storageClasses,
   storageClassLoading,
-  selectedDiskIdx,
-  setSelectedDiskIdx,
+  selectedDiskIdx: _selectedDiskIdx,
+  setSelectedDiskIdx: _setSelectedDiskIdx,
+  isArm64 = false,
 }) => {
-  // [辅助函数] 生成随机磁盘名称后缀 (6位小写字母数字)
-  const generateDiskName = () => Math.random().toString(36).substring(2, 8);
+  const watchedRootSource = Form.useWatch('rootSourceType', form);
+  const rootSourceType = watchedRootSource || 'image';
+  const watchedRootDeviceType = Form.useWatch('rootDeviceType', form);
 
-  // [辅助函数] 判断存储类是否支持 ReadWriteMany (RWX)
-  const isRwxStorageClass = (x: any) => {
-    const nm = String(x?.name || '').toLowerCase();
-    const p = x?.parameters || {};
-    const shared = String(p?.allowSharedAccess || '').toLowerCase();
-    return nm.includes('rwx') || shared === 'true';
+  const onRootSourceChange = (v: string) => {
+    try {
+      form.setFieldsValue({ image: undefined, rootPvc: undefined, rootSize: undefined });
+    } catch {
+      /* ignore */
+    }
+    if (v === 'existing') reloadVolumes();
+    else reloadImages();
+
+    if (v === 'image' || v === 'iso') {
+      try {
+        const sc = defaultStorageClassName;
+        if (!sc) reloadStorageClasses();
+        form.setFieldsValue({ storageClassName: sc || form.getFieldValue('storageClassName') });
+      } catch {
+        /* ignore */
+      }
+    }
+    if (v === 'iso') {
+      try {
+        form.setFieldsValue({
+          rootDeviceType: 'cdrom',
+          rootBus: cdromBusFieldValue(isArm64),
+        });
+      } catch {
+        /* ignore */
+      }
+    } else if (v === 'image') {
+      try {
+        form.setFieldsValue({ rootDeviceType: 'disk', rootBus: 'virtio' });
+      } catch {
+        /* ignore */
+      }
+    } else if (v === 'existing') {
+      // 从镜像/ISO 切过来时须复位：否则仍为 cdrom 会锁死总线；现有卷按块设备处理，总线可自选
+      try {
+        form.setFieldsValue({ rootDeviceType: 'disk', rootBus: 'virtio' });
+      } catch {
+        /* ignore */
+      }
+    }
   };
 
-  /**
-   * [业务逻辑] 解析镜像类型
-   * 根据 Label 或文件扩展名判断镜像是否为 ISO 或磁盘镜像
-   */
-  const resolveImageKind = (img: any): 'iso' | 'disk' | 'unknown' => {
-    const labels = img?.metadata?.labels || {};
-    const typeLabel = String(labels['harvesterhci.io/image-type'] || '').toLowerCase();
-    if (typeLabel === 'iso') return 'iso';
-    if (['raw_qcow2', 'qcow2', 'raw'].includes(typeLabel)) return 'disk';
-    const diskFormat = String(img?.spec?.diskFormat || img?.diskFormat || '').toLowerCase();
-    if (diskFormat === 'iso') return 'iso';
-    if (['qcow2', 'raw'].includes(diskFormat)) return 'disk';
-    const disp = String(
-      labels['harvesterhci.io/imageDisplayName'] ||
-      img?.metadata?.name ||
-      img?.name ||
-      ''
-    ).toLowerCase();
-    if (/\.(iso)$/.test(disp)) return 'iso';
-    if (/\.(qcow2|img|raw)$/.test(disp)) return 'disk';
-    return 'unknown';
+  const onRootImageChange = (val: string) => {
+    try {
+      if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) {
+        reloadStorageClasses();
+      }
+      const it = findImageBySelectValue(images, val);
+      const dispName = getImageRecordDisplayName(it).toLowerCase();
+      const needEfi = WIN_OR_LEGACY_HINT.test(dispName);
+      const isWindows = /windows|win/.test(dispName);
+      const kind = resolveVmImageKind(it);
+      const isIso = kind === 'iso';
+      const sc =
+        (it?.storageClassName as string | undefined) ||
+        defaultStorageClassName ||
+        form.getFieldValue('storageClassName');
+      form.setFieldsValue({
+        storageClassName: sc,
+        bootUseEfi: needEfi,
+        rootDeviceType: isIso ? 'cdrom' : 'disk',
+        rootBus: isIso ? cdromBusFieldValue(isArm64) : isWindows ? 'sata' : 'virtio',
+      });
+      const raw =
+        (it as { spec?: { virtualSize?: unknown } })?.spec?.virtualSize ??
+        (it as { virtualSize?: unknown })?.virtualSize ??
+        (it as { size?: unknown })?.size;
+      const gi = parseSizeToGi(raw);
+      if (gi) form.setFieldsValue({ rootSize: `${gi}` });
+    } catch {
+      /* ignore */
+    }
   };
+
+  const onRootIsoSelectChange = (val: string) => {
+    try {
+      if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) {
+        reloadStorageClasses();
+      }
+      const it = findImageBySelectValue(images, val);
+      const dispName = getImageRecordDisplayName(it).toLowerCase();
+      const needEfi = WIN_OR_LEGACY_HINT.test(dispName);
+      const sc =
+        (it?.storageClassName as string | undefined) ||
+        defaultStorageClassName ||
+        form.getFieldValue('storageClassName');
+      form.setFieldsValue({
+        storageClassName: sc,
+        bootUseEfi: needEfi,
+        rootDeviceType: 'cdrom',
+        rootBus: cdromBusFieldValue(isArm64),
+      });
+      const raw =
+        (it as { spec?: { virtualSize?: unknown } })?.spec?.virtualSize ??
+        (it as { virtualSize?: unknown })?.virtualSize ??
+        (it as { size?: unknown })?.size;
+      const gi = parseSizeToGi(raw);
+      if (gi) form.setFieldsValue({ rootSize: `${gi}` });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const nonIsoImageOptions = (images || [])
+    .filter((x) => resolveVmImageKind(x) !== 'iso' && isHarvesterVmImageReady(x))
+    .map(buildImageSelectOption);
+
+  const isoImageOptions = (images || [])
+    .filter((x) => resolveVmImageKind(x) === 'iso' && isHarvesterVmImageReady(x))
+    .map(buildImageSelectOption);
 
   return (
     <>
       <Typography.Paragraph type="secondary">配置新建云主机的系统盘和数据盘参数</Typography.Paragraph>
-      
-      {/* === 系统盘配置区域 === */}
+
       <div className="wizard-group-title">系统盘</div>
       <Row gutter={12}>
         <Col span={8}>
-          {/* 系统盘来源选择：联动清理后续字段 */}
-          <Form.Item label="来源" name="rootSourceType" rules={[{ required: true }]}> 
-            <Select 
+          <Form.Item label="来源" name="rootSourceType" rules={[{ required: true }]}>
+            <Select
               options={[
                 { label: '镜像', value: 'image' },
                 { label: 'ISO', value: 'iso' },
-                { label: '现有磁盘', value: 'existing' }
-              ]} 
-              onChange={(v) => { 
-                // [状态重置] 切换来源时清空关联字段
-                try {
-                  form.setFieldsValue({ image: undefined, rootPvc: undefined, rootSize: undefined });
-                } catch {}
-                if (v === 'existing') { reloadVolumes(); } else { reloadImages(); } 
-                
-                // [初始化] 自动填充默认存储类
-                if (v === 'image' || v === 'iso') { 
-                  try { 
-                    const sc = defaultStorageClassName; 
-                    if (!sc) reloadStorageClasses(); 
-                    form.setFieldsValue({ storageClassName: sc || form.getFieldValue('storageClassName') }); 
-                  } catch { } 
-                }
-                // [自动推断] 根据来源设置设备类型
-                if (v === 'iso') { try { form.setFieldsValue({ rootDeviceType: 'cdrom' }); } catch {} }
-                else if (v === 'image') { try { form.setFieldsValue({ rootDeviceType: 'disk' }); } catch {} }
-              }} 
+                { label: '现有磁盘', value: 'existing' },
+              ]}
+              onChange={onRootSourceChange}
             />
           </Form.Item>
         </Col>
         <Col span={16}>
-          {/* 来源=镜像 (非 ISO) */}
-          {(form.getFieldValue('rootSourceType') || 'image') === 'image' && (
-            <Form.Item label="选择镜像" name="image" rules={[{ required: true }]}> 
+          {rootSourceType === 'image' && (
+            <Form.Item label="选择镜像" name="image" rules={[{ required: true, message: '请选择镜像' }]}>
               <Select
-                options={(images || []).filter((x: any) => {
-                  const kind = resolveImageKind(x);
-                  return kind !== 'iso';
-                }).map((x: any) => {
-                  const name = x?.metadata?.name || x?.name;
-                  const ns = x?.metadata?.namespace || x?.namespace;
-                  const disp =
-                    x?.spec?.displayName ||
-                    x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-                    x?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
-                    x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
-                    x?.displayName ||
-                    name;
-                  return { 
-                    label: (
-                      <Space>
-                        <OsIcon osName={disp || name} />
-                        {disp || '-'}
-                      </Space>
-                    ),
-                    value: ns && name ? `${ns}/${name}` : name,
-                    // 将原始文本也放入，便于搜索
-                    labelString: disp || name
-                  };
-                })}
+                options={nonIsoImageOptions}
                 optionFilterProp="labelString"
                 placeholder="选择镜像"
                 loading={imageLoading}
-                onOpenChange={(open) => { if (open) reloadImages(); }}
-                onChange={(val) => {
-                  try {
-                    // Only reload storage classes if default is missing, avoiding unnecessary calls
-                    if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) { reloadStorageClasses(); }
-                    const it = (images || []).find((x: any) => {
-                      const name = x?.metadata?.name || x?.name;
-                      const ns = x?.metadata?.namespace || x?.namespace;
-                      const v = ns && name ? `${ns}/${name}` : name;
-                      return v === val;
-                    });
-                    const dispName = String(
-                      it?.spec?.displayName ||
-                      it?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-                      it?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
-                      it?.metadata?.annotations?.['field.cattle.io/displayName'] ||
-                      it?.displayName ||
-                      it?.name ||
-                      ''
-                    );
-                    const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
-                    const isWindows = /windows|win/.test(dispName.toLowerCase());
-                    const kind = resolveImageKind(it);
-                    const isIso = kind === 'iso';
-                    const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
-                    // Avoid overwriting storageClassName if user has already set it manually
-                    // But here we set it based on image recommendation if not set or if we want to follow image default
-                    // Let's set it only if current value is empty to be safe, or just update it as this is a "Select Image" action which usually implies reset.
-                    // For safety in wizard flow, we update it.
-                    form.setFieldsValue({ 
-                      storageClassName: sc, 
-                      bootUseEfi: needEfi, 
-                      rootDeviceType: isIso ? 'cdrom' : 'disk',
-                      rootBus: isWindows ? 'sata' : 'virtio'
-                    });
-                    
-                    // [容量解析] 自动计算镜像大小并转为 GiB
-                    const raw = (it as any)?.virtualSize ?? (it as any)?.size;
-                    let gi = 0;
-                    if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
-                    else {
-                      const ss = String(raw || '').toUpperCase();
-                      const num = Number(ss.replace(/[^0-9]/g, '')) || 0;
-                      if (/GI$/.test(ss)) gi = num;
-                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024);
-                      else gi = Math.round(num / (1024 ** 3));
-                    }
-                    if (gi) form.setFieldsValue({ rootSize: `${gi}` });
-                  } catch {}
+                onOpenChange={(open) => {
+                  if (open) reloadImages();
                 }}
+                onChange={onRootImageChange}
               />
             </Form.Item>
           )}
 
-          {/* 来源=ISO */}
-          {(form.getFieldValue('rootSourceType') || 'image') === 'iso' && (
-            <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true }]}>
+          {rootSourceType === 'iso' && (
+            <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true, message: '请选择 ISO 镜像' }]}>
               <Select
-                options={(images || []).filter((x: any) => {
-                  const kind = resolveImageKind(x);
-                  return kind === 'iso';
-                }).map((x: any) => {
-                  const name = x?.metadata?.name || x?.name;
-                  const ns = x?.metadata?.namespace || x?.namespace;
-                  const disp =
-                    x?.spec?.displayName ||
-                    x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-                    x?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
-                    x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
-                    x?.displayName ||
-                    name;
-                  return { 
-                    label: (
-                      <Space>
-                        <OsIcon osName={disp || name} />
-                        {disp || '-'}
-                      </Space>
-                    ),
-                    value: ns && name ? `${ns}/${name}` : name,
-                    labelString: disp || name
-                  };
-                })}
+                options={isoImageOptions}
                 optionFilterProp="labelString"
                 placeholder="选择 ISO 镜像"
                 loading={imageLoading}
-                onOpenChange={(open) => { if (open) reloadImages(); }}
-                onChange={(val) => {
-                  try {
-                    // Only reload storage classes if default is missing, avoiding unnecessary calls
-                    if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) { reloadStorageClasses(); }
-                    const it = (images || []).find((x: any) => {
-                      const name = x?.metadata?.name || x?.name;
-                      const ns = x?.metadata?.namespace || x?.namespace;
-                      const v = ns && name ? `${ns}/${name}` : name;
-                      return v === val;
-                    });
-                    const dispName = String(
-                      it?.spec?.displayName ||
-                      it?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-                      it?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
-                      it?.metadata?.annotations?.['field.cattle.io/displayName'] ||
-                      it?.displayName ||
-                      it?.name ||
-                      ''
-                    );
-                    const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
-                    const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
-                    // Avoid overwriting storageClassName if user has already set it manually
-                    form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: 'cdrom' });
-                    
-                    const raw = (it as any)?.virtualSize ?? (it as any)?.size;
-                    let gi = 0;
-                    if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
-                    else {
-                      const ss = String(raw || '').toUpperCase();
-                      const num = Number(ss.replace(/[^0-9]/g, '')) || 0;
-                      if (/GI$/.test(ss)) gi = num;
-                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024);
-                      else gi = Math.round(num / (1024 ** 3));
-                    }
-                    if (gi) form.setFieldsValue({ rootSize: `${gi}` });
-                  } catch {}
+                onOpenChange={(open) => {
+                  if (open) reloadImages();
                 }}
+                onChange={onRootIsoSelectChange}
               />
             </Form.Item>
           )}
-          
-          {/* 如果来源是现有卷，显示 PVC 选择框 */}
-          {(form.getFieldValue('rootSourceType') || 'image') === 'existing' && (
-            <Form.Item label="选择卷（PVC）" name="rootPvc" rules={[{ required: true }]}> 
+
+          {rootSourceType === 'existing' && (
+            <Form.Item label="选择卷（PVC）" name="rootPvc" rules={[{ required: true }]}>
               <Select
-                options={volumeOptions}
+                options={volumeOptions as { label?: unknown; value?: string }[]}
                 placeholder="选择现有卷"
-                onOpenChange={(open) => { if (open) reloadVolumes(); }}
+                onOpenChange={(open) => {
+                  if (open) reloadVolumes();
+                }}
                 onChange={(val) => {
-                  // [状态同步] 选中 PVC 后自动填充大小
                   try {
-                    const it = (availableVolumes || []).find((v: any) => v?.pvcName === val);
-                    const raw = it?.size;
-                    let gi = 0;
-                    if (typeof raw === 'number') { gi = Math.round(raw / (1024 * 1024 * 1024)); }
-                    else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) { gi = num; } else if (/MI$/.test(ss)) { gi = Math.ceil(num / 1024); } else { gi = Math.round(num / (1024 * 1024 * 1024)); } }
+                    const it = (availableVolumes || []).find((v) => (v as { pvcName?: string })?.pvcName === val);
+                    const raw = (it as { size?: unknown } | undefined)?.size;
+                    const gi = parseSizeToGi(raw);
                     if (gi) form.setFieldsValue({ rootSize: `${gi}` });
-                    
-                    // [自动推断] 根据 PVC 名称判断是否为 Windows
-                    const pvcName = String(val || '').toLowerCase();
-                    const isWindows = /windows|win/.test(pvcName);
-                    form.setFieldsValue({ rootBus: isWindows ? 'sata' : 'virtio' });
-                  } catch { }
+                    form.setFieldsValue({ rootBus: inferBusFromPvcName(String(val)) });
+                  } catch {
+                    /* ignore */
+                  }
                 }}
               />
             </Form.Item>
@@ -355,128 +421,153 @@ const StepDisks: React.FC<StepDisksProps> = ({
         </Col>
       </Row>
 
-      {/* 系统盘详细参数：名称、容量、总线、设备类型 */}
-      {
-        <Row gutter={12}>
-          <Col span={8}>
-            <Form.Item label="名称" name="rootName">
-              <Input placeholder="自动生成" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            {/* 容量输入框：只允许输入数字，单位固定为 GiB */}
-            <Form.Item label="容量" name="rootSize" rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' }]}> 
-              <Input type="number" placeholder="如：40" suffix="GiB" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item label="总线" name="rootBus"> 
-              <Select options={[{ label: 'VIRTIO', value: 'virtio' }, { label: 'SATA', value: 'sata' }, { label: 'SCSI', value: 'scsi' }]} />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item 
-              label="设备类型" 
-              name="rootDeviceType" 
-              dependencies={['extraDisks','rootDeviceType']}
-              rules={[
-                {
-                  // [业务规则] 系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统
-                  validator: async (_, value) => {
-                    if (value === 'cdrom') {
-                      const extraDisks = form.getFieldValue('extraDisks') || [];
-                      const hasDataDisk = extraDisks.some((d: any) => d?.type !== 'cdrom' && d?.deviceType !== 'cdrom');
-                      if (!hasDataDisk) {
-                        return Promise.reject(new Error('系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统'));
-                      }
+      <Row gutter={12}>
+        <Col xs={24} sm={12} md={8}>
+          <Form.Item
+            label="名称"
+            name="rootName"
+            rules={[{ pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' }]}
+          >
+            <Input placeholder="自动生成" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12} md={8}>
+          <Form.Item
+            label="容量"
+            name="rootSize"
+            rules={[
+              { required: true, message: '请输入容量' },
+              { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' },
+            ]}
+          >
+            <Input type="number" placeholder="如：40" suffix="GiB" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12} md={8}>
+          <Form.Item noStyle dependencies={['rootDeviceType', 'rootSourceType']}>
+            {() => {
+              const rootDev = form.getFieldValue('rootDeviceType');
+              const isCdrom = rootDev === 'cdrom';
+              if (isCdrom) {
+                return (
+                  <>
+                    <Form.Item name="rootBus" hidden>
+                      <Input />
+                    </Form.Item>
+                    <Form.Item label="总线" tooltip={cdromBusTooltipText(isArm64)}>
+                      <CdromBusReadonly isArm64={isArm64} />
+                    </Form.Item>
+                  </>
+                );
+              }
+              return (
+                <Form.Item
+                  label={<DiskBusLabel />}
+                  name="rootBus"
+                  rules={[{ required: true, message: '请选择总线' }]}
+                >
+                  <Select options={[...DISK_BUS_OPTIONS]} placeholder="VirtIO（推荐）" />
+                </Form.Item>
+              );
+            }}
+          </Form.Item>
+        </Col>
+      </Row>
+      <Row gutter={12}>
+        <Col xs={24} sm={12} md={8}>
+          <Form.Item
+            label={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                设备类型
+                {watchedRootDeviceType === 'cdrom' && (
+                  <Tooltip title="系统盘为光驱时，须至少添加一块非 ISO 的数据盘作为安装目标磁盘。">
+                    <ExclamationCircleOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
+                  </Tooltip>
+                )}
+              </span>
+            }
+            name="rootDeviceType"
+            dependencies={['extraDisks', 'rootDeviceType']}
+            rules={[
+              {
+                validator: async (_, value) => {
+                  if (value === 'cdrom') {
+                    const extraDisks = form.getFieldValue('extraDisks') || [];
+                    const hasDataDisk = extraDisks.some(
+                      (d: { type?: string; deviceType?: string }) =>
+                        d?.type !== 'cdrom' && d?.deviceType !== 'cdrom'
+                    );
+                    if (!hasDataDisk) {
+                      return Promise.reject(
+                        new Error('系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统')
+                      );
                     }
-                    return Promise.resolve();
                   }
-                }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <Select
+              options={[
+                { label: 'Disk', value: 'disk' },
+                { label: 'CD-ROM', value: 'cdrom' },
               ]}
-              help={(form.getFieldValue('rootDeviceType') === 'cdrom') ? (
-                <span style={{ color: '#ff4d4f' }}>
-                  系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统
-                </span>
-              ) : undefined}
-            > 
-              <Select options={[{ label: 'DISK', value: 'disk' }, { label: 'CDROM', value: 'cdrom' }]} />
-            </Form.Item>
-          </Col>
-          {(form.getFieldValue('rootSourceType') || 'image') !== 'existing' && (
-            <Col span={16}>
-              <Form.Item label="存储类" name="storageClassName">
-                <Select
-                  disabled={['image', 'iso'].includes(form.getFieldValue('rootSourceType') || 'image')}
-                  placeholder="选择存储类"
-                  options={(storageClasses || []).filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name)).map((x: any) => {
-                    const nm = x?.metadata?.name || x?.name;
+            />
+          </Form.Item>
+        </Col>
+        {rootSourceType !== 'existing' && (
+          <Col xs={24} sm={24} md={16}>
+            <Form.Item label="存储类" name="storageClassName">
+              <Select
+                disabled={['image', 'iso'].includes(rootSourceType)}
+                placeholder="选择存储类"
+                options={(storageClasses || [])
+                  .filter((x) => !isSystemStorageClass(storageClassNameFromItem(x)))
+                  .map((x) => {
+                    const nm = storageClassNameFromItem(x);
                     return { label: nm, value: nm };
                   })}
-                  loading={storageClassLoading}
-                  onOpenChange={(open) => { if (open) reloadStorageClasses(); }}
-                />
-              </Form.Item>
-            </Col>
-          )}
-        </Row>
-      }
+                loading={storageClassLoading}
+                onOpenChange={(open) => {
+                  if (open) reloadStorageClasses();
+                }}
+              />
+            </Form.Item>
+          </Col>
+        )}
+      </Row>
 
-      {/* === 2. 数据盘配置区域 === */}
       <div className="wizard-group-title">数据盘</div>
       <Form.List name="extraDisks">
         {(fields, { add, remove }) => (
           <div>
-            {fields.map(({ key, name }, idx) => {
-              // 获取当前磁盘的值
-              const v = form.getFieldValue(['extraDisks', name]);
-              
-              // 动态计算用于标题显示的磁盘大小
-              const sizeGiB = (function () { 
-                const raw = v?.size; 
-                if (!raw) return ''; 
-                const st = v?.sourceType || form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new';
-                const ss = String(raw).toUpperCase(); 
-                const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
-                
-                if (st === 'existing') {
-                   // 现有卷：解析已有大小
-                   if (/GI$/.test(ss)) return num; 
-                   if (/MI$/.test(ss)) return Math.ceil(num / 1024); 
-                   return Math.round(num / (1024 * 1024 * 1024)); 
-                } else {
-                   // 新建卷：如果是纯数字，默认为 GiB
-                   if (/GI$/.test(ss)) return num;
-                   if (/MI$/.test(ss)) return Math.ceil(num / 1024);
-                   if (/^[0-9]+$/.test(ss)) return num; 
-                   return num;
-                }
-              })();
-
-              // 构造卡片标题：序号 + 名称 + 大小 + 类型
-              const titleText = (function () { 
-                const st = v?.sourceType || form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; 
-                const typ = (form.getFieldValue(['extraDisks', name, 'type']) || v?.type || 'disk') === 'cdrom' ? 'ISO' : 'DISK'; 
-                const sizeTxt = st === 'existing' ? '' : (sizeGiB ? ` ${sizeGiB} GiB` : ''); 
-                return `${idx + 1}# ${v?.name ? v.name : '未命名'}${sizeTxt} · ${typ}`; 
-              })();
-
-              const title = (
-                <div>
-                  {titleText}
-                </div>
-              );
+            {fields.map(({ key, name: fieldName }, idx) => {
+              const row = form.getFieldValue(['extraDisks', fieldName]) as
+                | { size?: unknown; sourceType?: string; type?: string; name?: string }
+                | undefined;
+              const st = row?.sourceType || form.getFieldValue(['extraDisks', fieldName, 'sourceType']) || 'new';
+              const sizeGiB = parseExtraDiskSizeGiB(row?.size, st);
+              const diskType =
+                (form.getFieldValue(['extraDisks', fieldName, 'type']) || row?.type || 'disk') === 'cdrom'
+                  ? 'ISO'
+                  : 'DISK';
+              const sizeTxt = st === 'existing' ? '' : sizeGiB ? ` ${sizeGiB} GiB` : '';
+              const titleText = `${idx + 1}# ${row?.name ? row.name : '未命名'}${sizeTxt} · ${diskType}`;
 
               return (
                 <Card
                   key={key}
                   size="small"
-                  title={title}
+                  title={<div>{titleText}</div>}
                   extra={
                     <Button
                       type="text"
                       icon={<MinusCircleOutlined />}
-                      onClick={(e) => { e.stopPropagation?.(); remove(name); }}
+                      onClick={(e) => {
+                        e.stopPropagation?.();
+                        remove(fieldName);
+                      }}
                       danger
                     />
                   }
@@ -485,185 +576,211 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 >
                   <Row gutter={12}>
                     <Col span={8}>
-                      <Form.Item label="名称" name={[name, 'name']} rules={[{ required: true, message: '请输入名称' }]}> 
+                      <Form.Item
+                        label="名称"
+                        name={[fieldName, 'name']}
+                        rules={[
+                          { required: true, message: '请输入名称' },
+                          { pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' },
+                        ]}
+                      >
                         <Input placeholder="如：win-2012-vm-1" />
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      {/* 
-                        容量输入逻辑：
-                        1. 现有卷 (existing): 显示只读输入框，值从 PVC 计算而来。
-                        2. 新建卷 (new): 显示数字输入框，单位固定 GiB。
-                      */}
-                      {(function () {
-                        const st = form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; 
-                        if (st === 'existing') {
-                          return (
-                            <Form.Item label="容量">
-                              <Input value={(function () {
-                                const sizeField = form.getFieldValue(['extraDisks', name, 'size']);
-                                if (sizeField !== undefined && sizeField !== null) {
-                                  // 尝试解析已有的 size 字段
-                                  const ss = String(sizeField).toUpperCase();
-                                  const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0;
-                                  let n = 0;
-                                  if (/GI$/.test(ss)) n = num;
-                                  else if (/MI$/.test(ss)) n = Math.ceil(num / 1024);
-                                  else n = Math.round(num / (1024 * 1024 * 1024));
-                                  if (n) return `${n} GiB`;
-                                }
-                                // 如果没有 size 字段，尝试从 PVC 选项中查找
-                                const key = form.getFieldValue(['extraDisks', name, 'pvc']);
-                                const it = (availableVolumes || []).find((v: any) => v?.pvcName === key);
-                                const raw = it?.size;
-                                if (typeof raw === 'number') { const n = Math.round(raw / (1024 * 1024 * 1024)); return n ? `${n} GiB` : ''; }
-                                const ss = String(raw || '').toUpperCase();
-                                const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0;
-                                let n = 0;
-                                if (/GI$/.test(ss)) { n = num; } else if (/MI$/.test(ss)) { n = Math.ceil(num / 1024); } else { n = Math.round(num / (1024 * 1024 * 1024)); }
-                                return n ? `${n} GiB` : '';
-                              })()} disabled />
-                            </Form.Item>
-                          );
-                        } 
-                        if (st === 'image') {
-                           return (
-                             <Form.Item label="容量">
-                               <Input value="自动" disabled />
-                             </Form.Item>
-                           );
-                        }
-                        // 新建卷：数字输入
-                        return (
-                          <Form.Item label="容量" name={[name, 'size']} rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' }]}> 
-                            <Input type="number" placeholder="如：100" suffix="GiB" />
-                          </Form.Item>
-                        );
-                      })()}
+                      {st === 'existing' && (
+                        <Form.Item label="容量">
+                          <Input
+                            disabled
+                            value={formatExistingPvcSizeDisplay(
+                              form.getFieldValue(['extraDisks', fieldName, 'size']),
+                              form.getFieldValue(['extraDisks', fieldName, 'pvc']),
+                              availableVolumes
+                            )}
+                          />
+                        </Form.Item>
+                      )}
+                      {st === 'image' && (
+                        <Form.Item label="容量">
+                          <Input value="自动" disabled />
+                        </Form.Item>
+                      )}
+                      {st === 'new' && (
+                        <Form.Item
+                          label="容量"
+                          name={[fieldName, 'size']}
+                          rules={[
+                            { required: true, message: '请输入容量' },
+                            { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' },
+                          ]}
+                        >
+                          <Input type="number" placeholder="如：100" suffix="GiB" />
+                        </Form.Item>
+                      )}
                     </Col>
                     <Col span={8}>
-                      <Form.Item label="总线" name={[name, 'bus']} rules={[{ required: true }]}> 
-                        <Select options={[{ label: 'VIRTIO', value: 'virtio' }, { label: 'SATA', value: 'sata' }, { label: 'IDE', value: 'ide' }, { label: 'NVMe', value: 'nvme' }]} />
+                      <Form.Item noStyle dependencies={[['extraDisks', fieldName, 'type']]}>
+                        {() => {
+                          const typ =
+                            form.getFieldValue(['extraDisks', fieldName, 'type']) ||
+                            (form.getFieldValue('extraDisks') || [])[fieldName as number]?.type ||
+                            'disk';
+                          const isCdromRow = typ === 'cdrom';
+                          if (isCdromRow) {
+                            return (
+                              <>
+                                <Form.Item name={[fieldName, 'bus']} hidden>
+                                  <Input />
+                                </Form.Item>
+                                <Form.Item label="总线" tooltip={cdromBusTooltipText(isArm64)}>
+                                  <CdromBusReadonly isArm64={isArm64} />
+                                </Form.Item>
+                              </>
+                            );
+                          }
+                          return (
+                            <Form.Item
+                              label={<DiskBusLabel />}
+                              name={[fieldName, 'bus']}
+                              rules={[{ required: true, message: '请选择总线' }]}
+                            >
+                              <Select options={[...DISK_BUS_OPTIONS]} placeholder="VirtIO（推荐）" />
+                            </Form.Item>
+                          );
+                        }}
                       </Form.Item>
                     </Col>
                   </Row>
-                  
-                  {/* 根据数据盘类型显示不同的后续字段 */}
-                  {
-                    (function () { 
-                      const st = form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; 
-                      
-                      if (st === 'existing') {
-                        // === 现有卷：选择 PVC ===
-                        return (
-                          <>
-                            <Row gutter={12}>
-                              <Col span={24}>
-                                <Form.Item label="卷（PVC）" name={[name, 'pvc']} rules={[{ required: true, message: '请选择PVC' }]} style={{ marginBottom: 0 }}> 
-                                  <Select
-                                    placeholder="选择现有卷（PVC）"
-                                    options={volumeOptions}
-                                    onOpenChange={(open) => { if (open) reloadVolumes(); }}
-                                    onChange={(val) => { 
-                                      // 选中 PVC 后，自动回填名称、大小、模式等信息到 form 中
-                                      try { 
-                                        const curr: any[] = form.getFieldValue('extraDisks') || []; 
-                                        const it = (availableVolumes || []).find((v: any) => v?.pvcName === val); 
-                                        const next = [...curr]; 
-                                        
-                                        // [自动推断] 根据 PVC 名称判断总线类型
-                                        const pvcName = String(val || '').toLowerCase();
-                                        const isWindows = /windows|win/.test(pvcName);
-                                        const defaultBus = isWindows ? 'sata' : 'virtio';
 
-                                        next[name] = { 
-                                          ...(next[name] || {}), 
-                                          pvc: val, 
-                                          // name: it?.name || val, // 移除：不再覆盖自动生成的 ID
-                                          size: it?.size || (next[name]?.size || undefined), 
-                                          volumeMode: (it?.volumeMode || it?.VolumeMode || ''),
-                                          bus: defaultBus
-                                        }; 
-                                        form.setFieldsValue({ extraDisks: next }); 
-                                      } catch { } 
-                                    }}
-                                  />
-                                </Form.Item>
-                              </Col>
-                            </Row>
-                            <Row gutter={12}>
-                            </Row>
-                          </>
-                        );
-                      } else if (st === 'image') {
-                        // === 挂载 ISO：仅选择 ISO ===
-                        return (
-                          <Row gutter={12}>
-                            <Col span={24}>
-                              <Form.Item label="选择 ISO" name={[name, 'image']} rules={[{ required: true, message: '请选择 ISO' }]} style={{ marginBottom: 0 }}>
-                                <Select
-                                  options={(images || []).filter((x: any) => {
-                                    return resolveImageKind(x) === 'iso';
-                                  }).map((x: any) => {
-                                    const name = x?.metadata?.name || x?.name;
-                                    const ns = x?.metadata?.namespace || x?.namespace;
-                                    const disp = x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || name;
-                                    return { 
-                                      label: (
-                                        <Space>
-                                          <OsIcon osName={disp || name} />
-                                          {disp || '-'}
-                                        </Space>
-                                      ),
-                                      value: ns && name ? `${ns}/${name}` : name,
-                                      labelString: disp || name
-                                    };
-                                  })}
-                                  optionFilterProp="labelString"
-                                  placeholder="选择 ISO"
-                                  loading={imageLoading}
-                                  onOpenChange={(open) => { if (open) reloadImages(); }}
-                                />
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                        );
-                      } else {
-                        // === 新建卷：选择存储类和卷模式 ===
-                        // 使用 Row/Col 布局防止换行问题
-                        return (
-                          <Row gutter={12}>
-                            <Col span={16}>
-                              <Form.Item label="存储类" name={[name, 'storageClassName']} rules={[{ required: true, message: '请选择存储类' }]} style={{ marginBottom: 0 }}> 
-                                <Select
-                                  placeholder="选择存储类"
-                                  options={(storageClasses || []).filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name)).map((x: any) => {
-                                    const nm = x?.metadata?.name || x?.name;
-                                    return { label: nm, value: nm };
-                                  })}
-                                  loading={storageClassLoading}
-                                  onOpenChange={(open) => { if (open) reloadStorageClasses(); }}
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col span={8}>
-                                <Form.Item label="卷模式" name={[name, 'volumeMode']} style={{ marginBottom: 0 }}> 
-                                  <Select
-                                    placeholder="选择卷模式"
-                                    options={[{ label: 'Filesystem', value: 'Filesystem' }, { label: 'Block', value: 'Block' }]}
-                                  />
-                                </Form.Item>
-                            </Col>
-                          </Row>
-                        );
-                      }
-                    })()
-                  }
-                  
-                  {/* 隐藏字段：sourceType 用于区分是新建还是现有 */}
+                  {st === 'existing' && (
+                    <Row gutter={12}>
+                      <Col span={24}>
+                        <Form.Item
+                          label="卷（PVC）"
+                          name={[fieldName, 'pvc']}
+                          rules={[{ required: true, message: '请选择PVC' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Select
+                            placeholder="选择现有卷（PVC）"
+                            options={volumeOptions as { label?: unknown; value?: string }[]}
+                            onOpenChange={(open) => {
+                              if (open) reloadVolumes();
+                            }}
+                            onChange={(val) => {
+                              try {
+                                const curr = [...(form.getFieldValue('extraDisks') || [])] as Record<string, unknown>[];
+                                const it = (availableVolumes || []).find(
+                                  (v) => (v as { pvcName?: string })?.pvcName === val
+                                );
+                                const pvcName = String(val || '').toLowerCase();
+                                const defaultBus = /windows|win/.test(pvcName) ? 'sata' : 'virtio';
+                                curr[fieldName as number] = {
+                                  ...(curr[fieldName as number] || {}),
+                                  pvc: val,
+                                  size: (it as { size?: unknown } | undefined)?.size || (curr[fieldName as number] as { size?: unknown })?.size,
+                                  volumeMode:
+                                    (it as { volumeMode?: string; VolumeMode?: string } | undefined)?.volumeMode ||
+                                    (it as { volumeMode?: string; VolumeMode?: string } | undefined)?.VolumeMode ||
+                                    '',
+                                  bus: defaultBus,
+                                };
+                                form.setFieldsValue({ extraDisks: curr });
+                              } catch {
+                                /* ignore */
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  )}
+
+                  {st === 'image' && (
+                    <Row gutter={12}>
+                      <Col span={24}>
+                        <Form.Item
+                          label="选择 ISO"
+                          name={[fieldName, 'image']}
+                          rules={[{ required: true, message: '请选择 ISO' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Select
+                            options={(images || [])
+                              .filter((x) => resolveVmImageKind(x) === 'iso' && isHarvesterVmImageReady(x))
+                              .map((x) => {
+                                const rec = x as Record<string, unknown>;
+                                const meta = rec.metadata as Record<string, unknown> | undefined;
+                                const imgName = (meta?.name || rec.name) as string | undefined;
+                                const ns = meta?.namespace as string | undefined;
+                                const disp =
+                                  (meta?.labels as Record<string, string> | undefined)?.[
+                                    'harvesterhci.io/imageDisplayName'
+                                  ] || imgName;
+                                return {
+                                  label: (
+                                    <Space>
+                                      <OsIcon osName={String(disp || imgName || '')} />
+                                      {disp || '-'}
+                                    </Space>
+                                  ),
+                                  value: ns && imgName ? `${ns}/${imgName}` : imgName,
+                                  labelString: disp || imgName || '',
+                                };
+                              })}
+                            optionFilterProp="labelString"
+                            placeholder="选择 ISO"
+                            loading={imageLoading}
+                            onOpenChange={(open) => {
+                              if (open) reloadImages();
+                            }}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  )}
+
+                  {st === 'new' && (
+                    <Row gutter={12}>
+                      <Col span={16}>
+                        <Form.Item
+                          label="存储类"
+                          name={[fieldName, 'storageClassName']}
+                          rules={[{ required: true, message: '请选择存储类' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Select
+                            placeholder="选择存储类"
+                            options={(storageClasses || [])
+                              .filter((x) => !isSystemStorageClass(storageClassNameFromItem(x)))
+                              .map((x) => {
+                                const nm = storageClassNameFromItem(x);
+                                return { label: nm, value: nm };
+                              })}
+                            loading={storageClassLoading}
+                            onOpenChange={(open) => {
+                              if (open) reloadStorageClasses();
+                            }}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item label="卷模式" name={[fieldName, 'volumeMode']} style={{ marginBottom: 0 }}>
+                          <Select
+                            placeholder="选择卷模式"
+                            options={[
+                              { label: 'Filesystem', value: 'Filesystem' },
+                              { label: 'Block', value: 'Block' },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  )}
+
                   <Row gutter={12}>
                     <Col span={24}>
-                      <Form.Item hidden name={[name, 'sourceType']}>
+                      <Form.Item hidden name={[fieldName, 'sourceType']}>
                         <Input />
                       </Form.Item>
                     </Col>
@@ -671,12 +788,47 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 </Card>
               );
             })}
-            
-            {/* 添加按钮区域 */}
+
             <Space>
-              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'new', name: `disk-${generateDiskName()}`, storageClassName: 'longhorn', volumeMode: 'Block', size: 40 })}>新建空白卷</Button>
-              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'existing', name: `disk-${generateDiskName()}` })}>挂载已有卷</Button>
-              <Button onClick={() => add({ type: 'cdrom', bus: 'sata', sourceType: 'image', name: `iso-${generateDiskName()}` })}>挂载 ISO</Button>
+              <Button
+                onClick={() =>
+                  add({
+                    type: 'disk',
+                    bus: 'virtio',
+                    sourceType: 'new',
+                    name: `disk-${generateDiskSuffix()}`,
+                    storageClassName: defaultStorageClassName || 'longhorn',
+                    volumeMode: 'Block',
+                    size: 40,
+                  })
+                }
+              >
+                新建空白卷
+              </Button>
+              <Button
+                onClick={() =>
+                  add({
+                    type: 'disk',
+                    bus: 'virtio',
+                    sourceType: 'existing',
+                    name: `disk-${generateDiskSuffix()}`,
+                  })
+                }
+              >
+                挂载已有卷
+              </Button>
+              <Button
+                onClick={() =>
+                  add({
+                    type: 'cdrom',
+                    bus: cdromBusFieldValue(isArm64),
+                    sourceType: 'image',
+                    name: `iso-${generateDiskSuffix()}`,
+                  })
+                }
+              >
+                挂载 ISO
+              </Button>
             </Space>
           </div>
         )}

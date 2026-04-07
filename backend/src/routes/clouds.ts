@@ -13,7 +13,12 @@ import { AuthRequest } from '../middleware/auth';
 import { User, UserRole } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 import { licenseService } from '../services/LicenseService';
-import { hasAnyPermission } from '../utils/permission';
+// 新权限体系
+import { createApiPermissionMiddleware } from '../permissions';
+import { logger } from '../utils/logger';
+
+const cloudRouteLog = logger.child('Cloud');
+const cloudDebugLog = logger.child('Cloud-Debug');
 
 // 多云接入与资源池路由：
 // - 管理云资源池（Cloud）对象的增删改查与连通性测试
@@ -84,7 +89,10 @@ const testCloudConnectionUnified = async (args: {
       await csmRequest(config, '/V2/ctcontrol/VM04/vms', { page_size: 1, page_num: 1 });
       return { ok: true, message: '连接成功，API调用正常' };
     } catch (err: any) {
-      console.error('Cloudmap connection test failed:', err);
+      cloudRouteLog.error(
+        'Cloudmap connection test failed:',
+        err?.response?.data?.message || err?.message || String(err),
+      );
       const msg = err?.response?.data?.message || err?.message || '连接失败';
       return { ok: false, message: `连接失败: ${msg}` };
     }
@@ -95,7 +103,12 @@ const testCloudConnectionUnified = async (args: {
       token: args.config?.apiToken || args.config?.token || args.secretKey || '',
       insecure: !!args.config?.ignoreTls,
     });
-    return { ok: !!t.ok, message: t.message || '' };
+    // 对于 Cloudmap 资源池，将 "Harvester" 字样替换为更通用的提示
+    let message = t.message || '';
+    if (message.includes('Harvester')) {
+      message = message.replace(/Harvester/g, 'Cloudmap');
+    }
+    return { ok: !!t.ok, message };
   }
   if (provider === 'harvester') {
     const t = await testHarvesterConnection({
@@ -163,80 +176,12 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
   next();
 };
 
-// 权限检查中间件：
-// - 先区分请求是"读操作"(GET/HEAD) 还是"写操作"(其它方法)
-// - 根据路径识别访问的是哪个子资源（实例/VPC/控制台等），拼装成 clouds.instances / clouds.console 等 action 基础名
-// - 读操作需要 {actionBase}:read 或 clouds:read 权限；写操作需要 {actionBase}:write 或 clouds:write 权限
-// - 控制台/VNC 链接虽然是 GET，但属于建立会话的敏感行为，按 Write 权限处理
-// - 使用统一的权限检查函数，支持通配符匹配（如 clouds:read 包含 clouds.instances:read）
-const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
-  try {
-    const role: any = (req.user as any)?.role;
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any)?.permissions
-      : [];
-    if (role === UserRole.SUPER_ADMIN) return next();
-
-    const method = String(req.method || 'GET').toUpperCase();
-    let isRead = method === 'GET' || method === 'HEAD';
-
-    const path = String((req.baseUrl || '') + (req.path || '')).toLowerCase();
-    const actionBase = (() => {
-      if (
-        path.includes('/csm/security/domain/attach/callonsso') ||
-        (path.includes('/csm/security/virtual-elements') && path.endsWith('/console')) ||
-        path.endsWith('/vnc-url')
-      ) {
-        // 特殊逻辑：获取控制台/VNC 地址虽然是 GET 请求，但本质上是“建立远程连接”，
-        // 因此强制归类为 Write 权限（clouds.console:write），与普通查询列表的 Read 权限区分开。
-        isRead = false;
-        return 'clouds.console';
-      }
-      if (
-        path.includes('/resources/ecs') ||
-        path.includes('/inventory/instances') ||
-        path.includes('/resources/ecs-all')
-      )
-        return 'clouds.instances';
-      if (path.includes('/resources/vpcs')) return 'clouds.vpcs';
-      if (path.includes('/resources/vswitches') || path.includes('/resources/subnets'))
-        return 'clouds.vswitches';
-      if (path.includes('/resources/security-groups')) return 'clouds.security-groups';
-      if (path.includes('/resources/enis')) return 'clouds.enis';
-      if (path.includes('/resources/network-acls')) return 'clouds.network-acls';
-      if (path.includes('/resources/eips')) return 'clouds.eips';
-      if (path.includes('/resources/loadbalancers')) return 'clouds.load-balancers';
-      if (path.includes('/resources/nat-gateways')) return 'clouds.nat-gateways';
-      if (path.includes('/resources/route-tables')) return 'clouds.route-tables';
-      if (path.includes('/resources/route-entries')) return 'clouds.route-entries';
-      if (path.includes('/resources/disks')) return 'clouds.disks';
-      if (path.includes('/resources/snapshots')) return 'clouds.snapshots';
-      return 'clouds';
-    })();
-
-    const need = isRead
-      ? [`${actionBase}:read`, 'clouds:read']
-      : [`${actionBase}:write`, 'clouds:write'];
-
-    // 特殊场景：前端在访问实例/控制台等页面时，需要先“列出云资源”以供选择，
-    // 因此如果用户拥有 clouds.console:read 或 clouds.instances:read 等权限，
-    // 也允许访问 GET /clouds 列表接口，避免额外赋予 clouds:read。
-    if (actionBase === 'clouds' && isRead) {
-      need.push('clouds.console:read');
-      need.push('clouds.instances:read');
-    }
-
-    // 使用统一的权限检查函数，支持通配符匹配
-    const ok = hasAnyPermission(perms, need);
-    if (!ok) {
-      const required = need[0];
-      return res.status(403).json({ message: `权限不足：需要 ${required}` });
-    }
-    next();
-  } catch {
-    return res.status(403).json({ message: '权限不足' });
-  }
-};
+// 权限检查中间件（已迁移到新权限体系）
+// 使用新的权限体系中间件，自动从 API 路径解析权限
+// 保持向后兼容：如果新权限体系无法解析，会回退到旧的路径匹配逻辑
+const checkAdminPermission = createApiPermissionMiddleware({
+  allowSuperAdmin: true,
+});
 
 // 引入阿里云 RPC 调用封装（不依赖官方 SDK）
 import {
@@ -273,8 +218,7 @@ import { registerTencentRoutes } from './clouds/tencentcloud';
 import {
   registerHarvesterDirectRoutes,
   registerHarvesterRoutes,
-  registerMonitoringRoutes,
-  registerLoggingRoutes,
+  registerHarvesterServiceRoutesProvider,
 } from './clouds/harvester';
 import { standardResourceService } from '../services/StandardResourceService';
 
@@ -326,14 +270,18 @@ const extractIdentity = (provider: string, type: 'vm' | 'vpc', r: any) => {
 
 // 将各云厂商/Harvester/CloudMap 的子路由注册到统一的 /clouds 路由下，
 // 并统一使用 checkAdminPermission 做权限拦截。
+//
+// 顺序说明：阿里云 / 华为云 / 腾讯云 的部分路由与 Harvester 缓存路由使用相同路径
+//（如 GET /:id/resources/vpcs、GET /:id/resources/ecs）。公有云实现会在非本厂商时 next()，
+// 若先注册 Harvester 的 createProviderRouter，则会先响应并返回「云平台 xxx 不支持此操作」。
+// 因此必须先注册公有云专用路由，再注册 Harvester 缓存路由。
 registerHarvesterDirectRoutes(router, checkAdminPermission);
-registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
 registerTencentRoutes(router, checkAdminPermission);
 registerCsmRoutes(router, checkAdminPermission);
-registerMonitoringRoutes(router, checkAdminPermission);
-registerLoggingRoutes(router, checkAdminPermission);
+registerHarvesterRoutes(router, checkAdminPermission);
+registerHarvesterServiceRoutesProvider(router, checkAdminPermission);
 
 // 标准化获取实例列表：
 // - 对不同 provider 的接口调用结果进行统一转换，输出统一结构的实例信息
@@ -862,7 +810,7 @@ const fetchVpcsForCloud = async (cloud: Cloud, raw: boolean = false) => {
 // 获取云资源列表：
 // - 管理员可看到所有云资源
 // - 租户用户(TenantUser)仅能看到与自己 UserSpace 关联的云资源，实现多租户隔离
-router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.get('/', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const cloudRepository = AppDataSource.getRepository(Cloud);
     let clouds = await cloudRepository.find();
@@ -896,7 +844,7 @@ router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) =>
 // 创建云资源
 router.post(
   '/',
-  checkAdminPermission,
+  createApiPermissionMiddleware(),
   validateCloudInput,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -919,12 +867,11 @@ router.post(
         return res.status(403).json({ message: `已达到最大云资源连接数限制 (${maxAccounts})。请联系管理员升级授权。` });
       }
 
-      // 2. Check provider whitelist (if not multi-cloud)
+      // 2. 未启用多云时仅允许 CloudMap 类资源池（默认授权、导入授权但未含 platform.multi-cloud 均适用）
       const provider = String(config?.provider || '').toLowerCase();
       if (!isMultiCloud) {
-        // Default license only supports cloudmap types (including harvester which is underlying)
-        const allowedInDefault = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'harvester'];
-        if (!allowedInDefault.includes(provider)) {
+        const allowedWithoutMultiCloud = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'harvester'];
+        if (!allowedWithoutMultiCloud.includes(provider)) {
           return res.status(403).json({ message: '当前授权仅支持接入 CloudMap 类型的资源池。需接入多云资源请升级授权。' });
         }
       }
@@ -979,7 +926,7 @@ router.post(
 );
 
 // 预创建连接测试（不保存云资源）
-router.post('/test-connection', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.post('/test-connection', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const { provider, accessKey, secretKey, region, endpoint, config } = (req.body || {}) as any;
     const r = await testCloudConnectionUnified({
@@ -997,7 +944,7 @@ router.post('/test-connection', checkAdminPermission, async (req: AuthRequest, r
 });
 
 // 获取标准化查询指令
-router.get('/:id/query-commands', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.get('/:id/query-commands', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { types } = req.query; // e.g. types=vpc,vm or types[]=vpc&types[]=vm
@@ -1035,7 +982,7 @@ router.get('/:id/query-commands', checkAdminPermission, async (req: AuthRequest,
 });
 
 // 获取指定云资源的 VPC 列表 (标准化接口)
-router.get('/:id/resources/vpcs', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.get('/:id/resources/vpcs', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const cloud = await fetchCloudOr404(req.params.id, res);
     if (!cloud) return;
@@ -1047,7 +994,8 @@ router.get('/:id/resources/vpcs', checkAdminPermission, async (req: AuthRequest,
 });
 
 // 获取指定云资源的 ECS 实例列表 (标准化接口)
-router.get('/:id/resources/ecs', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+// 【迁移示例】使用新的权限体系中间件
+router.get('/:id/resources/ecs', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const cloud = await fetchCloudOr404(req.params.id, res);
     if (!cloud) return;
@@ -1059,7 +1007,7 @@ router.get('/:id/resources/ecs', checkAdminPermission, async (req: AuthRequest, 
 });
 
 // 测试云资源连接
-router.post('/:id/test', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.post('/:id/test', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -1089,7 +1037,7 @@ router.post('/:id/test', checkAdminPermission, async (req: AuthRequest, res: Res
 });
 
 // 手动同步云资源
-router.post('/:id/sync', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.post('/:id/sync', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const cloud = await fetchCloudOr404(id, res);
@@ -1115,13 +1063,13 @@ router.post('/:id/sync', checkAdminPermission, async (req: AuthRequest, res: Res
       res.json({ message: '该云类型已触发后台同步' });
     }
   } catch (error: any) {
-    console.error(`Sync cloud ${req.params.id} failed:`, error);
+    cloudRouteLog.error(`Sync cloud ${req.params.id} failed:`, error?.message ?? String(error));
     res.status(500).json({ message: '同步失败', error: error.message });
   }
 });
 
 // 更新云资源
-router.put('/:id', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.put('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
@@ -1163,7 +1111,7 @@ router.put('/:id', checkAdminPermission, async (req: AuthRequest, res: Response)
 });
 
 // 删除云资源
-router.delete('/:id', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -1199,7 +1147,7 @@ router.delete('/:id', checkAdminPermission, async (req: AuthRequest, res: Respon
 
 export { router as cloudRoutes };
 // 聚合：查询全部资源池的云主机列表（统一实例模型）
-router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+router.get('/resources/ecs-all', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
   try {
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const clouds = await cloudRepository.find();
@@ -1210,7 +1158,10 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
         const instances = await fetchInstancesForCloud(cloud);
         items.push(...instances);
       } catch (e) {
-        console.warn(`Failed to fetch instances for cloud ${cloud.name}:`, e);
+        cloudRouteLog.warn(
+          `Failed to fetch instances for cloud ${cloud.name}:`,
+          e instanceof Error ? e.message : String(e),
+        );
       }
     }
 
@@ -1223,7 +1174,7 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
 // 库存：查询已入库的云主机（必要时刷新）
 router.get(
   '/inventory/instances',
-  checkAdminPermission,
+  createApiPermissionMiddleware(),
   async (req: AuthRequest, res: Response) => {
     try {
       const invRepo = AppDataSource.getRepository(CloudInstanceInventory);
@@ -1287,7 +1238,7 @@ router.get(
           if (targetCloudId && cloud.id !== targetCloudId) continue;
           const providerRaw = String((cloud as any)?.config?.provider || '');
           const provider = providerRaw.toLowerCase();
-          console.log(`[DEBUG] Inventory sync: processing cloud ${cloud.name} (${providerRaw})`);
+          cloudDebugLog.debug(`Inventory sync: processing cloud ${cloud.name} (${providerRaw})`);
           if (!supported.includes(provider)) continue;
           let list: any[] = [];
           const vpcInfoMap = new Map<string, { name?: string; cidr?: string }>();
@@ -1367,7 +1318,10 @@ router.get(
               await syncKubevirtVms(cloud, insecure);
               await syncKubevirtVmis(cloud, insecure);
             } catch (err) {
-              console.error(`Error syncing Kubevirt VMs/VMIs for cloud ${cloud.name}:`, err);
+              cloudRouteLog.error(
+                `Error syncing Kubevirt VMs/VMIs for cloud ${cloud.name}:`,
+                err instanceof Error ? err.message : String(err),
+              );
             }
             // Cleanup old inventory for this cloud (deprecated tables)
             await invRepo.delete({ cloudId: cloud.id });
@@ -1380,7 +1334,7 @@ router.get(
               list = [];
             } else {
               const ignoreTls = !!(cloud as any)?.config?.ignoreTls;
-              console.log(`[DEBUG] Inventory sync: calling listCsmVms for ${cloud.name}`);
+              cloudDebugLog.debug(`Inventory sync: calling listCsmVms for ${cloud.name}`);
               list = await listCsmVms({
                 endpoint: endpointRaw,
                 accessKey: ak,
@@ -1806,7 +1760,7 @@ router.get(
 
 router.post(
   '/:id/reveal',
-  checkAdminPermission,
+  createApiPermissionMiddleware(),
   async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
@@ -1854,8 +1808,19 @@ router.post(
         secretKey: cloud.secretKey,
       });
     } catch (error: any) {
-      console.error('Reveal credentials error:', error);
+      cloudRouteLog.error('Reveal credentials error:', error?.message ?? String(error));
       res.status(500).json({ message: '获取凭证失败', error: error.message });
     }
   },
 );
+
+// 获取单个云资源详情
+router.get('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
+  try {
+    const cloud = await fetchCloudOr404(req.params.id, res);
+    if (!cloud) return;
+    res.json(redactCloud(cloud));
+  } catch (error: any) {
+    res.status(500).json({ message: '获取云资源详情失败', error: error.message });
+  }
+});

@@ -34,6 +34,7 @@ import {
 import { fetchAllowedNamespaces } from '../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { LOGGING_API_VERSION } from './constants';
 
 const PROVIDER_OPTIONS = [
   { label: 'Syslog', value: 'syslog' },
@@ -121,7 +122,7 @@ interface LogsOutputConfigProps {
 
 const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'leased_lines_admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const [list, setList] = useState<OutputItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -304,7 +305,7 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
 
     const spec = buildSpecFromForm(values, editingRecord);
     const payload = {
-      apiVersion: 'logging.banzaicloud.io/v1beta1',
+      apiVersion: LOGGING_API_VERSION,
       kind: 'Output',
       metadata: {
         name,
@@ -491,7 +492,7 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
         toolbarLeft={
           <Space wrap>
             <Input.Search
-              placeholder="请输入名称或命名空间"
+              placeholder="名称/ID"
               allowClear
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
@@ -505,6 +506,7 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
               onChange={(v) => setNamespaceFilter(v ?? '')}
               options={namespaceOptions}
               loading={namespaceLoading}
+              className="toolbar-filter-sm"
               style={{ width: 160 }}
             />
             <button

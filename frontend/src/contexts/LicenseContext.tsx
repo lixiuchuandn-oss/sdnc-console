@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../services/api';
 import { getToken } from '../utils/tokenStorage';
+import { useAuth } from './AuthContext';
 
 export interface LicensePayload {
   iss: string;
@@ -52,8 +53,9 @@ const DEFAULT_STATUS: LicenseStatus = {
 export const LicenseProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [license, setLicense] = useState<LicenseStatus>(DEFAULT_STATUS);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       // 不需要 Auth Token 也可以获取状态
       const res = await axios.get(`${API_BASE_URL}/api/system/license`);
@@ -68,7 +70,7 @@ export const LicenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const activate = async (key: string) => {
     const token = getToken();
@@ -91,12 +93,30 @@ export const LicenseProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const hasFeature = (feature: string): boolean => {
     if (!license.active || !license.payload) return false;
+    
+    // [兼容项] platform.sdn: 如果授权中有任意一个SDN功能，则认为platform.sdn启用
+    if (feature === 'platform.sdn') {
+      return license.payload.features.some(f => 
+        f === 'sdn.cascade' || f === 'sdn.interconnect' || f === 'sdn.traffic'
+      );
+    }
+    
     return license.payload.features.includes(feature);
   };
 
+  // 初始化时刷新授权
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
+
+  // 当用户登录时，自动刷新授权检查
+  // 使用 user?.id 作为依赖，确保只在用户 ID 变化时刷新（即登录时）
+  useEffect(() => {
+    if (user?.id) {
+      // 用户登录后，刷新授权检查
+      refresh();
+    }
+  }, [user?.id, refresh]);
 
   return (
     <LicenseContext.Provider value={{ license, loading, refresh, activate, hasFeature }}>

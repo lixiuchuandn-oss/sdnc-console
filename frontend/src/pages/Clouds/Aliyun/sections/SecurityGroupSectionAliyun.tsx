@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Table, Modal, Space, Typography, Tag, Select } from 'antd';
-import { ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSecurityGroups, deleteCloudProviderSecurityGroup } from '../../../../services/securityGroups';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import SecurityGroupCreateModalAliyun from '../modals/SecurityGroupCreateModalAliyun';
 import SecurityGroupUpdateModalAliyun from '../modals/SecurityGroupUpdateModalAliyun';
 
@@ -225,7 +224,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
         );
       } 
     },
-  ], [cloudId, ecs]);
+  ], [cloudId, ecs, message, onOpenDetail, refresh]);
 
   const vpcOptions = useMemo(() => {
     const all = new Set<string>();
@@ -243,7 +242,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
       toolbarLeft={(
         <Space wrap>
           <Input 
-            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             placeholder="搜索名称/ID/描述" 
             allowClear 
             value={keyword} 
@@ -286,7 +285,10 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
         rowKey={(r: any) => r?.SecurityGroupId || r?.id}
         columns={columns as any}
         dataSource={filtered}
-        pagination={{ pageSize: 10, size: 'default', showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
         scroll={{ x: 1000 }}
       />
       {!!showLog && (

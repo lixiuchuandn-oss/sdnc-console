@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
+import { logger } from '../../../utils/logger';
 import { Cloud } from '../../../entities/Cloud';
 import {
   listCsmVms,
@@ -23,6 +24,15 @@ import {
   csmPreAuthLogin,
 } from '../../../services/clouds/csm/client';
 import { ServiceChain } from '../../../entities/ServiceChain';
+
+const csmHttpLog = logger.child('CSM-Http');
+
+function errBrief(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message?: string }).message);
+  }
+  return String(err);
+}
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);
@@ -74,7 +84,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
           capabilities: { isCsm: true },
         });
       } catch (error: any) {
-        console.error('CSM Route Error:', error);
+        csmHttpLog.error('virtual-elements route', errBrief(error));
         res.status(500).json({ message: 'CSM 查询失败', error: error.message });
       }
     },
@@ -104,7 +114,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         capabilities: { isCsm: true },
       });
     } catch (error: any) {
-      console.error('CSM vRouter Route Error:', error);
+      csmHttpLog.error('vrouters route', errBrief(error));
       res.status(500).json({ message: 'CSM 虚拟交换机查询失败', error: error.message });
     }
   });
@@ -152,7 +162,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         // Return raw response without any wrapping or transformation
         res.json(raw);
       } catch (error: any) {
-        console.error('CSM VR pagelist Proxy Error:', error);
+        csmHttpLog.error('vr-pagelist proxy', errBrief(error));
         res.status(500).json({ message: 'CSM VR 列表查询失败', error: error.message });
       }
     },
@@ -283,7 +293,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         capabilities: { isCsm: true },
       });
     } catch (error: any) {
-      console.error('CSM Assets Route Error:', error);
+      csmHttpLog.error('assets route', errBrief(error));
       res.status(500).json({ message: 'CSM 资产查询失败', error: error.message });
     }
   });
@@ -317,7 +327,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       }
       res.json({ message: '创建成功', data: result });
     } catch (error: any) {
-      console.error('CSM Create Asset Route Error:', error);
+      csmHttpLog.error('create asset route', errBrief(error));
       res.status(500).json({ message: 'CSM 资产创建失败', error: error.message });
     }
   });
@@ -345,7 +355,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
           data: { success: true },
         });
       } catch (error: any) {
-        console.error('CSM Delete Asset Route Error:', error);
+        csmHttpLog.error('delete asset route', errBrief(error));
         res.status(500).json({ message: 'CSM 资产删除失败', error: error.message });
       }
     },
@@ -374,7 +384,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         const items = await listCsmHosts(config);
         res.json({ message: '查询成功', data: { items }, capabilities: { isCsm: true } });
       } catch (error: any) {
-        console.error('CSM Host Route Error:', error);
+        csmHttpLog.error('host route', errBrief(error));
         res.status(500).json({ message: '查询物理安全网元失败', error: error.message });
       }
     },
@@ -495,7 +505,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         }
         res.json({ message: '创建成功', data: found || result });
       } catch (error: any) {
-        console.error('CSM Create Service Chain Error:', error);
+        csmHttpLog.error('create service chain', errBrief(error));
         res.status(500).json({ message: '创建服务链失败', error: error.message });
       }
     },
@@ -523,7 +533,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         await operateCsmVm(config, vmId, action);
         res.json({ message: '操作成功', data: { success: true } });
       } catch (error: any) {
-        console.error('CSM Action Error:', error);
+        csmHttpLog.error('vm action', errBrief(error));
         res.status(500).json({ message: '操作失败', error: error.message });
       }
     },
@@ -549,7 +559,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         const result = await getCsmVmConsole(config, vmId);
         res.json({ message: '获取控制台成功', data: result });
       } catch (error: any) {
-        console.error('CSM Console Error:', error);
+        csmHttpLog.error('vm console', errBrief(error));
         res.status(500).json({ message: '获取控制台失败', error: error.message });
       }
     },
@@ -590,13 +600,13 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       const encPwd = String(authPwdRaw || passwordRaw || '+yNpVuicvsiBzpDpeaIq3g==').trim();
       const payloadBase = { id: String(webId), currentLoginWebPort: webPort };
       const preAuthResp = await csmPreAuthLogin(config, username, encPwd, webPort);
-      console.log('CSM SSO Auth Response:', JSON.stringify(preAuthResp));
+      csmHttpLog.debug('SSO preAuth response', JSON.stringify(preAuthResp).slice(0, 500));
       const dataToken = String((preAuthResp?.data ?? preAuthResp?.data?.data ?? '') || '').trim();
 
       if (!dataToken) {
-        console.error('CSM SSO Auth Failed: No token returned', preAuthResp);
+        csmHttpLog.error('SSO preAuth failed: no token', JSON.stringify(preAuthResp).slice(0, 300));
       } else {
-        console.log('CSM SSO Auth Token obtained');
+        csmHttpLog.debug('SSO preAuth token obtained');
       }
 
       const mask = (s: string) => {
@@ -629,9 +639,9 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
             extraHeaders: { data: dataToken },
           });
           adminId = String(adminResp?.data?.id ?? adminResp?.id ?? '').trim();
-          console.log('CSM Admin ID obtained:', adminId);
+          csmHttpLog.debug('SSO admin id obtained', adminId);
         } catch (e) {
-          console.warn('CSM Get Admin failed:', e);
+          csmHttpLog.warn('SSO get admin failed', errBrief(e));
         }
       }
 
@@ -658,7 +668,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       try {
         loginCookie = await csmAdminLogin(config, loginU, loginP, webPort, loginPath);
       } catch (e) {
-        console.warn('SSO Pre-login failed:', e);
+        csmHttpLog.warn('SSO pre-login failed', errBrief(e));
       }
       const loginResp = {
         cookie: loginCookie,
@@ -708,7 +718,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       if (url) respData.url = url;
       res.json({ message: 'SSO 调用成功', data: respData });
     } catch (error: any) {
-      console.error('CSM SSO Error:', error);
+      csmHttpLog.error('SSO route', errBrief(error));
       res.status(500).json({ message: 'SSO 调用失败', error: error.message });
     }
   };
@@ -736,7 +746,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         const result = await deleteCsmServiceChain(config, chainId, queryObj);
         res.json({ message: '删除成功', data: result });
       } catch (error: any) {
-        console.error('CSM Delete Service Chain Error:', error);
+        csmHttpLog.error('delete service chain', errBrief(error));
         res.status(500).json({ message: '删除服务链失败', error: error.message });
       }
     },

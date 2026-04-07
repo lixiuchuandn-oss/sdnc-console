@@ -56,44 +56,14 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces: p
   }, [open, cloudId, propNamespaces]);
 
   // 打开弹窗时加载 IP 池列表
-  // 注意：LoadBalancer 只支持 mgmt 网络，因此只显示关联到 mgmt 网络的 IP Pool
   useEffect(() => {
     if (open) {
-      Promise.all([
-        apiRequest(`/api/clouds/${cloudId}/resources/ippools`),
-        fetchHarvesterNads(cloudId)
-      ])
-        .then(([ippoolsRes, nadsRes]: [any, any]) => {
+      apiRequest(`/api/clouds/${cloudId}/resources/ippools`)
+        .then((ippoolsRes: any) => {
             const allPools = ippoolsRes.data?.items || [];
-            const allNads = nadsRes?.data?.items || nadsRes || [];
-            
-            // 构建 mgmt NAD 名称集合（用于快速查找）
-            // 注意：只支持默认的 mgmt 网络（名称必须是 'mgmt'）
-            const mgmtNadSet = new Set<string>();
-            allNads.forEach((nad: any) => {
-              const name = nad?.metadata?.name || nad?.name || '';
-              const ns = nad?.metadata?.namespace || nad?.namespace || '';
-              
-              // 只添加名称是 'mgmt' 的网络（默认 mgmt 网络）
-              if (name === 'mgmt') {
-                mgmtNadSet.add(`${ns}/${name}`);
-                mgmtNadSet.add(name); // 也支持短名称匹配
-              }
-            });
-            
-            // 过滤：只保留关联到 mgmt 网络的 IP Pool
-            const mgmtPools = allPools.filter((pool: any) => {
-              const poolSpec = pool?.spec || pool?.rawData?.spec;
-              const networkRef = poolSpec?.selector?.network || poolSpec?.network;
-              if (!networkRef) return false;
-              
-              // 检查 networkRef 是否匹配 mgmt NAD
-              return mgmtNadSet.has(networkRef);
-            });
-            
-            setIpPools(mgmtPools);
+            setIpPools(allPools);
         })
-        .catch((err: any) => console.error('Failed to fetch IP pools or NADs', err));
+        .catch((err: any) => console.error('Failed to fetch IP pools', err));
     }
   }, [open, cloudId]);
 
@@ -375,7 +345,7 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces: p
                             placeholder="请选择 IP Pool"
                             allowClear
                             onChange={onPoolChange}
-                            notFoundContent={poolOptions.length === 0 ? '未找到关联到管理网的 IP Pool，请先创建管理网 IP Pool' : undefined}
+                            notFoundContent={poolOptions.length === 0 ? '未找到 IP Pool，请先创建 IP Pool' : undefined}
                         />
                     </Form.Item>
                 ) : null;

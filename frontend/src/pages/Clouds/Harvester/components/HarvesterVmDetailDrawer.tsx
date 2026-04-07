@@ -30,35 +30,44 @@
  * 2. 关键依赖/接口:
  *    - GET  /api/clouds/:id/resources/ecs/stream (SSE: vm_status/vm_deleted)
  *    - harvesterApi: fetchHarvesterVMAggregated / startHarvesterVm / stopHarvesterVm / pauseHarvesterVm / unpauseHarvesterVm
- *    - harvesterApi: detachHarvesterVolumeFromVm / deleteHarvesterPVC / fetchHarvesterBackups / fetchHarvesterScheduleVmBackups
+ *    - harvesterApi: patchHarvesterVm / deleteHarvesterPVC / fetchHarvesterBackups / fetchHarvesterScheduleVmBackups
  *    - monitoringApi: fetchMetricRange (Prometheus range query)
  * ==============================================================================
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox } from 'antd';
+import {
+  KUBE_OVN_FLAT_VPC,
+  KUBE_OVN_PUBLIC_VPC,
+} from '../kube-ovn/lib/kubeOvnSubnetConstants';
+import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Descriptions, List, Space, Progress, Modal, Checkbox } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
-  CloudServerOutlined, GlobalOutlined, HddOutlined, ApartmentOutlined,
+  HddOutlined, ApartmentOutlined,
   ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
-  SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined,
-  CloseOutlined, SyncOutlined, ReadOutlined, LineChartOutlined, BellOutlined, FileTextOutlined
+  SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined,
+  CloseOutlined, SyncOutlined, LineChartOutlined, BellOutlined, FileTextOutlined,
 } from '@ant-design/icons';
-import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
-import { rebootCloudProviderEcs, API_BASE_URL } from '../../../../services/api';
+import { cnVmStatus } from '../../../../utils/harvesterUtils';
+import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, patchHarvesterVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated, abortHarvesterMigration } from '../../../../services/harvesterApi';
+import { rebootCloudProviderEcs, API_BASE_URL, apiPost } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
 import HarvesterVmBackupTab from './HarvesterVmBackupTab';
 import { ReactComponent as CpuIcon } from '../../../../assets/clouds/cpu.svg';
 import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
+import { ReactComponent as GpuIcon } from '../../../../assets/clouds/gpu.svg';
+import { ReactComponent as UsbIcon } from '../../../../assets/clouds/usb.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
 import HarvesterEventsTab from './HarvesterEventsTab';
 import HarvesterVmLogsTab from './HarvesterVmLogsTab';
+import HarvesterVmDiagnosisTab from './HarvesterVmDiagnosisTab';
 import { OsIcon } from '../../../../components/OsIcon';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 import { getToken } from '../../../../utils/tokenStorage';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -123,6 +132,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasEcsWrite = useMemo(() => {
+    return hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write');
+  }, [perms]);
+  const hasConsoleWrite = useMemo(() => {
+    return (
+      perms.includes('*') ||
+      perms.includes('clouds.console:write') ||
+      perms.includes('clouds.console:*')
+    );
+  }, [perms]);
 
   // [状态同步] 抽屉内部统一使用 vmData 作为渲染/动作的数据源
   // 详细解释：
@@ -167,6 +188,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [subnets, setSubnets] = useState<any[]>([]);
   const [nads, setNads] = useState<any[]>([]);
   const [vmImages, setVmImages] = useState<any[]>(images);
+  // [聚合卷信息] 优先使用 aggregated 接口返回的 related.volumes（VM 引用的 PVC 列表）
+  // 这样磁盘容量/phase/conditions 与 VM spec 能保持同源，避免依赖外层缓存 volumes 导致差异。
+  const [vmPvcs, setVmPvcs] = useState<any[]>([]);
 
   // ==============================================================================
   // 4. 数据聚合拉取 (Aggregated Fetch)
@@ -195,8 +219,15 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 setVpcs(data.related.vpcs || []);
                 setSubnets(data.related.subnets || []);
                 setVmImages(data.related.images || []);
+                setVmPvcs(data.related.volumes || []);
             }
-            if (manual) message.success('刷新成功');
+            if (manual) {
+              message.success('刷新成功');
+              // 兜底：如果后端聚合未返回 volumes，则仍可触发上游强刷
+              if (!Array.isArray(data?.related?.volumes) || data.related.volumes.length === 0) {
+                try { onRefresh?.(true); } catch {}
+              }
+            }
         }
     } catch (e) {
         console.error('Failed to fetch aggregated VM data', e);
@@ -204,11 +235,29 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     } finally {
         if (manual) setRefreshing(false);
     }
-  }, [open, cloudId, record?.metadata?.namespace, record?.metadata?.name]);
+  }, [open, cloudId, record?.metadata?.namespace, record?.metadata?.name, onRefresh]);
 
   React.useEffect(() => {
     fetchAggregated();
   }, [fetchAggregated]);
+
+  // [改进] 监听 record 的变化（包括变配后的刷新触发），如果详情页已打开，自动刷新详情数据
+  // 这样可以确保变配操作完成后，详情页能够及时显示最新的配置
+  const refreshTriggerRef = React.useRef<number>(0);
+  React.useEffect(() => {
+    if (open && record) {
+      // 检查是否有刷新触发标记（变配完成后会设置 _refreshTrigger）
+      const currentTrigger = (record as any)?._refreshTrigger;
+      if (currentTrigger && currentTrigger !== refreshTriggerRef.current) {
+        refreshTriggerRef.current = currentTrigger;
+        // 延迟一小段时间，确保后端数据已更新
+        const timer = setTimeout(() => {
+          fetchAggregated(false);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [record, open, fetchAggregated]);
 
   // ==============================================================================
   // 5. 实时状态 (SSE)
@@ -401,21 +450,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
 
-  // [按需加载] 仅在切换到“备份/快照”Tab 时拉取数据，避免抽屉打开瞬间触发过多请求
-  React.useEffect(() => {
-    if (open) {
-      if (activeTab === 'backup_snapshot') {
-        fetchBackups();
-        fetchSchedules();
-      }
-    }
-  }, [activeTab, open]);
-
-  const fetchBackups = async (force = false) => {
+  const fetchBackups = React.useCallback(async (force = false, skipSync = false) => {
     if (!cloudId) return;
     setBackupsLoading(true);
     try {
-      const res = await fetchHarvesterBackups(cloudId, force);
+      if (force && !skipSync) {
+        try { await apiPost(`/api/clouds/${cloudId}/sync`); } catch {}
+      }
+      const res = await fetchHarvesterBackups(cloudId, force, skipSync);
       const items = (res as any)?.data?.items || [];
       setBackups(items);
     } catch (e: any) {
@@ -423,13 +465,16 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     } finally {
       setBackupsLoading(false);
     }
-  };
+  }, [cloudId]);
 
-  const fetchSchedules = async (force = false) => {
+  const fetchSchedules = React.useCallback(async (force = false, skipSync = false) => {
     if (!cloudId) return;
     setSchedulesLoading(true);
     try {
-      const res = await fetchHarvesterScheduleVmBackups(cloudId, force);
+      if (force && !skipSync) {
+        try { await apiPost(`/api/clouds/${cloudId}/sync`); } catch {}
+      }
+      const res = await fetchHarvesterScheduleVmBackups(cloudId, force, skipSync);
       const items = (res as any)?.data?.items || [];
       setSchedules(items);
     } catch (e: any) {
@@ -437,7 +482,15 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     } finally {
       setSchedulesLoading(false);
     }
-  };
+  }, [cloudId]);
+
+  // [按需加载] 仅在切换到“备份/快照”Tab 时拉取数据，避免抽屉打开瞬间触发过多请求
+  React.useEffect(() => {
+    if (open && activeTab === 'backup_snapshot') {
+      void fetchBackups();
+      void fetchSchedules();
+    }
+  }, [activeTab, open, fetchBackups, fetchSchedules]);
 
   const handleTabChange = useCallback((key: string) => {
     if (propOnTabChange) {
@@ -500,6 +553,29 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     vmId: (r: any) => r?.metadata?.name || '',
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
     status: (r: any) => {
+        // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
+        // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
+        // 也可能在 status.migrationState 中（不同版本可能不同）
+        // 注意：如果 migrationState.Completed === true，说明迁移已完成，不应该返回 'Migrating'
+        const vmi = r?.vmi || r?.vmiRaw;
+        const migrationState = vmi?.status?.migrationState;
+        const migrationAnnotation = vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'];
+        
+        // 检查是否真的在迁移中（排除已完成的迁移）
+        if (migrationState) {
+          // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
+          // 注意：JSON 中的字段名是小写的 "completed"，但代码中可能有大写的情况
+          const isCompleted = migrationState.completed === true || migrationState.Completed === true;
+          if (!isCompleted) {
+            return 'Migrating';
+          }
+        } else if (migrationAnnotation) {
+          // 如果只有注解但没有 migrationState，也认为在迁移中
+          // 但需要排除已完成的状态（Harvester 会在完成后删除注解，但可能有延迟）
+          return 'Migrating';
+        }
+        
+        // [优先级2] 检查 VM 的状态字段
         if (typeof r?.status === 'string') return r.status;
         return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
     },
@@ -577,11 +653,34 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     // 3.3 计算资源 (Compute)
     // ------------------------------------------
     cpu: (r: any) => {
+      // [修复] 优先从VM spec计算CPU数量，确保热扩容后显示正确
+      // VM spec是配置规格，热扩容后会立即更新
+      // VMI spec是运行实例规格，热扩容过程中可能还没同步
       const cpu = r?.spec?.template?.spec?.domain?.cpu;
-      if (cpu?.cores && cpu?.sockets && cpu?.threads) {
-        return Number(cpu.cores) * Number(cpu.sockets) * Number(cpu.threads);
+      
+      // 优先：使用完整的拓扑信息计算（sockets * cores * threads）
+      if (cpu?.sockets !== undefined && cpu?.cores !== undefined && cpu?.threads !== undefined) {
+        return Number(cpu.sockets) * Number(cpu.cores) * Number(cpu.threads);
       }
-      return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || 0;
+      
+      // 如果只有部分拓扑信息，尝试计算
+      if (cpu?.sockets !== undefined && cpu?.cores !== undefined) {
+        return Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
+      }
+      if (cpu?.sockets !== undefined && cpu?.threads !== undefined) {
+        return Number(cpu.sockets) * (cpu?.cores || 1) * Number(cpu.threads);
+      }
+      if (cpu?.cores !== undefined && cpu?.threads !== undefined) {
+        return (cpu?.sockets || 1) * Number(cpu.cores) * Number(cpu.threads);
+      }
+      
+      // 回退：使用后端计算的Extra.CPU（如果可用）
+      if (r?.cpu !== undefined && r?.cpu !== null) {
+        return Number(r.cpu);
+      }
+      
+      // 最后回退：使用cores或VMI的cores
+      return cpu?.cores || cpu?.sockets || r?.vmi?.spec?.domain?.cpu?.cores || 0;
     },
     memory: (r: any) => {
       // [展示口径] 优先展示 Guest Memory（规格），这是用户在 VM 配置中显式设置的值
@@ -618,14 +717,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
         
         // [磁盘映射] 将 domain.devices.disks 的设备信息（如 bootOrder/bus/cdrom）合并到 volumes 上，用于列表展示
+        // [容量数据源] 优先使用聚合接口返回的 related.volumes，其次才用外层 props volumes
+        const pvcSource = (Array.isArray(vmPvcs) && vmPvcs.length > 0) ? vmPvcs : volumes;
+
         return vols.map((v: any) => {
              const claimName = v?.persistentVolumeClaim?.claimName;
              const diskInfo = disks.find((d: any) => d.name === v.name);
              let capacityBytes = 0;
              let imageDisplayName = '';
              
-             if (claimName && volumes && volumes.length > 0) {
-                 const pvc = volumes.find((p: any) => {
+             if (claimName && pvcSource && pvcSource.length > 0) {
+                 const pvc = pvcSource.find((p: any) => {
                     const pName = p?.metadata?.name || p?.name;
                     const pNs = p?.metadata?.namespace || p?.namespace;
                     if (pName === claimName && pNs === vmNs) return true;
@@ -761,13 +863,38 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                         const bridgeConfig = plugins.find((p: any) => p?.type === 'bridge');
 
                         if (kubeOvnConfig) {
-                            // [VPC 网络] kube-ovn：用 subnet.spec.vpc 找到 VPC，并展示别名/名称
-                            const subnet = subnets.find((s: any) => s.metadata?.name === targetName);
+                            // [VPC 网络] kube-ovn：用 subnet.spec.vpc 找到 VPC；子网/VPC 均优先 tower.io/alias
+                            const subnet =
+                              subnets.find((s: any) => {
+                                if (s.metadata?.name !== targetName) return false;
+                                const sns = s.metadata?.namespace || s.namespace;
+                                if (targetNs && sns) return sns === targetNs;
+                                return true;
+                              }) || subnets.find((s: any) => s.metadata?.name === targetName);
                             if (subnet) {
                                 const vpcName = subnet.spec?.vpc || subnet.vpc || 'Unknown VPC';
                                 const vpc = vpcs.find((v: any) => v.metadata?.name === vpcName);
                                 const vpcDisplay = vpc?.metadata?.annotations?.['tower.io/alias'] || vpcName;
-                                displayName = `VPC / ${vpcDisplay} / ${subnet.metadata.name}`;
+                                const subnetAlias = String(subnet?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                const subnetDisplay = subnetAlias || subnet.metadata?.name || targetName;
+                                const subnetType = String(
+                                  subnet?.metadata?.annotations?.['tower.io/subnet-type'] ?? '',
+                                )
+                                  .trim()
+                                  .toLowerCase();
+                                const vpcStr = String(vpcName);
+                                // VM 详情抽屉展示规则：
+                                // - 内置 VPC ovn-cluster / ovn-internal 均按「扁平子网」展示（与产品定义对齐）
+                                // - 其它 VPC 正常展示 VPC / {vpc} / {subnet}
+                                if (vpcStr === KUBE_OVN_PUBLIC_VPC || vpcStr === KUBE_OVN_FLAT_VPC) {
+                                  displayName = `扁平子网/${subnetDisplay}`;
+                                } else if (subnetType === 'public') {
+                                  displayName = `公共子网/${subnetDisplay}`;
+                                } else if (subnetType === 'flat') {
+                                  displayName = `扁平子网/${subnetDisplay}`;
+                                } else {
+                                  displayName = `VPC / ${vpcDisplay} / ${subnetDisplay}`;
+                                }
                             } else {
                                 // subnet 资源缺失时兜底展示
                                 displayName = `VPC / ${targetName}`;
@@ -803,13 +930,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             };
         });
     }
-  }), [namespaces, volumes, vpcs, subnets, nads]);
+  }), [volumes, vpcs, subnets, nads, vmImages, vmPvcs]);
 
   // ==============================================================================
   // 10. 操作封装 (Actions)
   // ==============================================================================
   // [动作封装] 将按钮/菜单的操作集中封装，统一处理消息提示与上游刷新回调
   const handleStart = async () => {
+     if (!hasEcsWrite) {
+         message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+         return;
+     }
      try {
          const ns = SafeRead.namespace(vmData);
          const name = SafeRead.vmId(vmData);
@@ -822,6 +953,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleStop = async (force = false) => {
+     if (!hasEcsWrite) {
+         message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+         return;
+     }
      try {
          const ns = SafeRead.namespace(vmData);
          const name = SafeRead.vmId(vmData);
@@ -834,6 +969,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleReboot = async () => {
+      if (!hasEcsWrite) {
+          message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+          return;
+      }
       try {
           const ns = SafeRead.namespace(vmData);
           const name = SafeRead.vmId(vmData);
@@ -848,6 +987,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handlePause = async () => {
+    if (!hasEcsWrite) {
+        message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+        return;
+    }
     try {
         const ns = SafeRead.namespace(vmData);
         const name = SafeRead.vmId(vmData);
@@ -860,6 +1003,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleUnpause = async () => {
+    if (!hasEcsWrite) {
+        message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+        return;
+    }
     try {
         const ns = SafeRead.namespace(vmData);
         const name = SafeRead.vmId(vmData);
@@ -872,6 +1019,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleConsole = async () => {
+    if (!hasConsoleWrite) {
+        message.error('当前账号没有控制台操作权限（需要 clouds.console:write 权限）');
+        return;
+    }
     const ns = SafeRead.namespace(vmData);
     const name = SafeRead.vmId(vmData);
     if (ns && name) {
@@ -883,93 +1034,163 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleSaveAsTemplate = useCallback(async () => {
+    if (!hasEcsWrite) {
+      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+      return;
+    }
     setShowTemplateModal(true);
-  }, []);
+  }, [hasEcsWrite]);
 
 
   const handleEjectCdrom = useCallback(async () => {
+    if (!hasEcsWrite) {
+      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+      return;
+    }
     const disks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
     // [设备选择] 以第一块盘作为“启动盘/引导盘”候选，并在下方按 isCdromBoot 控制入口是否展示
     const cdrom = disks[0];
     if (!cdrom) return;
-    
+
     const statusStr = String(SafeRead.status(vmData)).toLowerCase();
     const isRunning = !['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
-    
+
     let deletePvc = true;
-    
+
     Modal.confirm({
-      title: isRunning ? '安全弹出 CD-ROM (需要重启)' : '弹出 CD-ROM',
+      title: isRunning ? '弹出 CD-ROM (将强制重启)' : '弹出 CD-ROM',
       width: 500,
       content: (
         <div>
-            <p>即将弹出设备: <b>{cdrom.name}</b></p>
-            {isRunning && (
-              <div style={{ marginBottom: 16, color: '#faad14', background: '#fffbe6', padding: '8px 12px', border: '1px solid #ffe58f', borderRadius: 4 }}>
-                <InfoCircleOutlined style={{ marginRight: 8 }} />
-                实例正在运行。系统将自动停止实例，弹出光驱，然后重新启动。
-              </div>
-            )}
-            <div style={{ marginTop: 16 }}>
-              <Checkbox defaultChecked={true} onChange={(e) => { deletePvc = e.target.checked; }}>
-                  同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐，避免残留孤儿卷)</span>
-              </Checkbox>
+          <p>
+            即将弹出设备: <b>{cdrom.name}</b>
+          </p>
+          {isRunning && (
+            <div
+              style={{
+                marginBottom: 16,
+                color: '#faad14',
+                background: '#fffbe6',
+                padding: '8px 12px',
+                border: '1px solid #ffe58f',
+                borderRadius: 4,
+              }}
+            >
+              <InfoCircleOutlined style={{ marginRight: 8 }} />
+              实例正在运行。系统将卸载光驱卷并强制重启实例。
             </div>
+          )}
+          <div style={{ marginTop: 16 }}>
+            <Checkbox
+              defaultChecked={true}
+              onChange={(e) => {
+                deletePvc = e.target.checked;
+              }}
+            >
+              同步删除关联卷 (PVC){' '}
+              <span style={{ color: '#999', fontSize: 12 }}>(推荐，避免残留孤儿卷)</span>
+            </Checkbox>
+          </div>
         </div>
       ),
       onOk: async () => {
-        const hide = message.loading('正在执行弹出操作...', 0);
+        const hide = message.loading(isRunning ? '正在卸载并强制重启...' : '正在卸载...', 0);
         try {
           const ns = SafeRead.namespace(vmData);
           const name = SafeRead.vmId(vmData);
-          // [实例标识] 后端部分接口使用 iid=namespace/name
-          const iidStr = `${ns}/${name}`;
-          
+
           if (!ns || !name) throw new Error('无法解析实例信息');
 
           // ---------------------------------------------------------
-          // 第一步：运行中先停止（避免在线卸载导致状态不一致）
+          // 第一步：从 VM Spec 中移除 CD-ROM 对应的 disk/volume（卷卸载）
           // ---------------------------------------------------------
-          if (isRunning) {
-              await stopHarvesterVm(cloudId, ns, name, true);
-              await new Promise(resolve => setTimeout(resolve, 5000));
+          const currentDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
+          const currentVolumes = vmData?.spec?.template?.spec?.volumes || [];
+          const nextDisks = currentDisks.filter((d: any) => d?.name !== cdrom.name);
+          const nextVolumes = currentVolumes.filter((v: any) => v?.name !== cdrom.name);
+
+          const removedDisk = currentDisks.length - nextDisks.length;
+          const removedVol = currentVolumes.length - nextVolumes.length;
+          if (removedDisk === 0 && removedVol === 0) {
+            throw new Error('未找到可卸载的 CD-ROM 卷');
+          }
+          if (removedDisk !== removedVol) {
+            throw new Error('CD-ROM 磁盘与卷配置不一致，无法安全卸载');
           }
 
-          // ---------------------------------------------------------
-          // 第二步：从 VM 上卸载对应卷
-          // ---------------------------------------------------------
-          await detachHarvesterVolumeFromVm(cloudId, iidStr, { name: cdrom.name });
+          const patchPayload: any = {
+            spec: {
+              template: {
+                spec: {
+                  domain: {
+                    devices: {
+                      disks: nextDisks,
+                    },
+                  },
+                  volumes: nextVolumes,
+                },
+              },
+            },
+          };
+
+          await patchHarvesterVm(cloudId, ns, name, patchPayload);
 
           // ---------------------------------------------------------
-          // 第三步：按用户勾选决定是否删除 PVC（避免残留孤儿卷）
+          // 第二步：按用户勾选决定是否删除 PVC（避免残留孤儿卷）
           // ---------------------------------------------------------
           if (deletePvc) {
-              const volumes = vmData?.spec?.template?.spec?.volumes || [];
-              const vol = volumes.find((v: any) => v.name === cdrom.name);
-              const pvcName = vol?.persistentVolumeClaim?.claimName;
-              
-              if (pvcName) {
-                try {
-                    await deleteHarvesterPVC(cloudId, ns, pvcName);
-                } catch (e: any) {
-                    console.warn('Delete PVC failed', e);
-                    message.warning(`PVC删除失败: ${e.message}`);
-                }
+            const vol = currentVolumes.find((v: any) => v.name === cdrom.name);
+            const pvcName = vol?.persistentVolumeClaim?.claimName;
+
+            if (pvcName) {
+              try {
+                await deleteHarvesterPVC(cloudId, ns, pvcName);
+              } catch (e: any) {
+                console.warn('Delete PVC failed', e);
+                message.warning(`PVC删除失败: ${e.message}`);
               }
+            }
           }
 
           // ---------------------------------------------------------
-          // 第四步：若之前处于运行态，则恢复启动
+          // 第三步：运行中强制重启（避免 start 触发“VM already running”）
           // ---------------------------------------------------------
           if (isRunning) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              await startHarvesterVm(cloudId, ns, name);
+            const instanceId = `${ns}/${name}`;
+            await rebootCloudProviderEcs(cloudId, instanceId, true);
           }
 
-          message.success('已发送弹出指令');
+          message.success(isRunning ? '弹出CD-ROM成功，等待完成重启' : '弹出CD-ROM成功');
           onRefresh && onRefresh();
-        } catch(e:any) {
+        } catch (e: any) {
           message.error(`弹出失败: ${e.message}`);
+        } finally {
+          hide();
+        }
+      },
+    });
+  }, [cloudId, vmData, onRefresh, SafeRead, hasEcsWrite]);
+
+  // [事件] 中止迁移
+  const handleAbortMigration = useCallback(() => {
+    Modal.confirm({
+      title: '确认中止迁移？',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要中止虚拟机 ${SafeRead.name(vmData)} 的迁移任务吗？`,
+      okText: '中止迁移',
+      okType: 'danger',
+      onOk: async () => {
+        const hide = message.loading('正在中止迁移...', 0);
+        try {
+          const ns = SafeRead.namespace(vmData);
+          const name = SafeRead.vmId(vmData);
+          // [实例标识] Harvester 侧的 instanceId 约定为 namespace/name
+          const instanceId = `${ns}/${name}`;
+          await abortHarvesterMigration(cloudId, instanceId);
+          message.success('已发送中止迁移指令');
+          onRefresh && onRefresh(true);
+        } catch (e: any) {
+          message.error(`中止迁移失败: ${e.message || '未知错误'}`);
         } finally {
           hide();
         }
@@ -978,20 +1199,133 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   }, [cloudId, vmData, onRefresh, SafeRead]);
 
   const status = String(SafeRead.status(vmData)).toLowerCase();
+
+  // [配置同步状态] 使用 K8s generation 字段简单判断是否存在“配置未完全同步”的提示信息
+  const vmGeneration = vmData?.metadata?.generation;
+  // 预留 observedGeneration/desiredGeneration 等字段（如果后端聚合接口未来补充，可以直接使用）
+  const observedGeneration =
+    vmData?.status?.observedGeneration ??
+    vmData?.status?.desiredGeneration ??
+    vmData?.status?.lastObservedGeneration;
+
+  const hasGenerationInfo =
+    typeof vmGeneration === 'number' && typeof observedGeneration === 'number';
+
+  const isConfigOutOfSync =
+    hasGenerationInfo && vmGeneration > observedGeneration;
+
+  // [热扩容状态] 复刻列表/变配中的判定逻辑：基于 Annotation + Conditions
+  const annotations = vmData?.metadata?.annotations || {};
+  const conditions = vmData?.status?.conditions || [];
+
+  const isHotPlugConfigured =
+    annotations['harvesterhci.io/enableCPUAndMemoryHotplug']?.toLowerCase() ===
+    'true';
+
+  const hasRestartRequired = conditions.some(
+    (c: any) => c.type === 'RestartRequired' && c.status === 'True',
+  );
+
+  const hasHotPlugChangeInProgress = conditions.some(
+    (c: any) =>
+      (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') &&
+      c.status === 'True',
+  );
+
+  // [关键修复] 检查 VM 是否可迁移（内存热扩容的前提条件）
+  // KubeVirt 要求：Memory-hotplug is only available for migratable VMs
+  // [兼容性] 同时检查 LiveMigratable 和 VirtualMachineInstanceIsMigratable 两种条件类型
+  const vmi = vmData?.vmi || vmData?.vmiRaw;
+  const vmiConditions = vmi?.status?.conditions || [];
+  const isMigratable = vmiConditions.some(
+    (c: any) =>
+      (c.type === 'LiveMigratable' || c.type === 'VirtualMachineInstanceIsMigratable') &&
+      c.status === 'True',
+  );
+
+  // 当前是否可以正常执行热扩容操作（已配置 且 无待重启 且 无在途变更）
+  // [关键修正] CPU 热扩容会触发迁移，因此也需要 VM 可迁移
+  // 如果 VM 不可迁移，CPU 和内存热扩容都无法执行
+  const isHotPlugEffective =
+    isHotPlugConfigured && !hasRestartRequired && !hasHotPlugChangeInProgress && isMigratable;
+
+  // 已配置但需要重启后才生效
+  const isHotPlugPendingRestart =
+    isHotPlugConfigured && hasRestartRequired && !hasHotPlugChangeInProgress;
+
+  // 已配置且正在执行热扩容
+  const isHotPlugInProgress =
+    isHotPlugConfigured && hasHotPlugChangeInProgress;
   const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(status);
   const isRunning = ['running'].includes(status);
   const isPaused = ['paused'].includes(status);
+  const isMigrating = status === 'Migrating' || status.toLowerCase() === 'migrating';
 
 
   // ==============================================================================
   // 11. 派生状态 (Derived Flags)
   // ==============================================================================
   // [故障提示] HotPlugCPUError 通常表示热插拔 CPU 变配失败，需要在 UI 上显式提示
-  const conditions = vmData?.status?.conditions || [];
-  const hotPlugCpuError = conditions.find((c: any) => c.type === 'Failure' && c.reason === 'HotPlugCPUError' && c.status === 'True');
+  const hotPlugCpuError = conditions.find(
+    (c: any) =>
+      c.type === 'Failure' &&
+      c.reason === 'HotPlugCPUError' &&
+      c.status === 'True',
+  );
   
   const vmDisks = SafeRead.volumeDetails(vmData);
   const vmNics = SafeRead.interfaces(vmData);
+  const vmDeviceAlloc = useMemo(() => {
+    const domain = vmData?.spec?.template?.spec?.domain;
+    const devices = domain?.devices || {};
+
+    let allocation: any = null;
+    try {
+      const raw = vmData?.metadata?.annotations?.['harvesterhci.io/deviceAllocationDetails'];
+      if (raw) allocation = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch {
+      allocation = null;
+    }
+    const hostAlloc = allocation?.hostdevices || {};
+    return { hostAlloc, devices };
+  }, [vmData]);
+
+  const vmGpus = useMemo(() => {
+    const isUsb = (x: any) => {
+      const dn = String(x?.deviceName || '').toLowerCase();
+      const n = String(x?.name || '').toLowerCase();
+      return dn.includes('usb') || n.includes('usb');
+    };
+    const hostDevices = Array.isArray(vmDeviceAlloc?.devices?.hostDevices) ? vmDeviceAlloc.devices.hostDevices : [];
+    const gpus = Array.isArray(vmDeviceAlloc?.devices?.gpus) ? vmDeviceAlloc.devices.gpus : [];
+    const mapped = [
+      ...hostDevices.filter((d: any) => !isUsb(d)).map((d: any) => ({ kind: 'hostDevices', deviceName: d?.deviceName, name: d?.name })),
+      ...gpus.map((d: any) => ({ kind: 'gpus', deviceName: d?.deviceName, name: d?.name })),
+    ]
+      .filter((x: any) => x?.deviceName || x?.name)
+      .map((x: any) => {
+        const allocNames = Array.isArray(vmDeviceAlloc?.hostAlloc?.[x.deviceName]) ? vmDeviceAlloc.hostAlloc[x.deviceName] : [];
+        return { ...x, allocationNames: allocNames };
+      });
+    return mapped;
+  }, [vmDeviceAlloc]);
+
+  const vmUsb = useMemo(() => {
+    const isUsb = (x: any) => {
+      const dn = String(x?.deviceName || '').toLowerCase();
+      const n = String(x?.name || '').toLowerCase();
+      return dn.includes('usb') || n.includes('usb');
+    };
+    const hostDevices = Array.isArray(vmDeviceAlloc?.devices?.hostDevices) ? vmDeviceAlloc.devices.hostDevices : [];
+    return hostDevices
+      .filter((d: any) => isUsb(d))
+      .map((d: any) => ({ kind: 'hostDevices', deviceName: d?.deviceName, name: d?.name }))
+      .filter((x: any) => x?.deviceName || x?.name)
+      .map((x: any) => {
+        const allocNames = Array.isArray(vmDeviceAlloc?.hostAlloc?.[x.deviceName]) ? vmDeviceAlloc.hostAlloc[x.deviceName] : [];
+        return { ...x, allocationNames: allocNames };
+      });
+  }, [vmDeviceAlloc]);
 
   // [动作开关] 若第一块磁盘为 cdrom，则暴露“弹出 CD-ROM”动作
   const rawDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
@@ -1000,23 +1334,147 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // [下拉菜单] 更多动作入口（按业务域分组：数据/运行态/危险操作）
   const actionItems: MenuProps['items'] = [
       // 数据与副本（备份/快照/克隆/模板）
-      { key: 'backup', label: '备份', icon: <DatabaseOutlined />, onClick: () => onBackup && onBackup(vmData) },
-      { key: 'snapshot', label: '快照', icon: <HistoryOutlined />, onClick: () => onSnapshot && onSnapshot(vmData) },
-      { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(vmData) },
-      { key: 'save_template', label: '保存为模板', icon: <SaveOutlined />, onClick: handleSaveAsTemplate },
+      { 
+        key: 'backup', 
+        label: '备份', 
+        icon: <DatabaseOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onBackup && onBackup(vmData);
+        },
+      },
+      { 
+        key: 'snapshot', 
+        label: '快照', 
+        icon: <HistoryOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onSnapshot && onSnapshot(vmData);
+        },
+      },
+      { 
+        key: 'clone', 
+        label: '克隆', 
+        icon: <CopyOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onClone && onClone(vmData);
+        },
+      },
+      { 
+        key: 'save_template', 
+        label: '保存为模板', 
+        icon: <SaveOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: handleSaveAsTemplate,
+      },
       
       { type: 'divider' },
 
-      // 运行态操作（变配/迁移/介质卸载）
-      { key: 'reconfigure', label: '资源变配', icon: <HddOutlined />, onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) },
-      { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(vmData) },
-      ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
+      // 运行态操作（变配/热插拔/迁移/介质卸载）
+      { 
+        key: 'reconfigure', 
+        label: '资源变配', 
+        icon: <HddOutlined />, 
+        disabled: !hasEcsWrite || (!isStopped && !isRunning),
+        title: (!isStopped && !isRunning)
+            ? '仅在运行中或停止状态下支持变配'
+            : undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onOpenReconfigure && onOpenReconfigure(vmData);
+        } 
+      },
+      // 根据迁移状态动态显示"热迁移"或"中止迁移"
+      ...(isMigrating ? [
+        { 
+          key: 'abort_migration', 
+          label: '中止迁移', 
+          icon: <StopOutlined />, 
+          disabled: !hasEcsWrite,
+          title: undefined,
+          danger: true,
+          onClick: () => {
+            if (!hasEcsWrite) {
+              message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+              return;
+            }
+            handleAbortMigration();
+          } 
+        }
+      ] : [
+        { 
+          key: 'migrate', 
+          label: '热迁移', 
+          icon: <ExportOutlined />, 
+          disabled: !hasEcsWrite || !isRunning,
+          title: !isRunning
+              ? '只有运行中的实例才能进行热迁移'
+              : undefined,
+          onClick: () => {
+            if (!hasEcsWrite) {
+              message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+              return;
+            }
+            onMigrate && onMigrate(vmData);
+          } 
+        }
+      ]),
+      ...(isCdromBoot ? [{ 
+        key: 'eject', 
+        label: '弹出CD-ROM', 
+        icon: <StopOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: handleEjectCdrom 
+      }] : []),
 
       { type: 'divider' },
 
       // 危险操作（强制停止/删除）
-      { key: 'force_stop', label: '强制停止', icon: <PoweroffOutlined />, danger: true, disabled: isStopped, onClick: () => handleStop(true) },
-      { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => onDelete && onDelete(vmData) },
+      { 
+        key: 'force_stop', 
+        label: '强制停止', 
+        icon: <PoweroffOutlined />, 
+        danger: true, 
+        disabled: !hasEcsWrite || isStopped, 
+        title: undefined,
+        onClick: () => handleStop(true) 
+      },
+      { 
+        key: 'delete', 
+        label: '删除', 
+        icon: <DeleteOutlined />, 
+        danger: true,
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onDelete && onDelete(vmData);
+        },
+      },
   ];
 
   return (
@@ -1035,7 +1493,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         展示 VM 名称/ID/状态，以及刷新与关闭入口。
       */}
       <div style={{ background: '#f5f7fa', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ 
                 width: 38,
                 height: 38,
@@ -1050,6 +1508,69 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 <div style={{ fontSize: 12, color: '#999'}}>ID: {SafeRead.vmId(vmData)}</div>
             </div>
             <Tag color={isRunning ? 'success' : 'default'} style={{ margin: 0}}>{cnVmStatus(status)}</Tag>
+
+            {/* 配置同步状态徽章：仅当存在 generation 信息时展示 */}
+            {hasGenerationInfo && (
+              <Tooltip
+                title={
+                  isConfigOutOfSync
+                    ? `配置未完全同步：当前 VM generation = ${vmGeneration}，最新已同步版本 = ${observedGeneration}。这通常表示最近一次规格/配置变更仍在同步或落盘过程中。`
+                    : `配置已同步：当前 VM generation = ${vmGeneration}，同步版本 = ${observedGeneration}。`
+                }
+              >
+                <Tag
+                  color={isConfigOutOfSync ? 'processing' : 'default'}
+                  style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <InfoCircleOutlined />
+                  {isConfigOutOfSync ? '变更同步中' : '配置已同步'}
+                </Tag>
+              </Tooltip>
+            )}
+
+            {/* 热扩容状态徽章：仅当已配置且在运行状态（或待重启状态）时展示 */}
+            {/* [关键修正] 热扩容功能需要 VM 运行，关机状态下不显示状态徽章（待重启状态除外） */}
+            {isHotPlugConfigured && (isRunning || isHotPlugPendingRestart) && (
+              <Tooltip
+                title={
+                  isHotPlugInProgress
+                    ? '热扩容进行中：当前正在执行 CPU 或内存热扩容操作，期间禁止再次发起新的热扩容/规格变更。'
+                    : isHotPlugPendingRestart
+                    ? '热扩容已配置但未完全生效：需要先重启虚拟机，才能开启 CPU/内存热插拔能力。'
+                    : isHotPlugEffective
+                    ? '热扩容已启用：当前虚拟机支持在不重启的前提下增加 CPU / 内存（受 maxSockets/maxMemory 上限约束）。'
+                    : isHotPlugConfigured && !isMigratable
+                    ? '热扩容不可用：CPU 和内存热扩容都需要 VM 可迁移（当前不可迁移），请检查 PVC 是否为共享存储（ReadWriteMany）或移除阻止迁移的设备。'
+                    : '热扩容状态异常：已存在配置标记，但状态条件无法判定为生效/在途/待重启，请查看事件或日志。'
+                }
+              >
+                <Tag
+                  color={
+                    isHotPlugInProgress
+                      ? 'processing'
+                      : isHotPlugPendingRestart
+                      ? 'warning'
+                      : isHotPlugEffective
+                      ? 'success'
+                      : isHotPlugConfigured && !isMigratable
+                      ? 'warning' // VM 不可迁移，热扩容不可用
+                      : 'default'
+                  }
+                  style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <InfoCircleOutlined />
+                  {isHotPlugInProgress
+                    ? '热扩容中'
+                    : isHotPlugPendingRestart
+                    ? '热扩容待重启'
+                    : isHotPlugEffective
+                    ? '热扩容已启用'
+                    : isHotPlugConfigured && !isMigratable
+                    ? '热扩容不可用'
+                    : '热扩容异常'}
+                </Tag>
+              </Tooltip>
+            )}
 
             {hotPlugCpuError && (
               <Tooltip title={`CPU 热插拔失败: ${hotPlugCpuError.message || '未知错误'}`}>
@@ -1103,23 +1624,117 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       */}
       <div style={{ background: '#f5f7fa', padding: '0 24px 4px', flexShrink: 0 }}>
         <div style={{ padding: 4, background: '#fff', borderRadius: 8, display: 'flex', gap: 4, alignItems: 'center',border: '1px solid #e0e0e0' }}>
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />}
+                onClick={handleConsole}
+                disabled={isStopped || !hasConsoleWrite}
+                style={{ fontSize: 14 }}
+              >
+                打开终端
+              </Button>
+            </span>
+          </Tooltip>
           
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 14 }}>开机</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />}
+                onClick={handleStart}
+                disabled={!isStopped || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                开机
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={() => handleStop(false)} disabled={isStopped} style={{ fontSize: 14 }}>关机</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />}
+                onClick={() => handleStop(false)}
+                disabled={isStopped || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                关机
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleReboot} disabled={isStopped} style={{ fontSize: 14 }}>重启</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />}
+                onClick={handleReboot}
+                disabled={isStopped || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                重启
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} onClick={handlePause} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />}
+                onClick={handlePause}
+                disabled={!isRunning || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                暂停
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} onClick={handleUnpause} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />}
+                onClick={handleUnpause}
+                disabled={!isPaused || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                恢复
+              </Button>
+            </span>
+          </Tooltip>
 
           <div style={{ flex: 1 }} />
           
-          <Dropdown menu={{ items: actionItems }} trigger={['click']}>
-              <Button className="vm-toolbar-btn" type="text" size="small" icon={<EllipsisOutlined style={{ color: '#1890ff' }} />} />
-          </Dropdown>
+          <Tooltip title={undefined}>
+            <span>
+              <Dropdown menu={{ items: actionItems }} trigger={['click']}>
+                <Button
+                  className="vm-toolbar-btn"
+                  type="text"
+                  size="small"
+                  disabled={!hasEcsWrite}
+                  icon={<EllipsisOutlined style={{ color: '#1890ff' }} />}
+                />
+              </Dropdown>
+            </span>
+          </Tooltip>
         </div>
       </div>
 
@@ -1139,6 +1754,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               options={[
                 { label: '详情', value: 'detail', icon: <DesktopOutlined /> },
                 { label: '性能', value: 'performance', icon: <LineChartOutlined /> },
+                { label: '诊断', value: 'diagnosis', icon: <ExclamationCircleOutlined /> },
                 { label: '备份/快照', value: 'backup_snapshot', icon: <DatabaseOutlined /> },
                 { label: '事件', value: 'events', icon: <BellOutlined /> },
                 { label: '实时日志', value: 'logs', icon: <FileTextOutlined /> },
@@ -1456,9 +2072,191 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       </Card>
                   </div>
 
+                  {vmGpus.length > 0 && (
+                      <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span style={{ color: '#666' }}>GPU</span>
+                          </div>
+                          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+                              <List
+                                dataSource={vmGpus}
+                                renderItem={(item: any) => (
+                                    <List.Item style={{ padding: '16px 24px' }}>
+                                        <List.Item.Meta
+                                            avatar={
+                                              <div style={{ 
+                                                  width: 48, height: 48, borderRadius: 8, background: '#ffffff',
+                                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                  flexShrink: 0 
+                                              }}>
+                                                  <GpuIcon width={34} height={34} style={{ fill: '#1890ff' }} />
+                                              </div>
+                                            }
+                                            title={
+                                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <span style={{ wordBreak: 'break-word' }}>{item.deviceName || '-'}</span>
+                                                <Tag color={item.kind === 'gpus' ? 'blue' : 'purple'} style={{ fontSize: 10, margin: 0 }}>
+                                                  {item.kind === 'gpus' ? 'GPU' : 'HostDevice'}
+                                                </Tag>
+                                              </div>
+                                            }
+                                            description={
+                                              <div style={{ fontSize: 12, color: '#666' }}>
+                                                {item.name ? (
+                                                  <span>分配ID：{item.name}</span>
+                                                ) : null}
+                                                {Array.isArray(item.allocationNames) && item.allocationNames.length > 0 ? (
+                                                  <>
+                                                    {item.name ? <span style={{ margin: '0 8px', color: '#eee' }}>|</span> : null}
+                                                    <span>分配明细：{item.allocationNames.join(', ')}</span>
+                                                  </>
+                                                ) : null}
+                                              </div>
+                                            }
+                                        />
+                                    </List.Item>
+                                )}
+                              />
+                          </Card>
+                      </div>
+                  )}
+
+                  {vmUsb.length > 0 && (
+                      <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span style={{ color: '#666' }}>USB</span>
+                          </div>
+                          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+                              <List
+                                dataSource={vmUsb}
+                                renderItem={(item: any) => (
+                                    <List.Item style={{ padding: '16px 24px' }}>
+                                        <List.Item.Meta
+                                            avatar={
+                                              <div style={{ 
+                                                  width: 48, height: 48, borderRadius: 8, background: '#ffffff',
+                                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                  flexShrink: 0 
+                                              }}>
+                                                  <UsbIcon width={34} height={34} style={{ fill: '#1890ff' }} />
+                                              </div>
+                                            }
+                                            title={
+                                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <span style={{ wordBreak: 'break-word' }}>{item.deviceName || '-'}</span>
+                                                <Tag color="purple" style={{ fontSize: 10, margin: 0 }}>USB</Tag>
+                                              </div>
+                                            }
+                                            description={
+                                              <div style={{ fontSize: 12, color: '#666' }}>
+                                                {item.name ? (
+                                                  <span>分配ID：{item.name}</span>
+                                                ) : null}
+                                                {Array.isArray(item.allocationNames) && item.allocationNames.length > 0 ? (
+                                                  <>
+                                                    {item.name ? <span style={{ margin: '0 8px', color: '#eee' }}>|</span> : null}
+                                                    <span>分配明细：{item.allocationNames.join(', ')}</span>
+                                                  </>
+                                                ) : null}
+                                              </div>
+                                            }
+                                        />
+                                    </List.Item>
+                                )}
+                              />
+                          </Card>
+                      </div>
+                  )}
+
                   {/*
                     ========================================
-                    4.4 其他选项
+                    4.4 节点调度
+                    ========================================
+                    展示节点选择器（nodeSelector）和节点亲和性（nodeAffinity）配置，帮助诊断调度问题。
+                  */}
+                  <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: '#666' }}>节点调度</span>
+                      </div>
+                      <Card variant="borderless" styles={{ body: { padding: '16px 24px' } }}>
+                          <Descriptions column={1} size="small" styles={{ label: { width: 140, color: '#999' } }}>
+                              <Descriptions.Item label="当前节点">
+                                  {vmData?.status?.nodeName || vmData?.vmi?.status?.nodeName || '-'}
+                              </Descriptions.Item>
+                              <Descriptions.Item label={
+                                  <Tooltip title="节点选择器：强制虚拟机调度到指定节点（如 GPU 节点固定）">
+                                      <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>节点选择器</span>
+                                  </Tooltip>
+                              }>
+                                  {(() => {
+                                      const nodeSelector = vmData?.spec?.template?.spec?.nodeSelector;
+                                      if (!nodeSelector || Object.keys(nodeSelector).length === 0) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
+                                      return (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                              {Object.entries(nodeSelector).map(([key, value]) => (
+                                                  <Tag key={key} color="blue" style={{ margin: 0 }}>
+                                                      {key}: {String(value)}
+                                                  </Tag>
+                                              ))}
+                                          </div>
+                                      );
+                                  })()}
+                              </Descriptions.Item>
+                              <Descriptions.Item label={
+                                  <Tooltip title="节点亲和性：根据节点标签进行调度（如网络标签要求）">
+                                      <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>节点亲和性</span>
+                                  </Tooltip>
+                              }>
+                                  {(() => {
+                                      const nodeAffinity = vmData?.spec?.template?.spec?.affinity?.nodeAffinity;
+                                      if (!nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
+                                      const terms = nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms || [];
+                                      if (terms.length === 0) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
+                                      const filteredTerms = terms
+                                          .map((term: any) => {
+                                              const exprs = (term.matchExpressions || []).filter((expr: any) => {
+                                                  const key = String(expr.key || '');
+                                                  const op = String(expr.operator || '');
+                                                  const vals: string[] = Array.isArray(expr.values)
+                                                      ? expr.values.map((x: any) => String(x))
+                                                      : (expr.values ? [String(expr.values)] : []);
+                                                  const includesTrue = vals.includes('true');
+                                                  return !(key === 'network.harvesterhci.io/mgmt' && op === 'In' && includesTrue);
+                                              });
+                                              return { ...term, matchExpressions: exprs };
+                                          })
+                                          .filter((t: any) => Array.isArray(t.matchExpressions) ? t.matchExpressions.length > 0 : true);
+                                      if (filteredTerms.length === 0) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
+                                      return (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                              {filteredTerms.map((term: any, idx: number) => (
+                                                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                      {term.matchExpressions?.map((expr: any, exprIdx: number) => (
+                                                          <Tag key={exprIdx} color="green" style={{ margin: 0 }}>
+                                                              {expr.key} {expr.operator} {Array.isArray(expr.values) ? expr.values.join(', ') : expr.values || ''}
+                                                          </Tag>
+                                                      ))}
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      );
+                                  })()}
+                              </Descriptions.Item>
+                          </Descriptions>
+                      </Card>
+                  </div>
+
+                  {/*
+                    ========================================
+                    4.5 其他选项
                     ========================================
                     展示 Guest Agent、Cloud-Init、SSH Keys、运行策略、固件/TPM 等配置项，便于排查实例行为差异。
                   */}
@@ -1520,6 +2318,16 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               />
           )}
 
+          {activeTab === 'diagnosis' && (
+              <div style={{ padding: '0 0 24px' }}>
+                 <HarvesterVmDiagnosisTab 
+                    cloudId={cloudId} 
+                    record={vmData} 
+                    active={activeTab === 'diagnosis'} 
+                 />
+              </div>
+          )}
+
           {activeTab === 'backup_snapshot' && (
             <div style={{ padding: '0 0 24px' }}>
               <HarvesterVmBackupTab 
@@ -1529,7 +2337,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                   schedules={schedules}
                   backupsLoading={backupsLoading}
                   schedulesLoading={schedulesLoading}
-                  onRefresh={(force) => { fetchBackups(force); fetchSchedules(force); }}
+                  onRefresh={(force, silent) => { 
+                    const skipSync = silent || false;
+                    fetchBackups(force, skipSync); 
+                    fetchSchedules(force, skipSync); 
+                  }}
                   namespaces={namespaces}
               />
             </div>
@@ -1571,7 +2383,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         vmNamespace={SafeRead.namespace(vmData)}
         vmName={SafeRead.vmId(vmData)}
         vmDisplayName={SafeRead.name(vmData)}
-        namespacesOptions={namespaces.map((n: any) => n?.metadata?.name || n)}
       />
     </Drawer>
   );

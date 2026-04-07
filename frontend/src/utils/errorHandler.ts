@@ -1,4 +1,5 @@
 import { message } from 'antd';
+import { translateKnownApiErrorMessage } from './k8sErrorMessages';
 
 /**
  * API 错误类型定义
@@ -8,6 +9,13 @@ export interface ApiError {
   message: string;
   data?: any;
   response?: Response;
+}
+
+/** 与 requestManager 抛错一致：403 + body.code === MUST_CHANGE_PASSWORD */
+export function isMustChangePasswordApiError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const e = error as { status?: number; responseData?: { code?: string } };
+  return e.status === 403 && e.responseData?.code === 'MUST_CHANGE_PASSWORD';
 }
 
 /**
@@ -50,7 +58,14 @@ export const handleApiError = (
     const { status, data } = error.response;
     apiError.status = status;
     apiError.data = data;
-    apiError.message = data?.message || data?.error || getStatusMessage(status);
+
+    const parts: string[] = [];
+    if (data?.message) parts.push(String(data.message));
+    if (typeof data?.error === 'string') parts.push(data.error);
+    if (data?.error && typeof data.error === 'object') parts.push(JSON.stringify(data.error));
+    const combined =
+      parts.length > 0 ? parts.join(' ') : getStatusMessage(status);
+    apiError.message = translateKnownApiErrorMessage(combined);
     
     // 特殊状态码处理
     handleSpecialStatus(status, apiError.message);
@@ -83,7 +98,7 @@ export const handleApiError = (
 
   // 处理普通 Error 对象
   if (error instanceof Error) {
-    apiError.message = error.message || defaultMessage;
+    apiError.message = translateKnownApiErrorMessage(error.message || defaultMessage);
     
     if (showMessage) {
       message.error(apiError.message);
@@ -98,7 +113,7 @@ export const handleApiError = (
 
   // 处理字符串错误
   if (typeof error === 'string') {
-    apiError.message = error;
+    apiError.message = translateKnownApiErrorMessage(error);
     
     if (showMessage) {
       message.error(apiError.message);

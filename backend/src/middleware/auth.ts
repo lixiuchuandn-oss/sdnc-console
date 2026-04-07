@@ -6,6 +6,25 @@ import { TenantUser } from '../entities/TenantUser';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import { RBACRole } from '../entities/RBACRole';
 import { In } from 'typeorm';
+import { adminMustChangePassword } from '../services/adminPasswordPolicy';
+
+function pathnameOnly(url: string): string {
+  const p = (url || '').split('?')[0];
+  if (p.length > 1 && p.endsWith('/')) return p.slice(0, -1);
+  return p;
+}
+
+/** 管理员密码已过期时仍允许访问的接口（改密、拉取自身信息与 RBAC 只读） */
+function isMustChangePasswordAllowedRoute(req: Request): boolean {
+  const pathname = pathnameOnly(req.originalUrl || req.url || '');
+  const method = req.method;
+  if (pathname === '/api/users/me' && (method === 'GET' || method === 'PUT')) return true;
+  if (pathname === '/api/users/me/password' && method === 'POST') return true;
+  if (method === 'GET' && (pathname === '/api/system/rbac/roles' || pathname.startsWith('/api/system/rbac/assignments'))) {
+    return true;
+  }
+  return false;
+}
 
 export interface AuthRequest extends Request {
   user?: User;
@@ -65,13 +84,7 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         where: { userType: isTenant ? 'tenant' : 'system', userId: user.id },
       });
       const roleIds = assigns.map((a) => a.roleId);
-
-      // If tenant user has a custom role (UUID), include it
-      if (isTenant && user.role && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.role)) {
-        if (!roleIds.includes(user.role)) {
-          roleIds.push(user.role);
-        }
-      }
+      // 权限完全由 RoleAssignment 计算，不再使用 TenantUser.role 参与权限
 
       let perms: string[] = [];
       if (roleIds.length) {
@@ -100,6 +113,21 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
       (user as any).permissions = Array.from(new Set(perms));
       // console.log('[AuthMiddleware] Final permissions for user:', user.username, (user as any).permissions);
     } catch {}
+
+    if (
+      decoded.role !== 'tenant' &&
+      decoded.role !== 'sase_device' &&
+      user &&
+      !(user as any).isTenantUser &&
+      adminMustChangePassword(user as User)
+    ) {
+      if (!isMustChangePasswordAllowedRoute(req)) {
+        return res.status(403).json({
+          message: '请先修改密码后再访问',
+          code: 'MUST_CHANGE_PASSWORD',
+        });
+      }
+    }
 
     req.user = user;
     next();

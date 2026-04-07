@@ -3,19 +3,28 @@
  * 表格展示 PrometheusRule 解析后的所有规则（来自 GET prometheusrules?datasource=prometheus）
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Dropdown, Input, Select, Space, Table, Typography } from 'antd';
+import { Button, Input, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { fetchPrometheusRules, fetchPrometheusRulesGroups, type PrometheusRuleItem } from '../../../../services/monitoringApi';
-import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
+import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS, SEVERITY_CRITICAL, SEVERITY_WARNING, SEVERITY_MAP } from './constants';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 interface MonitoringPrometheusRulesProps {
   cloudId: string;
 }
 
 const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadRules = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alert-rules:read'),
+    [perms]
+  );
   const [loading, setLoading] = useState(false);
   const [rules, setRules] = useState<PrometheusRuleItem[]>([]);
   const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
@@ -23,10 +32,9 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
   const [groupFilter, setGroupFilter] = useState<string>('');
   const [levelFilter, setLevelFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
-  const [rulesTableColumns, setRulesTableColumns] = useState<ColumnsType<PrometheusRuleItem>>([]);
 
   const loadRules = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadRules) return;
     setLoading(true);
     const { data, ok } = await fetchPrometheusRules(cloudId);
     setLoading(false);
@@ -35,25 +43,25 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
     } else {
       setRules([]);
     }
-  }, [cloudId]);
+  }, [cloudId, canReadRules]);
 
   const loadRulesGroupMap = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadRules) return;
     const { data, ok } = await fetchPrometheusRulesGroups(cloudId);
     if (ok && data?.rulesGroupMap && typeof data.rulesGroupMap === 'object') {
       setRulesGroupMap(data.rulesGroupMap);
     } else {
       setRulesGroupMap({});
     }
-  }, [cloudId]);
+  }, [cloudId, canReadRules]);
 
   useEffect(() => {
-    if (cloudId) loadRules();
-  }, [cloudId, loadRules]);
+    if (cloudId && canReadRules) loadRules();
+  }, [cloudId, loadRules, canReadRules]);
 
   useEffect(() => {
-    if (cloudId && rules.length > 0) loadRulesGroupMap();
-  }, [cloudId, rules.length, loadRulesGroupMap]);
+    if (cloudId && canReadRules && rules.length > 0) loadRulesGroupMap();
+  }, [cloudId, rules.length, loadRulesGroupMap, canReadRules]);
 
   const groupFilterOptions = useMemo(() => {
     const entries = Object.entries(rulesGroupMap).map(([value, label]) => ({ label: label || value, value }));
@@ -91,12 +99,12 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       title: '等级',
       dataIndex: 'severity',
       key: 'severity',
-      width: 90,
+      width: 100,
       render: (severity: string) => {
         const s = String(severity ?? '').toLowerCase();
-        const isCritical = s === 'critical';
+        const isCritical = s === SEVERITY_CRITICAL;
         const color = isCritical ? CRITICAL_COLOR : WARNING_COLOR;
-        const label = isCritical ? '严重' : s === 'warning' ? '警告' : severity || '-';
+        const label = isCritical ? SEVERITY_MAP.SEVERITY_CRITICAL : s === SEVERITY_WARNING ? SEVERITY_MAP.SEVERITY_WARNING : severity || '-';
         return (
           <Space size={6} style={{ alignItems: 'center' }}>
             <span
@@ -119,31 +127,36 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
     { title: '持续时间', dataIndex: 'interval', key: 'interval', width: 80 },
   ], []);
 
-  const getColumnKey = (col: { key?: string; dataIndex?: string | string[] }) => {
-    if (col.key) return String(col.key);
-    if (col.dataIndex) return Array.isArray(col.dataIndex) ? col.dataIndex.join('.') : String(col.dataIndex);
-    return '';
-  };
-  const displayColumns = useMemo(() => {
-    if (rulesTableColumns.length === 0) return columns;
-    const visibleKeys = new Set(rulesTableColumns.map((c) => getColumnKey(c as any)));
-    return columns.filter((col) => {
-      const k = getColumnKey(col as any);
-      return !k || visibleKeys.has(k);
-    });
-  }, [columns, rulesTableColumns]);
+  // 列显示设置（需要在 columns 定义之后）
+  const { displayColumns } = useTableColumnSettings(columns, 'monitoring_prometheus_rules_table');
+
+  if (!canReadRules) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看告警规则，请联系管理员分配 `clouds.alert-rules:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
 
   return (
     <PageDetailSection
       asCard={false}
       toolbarLeft={
         <>
+          <Input 
+            allowClear 
+            placeholder="名称/ID"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword} 
+            onChange={(e) => setKeyword(e.target.value)} 
+            className="toolbar-search"
+          />
           <Select
             placeholder="数据源"
             value={dataSourceFilter}
             onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
             options={[{ label: 'Prometheus', value: 'prometheus' }]}
-            style={{ minWidth: 120 }}
+            className="toolbar-filter-sm"
           />
           <Select
             placeholder="告警分组"
@@ -151,7 +164,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
             value={groupFilter || undefined}
             onChange={(v) => setGroupFilter(v ?? '')}
             options={groupFilterOptions}
-            style={{ minWidth: 160 }}
+            className="toolbar-filter-sm"
           />
           <Select
             placeholder="级别"
@@ -159,15 +172,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
             value={levelFilter || undefined}
             onChange={(v) => setLevelFilter(v ?? '')}
             options={LEVEL_FILTER_OPTIONS}
-            style={{ minWidth: 100 }}
-          />
-          <Input.Search
-            placeholder="关键字"
-            allowClear
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onSearch={() => {}}
-            style={{ width: 200 }}
+            className="toolbar-filter-sm"
           />
           <button
             type="button"
@@ -184,18 +189,14 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       }
       toolbarRight={
         <>
-          <TableColumnSettings
-            columns={columns}
-            onChange={setRulesTableColumns}
-            settingsKey="monitoring_prometheus_rules_table"
-          />
+          <TableColumnSettingsButton allColumns={columns} settingsKey="monitoring_prometheus_rules_table" />
           <Button icon={<ReloadOutlined />} onClick={loadRules} loading={loading} />
         </>
       }
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         rowKey={(row, i) => `${row.groupName}-${row.name}-${i}`}
         loading={loading}
         columns={displayColumns}

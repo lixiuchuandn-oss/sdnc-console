@@ -7,6 +7,10 @@ import { TenantUser } from '../../entities/TenantUser';
 import { RBACRole } from '../../entities/RBACRole';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
+import { logger } from '../../utils/logger';
+import { adminMustChangePassword } from '../../services/adminPasswordPolicy';
+
+const authLog = logger.child('Auth');
 
 const router = Router();
 
@@ -66,7 +70,15 @@ router.post('/register', async (req: Request, res: Response) => {
 // 用户登录
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    
+    // 清理用户名和密码（去除首尾空格）
+    username = String(username || '').trim();
+    password = String(password || '').trim();
+
+    if (!username || !password) {
+      return res.status(400).json({ message: '用户名和密码不能为空' });
+    }
 
     const userRepository = AppDataSource.getRepository(User);
     const tenantRepo = AppDataSource.getRepository(TenantUser);
@@ -82,9 +94,15 @@ router.post('/login', async (req: Request, res: Response) => {
     let role: string = '';
 
     // 1) 如果管理员表存在且密码匹配 → 认为是管理员/超级管理员
-    if (adminCandidate && (await bcrypt.compare(password, adminCandidate.password))) {
-      loginUser = adminCandidate;
-      role = adminCandidate.role;
+    if (adminCandidate) {
+      const passwordMatch = await bcrypt.compare(password, adminCandidate.password);
+      if (process.env.NODE_ENV === 'development') {
+        authLog.debug('管理员密码验证:', { username: adminCandidate.username, match: passwordMatch });
+      }
+      if (passwordMatch) {
+        loginUser = adminCandidate;
+        role = adminCandidate.role;
+      }
     }
 
     // 2) 否则尝试租户表
@@ -98,14 +116,14 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     if (!loginUser) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Login] 登录失败: 用户名或密码错误', { username, hasAdmin: !!adminCandidate, hasTenant: !!tenantCandidate });
+      }
       return res.status(401).json({ message: '用户名或密码错误' });
     }
 
-    // 状态检查（租户用户有 status 字段，管理员用户字段名可能不同）
-    if (
-      (loginUser.status && loginUser.status !== 'active') ||
-      (loginUser.status && loginUser.status !== 'active')
-    ) {
+    // 状态检查
+    if (loginUser.status && loginUser.status !== 'active') {
       return res.status(401).json({ message: '账户已被禁用' });
     }
 
@@ -113,33 +131,31 @@ router.post('/login', async (req: Request, res: Response) => {
     (loginUser as any).lastLoginAt = new Date();
     
     let permissions: string[] = [];
-    if (role === 'tenant') {
-      await tenantRepo.save(loginUser);
-      
-      // Fetch permissions for tenant user role
+    
+    // 如果是超级管理员，直接赋予所有权限
+    if (role === 'super_admin') {
+      permissions = ['*'];
+    } else {
+      // Fetch permissions for both tenant and system users（完全由 RoleAssignment 计算）
       try {
-        const trId = (loginUser as TenantUser).role;
         const assignRepo = AppDataSource.getRepository(RoleAssignment);
         const roleRepo = AppDataSource.getRepository(RBACRole);
+        const userType = role === 'tenant' ? 'tenant' : 'system';
         
-        // 1. Get explicit assignments
+        // 权限完全由 RoleAssignment 计算
         const assigns = await assignRepo.find({
-          where: { userType: 'tenant', userId: loginUser.id },
+          where: { userType, userId: loginUser.id },
         });
         const roleIds = assigns.map((a) => a.roleId);
 
-        // 2. Include primary role if it's a UUID (custom role)
-        // Check if UUID v4 format roughly
-        if (trId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trId)) {
-           if (!roleIds.includes(trId)) {
-             roleIds.push(trId);
-           }
-        }
-
-        // 3. Fetch all roles and merge permissions
+        // Fetch all roles and merge permissions
         if (roleIds.length > 0) {
            const roles = await roleRepo.find({ where: { id: In(roleIds) } });
            for (const r of roles) {
+             // 只聚合活跃角色的权限，过滤掉禁用角色
+             if (r.status !== 'active') {
+               continue;
+             }
              if (r.permissions) {
                try {
                  const raw = JSON.parse(r.permissions);
@@ -151,13 +167,28 @@ router.post('/login', async (req: Request, res: Response) => {
            }
         }
         
+        // 租户用户额外添加默认权限
+        if (role === 'tenant') {
+          permissions = permissions.concat(['clouds.console:read']);
+        }
+        
         // Deduplicate
         permissions = Array.from(new Set(permissions));
       } catch (e) {
-        console.warn('Failed to fetch permissions for tenant user', e);
+        authLog.warn(`Failed to fetch permissions for ${role} user`, e instanceof Error ? e.message : String(e));
       }
-    } else {
-      await userRepository.save(loginUser);
+    }
+    
+    // 保存用户（更新最后登录时间）
+    try {
+      if (role === 'tenant') {
+        await tenantRepo.save(loginUser);
+      } else {
+        await userRepository.save(loginUser);
+      }
+    } catch (saveError: any) {
+      authLog.warn('保存用户信息失败（不影响登录）:', saveError?.message ?? String(saveError));
+      // 保存失败不影响登录，继续执行
     }
 
     const token = jwt.sign(
@@ -166,18 +197,49 @@ router.post('/login', async (req: Request, res: Response) => {
       { expiresIn: '24h' },
     );
 
+    // 租户用户：补充租户/组织 ID 与名称，以便前端右上角登录后立即显示；用 null 占位保证 JSON 中一定带这四键（undefined 会被 JSON.stringify 省略）
+    let tenantId: string | null = null;
+    let organizationId: string | null = null;
+    let tenantName: string | null = null;
+    let organizationName: string | null = null;
+    if (role === 'tenant') {
+      const tu = loginUser as TenantUser;
+      tenantId = tu.tenantId ?? null;
+      organizationId = tu.organizationId ?? null;
+      try {
+        const fullUser = await tenantRepo.findOne({
+          where: { id: loginUser.id },
+          relations: ['tenant', 'organization'],
+        });
+        if (fullUser?.tenant?.name) tenantName = fullUser.tenant.name;
+        if (fullUser?.organization?.name) organizationName = fullUser.organization.name;
+      } catch (e) {
+        authLog.warn('Failed to fetch tenant/org names for login response', e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    const userPayload: Record<string, any> = {
+      id: loginUser.id,
+      username: loginUser.username,
+      email: loginUser.email,
+      fullName: loginUser.fullName,
+      role,
+      tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
+      permissions,
+    };
+    if (role === 'tenant') {
+      userPayload.tenantId = tenantId;
+      userPayload.organizationId = organizationId;
+      userPayload.tenantName = tenantName;
+      userPayload.organizationName = organizationName;
+    } else {
+      userPayload.mustChangePassword = adminMustChangePassword(loginUser as User);
+    }
+
     res.json({
       message: '登录成功',
       token,
-      user: {
-        id: loginUser.id,
-        username: loginUser.username,
-        email: loginUser.email,
-        fullName: loginUser.fullName,
-        role,
-        tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
-        permissions,
-      },
+      user: userPayload,
     });
   } catch (error: any) {
     res.status(500).json({ message: '登录失败', error: error.message });

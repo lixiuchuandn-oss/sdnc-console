@@ -18,6 +18,9 @@
 .wizard-section .ant-form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 /* 中间列滚动区域（Form） */
 .wizard-step-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 30px; scrollbar-gutter: stable; }
+/* 方案 A：各步同时挂载，仅切换显示，避免卸载丢表单项 */
+.wizard-step-panel { display: none; }
+.wizard-step-panel.is-active { display: block; }
 /* 分组标题与表单间距（中间列） */
 .wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
 /* Radio 外观（中间列） */
@@ -90,6 +93,14 @@
   text-align: center;
 }
 
+.wizard-table-row-active {
+  background-color: #e6f4ff !important;
+}
+
+.wizard-table-row-active:hover {
+  background-color: #bae0ff !important;
+}
+
 /* 折叠面板调整 */
 /* 去除 高级CPU 折叠面板内容左右内边距 */
 .wizard-collapse-nopad .ant-collapse-content > .ant-collapse-content-box { padding-left: 0; padding-right: 0; border-top: 1px solid #eaeaea; }
@@ -105,3 +116,11 @@
 .wizard-summary-scroll { scrollbar-width: none; -ms-overflow-style: none; }
 .wizard-summary-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .wizard-step-scroll { scrollbar-width: thin; scrollbar-color: #f7f9fb transparent; }
+
+/* 资源变配：左侧导航垂直滚动条（与 wizard-step-scroll 一致） */
+.vm-reconfigure-sidebar-scroll {
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #f7f9fb transparent;
+}

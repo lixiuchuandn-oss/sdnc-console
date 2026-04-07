@@ -50,13 +50,20 @@ export function useDashboardNodeData(cloudId: string | undefined): DashboardNode
       const signal = ctrl.signal;
       const opts = { signal };
 
-      Promise.all([
+      // 使用 Promise.allSettled 确保单个请求失败不会阻塞其他请求
+      Promise.allSettled([
         fetchNodeResources(cloudId, opts),
         fetchNodeMetrics(cloudId, opts),
         fetchStorageNodes(cloudId, opts),
       ])
-        .then(([resourcesRes, metricsRes, storageRes]) => {
+        .then(([resourcesResult, metricsResult, storageResult]) => {
           if (!mountedRef.current || signal.aborted) return;
+          
+          // 处理每个请求的结果，单个失败不影响其他
+          const resourcesRes = resourcesResult.status === 'fulfilled' ? resourcesResult.value : { ok: false, error: resourcesResult.reason?.message || '请求失败', data: null };
+          const metricsRes = metricsResult.status === 'fulfilled' ? metricsResult.value : { ok: false, error: metricsResult.reason?.message || '请求失败', data: null };
+          const storageRes = storageResult.status === 'fulfilled' ? storageResult.value : { ok: false, error: storageResult.reason?.message || '请求失败', data: null };
+          
           const errMsg = !resourcesRes.ok
             ? resourcesRes.error
             : !metricsRes.ok

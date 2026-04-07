@@ -29,7 +29,7 @@
  * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
  */
 import React, { useMemo, useState, useEffect } from 'react';
-import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress } from 'antd';
+import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
@@ -40,6 +40,8 @@ import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harve
 interface StepBasicProps {
   /** Ant Design Form 实例 */
   form: any;
+  /** 当前资源池下已存在的 VM 列表（用于显示名称重名校验） */
+  existingVms?: any[];
   /** 当前选中的资源池 ID */
   cloudId: string;
   /** 当前资源池 ID (用于内部状态) */
@@ -78,6 +80,7 @@ interface StepBasicProps {
 
 const StepBasic: React.FC<StepBasicProps> = ({
   form,
+  existingVms,
   cloudId,
   currentCloudId,
   setCurrentCloudId,
@@ -99,6 +102,11 @@ const StepBasic: React.FC<StepBasicProps> = ({
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
   const [capabilities, setCapabilities] = useState<any>({});
 
+  const visibleNamespaceOptions = useMemo(() => {
+    if (!isTenant) return namespaceOptions;
+    return namespaceOptions.filter((n) => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
+  }, [namespaceOptions, isTenant]);
+
   // [数据同步] 根据 cloudId 获取集群能力（架构、推荐机型）
   // 调用 API 获取指定资源池的能力集，并自动填充推荐值（如架构、机型）
   // 异常处理：若获取失败，仅打印日志，不阻塞流程，字段保持默认或手动输入
@@ -118,20 +126,22 @@ const StepBasic: React.FC<StepBasicProps> = ({
   // [业务规则] 命名空间自动选择逻辑
   // 若为租户，强制过滤系统命名空间和公共命名空间；否则允许选择所有（但默认选中第一个非系统）
   useEffect(() => {
-    // 如果已有值且合法，则跳过自动选择，防止切换步骤时重置用户选择
-    const currentVal = form.getFieldValue('namespace');
-    let validOptions = namespaceOptions;
-    if (isTenant) {
-      validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
+    const validOptions = visibleNamespaceOptions;
+    if (validOptions.length === 0) return;
+
+    // 用 getFieldsValue(true) 读，避免第一步未挂载时 getFieldValue 短暂为空，误把用户已选命名空间覆盖成第一项
+    const currentVal =
+      form.getFieldsValue(true)?.namespace ?? form.getFieldValue('namespace');
+    const isValid =
+      currentVal !== undefined &&
+      currentVal !== null &&
+      String(currentVal).trim() !== '' &&
+      validOptions.some((o) => String(o.value) === String(currentVal));
+
+    if (!isValid) {
+      form.setFieldsValue({ namespace: validOptions[0].value });
     }
-    const isValid = currentVal && validOptions.some(o => o.value === currentVal);
-    
-    if (!isValid && validOptions.length > 0) {
-      // 优先选中非系统命名空间作为默认值
-      const firstNonSystem = validOptions.find(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
-      form.setFieldsValue({ namespace: firstNonSystem?.value || validOptions[0].value });
-    }
-  }, [namespaceOptions, form, isTenant]);
+  }, [visibleNamespaceOptions, form]);
 
   // [辅助函数] 判断节点是否就绪
   // 兼容逻辑：优先检查顶层 ready 字段，若不存在则遍历 status.conditions 查找 Type=Ready 且 Status=True
@@ -157,7 +167,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
       <div className="wizard-group-title">基础配置</div>
       <Row gutter={12}>
         <Col span={12}>
-          <Form.Item label="资源池" name="cloudId" rules={[{ required: true, message: '请选择资源池' }]}> 
+          <Form.Item label="资源池" name="cloudId" preserve rules={[{ required: true, message: '请选择资源池' }]}> 
             <Select 
               placeholder="选择资源池"
               onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.resetFields(['namespace']); } catch {} }}
@@ -169,9 +179,9 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}> 
+          <Form.Item label="命名空间" name="namespace" preserve rules={[{ required: true, message: '请选择命名空间' }]}> 
             <Select 
-              options={isTenant ? namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || ''))) : namespaceOptions}
+              options={visibleNamespaceOptions}
               placeholder="选择命名空间"
               showSearch
               onOpenChange={(open) => { if (open) reloadNamespaces(); }}
@@ -180,9 +190,18 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
       </Row>
+      {isTenant && visibleNamespaceOptions.length === 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="未分配可用命名空间"
+          description="租户不允许在公共/系统命名空间创建云主机，请联系管理员为该租户分配业务命名空间（UserSpace.namespace）。"
+          style={{ marginBottom: 12 }}
+        />
+      ) : null}
       <Row gutter={12}>
         <Col span={12}>
-          <Form.Item label="运行位置" name="hostMode"> 
+          <Form.Item label="运行位置" name="hostMode" preserve> 
             <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
               <Radio.Button value="auto">自动调度</Radio.Button>
               <Radio.Button value="node">指定主机</Radio.Button>
@@ -191,12 +210,12 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
         <Col span={6}>
-          <Form.Item label="集群架构" name="clusterArch"> 
+          <Form.Item label="集群架构" name="clusterArch" preserve> 
             <Input disabled placeholder="自动获取..." />
           </Form.Item>
         </Col>
         <Col span={6}>
-          <Form.Item label="支持的VM类型" name="machineType" tooltip="根据集群架构自动推荐">
+          <Form.Item label="支持的VM类型" name="machineType" preserve>
             <Select disabled placeholder="选择VM类型">
               {capabilities?.recommendedMachineType && (
                 <Select.Option value={capabilities.recommendedMachineType}>
@@ -345,16 +364,51 @@ const StepBasic: React.FC<StepBasicProps> = ({
       <Form.Item 
         label="虚拟机名称" 
         name="name" 
+        preserve
+        dependencies={['namespace']}
+        validateTrigger="onChange"
         rules={[
-          { required: true, message: '请输入虚拟机名称' }
+          { required: true, message: '请输入虚拟机名称' },
+          {
+            validator: async (_: any, value: any) => {
+              const name = String(value || '').trim();
+              if (!name) return;
+              const ns = String(form.getFieldValue('namespace') || '').trim();
+              if (!ns) return;
+              const list = Array.isArray(existingVms) ? existingVms : [];
+              const getVmNamespace = (vm: any) => {
+                const direct = vm?.namespace || vm?.metadata?.namespace;
+                if (direct) return String(direct).trim();
+                const iid = vm?.InstanceId || vm?.id || vm?.metadata?.name;
+                const s = String(iid || '').trim();
+                if (s.includes('/')) return s.split('/')[0].trim();
+                return '';
+              };
+              const getVmAlias = (vm: any) => {
+                return String(
+                  vm?.metadata?.annotations?.['tower.io/alias'] ||
+                  vm?.annotations?.['tower.io/alias'] ||
+                  ''
+                ).trim();
+              };
+              const dup = list.some((vm: any) => {
+                const vmNs = getVmNamespace(vm);
+                if (!vmNs || vmNs !== ns) return false;
+                const alias = getVmAlias(vm);
+                if (!alias) return false;
+                return alias === name;
+              });
+              if (dup) throw new Error('虚拟机名称不可重复，请修改虚拟机名称');
+            }
+          }
         ]}
       >
         <Input placeholder="显示名称（支持中文）" />
       </Form.Item>
-      <Form.Item label="描述" name="description">
+      <Form.Item label="描述" name="description" preserve>
         <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
       </Form.Item>
-      <Form.Item label="虚机组" name="group">
+      <Form.Item label="虚机组" name="group" preserve>
         <Select placeholder="未选择虚拟机组" options={[{ label: '未选择', value: '' }]} />
       </Form.Item>
     </>

@@ -21,8 +21,10 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { ALERTMANAGERCONFIG_KIND, MONITORING_API_VERSION, useMonitoring } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import {
@@ -46,6 +48,8 @@ import {
   type ReceiverName,
   type ReceiverSpec,
 } from './utils/receivers';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 interface TriggerRuleOption {
   value: string;
@@ -223,6 +227,16 @@ interface Props {
 }
 
 const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadPolicies = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alert-policies:read'),
+    [perms]
+  );
+  const canWritePolicies = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alert-policies:write'),
+    [perms]
+  );
   const {
     isAdmin,
     namespaceList,
@@ -265,7 +279,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const loadConfigList = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadPolicies) return;
     setConfigLoading(true);
     const { data, ok, error } = await fetchAlertmanagerconfigs(cloudId);
     setConfigLoading(false);
@@ -275,7 +289,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       return;
     }
     setConfigList(normalizeListPayload(data));
-  }, [cloudId]);
+  }, [cloudId, canReadPolicies]);
 
   /** 通知对象名称下拉数据：来自数据库（GET .../alertmanagerconfigs/receivers，不调用 Harvester），按 receiverName 聚合；可指定 namespaces 覆盖（用于表单内按选中命名空间加载） */
   const loadReceiversList = useCallback(
@@ -311,8 +325,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   }, [cloudId]);
 
   useEffect(() => {
-    if (cloudId) loadConfigList();
-  }, [cloudId, loadConfigList]);
+    if (cloudId && canReadPolicies) loadConfigList();
+  }, [cloudId, loadConfigList, canReadPolicies]);
 
   /** 命名空间就绪后拉取通知对象列表（供「通知对象名称」下拉使用） */
   useEffect(() => {
@@ -389,6 +403,10 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
 
   const handleOpenForm = useCallback(
     (record: AlertmanagerConfigItem | null) => {
+      if (!canWritePolicies) {
+        message.warning('无权修改告警通知策略');
+        return;
+      }
       setEditingRecord(record);
       if (record?.metadata?.namespace != null && record?.metadata?.name != null && cloudId) {
         setFormLoading(true);
@@ -489,7 +507,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       }
       setFormModalOpen(true);
     },
-    [form, isAdmin, tenantNamespaces, cloudId, nameToType]
+    [form, isAdmin, tenantNamespaces, cloudId, nameToType, canWritePolicies]
   );
 
   const handleCloseForm = useCallback(() => {
@@ -662,6 +680,10 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   }, [formModalOpen, cloudId, watchedFormNamespace, loadReceiversList]);
 
   const handleFormSubmit = useCallback(async () => {
+    if (!canWritePolicies) {
+      message.warning('无权修改告警通知策略');
+      return;
+    }
     let fieldsToValidate: string[] = ['name', 'namespace', 'configReceiverName', 'matchers'];
     let values = await form.validateFields(fieldsToValidate).catch(() => null);
     if (!values || !cloudId) return;
@@ -780,10 +802,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         handleCloseForm();
       } else message.error(error || '创建失败');
     }
-  }, [editingRecord, form, handleCloseForm, loadConfigList, specReceiverNameToSpecByType, cloudId]);
+  }, [editingRecord, form, handleCloseForm, loadConfigList, specReceiverNameToSpecByType, cloudId, canWritePolicies]);
 
   const handleDeleteConfig = useCallback(
     async (row: AlertmanagerConfigItem) => {
+      if (!canWritePolicies) {
+        message.warning('无权删除告警通知策略');
+        return;
+      }
       const ns = row.metadata?.namespace;
       const name = row.metadata?.name;
       if (!ns || !name || !cloudId) {
@@ -796,10 +822,10 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         loadConfigList();
       } else message.error(error || '删除失败');
     },
-    [loadConfigList, cloudId]
+    [loadConfigList, cloudId, canWritePolicies]
   );
 
-  const configColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
+  const allConfigColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
     () => [
       { title: '数据源', key: 'dataSource', width: 100, render: () => 'Prometheus' },
       { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', width: 180, render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
@@ -811,7 +837,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         render: (_, row) => {
           const receivers = row.spec?.receivers;
           if (!Array.isArray(receivers)) return '-';
-          const names = (receivers as { name?: string }[]).map((r) => r.name).filter(Boolean);
+          const names = (receivers as { name?: string }[])
+            .map((r) => r.name)
+            .filter((n): n is string => Boolean(n) && String(n).trim() !== 'null-receiver');
           if (!names.length) return '-';
           return (
             <Space size={[8, 4]} wrap>
@@ -835,12 +863,13 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           <ResourceActionsDropdown
             items={[
               { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
-              { key: 'edit', label: '编辑策略', onClick: () => handleOpenForm(row) },
-              { type: 'divider' },
+              { key: 'edit', label: '编辑策略', disabled: !canWritePolicies, onClick: () => handleOpenForm(row) },
+              { type: 'divider' as const },
               {
                 key: 'delete',
                 label: '删除',
                 danger: true,
+                disabled: !canWritePolicies,
                 onClick: () => {
                   Modal.confirm({
                     title: '确定删除该策略？',
@@ -856,8 +885,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         ),
       },
     ],
-    [handleOpenForm, handleOpenDetail, handleDeleteConfig]
+    [handleOpenForm, handleOpenDetail, handleDeleteConfig, canWritePolicies]
   );
+
+  // 列显示设置（需要在 allConfigColumns 定义之后）
+  const { displayColumns: configColumns } = useTableColumnSettings(allConfigColumns, 'monitoring_alert_notification_policy_table');
 
   /** 告警规则 Transfer 数据源：管理员用 rulesList（含 groupName），租户用 vmTriggerOptions */
   const alertRulesTransferOptions = useMemo((): TriggerRuleOption[] => {
@@ -911,6 +943,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
 
   const alertRulesTransferLoading = isAdmin ? rulesLoading : vmTriggerLoading || rulesLoading;
 
+  if (!canReadPolicies) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看告警通知策略，请联系管理员分配 `clouds.alert-policies:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
+
   return (
     <>
       <div>
@@ -918,12 +958,13 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           asCard={false}
           toolbarLeft={
             <>
-              <Select
-                placeholder="数据源"
-                value={dataSourceFilter}
-                onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
-                options={[{ label: 'Prometheus', value: 'prometheus' }]}
-                style={{ minWidth: 120 }}
+              <Input 
+                allowClear 
+                placeholder="名称/ID" 
+                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                value={keyword} 
+                onChange={(e) => setKeyword(e.target.value)} 
+                className="toolbar-search"
               />
               <Select
                 placeholder="命名空间"
@@ -932,14 +973,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 onChange={setConfigNsFilter}
                 loading={namespaceLoading}
                 options={[{ label: '全部', value: undefined }, ...formNamespaceOptions]}
-                style={{ width: 250 }}
+                className="toolbar-filter-sm"
               />
-              <Input.Search
-                placeholder="关键字"
-                allowClear
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                style={{ width: 200 }}
+              <Select
+                placeholder="数据源"
+                value={dataSourceFilter}
+                onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
+                options={[{ label: 'Prometheus', value: 'prometheus' }]}
+                className="toolbar-filter-sm"
               />
               <button
                 type="button"
@@ -955,15 +996,15 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }
           toolbarRight={
             <>
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
-              <Button icon={<UploadOutlined />} onClick={() => message.info('功能开发中')}>导入YAML告警规则</Button>
+              <Button type="primary" icon={<PlusOutlined />} disabled={!canWritePolicies} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
+              <TableColumnSettingsButton allColumns={allConfigColumns} settingsKey="monitoring_alert_notification_policy_table" />
               <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>
           }
         >
           <Table
             className="std-table"
-            bordered
+            bordered={false}
             rowKey={(row) => row.id ?? row.metadata?.name ?? String(Math.random())}
             loading={configLoading}
             columns={configColumns}

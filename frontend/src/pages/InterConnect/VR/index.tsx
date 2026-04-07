@@ -1,19 +1,57 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Typography, Tooltip, Badge, Progress, Popover, Checkbox, TreeSelect, Radio, Spin } from 'antd';
-import type { MenuProps, CheckboxOptionType } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined, SettingOutlined, EyeOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { vrApi } from '../../../services/virtualRouterApi';
-import PageContainer from '../../../components/PageContainer';
+import type { MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { getVRRoles, setVRRole, getVRConfig, saveVRConfig, upsertVrCache, fetchVrCachePageList } from '../../../services/virtualRouterApi';
-import { listSecurityDomains, updateSecurityDomain } from '../../../services/securityDomainApi';
+import {
+  Badge,
+  Button,
+  Card,
+  Col,
+  Divider,
+  Dropdown,
+  Form,
+  Input,
+  message,
+  Modal,
+  Progress,
+  Radio,
+  Row,
+  Select,
+  Space,
+  Tabs,
+  Tag,
+  Tooltip,
+  TreeSelect,
+  Typography,
+} from 'antd';
+import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 
-import { netClassLabel, netClassColor, getDomainClass } from '../../../utils/netClass';
-import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
+import PageContainer from '../../../components/PageContainer';
 import StdFormModal from '../../../components/StdFormModal';
-import { fetchTenants, fetchOrganizationsByTenant, bindTenantVR, fetchOrganizationResourcePools, fetchAvailableResourcePools, fetchCloudProviderEcs, fetchCloudVpcs, apiPost } from '../../../services/api';
-import { commonTableStyles, commonBadgeStyles, commonTagStyles } from '../../../utils/tableStyles';
+import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
+import {
+  apiPost,
+  bindTenantVR,
+  fetchAvailableResourcePools,
+  fetchCloudProviderEcs,
+  fetchCloudVpcs,
+  fetchOrganizationsByTenant,
+  fetchOrganizationResourcePools,
+  fetchTenants,
+} from '../../../services/api';
+import { listSecurityDomains } from '../../../services/securityDomainApi';
+import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
+import {
+  fetchVrCachePageList,
+  getVRConfig,
+  saveVRConfig,
+  setVRRole,
+} from '../../../services/virtualRouterApi';
+import { getDomainClass, netClassColor, netClassLabel } from '../../../utils/netClass';
+import { commonBadgeStyles, commonTableStyles, commonTagStyles } from '../../../utils/tableStyles';
+
+import { VrDetailDrawer } from './VrDetailDrawer';
 
 interface VRRow {
   id?: string;
@@ -28,43 +66,64 @@ interface VRRow {
   uuid?: string;
   version?: string;
   create_time?: string;
-   vr_unique_id?: string;
-   tenant_id?: string;
-   org_id?: string;
-   bind_status?: string;
+  vr_unique_id?: string;
+  tenant_id?: string;
+  org_id?: string;
+  bind_status?: string;
   [key: string]: any;
 }
 
-// 英文字段到中文标题的映射
-const LABELS: Record<string, string> = {
-  uuid: 'UUID',
-  id: 'ID',
-  vm_id: '虚拟机ID',
-  name: '名称',
-  status: '状态',
-  tenant_id: '租户ID',
-  org_id: '组织ID',
-  pool_id: '资源池ID',
-  pool_name: '资源池',
-  cpu: 'CPU(核)',
-  memory: '内存(MB)',
-  mac: 'MAC',
-  version: '版本',
-  create_time: '创建时间',
-  region: '区域',
-  cloud: '云名称',
-  type: '类型',
-  health_status: '状态',
-  healthStatus: '状态',
-};
+/** 解析行内 JSON 字符串字段；解析失败返回 null */
+function parseJsonField(val: unknown): unknown {
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return null;
+    }
+  }
+  return val;
+}
+
+function formatTrafficRateBps(bps: number): string {
+  if (!bps) return '0 bps';
+  if (bps >= 1000 * 1000) return `${(bps / 1000 / 1000).toFixed(2)} Mbps`;
+  if (bps >= 1000) return `${(bps / 1000).toFixed(2)} Kbps`;
+  return `${bps.toFixed(0)} bps`;
+}
+
+type VrHealthStatusKey = 'running' | 'warning' | 'stopped' | 'unknown';
+
+function getVrHealthStatusKey(raw: unknown): VrHealthStatusKey {
+  const v = String(raw || '').toLowerCase();
+  if (['healthy', 'running', 'ok', 'online', 'active'].includes(v)) return 'running';
+  if (['warning', 'degraded'].includes(v)) return 'warning';
+  if (['error', 'failed', 'unhealthy', 'offline', 'stopped'].includes(v)) return 'stopped';
+  return 'unknown';
+}
+
+/** 与 useTableColumnSettings / TableColumnSettingsButton 的默认隐藏列一致 */
+const VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN = [
+  'mac',
+  'type',
+  'pool_name',
+  'pool_id',
+  'vm_id',
+  'tenant_id',
+  'org_id',
+];
 
 const VRPage: React.FC = () => {
   const navigate = useNavigate();
   const [vrs, setVrs] = useState<VRRow[]>([]);
   const [columns, setColumns] = useState<ColumnsType<VRRow>>([]);
+  const { displayColumns: vrDisplayColumns } = useTableColumnSettings(
+    columns,
+    'interconnect_vr_instances',
+    VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN,
+  );
 
   const [loading, setLoading] = useState<boolean>(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
   const [filterForm] = Form.useForm();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
@@ -80,6 +139,40 @@ const VRPage: React.FC = () => {
   const orgTenantLoadedRef = useRef<Record<string, boolean>>({});
   const tenantOptionsRef = useRef<any[]>([]);
   const orgNameMapRef = useRef<Record<string, string>>({});
+  /** CE 配置弹窗提交时使用的 VR UUID（打开弹窗时应写入） */
+  const ceTargetVrUuidRef = useRef<string | null>(null);
+
+  // —— 弹窗与抽屉状态（集中声明，便于对照） ——
+  const [ceModalOpen, setCeModalOpen] = useState(false);
+  const [ceForm] = Form.useForm();
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<VRRow | null>(null);
+  const [tunnelModalOpen, setTunnelModalOpen] = useState(false);
+  const [tunnelForm] = Form.useForm();
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addForm] = Form.useForm();
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editForm] = Form.useForm();
+  const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsForm] = Form.useForm();
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [bindModalOpen, setBindModalOpen] = useState(false);
+  const [bindForm] = Form.useForm();
+  const [currentBindVr, setCurrentBindVr] = useState<VRRow | null>(null);
+  const [orgTreeData, setOrgTreeData] = useState<any[]>([]);
+  const [roleModalOpen, setRoleModalOpen] = useState(false);
+  const [selectedRoleType, setSelectedRoleType] = useState('标准');
+  const [roleVrUuid, setRoleVrUuid] = useState<string | null>(null);
+  const [resourcePoolOptions, setResourcePoolOptions] = useState<any[]>([]);
+  const [vmOptions, setVmOptions] = useState<any[]>([]);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editMode, setEditMode] = useState<string>('manual');
+  const [selectedSyncPool, setSelectedSyncPool] = useState<string | undefined>();
+  const [selectedSyncVpc, setSelectedSyncVpc] = useState<string | undefined>();
+  const [selectedSyncVm, setSelectedSyncVm] = useState<string | undefined>();
+  const [vpcOptions, setVpcOptions] = useState<any[]>([]);
+  const [rawVms, setRawVms] = useState<any[]>([]);
 
   const loadTenants = async () => {
     setTenantLoading(true);
@@ -150,54 +243,6 @@ const VRPage: React.FC = () => {
     })();
   }, [tenantOptions]);
 
-  const [currentVrId, setCurrentVrId] = useState<string | null>(null);
-  // CE配置弹窗
-  const [ceModalOpen, setCeModalOpen] = useState(false);
-  const [ceForm] = Form.useForm();
-
-  // 元数据查看 Modal
-  const [metadataModalOpen, setMetadataModalOpen] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<{ csmctl: any, vrctl: any, vr3?: any, vr2?: any } | null>(null);
-  const [metadataLoading, setMetadataLoading] = useState(false);
-
-  // 隧道管理 Modal
-  const [tunnelModalOpen, setTunnelModalOpen] = useState(false);
-  const [tunnelForm] = Form.useForm();
-  // 添加VR实例弹窗
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [addForm] = Form.useForm();
-  // 设备信息编辑弹窗
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editForm] = Form.useForm();
-  const [currentEditId, setCurrentEditId] = useState<string | null>(null);
-  
-  // CSMCTL Settings Modal
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
-  const [settingsForm] = Form.useForm();
-  const [settingsLoading, setSettingsLoading] = useState(false);
-
-  // 绑定组织弹窗
-  const [bindModalOpen, setBindModalOpen] = useState(false);
-  const [bindForm] = Form.useForm();
-  const [currentBindVr, setCurrentBindVr] = useState<VRRow | null>(null);
-  const [orgTreeData, setOrgTreeData] = useState<any[]>([]);
-
-  // 角色设置 Modal
-  const [roleModalOpen, setRoleModalOpen] = useState(false);
-  const [selectedRoleType, setSelectedRoleType] = useState('标准');
-  const [roleVrUuid, setRoleVrUuid] = useState<string | null>(null);
-  
-  const [resourcePoolOptions, setResourcePoolOptions] = useState<any[]>([]);
-  const [vmOptions, setVmOptions] = useState<any[]>([]);
-  const [editLoading, setEditLoading] = useState(false);
-  
-  const [editMode, setEditMode] = useState<string>('manual');
-  const [selectedSyncPool, setSelectedSyncPool] = useState<string | undefined>();
-  const [selectedSyncVpc, setSelectedSyncVpc] = useState<string | undefined>();
-  const [selectedSyncVm, setSelectedSyncVm] = useState<string | undefined>();
-  const [vpcOptions, setVpcOptions] = useState<any[]>([]);
-  const [rawVms, setRawVms] = useState<any[]>([]);
-
   const loadResourcePools = async (orgId?: string) => {
     try {
       let res;
@@ -250,10 +295,9 @@ const VRPage: React.FC = () => {
   };
 
   const getActionMenu = (row: VRRow): MenuProps['items'] => ([
-    { key: 'detail', label: '查看设备详情' },
+    { key: 'metadata', label: '查看详情' },
     { key: 'editDevice', label: '编辑设备信息' },
     { key: 'bindOrg', label: '绑定组织' },
-    { key: 'metadata', label: '查看元数据' },
     { type: 'divider' },
     { key: 'role', label: '设置角色', danger: true },
     { key: 'editConfig', label: '专家模式', danger: true },
@@ -295,104 +339,24 @@ const VRPage: React.FC = () => {
 
   const handleRowActionClick = (row: VRRow): MenuProps['onClick'] => ({ key, domEvent }) => {
     domEvent.stopPropagation();
+    // CSMCTL/VRConfig 相关接口使用的是 VR 的 uuid（而不是数据库自增 id）
+    const vrUuid = String(row.uuid || row.vr_unique_id || row.vm_id || '').trim();
     if (key === 'metadata') {
-      const id = row.uuid || row.id || row.vm_id;
-      // 优先使用缓存中的 VR3 信息
-      const cachedVr3 = (row as any).vr3_info;
-      
-      setCurrentMetadata({
-        csmctl: (row as any)._raw_csmctl_info,
-        vrctl: (row as any)._raw_vrctl_info,
-        vr3: cachedVr3 || null,
-        vr2: null
-      });
-      setMetadataModalOpen(true);
-      
-      // Async fetch metadata (VR3 and VR2)
-      setMetadataLoading(true);
-      (async () => {
-        try {
-          const promises: Promise<void>[] = [];
-
-          // 1. Fetch VR3 if not cached
-          if (id && !cachedVr3) {
-            promises.push((async () => {
-              try {
-                const accesskey = 'Cloudmap%23123';
-                const secretkey = 'Cloudmap%23123';
-                const path = '/V2/ctcontrol/VR3/VRConfig/list';
-                const method = 'GET';
-                const other = `uuid=${id}`;
-                
-                const authUrl = `/api-proxy/api/sign?` +
-                  `url=${encodeURIComponent(path)}&` +
-                  `method=${method}&` +
-                  `other=${encodeURIComponent(other)}&` +
-                  `accessKey=${accesskey}&` +
-                  `secretKey=${secretkey}`;
-                  
-                const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
-                const signJson = await signResp.json();
-                const info = (signJson && signJson.data) ? signJson.data : signJson;
-                
-                if (info && info.Authorization && info.tonce) {
-                   const queryUrl = `/api-proxy${path}?${other}`;
-                   const res = await fetch(queryUrl, {
-                     method: 'GET',
-                     headers: {
-                       'Content-Type': 'application/json',
-                       'Authorization': info.Authorization,
-                       'tonce': String(info.tonce)
-                     }
-                   });
-                   const json = await res.json();
-                   const data = (json as any)?.data ?? json;
-                   setCurrentMetadata(prev => prev ? { ...prev, vr3: data } : null);
-                }
-              } catch (e) {
-                console.warn('Failed to fetch VR3 metadata:', e);
-                setCurrentMetadata(prev => prev ? { ...prev, vr3: { error: '获取扩展信息失败', details: (e as any).message } } : null);
-              }
-            })());
-          }
-
-          // 2. Fetch VR Config from Local DB (Desired State)
-          if (id) {
-             promises.push((async () => {
-               try {
-                 const data = await getVRConfig(id);
-                 if (data) {
-                    setCurrentMetadata(prev => prev ? { ...prev, vr2: data } : null);
-                 } else {
-                    setCurrentMetadata(prev => prev ? { ...prev, vr2: { error: '暂无配置', details: '本地数据库未找到该VR的配置信息' } } : null);
-                 }
-               } catch (e) {
-                 console.warn('Failed to fetch VR config:', e);
-                 setCurrentMetadata(prev => prev ? { ...prev, vr2: { error: '获取配置失败', details: (e as any).message } } : null);
-               }
-             })());
-          }
-
-          await Promise.allSettled(promises);
-        } finally {
-          setMetadataLoading(false);
-        }
-      })();
+      setDetailRow(row);
+      setDetailDrawerOpen(true);
       return;
     }
     if (key === 'editConfig') {
-      const id = row.uuid || row.id || row.vm_id;
-      if (id) {
-        navigate(`/admin/interconnect/vr/${id}/config`);
+      if (vrUuid) {
+        navigate(`/admin/interconnect/vr/${vrUuid}/config`);
       } else {
-        message.warning('该行缺少可识别的UUID/ID');
+        message.warning('该行缺少可识别的UUID');
       }
     } else if (key === 'detail') {
       message.info('查看设备详情（功能待设计）');
     } else if (key === 'role') {
-      const id = row.uuid || row.id || row.vm_id;
-      if (!id) return message.warning('该行缺少可识别的UUID/ID');
-      setRoleVrUuid(id);
+      if (!vrUuid) return message.warning('该行缺少可识别的UUID');
+      setRoleVrUuid(vrUuid);
       
       // Default selection logic
       if (row.role && ['PE','CE','SASE','标准'].includes(row.role)) {
@@ -516,7 +480,11 @@ const VRPage: React.FC = () => {
   const submitCEConfig = async () => {
     try {
       const values = await ceForm.validateFields();
-      const id = currentVrId as string;
+      const id = ceTargetVrUuidRef.current;
+      if (!id) {
+        message.warning('未选择 VR');
+        return;
+      }
       setLoading(true);
       // 合并已有配置
       const existing = await getVRConfig(id);
@@ -536,20 +504,12 @@ const VRPage: React.FC = () => {
     }
   };
 
-  const getStatusKey = (raw: any) => {
-    const v = String(raw || '').toLowerCase();
-    if (['healthy', 'running', 'ok', 'online', 'active'].includes(v)) return 'running';
-    if (['warning', 'degraded'].includes(v)) return 'warning';
-    if (['error', 'failed', 'unhealthy', 'offline', 'stopped'].includes(v)) return 'stopped';
-    return 'unknown';
-  };
-
   const handleManualRefresh = async () => {
     setLoading(true);
     message.loading({ content: '正在同步 VR 数据...', key: 'vr_sync' });
     try {
-      await apiPost('/api/vr-cache/refresh', {});
-      await fetchVRInstances();
+      await apiPost('/api/vr-instances/refresh', {});
+      await fetchVRInstances(true);
       message.success({ content: '同步完成', key: 'vr_sync' });
     } catch (e) {
       message.error({ content: '同步失败，请稍后重试', key: 'vr_sync' });
@@ -557,10 +517,10 @@ const VRPage: React.FC = () => {
     }
   };
 
-  const fetchVRInstances = async () => {
+  const fetchVRInstances = async (forceList?: boolean) => {
     setLoading(true);
     try {
-      const cacheRes = await fetchVrCachePageList(1000, 1);
+      const cacheRes = await fetchVrCachePageList(1000, 1, { skipCache: !!forceList });
       const cacheData = cacheRes?.data || cacheRes;
       const mergedList = Array.isArray(cacheData?.page) ? cacheData.page : Array.isArray(cacheData?.list) ? cacheData.list : [];
       
@@ -575,62 +535,61 @@ const VRPage: React.FC = () => {
       setRolesMap(newRolesMap);
       rolesMapRef.current = newRolesMap;
 
-      const renderStatus = (raw: any) => {
-        const key = getStatusKey(raw);
+      const renderStatus = (raw: unknown) => {
+        const key = getVrHealthStatusKey(raw);
         if (key === 'running') return <Badge status={commonBadgeStyles.statusMap.success.status} text={<span style={commonBadgeStyles.text}>运行中</span>} />;
         if (key === 'warning') return <Badge status={commonBadgeStyles.statusMap.warning.status} text={<span style={commonBadgeStyles.text}>警告</span>} />;
         if (key === 'stopped') return <Badge status={commonBadgeStyles.statusMap.error.status} text={<span style={commonBadgeStyles.text}>已停止</span>} />;
         return <Badge status={commonBadgeStyles.statusMap.default.status} text={<span style={commonBadgeStyles.text}>未知</span>} />;
       };
 
-      const safeParse = (val: any) => {
-          if (typeof val === 'string') {
-            try {
-              return JSON.parse(val);
-            } catch (e) {
-              return null;
-            }
-          }
-          return val;
-      };
-
-      const formatRate = (bps: number) => {
-          if (!bps) return '0 bps';
-          if (bps >= 1000 * 1000) return `${(bps / 1000 / 1000).toFixed(2)} Mbps`;
-          if (bps >= 1000) return `${(bps / 1000).toFixed(2)} Kbps`;
-          return `${bps.toFixed(0)} bps`;
-      };
-
       const newCols: ColumnsType<VRRow> = [
-        { 
-          title: '名称/UUID', 
-          dataIndex: 'name', 
-          key: 'name', 
-          width: 260, 
+        {
+          title: '名称',
+          dataIndex: 'name',
+          key: 'name',
           fixed: 'left',
-          render: (_: any, row: VRRow) => (
-            <div style={commonTableStyles.cellContainer}>
-               <div style={commonTableStyles.primaryText}>{row.name || '-'}</div>
-               <div style={commonTableStyles.secondaryText}>
-                  <Typography.Text copyable={{ text: row.uuid || row.id }} style={commonTableStyles.secondaryText}>
-                    {row.uuid || row.id || '-'}
-                  </Typography.Text>
-               </div>
-            </div>
-          )
+          ellipsis: true,
+          render: (text: any, row: VRRow) => {
+            const label = text != null && String(text).trim() !== '' ? text : '—';
+            return (
+              <Typography.Link
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDetailRow(row);
+                  setDetailDrawerOpen(true);
+                }}
+              >
+                {label}
+              </Typography.Link>
+            );
+          },
+        },
+        {
+          title: 'UUID',
+          key: 'uuid',
+          fixed: 'left',
+          ellipsis: { showTitle: false },
+          render: (_: any, row: VRRow) => {
+            const id = String(row.uuid || row.id || row.vm_id || '').trim();
+            if (!id) return <span style={commonTableStyles.secondaryText}>—</span>;
+            return (
+              <Typography.Text copyable={{ text: id }} style={commonTableStyles.secondaryText}>
+                {id}
+              </Typography.Text>
+            );
+          },
         },
         { 
           title: '状态', 
           key: 'status', 
           dataIndex: 'status', 
-          width: 100, 
           render: (_: any, row: VRRow) => renderStatus(row.health_status ?? row.healthStatus ?? row.status) 
         },
         { 
           title: '角色', 
           key: 'role', 
           dataIndex: 'role', 
-          width: 100,
           render: (_: any, row: VRRow) => {
             const id = row.uuid || row.id || row.vm_id;
             const m = rolesMapRef.current;
@@ -646,7 +605,6 @@ const VRPage: React.FC = () => {
         {
             title: '归属信息',
             key: 'affiliation',
-            width: 260,
             render: (_: any, row: VRRow) => {
                // 1. 租户与组织
                const tid = row.tenant_id;
@@ -674,7 +632,11 @@ const VRPage: React.FC = () => {
                       {cls === 'unbound' ? (
                         <span>
                           <span style={commonTableStyles.secondaryText}>无安全域 </span>
-                          <a style={{...commonTableStyles.linkText, fontSize: '12px'}} onClick={(e) => {
+                          <Button
+                            type="link"
+                            size="small"
+                            style={{ ...commonTableStyles.linkText, fontSize: '12px', padding: 0, height: 'auto' }}
+                            onClick={(e) => {
                             e.stopPropagation();
                             // 触发绑定组织/安全域的逻辑，这里暂时复用绑定组织弹窗
                             const menu = getActionMenu(row) as any[];
@@ -685,9 +647,10 @@ const VRPage: React.FC = () => {
                                     action({ key: 'bindOrg', domEvent: e } as any);
                                 }
                             }
-                          }}>
+                          }}
+                          >
                             绑定
-                          </a>
+                          </Button>
                         </span>
                       ) : (
                         <Tag color={netClassColor(cls)} style={{ ...commonTagStyles.base, margin: 0 }}>{label}</Tag>
@@ -700,10 +663,9 @@ const VRPage: React.FC = () => {
         {
           title: 'WAN IP',
           key: 'wan_ip',
-          width: 240,
           render: (_: any, row: VRRow) => {
              // Only try interfaces
-             const interfaces = safeParse(row.interfaces);
+             const interfaces = parseJsonField(row.interfaces);
              if (Array.isArray(interfaces)) {
                  // Filter physical interfaces (usually starting with GigabitEthernet)
                  const physical = interfaces.filter((iface: any) => {
@@ -721,20 +683,14 @@ const VRPage: React.FC = () => {
                  // First one is WAN
                  if (physical.length > 0) {
                      const wan = physical[0];
-                     const name = wan.name || '-';
                      // Try ipv4_static first, then fallback to other common fields
                      const v4 = wan.ipv4_static || wan.ip_address || wan.ipAddress || wan.ip || '-';
                      const v6 = wan.ipv6_static || '-';
                      
                      return (
-                         <div style={commonTableStyles.cellContainer}>
-                             <div style={commonTableStyles.linkText}>{name}</div>
-                             <div style={commonTableStyles.secondaryText}>
-                                ipv4_static: {v4}
-                             </div>
-                             <div style={commonTableStyles.secondaryText}>
-                                ipv6_static: {v6}
-                             </div>
+                         <div style={commonTableStyles.cellMultiLineStack}>
+                            IPv4: {v4}<br/>
+                            IPv6: {v6}<br/>
                          </div>
                      );
                  }
@@ -745,54 +701,82 @@ const VRPage: React.FC = () => {
         {
           title: 'CPU',
           key: 'cpu',
+          width: 250,
           render: (_: any, row: any) => {
-             // New logic from resourceIndicators
-             const resourceIndicators = safeParse(row.resourceIndicators);
-             if (resourceIndicators) {
-                 const total = Number(resourceIndicators.cpuTotal || 4);
-                 const percent = Number(resourceIndicators.cpuUsed || 0);
-                 const usage = (total * percent) / 100;
-                 return (
-                   <div style={{ width: '100%' }}>
-                     <div style={{ ...commonTableStyles.cellContainer, flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <span style={commonTableStyles.processingText}>{usage.toFixed(1)} / {total} 核</span>
-                        <span style={commonTableStyles.processingText}>{percent.toFixed(1)}%</span>
-                     </div>
-                     <Progress percent={percent} showInfo={false} size="small" strokeColor={percent > 80 ? '#ff4d4f' : '#1890ff'} />
-                   </div>
-                 );
-             }
-             return '-';
-          }
+            const resourceIndicators = parseJsonField(row.resourceIndicators) as Record<string, unknown> | null;
+            if (!resourceIndicators) return '-';
+            const total = Number(resourceIndicators.cpuTotal ?? 0);
+            const pctRaw = Number(resourceIndicators.cpuUsed ?? 0);
+            const pct = Math.max(0, Math.min(100, isFinite(pctRaw) ? pctRaw : 0));
+            const used = total > 0 ? (total * pct) / 100 : 0;
+            if (!isFinite(total) || total <= 0) {
+              return (
+                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>-</div>
+              );
+            }
+            const highUtil = pct > 80;
+            return (
+              <div style={{ maxWidth: 200, lineHeight: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
+                  <div style={{ flex: 1, minWidth: 0, maxWidth: 132 }}>
+                    <Progress
+                      percent={pct}
+                      size="small"
+                      showInfo={false}
+                      strokeColor={highUtil ? '#ff4d4f' : '#1890ff'}
+                    />
+                  </div>
+                  <span style={{ flexShrink: 0, color: highUtil ? '#ff4d4f' : undefined }}>{pct.toFixed(1)}%</span>
+                </div>
+                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
+                  {used.toFixed(2)} core / {total.toFixed(2)} core
+                </div>
+              </div>
+            );
+          },
         },
         {
           title: '内存',
           key: 'memory',
+          width: 250,
           render: (_: any, row: any) => {
-             // New logic from resourceIndicators
-             const resourceIndicators = safeParse(row.resourceIndicators);
-             if (resourceIndicators) {
-                 const totalGB = Number(resourceIndicators.memoryTotal || 0).toFixed(1);
-                 const percent = Number(resourceIndicators.memoryUsed || 0);
-                 const usageGB = (Number(resourceIndicators.memoryTotal || 0) * percent / 100).toFixed(1);
-                 return (
-                   <div style={{ width: '100%' }}>
-                     <div style={{ ...commonTableStyles.cellContainer, flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={commonTableStyles.processingText}>{usageGB} / {totalGB} GB</span>
-                        <span style={commonTableStyles.processingText}>{percent.toFixed(1)}%</span>
-                     </div>
-                     <Progress percent={percent} showInfo={false} size="small" strokeColor={percent > 80 ? '#ff4d4f' : '#1890ff'} />
-                   </div>
-                 );
-             }
-             return '-';
-          }
+            const resourceIndicators = parseJsonField(row.resourceIndicators) as Record<string, unknown> | null;
+            if (!resourceIndicators) return '-';
+            const total = Number(resourceIndicators.memoryTotal ?? 0);
+            const pctRaw = Number(resourceIndicators.memoryUsed ?? 0);
+            const pct = Math.max(0, Math.min(100, isFinite(pctRaw) ? pctRaw : 0));
+            const used = total > 0 ? (total * pct) / 100 : 0;
+            if (!isFinite(total) || total <= 0) {
+              return (
+                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>-</div>
+              );
+            }
+            const highUtil = pct > 80;
+            return (
+              <div style={{ maxWidth: 200, lineHeight: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
+                  <div style={{ flex: 1, minWidth: 0, maxWidth: 132 }}>
+                    <Progress
+                      percent={pct}
+                      size="small"
+                      showInfo={false}
+                      strokeColor={highUtil ? '#ff4d4f' : '#1890ff'}
+                    />
+                  </div>
+                  <span style={{ flexShrink: 0, color: highUtil ? '#ff4d4f' : undefined }}>{pct.toFixed(1)}%</span>
+                </div>
+                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
+                  {used.toFixed(2)} GiB / {total.toFixed(2)} GiB
+                </div>
+              </div>
+            );
+          },
         },
         {
           title: '接收（总）',
           key: 'rx_total',
-          render: (_: any, row: any, index: number) => {
-            const interfaces = safeParse(row.interfaces);
+          render: (_: any, row: any) => {
+            const interfaces = parseJsonField(row.interfaces);
             let rx_pps = 0;
             let rx_bps = 0;
             const details: string[] = [];
@@ -806,7 +790,7 @@ const VRPage: React.FC = () => {
                         rx_pps += pps;
                         rx_bps += bps;
                         if (bps > 0 || pps > 0) {
-                             details.push(`${name}: ${formatRate(bps)} / ${pps} pps`);
+                             details.push(`${name}: ${formatTrafficRateBps(bps)} / ${pps} pps`);
                         }
                     }
                 });
@@ -818,9 +802,9 @@ const VRPage: React.FC = () => {
 
             return (
                <Tooltip title={tooltipTitle}>
-                   <div style={{ cursor: 'pointer' }}>
+                   <div style={commonTableStyles.cellMultiLineStack}>
                      <div>{rx_pps} pps</div>
-                     <div>{formatRate(rx_bps)}</div>
+                     <div>{formatTrafficRateBps(rx_bps)}</div>
                    </div>
                </Tooltip>
             );
@@ -830,7 +814,7 @@ const VRPage: React.FC = () => {
           title: '发送（总）',
           key: 'tx_total',
           render: (_: any, row: any) => {
-            const interfaces = safeParse(row.interfaces);
+            const interfaces = parseJsonField(row.interfaces);
             let tx_pps = 0;
             let tx_bps = 0;
             const details: string[] = [];
@@ -844,7 +828,7 @@ const VRPage: React.FC = () => {
                         tx_pps += pps;
                         tx_bps += bps;
                         if (bps > 0 || pps > 0) {
-                             details.push(`${name}: ${formatRate(bps)} / ${pps} pps`);
+                             details.push(`${name}: ${formatTrafficRateBps(bps)} / ${pps} pps`);
                         }
                     }
                 });
@@ -856,28 +840,28 @@ const VRPage: React.FC = () => {
 
             return (
                <Tooltip title={tooltipTitle}>
-                   <div style={{ cursor: 'pointer' }}>
+                   <div style={commonTableStyles.cellMultiLineStack}>
                      <div>{tx_pps} pps</div>
-                     <div>{formatRate(tx_bps)}</div>
+                     <div>{formatTrafficRateBps(tx_bps)}</div>
                    </div>
                </Tooltip>
             );
           }
         },
-        { title: 'MAC', dataIndex: 'mac', key: 'mac', width: 140 },
-        { title: '版本', dataIndex: 'version', key: 'version', width: 100 },
-        { title: '类型', dataIndex: 'type', key: 'type', width: 100 },
-        { title: '资源池', dataIndex: 'pool_name', key: 'pool_name', width: 120 },
-        { title: '资源池ID', dataIndex: 'pool_id', key: 'pool_id', width: 100 },
-        { title: '虚拟机ID', dataIndex: 'vm_id', key: 'vm_id', width: 150 },
-        { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id', width: 150 },
+        { title: 'MAC', dataIndex: 'mac', key: 'mac'},
+        { title: '版本', dataIndex: 'version', key: 'version'},
+        { title: '类型', dataIndex: 'type', key: 'type'},
+        { title: '资源池', dataIndex: 'pool_name', key: 'pool_name'},
+        { title: '资源池ID', dataIndex: 'pool_id', key: 'pool_id'},
+        { title: '虚拟机ID', dataIndex: 'vm_id', key: 'vm_id' },
+        { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id'},
 
-        { title: '组织ID', dataIndex: 'org_id', key: 'org_id', width: 150 },
+        { title: '组织ID', dataIndex: 'org_id', key: 'org_id'},
         {
           title: '操作',
           key: 'actions',
+          width: 80,
           fixed: 'right',
-          width: 60,
           render: (_: any, row: VRRow) => (
             <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
               <Button type="text" icon={<EllipsisOutlined />} />
@@ -892,7 +876,6 @@ const VRPage: React.FC = () => {
       message.error(`远端直连失败: ${error.message || '请稍后重试'}`);
       setVrs([]);
       setColumns([]);
-      setPagination((prev) => ({ ...prev, total: 0 }));
     } finally {
       setLoading(false);
     }
@@ -904,8 +887,8 @@ const VRPage: React.FC = () => {
       const values = await addForm.validateFields();
       setLoading(true);
 
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
+      const accesskey = 'Cloudmap#123';
+      const secretkey = 'Cloudmap#123';
       const path = '/V2/vrcontrol/VR1/register';
       const method = 'POST';
       const other = '';
@@ -914,8 +897,8 @@ const VRPage: React.FC = () => {
         `url=${encodeURIComponent(path)}&` +
         `method=${method}&` +
         `other=${encodeURIComponent(other)}&` +
-        `accessKey=${accesskey}&` +
-        `secretKey=${secretkey}`;
+        `accessKey=${encodeURIComponent(accesskey)}&` +
+        `secretKey=${encodeURIComponent(secretkey)}`;
 
       const bodyStr = JSON.stringify(values);
 
@@ -968,8 +951,8 @@ const VRPage: React.FC = () => {
       };
       setLoading(true);
 
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
+      const accesskey = 'Cloudmap#123';
+      const secretkey = 'Cloudmap#123';
       const path = '/V2/vrcontrol/VR1/register';
       const method = 'POST';
       const other = '';
@@ -978,8 +961,8 @@ const VRPage: React.FC = () => {
         `url=${encodeURIComponent(path)}&` +
         `method=${method}&` +
         `other=${encodeURIComponent(other)}&` +
-        `accessKey=${accesskey}&` +
-        `secretKey=${secretkey}`;
+        `accessKey=${encodeURIComponent(accesskey)}&` +
+        `secretKey=${encodeURIComponent(secretkey)}`;
 
       const bodyStr = JSON.stringify(payload);
 
@@ -1020,28 +1003,6 @@ const VRPage: React.FC = () => {
     }
   };
 
-  // 新增：远端拉取并入库，再刷新缓存显示
-  const syncRemoteToCache = async (pageNum: number = 1, pageSize: number = 10) => {
-    setLoading(true);
-    try {
-      // 通过前端代理调用远端接口获取列表
-      const remoteResponse = await vrApi.getVRInstances(pageSize, pageNum);
-
-      // 写入数据库缓存
-      await upsertVrCache(pageNum, pageSize, remoteResponse);
-      
-      message.success(`远端数据已入库（刷新缓存成功）`);
-
-      // 再次读取缓存并刷新表格
-      await fetchVRInstances();
-    } catch (error: any) {
-      console.error('[VR_DEBUG_ERROR] 远端同步入库失败:', error);
-      message.error(`同步入库失败: ${error.message || '请稍后重试'}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // 页面加载时：先远端拉取并入库一次
   useEffect(() => {
     fetchVRInstances();
@@ -1070,30 +1031,20 @@ const VRPage: React.FC = () => {
     })();
   }, []);
 
-  // 处理分页变化（远端直连）- 已切换为前端分页，此函数不再需要，保留空实现以防引用报错
-  const handleTableChange = (newPagination: any) => {
-    // 前端分页，无需处理
-  };
-
-  // 刷新（触发后端同步 + 刷新缓存）
-  const forceRefresh = () => {
-    handleManualRefresh();
-  };
-
   const filteredVRs = useMemo(() => {
     return vrs.filter((v) => {
       const nameLower = (v.name || '').toLowerCase();
       if (keyword && !nameLower.includes(keyword.toLowerCase())) return false;
       
-      // 状态筛选：统一使用 getStatusKey 转换后比较
+      // 状态筛选：统一使用 getVrHealthStatusKey 转换后比较
       if (statusFilter) {
-        const key = getStatusKey(v.health_status ?? v.healthStatus ?? v.status);
+        const key = getVrHealthStatusKey(v.health_status ?? v.healthStatus ?? v.status);
         if (key !== statusFilter) return false;
       }
 
       if (tenantFilter) {
         const id = (v.uuid || v.vr_unique_id || v.id || v.vm_id) as string;
-        const dom = id ? netClassMapRef.current[String(id)] : undefined;
+        const dom = id ? netClassMap[String(id)] : undefined;
         const effectiveTenant = v.tenant_id || (dom ? dom.tenantId : undefined);
         if (String(effectiveTenant || '') !== String(tenantFilter)) return false;
       }
@@ -1142,11 +1093,12 @@ const VRPage: React.FC = () => {
         message.error('CE-A 与 CE-B 不能相同');
         return;
       }
-      const payload = {
+      const _reservedTunnelPayload = {
         name: values.tunnelName,
         pe: [values.peA, values.peB],
         ce: [values.ceA, values.ceB],
       };
+      void _reservedTunnelPayload;
       message.success('SRv6 隧道已创建（前端校验与占位，后续可接后端）');
       setTunnelModalOpen(false);
       tunnelForm.resetFields();
@@ -1155,21 +1107,36 @@ const VRPage: React.FC = () => {
     }
   };
 
-  // 列设置内容 (Removed)
-
   return (
       <PageContainer
         titleLevel={3}
-        defaultHiddenColumns={['mac', 'type', 'pool_name', 'pool_id', 'vm_id', 'tenant_id', 'org_id']}
-        primaryAction={{
-          text: '新增VR实例',
-          onClick: () => setAddModalOpen(true),
-          type: 'primary',
-        }}
-        onRefresh={() => forceRefresh()}
-        moreMenuItems={[
-          { key: 'csmctl', label: '配置 CSMCTL 地址', onClick: handleSettingsOpen }
-        ]}
+        externalColumnControl
+        toolbarRight={(
+          <Space size={8} wrap>
+            <Button type="primary" onClick={() => setAddModalOpen(true)}>
+              新增VR实例
+            </Button>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'csmctl',
+                    label: '配置 CSMCTL 地址',
+                    onClick: handleSettingsOpen,
+                  },
+                ],
+              }}
+            >
+              <Button icon={<EllipsisOutlined />} />
+            </Dropdown>
+            <TableColumnSettingsButton<VRRow>
+              allColumns={columns}
+              settingsKey="interconnect_vr_instances"
+              defaultHiddenColumns={VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN}
+            />
+            <Button icon={<ReloadOutlined />} onClick={() => { void handleManualRefresh(); }} />
+          </Space>
+        )}
       toolbarLeft={(
         <Form
           className="toolbar-container"
@@ -1183,16 +1150,16 @@ const VRPage: React.FC = () => {
             setTenantFilter(all.tenant || undefined);
           }}
         >
-          <Form.Item name="keyword" label="名称">
+          <Form.Item name="keyword">
             <Input allowClear placeholder="搜索名称" className="toolbar-search" />
           </Form.Item>
-          <Form.Item name="status" label="状态">
+          <Form.Item name="status">
             <Select allowClear placeholder="选择状态" className="toolbar-filter">
               <Select.Option value="running">运行中</Select.Option>
               <Select.Option value="stopped">已停止</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="role" label="角色">
+          <Form.Item name="role">
             <Select allowClear placeholder="选择角色" className="toolbar-filter">
               <Select.Option value="标准">标准（虚拟路由）</Select.Option>
               <Select.Option value="SASE">SASE（安全网关）</Select.Option>
@@ -1201,7 +1168,7 @@ const VRPage: React.FC = () => {
               <Select.Option value="未设置">未设置</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="tenant" label="租户">
+          <Form.Item name="tenant">
             <Select
               allowClear
               placeholder="选择租户"
@@ -1215,90 +1182,34 @@ const VRPage: React.FC = () => {
         </Form>
       )}
       tableProps={{
-        columns: columns,
+        className: "std-table",
+        columns: vrDisplayColumns,
         dataSource: filteredVRs,
         rowKey: (r: VRRow) => r.uuid || r.id || r.vm_id || Math.random().toString(36).slice(2),
         pagination: {
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '20', '50', '100'],
+          size: 'small',
           showTotal: (total: number) => `共 ${total} 条`,
         },
         loading: loading,
         scroll: { 
           x: 'max-content',
-          y: 600  // 启用虚拟滚动，设置固定高度
         },
-        bordered: true
+        bordered: false
       }}
     >
 
-      {/* CSMCTL Settings Modal */}
-      <Modal
-        title="元数据查看"
-        open={metadataModalOpen}
-        onCancel={() => setMetadataModalOpen(false)}
-        footer={null}
-        width={800}
-      >
-        <Tabs
-          items={[
-            {
-              key: 'csmctl',
-              label: 'CSMCTL 基本信息 (VR1)',
-              children: (
-                <Input.TextArea
-                  value={JSON.stringify(currentMetadata?.csmctl || {}, null, 2)}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-            {
-              key: 'vr3',
-              label: 'CSMCTL 扩展信息 (VR3)',
-              children: metadataLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
-              ) : (
-                <Input.TextArea
-                  value={currentMetadata?.vr3 ? JSON.stringify(currentMetadata.vr3, null, 2) : '暂无扩展信息或获取失败'}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-            {
-              key: 'vrctl',
-              label: 'VRCTL 数据 (DB)',
-              children: (
-                <Input.TextArea
-                  value={currentMetadata?.vrctl ? JSON.stringify(currentMetadata.vrctl, null, 2) : '暂无绑定数据'}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-            {
-              key: 'vr2',
-              label: 'VRConfig 缓存数据',
-              children: metadataLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
-              ) : (
-                <Input.TextArea
-                  value={currentMetadata?.vr2 ? JSON.stringify(currentMetadata.vr2, null, 2) : '暂无缓存数据或获取失败'}
-                  autoSize={{ minRows: 10, maxRows: 20 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
-                />
-              ),
-            },
-          ]}
-        />
-      </Modal>
+      <VrDetailDrawer
+        open={detailDrawerOpen}
+        onClose={() => {
+          setDetailDrawerOpen(false);
+          setDetailRow(null);
+        }}
+        row={detailRow}
+        rolesMap={rolesMap}
+        orgNameMap={orgNameMap}
+      />
 
+      {/* CSMCTL Settings Modal */}
       <Modal
         title="CSMCTL 服务地址设置"
         open={settingsModalOpen}
@@ -1381,8 +1292,7 @@ const VRPage: React.FC = () => {
             </Col>
           </Row>
         </Form>
-      </Modal
-      >
+      </Modal>
       {/* 添加VR实例弹窗 */}
       <Modal
         title="添加VR实例"

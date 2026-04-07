@@ -1,21 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Descriptions, Tag, Alert, Input, Modal, Upload, message, Tooltip, Row, Col, Statistic, List, Typography, Space, Divider, Empty, Table } from 'antd';
+import { Card, Button, Descriptions, Alert, Input, Modal, Upload, message, Row, Col, Typography, Space, Empty, Table, Tag } from 'antd';
 import { useLicense } from '../../contexts/LicenseContext';
-import { CheckCircleOutlined, CloseCircleOutlined, UploadOutlined, SyncOutlined, ReloadOutlined, CrownOutlined, SafetyCertificateOutlined, CloudServerOutlined, AppstoreOutlined, TeamOutlined, SafetyOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, UploadOutlined, ReloadOutlined, CrownOutlined, SafetyCertificateOutlined, CloudServerOutlined, AppstoreOutlined, TeamOutlined, SafetyOutlined, ShareAltOutlined, NodeIndexOutlined, GatewayOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageContainer from '../../components/PageContainer';
+import axios from 'axios';
+import { API_BASE_URL } from '../../services/api';
 
 const { TextArea } = Input;
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 // 功能特性映射表
 const FEATURE_MAP: Record<string, { label: string; icon: React.ReactNode; desc?: string }> = {
   'platform.default': { label: '基础平台功能', icon: <AppstoreOutlined />, desc: '包含Cloudmap资源池基础管理能力' },
   'platform.multi-cloud': { label: '多云管理 (Multi-Cloud)', icon: <CloudServerOutlined />, desc: '支持接入阿里云、华为云等公有云资源' },
-  'platform.sdn': { label: 'SDN 控制中心', icon: <SafetyCertificateOutlined />, desc: '解锁跨地域互联与流量编排高级功能' },
-  'platform.aisoc': { label: 'AI SOC 安全运营中心', icon: <SafetyOutlined />, desc: '解锁态势感知与威胁分析高级功能' },
+  'platform.sdn': { label: 'SDN 控制中心', icon: <SafetyCertificateOutlined />, desc: 'SDN 基础能力标识' },
+  'sdn.cascade': { label: 'SDN 级联管理 (Cascade)', icon: <GatewayOutlined />, desc: '支持多层级联与统一管理' },
+  'sdn.interconnect': { label: 'SDN 跨域互联 (Interconnect)', icon: <ShareAltOutlined />, desc: '支持 IPsec/SRv6/VXLAN 等互联技术' },
+  'sdn.traffic': { label: 'SDN 流量编排 (Traffic)', icon: <NodeIndexOutlined />, desc: '支持服务链、QoS 与流量镜像' },
+  'platform.aisoc': { label: 'AISOC 安全运营中心', icon: <SafetyOutlined />, desc: '解锁态势感知与威胁分析高级功能' },
+  'network.ovn.vpc': {
+    label: '虚拟专有云 (VPC)',
+    icon: <CloudServerOutlined />,
+    desc: '控制业务 VPC、VPC 子网及 EIP/FIP/SNAT/DNAT 等；不含扁平/公共子网、物理网络、VLAN、扁平子网安全组与简易创建 VM 所用子网',
+  },
   'sys.tenant-mgmt': { label: '多租户管理系统', icon: <TeamOutlined />, desc: '支持组织架构与多租户隔离' },
-  'sys.rbac-advanced': { label: '高级权限控制 (RBAC)', icon: <CrownOutlined />, desc: '支持自定义角色与细粒度权限策略' },
   'sys.dashboard': { label: '全局仪表盘', icon: <AppstoreOutlined />, desc: '提供全平台资源概览与监控大屏' },
 };
 
@@ -25,14 +34,83 @@ const TYPE_MAP: Record<string, string> = {
   'enterprise': '企业版 (Enterprise)',
 };
 
+type FeatureGroupKey = 'CNMC' | 'SDN' | 'AISOC';
+
+const FEATURE_GROUPS: Array<{
+  key: FeatureGroupKey;
+  title: string;
+  sellable: string[];
+  internal?: string[];
+}> = [
+  {
+    key: 'CNMC',
+    title: 'CNMC 核心管理',
+    sellable: [
+      'platform.default',
+      'sys.dashboard',
+      'sys.tenant-mgmt',
+      'platform.multi-cloud',
+      'network.ovn.vpc',
+    ],
+  },
+  {
+    key: 'SDN',
+    title: 'SDN 控制中心',
+    sellable: ['sdn.cascade', 'sdn.interconnect', 'sdn.traffic'],
+  },
+  {
+    key: 'AISOC',
+    title: 'AISOC 安全运营中心',
+    sellable: ['platform.aisoc'],
+  },
+];
+
 const LicenseSettingsPage: React.FC = () => {
   const { license, loading, refresh, activate } = useLicense();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [inputKey, setInputKey] = useState('');
   const [activating, setActivating] = useState(false);
+  const [nodeId, setNodeId] = useState<string | null>(null);
+  
+  const copyText = async (text: string) => {
+    try {
+      const nav: any = typeof navigator !== 'undefined' ? navigator : undefined;
+      if (nav?.clipboard?.writeText) {
+        await nav.clipboard.writeText(text);
+        message.success('已复制平台唯一ID');
+        return;
+      }
+    } catch {}
+
+    try {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.style.position = 'fixed';
+      el.style.top = '0';
+      el.style.left = '0';
+      el.style.opacity = '0';
+      el.setAttribute('readonly', 'true');
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(el);
+      if (ok) {
+        message.success('已复制平台唯一ID');
+      } else {
+        message.error('复制失败，请手动复制');
+      }
+    } catch {
+      message.error('复制失败，请手动复制');
+    }
+  };
 
   useEffect(() => {
     refresh();
+    // 拉取唯一安装 ID，便于线下授权绑定
+    axios.get(`${API_BASE_URL}/api/system/license/node-id`)
+      .then(res => setNodeId(res?.data?.nodeId || null))
+      .catch(() => setNodeId(null));
   }, []);
 
   // 计算过期时间显示颜色
@@ -89,25 +167,70 @@ const LicenseSettingsPage: React.FC = () => {
   const payload = license.payload;
   const limits = payload?.limits;
 
-  const columns = [
+  const enabledSet = new Set(payload?.features || []);
+  const isEnabled = (k: string) => enabledSet.has(k);
+
+  const catalogColumns = [
+    { title: '模块', dataIndex: 'group', key: 'group', width: '16%' },
+    { title: '功能', dataIndex: 'name', key: 'name', width: '22%' },
+    { title: '状态', dataIndex: 'status', key: 'status', width: '10%' },
+    { title: '功能代码', dataIndex: 'key', key: 'key', width: '22%' },
+    { title: '说明', dataIndex: 'desc', key: 'desc', width: '30%' },
+  ];
+
+  const catalogDataSource = FEATURE_GROUPS.flatMap((g) =>
+    g.sellable.map((k) => {
+      const meta = FEATURE_MAP[k] || { label: k, icon: <CheckCircleOutlined />, desc: '-' };
+      const enabled = isEnabled(k);
+      return {
+        id: `${g.key}:${k}`,
+        group: g.title,
+        name: (
+          <Space size={8}>
+            <span style={{ color: enabled ? '#52c41a' : '#bfbfbf' }}>{meta.icon}</span>
+            <Text strong={enabled}>{meta.label}</Text>
+          </Space>
+        ),
+        status: enabled ? (
+          <Tag color="success" style={{ margin: 0 }}>
+            <CheckCircleOutlined /> 已开通
+          </Tag>
+        ) : (
+          <Tag color="default" style={{ margin: 0 }}>
+            <CloseCircleOutlined /> 未开通
+          </Tag>
+        ),
+        key: <Tag style={{ margin: 0 }}>{k}</Tag>,
+        desc: <Text type="secondary">{meta.desc || '-'}</Text>,
+      };
+    }),
+  );
+
+  const compareColumns = [
     { title: '功能模块 / 权益', dataIndex: 'feature', key: 'feature', width: '25%' },
     { title: '基础版 (试用 / Trial)', dataIndex: 'trial', key: 'trial', width: '37.5%' },
     { title: '正式版 (标准 / 企业)', dataIndex: 'official', key: 'official', width: '37.5%' },
   ];
 
-  const dataSource = [
+  const compareDataSource = [
     { key: '1', feature: '授权方式', trial: '系统内置 (无文件时自动生效)', official: '需导入官方颁发的 .key 文件' },
     { key: '2', feature: '有效期', trial: '365 天 (从服务启动时算起)', official: '根据合同定制 (如 1年/3年/永久)' },
     { key: '3', feature: '资源配额限制', trial: '受限 (10节点 / 50虚拟机 / 1云账号)', official: '解除限制 (根据合同规模或无限制)' },
-    { key: '4', feature: '多云管理 (Multi-Cloud)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="success"><CheckCircleOutlined /> 开放多云所有功能</Tag> },
-    { key: '5', feature: 'SDN 网络功能', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
-    { key: '6', feature: 'AI SOC 安全运营', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="purple"><SafetyCertificateOutlined /> 需 AI SOC 授权</Tag> },
+    { key: '4', feature: '基础平台 (Base)', trial: <Tag color="success"><CheckCircleOutlined /> 可用</Tag>, official: <Tag color="success"><CheckCircleOutlined /> 可用</Tag> },
+    { key: '5', feature: '全局仪表板 (Dashboard)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="success"><CheckCircleOutlined /> 可用</Tag> },
+    { key: '6', feature: '多租户管理 (Multi-Tenant)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="success"><CheckCircleOutlined /> 可用</Tag> },
+    { key: '7', feature: '权限控制 (RBAC)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="success"><CheckCircleOutlined /> 可用</Tag> },
+    { key: '8', feature: '多云管理 (Multi-Cloud)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需功能授权</Tag> },
+    { key: '9', feature: '虚拟专有云 (VPC)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需功能授权</Tag> },
+    { key: '10', feature: 'SDN 级联管理 (Cascade)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
+    { key: '11', feature: 'SDN 跨域互联 (Interconnect)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
+    { key: '12', feature: 'SDN 流量编排 (Traffic)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
+    { key: '13', feature: 'AISOC 安全运营中心', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="purple"><SafetyCertificateOutlined /> 需 AISOC 授权</Tag> },
   ];
 
   return (
     <PageContainer
-      title="系统授权管理"
-      subtitle="查看当前系统授权状态、有效期及功能模块详情"
+      subtitle="查看授权状态、配额限制与已开通功能模块"
       asCard={false}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -131,10 +254,16 @@ const LicenseSettingsPage: React.FC = () => {
                     {license.message || currentStatus.text}
                   </Text>
                   {payload?.exp && (
-                    <Text type="secondary">
-                      有效期至: {dayjs.unix(payload.exp).format('YYYY年MM月DD日 HH:mm:ss')} 
-                      (剩余 {license.daysRemaining} 天)
-                    </Text>
+                    <Space size={8} wrap>
+                      <Text type="secondary">
+                        有效期至: {dayjs.unix(payload.exp).format('YYYY年MM月DD日 HH:mm:ss')}
+                      </Text>
+                      {typeof license.daysRemaining === 'number' && (
+                        <Tag color={getExpireColor(license.daysRemaining)} style={{ margin: 0 }}>
+                          剩余 {license.daysRemaining} 天
+                        </Tag>
+                      )}
+                    </Space>
                   )}
                 </div>
               }
@@ -153,90 +282,145 @@ const LicenseSettingsPage: React.FC = () => {
               <Descriptions.Item label="颁发时间">
                 {payload?.iat ? dayjs.unix(payload.iat).format('YYYY-MM-DD') : '-'}
               </Descriptions.Item>
+              <Descriptions.Item label="平台唯一ID">
+                {nodeId ? (
+                  <Space>
+                    <Tag color="purple" style={{ margin: 0 }}>{nodeId}</Tag>
+                    <Button size="small" onClick={() => copyText(nodeId)}>复制</Button>
+                  </Space>
+                ) : '-'}
+              </Descriptions.Item>
             </Descriptions>
           </div>
         </Card>
 
         {/* 资源配额与功能模块 */}
         {payload ? (
-          <Row gutter={24}>
-            <Col span={24} lg={10}>
-              <Card title={<span><CloudServerOutlined style={{ marginRight: 8 }} />资源配额限制</span>} style={{ height: '100%' }}>
-                <Row gutter={[16, 24]}>
-                  <Col span={8}>
-                    <Statistic
-                      title="最大计算节点数"
-                      value={limits?.maxNodes === -1 ? '无限制' : limits?.maxNodes}
-                      suffix={limits?.maxNodes !== -1 ? '个' : ''}
-                      groupSeparator=","
-                      valueStyle={{ fontSize: 20 }}
-                    />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic
-                      title="最大虚拟机实例数"
-                      value={limits?.maxVms === -1 ? '无限制' : limits?.maxVms}
-                      suffix={limits?.maxVms !== -1 ? '个' : ''}
-                      groupSeparator=","
-                      valueStyle={{ fontSize: 20 }}
-                    />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic
-                      title="最大云资源连接数"
-                      value={(limits as any)?.maxCloudAccounts === -1 ? '无限制' : (limits as any)?.maxCloudAccounts}
-                      suffix={(limits as any)?.maxCloudAccounts !== -1 ? '个' : ''}
-                      valueStyle={{ color: '#1890ff', fontSize: 20 }}
-                    />
-                  </Col>
-                </Row>
-                <div style={{ marginTop: 16 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    <SafetyCertificateOutlined style={{ marginRight: 4 }} />
-                    配额说明：资源配额是指当前授权允许接入或纳管的最大资源数量。超过配额可能导致新资源无法添加或纳管失败。
-                  </Text>
-                </div>
-              </Card>
-            </Col>
-            <Col span={24} lg={14}>
-              <Card title={<span><AppstoreOutlined style={{ marginRight: 8 }} />已启用功能模块</span>} style={{ height: '100%' }}>
-                <List
-                  grid={{ gutter: 16, column: 2 }}
-                  dataSource={payload.features}
-                  renderItem={(item) => {
-                    const featureInfo = FEATURE_MAP[item] || { label: item, icon: <CheckCircleOutlined />, desc: '未知功能模块' };
-                    return (
-                      <List.Item>
-                        <Card 
-                          size="small" 
-                          hoverable 
-                          style={{ borderColor: '#f0f0f0' }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                            <div style={{ fontSize: 20, color: '#52c41a', marginTop: 2 }}>
-                              {featureInfo.icon}
+          <Card title={<span><CloudServerOutlined style={{ marginRight: 8 }} />授权信息</span>}>
+            <Row gutter={24}>
+              <Col xs={24} md={6} lg={6} xl={6} style={{ borderRight: '1px solid #f0f0f0' }}>
+                <div style={{ padding: '0 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Space size={8}>
+                      <Text strong>资源配额限制</Text>
+                    </Space>
+                  </div>
+                  <div>
+                    {[
+                      {
+                        key: 'maxNodes',
+                        label: '最大计算节点数',
+                        value: limits?.maxNodes,
+                        icon: <CloudServerOutlined />,
+                        desc: '允许接入或纳管的最大物理节点数量'
+                      },
+                      {
+                        key: 'maxVms',
+                        label: '最大虚拟机实例数',
+                        value: limits?.maxVms,
+                        icon: <AppstoreOutlined />,
+                        desc: '允许创建或纳管的最大虚拟机实例数量'
+                      },
+                      {
+                        key: 'maxCloudAccounts',
+                        label: '最大云资源连接数',
+                        value: (limits as any)?.maxCloudAccounts,
+                        icon: <GatewayOutlined />,
+                        desc: '允许接入的最大公有云账号数量'
+                      }
+                    ].map((item) => {
+                      const isUnlimited = item.value === -1;
+                      const color = isUnlimited ? '#52c41a' : '#1890ff';
+                      const bgColor = isUnlimited ? '#f6ffed' : '#e6f7ff';
+                      const borderColor = isUnlimited ? '#b7eb8f' : '#91d5ff';
+                      const textColor = isUnlimited ? '#389e0d' : '#096dd9';
+                      
+                      return (
+                        <div key={item.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', width: '100%', padding: '6px 0' }}>
+                          <div style={{ marginTop: 2, color: color }}>{item.icon}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Space size={8} wrap>
+                              <Text strong>{item.label}</Text>
+                              <span style={{ margin: 0, padding: '1px 8px', borderRadius: 12, fontSize: 12, background: bgColor, color: textColor, border: `1px solid ${borderColor}` }}>
+                                {isUnlimited ? '无限制' : `${item.value} 个`}
+                              </span>
+                            </Space>
+                            <div style={{ marginTop: 2 }}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                {item.desc}
+                              </Text>
                             </div>
-                            <div>
-                              <Text strong>{featureInfo.label}</Text>
-                              <div style={{ marginTop: 4 }}>
-                                <Text type="secondary" style={{ fontSize: 12 }}>{featureInfo.desc}</Text>
-                              </div>
-                              <div style={{ marginTop: 4 }}>
-                                <Tag style={{ fontSize: 10, lineHeight: '18px' }}>{item}</Tag>
-                              </div>
+                            <div style={{ marginTop: 2 }}>
+                              <span style={{ fontSize: 10, lineHeight: '18px', padding: '0 6px', borderRadius: 10, border: '1px solid #d9d9d9', color: '#595959' }}>{item.key}</span>
                             </div>
                           </div>
-                        </Card>
-                      </List.Item>
-                    );
-                  }}
-                />
-                {(!payload.features || payload.features.length === 0) && (
-                  <Empty description="无已启用功能" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                )}
-              </Card>
-            </Col>
-          </Row>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      <SafetyCertificateOutlined style={{ marginRight: 4 }} />
+                      配额说明：超过配额可能导致新资源无法添加。
+                    </Text>
+                  </div>
+                </div>
+              </Col>
+
+              {FEATURE_GROUPS.map((g, index) => {
+                const allKeys = [...g.sellable];
+                const enabledCount = allKeys.filter(isEnabled).length;
+                return (
+                  <Col key={g.key} xs={24} md={6} lg={6} xl={6} style={{ borderRight: index !== FEATURE_GROUPS.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                    <div
+                      style={{
+                        padding: '0 12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Space size={8}>
+                          <Text strong>{g.title}</Text>
+                        </Space>
+                        <span style={{ margin: 0, padding: '2px 8px', borderRadius: 12, fontSize: 12, background: enabledCount ? '#f6ffed' : '#fafafa', color: enabledCount ? '#389e0d' : '#595959', border: `1px solid ${enabledCount ? '#b7eb8f' : '#d9d9d9'}` }}>
+                          {enabledCount}/{allKeys.length}
+                        </span>
+                      </div>
+                      <div>
+                        {allKeys.map((k) => {
+                          const meta = FEATURE_MAP[k] || { label: k, icon: <CheckCircleOutlined />, desc: '-' };
+                          const enabled = isEnabled(k);
+                          return (
+                            <div key={k} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', width: '100%', padding: '6px 0' }}>
+                              <div style={{ marginTop: 2, color: enabled ? '#52c41a' : '#bfbfbf' }}>{meta.icon}</div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <Space size={8} wrap>
+                                  <Text strong={enabled}>{meta.label}</Text>
+                                  <span style={{ margin: 0, padding: '1px 8px', borderRadius: 12, fontSize: 12, background: enabled ? '#f6ffed' : '#fafafa', color: enabled ? '#389e0d' : '#595959', border: `1px solid ${enabled ? '#b7eb8f' : '#d9d9d9'}` }}>
+                                    {enabled ? <><CheckCircleOutlined /> 已开通</> : <><CloseCircleOutlined /> 未开通</>}
+                                  </span>
+                                </Space>
+                                <div style={{ marginTop: 2 }}>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {meta.desc || '-'}
+                                  </Text>
+                                </div>
+                                <div style={{ marginTop: 2 }}>
+                                  <span style={{ fontSize: 10, lineHeight: '18px', padding: '0 6px', borderRadius: 10, border: '1px solid #d9d9d9', color: '#595959' }}>{k}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </Col>
+                );
+              })}
+            </Row>
+            {(!payload.features || payload.features.length === 0) && (
+              <Empty description="无已启用功能" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </Card>
         ) : (
           <Card variant="borderless">
             <Empty 
@@ -250,11 +434,13 @@ const LicenseSettingsPage: React.FC = () => {
           </Card>
         )}
 
+
+
         {/* 授权模式对比 */}
         <Card title={<span><SafetyCertificateOutlined style={{ marginRight: 8 }} />授权版本特性对比</span>} style={{ marginBottom: 24 }}>
           <Table 
-            columns={columns} 
-            dataSource={dataSource} 
+            columns={compareColumns} 
+            dataSource={compareDataSource} 
             pagination={false} 
             size="large"
             bordered

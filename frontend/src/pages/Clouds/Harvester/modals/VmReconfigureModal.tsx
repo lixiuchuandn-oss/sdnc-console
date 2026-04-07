@@ -6,28 +6,34 @@
  * 主要功能：
  * 1. 提供虚拟机规格变更、系统重装、磁盘管理等多种运维操作。
  * 2. 采用"单任务模式" (Single Task Mode)：
- *    - 左侧导航栏采用 Radio.Group 单选模式，确保同一时间只能进行一种类型的变配操作。
+ *    - 左侧导航栏采用 Menu 单选模式，确保同一时间只能进行一种类型的变配操作。
  *    - 切换功能项时，自动重置表单，避免不同任务间的配置冲突。
  * 3. 样式冻结 (Style Freeze)：
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useMemo } from 'react';
-import { Modal, Form, Space, Radio, Button, Tag, Tooltip } from 'antd';
+import { Modal, Form, Menu, Button, Tag, Tooltip, Checkbox, Select, message, Row, Col } from 'antd';
+import type { MenuProps } from 'antd';
 import { 
   HddOutlined, GlobalOutlined, DashboardOutlined, LoadingOutlined, QuestionCircleOutlined
 } from '@ant-design/icons';
 
 import ChangeSpec from './VmReconfigure/ChangeSpec';
+import HotPlugSettings from './VmReconfigure/HotPlugSettings';
 import CpuAdvanced from './VmReconfigure/CpuAdvanced';
-import MemAdvanced from './VmReconfigure/MemAdvanced';
 import ChangeGpu from './VmReconfigure/ChangeGpu';
+import ChangeUsb from './VmReconfigure/ChangeUsb';
 import ChangeOs from './VmReconfigure/ChangeOs';
+import ChangeNodeScheduling from './VmReconfigure/ChangeNodeScheduling';
+import ChangeNodeAffinity from './VmReconfigure/ChangeNodeAffinity';
 import SystemDiskExpand from './VmReconfigure/SystemDiskExpand';
 import AddDataDisk from './VmReconfigure/AddDataDisk';
+import DetachDataDisk from './VmReconfigure/DetachDataDisk';
 import ChangePrimaryNic from './VmReconfigure/ChangePrimaryNic';
 import ChangeSecondaryNic from './VmReconfigure/ChangeSecondaryNic';
 import { useVmReconfigure } from './VmReconfigure/useVmReconfigure';
 import { isSystemStorageClass } from '../../../../utils/harvesterUtils';
+import './VmCreateWizard/InstanceWizard.css';
 
 /**
  * 组件入参说明：
@@ -55,7 +61,7 @@ type Props = {
 
 const VmReconfigureModal: React.FC<Props> = (props) => {
   const { 
-    open, record, onClose
+    open, cloudId, record, onClose
   } = props;
 
   /**
@@ -71,10 +77,13 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   const {
     form,
     selectedKey, setSelectedKey,
-    scs, images, gpuResources, selectedGpuKey, setSelectedGpuKey,
+    scs, images, gpuResources, selectedGpuKeys, setSelectedGpuKeys,
+    usbResources, selectedUsbKeys, setSelectedUsbKeys,
     nads, vpcs, subnets, setVpcs,
-    gpuKeyword, setGpuKeyword, gpuLoading,
-    reloadScs, reloadImages, reloadGpuResources, reloadNads, reloadVpcs, reloadSubnets,
+    nodes, reloadNodes,
+    gpuLoading,
+    usbLoading,
+    reloadScs, reloadImages, reloadGpuResources, reloadUsbResources, reloadNads, reloadVpcs, reloadSubnets,
     handleSubmit,
     systemDisk,
     systemDiskSize,
@@ -82,30 +91,49 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     getCurrentSpec,
     getMemoryInGi,
     isHotPlugEnabledOnVm,
+    isHotPlugConfiguredOnVm,
     isRestartRequired,
-    isHotPlugInProgress
+    isHotPlugInProgress,
+    latestVm,
+    // add disk split actions
+    diskCreating,
+    diskAttaching,
+    handleCreateDisk,
+    handleAttachDisk,
+    availableDiskPvcs,
+    // detach disk actions
+    diskDetaching,
+    handleDetachDisk,
+    refreshVm,
   } = useVmReconfigure(props);
 
-  // 监听表单中的 CPU / 内存 / 热扩容开关，用于动态计算按钮文案等
+  // 监听表单中的 CPU / 内存，用于动态计算按钮文案等
   const cpu = Form.useWatch('cpu', form);
   const memory = Form.useWatch('memory', form);
-  const enableHotPlug = Form.useWatch('enableHotPlug', form);
+  // 添加数据盘两步按钮：监听创建状态
+  const newDiskCreated = Form.useWatch('newDiskCreated', form);
+  const newDiskSource = Form.useWatch('newDiskSource', form);
+  const changeOsConfirmed = Form.useWatch('changeOsConfirmed', form);
+  // [移除] enableHotPlug 已拆分为独立功能，不再在 change_spec 中监听
+  // const enableHotPlug = Form.useWatch('enableHotPlug', form);
   
   // 计算当前实例规格（作为“变配前”的基准值）
+  // [修复] getCurrentSpec 内部依赖最新 VM 状态，确保当 VM 数据更新时重新计算规格
   const { cpu: currentCpuRaw, memory: currentMemoryRaw, maxSockets, maxMemory: maxMemoryRaw } = useMemo(() => {
      if (!getCurrentSpec) return { cpu: 0, memory: 0, maxSockets: undefined, maxMemory: undefined };
      return getCurrentSpec();
-  }, [getCurrentSpec, record]);
+  }, [getCurrentSpec]);
   
   const currentCpu = Number(currentCpuRaw || 0);
   const currentMemory = getMemoryInGi(currentMemoryRaw);
   const maxMemory = maxMemoryRaw ? getMemoryInGi(maxMemoryRaw) : undefined;
   const architecture = record?.spec?.template?.spec?.architecture || record?.spec?.architecture;
   
-  // 当前 VM 是否已启用 CPU / 内存热扩容能力（基于注解/feature 判断）
-  const isHotPlugEnabledOnVmVal = useMemo(() => {
-    return isHotPlugEnabledOnVm ? isHotPlugEnabledOnVm() : false;
-  }, [isHotPlugEnabledOnVm, record]);
+  // 当前 VM 的热扩容状态：
+  // - isHotPlugConfiguredOnVm：仅根据 Annotation 判断是否“已配置”热扩容（用于 UI 展示/布局）
+  // - isHotPlugEnabledOnVm：已配置且当前可进行热扩容（无 RestartRequired / 热扩容进行中，用于本次是否真正走热扩容路径）
+  const isHotPlugConfiguredOnVmVal = isHotPlugConfiguredOnVm || false;
+  const isHotPlugActiveOnVmVal = isHotPlugEnabledOnVm || false;
 
   /**
    * 左侧菜单分组：
@@ -121,9 +149,11 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       icon: <DashboardOutlined />,
       children: [
         { key: 'change_spec', label: '变更实例规格' },
-        { key: 'cpu_advanced', label: 'CPU高级配置' },
-        { key: 'mem_advanced', label: '内存高级配置' },
-        { key: 'change_gpu', label: '变更GPU' },
+        { key: 'hotplug_settings', label: '热扩容设置' },
+        { key: 'cpu_advanced', label: '性能设置' },
+        { key: 'vm_policy', label: '高可用设置' },
+        { key: 'change_node_scheduling', label: '节点调度' },
+        { key: 'change_node_affinity', label: '节点亲和性' },
       ]
     },
     {
@@ -133,14 +163,17 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         { key: 'change_os', label: '更换系统镜像' },
         { key: 'expand_system_disk', label: '系统盘扩容' },
         { key: 'add_disk', label: '添加数据盘' },
+        { key: 'detach_disk', label: '解绑数据盘' },
       ]
     },
     {
-      title: '网络配置',
+      title: '网络与设备',
       icon: <GlobalOutlined />,
       children: [
         { key: 'change_primary_nic', label: '变更主网卡' },
         { key: 'change_secondary_nic', label: '变更辅助网卡' },
+        { key: 'change_gpu', label: '变更GPU' },
+        { key: 'change_usb', label: '变更USB' },
       ]
     }
   ];
@@ -167,7 +200,8 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             form={form} 
             currentCpu={currentCpu} 
             currentMemory={currentMemory}
-            isHotPlugEnabledOnVm={isHotPlugEnabledOnVmVal}
+            // 这里用"是否已配置热扩容"来决定界面布局和表单校验
+            isHotPlugEnabledOnVm={isHotPlugConfiguredOnVmVal}
             isRestartRequired={isRestartRequired}
             maxSockets={maxSockets}
             maxMemory={maxMemory}
@@ -175,22 +209,156 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             disabled={isHotPlugInProgress}
           />
         );
-      case 'cpu_advanced':
-        return <CpuAdvanced form={form} />;
-      case 'mem_advanced':
-        return <MemAdvanced form={form} />;
-      case 'change_gpu':
+      case 'hotplug_settings':
+        return (
+          <HotPlugSettings 
+            form={form} 
+            currentCpu={currentCpu} 
+            currentMemory={currentMemory}
+            isHotPlugEnabledOnVm={isHotPlugConfiguredOnVmVal}
+            maxSockets={maxSockets}
+            maxMemory={maxMemory}
+            architecture={architecture}
+            disabled={isHotPlugInProgress}
+          />
+        );
+      case 'cpu_advanced': {
+        const domain = (latestVm || record)?.spec?.template?.spec?.domain;
+        const cpuSpec = domain?.cpu;
+        const resources = domain?.resources;
+        const vmCpuState = {
+          cpu: cpuSpec || null,
+          resources: resources || null,
+        };
+        return (
+          <CpuAdvanced 
+            form={form}
+            cloudId={cloudId}
+            vmCpuState={vmCpuState}
+            vmCpuDebugText={JSON.stringify(vmCpuState, null, 2)} 
+          />
+        );
+      }
+      case 'change_gpu': {
+        // 获取当前VM正在使用的GPU资源名列表
+        // 使用与 useVmReconfigure hook 相同的逻辑来确保一致性
+        const activeVm = latestVm || record;
+        const domain = activeVm?.spec?.template?.spec?.domain;
+        const hostDevices = domain?.devices?.hostDevices || [];
+        const gpus = domain?.devices?.gpus || [];
+        // 判断GPU模式：优先检查gpus，再检查hostDevices
+        const inferredMode = gpus.length > 0 ? 'vgpu' : (hostDevices.length > 0 ? 'passthrough' : 'none');
+        const currentMode = form.getFieldValue('gpuMode') || inferredMode;
+        const effectiveMode = currentMode === 'none' ? inferredMode : currentMode;
+        const vmAssigned = (effectiveMode === 'vgpu' ? gpus : hostDevices);
+        const currentVmGpuResourceNames = (Array.isArray(vmAssigned) ? vmAssigned : []).map((x: any) => x?.deviceName).filter(Boolean);
         return (
           <ChangeGpu 
             form={form} 
             gpuResources={gpuResources}
-            selectedGpuKey={selectedGpuKey}
-            setSelectedGpuKey={setSelectedGpuKey}
-            gpuKeyword={gpuKeyword}
-            setGpuKeyword={setGpuKeyword}
+            selectedGpuKeys={selectedGpuKeys}
+            setSelectedGpuKeys={setSelectedGpuKeys}
             gpuLoading={gpuLoading}
             reloadGpuResources={reloadGpuResources}
+            currentVmGpuResourceNames={currentVmGpuResourceNames}
           />
+        );
+      }
+      case 'change_usb': {
+        // 获取当前VM正在使用的USB资源名列表
+        const activeVm = latestVm || record;
+        const domain = activeVm?.spec?.template?.spec?.domain;
+        const hostDevices = domain?.devices?.hostDevices || [];
+        const usb = (Array.isArray(hostDevices) ? hostDevices : []).filter((d: any) => {
+          const n = String(d?.name || '').toLowerCase();
+          const dn = String(d?.deviceName || '').toLowerCase();
+          return n.startsWith('usb') || dn.includes('usb');
+        });
+        const currentVmUsbResourceNames = usb.map((x: any) => x?.deviceName).filter(Boolean);
+        return (
+          <ChangeUsb
+            form={form}
+            usbResources={usbResources}
+            selectedUsbKeys={selectedUsbKeys}
+            setSelectedUsbKeys={setSelectedUsbKeys}
+            usbLoading={usbLoading}
+            reloadUsbResources={reloadUsbResources}
+            currentVmUsbResourceNames={currentVmUsbResourceNames}
+          />
+        );
+      }
+      case 'change_node_scheduling':
+        return (
+          <ChangeNodeScheduling
+            form={form}
+            cloudId={cloudId}
+            record={latestVm || record}
+            nodes={nodes}
+            reloadNodes={reloadNodes}
+            nodesLoading={false}
+          />
+        );
+      case 'change_node_affinity':
+        return (
+          <ChangeNodeAffinity
+            form={form}
+            cloudId={cloudId}
+            record={latestVm || record}
+          />
+        );
+      case 'vm_policy':
+        return (
+          <>
+            <div>
+              <Row gutter={12} style={{ marginBottom: 0 }}>
+                <Col span={6}>
+                  <div style={{ lineHeight: '32px' }}>运行策略</div>
+                </Col>
+                <Col span={18}>
+                  <Form.Item name="runStrategy" rules={[{ required: true, message: '请选择运行策略' }]} noStyle>
+                    <Select
+                      placeholder="选择运行策略"
+                      style={{ width: 320 }}
+                      options={[
+                        { value: 'Always', label: 'Always（始终运行）' },
+                        { value: 'RerunOnFailure', label: 'RerunOnFailure（失败自动重启）' },
+                        { value: 'Manual', label: 'Manual（手动控制）' },
+                        { value: 'Halted', label: 'Halted（保持停止）' },
+                      ]}
+                      onChange={(v) => {
+                        if (String(v) === 'Halted') message.warning('设置为 Halted 后实例将保持停止状态');
+                      }}
+                    />
+                  </Form.Item>
+                  <div style={{ marginBottom: 24 }} />
+                </Col>
+              </Row>
+
+              <Row gutter={12} style={{ marginBottom: 0 }}>
+                <Col span={6}>
+                  <div style={{ lineHeight: '32px' }}>驱逐策略</div>
+                </Col>
+                <Col span={18}>
+                  <Form.Item name="evictionStrategy" noStyle>
+                    <Select
+                      placeholder="选择驱逐策略"
+                      allowClear
+                      style={{ width: 320 }}
+                      options={[
+                        { value: 'LiveMigrateIfPossible', label: 'LiveMigrateIfPossible（尽可能热迁移）' },
+                        { value: 'LiveMigrate', label: 'LiveMigrate（强制热迁移）' },
+                        { value: 'None', label: 'None（不迁移）' },
+                      ]}
+                      onChange={(v) => {
+                        if (String(v) === 'None') message.warning('驱逐策略为 None 时，节点维护/驱逐可能导致实例不可用');
+                      }}
+                    />
+                  </Form.Item>
+                  <div style={{ marginBottom: 24 }} />
+                </Col>
+              </Row>
+            </div>
+          </>
         );
       
       // --- System & Storage Config (系统与存储配置) ---
@@ -223,6 +391,17 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             form={form}
             scOptions={scOptions}
             reloadScs={reloadScs}
+            pvcOptions={availableDiskPvcs}
+          />
+        );
+      case 'detach_disk':
+        return (
+          <DetachDataDisk 
+            record={latestVm || record}
+            cloudId={cloudId}
+            onDetach={handleDetachDisk}
+            onRefresh={refreshVm}
+            loading={diskDetaching}
           />
         );
 
@@ -260,7 +439,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   };
 
   // --- Style Freeze: Do NOT modify the styles below ---
-  // The user has explicitly requested this specific visual design (Radio Group with rounded corners, expanded groups).
+  // The user has explicitly requested this specific visual design (Menu with rounded corners, expanded groups).
   // Any changes to the layout, spacing, or visual appearance must be approved by the user.
   // -----------------------------------------------------
 
@@ -272,18 +451,16 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     let buttonText = "提交";
 
     if (selectedKey === 'change_spec') {
-        // 仅在“变更实例规格”任务下，才需要根据热扩容能力调整按钮文案
+        // 仅在"变更实例规格"任务下，才需要根据热扩容能力调整按钮文案
         // 场景：
-        // - 表单未开启热扩容开关 -> 冷扩容；
         // - VM 本身未启用热扩容能力 -> 冷扩容；
-        // - 虽然表单与 VM 均支持热扩容，但超过 4 倍上限或缩配 -> 强制冷扩容。
-        if (!enableHotPlug) {
-           buttonText = "提交（冷扩容）";
-        } else if (enableHotPlug && !isHotPlugEnabledOnVmVal) {
+        // - VM 已启用热扩容，但超过上限或缩配 -> 强制冷扩容。
+        // 按钮文案需要看“当前这次变更是否可以走热扩容路径”，因此用 Active 状态
+        if (!isHotPlugActiveOnVmVal) {
            buttonText = "提交（冷扩容）";
         } else {
            const limitCpu = maxSockets || (currentCpu * 4);
-           const limitMem = currentMemory * 4;
+           const limitMem = maxMemory || (currentMemory * 4);
            
            const isOverLimit = (cpu !== undefined && cpu > limitCpu) || (memory !== undefined && memory > limitMem);
            const isInvalid = (cpu !== undefined && cpu < currentCpu) || (memory !== undefined && memory < currentMemory);
@@ -291,18 +468,80 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
            if (isOverLimit || isInvalid) {
               buttonText = "提交（冷扩容）";
            } else {
-              buttonText = "提交";
+              buttonText = "提交（热扩容）";
            }
         }
     }
     return { alertMessage: messageNode, okText: buttonText };
-  }, [selectedKey, cpu, memory, enableHotPlug, currentCpu, currentMemory, isHotPlugEnabledOnVmVal, maxSockets]);
+  }, [selectedKey, cpu, memory, currentCpu, currentMemory, isHotPlugActiveOnVmVal, maxSockets, maxMemory]);
+
+  const showChangeOsRisk = () => {
+    Modal.info({
+      title: '更换系统盘风险说明',
+      width: 520,
+      content: (
+        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6 }}>
+          <p style={{ marginBottom: 4 }}>• 更换操作系统将删除当前的系统盘并重建实例，系统盘数据将会丢失。</p>
+          <p style={{ marginBottom: 4 }}>• 挂载的数据盘将被保留，但在新系统启动后可能需要手动重新挂载。</p>
+          <p style={{ marginBottom: 0 }}>• 虚拟机将会强制重启以应用更改，请在业务低峰期执行。</p>
+        </div>
+      ),
+      okText: '我已知晓',
+      onOk: () => {
+        try {
+          form.setFieldsValue({ changeOsConfirmed: true });
+        } catch {}
+      },
+    });
+  };
 
   // 底部按钮区域，仅保留“取消 + 提交”两种操作
   const footer = (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <Button onClick={onClose}>取消</Button>
-        <Button type="primary" onClick={handleSubmit} disabled={isHotPlugInProgress}>{okText}</Button>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
+        {selectedKey === 'add_disk' ? (
+          <>
+            <Button onClick={onClose}>取消</Button>
+            <Button
+              type="primary"
+              onClick={handleCreateDisk}
+              loading={diskCreating}
+              disabled={diskAttaching || !!newDiskCreated || newDiskSource === 'existing'}
+            >
+              创建磁盘
+            </Button>
+            <Button
+              type="primary"
+              onClick={handleAttachDisk}
+              loading={diskAttaching}
+              disabled={diskCreating || !newDiskCreated}
+            >
+              挂载磁盘
+            </Button>
+          </>
+        ) : selectedKey === 'change_os' ? (
+          <>
+
+            <Checkbox checked={!!changeOsConfirmed} disabled>
+              已确认风险
+            </Checkbox>
+            <Button type="link" onClick={showChangeOsRisk} style={{ paddingLeft: 0 }}>
+              查看风险信息
+            </Button>
+            <Button onClick={onClose}>取消</Button>
+            <Button
+              type="primary"
+              onClick={handleSubmit}
+              disabled={isHotPlugInProgress || !changeOsConfirmed}
+            >
+              {okText}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button onClick={onClose}>取消</Button>
+            <Button type="primary" onClick={handleSubmit} disabled={isHotPlugInProgress}>{okText}</Button>
+          </>
+        )}
       </div>
   );
 
@@ -363,50 +602,27 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       styles={{ body: { padding: 0 } }}
     >
       <div style={{ display: 'flex', height: '70vh' }}>
-        <div style={{ width: 180,  overflowY: 'auto', marginRight: 40 }}>
-          <Radio.Group 
-            value={selectedKey} 
-            onChange={(e) => setSelectedKey(e.target.value)} 
-            style={{ width: '100%' }} 
-          >
-            {menuGroups.map((group, gIndex) => (
-              <div key={group.title} style={{ marginBottom: 10 }}>
-                <div style={{ 
-                  lineHeight: '40px', 
-                  marginBottom: 10,
-                  borderBottom: '1px solid #e6e6e6',
-                  fontSize: 14, 
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8
-                }}>
-                  {group.icon}
-                  <span>{group.title}</span>
-                </div>
-                <Space direction="vertical" style={{ width: '100%', gap: 4 }}>
-                  {group.children.map(child => (
-                    <Radio 
-                      key={child.key} 
-                      value={child.key} 
-                      style={{ 
-                        display: 'flex', 
-                        lineHeight: '32px', 
-                        padding: '0 10px',
-                        marginBottom: 6,
-                        borderRadius: '8px',
-                        background: selectedKey === child.key ? '#e6f7ff' : 'transparent',
-                        color: selectedKey === child.key ? '#1677ff' : 'inherit',
-                      }}
-                    >
-                      {child.label}
-                    </Radio>
-                  ))}
-                </Space>
-              </div>
-            ))}
-          </Radio.Group>
+        <div
+          className="vm-reconfigure-sidebar-scroll"
+          style={{ width: 200, overflowY: 'auto', marginRight: 24 }}
+        >
+          <Menu
+            mode="inline"
+            style={{ paddingInlineEnd: 24 }}
+            selectedKeys={[selectedKey]}
+            onClick={({ key }) => setSelectedKey(String(key))}
+            items={menuGroups.map((group, groupIndex) => ({
+              key: `group_${groupIndex}`,
+              type: 'group',
+              label: group.title,
+              children: group.children.map((child) => ({
+                key: child.key,
+                label: child.label,
+              })),
+            })) as MenuProps['items']}
+          />
         </div>
-        <div style={{ border: '1px solid #f0f0f0',borderRadius: '8px', flex: 1, padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, padding: 10, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {renderTopAlert()}
           <div style={{ flex: 1 }}>
             <Form

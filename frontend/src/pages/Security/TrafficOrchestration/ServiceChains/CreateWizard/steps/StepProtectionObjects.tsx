@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Alert, Form, Button, Space, Tag, Modal, Input, Select, message, Radio, Table } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Form, Button, Space, Tag, Modal, Input, Select, message, Radio, Table } from 'antd';
 import VRDomainTableSelector from '../components/VRDomainTableSelector';
-import { createCsmAsset, fetchCsmAssets, fetchCsmVRouters, fetchCsmPoolId } from '../../../../../../services/api';
+import { createCsmAsset, fetchCsmAssets, fetchCsmPoolId } from '../../../../../../services/api';
 
 export default function StepProtectionObjects(props: any) {
   const {
@@ -16,7 +16,6 @@ export default function StepProtectionObjects(props: any) {
   const [vrBatchForm] = Form.useForm();
   const [vrRowOpen, setVrRowOpen] = useState(false);
   const [vrRowForm] = Form.useForm();
-  const [vrRowRecord, setVrRowRecord] = useState<any | null>(null);
   const [vrKeyword, setVrKeyword] = useState('');
   const [vrPage, setVrPage] = useState(1);
   const [vrPageSize, setVrPageSize] = useState(8);
@@ -71,7 +70,7 @@ export default function StepProtectionObjects(props: any) {
   });
 
 
-  const loadAssets = async () => {
+  const loadAssets = useCallback(async () => {
     try {
       const cloudId = String(selectedClusterId || form.getFieldValue('cluster') || '').trim();
       if (!cloudId) return;
@@ -125,11 +124,11 @@ export default function StepProtectionObjects(props: any) {
     } catch {} finally {
       setAssetsLoading(false);
     }
-  };
+  }, [selectedClusterId, poolId, poolDetecting, form, setCsmAssets]);
 
   useEffect(() => {
     loadAssets();
-  }, [selectedClusterId]); // Only auto-load on cluster change, manual refresh for pool_id changes
+  }, [loadAssets]);
 
   return (
     <div>
@@ -345,7 +344,8 @@ export default function StepProtectionObjects(props: any) {
                    const values = vrRowForm.getFieldsValue(true);
                    const currentCloudId = String(selectedClusterId || form.getFieldValue('cluster') || '').trim();
                    if (!currentCloudId) throw new Error('请先在基础信息中选择安全资源池');
-                   const cidr = String(vrRowRecord?.cidr || '').trim();
+                   const record = form.getFieldValue('vrRowRecord');
+                   const cidr = String(record?.cidr || '').trim();
                    if (!cidr) throw new Error('安全域未提供CIDR');
                    const payload: any = { type: 'subnet', ip_type: values.ip_type || 'ipv4', value: cidr };
                    if (values.port && String(values.port).trim()) payload.port = String(values.port).trim();
@@ -454,11 +454,13 @@ export default function StepProtectionObjects(props: any) {
                     { title: '描述', dataIndex: 'description', key: 'description' },
                   ]}
                   pagination={{
+                    size: 'small',
                     current: assetPage,
                     pageSize: assetPageSize,
                     total: filteredAssets.length,
                     onChange: (p, ps) => { setAssetPage(p); setAssetPageSize(ps); },
-                    showSizeChanger: true
+                    showSizeChanger: true,
+                    showTotal: (total) => `共 ${total} 条`,
                   }}
                 />
              </Form.Item>

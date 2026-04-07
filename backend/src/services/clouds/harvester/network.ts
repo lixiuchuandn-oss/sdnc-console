@@ -1,5 +1,7 @@
+import { resolveHarvesterK8sApiBase } from '../../../routes/clouds/harvester/harvester.direct.helpers';
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
+import { KUBE_OVN_PUBLIC_VPC } from './kubeOvnNetworkScope';
 
 /**
  * 更新 Harvester/Kube-OVN 子网
@@ -10,14 +12,7 @@ export const updateHarvesterSubnet = async (
   name: string,
   payload: any,
 ): Promise<any> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
+  const origin = resolveHarvesterK8sApiBase(endpoint || '');
 
   // 1. 获取当前子网数据 (为了拿到 resourceVersion)
   const getUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
@@ -27,23 +22,63 @@ export const updateHarvesterSubnet = async (
   }
 
   // 2. 合并 Payload
-  // 支持更新 spec 字段，以及 metadata.annotations
-  const { annotations, ...specPayload } = payload;
+  // 支持更新 spec 字段，以及 metadata.annotations（值为 null/undefined 时表示删除该注解键，便于扁平子网切换 underlay/overlay）
+  const { annotations, ...rawSpec } = payload;
+  const specPayload: Record<string, any> = { ...rawSpec };
+  const baseAnnotations: Record<string, string> = {
+    ...(current.metadata?.annotations || {}),
+  };
+  if (annotations && typeof annotations === 'object') {
+    for (const [k, v] of Object.entries(annotations)) {
+      if (v === null || v === undefined) {
+        delete baseAnnotations[k];
+      } else {
+        baseAnnotations[k] = String(v);
+      }
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(specPayload, 'allowDhcp')) {
+    specPayload.enableDHCP = !!specPayload.allowDhcp;
+    delete specPayload.allowDhcp;
+  }
+  if (Object.prototype.hasOwnProperty.call(specPayload, 'enableDhcp')) {
+    if (!Object.prototype.hasOwnProperty.call(specPayload, 'enableDHCP')) {
+      specPayload.enableDHCP = !!specPayload.enableDhcp;
+    }
+    delete specPayload.enableDhcp;
+  }
 
   const updated = {
     ...current,
     metadata: {
       ...current.metadata,
-      annotations: {
-        ...(current.metadata?.annotations || {}),
-        ...(annotations || {}),
-      }
+      annotations: baseAnnotations,
     },
     spec: {
       ...current.spec,
       ...specPayload,
     },
   };
+
+  /** 与 Kube-OVN CRD 一致：仅保留 spec.enableDHCP，去掉历史误写字段 */
+  if (updated.spec && typeof updated.spec === 'object') {
+    if (
+      updated.spec.enableDHCP === undefined &&
+      updated.spec.enableDhcp !== undefined
+    ) {
+      updated.spec.enableDHCP = !!updated.spec.enableDhcp;
+    }
+    delete updated.spec.enableDhcp;
+    delete updated.spec.allowDhcp;
+  }
+
+  /** 清空 VLAN：前端传 vlan=null 时表示 Untagged，需从 spec 删除字段而非写入 null */
+  if (
+    Object.prototype.hasOwnProperty.call(specPayload, 'vlan') &&
+    (specPayload.vlan === null || specPayload.vlan === '')
+  ) {
+    delete updated.spec.vlan;
+  }
 
   // 3. 执行更新 (PUT)
   const putUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
@@ -93,9 +128,16 @@ export const listHarvesterNADsStandard = async ({
     }
   }
 
-  // 策略 B: 如果 Cluster 级别失败 (通常是 403 Forbidden)，则尝试在特定 Namespace 下查找
+  // 策略 B: 如果 Cluster 级别失败 (通常是 403 Forbidden)，则尝试在特定 Namespace 下查找（不当作「系统过滤」排除，仅扩大可拉取范围以便入库与排障）
   if (!json) {
-    const nsCandidates = ['default', 'kube-system'];
+    const nsCandidates = [
+      'default',
+      'kube-system',
+      'harvester-system',
+      'cattle-system',
+      'kube-public',
+      'local',
+    ];
     for (const ns of nsCandidates) {
       for (const baseUrl of candidates) {
         // 构造带 namespace 参数的 URL
@@ -307,12 +349,16 @@ export const listKubeOvnSubnets = async ({
     name: s?.metadata?.name || s?.name || '',
     uid: s?.metadata?.uid || '',
     createdAt: s?.metadata?.creationTimestamp || '',
-    vpc: s?.spec?.vpc || 'ovn-cluster',
+    vpc: s?.spec?.vpc || KUBE_OVN_PUBLIC_VPC,
     cidr: s?.spec?.cidrBlock || s?.spec?.cidr || '',
     gateway: s?.spec?.gateway || s?.spec?.gateway || '',
     protocol: s?.spec?.protocol || 'IPV4',
     nat: !!(s?.spec?.natOutgoing || s?.spec?.nat),
-    allowDhcp: !!(s?.spec?.enableDhcp || s?.spec?.allowDhcp),
+    allowDhcp: !!(
+      s?.spec?.enableDHCP ??
+      s?.spec?.enableDhcp ??
+      s?.spec?.allowDhcp
+    ),
     private: !!s?.spec?.private,
     namespaces: Array.isArray(s?.spec?.namespaces) ? s.spec.namespaces : [],
     provider: s?.spec?.provider || '',
@@ -518,12 +564,21 @@ export const createKubeOvnProviderNetwork = async (
 
   const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
   
+  const metadata: Record<string, unknown> = {
+    name: payload.name,
+  };
+  if (
+    payload.annotations &&
+    typeof payload.annotations === 'object' &&
+    !Array.isArray(payload.annotations)
+  ) {
+    metadata.annotations = payload.annotations;
+  }
+
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'ProviderNetwork',
-    metadata: {
-      name: payload.name,
-    },
+    metadata,
     spec: payload.spec || {
       defaultInterface: payload.defaultInterface,
       customInterfaces: payload.customInterfaces || [],
@@ -699,12 +754,22 @@ export const createKubeOvnVpc = async (
 
   const url = `${origin}/apis/kubeovn.io/v1/vpcs`;
   
+  // [Feature] 平台托管标记 (Platform Managed)
+  // 添加 tower.io/managed Finalizer 和 tower.io/creator 标签，与虚拟机保持一致
+  const finalizers = ['tower.io/managed'];
+  const labels: Record<string, string> = {
+    'tower.io/creator': 'compute-tower',
+    ...(payload.labels || {}),
+  };
+  
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'Vpc',
     metadata: {
       name: payload.name,
       annotations: payload.annotations,
+      finalizers,
+      labels,
     },
     spec: {
       namespaces: payload.namespaces || [],
@@ -732,6 +797,26 @@ export const deleteKubeOvnVpc = async (
   }
 
   const url = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(name)}`;
+  try {
+    const current = await getJsonOnce(url, token, insecure);
+    const finalizers = current?.metadata?.finalizers;
+    const managedFinalizer = 'tower.io/managed';
+    if (Array.isArray(finalizers) && finalizers.includes(managedFinalizer)) {
+      const indicesToRemove = finalizers
+        .map((f: any, i: number) => (f === managedFinalizer ? i : -1))
+        .filter((i: number) => i >= 0)
+        .sort((a: number, b: number) => b - a);
+      if (indicesToRemove.length > 0) {
+        const patchOps = indicesToRemove.map((index: number) => ({
+          op: 'remove',
+          path: `/metadata/finalizers/${index}`,
+        }));
+        await requestJson('PATCH', url, token, insecure, patchOps, {
+          'Content-Type': 'application/json-patch+json',
+        });
+      }
+    }
+  } catch {}
   return await requestJson('DELETE', url, token, insecure);
 };
 
@@ -1032,50 +1117,3 @@ export const listHarvesterLoadBalancerIPPools = async ({
       : [];
   return items;
 };
-
-/**
- * 获取 K8s Ingress 列表
- */
-export const listHarvesterIngressesStandard = async ({
-  endpoint,
-  token,
-  insecure = false,
-}: HarvesterTestParams): Promise<any[]> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  
-  const candidates = [
-    `${origin}/apis/networking.k8s.io/v1/ingresses`,
-    `${origin}/v1/harvester/networking.k8s.io.ingresses`,
-  ];
-  let json: any = null;
-  let lastErr: any = null;
-  
-  for (const url of candidates) {
-    try {
-      json = await getJsonOnce(url, token, insecure);
-      if (json) break;
-    } catch (e: any) {
-      lastErr = e;
-    }
-  }
-  
-  if (!json && lastErr) {
-    const s = Number(lastErr?.status || 0);
-    if (s !== 404 && s !== 401) throw lastErr;
-  }
-  
-  const items = Array.isArray(json?.items)
-    ? json?.items
-    : Array.isArray(json?.data)
-      ? json?.data
-      : [];
-  return items;
-};
-

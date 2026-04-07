@@ -76,10 +76,12 @@ export const testHarvesterConnection = async ({
  * [核心逻辑]
  * 1. [节点获取] 调用 /v1/nodes 获取 Harvester Host CR 列表。
  * 2. [LinkMonitor聚合] 并发获取 LinkMonitor 数据，用于提取真实的物理网卡 (Physical Interface) 名称。
- * 3. [数据标准化] 
+ * 3. [网卡状态提取] 从 LinkMonitor 数据中提取网卡状态信息 (operState/state)，用于前端过滤 down 状态的网卡。
+ * 4. [数据标准化] 
  *    - 优先使用 Harvester Host CR 的 networkIps。
  *    - 回退使用 K8s Node Status addresses。
  *    - 过滤 device 类型的物理网卡，排除 veth/ovn 等虚拟接口。
+ *    - 返回网卡状态映射 (interfaceStatusMap)，供前端过滤使用。
  */
 export const listHarvesterNodesStandard = async ({
   endpoint,
@@ -190,9 +192,11 @@ export const listHarvesterNodesStandard = async ({
     // [物理网卡提取] 从 LinkMonitor 中匹配物理网卡信息
     let physicalInterfaces: string[] = [];
     const interfaceSet = new Set<string>();
+    // [网卡状态映射] 存储网卡名称到状态的映射，用于前端过滤 down 状态的网卡
+    const interfaceStatusMap: Record<string, string> = {};
     
     // 遍历所有 LinkMonitor (如 mgmt, nic)，查找包含当前节点信息的条目
-    // LinkMonitor Status 结构: { "node-name": [ { type: "device", name: "eth0", ... }, ... ] }
+    // LinkMonitor Status 结构: { "node-name": [ { type: "device", name: "eth0", operState: "up"/"down", ... }, ... ] }
     linkMonitors.forEach((lm: any) => {
         if (lm?.status?.linkStatus && lm.status.linkStatus[name]) {
             const ifaces = lm.status.linkStatus[name];
@@ -201,6 +205,12 @@ export const listHarvesterNodesStandard = async ({
                     // [过滤逻辑] 仅收集物理设备 (type=device)
                     if (i.type === 'device') {
                         interfaceSet.add(i.name);
+                        // [状态提取] 尝试提取网卡状态（operState 或 state 字段）
+                        // 常见字段名：operState, state, linkState, status
+                        const state = i.operState || i.state || i.linkState || i.status || '';
+                        if (state) {
+                            interfaceStatusMap[i.name] = String(state).toLowerCase();
+                        }
                     }
                 });
             }
@@ -212,6 +222,12 @@ export const listHarvesterNodesStandard = async ({
     // [回退逻辑] 如果 LinkMonitor 没有数据，回退到 NodeInfo (旧逻辑)
     if (physicalInterfaces.length === 0 && n?.status?.nodeInfo?.networkInfo?.links) {
       physicalInterfaces = n.status.nodeInfo.networkInfo.links.map((l: any) => l.name);
+      // 尝试从 NodeInfo 中提取状态信息
+      n.status.nodeInfo.networkInfo.links.forEach((l: any) => {
+        if (l.operState || l.state) {
+          interfaceStatusMap[l.name] = String(l.operState || l.state).toLowerCase();
+        }
+      });
     }
 
     return {
@@ -226,9 +242,75 @@ export const listHarvesterNodesStandard = async ({
       version,
       architecture,
       physicalInterfaces, // 新增物理网卡字段，供 Provider Network 配置使用
+      interfaceStatusMap, // 新增网卡状态映射，用于前端过滤 down 状态的网卡
       links: { ...n.links, view: viewLink }
     };
   });
+};
+
+export const listK8sNodesRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const clusterId = await (async () => {
+    try {
+      const url = `${origin}/v3/clusters`;
+      const json = await getJsonOnce(url, token, insecure, true);
+      const items = Array.isArray(json?.data)
+        ? json?.data
+        : Array.isArray(json?.items)
+          ? json?.items
+          : [];
+      const local = items.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+      const any = local || items[0];
+      return String(any?.id || any?.Id || '')?.trim() || null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const candidates = [
+    ...(clusterId ? [`${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/nodes`] : []),
+    `${origin}/api/v1/nodes`,
+  ];
+
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      const items = Array.isArray(json?.items)
+        ? json.items
+        : Array.isArray(json?.data)
+          ? json.data
+          : [];
+      return Array.isArray(items) ? items : [];
+    } catch (e: any) {
+      lastErr = e;
+      const status = Number(e?.status || 0);
+      const body = String(e?.body || '').toLowerCase();
+      const msg = String(e?.message || '').toLowerCase();
+      if (status === 401 || status === 403 || msg.includes('unauthorized') || body.includes('unauthorized')) throw e;
+    }
+  }
+
+  if (lastErr) {
+    const status = Number(lastErr?.status || 0);
+    const body = String(lastErr?.body || '').toLowerCase();
+    const msg = String(lastErr?.message || '').toLowerCase();
+    if (status === 404 || msg.includes('not found') || body.includes('not found')) return [];
+    if (status === 401 || msg.includes('unauthorized') || body.includes('unauthorized')) return [];
+  }
+  return [];
 };
 
 /**

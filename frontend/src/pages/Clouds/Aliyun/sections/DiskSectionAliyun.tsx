@@ -2,7 +2,6 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } fr
 import { App, Button, Space, Table, Modal, Input, Select, Tag, Badge, Typography } from 'antd';
 import { ReloadOutlined, HddOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchCloudProviderDisks } from '../../../../services/aliyunApi';
 
 type Props = {
@@ -336,7 +335,7 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, onSetDis
       toolbarLeft={(
         <Space wrap>
           <Input 
-            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />} 
+            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} 
             placeholder="搜索名称/ID" 
             allowClear 
             value={keyword} 
@@ -384,7 +383,10 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, onSetDis
         rowKey={(r: any, idx: number | undefined) => String(getDiskId(r) || idx || 0)}
         columns={columns as any}
         dataSource={myDisks}
-        pagination={{ pageSize: 10, size: 'default', showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
         scroll={{ x: 1100 }}
       />
     </PageDetailSection>

@@ -4,15 +4,17 @@
  * 告警通知配置已迁移至「告警通知策略」Tab（AlertForwardConfig）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, Descriptions, Input, Modal, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType, ColumnType } from 'antd/es/table';
 import { useAuth } from '../../../../contexts/AuthContext';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { fetchAlertsRules, fetchAllowedNamespaces, fetchPrometheusRulesGroups } from '../../../../services/monitoringApi';
 import { parseAlerts, type ParsedAlert } from './utils/prometheusAlerts';
 import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 interface MonitoringAlertsProps {
   cloudId: string;
@@ -20,7 +22,12 @@ interface MonitoringAlertsProps {
 
 const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'leased_lines_admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const canReadAlerts = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.alerts:read'),
+    [perms]
+  );
 
   // 站内实时告警列表
   const [alertsLoading, setAlertsLoading] = useState(false);
@@ -34,14 +41,13 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
   const [allowedNsLoading, setAllowedNsLoading] = useState(false);
-  const [alertTableColumns, setAlertTableColumns] = useState<ColumnsType<ParsedAlert>>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<ParsedAlert | null>(null);
   /** 规则组中文映射（从 PrometheusRulesGroup 表 / prometheusrules-groups 接口读取） */
   const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
 
   const loadAlerts = useCallback(async () => {
-    if (!cloudId) return;
+    if (!cloudId || !canReadAlerts) return;
     setAlertsLoading(true);
     const opts: { datasource?: string; namespace?: string; page?: number; pageSize?: number } = {};
     opts.datasource = dataSourceFilter || 'prometheus';
@@ -63,24 +69,24 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       setAlertsData(list);
       setAlertTotal(list.length);
     }
-  }, [cloudId, isAdmin, alertPage, alertPageSize, dataSourceFilter, namespaceFilter]);
+  }, [cloudId, isAdmin, alertPage, alertPageSize, dataSourceFilter, namespaceFilter, canReadAlerts]);
 
   const loadAllowedNamespaces = useCallback(async () => {
-    if (!cloudId || isAdmin) return;
+    if (!cloudId || isAdmin || !canReadAlerts) return;
     setAllowedNsLoading(true);
     const { data, ok } = await fetchAllowedNamespaces(cloudId);
     setAllowedNsLoading(false);
     if (ok && data?.namespaces) setTenantNamespaces(data.namespaces);
     else setTenantNamespaces([]);
-  }, [cloudId, isAdmin]);
+  }, [cloudId, isAdmin, canReadAlerts]);
 
   useEffect(() => {
-    if (cloudId) loadAlerts();
-  }, [loadAlerts, cloudId]);
+    if (cloudId && canReadAlerts) loadAlerts();
+  }, [loadAlerts, cloudId, canReadAlerts]);
 
   useEffect(() => {
-    if (cloudId && !isAdmin) loadAllowedNamespaces();
-  }, [cloudId, isAdmin, loadAllowedNamespaces]);
+    if (cloudId && !isAdmin && canReadAlerts) loadAllowedNamespaces();
+  }, [cloudId, isAdmin, loadAllowedNamespaces, canReadAlerts]);
 
   useEffect(() => {
     if (!cloudId) return;
@@ -177,7 +183,21 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         render: (level: 'critical' | 'warning') => renderLevel(level),
       },
       { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150, render: (v: string) => v || '-' },
-      { title: '节点', dataIndex: 'node', key: 'node', width: 140, render: (v: string) => v || '-' },
+      {
+        title: '节点',
+        dataIndex: 'node',
+        key: 'node',
+        width: 140,
+        render: (_: string, row) => {
+          if (row.node) return row.node;
+          const inst = (row.instance ?? '').toString().trim();
+          if (!inst) return '-';
+          // 从 instance 中提取 IP（去掉端口号和多余部分）
+          const firstPart = inst.split(',')[0] ?? inst;
+          const host = firstPart.split(':')[0]?.trim() ?? '';
+          return host || '-';
+        },
+      },
       {
         title: '规则组',
         key: 'groupDescription',
@@ -225,6 +245,9 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     [isAdmin, openDetail, renderLevel, renderRuleGroup]
   );
 
+  // 列显示设置（需要在 alertColumns 定义之后）
+  const { displayColumns: alertTableDisplayColumns } = useTableColumnSettings(alertColumns, 'monitoring_alerts_table');
+
   const namespaceFilterOptions = useMemo(() => {
     if (isAdmin) {
       const allNs = new Set<string>();
@@ -234,20 +257,14 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     return [{ label: '全部', value: '' }, ...tenantNamespaces.map((ns) => ({ label: ns, value: ns }))];
   }, [isAdmin, alertsList, tenantNamespaces]);
 
-  // 始终用最新的 alertColumns（含等级颜色 render），仅用保存的列做可见性过滤，避免持久化列丢失 render
-  const getColumnKey = (col: { key?: string; dataIndex?: string | string[] }) => {
-    if (col.key) return String(col.key);
-    if (col.dataIndex) return Array.isArray(col.dataIndex) ? col.dataIndex.join('.') : String(col.dataIndex);
-    return '';
-  };
-  const alertTableDisplayColumns = useMemo(() => {
-    if (alertTableColumns.length === 0) return alertColumns;
-    const visibleKeys = new Set(alertTableColumns.map((c) => getColumnKey(c as any)));
-    return alertColumns.filter((col) => {
-      const k = getColumnKey(col as any);
-      return !k || visibleKeys.has(k);
-    });
-  }, [alertColumns, alertTableColumns]);
+  if (!canReadAlerts) {
+    return (
+      <PageDetailSection asCard={false}>
+        <Typography.Text type="secondary">无权查看监控告警，请联系管理员分配 `clouds.alerts:read` 权限。</Typography.Text>
+      </PageDetailSection>
+    );
+  }
+
 
   return (
     <div>
@@ -255,19 +272,14 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         asCard={false}
         toolbarLeft={
           <>
-            <Select
-              placeholder="数据源"
-              value={dataSourceFilter}
-              onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
-              options={[{ label: 'Prometheus', value: 'prometheus' }]}
-              style={{ minWidth: 120 }}
-            />
-            <Select
-              placeholder="级别"
-              allowClear
-              value={levelFilter || undefined}
-              onChange={(v) => setLevelFilter(v ?? '')}
-              options={LEVEL_FILTER_OPTIONS}
+            <Input 
+              allowClear 
+              placeholder="名称/ID" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={alertKeyword} 
+              onChange={(e) => setAlertKeyword(e.target.value)} 
+              onPressEnter={loadAlerts}
+              className="toolbar-search"
             />
             <Select
               placeholder="命名空间"
@@ -276,13 +288,22 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
               onChange={(v) => setNamespaceFilter(v ?? '')}
               options={namespaceFilterOptions}
               loading={!isAdmin && allowedNsLoading}
+              className="toolbar-filter-sm"
             />
-            <Input.Search
-              placeholder="关键字"
+            <Select
+              placeholder="数据源"
+              value={dataSourceFilter}
+              onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
+              options={[{ label: 'Prometheus', value: 'prometheus' }]}
+              className="toolbar-filter-sm"
+            />
+            <Select
+              placeholder="级别"
               allowClear
-              value={alertKeyword}
-              onChange={(e) => setAlertKeyword(e.target.value)}
-              onSearch={loadAlerts}
+              value={levelFilter || undefined}
+              onChange={(v) => setLevelFilter(v ?? '')}
+              options={LEVEL_FILTER_OPTIONS}
+              className="toolbar-filter-sm"
             />
             <button
               type="button"
@@ -299,9 +320,8 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <TableColumnSettings
-              columns={alertColumns}
-              onChange={setAlertTableColumns}
+            <TableColumnSettingsButton
+              allColumns={alertColumns}
               settingsKey="monitoring_alerts_table"
             />
             <Button icon={<ReloadOutlined />} onClick={loadAlerts} loading={alertsLoading} />
@@ -310,7 +330,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: ParsedAlert) => row.id}
           loading={alertsLoading}
           columns={alertTableDisplayColumns}

@@ -46,7 +46,7 @@ import { useLicense } from '../../contexts/LicenseContext';
 import cloudmapKeyImage from '../../assets/clouds/cloudmapkey.png';
 import cloudmapApiImage from '../../assets/clouds/cloudmapapi.png';
 import { provinces, cityOptionsByProvince } from '../../constants/chinaRegions';
-import { apiPost } from '../../services/api';
+import { apiPost, apiRequest } from '../../services/api';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -67,11 +67,12 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [loading, setLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [formData, setFormData] = useState<any>(null);
-  const { license, loading: licenseLoading } = useLicense();
+  const { license, loading: licenseLoading, hasFeature } = useLicense();
+
+  // 仅允许 CloudMap 私有云：试用 或 未开通多云 时，统一跳过选择云平台、禁止回退、禁用资源类型
+  const isCloudMapOnly = license?.payload?.type === 'trial' || !hasFeature('platform.multi-cloud');
 
   // [权限/功能开关] 开放平台检查
-  // 仅允许列表中定义的云平台进行接入操作
-  // 未在列表中的平台将在界面上显示为禁用状态
   const isOpenProvider = (id: string) => {
     return ['aliyun', 'huaweicloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(id);
   };
@@ -88,19 +89,35 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     }));
   }, []);
 
-  // [试用版判断] 如果是基础授权基础版（试用/Trial），自动跳过选择云平台步骤
-  // 直接进入私有云-cloudmap类型的配置云账号页面
+  // 试用或未开通多云：跳过选择云平台，直接进入 CloudMap 私有云配置
   useEffect(() => {
-    if (visible && !licenseLoading && license?.payload?.type === 'trial') {
-      // 查找 cloudmap.private 提供商
+    if (visible && !licenseLoading && isCloudMapOnly) {
       const cloudmapProvider = cloudProviders.find(p => p.id === 'cloudmap.private');
       if (cloudmapProvider) {
         setPoolType('private');
         setSelectedProvider(cloudmapProvider);
-        setCurrentStep(1); // 跳过步骤0，直接进入配置页面
+        setCurrentStep(1);
+        setTimeout(() => form.setFieldsValue({ ignoreTls: true }), 200);
       }
     }
-  }, [visible, licenseLoading, license]);
+  }, [visible, licenseLoading, isCloudMapOnly]);
+
+  // [默认值设置] 当选择 provider 后，设置 ignoreTls 默认值为 true
+  useEffect(() => {
+    if (selectedProvider && currentStep === 1) {
+      // 延迟设置，确保表单已完全渲染
+      const timer = setTimeout(() => {
+        const currentValues = form.getFieldsValue();
+        // 如果 ignoreTls 未设置，则设置为 true（默认开启）
+        if (currentValues.ignoreTls === undefined || currentValues.ignoreTls === null) {
+          form.setFieldsValue({ ignoreTls: true });
+          // 同时更新 formData，确保值被保存
+          setFormData((prev: any) => ({ ...prev, ignoreTls: true }));
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedProvider, currentStep]);
 
 
 
@@ -113,6 +130,10 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const handleProviderSelect = (provider: CloudProvider) => {
     setSelectedProvider(provider);
     setCurrentStep(1);
+    // 立即设置 ignoreTls 默认值为 true
+    setTimeout(() => {
+      form.setFieldsValue({ ignoreTls: true });
+    }, 100);
   };
 
   const handleNext = () => {
@@ -124,9 +145,35 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     } else if (currentStep === 1) {
       // 步骤1：验证表单后进入步骤2
       form.validateFields().then(() => {
-        // 保存表单数据
+        // 验证通过后，获取表单值并trim处理
         const values = form.getFieldsValue();
-        setFormData(values);
+        const trimmedValues: any = {};
+        
+        // 对必填字段进行trim处理
+        if (selectedProvider) {
+          selectedProvider.fields.forEach((field: any) => {
+            if (values[field.key] !== undefined && values[field.key] !== null) {
+              const trimmedValue = String(values[field.key]).trim();
+              trimmedValues[field.key] = trimmedValue;
+            } else {
+              trimmedValues[field.key] = values[field.key];
+            }
+          });
+        }
+        
+        // [重要] 确保 type 字段被包含在保存的数据中
+        // type 字段不在 selectedProvider.fields 中，需要单独处理
+        trimmedValues.type = values.type || poolType;
+        
+        // [重要] 确保 ignoreTls 被包含在保存的数据中
+        // 如果未设置，默认设置为 true
+        trimmedValues.ignoreTls = values.ignoreTls !== undefined ? values.ignoreTls : true;
+        
+        // 更新表单值（trim后的值）
+        form.setFieldsValue(trimmedValues);
+        
+        // 保存表单数据
+        setFormData(trimmedValues);
         
         setCurrentStep(2);
         // 自动进行连接测试
@@ -134,16 +181,14 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       }).catch((errorInfo) => {
         // 校验失败时，Ant Design Form 会自动在表单项上显示错误提示
         // 这里捕获错误防止 Promise Rejection 导致的崩溃
+        console.log('表单验证失败:', errorInfo);
       });
     }
     // 步骤2没有下一步按钮，所以不需要处理
   };
 
   const handlePrev = () => {
-    // [试用版限制] 如果是试用版且当前在步骤1，不允许返回到步骤0（选择云平台）
-    if (currentStep === 1 && license?.payload?.type === 'trial') {
-      return; // 阻止返回
-    }
+    if (currentStep === 1 && isCloudMapOnly) return;
     setCurrentStep(currentStep - 1);
     if (currentStep === 1) {
       setSelectedProvider(null);
@@ -244,7 +289,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       
       // [数据标准化] 资源类型
       // 后端已更新 CloudType 枚举，直接使用前端选择的类型
-      const normalizedType = String(values.type || '').toLowerCase();
+      // 如果 values.type 为空，使用 poolType 作为兜底
+      const normalizedType = String(values.type || poolType || '').toLowerCase();
 
       // [Payload构造] 组装最终提交给 API 的数据结构
       const cfg: any = {
@@ -258,31 +304,46 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       }
 
       // [数据标准化] 对于 cloudmap.private，将级联选择的值转换为 region 格式
-      let finalRegion = values.region || 'default';
-      if (selectedProvider.id === 'cloudmap.private' && Array.isArray(values.region) && values.region.length >= 2) {
-        // Cascader 返回的是数组 [province, city]
-        finalRegion = `${values.region[0]}/${values.region[1]}`;
-      } else if (selectedProvider.id === 'cloudmap.private' && Array.isArray(values.region) && values.region.length === 1) {
-        finalRegion = values.region[0];
+      let finalRegion = 'default'; // 默认值
+      if (selectedProvider.id === 'cloudmap.private') {
+        if (Array.isArray(values.region) && values.region.length >= 2) {
+          // Cascader 返回的是数组 [province, city]
+          finalRegion = `${values.region[0]}/${values.region[1]}`;
+        } else if (Array.isArray(values.region) && values.region.length === 1) {
+          finalRegion = values.region[0];
+        } else if (values.region && typeof values.region === 'string') {
+          finalRegion = values.region;
+        }
+        // 如果 region 为空或未选择，使用默认值 'default'
+      } else {
+        finalRegion = values.region || 'default';
       }
       
+      // [Endpoint构造] 根据 Provider 类型决定 Endpoint 来源
+      let finalEndpoint = '';
+      if (selectedProvider.id === 'aliyun') {
+        finalEndpoint = 'https://ecs.aliyuncs.com';
+      } else if (selectedProvider.id === 'huaweicloud') {
+        finalEndpoint = `https://ecs.${finalRegion}.myhuaweicloud.com`;
+      } else if (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') {
+        finalEndpoint = (values.endpoint && String(values.endpoint).trim()) || '';
+      } else {
+        finalEndpoint = (values.endpoint || values.authUrl || values.vcenterHost || '').toString().trim();
+      }
+      
+      // [凭证映射] 统一 AccessKey/SecretKey，确保去除首尾空格
+      const finalAccessKey = (values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '').toString().trim();
+      const finalSecretKey = (values.secretKey || values.accessKeySecret || values.secretAccessKey || 
+                   values.privateKey || values.clientSecret || values.password || values.apiToken || '').toString().trim();
+      
       const cloudData = {
-        name: values.name,
-        description: values.description || `${selectedProvider.name}云资源`,
+        name: (values.name && String(values.name).trim()) || '',
+        description: (values.description && String(values.description).trim()) || `${selectedProvider.name}云资源`,
         type: normalizedType,
         region: finalRegion,
-        // [Endpoint构造] 根据 Provider 类型决定 Endpoint 来源
-        endpoint: selectedProvider.id === 'aliyun'
-          ? 'https://ecs.aliyuncs.com'
-          : selectedProvider.id === 'huaweicloud'
-            ? `https://ecs.${values.region}.myhuaweicloud.com`
-          : (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private')
-            ? (values.endpoint || 'https://harvester.example.com')
-            : (values.endpoint || values.authUrl || values.vcenterHost || 'https://api.example.com'),
-        // [凭证映射] 统一 AccessKey/SecretKey
-        accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
-        secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey || 
-                   values.privateKey || values.clientSecret || values.password || values.apiToken || '',
+        endpoint: finalEndpoint,
+        accessKey: finalAccessKey,
+        secretKey: finalSecretKey,
         config: cfg
       };
 
@@ -290,11 +351,19 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       // [最终校验] 确保关键字段不为空
       if (!cloudData.name || !cloudData.type || !cloudData.region || !cloudData.endpoint) {
         message.error(`请填写完整的配置信息。缺少字段: ${[
-          !cloudData.name ? 'name' : '',
-          !cloudData.type ? 'type' : '',
-          !cloudData.region ? 'region' : '',
-          !cloudData.endpoint ? 'endpoint' : ''
-        ].filter(Boolean).join(', ')}`);
+          !cloudData.name ? '名称' : '',
+          !cloudData.type ? '资源类型' : '',
+          !cloudData.region ? 'Region' : '',
+          !cloudData.endpoint ? '端点' : ''
+        ].filter(Boolean).join('、')}`);
+        setLoading(false);
+        return;
+      }
+
+      // [额外校验] 对于 Cloudmap，确保 apiToken 不为空
+      if ((selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') && !finalSecretKey) {
+        message.error('请填写 Cloudmap API 令牌');
+        setLoading(false);
         return;
       }
 
@@ -305,9 +374,31 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       onSuccess();
       handleCancel();
     } catch (error: any) {
-      // 使用统一错误处理工具
-      const { handleApiError } = require('../../utils/errorHandler');
-      handleApiError(error, { defaultMessage: '创建云资源失败' });
+      // [改进] 更友好的错误提示
+      let errorMessage = '创建云资源失败';
+      
+      // 尝试从错误对象中提取更详细的错误信息
+      if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      // [特殊处理] 针对常见错误提供更友好的提示
+      if (errorMessage.includes('缺少必填字段')) {
+        errorMessage = '请填写完整的配置信息：名称、端点、API令牌等必填字段不能为空';
+      } else if (errorMessage.includes('已存在') || errorMessage.includes('名称已存在') || errorMessage.includes('云资源名称已存在')) {
+        errorMessage = '资源池名称已存在，请使用其他名称';
+      } else if (errorMessage.includes('权限') || errorMessage.includes('授权')) {
+        errorMessage = '权限不足或授权限制，请联系管理员';
+      } else if (errorMessage.includes('连接') || errorMessage.includes('网络')) {
+        errorMessage = '无法连接到 Cloudmap 服务器，请检查端点和网络连接';
+      }
+      
+      message.error(errorMessage);
+      console.error('创建云资源失败:', error);
     } finally {
       setLoading(false);
     }
@@ -458,7 +549,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               }}
             >
               <Form.Item name="type" label="资源类型" initialValue={poolType} rules={[{ required:true }]}> 
-                <Select>
+                <Select disabled={isCloudMapOnly}>
                   <Option value="central">公有云</Option>
                   <Option value="private">私有云</Option>
                   <Option value="edge">边缘计算</Option>
@@ -469,118 +560,161 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               </Form.Item>
 
               {/* 动态渲染 Provider 定义的字段 */}
-              {(() => {
-                const fieldsToRender = selectedProvider.fields;
+              {selectedProvider.fields.map(field => {
+                // 渲染输入组件
+                let inputElement: React.ReactNode = null;
                 
-                return fieldsToRender.map(field => {
-                  // 渲染单个输入组件，确保 Form.Item 只有一个子元素
-                  const renderInput = () => {
-                    if (field.type === 'input') {
-                      return <Input placeholder={field.placeholder} />;
-                    }
-                    if (field.type === 'password') {
-                      return <Input.Password placeholder={field.placeholder} />;
-                    }
-                    if (field.type === 'select') {
-                      return (
-                        <Select placeholder={field.placeholder}>
-                          {field.options?.map(option => (
-                            <Option key={option.value} value={option.value}>
-                              {option.label}
-                            </Option>
-                          ))}
-                        </Select>
-                      );
-                    }
-                    if (field.type === 'cascader') {
-                      // 特殊处理：如果是 region 字段且是 cloudmap.private，使用级联选择
-                      if (field.key === 'region' && selectedProvider?.id === 'cloudmap.private') {
-                        return (
-                          <Cascader
-                            placeholder={field.placeholder}
-                            options={regionCascaderOptions}
-                            showSearch={{
-                              filter: (inputValue, path) => {
-                                return path.some(option => 
-                                  String(option.label).toLowerCase().includes(inputValue.toLowerCase())
-                                );
-                              }
-                            }}
-                            changeOnSelect={false}
-                          />
-                        );
-                      }
-                      return null;
-                    }
-                    if (field.type === 'textarea') {
-                      return <Input.TextArea rows={4} placeholder={field.placeholder} />;
-                    }
-                    return null;
-                  };
+                if (field.type === 'input') {
+                  inputElement = <Input placeholder={field.placeholder} />;
+                } else if (field.type === 'password') {
+                  inputElement = <Input.Password placeholder={field.placeholder} />;
+                } else if (field.type === 'select') {
+                  inputElement = (
+                    <Select placeholder={field.placeholder}>
+                      {field.options?.map(option => (
+                        <Option key={option.value} value={option.value}>
+                          {option.label}
+                        </Option>
+                      ))}
+                    </Select>
+                  );
+                } else if (field.type === 'cascader') {
+                  if (field.key === 'region' && selectedProvider?.id === 'cloudmap.private') {
+                    inputElement = (
+                      <Cascader
+                        placeholder={field.placeholder}
+                        options={regionCascaderOptions}
+                        showSearch={{
+                          filter: (inputValue, path) => {
+                            return path.some(option => 
+                              String(option.label).toLowerCase().includes(inputValue.toLowerCase())
+                            );
+                          }
+                        }}
+                        changeOnSelect={false}
+                      />
+                    );
+                  }
+                } else if (field.type === 'textarea') {
+                  inputElement = <Input.TextArea rows={4} placeholder={field.placeholder} />;
+                }
 
-                  // 特殊处理：如果是 cloudmap.private 的 endpoint 或 apiToken 字段，在输入框下方显示说明图片
-                  const isCloudmapPrivateEndpoint = selectedProvider?.id === 'cloudmap.private' && field.key === 'endpoint';
-                  const isCloudmapPrivateToken = selectedProvider?.id === 'cloudmap.private' && field.key === 'apiToken';
-                  
-                  return (
+                // 验证规则
+                const rules: any[] = [];
+                if (field.required) {
+                  rules.push({
+                    required: true,
+                    message: `请输入${field.label}`,
+                  });
+                }
+                
+                // [重名检查] 对于 name 字段，添加异步验证检查名称是否已存在
+                if (field.key === 'name') {
+                  rules.push({
+                    validator: async (_: any, value: any) => {
+                      if (!value || typeof value !== 'string') {
+                        return Promise.resolve();
+                      }
+                      const trimmedName = value.trim();
+                      if (!trimmedName) {
+                        return Promise.resolve(); // required 规则会处理空值
+                      }
+                      
+                      try {
+                        // 获取所有资源池列表，检查名称是否已存在
+                        const response = await apiRequest('/api/clouds', { skipCache: true });
+                        const clouds = Array.isArray(response) ? response : (response?.data || []);
+                        const existingCloud = clouds.find((cloud: any) => 
+                          cloud.name && cloud.name.trim().toLowerCase() === trimmedName.toLowerCase()
+                        );
+                        
+                        if (existingCloud) {
+                          return Promise.reject(new Error('资源池名称已存在，请使用其他名称'));
+                        }
+                        return Promise.resolve();
+                      } catch (error) {
+                        // 如果检查失败，不阻止提交（后端也会检查）
+                        console.warn('检查资源池名称失败:', error);
+                        return Promise.resolve();
+                      }
+                    }
+                  });
+                }
+
+                // 判断是否是 Cloudmap 特殊字段
+                const isCloudmapPrivateEndpoint = selectedProvider?.id === 'cloudmap.private' && field.key === 'endpoint';
+                const isCloudmapPrivateToken = selectedProvider?.id === 'cloudmap.private' && field.key === 'apiToken';
+
+                return (
+                  <React.Fragment key={field.key}>
                     <Form.Item
-                      key={field.key}
                       name={field.key}
                       label={field.label}
-                      rules={field.required ? [{ required: true, message: `请输入${field.label}` }] : []}
-                      help={field.help}
+                      rules={rules}
                     >
-                      <>
-                        {renderInput()}
-                        {isCloudmapPrivateEndpoint && (
-                          <div style={{ marginTop: 12 }}>
-                            <Image
-                              src={cloudmapApiImage}
-                              alt="如何获取 Cloudmap API 地址"
-                              preview={{
-                                mask: '点击放大',
-                              }}
-                              style={{
-                                maxWidth: '100%',
-                                height: 'auto',
-                                border: '1px solid #eaeaea',
-                                borderRadius: 4,
-                                display: 'block',
-                                cursor: 'pointer'
-                              }}
-                            />
-                          </div>
-                        )}
-                        {isCloudmapPrivateToken && (
-                          <div style={{ marginTop: 12 }}>
-                            <Image
-                              src={cloudmapKeyImage}
-                              alt="如何获取 Cloudmap API 令牌"
-                              preview={{
-                                mask: '点击放大',
-                              }}
-                              style={{
-                                maxWidth: '100%',
-                                height: 'auto',
-                                border: '1px solid #eaeaea',
-                                borderRadius: 4,
-                                display: 'block',
-                                cursor: 'pointer'
-                              }}
-                            />
-                          </div>
-                        )}
-                      </>
+                      {inputElement}
                     </Form.Item>
-                  );
-                });
-              })()}
+                    {isCloudmapPrivateEndpoint && (
+                      <div style={{ marginTop: -16, marginBottom: 24 }}>
+                        <Image
+                          src={cloudmapApiImage}
+                          alt="如何获取 Cloudmap API 地址"
+                          preview={{
+                            mask: '点击放大',
+                          }}
+                          style={{
+                            maxWidth: '100%',
+                            height: 'auto',
+                            border: '1px solid #eaeaea',
+                            borderRadius: 8,
+                            display: 'block',
+                            cursor: 'pointer'
+                          }}
+                        />
+                        <div style={{ 
+                          color: '#777777', 
+                          fontSize: 12,
+                          lineHeight: '1'
+                        }}>
+                          在Cloudmap控制台中，进入账号和API密钥页面，复制端点地址
+                        </div>
+                      </div>
+                    )}
+                    {isCloudmapPrivateToken && (
+                      <div style={{ marginTop: -16, marginBottom: 24 }}>
+                        <Image
+                          src={cloudmapKeyImage}
+                          alt="如何获取 Cloudmap API 令牌"
+                          preview={{
+                            mask: '点击放大',
+                          }}
+                          style={{
+                            maxWidth: '100%',
+                            height: 'auto',
+                            border: '1px solid #eaeaea',
+                            borderRadius: 8,
+                            display: 'block',
+                            cursor: 'pointer'
+                          }}
+                        />
+                        <div style={{ 
+                          color: '#777777', 
+                          fontSize: 12,
+                          lineHeight: '1'
+                        }}>
+                          创建令牌时，是唯一查看令牌的机会。如果丢失则需要重新创建API密钥
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
 
               <Collapse
                 className="std-collapse-minimal"
                 bordered={false}
                 expandIconPosition="start"
-                defaultActiveKey={[]}
+                defaultActiveKey={['advanced']}
                 items={[
                   {
                     key: 'advanced',
@@ -758,7 +892,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             <div className="wizard-preview-actions">
               <Space>
                 <Button onClick={handleCancel}>取消</Button>
-                {currentStep > 0 && !(currentStep === 1 && license?.payload?.type === 'trial') && (
+                {currentStep > 0 && !(currentStep === 1 && isCloudMapOnly) && (
                   <Button onClick={handlePrev}>上一步</Button>
                 )}
                 {currentStep === 0 && selectedProvider && (

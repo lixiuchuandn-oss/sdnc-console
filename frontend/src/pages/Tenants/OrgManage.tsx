@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 // 页面说明：
 // 组织管理页（租户上下文），提供以下能力：
 // 1）左侧组织树：支持搜索、重命名、添加子组织、删除组织等操作；
@@ -8,15 +8,14 @@ import React, { useEffect, useState, useCallback } from 'react';
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
 // 数据来源统一通过后端接口（axios）获取，并在切换组织/租户时刷新。
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Alert, List, Tag } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Tooltip, Transfer } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageDetailContainer from '../../components/PageDetailContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
-import PermissionTreeTransfer from '../../components/TreeTransfer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
-import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../services/virtualRouterApi';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
@@ -27,6 +26,28 @@ import { apiRequest, apiPost, apiPatch, apiDelete } from '../../services/api';
 type RBACRole = { id: string; name: string; description?: string; scope: 'system' | 'tenant'; status?: 'active' | 'inactive' };
 // 角色赋权记录：某用户在某范围下被赋予某角色
 type Assignment = { id: string; roleId: string; userType: 'system' | 'tenant'; userId: string; createdAt: string };
+
+/**
+ * 平台预置 RBAC 策略名称 → 界面展示（与 backend/constants/rbacBuiltInRoles、seeders/initRoles 同步，共 4 个内置角色）。
+ */
+const RBAC_BUILTIN_ROLE_DISPLAY: Record<string, string> = {
+  '云租户根用户': '云租户根用户',
+  '三权-审计管理员': '三权-审计管理员',
+  '三权-安全管理员': '三权-安全管理员',
+  '三权-系统管理员': '三权-系统管理员',
+};
+
+/** 租户用户表单里可能出现的占位/简写角色名（非 RBAC 策略全名时） */
+const TENANT_USER_ROLE_LABEL_FALLBACK: Record<string, string> = {
+  admin: '管理员',
+  user: '用户',
+  viewer: '查看者',
+};
+
+function formatRoleDisplayName(name: string | undefined): string {
+  if (!name) return '';
+  return RBAC_BUILTIN_ROLE_DISPLAY[name] || TENANT_USER_ROLE_LABEL_FALLBACK[name] || name;
+}
 
 const OrgManagePage: React.FC = () => {
   // 路由 & 上下文
@@ -90,7 +111,9 @@ const OrgManagePage: React.FC = () => {
   const [assignType, setAssignType] = useState<'compute'|'storage'|'security'>('compute');
   const [storageKeyword, setStorageKeyword] = useState<string>('');
   const [securityKeyword, setSecurityKeyword] = useState<string>('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [nsLoading, setNsLoading] = useState<boolean>(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [nsOptions, setNsOptions] = useState<any[]>([]);
   // 分配资源池模式说明：
   // - assignType：计算/存储/安全三类，用于候选池过滤与文案切换
@@ -126,9 +149,9 @@ const OrgManagePage: React.FC = () => {
   };
 
   // 获取租户下组织树，并默认展开全部、选中根节点
-  const fetchOrganizations = async (id: string) => {
+  const fetchOrganizations = async (id: string, skipCache: boolean = false) => {
     try {
-      const data = await apiRequest(`/api/tenants/${id}/organizations`);
+      const data = await apiRequest(`/api/tenants/${id}/organizations`, skipCache ? { skipCache: true } : undefined);
       const orgs = Array.isArray(data) ? data : (data?.organizations || []);
       setOrganizations(orgs);
       const collectKeys = (orgs: Organization[]): string[] => {
@@ -157,34 +180,46 @@ const OrgManagePage: React.FC = () => {
     } catch {}
   };
 
-  // 获取角色库（过滤掉非活跃角色）
+  // 获取角色库（过滤掉非活跃角色，只保留租户级角色）
   const fetchTenantRoles = async () => {
     try {
       // 显式请求更多记录以防止分页截断
-      const raw = await apiRequest('/api/system/rbac/roles?limit=1000');
+      const raw = await apiRequest('/api/system/rbac/roles?limit=1000', { enableCache: true });
       const list: RBACRole[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.roles) ? raw.roles : []);
-      // 允许分配租户自定义角色和系统预置角色
-      setTenantRoles(list.filter(r => String(r.status || 'active') === 'active'));
+      // 只显示租户级角色（修复逻辑问题：租户用户只能分配租户级角色）
+      const filtered = list.filter(r => 
+        r.scope === 'tenant' && 
+        String(r.status || 'active') === 'active'
+      );
+      setTenantRoles(filtered);
       // 兼容响应结构差异：
       // - 有的接口返回 { roles: [] }，有的直接返回数组；统一归一化为 list
-      // - 仅保留 status=active 的角色，避免展示禁用项
-    } catch {}
+      // - 仅保留 scope=tenant 且 status=active 的角色，避免展示禁用项和系统角色
+    } catch (e) {
+      console.error('[OrgManage] 获取租户角色失败:', e);
+      setTenantRoles([]);
+    }
   };
 
   // 获取指定组织下的用户列表
-  const fetchUsers = async (tid: string, orgId: string) => {
+  const fetchUsers = async (tid: string, orgId: string, skipCache: boolean = false) => {
     try {
-      const data = await apiRequest(`/api/tenants/${tid}/organizations/${orgId}/users`);
+      const data = await apiRequest(`/api/tenants/${tid}/organizations/${orgId}/users`, skipCache ? { skipCache: true } : undefined);
       setUsers(Array.isArray(data) ? data : (data?.users || []));
-    } catch {}
+    } catch (error) {
+      console.error('获取用户列表失败:', error);
+    }
   };
 
-  // 获取指定组织的资源池分配列表
+  // 获取指定组织的资源池分配列表（跳过缓存，确保最新）
   const fetchAssignments = async (orgId: string) => {
     try {
-      const data = await apiRequest(`/api/tenants/organizations/${orgId}/resource-pools`);
+      const data = await apiRequest(`/api/tenants/organizations/${orgId}/resource-pools`, { skipCache: true });
       setAssignments(Array.isArray(data) ? data : (data?.assignments || []));
-    } catch {}
+    } catch (error) {
+      // 避免“分配后列表没变化却无任何提示”的困惑，至少记录日志
+      console.error('获取资源池分配列表失败:', error);
+    }
   };
 
   // 获取可分配资源池（抽屉内选择用）
@@ -201,7 +236,7 @@ const OrgManagePage: React.FC = () => {
       await apiPatch(`/api/tenants/organizations/${orgId}`, { name });
       setRenameOrgId(null);
       setRenameName('');
-      if (tenantId) fetchOrganizations(tenantId);
+      if (tenantId) fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('重命名成功');
     } catch (e: any) {
       const msg = e?.message || '重命名失败';
@@ -218,7 +253,7 @@ const OrgManagePage: React.FC = () => {
       await apiPost(`/api/tenants/${tenantId}/organizations`, { name, parentId });
       setAddingForParentId(null);
       setNewChildName('');
-      fetchOrganizations(tenantId);
+      fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('创建组织成功');
     } catch (e: any) {
       const msg = e?.message || '创建组织失败';
@@ -233,7 +268,7 @@ const OrgManagePage: React.FC = () => {
       await apiPost(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users`, values);
       setUserDrawerOpen(false);
       userForm.resetFields();
-      fetchUsers(tenantId, selectedOrg.id);
+      fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
       messageApi.success('创建用户成功');
     } catch (e: any) {
       const msg = e?.message || '创建用户失败';
@@ -241,9 +276,12 @@ const OrgManagePage: React.FC = () => {
     }
   };
 
-  const openRoleAssign = async (user: TenantUser) => {
+  const openRoleAssign = useCallback(async (user: TenantUser) => {
     try {
-      const rawData = await apiRequest(`/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(user.id)}`);
+      const rawData = await apiRequest(
+        `/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(user.id)}`,
+        { skipCache: true }
+      );
       const rawList = Array.isArray(rawData) 
         ? rawData 
         : (Array.isArray((rawData as any)?.assignments) ? (rawData as any).assignments : []);
@@ -260,14 +298,17 @@ const OrgManagePage: React.FC = () => {
       setRoleAssignSelected(list.map(it => it.roleId));
       setRoleAssignOpen(true);
     } catch {}
-  };
+  }, []);
 
   useEffect(() => {
     const run = async () => {
       if (!users.length) return;
       try {
         const resps = await Promise.all(users.map(u => 
-          apiRequest(`/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(u.id)}`).catch(() => ({ assignments: [] }))
+          apiRequest(
+            `/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(u.id)}`,
+            { skipCache: true }
+          ).catch(() => ({ assignments: [] }))
         ));
         const next: Record<string, Array<{ id: string; name: string }>> = {};
         users.forEach((u, i) => {
@@ -318,7 +359,7 @@ const OrgManagePage: React.FC = () => {
       setRoleAssignExisting([]);
       setRoleAssignSelected([]);
       if (tenantId && selectedOrg) {
-        fetchUsers(tenantId, selectedOrg.id);
+        fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，确保角色信息更新
       }
     } catch (e: any) {
       const msg = e?.message || '保存角色赋权时发生错误';
@@ -326,17 +367,17 @@ const OrgManagePage: React.FC = () => {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
+  const handleDeleteUser = useCallback(async (userId: string) => {
     if (!tenantId || !selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`);
-      fetchUsers(tenantId, selectedOrg.id);
+      fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
       messageApi.success('删除用户成功');
     } catch (e: any) {
       const msg = e?.response?.data?.message || '删除用户失败';
       messageApi.error(msg);
     }
-  };
+  }, [tenantId, selectedOrg, messageApi]);
   // 删除用户：
   // - 依赖当前选中组织上下文；成功后刷新用户列表
 
@@ -349,7 +390,7 @@ const OrgManagePage: React.FC = () => {
         resourcePoolIds, 
         permissions: ['use'], 
         namespace: values.namespace,
-        withCloudPublic: values.withCloudPublic,
+        withCloudPublic: true, // 模板空间固定分配
         withDefault: values.withDefault
       };
       // 分配资源池：
@@ -368,17 +409,85 @@ const OrgManagePage: React.FC = () => {
     }
   };
 
-  const handleRemoveAssignment = async (poolId: string) => {
+  const handleRemoveAssignment = useCallback(async (poolId: string) => {
     if (!selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`);
-      fetchAssignments(selectedOrg.id);
+      fetchAssignments(selectedOrg.id); // fetchAssignments 已经默认 skipCache
       message.success('移除分配成功');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || '移除分配失败';
-      message.error(msg);
+      // 优先使用 parseErrorResponse 处理后的完整错误消息（包含 message + error）
+      // 注意：requestManager 会将解析后的数据保存在 e.responseData 中
+      const responseData = e?.responseData || e?.response?.data || {};
+      const errorMsg = e?.message || responseData?.message || '移除分配失败';
+      const errorDetail = responseData?.error;
+      const status = e?.status || e?.response?.status;
+      const vms = responseData?.vms || [];
+      const vmCount = responseData?.vmCount || 0;
+      const volumes = responseData?.volumes || [];
+      const volumeCount = responseData?.volumeCount || 0;
+      
+      // 对于 409（冲突）和 503（服务不可用）错误，使用 Modal 显示详细错误信息
+      if (status === 409 || status === 503) {
+        modal.error({
+          title: '无法移除资源池分配',
+          width: 700,
+          content: (
+            <div style={{ marginTop: 16 }}>
+              <p style={{ marginBottom: 16, color: '#ff4d4f' }}>
+                {errorMsg}
+              </p>
+              {errorDetail && (
+                <p style={{ marginBottom: 16, color: '#8c8c8c', fontSize: 12 }}>
+                  {errorDetail}
+                </p>
+              )}
+              {vms.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>存在的虚拟机资源（{vmCount}个）：</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <Table
+                      size="small"
+                      dataSource={vms}
+                      columns={[
+                        { title: '虚拟机名称', dataIndex: 'name', key: 'name', width: 200 },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+                      ]}
+                      pagination={false}
+                      rowKey={(record: any) => `vm-${record.namespace}/${record.name}`}
+                    />
+                  </div>
+                </div>
+              )}
+              {volumes.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>存在的虚拟卷资源（{volumeCount}个）：</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <Table
+                      size="small"
+                      dataSource={volumes}
+                      columns={[
+                        { title: '虚拟卷名称', dataIndex: 'name', key: 'name', width: 200 },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+                        { title: '大小', dataIndex: 'size', key: 'size', width: 100 },
+                      ]}
+                      pagination={false}
+                      rowKey={(record: any) => `vol-${record.namespace}/${record.name}`}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ),
+        });
+      } else {
+        // 其他错误使用简单的 message 提示
+        message.error(errorMsg);
+      }
     }
-  };
+  }, [selectedOrg, modal]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -587,7 +696,7 @@ const OrgManagePage: React.FC = () => {
                         try {
                           await apiDelete(`/api/tenants/organizations/${org.id}`);
                           messageApi.success('删除组织成功');
-                          if (tenantId) fetchOrganizations(tenantId);
+                          if (tenantId) fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
                         } catch (error: any) {
                           const errorMessage = error?.message || '删除组织失败';
                           const resources = error?.response?.data?.resources || [];
@@ -645,31 +754,17 @@ const OrgManagePage: React.FC = () => {
     return recur(orgs);
   };
 
-  const userColumns: ColumnsType<TenantUser> = React.useMemo(() => [
+  const userColumns: ColumnsType<TenantUser> = useMemo(() => [
     { title: '用户名', dataIndex: 'username', key: 'username' },
     { title: '角色', dataIndex: 'role', key: 'role', render: (_: any, row: TenantUser) => {
-      // 预置角色（Legacy）映射
-      const badgeClasses: Record<string, string> = { admin: 'std-badge std-badge-error', user: 'std-badge std-badge-info', viewer: 'std-badge std-badge-success' };
-      const labels: Record<string, string> = { admin: '管理员', user: '用户', viewer: '查看者' };
-      
-      const roleNameMap: Record<string, string> = {
-        'Super Admin': '超级管理员',
-        'Tenant Admin': '租户管理员',
-        'User': '普通用户'
-      };
-
-      const cls = badgeClasses[row.role] || 'std-badge std-badge-default';
-      // 尝试从预置映射获取，或从租户角色库动态查找名称，最后回落到 ID
-      const match = tenantRoles.find(r => r.id === row.role);
-      const label = labels[row.role] || (match ? (roleNameMap[match.name] || match.name) : row.role);
-
+      // 仅展示 RBAC 分配角色（RoleAssignment），避免与 TenantUser.role 重复显示
       const assigned = rolesByUser[row.id] || [];
+      if (assigned.length === 0) return <span style={{ color: '#999' }}>未分配</span>;
       return (
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-          <span className={cls}>{label}</span>
           {assigned.map(it => (
             <span key={`${row.id}-${it.id}`} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-              <span className="std-badge std-badge-default">{roleNameMap[it.name] || it.name}</span>
+              <span className="std-badge std-badge-default">{formatRoleDisplayName(it.name)}</span>
               <Typography.Text copyable style={{ fontSize: 12 }}>{it.id}</Typography.Text>
             </span>
           ))}
@@ -683,7 +778,7 @@ const OrgManagePage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_, record: TenantUser) => (
+      render: (_: any, record: TenantUser) => (
         <Dropdown
           menu={{
             items: [
@@ -709,7 +804,7 @@ const OrgManagePage: React.FC = () => {
         </Dropdown>
       ),
     }
-  ], [tenantRoles, rolesByUser, openRoleAssign, handleDeleteUser, modal]);
+  ], [rolesByUser, openRoleAssign, handleDeleteUser, modal]);
 
   const { displayColumns: userDisplayColumns } = useTableColumnSettings(userColumns, 'org_manage_users');
 
@@ -778,7 +873,6 @@ const OrgManagePage: React.FC = () => {
 
   return (
     <PageDetailContainer
-      title="组织管理"
       icon={<ClusterOutlined />}
       subtitle="集中管理租户组织架构信息，提供用户与资源池的生命周期管理能力"
       overviewContent={
@@ -861,7 +955,6 @@ const OrgManagePage: React.FC = () => {
                         onChange={(e)=> setUserKeyword(e.target.value)}
                       />
                       <div className="toolbar-actions" style={{ display: 'flex', gap: 8 }}>
-                        <TableColumnSettingsButton allColumns={userColumns} settingsKey="org_manage_users" />
                         <Button 
                           type="primary" 
                           onClick={() => {
@@ -871,6 +964,7 @@ const OrgManagePage: React.FC = () => {
                             setUserDrawerOpen(true);
                           }}
                         >添加用户</Button>
+                        <TableColumnSettingsButton allColumns={userColumns} settingsKey="org_manage_users" />
                         <Dropdown
                           menu={{
                             items: [
@@ -891,7 +985,7 @@ const OrgManagePage: React.FC = () => {
                                       ));
                                       messageApi.success('批量删除成功');
                                       setSelectedUserRowKeys([]);
-                                      fetchUsers(tenantId, selectedOrg.id);
+                                      fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
                                     } catch (e: any) {
                                       messageApi.error(e?.message || '批量删除失败');
                                     }
@@ -903,6 +997,16 @@ const OrgManagePage: React.FC = () => {
                         >
                           <Button icon={<EllipsisOutlined />} />
                         </Dropdown>
+                        <Tooltip title="刷新列表">
+                          <Button 
+                            icon={<ReloadOutlined />} 
+                            onClick={() => {
+                              if (tenantId && selectedOrg) {
+                                fetchUsers(tenantId, selectedOrg.id, true);
+                              }
+                            }} 
+                          />
+                        </Tooltip>
                       </div>
                     </div>
                     <Table
@@ -918,15 +1022,12 @@ const OrgManagePage: React.FC = () => {
                       }) : users)}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -939,13 +1040,14 @@ const OrgManagePage: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                         <Input
                           allowClear
-                          placeholder="搜索资源池关键字"
+                          placeholder="搜索资源池名称"
                           style={{ width: 240 }}
+                          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                           value={assignmentKeyword}
                           onChange={(e)=> setAssignmentKeyword(e.target.value)}
                         />
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <TableColumnSettingsButton allColumns={assignmentColumns} settingsKey="org_manage_assignments" />
+
                           <Button 
                             type="primary" 
                             onClick={() => {
@@ -955,6 +1057,17 @@ const OrgManagePage: React.FC = () => {
                               setResourcePoolDrawerOpen(true);
                             }}
                           >分配计算资源池</Button>
+                          <TableColumnSettingsButton allColumns={assignmentColumns} settingsKey="org_manage_assignments" />
+                          <Tooltip title="刷新列表">
+                            <Button 
+                              icon={<ReloadOutlined />} 
+                              onClick={() => {
+                                if (selectedOrg) {
+                                  fetchAssignments(selectedOrg.id);
+                                }
+                              }} 
+                            />
+                          </Tooltip>
                         </div>
                     </div>
                     <Table
@@ -974,15 +1087,12 @@ const OrgManagePage: React.FC = () => {
                       }))}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -1000,15 +1110,27 @@ const OrgManagePage: React.FC = () => {
                           value={storageKeyword}
                           onChange={(e)=> setStorageKeyword(e.target.value)}
                         />
-                        <Button 
-                          type="primary" 
-                          onClick={() => {
-                            fetchResourcePools();
-                            resourcePoolForm.resetFields();
-                            setAssignType('storage');
-                            setResourcePoolDrawerOpen(true);
-                          }}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Tooltip title="刷新列表">
+                            <Button 
+                              icon={<ReloadOutlined />} 
+                              onClick={() => {
+                                if (selectedOrg) {
+                                  fetchAssignments(selectedOrg.id);
+                                }
+                              }} 
+                            />
+                          </Tooltip>
+                          <Button 
+                            type="primary" 
+                            onClick={() => {
+                              fetchResourcePools();
+                              resourcePoolForm.resetFields();
+                              setAssignType('storage');
+                              setResourcePoolDrawerOpen(true);
+                            }}
                          >分配存储资源池</Button>
+                        </div>
                     </div>
                     <Table
                       columns={assignmentColumns}
@@ -1025,15 +1147,12 @@ const OrgManagePage: React.FC = () => {
                       }))}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -1051,15 +1170,27 @@ const OrgManagePage: React.FC = () => {
                           value={securityKeyword}
                           onChange={(e)=> setSecurityKeyword(e.target.value)}
                         />
-                        <Button
-                          type="primary"
-                          onClick={() => {
-                            fetchResourcePools();
-                            resourcePoolForm.resetFields();
-                            setAssignType('security');
-                            setResourcePoolDrawerOpen(true);
-                          }}
-                        >分配安全资源池</Button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Tooltip title="刷新列表">
+                            <Button 
+                              icon={<ReloadOutlined />} 
+                              onClick={() => {
+                                if (selectedOrg) {
+                                  fetchAssignments(selectedOrg.id);
+                                }
+                              }} 
+                            />
+                          </Tooltip>
+                          <Button
+                            type="primary"
+                            onClick={() => {
+                              fetchResourcePools();
+                              resourcePoolForm.resetFields();
+                              setAssignType('security');
+                              setResourcePoolDrawerOpen(true);
+                            }}
+                          >分配安全资源池</Button>
+                        </div>
                     </div>
                     <Table
                       columns={assignmentColumns}
@@ -1079,15 +1210,12 @@ const OrgManagePage: React.FC = () => {
                       }))}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -1164,16 +1292,13 @@ const OrgManagePage: React.FC = () => {
                         <Table
                           className="std-table"
                           size="small"
-                          bordered
+                          bordered={false}
                           loading={sdnVrLoading}
                           rowKey={(r: any) => r.vr_unique_id || r.uuid || r.id}
                           dataSource={sdnVrs}
-                          pagination={{ 
-                            size: 'small', 
-                            showSizeChanger: true, 
-                            pageSize: 5,
-                            pageSizeOptions: ['5', '10', '20'],
-                            showQuickJumper: false 
+                          pagination={{
+                            size: 'small',
+                            showTotal: (total) => `共 ${total} 条`,
                           }}
                           columns={[
                             { title: '名称', dataIndex: 'name', key: 'name' },
@@ -1216,16 +1341,13 @@ const OrgManagePage: React.FC = () => {
                         <Table
                           className="std-table"
                           size="small"
-                          bordered
+                          bordered={false}
                           loading={securityLoading}
                           rowKey={(r: any) => r.id || r._id}
                           dataSource={protectionObjects}
-                          pagination={{ 
-                            size: 'small', 
-                            showSizeChanger: true, 
-                            pageSize: 5,
-                            pageSizeOptions: ['5', '10', '20'],
-                            showQuickJumper: false 
+                          pagination={{
+                            size: 'small',
+                            showTotal: (total) => `共 ${total} 条`,
                           }}
                           columns={[
                             { title: '名称', dataIndex: 'name', key: 'name' },
@@ -1239,16 +1361,13 @@ const OrgManagePage: React.FC = () => {
                         <Table
                           className="std-table"
                           size="small"
-                          bordered
+                          bordered={false}
                           loading={securityLoading}
                           rowKey={(r: any) => r.id || r._id}
                           dataSource={securityChains}
-                          pagination={{ 
-                            size: 'small', 
-                            showSizeChanger: true, 
-                            pageSize: 5,
-                            pageSizeOptions: ['5', '10', '20'],
-                            showQuickJumper: false 
+                          pagination={{
+                            size: 'small',
+                            showTotal: (total) => `共 ${total} 条`,
                           }}
                           columns={[
                             { title: '名称', dataIndex: 'name', key: 'name' },
@@ -1299,18 +1418,22 @@ const OrgManagePage: React.FC = () => {
             <Input.Password placeholder="请输入密码" />
           </Form.Item>
           <Form.Item label="角色" name="role" rules={[{ required: true }]}>
-            <Select placeholder="请选择角色">
+            <Select 
+              placeholder="请选择角色" 
+              showSearch
+              filterOption={(input, option) => {
+                const label = option?.children?.toString() || '';
+                return label.toLowerCase().includes(input.toLowerCase());
+              }}
+              notFoundContent={tenantRoles.length === 0 ? '暂无可用角色' : '未找到匹配的角色'}
+            >
               {tenantRoles.map(r => {
-                const roleNameMap: Record<string, string> = {
-                  'Super Admin': '超级管理员',
-                  'Tenant Admin': '租户管理员',
-                  'User': '普通用户',
-                  'admin': '管理员',
-                  'user': '用户',
-                  'viewer': '查看者'
-                };
+                const displayName = formatRoleDisplayName(r.name);
                 return (
-                  <Select.Option key={r.id} value={r.id}>{roleNameMap[r.name] || r.name}</Select.Option>
+                  <Select.Option key={r.id} value={r.id} title={r.description || displayName}>
+                    {displayName}
+                    {r.description && <span style={{ color: '#999', marginLeft: 8, fontSize: 12 }}>({r.description})</span>}
+                  </Select.Option>
                 );
               })}
             </Select>
@@ -1383,10 +1506,8 @@ const OrgManagePage: React.FC = () => {
                   </Form.Item>
 
                   <Form.Item label="模板空间" style={{ marginBottom: 12 }}>
-                     <Form.Item name="withCloudPublic" valuePropName="checked" initialValue={true} noStyle>
-                       <Checkbox>cloud-public</Checkbox>
-                     </Form.Item>
-                     <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问公共模板和共享资源</div>
+                     <Checkbox checked disabled>cloud-public</Checkbox>
+                     <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问公共模板和共享资源（固定分配）</div>
                   </Form.Item>
 
                   <Form.Item label="镜像空间" style={{ marginBottom: 12 }}>
@@ -1396,14 +1517,15 @@ const OrgManagePage: React.FC = () => {
                      <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问系统默认镜像资源</div>
                   </Form.Item>
 
-                  <Form.Item label="额外命名空间" name="namespace">
+                  {/* 额外命名空间功能暂时禁用 */}
+                  {/* <Form.Item label="额外命名空间" name="namespace">
                     <Select mode="tags" placeholder="请选择或输入更多命名空间" loading={nsLoading} style={{ width: '100%' }}>
                       {(nsOptions || []).map((x:any) => {
                         const name = x?.metadata?.name || x?.name;
                         return <Select.Option key={name} value={name}>{name}</Select.Option>;
                       })}
                     </Select>
-                  </Form.Item>
+                  </Form.Item> */}
                 </>
               );
             }}
@@ -1434,32 +1556,24 @@ const OrgManagePage: React.FC = () => {
             />
           </Form.Item>
         </Form>
-        <PermissionTreeTransfer
-          dataSource={(() => {
-            const roleNameMap: Record<string, string> = {
-              'Super Admin': '超级管理员',
-              'Tenant Admin': '租户管理员',
-              'User': '普通用户'
-            };
-            const base = tenantRoles
-              .filter(r => String(r.status || 'active') === 'active')
+        <Transfer
+          dataSource={(() =>
+            tenantRoles
+              .filter(r => r.scope === 'tenant' && String(r.status || 'active') === 'active')
               .filter(r => (roleAssignKw ? ((r.name || '').toLowerCase().includes(roleAssignKw.toLowerCase()) || (r.description || '').toLowerCase().includes(roleAssignKw.toLowerCase())) : true))
-              .map(r => ({ key: r.id, title: roleNameMap[r.name] || r.name, description: r.description }));
-            const selected = (roleAssignSelected || []).map(k => {
-              const role = tenantRoles.find(r => r.id === k);
-              const name = role?.name || String(k);
-              return { key: String(k), title: roleNameMap[name] || name, description: role?.description || '' };
-            });
-            const map = new Map<string, any>();
-            [...base, ...selected].forEach(it => { map.set(String(it.key), it); });
-            return Array.from(map.values());
-          })()}
+              .map(r => ({ key: r.id, title: formatRoleDisplayName(r.name), description: r.description }))
+          )()}
           targetKeys={roleAssignSelected}
           onChange={(next) => setRoleAssignSelected(next.map(String))}
           titles={["角色库","已选角色"]}
-          style={{ width: '100%' }}
-          listStyle={{ flex: '1 1 0', minWidth: 0, height: 420 }}
-          groupMode="flat"
+          render={(item: any) => item.title}
+          rowKey={(item: any) => item.key}
+          listStyle={{ width: '50%', height: 420 }}
+          showSearch
+          filterOption={(inputValue: string, item: any) => 
+            (item.title as string).toLowerCase().includes(inputValue.toLowerCase()) ||
+            (item.description as string)?.toLowerCase().includes(inputValue.toLowerCase())
+          }
         />
         <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>保存将同步新增与移除的角色赋权</div>
       </StdSideDrawer>

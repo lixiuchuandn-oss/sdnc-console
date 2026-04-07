@@ -84,7 +84,10 @@ const EipSectionAliyun: React.FC<EipSectionAliyunProps> = ({ cloudId, eips, onSe
       )}
       asCard={false}
     >
-      <Table bordered rowKey={(r: any) => r.AllocationId || r.id} dataSource={filteredEips} columns={columns as any} pagination={{ pageSize: 10, size: 'default' }} />
+      <Table bordered rowKey={(r: any) => r.AllocationId || r.id} dataSource={filteredEips} columns={columns as any} pagination={{
+        size: 'small',
+        showTotal: (total) => `共 ${total} 条`,
+      }} />
       {!!showLog && (
         <div style={{ marginTop: 12 }}>
           <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(raw, null, 2)}</pre>

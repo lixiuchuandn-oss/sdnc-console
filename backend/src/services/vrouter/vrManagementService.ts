@@ -1,5 +1,8 @@
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { logger } from '../../utils/logger';
+
+const vrMgmLog = logger.child('VR-Mgmt');
 
 export interface BindVRPayload {
   vr_uuid: string;
@@ -92,7 +95,10 @@ export const vrManagementService = {
       deviceRecord.data = JSON.stringify(record);
       await deviceRepo.save(deviceRecord);
     } catch (e) {
-      console.error('[VR-MGM] Failed to sync to VrCacheDevice', e);
+      vrMgmLog.error(
+        'Failed to sync to VrCacheDevice',
+        e instanceof Error ? e.message : String(e),
+      );
     }
 
     return {
