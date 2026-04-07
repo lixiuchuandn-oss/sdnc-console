@@ -93,6 +93,7 @@ type Props = {
   onChange?: (value: string) => void;
   readOnly?: boolean;
   placeholder?: string;
+  height?: number | string;
   minHeight?: number | string;
   maxHeight?: number | string;
   style?: React.CSSProperties;
@@ -110,6 +111,7 @@ const CodeEditor: React.FC<Props> = ({
   onChange,
   readOnly = false,
   placeholder,
+  height,
   minHeight = 200,
   maxHeight = 500,
   style,
@@ -162,14 +164,13 @@ const CodeEditor: React.FC<Props> = ({
         border: '1px solid #d9d9d9', 
         borderRadius: 4, 
         overflow: 'hidden',
+        height: style?.height || (style?.flex ? '100%' : undefined),
         ...style 
       }}
     >
       <CodeMirror
         value={value || ''}
-        height="auto"
-        minHeight={formatHeight(minHeight)}
-        maxHeight={formatHeight(maxHeight)}
+        height="100%"
         extensions={extensions}
         onChange={handleChange}
         editable={!readOnly}
@@ -204,6 +205,7 @@ const CodeEditor: React.FC<Props> = ({
         style={{
           fontSize: 13,
           fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+          height: '100%',
         }}
         theme="light"
       />

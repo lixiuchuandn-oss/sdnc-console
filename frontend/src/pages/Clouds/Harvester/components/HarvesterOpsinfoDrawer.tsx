@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
-import yaml from 'js-yaml';
-import LinedTextArea from '../../../../components/LinedTextArea';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { Drawer, Tabs, Descriptions, Tag, Button, Space, Switch, Select } from 'antd';
+import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons';
+import CodeEditor from '../../../../components/CodeEditor';
+import JsonHighlight from '../../../../components/JsonHighlight';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
 import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
 import HarvesterEventsTab from './HarvesterEventsTab';
@@ -42,12 +42,9 @@ const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boole
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
-
-  useEffect(() => {
-    if (active && cloudId && viewLink) {
-      loadContent();
-    }
-  }, [active, cloudId, viewLink]);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(10);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadContent = async () => {
     setLoading(true);
@@ -63,26 +60,97 @@ const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boole
     }
   };
 
+  useEffect(() => {
+    if (active && cloudId && viewLink) {
+      loadContent();
+    }
+  }, [active, cloudId, viewLink]);
+
+  useEffect(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (autoRefresh && active && cloudId && viewLink) {
+      intervalRef.current = setInterval(loadContent, refreshInterval * 1000);
+    }
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [autoRefresh, refreshInterval, active, cloudId, viewLink]);
+
   if (!viewLink) {
     return <div style={{ padding: 16, color: '#999' }}>无 View Link 数据</div>;
   }
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', background: '#fafafa', fontSize: '12px', color: '#666' }}>
-        Request URL: {viewLink}
+      <div style={{ 
+        padding: '8px 16px', 
+        borderBottom: '1px solid #f0f0f0', 
+        background: '#fafafa', 
+        display: 'flex', 
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '8px'
+      }}>
+        <div style={{ fontSize: '12px', color: '#666', flex: 1, minWidth: 200 }}>
+          Request URL: {viewLink}
+        </div>
+        <Space size="small">
+          <Switch
+            checked={autoRefresh}
+            onChange={setAutoRefresh}
+            checkedChildren="自动"
+            unCheckedChildren="手动"
+            size="small"
+          />
+          {autoRefresh && (
+            <Select
+              value={refreshInterval}
+              onChange={setRefreshInterval}
+              size="small"
+              style={{ width: 80 }}
+              options={[
+                { value: 5, label: '5秒' },
+                { value: 10, label: '10秒' },
+                { value: 30, label: '30秒' },
+                { value: 60, label: '1分钟' },
+              ]}
+            />
+          )}
+          <Button 
+            size="small" 
+            icon={<SyncOutlined spin={loading} />} 
+            onClick={loadContent}
+            loading={loading}
+          >
+            刷新
+          </Button>
+        </Space>
       </div>
-      {loading ? (
+      {loading && !content ? (
         <div style={{ padding: 16 }}>加载中...</div>
-      ) : error ? (
+      ) : error && !content ? (
         <div style={{ padding: 16, color: 'red' }}>错误: {error}</div>
       ) : (
-        <LinedTextArea
-          readOnly
-          value={content}
-          className="metadata-viewer"
-          style={{ flex: 1, border: 'none', borderRadius: 0 }}
-        />
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <style>{`
+            .view-link-editor { height: 100% !important; }
+            .view-link-editor .cm-editor { height: 100% !important; }
+            .view-link-editor .cm-scroller { overflow: auto !important; max-height: 100% !important; }
+          `}</style>
+          <CodeEditor
+            readOnly
+            value={content}
+            language="json"
+            className="view-link-editor"
+            style={{ border: 'none', borderRadius: 0 }}
+          />
+        </div>
       )}
     </div>
   );
@@ -215,7 +283,9 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                          if (value.length > 0 && typeof value[0] !== 'object') {
                              displayValue = value.join(', ');
                          } else {
-                             displayValue = <pre style={{ margin: 0, fontSize: 12, maxHeight: 200, overflow: 'auto' }}>{JSON.stringify(value, null, 2)}</pre>;
+                             displayValue = (
+                               <JsonHighlight value={JSON.stringify(value, null, 2)} />
+                             );
                          }
                       } else {
                           // Expand object keys (Second-level keys)
@@ -253,7 +323,9 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                                         </span>
                                         <span style={{ wordBreak: 'break-all', flex: 1, whiteSpace: 'pre-wrap' }}>
                                             {typeof subValue === 'object' && subValue !== null 
-                                                ? <pre style={{ margin: 0, fontSize: 12, fontFamily: 'Consolas, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{JSON.stringify(subValue, null, 2)}</pre>
+                                                ? (
+                                                  <JsonHighlight value={JSON.stringify(subValue, null, 2)} />
+                                                )
                                                 : String(subValue)}
                                         </span>
                                     </div>
