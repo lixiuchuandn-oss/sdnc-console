@@ -48,6 +48,11 @@ export const isPublicNamespace = (name: string): boolean => {
   return ['cloud-public', 'default', 'harvester-public'].includes(n);
 };
 
+/** 镜像列表项是否属于公共空间（仅信列表接口下发的 namespacePublicByScenario，与库存 label 一致） */
+export function isImagePublicByScenario(r: any): boolean {
+  return r?.namespacePublicByScenario === true;
+}
+
 /** 命名空间管理页「类型」：系统 / 公共 / 租户 */
 export type NamespaceSectionKind = 'system' | 'public' | 'tenant';
 

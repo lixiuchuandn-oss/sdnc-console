@@ -11,6 +11,7 @@ import { HarvesterNamespaceInventory } from '../../../../entities/harvester/Harv
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncHarvesterNamespaces } from '../../../../services/clouds/harvester/inventory';
 import { isProtectedNamespace, shouldHideNamespaceWhenExcludeSystem } from '../../../../services/clouds/harvester/namespace';
+import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
 import { requestJson, getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
 /**
@@ -515,5 +516,20 @@ export async function harvesterNamespaceDeleteHandler(req: Request, res: Respons
   } catch (error: any) {
     if (res.headersSent) return;
     res.status(500).json({ message: '删除命名空间失败', error: error.message });
+  }
+}
+
+/**
+ * GET /:id/resources/harvester/public-namespace-names
+ * 返回 tower.io/scenario=public 的命名空间名称（库存），供前端过滤「公共」资源。
+ */
+export async function harvesterPublicNamespaceNamesHandler(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const names = await getPublicScenarioNamespaceNames(id);
+    res.json({ message: '查询成功', names });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    res.status(500).json({ message: '查询公共命名空间列表失败', error: error.message });
   }
 }

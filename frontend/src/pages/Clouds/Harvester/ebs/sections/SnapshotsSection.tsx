@@ -52,7 +52,8 @@ import ResourceActionsDropdown from '../../../../../components/ResourceActionsDr
 import { deleteHarvesterSnapshot } from '../../../../../services/harvesterApi';
 import VolumeSnapshotRestoreModal from '../../modals/VolumeSnapshotRestoreModal';
 import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
-import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import { useAuth } from '../../../../../contexts/AuthContext';
@@ -93,6 +94,7 @@ const SnapshotsSection: React.FC<Props> = ({
   mode = 'ops'
 }) => {
   const isStandardView = mode === 'standard';
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasSnapshotsWrite = useMemo(
@@ -184,7 +186,7 @@ const SnapshotsSection: React.FC<Props> = ({
       }
     }
     return d;
-  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter, mode]);
+  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter, mode, isPublicNamespace]);
 
   // ==============================================================================
   // 3. 交互处理 (Action Handlers)

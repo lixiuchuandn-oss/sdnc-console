@@ -13,7 +13,8 @@ import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
@@ -42,6 +43,7 @@ interface Props {
 }
 
 const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, mode = 'ops', bordered = true }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasBackupsWrite = useMemo(
@@ -145,7 +147,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       );
     }
     return d;
-  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter]);
+  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter, isPublicNamespace]);
 
   const namespaceOptions = useMemo(() => {
     const set = new Set<string>();
@@ -157,7 +159,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       set.add(ns);
     });
     return Array.from(set).sort().map((ns) => ({ label: ns, value: ns }));
-  }, [dataSource, isTenant]);
+  }, [dataSource, isTenant, isPublicNamespace]);
 
   /**
    * 删除单个备份 / 快照

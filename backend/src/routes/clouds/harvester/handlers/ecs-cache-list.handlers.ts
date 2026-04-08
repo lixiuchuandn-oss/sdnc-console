@@ -10,6 +10,7 @@ import { HarvesterVmInventory } from '../../../../entities/harvester/HarvesterVm
 import { HarvesterVmiInventory } from '../../../../entities/harvester/HarvesterVmiInventory';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubevirtVms, syncKubevirtVmis } from '../../../../services/clouds/harvester/inventory';
+import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
 /**
@@ -58,7 +59,7 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
 
     const isSystemNamespace = (ns: string) => {
       if (!ns) return false;
-      const exactBlacklist = ['cloud-public', 'ingress-nginx'];
+      const exactBlacklist = ['ingress-nginx'];
       if (exactBlacklist.includes(ns)) return true;
       const prefixBlacklist = [
         'cattle',
@@ -144,6 +145,8 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
           }
         }
       }
+
+      (await getPublicScenarioNamespaceNames(id)).forEach((n) => uniqueNamespaces.add(n));
 
       if (uniqueNamespaces.size > 0) {
         validNamespaces = Array.from(uniqueNamespaces);

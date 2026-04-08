@@ -1,25 +1,88 @@
 /**
  * Harvester Images Handlers
- * 
+ *
  * 从 harvester.cache.storage.routes.ts 中提取的 Images 相关业务逻辑
  */
 
-import { Request, Response } from 'express';
-import { AppDataSource } from '../../../../config/database';
-import path from 'path';
-import os from 'os';
 import fs from 'fs';
 import http from 'http';
 import https from 'https';
+import os from 'os';
+import path from 'path';
 import { Readable, Transform } from 'stream';
+
+import { Request, Response } from 'express';
 import multer from 'multer';
 import axios from 'axios';
+import { FindOptionsWhere } from 'typeorm';
+
+import { AppDataSource } from '../../../../config/database';
 import { HarvesterImageInventory } from '../../../../entities/harvester/HarvesterImageInventory';
 import { ImageUploadTask } from '../../../../entities/harvester/ImageUploadTask';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncHarvesterImages } from '../../../../services/clouds/harvester/inventory';
+import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 
+// ---------------------------------------------------------------------------
+// 镜像列表：命名空间条件与公共空间（tower.io/scenario=public）
+// ---------------------------------------------------------------------------
+
+type ImageInventoryWhere =
+  | FindOptionsWhere<HarvesterImageInventory>
+  | FindOptionsWhere<HarvesterImageInventory>[];
+
+function uniqueNamespaceWhere(
+  cloudId: string,
+  namespaces: string[],
+): FindOptionsWhere<HarvesterImageInventory>[] {
+  const seen = new Set<string>();
+  const out: FindOptionsWhere<HarvesterImageInventory>[] = [];
+  for (const raw of namespaces) {
+    const ns = String(raw || '').trim();
+    if (!ns || seen.has(ns)) continue;
+    seen.add(ns);
+    out.push({ cloudId, namespace: ns });
+  }
+  return out;
+}
+
+function mapImageInventoryToListItem(
+  i: HarvesterImageInventory,
+  publicScenarioNsSet: Set<string>,
+): Record<string, unknown> {
+  const r = i.rawData || {};
+  const name = r.metadata?.name || i.name || '';
+  const namespace = r.metadata?.namespace || i.namespace || '';
+  const displayName = r.spec?.displayName || i.displayName || name;
+  const size = r.status?.size || i.size || 0;
+  const progress = r.status?.progress || i.progress || 0;
+  const conditions = r.status?.conditions || [];
+  let state = 'Unknown';
+  const imported = conditions.find((c: { type?: string }) => c.type === 'Imported');
+  if (imported?.status === 'True') state = 'Active';
+  else if (imported?.status === 'False') state = 'Failed';
+  // progress 为 0 且尚无 Imported 结论时勿标成 Downloading（缓存缺 conditions 时易全员误判）
+  else if (progress > 0 && progress < 100) state = 'Downloading';
+
+  return {
+    ...r,
+    id: r.metadata?.uid || i.uid,
+    name,
+    namespace,
+    namespacePublicByScenario: publicScenarioNsSet.has(namespace),
+    displayName,
+    size,
+    progress,
+    state,
+    createdAt: r.metadata?.creationTimestamp,
+    conditions,
+  };
+}
+
+/**
+ * GET …/images — 列表（租户按 UserSpace + 公共场景命名空间过滤；每条带 namespacePublicByScenario）
+ */
 export async function harvesterImageListHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
@@ -28,8 +91,10 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
     const reqAny = req as any;
 
     const repo = AppDataSource.getRepository(HarvesterImageInventory);
-    let whereCondition: any = { cloudId: id };
-    const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
+    let whereCondition: ImageInventoryWhere = { cloudId: id };
+    let publicScenarioNsSet: Set<string>;
+
+    const isTenantUser = Boolean(reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device');
     const isTenantRole = reqAny.user?.role === 'tenant';
 
     if (isTenantUser || isTenantRole) {
@@ -41,15 +106,22 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
           { tenantId, cloudId: id, status: 'active', organizationId: null },
         ],
       });
-      const us = matches.find((m: any) => m.organizationId === reqAny.user.organizationId) || matches[0];
+      const us =
+        matches.find((m) => m.organizationId === reqAny.user.organizationId) ?? matches[0];
 
-      if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+      if (!us) {
+        return res.json({ message: '查询成功', data: { items: [] } });
+      }
+
+      const publicNsNames = await getPublicScenarioNamespaceNames(id);
+      publicScenarioNsSet = new Set(publicNsNames);
+      const organizationId = reqAny.user.organizationId as string | undefined;
 
       if (us.namespace) {
-        const allowed = us.namespace.split(',').map(s => s.trim()).filter(Boolean);
-        
-        if (reqAny.user.organizationId) {
-          const orgNs = `ns-${reqAny.user.organizationId}`;
+        const allowed = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
+
+        if (organizationId) {
+          const orgNs = `ns-${organizationId}`;
           if (!allowed.includes(orgNs)) {
             allowed.push(orgNs);
             us.namespace = allowed.join(',');
@@ -61,93 +133,49 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
           }
         }
 
-        whereCondition = [
-          ...allowed.map(ns => ({ cloudId: id, namespace: ns })),
-          { cloudId: id, namespace: 'cloud-public' },
-          { cloudId: id, namespace: 'Cloud-Public' },
-          { cloudId: id, namespace: 'harvester-public' },
-          { cloudId: id, namespace: 'default' },
-        ];
-      } else {
-        if (reqAny.user.organizationId) {
-          const orgNs = `ns-${reqAny.user.organizationId}`;
-          us.namespace = orgNs;
-          try {
-            await userSpaceRepo.save(us);
-            whereCondition = [
-              { cloudId: id, namespace: orgNs },
-              { cloudId: id, namespace: 'cloud-public' },
-              { cloudId: id, namespace: 'Cloud-Public' },
-              { cloudId: id, namespace: 'harvester-public' },
-              { cloudId: id, namespace: 'default' },
-            ];
-          } catch (e) {
-            console.warn('Failed to auto-update UserSpace namespace', e);
-            whereCondition = [
-              { cloudId: id, namespace: 'cloud-public' },
-              { cloudId: id, namespace: 'Cloud-Public' },
-              { cloudId: id, namespace: 'harvester-public' },
-              { cloudId: id, namespace: 'default' },
-            ];
-          }
-        } else {
-          whereCondition = [
-            { cloudId: id, namespace: 'cloud-public' },
-            { cloudId: id, namespace: 'Cloud-Public' },
-            { cloudId: id, namespace: 'harvester-public' },
-            { cloudId: id, namespace: 'default' },
-          ];
+        whereCondition = uniqueNamespaceWhere(id, [...allowed, ...publicNsNames]);
+      } else if (organizationId) {
+        const orgNs = `ns-${organizationId}`;
+        us.namespace = orgNs;
+        try {
+          await userSpaceRepo.save(us);
+          whereCondition = uniqueNamespaceWhere(id, [orgNs, ...publicNsNames]);
+        } catch (e) {
+          console.warn('Failed to auto-update UserSpace namespace', e);
+          whereCondition = uniqueNamespaceWhere(id, publicNsNames);
         }
+      } else {
+        whereCondition = uniqueNamespaceWhere(id, publicNsNames);
       }
+    } else {
+      publicScenarioNsSet = new Set(await getPublicScenarioNamespaceNames(id));
+    }
+
+    if (Array.isArray(whereCondition) && whereCondition.length === 0) {
+      return res.json({ message: '查询成功', data: { items: [] } });
     }
 
     const { force, skipSync } = req.query;
     const count = await repo.count({ where: whereCondition });
     const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
-    
+
     if (shouldSync) {
       try {
         await syncHarvesterImages(cloud, insecure);
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.warn('Sync Images failed, falling back to empty/stale', e);
         if (count === 0) throw e;
       }
     }
 
     const items = await repo.find({ where: whereCondition });
-    const list = items.map((i: any) => {
-      const r = i.rawData || {};
-      const name = r.metadata?.name || i.name || '';
-      const namespace = r.metadata?.namespace || i.namespace || '';
-      const displayName = r.spec?.displayName || i.displayName || name;
-      const size = r.status?.size || i.size || 0;
-      const progress = r.status?.progress || i.progress || 0;
-      const conditions = r.status?.conditions || [];
-      let state = 'Unknown';
-      const imported = conditions.find((c: any) => c.type === 'Imported');
-      if (imported?.status === 'True') state = 'Active';
-      else if (imported?.status === 'False') state = 'Failed';
-      // progress 为 0 且尚无 Imported 结论时勿标成 Downloading（缓存缺 conditions 时易全员误判）
-      else if (progress > 0 && progress < 100) state = 'Downloading';
-
-      return {
-        ...r,
-        id: r.metadata?.uid || i.uid,
-        name,
-        namespace,
-        displayName,
-        size,
-        progress,
-        state,
-        createdAt: r.metadata?.creationTimestamp,
-        conditions,
-      };
-    });
+    const list = items.map((i) => mapImageInventoryToListItem(i, publicScenarioNsSet));
 
     res.json({ message: '查询成功', data: { items: list } });
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (res.headersSent) return;
-    res.status(500).json({ message: '查询镜像失败', error: error.message });
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ message: '查询镜像失败', error: message });
   }
 }
 

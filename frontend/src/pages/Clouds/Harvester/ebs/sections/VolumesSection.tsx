@@ -96,11 +96,11 @@ import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import {
   isClusterDefaultStorageClass,
-  isPublicNamespace,
   isSystemNamespace,
   isSystemStorageClass,
   pickDefaultStorageClassName,
 } from '../../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
 import HarvesterVolumeDetailDrawer from '../../components/HarvesterVolumeDetailDrawer';
 import VolumeCreateModal, { type VolumeCreateSeed } from '../modals/VolumeCreateModal';
@@ -312,6 +312,7 @@ const VolumesSection: React.FC<Props> = ({
 }) => {
   const { message, modal } = App.useApp();
   const { user } = useAuth();
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const isStandardView = mode === 'standard';
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasDisksWrite = useMemo(
@@ -610,7 +611,7 @@ const VolumesSection: React.FC<Props> = ({
 
       return true;
     });
-  }, [dataSource, keyword, statusFilter, nsFilter, scFilter, isTenant, mode]);
+  }, [dataSource, keyword, statusFilter, nsFilter, scFilter, isTenant, mode, isPublicNamespace]);
 
   // 生成命名空间下拉选项
   const [fetchedNsOptions, setFetchedNsOptions] = useState<string[]>([]);
@@ -636,7 +637,7 @@ const VolumesSection: React.FC<Props> = ({
       list = list.filter(ns => !isSystemNamespace(ns));
     }
     return list.sort().map(s => ({ value: s, label: s }));
-  }, [dataSource, vms, namespacesOptions, fetchedNsOptions, isTenant]);
+  }, [dataSource, vms, namespacesOptions, fetchedNsOptions, isTenant, isPublicNamespace]);
 
   const statusOptions = [
     'healthy','degraded','faulted','detached','attaching','attached','detaching','maintenance','restoring','creating','deleting','error','bound','pending','lost'

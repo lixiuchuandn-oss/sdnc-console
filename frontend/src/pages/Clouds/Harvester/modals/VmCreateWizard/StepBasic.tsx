@@ -32,7 +32,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 
 /**
  * 组件 Props 定义
@@ -99,13 +100,14 @@ const StepBasic: React.FC<StepBasicProps> = ({
   filteredNodes,
   isTenant,
 }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
   const [capabilities, setCapabilities] = useState<any>({});
 
   const visibleNamespaceOptions = useMemo(() => {
     if (!isTenant) return namespaceOptions;
     return namespaceOptions.filter((n) => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
-  }, [namespaceOptions, isTenant]);
+  }, [namespaceOptions, isTenant, isPublicNamespace]);
 
   // [数据同步] 根据 cloudId 获取集群能力（架构、推荐机型）
   // 调用 API 获取指定资源池的能力集，并自动填充推荐值（如架构、机型）

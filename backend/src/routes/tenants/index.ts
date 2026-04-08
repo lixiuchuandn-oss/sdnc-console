@@ -18,7 +18,11 @@ import { ServiceChain } from '../../entities/ServiceChain';
 import { SecurityZone } from '../../entities/SecurityZone';
 import { ProtectionObject } from '../../entities/ProtectionObject';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
-import { createHarvesterNamespace } from '../../services/clouds/harvester/client';
+import {
+  createHarvesterNamespace,
+  patchHarvesterNamespaceMetadata,
+} from '../../services/clouds/harvester/client';
+import { getPublicNamespaceNameSetForUnbind } from '../../services/clouds/harvester/publicNamespaces';
 import bcrypt from 'bcryptjs';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { RBACRole } from '../../entities/RBACRole';
@@ -870,7 +874,7 @@ router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) 
 router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res) => {
   try {
     const { orgId } = req.params;
-    const { resourcePoolIds, permissions, namespace, withCloudPublic, withDefault } = req.body;
+    const { resourcePoolIds, permissions } = req.body;
 
     if (!Array.isArray(resourcePoolIds) || resourcePoolIds.length === 0) {
       return res.status(400).json({ message: '请选择要分配的资源池' });
@@ -906,44 +910,76 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
     };
 
-    let targetNamespace = namespace;
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
+    const allocationRepository = AppDataSource.getRepository(UserSpaceAllocation);
+    const nsRepo = AppDataSource.getRepository(HarvesterNamespaceInventory);
+
+    const { tenantNamespaceMode, existingTenantNamespace: existingNsBody } = req.body as {
+      tenantNamespaceMode?: string;
+      existingTenantNamespace?: string;
+    };
+    const tenantNsMode =
+      String(tenantNamespaceMode || 'auto').toLowerCase() === 'existing' ? 'existing' : 'auto';
+
+    let targetNamespace: string | undefined;
     const harvesterPools = resourcePools.filter((c) =>
       isHarvesterLike((c as any)?.config?.provider),
     );
 
+    /** Kubernetes Namespace 名称（单段 DNS label） */
+    const isValidK8sNamespaceName = (n: string) =>
+      n.length <= 63 && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(n);
+
     if (harvesterPools.length > 0) {
       const namespacesToCreate: string[] = [];
-      
-      // 1. 总是自动生成并包含组织专属 Namespace
-      const autoNs = `ns-${orgId}`;
-      namespacesToCreate.push(autoNs);
 
-      // 2. 处理自定义传入的 Namespace (支持字符串或数组)
-      if (targetNamespace) {
-        const customs = Array.isArray(targetNamespace) 
-          ? targetNamespace 
-          : String(targetNamespace).split(',');
-        
-        customs.forEach((ns: string) => {
-          const s = String(ns).trim();
-          if (s && !namespacesToCreate.includes(s)) {
-            namespacesToCreate.push(s);
-          }
-        });
-      }
-
-      // 模板空间固定分配：总是包含 cloud-public
-      if (!namespacesToCreate.includes('cloud-public')) {
-        namespacesToCreate.push('cloud-public');
-      }
-
-      if (withDefault) {
-        if (!namespacesToCreate.includes('default')) {
-          namespacesToCreate.push('default');
+      if (tenantNsMode === 'existing') {
+        const primaryNs = String(existingNsBody || '').trim();
+        if (!primaryNs) {
+          return res.status(400).json({ message: '请指定要绑定的已有命名空间' });
         }
+        if (!isValidK8sNamespaceName(primaryNs)) {
+          return res.status(400).json({ message: '命名空间名称格式无效' });
+        }
+
+        for (const pool of harvesterPools) {
+          const inv = await nsRepo.findOne({
+            where: { cloudId: pool.id, name: primaryNs },
+          });
+          if (!inv) {
+            return res.status(400).json({
+              message: `命名空间「${primaryNs}」在资源池「${pool.name}」中不存在或未同步，请先同步命名空间`,
+            });
+          }
+          const labels = inv.rawData?.metadata?.labels ?? inv.labels ?? {};
+          if (String(labels['tower.io/scenario'] ?? '').toLowerCase() === 'public') {
+            return res.status(400).json({ message: '不可绑定公共空间命名空间' });
+          }
+
+          const others = await userSpaceRepository.find({
+            where: { cloudId: pool.id },
+          });
+          for (const us of others) {
+            if (us.organizationId === orgId) continue;
+            const nss = (us.namespace || '')
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+            if (nss.includes(primaryNs)) {
+              return res.status(400).json({
+                message: `命名空间「${primaryNs}」在资源池「${pool.name}」上已被其他组织绑定`,
+              });
+            }
+          }
+        }
+
+        namespacesToCreate.push(primaryNs);
+      } else {
+        namespacesToCreate.push(`ns-${orgId}`);
       }
-      
-      // 更新 targetNamespace 以便保存到数据库 (逗号分隔)
+
+      // 公共空间由集群 tower.io/scenario=public 标识，不在此按固定名创建或写入 UserSpace
+
       targetNamespace = namespacesToCreate.join(',');
 
       tenantLog.debug(`Harvester/Cloudmap 资源池需确保 Namespace: ${namespacesToCreate.join(', ')}`);
@@ -958,25 +994,25 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
 
           if (endpoint && token) {
             for (const ns of namespacesToCreate) {
+              // 本流程仅创建/补齐组织主命名空间（ns-{orgId} 或 existing 模式指定名），
+              // 一律按租户场景与组织绑定标签处理；公共命名空间由集群 label tower.io/scenario=public 标识，不在此按名创建。
+              const scenario: 'tenant' = 'tenant';
+              const annotations = {
+                'tower.io/tenant': tenantName,
+                'tower.io/organization': organization.name,
+              };
+              const bindingLabels: Record<string, string> = {
+                'tower.io/cloud-id': pool.id,
+                'tower.io/tenant-id': organization.tenantId,
+                'tower.io/organization-id': orgId,
+              };
+
               try {
-                // 组织分配：集群级公共空间为 public；其余（含 default、ns-{orgId}、自定义名）均为 tenant
-                const publicClusterNamespaces = new Set(['cloud-public', 'harvester-public']);
-                const isPublic = publicClusterNamespaces.has(ns);
-                const scenario: 'public' | 'tenant' = isPublic ? 'public' : 'tenant';
-
-                const annotations =
-                  !isPublic && ns !== 'default'
-                    ? {
-                        'tower.io/tenant': tenantName,
-                        'tower.io/organization': organization.name,
-                      }
-                    : undefined;
-
                 await createHarvesterNamespace(
-                  { endpoint, token, insecure }, 
-                  ns, 
+                  { endpoint, token, insecure },
+                  ns,
                   annotations,
-                  { scenario, addFinalizer: true }
+                  { scenario, addFinalizer: true, bindingLabels },
                 );
                 tenantLog.info(
                   `已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns} (场景: ${scenario})`,
@@ -984,7 +1020,6 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
 
                 // Update Inventory immediately to ensure visibility without waiting for sync
                 try {
-                    const nsRepo = AppDataSource.getRepository(HarvesterNamespaceInventory);
                     const existing = await nsRepo.findOne({ where: { cloudId: pool.id, name: ns } });
                     if (!existing) {
                          await nsRepo.save({
@@ -1007,6 +1042,18 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
                     .includes('already exists');
                 if (isConflict) {
                   tenantLog.debug(`Namespace ${ns} 已存在于资源池 ${pool.name}`);
+                  try {
+                    await patchHarvesterNamespaceMetadata(
+                      { endpoint, token, insecure },
+                      ns,
+                      { labels: bindingLabels, annotations },
+                    );
+                  } catch (patchErr: any) {
+                    tenantLog.warn(
+                      `补齐 Namespace ${ns} 标签/注解失败:`,
+                      patchErr instanceof Error ? patchErr.message : String(patchErr),
+                    );
+                  }
                 } else {
                   tenantLog.warn(
                     `在资源池 ${pool.name} 创建 Namespace ${ns} 失败:`,
@@ -1028,8 +1075,6 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
     }
 
     // 创建资源池分配记录 (Using UserSpace and UserSpaceAllocation)
-    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
-    const allocationRepository = AppDataSource.getRepository(UserSpaceAllocation);
     const assignments = [];
 
     for (const resourcePoolId of resourcePoolIds) {
@@ -1091,6 +1136,46 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
   } catch (error) {
     tenantLog.error('资源池分配失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '资源池分配失败' });
+  }
+});
+
+/**
+ * 某资源池（cloudId）上已被「其他组织」占用的命名空间名（UserSpace.namespace 拆分去重）。
+ * 供分配抽屉下拉排除冲突项；手输与提交仍以后端校验为准。
+ */
+router.get('/organizations/:orgId/resource-pools/occupied-namespaces', async (req, res) => {
+  try {
+    const { orgId } = req.params;
+    const cloudId = String(req.query.cloudId || '').trim();
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少查询参数 cloudId' });
+    }
+
+    const organizationRepository = AppDataSource.getRepository(Organization);
+    const organization = await organizationRepository.findOne({ where: { id: orgId } });
+    if (!organization) {
+      return res.status(404).json({ message: '组织不存在' });
+    }
+
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
+    const rows = await userSpaceRepository.find({ where: { cloudId } });
+    const names = new Set<string>();
+    for (const us of rows) {
+      if (us.organizationId === orgId) continue;
+      const raw = us.namespace || '';
+      for (const part of raw.split(',')) {
+        const s = part.trim();
+        if (s) names.add(s);
+      }
+    }
+
+    res.json({ names: [...names].sort((a, b) => a.localeCompare(b)) });
+  } catch (error) {
+    tenantLog.error(
+      '获取已占用命名空间失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    res.status(500).json({ message: '获取已占用命名空间失败' });
   }
 });
 
@@ -1164,11 +1249,10 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
           const namespaces = userSpace.namespace
             ? userSpace.namespace.split(',').map((s) => s.trim()).filter(Boolean)
             : [userSpace.name];
-          
-          // 过滤掉公共空间（cloud-public）和默认空间（default），这些空间的资源不属于租户，无条件解绑
-          const publicNamespaces = ['cloud-public', 'default'];
-          const tenantNamespaces = namespaces.filter((ns: string) => !publicNamespaces.includes(ns));
-          const hasPublicNamespace = publicNamespaces.some((ns: string) => namespaces.includes(ns));
+
+          const publicNamespacesSet = await getPublicNamespaceNameSetForUnbind(userSpace.cloudId);
+          const tenantNamespaces = namespaces.filter((ns: string) => !publicNamespacesSet.has(ns));
+          const hasPublicNamespace = namespaces.some((ns: string) => publicNamespacesSet.has(ns));
           
           // 如果没有租户专属命名空间，直接跳过检查，无条件解绑
           if (tenantNamespaces.length === 0) {

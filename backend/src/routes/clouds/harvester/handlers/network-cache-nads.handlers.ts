@@ -12,6 +12,7 @@ import {
   findVmDisplayNamesUsingMultusNetwork,
   resolveHarvesterK8sApiBase,
 } from '../harvester.direct.helpers';
+import { buildTenantNamespaceInventoryWhere } from '../../../../services/clouds/harvester/publicNamespaces';
 
 /**
  * GET /:id/resources/harvester/nads
@@ -61,20 +62,12 @@ export async function harvesterNadListHandler(req: Request, res: Response) {
           }
         }
         
-        whereCondition = [
-          ...allowed.map((ns) => ({ cloudId: id, namespace: ns })),
-          { cloudId: id, namespace: 'cloud-public' },
-          { cloudId: id, namespace: 'Cloud-Public' },
-          { cloudId: id, namespace: 'harvester-public' },
-          { cloudId: id, namespace: 'default' },
-        ];
+        whereCondition = await buildTenantNamespaceInventoryWhere(id, allowed);
       } else {
-        whereCondition = [
-          { cloudId: id, namespace: 'cloud-public' },
-          { cloudId: id, namespace: 'Cloud-Public' },
-          { cloudId: id, namespace: 'harvester-public' },
-          { cloudId: id, namespace: 'default' },
-        ];
+        whereCondition = await buildTenantNamespaceInventoryWhere(id, []);
+      }
+      if (Array.isArray(whereCondition) && whereCondition.length === 0) {
+        return res.json({ message: '查询成功', data: { items: [] } });
       }
     }
 

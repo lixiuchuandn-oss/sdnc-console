@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Modal, Form, message, Select, Tooltip } from 'antd';
+import { Table, Input, Tag, Button, Form, message, Select, Tooltip, Row, Col } from 'antd';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
 import { createHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/harvesterApi';
-import { FolderOpenTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { FolderOpenTwoTone, MinusCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import StdFormModal from '../../../../components/StdFormModal';
 
@@ -40,6 +40,28 @@ type Props = {
  * @param phase - 状态字符串 (Active, Terminating 等)
  * @returns AntD Tag 组件
  */
+/** 将表单中的标签行转为 K8s labels 对象（忽略空键） */
+function labelPairsToRecord(pairs: Array<{ key?: string; value?: string } | undefined> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of pairs || []) {
+    const k = String(p?.key ?? '').trim();
+    if (!k) continue;
+    out[k] = String(p?.value ?? '').trim();
+  }
+  return out;
+}
+
+function collectDuplicateLabelKeys(pairs: Array<{ key?: string } | undefined> | undefined): string[] {
+  const keys = (pairs || []).map((p) => String(p?.key ?? '').trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const k of keys) {
+    if (seen.has(k)) dup.add(k);
+    seen.add(k);
+  }
+  return [...dup];
+}
+
 const phaseBadge = (phase?: string) => {
   const k = String(phase || '').toLowerCase();
   let badgeClass = 'std-badge-default';
@@ -96,23 +118,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
   };
 
   /**
-   * 解析标签字符串
-   * 将 "k=v,k2=v2" 格式字符串转换为对象 {k:v, k2:v2}
-   */
-  const parseLabels = (rawStr?: string): Record<string,string> | undefined => {
-    const s = String(rawStr || '').trim();
-    if (!s) return undefined;
-    const out: Record<string,string> = {};
-    s.split(',').forEach(pair => {
-      const [k, v] = pair.split('=');
-      const kk = String(k || '').trim();
-      const vv = String(v || '').trim();
-      if (kk) out[kk] = vv;
-    });
-    return Object.keys(out).length ? out : undefined;
-  };
-
-  /**
    * 数据过滤逻辑 (Memoized)
    * 依次应用: 类型过滤 -> 状态过滤 -> 关键字搜索
    */
@@ -158,17 +163,13 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     setEditingNamespace(record);
     const name = record?.metadata?.name || record?.name;
     const labels = record?.metadata?.labels || {};
-    const annotations = record?.metadata?.annotations || {};
+    const labelPairs = Object.keys(labels)
+      .sort()
+      .map((k) => ({ key: k, value: String(labels[k] ?? '') }));
 
-    // 格式化标签为字符串显示
-    const labelStr = Object.keys(labels)
-      .map((k) => `${k}=${labels[k]}`)
-      .join(',');
-
-    // 设置表单值
     form.setFieldsValue({
-      name: name,
-      labels: labelStr,
+      name,
+      labelPairs: labelPairs.length ? labelPairs : [{ key: '', value: '' }],
     });
     setCreating(true);
   };
@@ -191,7 +192,13 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         return;
       }
       
-      const parsed = parseLabels(v.labels) || {};
+      const dups = collectDuplicateLabelKeys(v.labelPairs);
+      if (dups.length > 0) {
+        message.error(`标签键不能重复：${dups.join(', ')}`);
+        return;
+      }
+
+      const parsed = labelPairsToRecord(v.labelPairs);
       // 本页「新增命名空间」入口：统一标记为公共场景（与租户组织分配创建的租户命名空间区分）
       const labels = editingNamespace
         ? parsed
@@ -452,7 +459,19 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       // === 工具栏右侧：操作按钮 ===
       toolbarRight={
         <>
-          <Button type="primary" disabled={!hasNamespacesWrite} onClick={() => { if (!hasNamespacesWrite) return; form.resetFields(); setCreating(true); }}>创建公共命名空间</Button>
+          <Button
+            type="primary"
+            disabled={!hasNamespacesWrite}
+            onClick={() => {
+              if (!hasNamespacesWrite) return;
+              setEditingNamespace(null);
+              form.resetFields();
+              form.setFieldsValue({ labelPairs: [{ key: '', value: '' }] });
+              setCreating(true);
+            }}
+          >
+            创建公共命名空间
+          </Button>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey="harvester_namespaces_table_v3"
@@ -497,8 +516,12 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       <StdFormModal
         open={creating}
         title={editingNamespace ? "编辑命名空间" : "创建公共命名空间"}
-        width={600}
-        onCancel={() => { setCreating(false); setEditingNamespace(null); form.resetFields(); }}
+        width={720}
+        onCancel={() => {
+          setCreating(false);
+          setEditingNamespace(null);
+          form.resetFields();
+        }}
         onFinish={handleCreate}
         okText={editingNamespace ? "保存" : "创建"}
         form={form}
@@ -514,8 +537,57 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
           >
             <Input placeholder="例如：default 或 my-space" disabled={!!editingNamespace} />
           </Form.Item>
-          <Form.Item label="标签（可选）" name="labels" tooltip="以逗号分隔的 k=v 列表，如 env=dev,team=net" >
-            <Input placeholder="k=v,k2=v2" />
+          <Form.Item
+            label="标签"
+            tooltip="逐行填写键值；可添加多行。保存后将以当前列表为准写入集群（请保留需继续生效的 Tower 标签）。"
+          >
+            <Form.List name="labelPairs">
+              {(fields, { add, remove }) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {fields.map(({ key, name: rowName, ...rest }) => (
+                    <Row key={key} gutter={[8, 0]} align="middle" wrap={false}>
+                      <Col flex="1 1 0" style={{ minWidth: 0 }}>
+                        <Form.Item
+                          {...rest}
+                          name={[rowName, 'key']}
+                          rules={[
+                            {
+                              validator: async (_, value) => {
+                                const k = String(value || '').trim();
+                                if (!k) return;
+                                if (k.length > 253) throw new Error('键最长 253 个字符');
+                                if (/[\s=]/.test(k)) throw new Error('键不能包含空格或 =');
+                              },
+                            },
+                          ]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Input placeholder="键，如 env 或 example.com/name" allowClear style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col flex="1 1 0" style={{ minWidth: 0 }}>
+                        <Form.Item {...rest} name={[rowName, 'value']} style={{ marginBottom: 0 }}>
+                          <Input placeholder="值" allowClear style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col flex="none">
+                        <Button
+                          type="text"
+                          danger
+                          icon={<MinusCircleOutlined />}
+                          disabled={fields.length <= 1}
+                          onClick={() => remove(rowName)}
+                          aria-label="删除此行标签"
+                        />
+                      </Col>
+                    </Row>
+                  ))}
+                  <Button type="dashed" onClick={() => add({ key: '', value: '' })} block icon={<PlusOutlined />}>
+                    添加标签
+                  </Button>
+                </div>
+              )}
+            </Form.List>
           </Form.Item>
       </StdFormModal>
 

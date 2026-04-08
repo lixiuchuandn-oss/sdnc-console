@@ -59,6 +59,7 @@ import MonitoringPrometheusRules from './Monitoring/MonitoringPrometheusRules';
 import MonitoringAlertSecrets from './Monitoring/MonitoringAlertSecrets';
 import { MonitoringProvider } from './Monitoring/context/MonitoringContext';
 import { LoggingProvider } from './Monitoring/context/LoggingContext';
+import { HarvesterPublicNamespacesProvider } from './context/HarvesterPublicNamespacesContext';
 
 /**
  * 云资源项接口定义
@@ -965,6 +966,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const tlsIgnored = !!(cloud?.config?.ignoreTls);
 
   return (
+    <HarvesterPublicNamespacesProvider cloudId={cloudId}>
     <PageDetailContainer
       breadcrumbs={[
         { title: <HomeOutlined />, href: '/' },
@@ -2229,6 +2231,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
           ]}
       />
     </PageDetailContainer>
+    </HarvesterPublicNamespacesProvider>
   );
 };
 

@@ -10,7 +10,8 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
@@ -38,6 +39,7 @@ const CloudInitsSection: React.FC<Props> = ({
   isTenant = false,
   mode = 'ops'
 }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasCloudInitsWrite = useMemo(
@@ -74,7 +76,7 @@ const CloudInitsSection: React.FC<Props> = ({
       }
       return !isSystemNamespace(ns);
     });
-  }, [dataSource, isTenant]);
+  }, [dataSource, isTenant, isPublicNamespace]);
 
   const namespaceOptions = useMemo(() => {
     const nsSet = new Set<string>();

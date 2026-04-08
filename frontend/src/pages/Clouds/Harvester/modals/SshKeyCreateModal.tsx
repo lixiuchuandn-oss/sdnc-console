@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message, Button, Alert, Space, Typography, Card } from 'antd';
 import { KeyOutlined, DownloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { createHarvesterSshKey, fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { API_BASE_URL } from '../../../../services/api';
 import { apiRequest } from '../../../../services/api';
 // @ts-ignore
@@ -19,6 +19,7 @@ interface Props {
 }
 
 const SshKeyCreateModal: React.FC<Props> = ({ visible, cloudId, onCancel, onSuccess, isTenant }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [namespaces, setNamespaces] = useState<any[]>([]);

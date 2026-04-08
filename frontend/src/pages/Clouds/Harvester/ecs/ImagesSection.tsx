@@ -46,7 +46,7 @@ import {
   cancelHarvesterImageUploadTask,
   type HarvesterImageUploadTask,
 } from '../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace, resolveVmImageKind } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isImagePublicByScenario, resolveVmImageKind } from '../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -330,14 +330,14 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         // [系统资源过滤]
         // 租户模式: 严格隔离，禁止查看系统命名空间，但允许查看公共命名空间 (harvester-public)
         if (isTenant) {
-          if (isSystemNamespace(ns) && !isPublicNamespace(ns)) return false;
+          if (isSystemNamespace(ns) && !isImagePublicByScenario(r)) return false;
         }
 
         // Scope Filter - 只有用户主动选择时才过滤
-        if (mode === 'ops' && scopeFilter === 'public' && !isPublicNamespace(ns)) return false;
+        if (mode === 'ops' && scopeFilter === 'public' && !isImagePublicByScenario(r)) return false;
         if (mode === 'ops' && scopeFilter === 'private') {
           // Private: 非公共且非系统
-          if (isPublicNamespace(ns) || isSystemNamespace(ns)) return false;
+          if (isImagePublicByScenario(r) || isSystemNamespace(ns)) return false;
         }
 
         // 关键字过滤 - 只有用户输入时才过滤
@@ -469,7 +469,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     ...(mode === 'ops'
       ? [
           { title: '命名空间', key: 'namespace', render: (_: any, r: any) => getNs(r) },
-          { title: '作用域', key: 'scope', render: (_: any, r: any) => (isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像') },
+          { title: '作用域', key: 'scope', render: (_: any, r: any) => (isImagePublicByScenario(r) ? '公共镜像' : '私有镜像') },
         ]
       : []),
     { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(resolveImageListStateKey(r)) },

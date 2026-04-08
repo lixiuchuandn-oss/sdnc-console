@@ -24,7 +24,8 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import HarvesterTemplateDetailDrawer from '../components/HarvesterTemplateDetailDrawer';
 import HarvesterOpsinfoDrawer from '../components/HarvesterOpsinfoDrawer';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { createHarvesterVmFromTemplate, deleteHarvesterResourceByLink } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -70,10 +71,13 @@ const getTemplateAlias = (tpl: any): string =>
   tpl?.metadata?.annotations?.['tower.io/alias'] ||
   '';
 
-const getTemplateScope = (tpl: any): '全部' | '公共模板' | '私有模板' => {
+const getTemplateScope = (
+  tpl: any,
+  isPublicNs: (name: string) => boolean,
+): '全部' | '公共模板' | '私有模板' => {
   if (!tpl) return '全部';
   const ns = getTemplateNamespace(tpl);
-  return isPublicNamespace(ns) ? '公共模板' : '私有模板';
+  return isPublicNs(ns) ? '公共模板' : '私有模板';
 };
 
 const getTemplateDefaultVersion = (tpl: any): string => {
@@ -115,6 +119,7 @@ const TemplatesSection: React.FC<Props> = ({
   bordered = true,
 }) => {
   const { modal } = App.useApp();
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasTemplatesWrite = useMemo(
@@ -353,7 +358,7 @@ const TemplatesSection: React.FC<Props> = ({
       title: '作用域',
       key: 'scope',
       render: (_: any, r: any) => {
-          const scope = getTemplateScope(r);
+          const scope = getTemplateScope(r, isPublicNamespace);
           const isPublic = scope === '公共模板';
           return <Tag color={isPublic ? 'orange' : 'cyan'}>{scope}</Tag>;
       }
@@ -441,7 +446,7 @@ const TemplatesSection: React.FC<Props> = ({
       },
     }
   ],
-    [isTenant, hasTemplatesWrite, mode, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete],
+    [isTenant, hasTemplatesWrite, mode, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete, isPublicNamespace],
   );
 
   /**
@@ -498,7 +503,7 @@ const TemplatesSection: React.FC<Props> = ({
       
       return true;
     });
-  }, [baseData, searchText, selectedNamespace, selectedScope, mode]);
+  }, [baseData, searchText, selectedNamespace, selectedScope, mode, isPublicNamespace]);
 
   return (
       <PageDetailSection

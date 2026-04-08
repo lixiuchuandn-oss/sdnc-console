@@ -5,7 +5,8 @@ import { CloudServerOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined, 
 import PageDetailSection from '../../../../components/PageDetailSection';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterBackup, deleteHarvesterVirtualMachineRestore, fetchHarvesterBackups, fetchHarvesterVirtualMachineRestores } from '../../../../services/harvesterApi';
-import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 
 type Props = {
   cloudId: string;
@@ -51,6 +52,7 @@ const getBackupStatus = (raw: any) => {
 };
 
 const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops', vms = [] }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -207,7 +209,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops
       });
     }
     return d;
-  }, [dataSource, isTenant, keyword, statusFilter, namespaceFilter]);
+  }, [dataSource, isTenant, keyword, statusFilter, namespaceFilter, isPublicNamespace]);
 
   const namespaceOptions = useMemo(() => {
     const set = new Set<string>();
@@ -219,7 +221,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops
       set.add(ns);
     });
     return Array.from(set).sort().map((v) => ({ value: v, label: v }));
-  }, [dataSource, isTenant]);
+  }, [dataSource, isTenant, isPublicNamespace]);
 
   const refresh = useCallback(async (force = true) => {
     setLoading(true);

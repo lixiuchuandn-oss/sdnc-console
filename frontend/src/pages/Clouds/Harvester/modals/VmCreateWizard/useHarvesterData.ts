@@ -47,7 +47,8 @@ import {
   fetchHarvesterVolume
 } from '../../../../../services/harvesterApi';
 
-import { isPublicNamespace, pickDefaultStorageClassName } from '../../../../../utils/harvesterUtils';
+import { pickDefaultStorageClassName } from '../../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { parseSizeToGi } from './VmWizardUtils';
 import { kubeVpcOptionsForVmWizard } from '../../kube-ovn/lib/kubeOvnUiHelpers';
 
@@ -68,6 +69,7 @@ export const useHarvesterData = (
   isTenant?: boolean,
   watchNamespace?: string | null,
 ) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   // [状态定义] 资源数据
   const [images, setImages] = useState<any[]>([]);
   const [imageLoading, setImageLoading] = useState<boolean>(false);
@@ -370,7 +372,7 @@ export const useHarvesterData = (
     }
     
     return list.map((x: any) => ({ label: x?.metadata?.name || x?.name || '-', value: x?.metadata?.name || x?.name }));
-  }, [namespaces, isTenant]);
+  }, [namespaces, isTenant, isPublicNamespace]);
 
   // [数据处理] 网络 (NAD) 选项
   // [业务规则] 格式化显示 VLAN ID 和网络类型

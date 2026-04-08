@@ -18,6 +18,7 @@ import {
   syncHarvesterLoadBalancers,
   syncHarvesterLoadBalancerIPPools,
 } from '../../../../services/clouds/harvester/inventory';
+import { buildTenantNamespaceInventoryWhere } from '../../../../services/clouds/harvester/publicNamespaces';
 
 function getEndpointBase(endpoint: string): string {
   let endpointBase = (endpoint || '').replace(/\/+$/, '');
@@ -41,30 +42,12 @@ export async function harvesterLbListHandler(req: any, res: Response, next: any)
 
     let whereCondition: any = { cloudId: id };
     if (isTenant) {
-      if (tenantNamespace) {
-        const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
-        whereCondition =
-          allowedNamespaces.length > 0
-            ? [
-                ...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns })),
-                { cloudId: id, namespace: 'cloud-public' },
-                { cloudId: id, namespace: 'Cloud-Public' },
-                { cloudId: id, namespace: 'harvester-public' },
-                { cloudId: id, namespace: 'default' },
-              ]
-            : [
-                { cloudId: id, namespace: 'cloud-public' },
-                { cloudId: id, namespace: 'Cloud-Public' },
-                { cloudId: id, namespace: 'harvester-public' },
-                { cloudId: id, namespace: 'default' },
-              ];
-      } else {
-        whereCondition = [
-          { cloudId: id, namespace: 'cloud-public' },
-          { cloudId: id, namespace: 'Cloud-Public' },
-          { cloudId: id, namespace: 'harvester-public' },
-          { cloudId: id, namespace: 'default' },
-        ];
+      const allowedNamespaces = tenantNamespace
+        ? tenantNamespace.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      whereCondition = await buildTenantNamespaceInventoryWhere(id, allowedNamespaces);
+      if (Array.isArray(whereCondition) && whereCondition.length === 0) {
+        return res.json({ message: '查询成功', data: { items: [] } });
       }
     } else if (tenantNamespace) {
       const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
@@ -174,30 +157,12 @@ export async function harvesterIpPoolListHandler(req: any, res: Response, next: 
     const repo = AppDataSource.getRepository(HarvesterLoadBalancerIPPoolInventory);
     let whereCondition: any = { cloudId: id };
     if (isTenant) {
-      if (tenantNamespace) {
-        const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
-        whereCondition =
-          allowedNamespaces.length > 0
-            ? [
-                ...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns })),
-                { cloudId: id, namespace: 'cloud-public' },
-                { cloudId: id, namespace: 'Cloud-Public' },
-                { cloudId: id, namespace: 'harvester-public' },
-                { cloudId: id, namespace: 'default' },
-              ]
-            : [
-                { cloudId: id, namespace: 'cloud-public' },
-                { cloudId: id, namespace: 'Cloud-Public' },
-                { cloudId: id, namespace: 'harvester-public' },
-                { cloudId: id, namespace: 'default' },
-              ];
-      } else {
-        whereCondition = [
-          { cloudId: id, namespace: 'cloud-public' },
-          { cloudId: id, namespace: 'Cloud-Public' },
-          { cloudId: id, namespace: 'harvester-public' },
-          { cloudId: id, namespace: 'default' },
-        ];
+      const allowedNamespaces = tenantNamespace
+        ? tenantNamespace.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      whereCondition = await buildTenantNamespaceInventoryWhere(id, allowedNamespaces);
+      if (Array.isArray(whereCondition) && whereCondition.length === 0) {
+        return res.json({ message: '查询成功', data: { items: [] } });
       }
     } else if (tenantNamespace) {
       const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());

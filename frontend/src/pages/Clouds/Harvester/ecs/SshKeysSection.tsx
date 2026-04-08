@@ -16,7 +16,8 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import SshKeyCreateModal from '../modals/SshKeyCreateModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { deleteHarvesterSshKey } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -48,6 +49,7 @@ const SshKeysSection: React.FC<Props> = ({
   mode = 'ops',
   bordered = true
 }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasSshKeysWrite = useMemo(
@@ -106,7 +108,7 @@ const SshKeysSection: React.FC<Props> = ({
 
       return true;
     });
-  }, [dataSource, isTenant]);
+  }, [dataSource, isTenant, isPublicNamespace]);
 
   /**
    * 提取所有可用的命名空间选项

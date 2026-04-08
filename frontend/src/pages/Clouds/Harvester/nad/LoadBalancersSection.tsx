@@ -15,7 +15,8 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import CreateLoadBalancerModal from '../modals/CreateLoadBalancerModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterService } from '../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 
 /**
  * 组件入参说明
@@ -37,6 +38,7 @@ interface Props {
 }
 
 const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant, bordered = true, mode = 'ops' }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const isStandardView = mode === 'standard';
   // 工具栏与弹窗状态
   const [keyword, setKeyword] = useState<string>('');

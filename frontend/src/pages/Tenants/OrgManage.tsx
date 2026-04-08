@@ -1,4 +1,3 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
 // 页面说明：
 // 组织管理页（租户上下文），提供以下能力：
 // 1）左侧组织树：支持搜索、重命名、添加子组织、删除组织等操作；
@@ -8,34 +7,74 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
 // 数据来源统一通过后端接口（axios）获取，并在切换组织/租户时刷新。
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Tooltip, Transfer } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Radio,
+  Descriptions,
+  Dropdown,
+  Form,
+  Input,
+  message,
+  Modal,
+  Row,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Tabs,
+  Tooltip,
+  Transfer,
+  Tree,
+  Typography,
+} from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
-import { useNavigate, useParams } from 'react-router-dom';
+import {
+  CheckOutlined,
+  CloseOutlined,
+  ClusterOutlined,
+  EditOutlined,
+  EllipsisOutlined,
+  GatewayOutlined,
+  NodeIndexOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SafetyCertificateOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
+
 import PageDetailContainer from '../../components/PageDetailContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
-import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
-import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import { apiDelete, apiPatch, apiPost, apiRequest } from '../../services/api';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../services/virtualRouterApi';
-import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
-import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
-import { apiRequest, apiPost, apiPatch, apiDelete } from '../../services/api';
+import {
+  CreateTenantUserRequest,
+  Organization,
+  ResourcePoolAssignment,
+  Tenant,
+  TenantUser,
+} from '../../types/tenant';
 
 // RBAC 角色模型：名称、范围（system/tenant）、状态等
 type RBACRole = { id: string; name: string; description?: string; scope: 'system' | 'tenant'; status?: 'active' | 'inactive' };
 // 角色赋权记录：某用户在某范围下被赋予某角色
 type Assignment = { id: string; roleId: string; userType: 'system' | 'tenant'; userId: string; createdAt: string };
 
-/**
- * 平台预置 RBAC 策略名称 → 界面展示（与 backend/constants/rbacBuiltInRoles、seeders/initRoles 同步，共 4 个内置角色）。
- */
-const RBAC_BUILTIN_ROLE_DISPLAY: Record<string, string> = {
-  '云租户根用户': '云租户根用户',
-  '三权-审计管理员': '三权-审计管理员',
-  '三权-安全管理员': '三权-安全管理员',
-  '三权-系统管理员': '三权-系统管理员',
-};
+/** 平台预置租户级 RBAC 策略全名（与 backend/constants/rbacBuiltInRoles、seeders/initRoles 同步） */
+const RBAC_BUILTIN_TENANT_ROLE_NAMES = new Set([
+  '云租户根用户',
+  '三权-审计管理员',
+  '三权-安全管理员',
+  '三权-系统管理员',
+]);
 
 /** 租户用户表单里可能出现的占位/简写角色名（非 RBAC 策略全名时） */
 const TENANT_USER_ROLE_LABEL_FALLBACK: Record<string, string> = {
@@ -46,16 +85,70 @@ const TENANT_USER_ROLE_LABEL_FALLBACK: Record<string, string> = {
 
 function formatRoleDisplayName(name: string | undefined): string {
   if (!name) return '';
-  return RBAC_BUILTIN_ROLE_DISPLAY[name] || TENANT_USER_ROLE_LABEL_FALLBACK[name] || name;
+  if (RBAC_BUILTIN_TENANT_ROLE_NAMES.has(name)) return name;
+  return TENANT_USER_ROLE_LABEL_FALLBACK[name] || name;
+}
+
+// --- 资源池 / 分配记录：provider 与 Tab 归类（与后端 Cloud.config.provider 对齐）---
+
+function getCloudPoolProviderRaw(pool: { config?: { provider?: string }; type?: string } | null | undefined): string {
+  return String(pool?.config?.provider ?? pool?.type ?? '').trim().toLowerCase();
+}
+
+/** 界面展示用（保留大小写，与配置一致） */
+function getCloudPoolDisplayProvider(pool: { config?: { provider?: string }; type?: string } | null | undefined): string {
+  if (!pool) return '';
+  return String(pool.config?.provider || pool.type || '-');
+}
+
+const HARVESTER_LIKE_OPERATORS = new Set(['harvester', 'cloudmap.private', 'cloudmap.edge']);
+
+function isHarvesterLikeOperator(pvRaw: string): boolean {
+  return HARVESTER_LIKE_OPERATORS.has(pvRaw);
+}
+
+/** 分配抽屉内「计算 / 存储 / 安全」Tab 与可选资源池列表一致 */
+function poolMatchesAssignDrawerTab(
+  pool: { config?: { provider?: string }; type?: string },
+  tab: 'compute' | 'storage' | 'security',
+): boolean {
+  const pvRaw = getCloudPoolProviderRaw(pool);
+  const typeLower = String(pool?.type ?? '').toLowerCase();
+  const isSecurity = pvRaw === 'cloudmap.csm';
+  const isStorage = typeLower === 'object_storage' || typeLower === 'file_storage';
+  if (tab === 'security') return isSecurity;
+  if (tab === 'storage') return isStorage;
+  return !isSecurity && !isStorage;
+}
+
+type AssignableCloudShape = { config?: { provider?: string }; type?: string };
+
+/** 分配记录上的 cloud 与「可分配资源池」同类判定，避免重复维护 isSecurity/isStorage 规则 */
+function assignmentMatchesAssignTab(
+  a: ResourcePoolAssignment,
+  tab: 'compute' | 'storage' | 'security',
+): boolean {
+  return poolMatchesAssignDrawerTab((a.cloud as AssignableCloudShape) ?? {}, tab);
+}
+
+function assignmentMatchesKeyword(a: ResourcePoolAssignment, keyword: string): boolean {
+  const k = keyword.trim().toLowerCase();
+  if (!k) return true;
+  const c = a.cloud as { name?: string; type?: string; config?: { provider?: string } } | undefined;
+  const name = String(c?.name ?? '').toLowerCase();
+  const type = String(c?.type ?? '').toLowerCase();
+  const provider = String(c?.config?.provider ?? '').toLowerCase();
+  return name.includes(k) || type.includes(k) || provider.includes(k);
 }
 
 const OrgManagePage: React.FC = () => {
-  // 路由 & 上下文
+  // --- 路由与全局反馈 ---
   const navigate = useNavigate();
   const { tenantId } = useParams();
   const [modal, contextHolder] = Modal.useModal();
   const [messageApi, messageContextHolder] = message.useMessage();
-  // 顶部概览 & 左侧组织树相关状态
+
+  // --- 页面状态（数据域）---
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
@@ -70,9 +163,11 @@ const OrgManagePage: React.FC = () => {
   // 用户列表 & 过滤关键字
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [userKeyword, setUserKeyword] = useState<string>('');
+  const [userStatusFilter, setUserStatusFilter] = useState<'active' | 'inactive' | undefined>(undefined);
   // 用户列表说明：
   // - users：选中组织的用户列表，由 fetchUsers 拉取
   // - userKeyword：表格本地过滤关键字（用户名/姓名/邮箱）
+  // - userStatusFilter：按活跃/非活跃筛选（与 TenantUser.status 一致）
   // 资源池分配列表 & 过滤关键字
   const [assignments, setAssignments] = useState<ResourcePoolAssignment[]>([]);
   const [assignmentKeyword, setAssignmentKeyword] = useState<string>('');
@@ -99,7 +194,7 @@ const OrgManagePage: React.FC = () => {
   // - renameOrgId/renameName：重命名的目标组织与输入值
   // - addingForParentId/newChildName：在父组织下添加子组织的内联行与名称
 
-  // 表单实例：用户创建、资源池分配
+  // --- 页面状态（表单与抽屉）---
   const [userForm] = Form.useForm();
   const [resourcePoolForm] = Form.useForm();
   // 两个独立表单：
@@ -111,10 +206,24 @@ const OrgManagePage: React.FC = () => {
   const [assignType, setAssignType] = useState<'compute'|'storage'|'security'>('compute');
   const [storageKeyword, setStorageKeyword] = useState<string>('');
   const [securityKeyword, setSecurityKeyword] = useState<string>('');
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [nsLoading, setNsLoading] = useState<boolean>(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [nsOptions, setNsOptions] = useState<any[]>([]);
+  /** 当前所选资源池上已被其他组织占用的命名空间（用于下拉排除） */
+  const [occupiedNamespaceNames, setOccupiedNamespaceNames] = useState<string[]>([]);
+  /** 分配抽屉「目标命名空间」：排除公共空间 + 已被其他组织绑定 */
+  const filteredAssignNsNames = useMemo(() => {
+    const occupied = new Set(
+      (occupiedNamespaceNames || []).map((n) => String(n || '').trim()).filter(Boolean),
+    );
+    return (nsOptions || [])
+      .filter(
+        (x: any) =>
+          String(x?.metadata?.labels?.['tower.io/scenario'] || '').toLowerCase() !== 'public',
+      )
+      .map((x: any) => x?.metadata?.name || x?.name)
+      .map((n: string | undefined) => String(n || '').trim())
+      .filter((n: string): n is string => n.length > 0 && !occupied.has(n));
+  }, [nsOptions, occupiedNamespaceNames]);
   // 分配资源池模式说明：
   // - assignType：计算/存储/安全三类，用于候选池过滤与文案切换
   // - storageKeyword/securityKeyword：对应页签的本地过滤关键字
@@ -139,6 +248,15 @@ const OrgManagePage: React.FC = () => {
   // 用户表格辅助：
   // - rolesByUser：用户 → 角色名称映射（表格显示 name+id）
   // - selectedUserRowKeys：复选集（用于批量删除）
+
+  // --- 派生数据 ---
+  /** 当前分配 Tab 下可选资源池（与抽屉内 Select 一致，供 labelRender 解析 provider） */
+  const assignableResourcePools = useMemo(
+    () => (resourcePools || []).filter((pool: any) => poolMatchesAssignDrawerTab(pool, assignType)),
+    [resourcePools, assignType],
+  );
+
+  // --- 数据请求 ---
 
   // 获取租户详情
   const fetchTenant = async (id: string) => {
@@ -230,6 +348,7 @@ const OrgManagePage: React.FC = () => {
     } catch {}
   };
 
+  // --- 事件处理 ---
   // 保存组织重命名，并刷新组织树
   const handleOrgRename = async (orgId: string, name: string) => {
     try {
@@ -386,18 +505,30 @@ const OrgManagePage: React.FC = () => {
     try {
       const idsRaw = values.resourcePoolIds;
       const resourcePoolIds = Array.isArray(idsRaw) ? idsRaw.filter(Boolean) : (idsRaw ? [idsRaw] : []);
-      const payload = { 
-        resourcePoolIds, 
-        permissions: ['use'], 
-        namespace: values.namespace,
-        withCloudPublic: true, // 模板空间固定分配
-        withDefault: values.withDefault
+      const tenantNamespaceMode = values.tenantNamespaceMode === 'existing' ? 'existing' : 'auto';
+      let existingTenantNamespace: string | undefined;
+      if (tenantNamespaceMode === 'existing') {
+        const raw = values.existingTenantNamespace;
+        const arr = Array.isArray(raw)
+          ? raw
+          : raw != null && String(raw).trim()
+            ? [String(raw).trim()]
+            : [];
+        existingTenantNamespace = arr[0]?.trim();
+      }
+      const payload: Record<string, unknown> = {
+        resourcePoolIds,
+        permissions: ['use'],
+        tenantNamespaceMode,
       };
+      if (tenantNamespaceMode === 'existing' && existingTenantNamespace) {
+        payload.existingTenantNamespace = existingTenantNamespace;
+      }
       // 分配资源池：
       // - resourcePoolIds：当前场景仅选一个池，数组保留兼容性
       // - permissions 固定为 ['use']（表示可用权限）
-      // - namespace：仅在 Harvester/CloudMap 私有/边缘 provider 下需要
-      // - withCloudPublic：自动命名空间策略下，是否同时分配 cloud-public
+      // - tenantNamespaceMode / existingTenantNamespace：Harvester 类计算池下主命名空间派生方式（自动 ns-组织ID 或绑定已有）
+      // 公共空间由集群 tower.io/scenario=public 标识，不再随分配写入固定 cloud-public/default
       await apiPost(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload);
       setResourcePoolDrawerOpen(false);
       resourcePoolForm.resetFields();
@@ -564,6 +695,7 @@ const OrgManagePage: React.FC = () => {
     return () => clearTimeout(t);
   }, [sdnActiveKey, selectedOrg?.id]);
 
+  // --- 纯函数与表格列（依赖组件状态）---
   const filterOrgs = (orgs: Organization[], keyword: string): Organization[] => {
     const kw = keyword.trim().toLowerCase();
     if (!kw) return orgs;
@@ -596,39 +728,50 @@ const OrgManagePage: React.FC = () => {
         if (visited.has(org.id)) return null;
         visited.add(org.id);
         const children = org.children ? recur(org.children) : [];
-      if (addingForParentId === org.id) {
-        children.push({
-          key: `__new__-${org.id}`,
+        if (addingForParentId === org.id) {
+          children.push({
+            key: `__new__-${org.id}`,
+            title: (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Input
+                  size="small"
+                  value={newChildName}
+                  onChange={(e) => setNewChildName(e.target.value)}
+                  placeholder="请输入组织名称"
+                  style={{ width: 200 }}
+                />
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<CheckOutlined />}
+                  disabled={!newChildName.trim()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAddChildSave(org.id);
+                  }}
+                >
+                  保存
+                </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAddingForParentId(null);
+                    setNewChildName('');
+                  }}
+                >
+                  取消
+                </Button>
+              </div>
+            ),
+          });
+        }
+        return {
+          key: org.id,
           title: (
-            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <Input
-                size="small"
-                value={newChildName}
-                onChange={(e) => setNewChildName(e.target.value)}
-                placeholder="请输入组织名称"
-                style={{ width: 200 }}
-              />
-              <Button
-                type="link"
-                size="small"
-                icon={<CheckOutlined />}
-                disabled={!newChildName.trim()}
-                onClick={(e) => { e.stopPropagation(); handleAddChildSave(org.id); }}
-              >保存</Button>
-              <Button
-                type="link"
-                size="small"
-                icon={<CloseOutlined />}
-                onClick={(e) => { e.stopPropagation(); setAddingForParentId(null); setNewChildName(''); }}
-              >取消</Button>
-            </div>
-          ),
-        });
-      }
-      return {
-        key: org.id,
-        title: (
-          <div style={{ display:'flex', alignItems:'center', gap:16, width:'100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, width: '100%' }}>
             {renameOrgId === org.id ? (
               <Input
                 size="small"
@@ -639,7 +782,7 @@ const OrgManagePage: React.FC = () => {
             ) : (
               <Typography.Text style={{ pointerEvents: 'none' }}>{org.name}</Typography.Text>
             )}
-            <div style={{ display:'flex', alignItems:'center', marginLeft:'auto', justifyContent:'flex-end' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto', justifyContent: 'flex-end' }}>
               {renameOrgId === org.id ? (
                 <>
                   <Button
@@ -745,11 +888,11 @@ const OrgManagePage: React.FC = () => {
                 >删除</Button>
               )}
             </div>
-          </div>
-        ),
-        children,
-      } as DataNode;
-    }).filter(Boolean) as DataNode[];
+            </div>
+          ),
+          children,
+        } as DataNode;
+      }).filter(Boolean) as DataNode[];
     };
     return recur(orgs);
   };
@@ -810,7 +953,7 @@ const OrgManagePage: React.FC = () => {
 
   // 资源池分配表格列：
   // - 类型/供应商列做 provider → 文本的归一化映射，提升可读性
-  const assignmentColumns: ColumnsType<ResourcePoolAssignment> = React.useMemo(() => [
+  const assignmentColumns: ColumnsType<ResourcePoolAssignment> = useMemo(() => [
     { title: '资源池名称', dataIndex: ['cloud', 'name'], key: 'name' },
     { 
       title: '资源池类型', 
@@ -883,10 +1026,9 @@ const OrgManagePage: React.FC = () => {
           <Descriptions.Item label="组织名称">{selectedOrg?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="用户数量">{users.length}</Descriptions.Item>
           <Descriptions.Item label="资源池数量">{assignments.length}</Descriptions.Item>
-          <Descriptions.Item label="安全资源池">{assignments.filter(a => {
-            const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
-            return pvRaw === 'cloudmap.csm';
-          }).length}</Descriptions.Item>
+          <Descriptions.Item label="安全资源池">
+            {assignments.filter((a) => assignmentMatchesAssignTab(a, 'security')).length}
+          </Descriptions.Item>
           <Descriptions.Item label="防护对象数量">{protectionObjects.length}</Descriptions.Item>
           <Descriptions.Item label="服务链数量">{securityChains.length}</Descriptions.Item>
         </Descriptions>
@@ -907,6 +1049,7 @@ const OrgManagePage: React.FC = () => {
                   placeholder="搜索组织名称"
                   value={orgKeyword}
                   onChange={(e)=> setOrgKeyword(e.target.value)}
+                  suffix={<SearchOutlined />}
                 />
               </div>
               <div style={{ maxHeight: '70vh', overflow: 'auto', padding: 12 }}>
@@ -946,14 +1089,29 @@ const OrgManagePage: React.FC = () => {
               <Tabs.TabPane tab="用户管理" key="users">
                 {selectedOrg ? (
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <Input
-                        allowClear
-                        placeholder="搜索用户关键字"
-                        value={userKeyword}
-                        style={{ width: 240 }}
-                        onChange={(e)=> setUserKeyword(e.target.value)}
-                      />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                        <Input
+                          allowClear
+                          placeholder="搜索用户关键字"
+                          value={userKeyword}
+                          className="toolbar-search"
+                          onChange={(e) => setUserKeyword(e.target.value)}
+                          suffix={<SearchOutlined />}
+                        />
+                        <Select
+                          allowClear
+                          placeholder="选择状态"
+                          className="toolbar-filter-sm"
+                          value={userStatusFilter}
+                          options={[
+                            { label: '活跃', value: 'active' },
+                            { label: '非活跃', value: 'inactive' },
+                          ]}
+                          onChange={(v) => setUserStatusFilter(v)}
+                        />
+                      </div>
+
                       <div className="toolbar-actions" style={{ display: 'flex', gap: 8 }}>
                         <Button 
                           type="primary" 
@@ -1012,14 +1170,16 @@ const OrgManagePage: React.FC = () => {
                     <Table
                       columns={userDisplayColumns}
                       rowSelection={{ selectedRowKeys: selectedUserRowKeys, onChange: (keys)=> setSelectedUserRowKeys(keys as string[]) }}
-                      dataSource={(userKeyword.trim() ? users.filter(u => {
+                      dataSource={users.filter((u) => {
+                        if (userStatusFilter && u.status !== userStatusFilter) return false;
+                        if (!userKeyword.trim()) return true;
                         const kw = userKeyword.trim().toLowerCase();
                         return (
                           (u.username || '').toLowerCase().includes(kw) ||
                           (u.fullName || '').toLowerCase().includes(kw) ||
                           (u.email || '').toLowerCase().includes(kw)
                         );
-                      }) : users)}
+                      })}
                       className="std-table"
                       rowKey="id"
                       pagination={{
@@ -1042,7 +1202,7 @@ const OrgManagePage: React.FC = () => {
                           allowClear
                           placeholder="搜索资源池名称"
                           style={{ width: 240 }}
-                          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                          suffix={<SearchOutlined />}
                           value={assignmentKeyword}
                           onChange={(e)=> setAssignmentKeyword(e.target.value)}
                         />
@@ -1072,19 +1232,11 @@ const OrgManagePage: React.FC = () => {
                     </div>
                     <Table
                       columns={assignmentDisplayColumns}
-                      dataSource={(assignmentKeyword.trim() ? assignments.filter(a => {
-                        const kw = assignmentKeyword.trim().toLowerCase();
-                        const name = String((a.cloud as any)?.name || '').toLowerCase();
-                        const type = String((a.cloud as any)?.type || '').toLowerCase();
-                        const provider = String((a.cloud as any)?.config?.provider || '').toLowerCase();
-                        return name.includes(kw) || type.includes(kw) || provider.includes(kw);
-                      }) : assignments.filter(a => {
-                        const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
-                        const t = String((a.cloud as any)?.type || '').toLowerCase();
-                        const isSecurity = pvRaw === 'cloudmap.csm';
-                        const isStorage = t === 'object_storage' || t === 'file_storage';
-                        return !isSecurity && !isStorage;
-                      }))}
+                      dataSource={
+                        assignmentKeyword.trim()
+                          ? assignments.filter((a) => assignmentMatchesKeyword(a, assignmentKeyword))
+                          : assignments.filter((a) => assignmentMatchesAssignTab(a, 'compute'))
+                      }
                       className="std-table"
                       rowKey="id"
                       pagination={{
@@ -1134,17 +1286,14 @@ const OrgManagePage: React.FC = () => {
                     </div>
                     <Table
                       columns={assignmentColumns}
-                      dataSource={(storageKeyword.trim() ? assignments.filter(a => {
-                        const kw = storageKeyword.trim().toLowerCase();
-                        const name = String((a.cloud as any)?.name || '').toLowerCase();
-                        const type = String((a.cloud as any)?.type || '').toLowerCase();
-                        const provider = String((a.cloud as any)?.config?.provider || '').toLowerCase();
-                        const isStorage = type === 'object_storage' || type === 'file_storage';
-                        return isStorage && (name.includes(kw) || type.includes(kw) || provider.includes(kw));
-                      }) : assignments.filter(a => {
-                        const type = String((a.cloud as any)?.type || '').toLowerCase();
-                        return type === 'object_storage' || type === 'file_storage';
-                      }))}
+                      dataSource={
+                        storageKeyword.trim()
+                          ? assignments.filter(
+                              (a) =>
+                                assignmentMatchesAssignTab(a, 'storage') && assignmentMatchesKeyword(a, storageKeyword),
+                            )
+                          : assignments.filter((a) => assignmentMatchesAssignTab(a, 'storage'))
+                      }
                       className="std-table"
                       rowKey="id"
                       pagination={{
@@ -1194,20 +1343,14 @@ const OrgManagePage: React.FC = () => {
                     </div>
                     <Table
                       columns={assignmentColumns}
-                      dataSource={(securityKeyword.trim() ? assignments.filter(a => {
-                        const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
-                        const isSecurity = pvRaw === 'cloudmap.csm';
-                        if (!isSecurity) return false;
-                        const kw = securityKeyword.trim().toLowerCase();
-                        const name = String((a.cloud as any)?.name || '').toLowerCase();
-                        const type = String((a.cloud as any)?.type || '').toLowerCase();
-                        const provider = String((a.cloud as any)?.config?.provider || '').toLowerCase();
-                        return name.includes(kw) || type.includes(kw) || provider.includes(kw);
-                      }) : assignments.filter(a => {
-                        const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
-                        const isSecurity = pvRaw === 'cloudmap.csm';
-                        return isSecurity;
-                      }))}
+                      dataSource={
+                        securityKeyword.trim()
+                          ? assignments.filter(
+                              (a) =>
+                                assignmentMatchesAssignTab(a, 'security') && assignmentMatchesKeyword(a, securityKeyword),
+                            )
+                          : assignments.filter((a) => assignmentMatchesAssignTab(a, 'security'))
+                      }
                       className="std-table"
                       rowKey="id"
                       pagination={{
@@ -1448,85 +1591,256 @@ const OrgManagePage: React.FC = () => {
         onClose={() => {
           setResourcePoolDrawerOpen(false);
           resourcePoolForm.resetFields();
+          setNsOptions([]);
+          setOccupiedNamespaceNames([]);
         }}
         onOk={() => resourcePoolForm.submit()}
         okText="分配"
       >
-        <Form form={resourcePoolForm} layout="vertical" onFinish={handleResourcePoolAssign}>
-          <Form.Item label="选择资源池" name="resourcePoolIds" rules={[{ required: true }]}> 
-            <Select mode={undefined} placeholder="请选择资源池" style={{ width: '100%' }} onChange={async (val: any) => {
-              try {
-                setNsOptions([]);
-                resourcePoolForm.setFieldsValue({ namespace: undefined });
-                const poolId = Array.isArray(val) ? val[0] : val;
-                const pool = (resourcePools || []).find((p:any)=> p.id === poolId);
-                const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
-                if (pvRaw === 'harvester' || pvRaw === 'cloudmap.private' || pvRaw === 'cloudmap.edge') {
-                  setNsLoading(true);
-                  const resp = await apiRequest(`/api/clouds/${poolId}/resources/harvester/namespaces`);
-                  const items: any[] = resp?.data?.data?.items || resp?.data?.items || (Array.isArray(resp) ? resp : []);
-                  setNsOptions(items);
+        <Form
+          form={resourcePoolForm}
+          layout="vertical"
+          initialValues={{ tenantNamespaceMode: 'auto' }}
+          onFinish={handleResourcePoolAssign}
+        >
+          <Form.Item label="选择资源池" name="resourcePoolIds" rules={[{ required: true }]}>
+            {/*
+              optionLabelProp="label"：搜索/语义用资源池名称。
+              labelRender：收起后由我们绘制「名称 + 右侧类型」，与下拉里布局一致（不会与 Option 的 children 叠两层）。
+            */}
+            <Select
+              placeholder="请选择资源池"
+              style={{ width: '100%' }}
+              optionLabelProp="label"
+              labelRender={(li) => {
+                const pool = assignableResourcePools.find((p: any) => p.id === li.value);
+                const provider = getCloudPoolDisplayProvider(pool);
+                return (
+                  <span
+                    style={{
+                      display: 'flex',
+                      width: '100%',
+                      minWidth: 0,
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{li.label}</span>
+                    {provider ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
+                        {provider}
+                      </Typography.Text>
+                    ) : null}
+                  </span>
+                );
+              }}
+              onChange={async (val: any) => {
+                try {
+                  setNsOptions([]);
+                  setOccupiedNamespaceNames([]);
+                  resourcePoolForm.setFieldsValue({
+                    tenantNamespaceMode: 'auto',
+                    existingTenantNamespace: undefined,
+                  });
+                  const poolId = Array.isArray(val) ? val[0] : val;
+                  const pool = (resourcePools || []).find((p: any) => p.id === poolId);
+                  const pvRaw = getCloudPoolProviderRaw(pool);
+                  if (isHarvesterLikeOperator(pvRaw)) {
+                    setNsLoading(true);
+                    const orgId = selectedOrg?.id;
+                    const [nsResp, occResp] = await Promise.all([
+                      apiRequest(`/api/clouds/${poolId}/resources/harvester/namespaces`),
+                      orgId
+                        ? apiRequest(
+                            `/api/tenants/organizations/${encodeURIComponent(orgId)}/resource-pools/occupied-namespaces?cloudId=${encodeURIComponent(poolId)}`,
+                            { skipCache: true },
+                          ).catch(() => null)
+                        : Promise.resolve(null),
+                    ]);
+                    const items: any[] =
+                      nsResp?.data?.data?.items ||
+                      nsResp?.data?.items ||
+                      (Array.isArray(nsResp) ? nsResp : []);
+                    setNsOptions(Array.isArray(items) ? items : []);
+                    const occNames = (occResp as { names?: unknown } | null)?.names;
+                    setOccupiedNamespaceNames(Array.isArray(occNames) ? (occNames as string[]) : []);
+                  }
+                } catch {
+                  setNsOptions([]);
+                  setOccupiedNamespaceNames([]);
+                } finally {
+                  setNsLoading(false);
                 }
-              } catch { setNsOptions([]); } finally { setNsLoading(false); }
-            }}>
-              {(resourcePools || []).filter((pool:any) => {
-                const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
-                const t = String(pool?.type || '').toLowerCase();
-                const isSec = pvRaw === 'cloudmap.csm';
-                const isStorage = t === 'object_storage' || t === 'file_storage';
-                if (assignType === 'security') return isSec;
-                if (assignType === 'storage') return isStorage;
-                return !isSec && !isStorage;
-              }).map((pool:any) => (
-                <Select.Option key={pool.id} value={pool.id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{pool.name}</span>
-                    <div style={{ fontSize: '12px', color: '#666' }}>
-                      {String(pool.config?.provider || pool.type || '-')}
+              }}
+            >
+              {assignableResourcePools.map((pool: any) => {
+                const provider = getCloudPoolDisplayProvider(pool);
+                return (
+                  <Select.Option key={pool.id} value={pool.id} label={pool.name}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: '100%',
+                      }}
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pool.name}</span>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
+                        {provider}
+                      </Typography.Text>
                     </div>
-                  </div>
-                </Select.Option>
-              ))}
+                  </Select.Option>
+                );
+              })}
             </Select>
           </Form.Item>
           <Form.Item noStyle shouldUpdate>
             {() => {
               const poolId = resourcePoolForm.getFieldValue('resourcePoolIds');
-              const pool = (resourcePools || []).find((p:any)=> p.id === (Array.isArray(poolId) ? poolId[0] : poolId));
-              const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
-              const needNs = pvRaw === 'harvester' || pvRaw === 'cloudmap.private' || pvRaw === 'cloudmap.edge';
+              const pool = (resourcePools || []).find((p: any) => p.id === (Array.isArray(poolId) ? poolId[0] : poolId));
+              const needNs = isHarvesterLikeOperator(getCloudPoolProviderRaw(pool));
               
               if (!needNs) return null;
 
+              const nsSectionWrap: React.CSSProperties = {
+                marginTop: 4,
+                padding: '14px 16px',
+                background: 'var(--ant-color-fill-quaternary, #fafafa)',
+                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                borderRadius: 8,
+              };
+
               return (
-                <>
-                  <Form.Item label="工作空间" style={{ marginBottom: 12 }}>
-                     <Checkbox checked disabled>自动生成 ns-{selectedOrg?.id}</Checkbox>
-                     <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于创建和管理该组织的专属资源（虚拟机、云盘等）</div>
+                <div style={nsSectionWrap}>
+                  <Typography.Text strong style={{ display: 'block'}}>
+                    组织工作命名空间
+                  </Typography.Text>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 12}}>
+                    决定该组织在计算池中的主命名空间。
+                  </Typography.Paragraph>
+
+                  <Form.Item
+                    name="tenantNamespaceMode"
+                    label={null}
+                    colon={false}
+                    style={{ marginBottom: 12 }}
+                    rules={[{ required: true, message: '请选择派生方式' }]}
+                  >
+                    <Radio.Group style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <Radio value="auto">
+                        <div style={{ lineHeight: 1.5 }}>
+                          <div style={{ fontWeight: 500 }}>自动生成</div>
+                          <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>
+                            按组织 ID 生成固定名称，推荐新租户
+                          </Typography.Text>
+                        </div>
+                      </Radio>
+                      <Radio value="existing">
+                        <div style={{ lineHeight: 1.5 }}>
+                          <div style={{ fontWeight: 500 }}>使用集群已有命名空间</div>
+                          <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>
+                            用于历史数据、迁移或故障恢复（名称须与集群中已有命名空间一致）
+                          </Typography.Text>
+                        </div>
+                      </Radio>
+                    </Radio.Group>
                   </Form.Item>
 
-                  <Form.Item label="模板空间" style={{ marginBottom: 12 }}>
-                     <Checkbox checked disabled>cloud-public</Checkbox>
-                     <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问公共模板和共享资源（固定分配）</div>
+                  <Form.Item noStyle shouldUpdate>
+                    {() =>
+                      (resourcePoolForm.getFieldValue('tenantNamespaceMode') || 'auto') === 'auto' ? (
+                        <Alert
+                          type="info"
+                          showIcon
+                          style={{ marginBottom: 0 }}
+                          message={
+                            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                              <span>创建新命名空间，用于业务资源（虚拟机、云盘等）。</span>
+                              <div>
+                                <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 8 }}>
+                                  命名空间
+                                </Typography.Text>
+                                <Tag style={{ fontFamily: 'monospace', marginInlineEnd: 0 }}>
+                                  ns-{selectedOrg?.id}
+                                </Tag>
+                              </div>
+                            </Space>
+                          }
+                        />
+                      ) : (
+                        <Form.Item
+                          name="existingTenantNamespace"
+                          label="目标命名空间"
+                          style={{ marginBottom: 0 }}
+                          rules={[
+                            ({ getFieldValue }) => ({
+                              validator(_rule, v) {
+                                if (getFieldValue('tenantNamespaceMode') !== 'existing') {
+                                  return Promise.resolve();
+                                }
+                                const arr = Array.isArray(v)
+                                  ? v
+                                  : v != null && String(v).trim()
+                                    ? [String(v).trim()]
+                                    : [];
+                                if (arr.length !== 1 || !String(arr[0]).trim()) {
+                                  return Promise.reject(new Error('请选择或输入恰好一个命名空间'));
+                                }
+                                return Promise.resolve();
+                              },
+                            }),
+                          ]}
+                          extra={
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              请先选择资源池以加载列表。已排除公共空间（
+                              <Typography.Text code style={{ fontSize: 11 }}>
+                                tower.io/scenario=public
+                              </Typography.Text>
+                              ）
+                            </Typography.Text>
+                          }
+                        >
+                          <Select
+                            mode="tags"
+                            maxCount={1}
+                            placeholder="从列表选择或手动输入一个名称"
+                            loading={nsLoading}
+                            style={{ width: '100%' }}
+                            tokenSeparators={[]}
+                          >
+                            {filteredAssignNsNames.map((name: string) => (
+                              <Select.Option key={name} value={name}>
+                                {name}
+                              </Select.Option>
+                            ))}
+                          </Select>
+                        </Form.Item>
+                      )
+                    }
                   </Form.Item>
 
-                  <Form.Item label="镜像空间" style={{ marginBottom: 12 }}>
-                     <Form.Item name="withDefault" valuePropName="checked" initialValue={true} noStyle>
-                       <Checkbox disabled>default</Checkbox>
-                     </Form.Item>
-                     <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问系统默认镜像资源</div>
-                  </Form.Item>
-
-                  {/* 额外命名空间功能暂时禁用 */}
-                  {/* <Form.Item label="额外命名空间" name="namespace">
-                    <Select mode="tags" placeholder="请选择或输入更多命名空间" loading={nsLoading} style={{ width: '100%' }}>
-                      {(nsOptions || []).map((x:any) => {
-                        const name = x?.metadata?.name || x?.name;
-                        return <Select.Option key={name} value={name}>{name}</Select.Option>;
-                      })}
-                    </Select>
-                  </Form.Item> */}
-                </>
+                  <div
+                    style={{
+                      marginTop: 14,
+                      paddingTop: 12,
+                      borderTop: '1px dashed var(--ant-color-border-secondary, #f0f0f0)',
+                    }}
+                  >
+                    <Typography.Text type="secondary" style={{ fontSize: 12, lineHeight: 1.6 }}>
+                      <Typography.Text strong style={{ fontSize: 12 }}>
+                        公共空间
+                      </Typography.Text>
+                      ：集群中带{' '}
+                      <Typography.Text code style={{ fontSize: 11 }}>
+                        tower.io/scenario=public
+                      </Typography.Text>
+                      的命名空间由租户控制台自动识别（模板、共享镜像等），无需在此配置。
+                    </Typography.Text>
+                  </div>
+                </div>
               );
             }}
           </Form.Item>

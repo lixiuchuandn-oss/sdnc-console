@@ -15,7 +15,8 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import IPPoolCreateModal from '../modals/IPPoolCreateModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterIpPool } from '../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
@@ -37,6 +38,7 @@ interface Props {
 }
 
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true, mode = 'ops' }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const isStandardView = mode === 'standard';
   const { user } = useAuth();
   const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.nads:write');

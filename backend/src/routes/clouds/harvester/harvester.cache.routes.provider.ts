@@ -56,6 +56,7 @@ import {
   harvesterNamespaceCreateHandler,
   harvesterNamespaceUpdateHandler,
   harvesterNamespaceDeleteHandler,
+  harvesterPublicNamespaceNamesHandler,
 } from './handlers/compute-cache-namespaces.handlers';
 import {
   harvesterNodeListHandler,
@@ -563,6 +564,13 @@ export function registerHarvesterCacheRoutesProvider(
   );
 
   // Namespaces 相关路由
+  const publicNamespaceNamesHandlers = {
+    harvester: harvesterPublicNamespaceNamesHandler,
+    cloudmap: harvesterPublicNamespaceNamesHandler,
+    'cloudmap.private': harvesterPublicNamespaceNamesHandler,
+    'cloudmap.edge': harvesterPublicNamespaceNamesHandler,
+  };
+
   const namespaceListHandlers = {
     harvester: harvesterNamespaceListHandler,
     cloudmap: harvesterNamespaceListHandler,
@@ -597,6 +605,12 @@ export function registerHarvesterCacheRoutesProvider(
     'cloudmap.private': harvesterNamespaceDeleteHandler,
     'cloudmap.edge': harvesterNamespaceDeleteHandler,
   };
+
+  router.get(
+    '/:id/resources/harvester/public-namespace-names',
+    checkAdminPermission,
+    createProviderRouter(publicNamespaceNamesHandlers)
+  );
 
   router.get(
     '/:id/resources/harvester/namespaces',

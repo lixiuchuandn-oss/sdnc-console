@@ -14,7 +14,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import { isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 
 /**
  * 组件入参说明
@@ -33,6 +33,7 @@ interface Props {
 }
 
 const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant, mode = 'ops' }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const isStandardView = mode === 'standard';
   // 工具栏过滤及详情抽屉状态
   const [keyword, setKeyword] = useState<string>('');
@@ -90,7 +91,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       d = d.filter((x: any) => x.type === typeFilter);
     }
     return d;
-  }, [dataSource, keyword, typeFilter]);
+  }, [dataSource, keyword, typeFilter, isTenant, isPublicNamespace]);
 
   // 根据当前数据自动生成类型过滤选项（包含 All）
   const serviceTypes = useMemo(() => {

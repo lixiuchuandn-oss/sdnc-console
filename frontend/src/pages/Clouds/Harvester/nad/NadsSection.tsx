@@ -50,7 +50,7 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import NadCreateModal from '../modals/NadCreateModal';
-import { isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import {
@@ -159,6 +159,7 @@ type Props = {
 };
 
 const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false, mode = 'ops' }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasNadsWrite = useMemo(
@@ -420,7 +421,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             }
           },
     });
-  }, [ensureNadsWrite, isTenant, checkNetworkUsage, checkSubnetDependency, cloudId, onRefresh]);
+  }, [ensureNadsWrite, isTenant, checkNetworkUsage, checkSubnetDependency, cloudId, onRefresh, isPublicNamespace]);
 
   /**
    * 批量删除选中的网络
@@ -1011,7 +1012,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasNadsWrite }} />;
       } 
     },
-  ], [hasNadsWrite, isTenant, isStandardView, subnetByNameLc, ovnSubnetsLoading, handleDelete, handleOpenOpsinfo]);
+  ], [hasNadsWrite, isTenant, isStandardView, subnetByNameLc, ovnSubnetsLoading, handleDelete, handleOpenOpsinfo, isPublicNamespace]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nads_table');

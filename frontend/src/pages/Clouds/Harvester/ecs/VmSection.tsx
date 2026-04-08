@@ -53,7 +53,8 @@ import HarvesterVmDetailDrawer from '../components/HarvesterVmDetailDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmCloneModal from '../modals/VmCloneModal';
-import { isPublicNamespace, cnVmStatus, VM_STATUS_MAP, getVmCloneTaskStatus } from '../../../../utils/harvesterUtils';
+import { cnVmStatus, VM_STATUS_MAP, getVmCloneTaskStatus } from '../../../../utils/harvesterUtils';
+import { useHarvesterPublicNamespaces } from '../context/HarvesterPublicNamespacesContext';
 import { OsIcon } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -109,6 +110,7 @@ type Props = {
  * Harvester 虚拟机列表展示与管理组件
  */
 const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, mode = 'ops', bordered = true, disableColumnSettings = false, onCreateVmOverride }) => {
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
   // 路由跳转：用于跳转到“创建实例”等页面
@@ -828,7 +830,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       if (st && sKey !== st) return false;
       return true;
     });
-  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant]);
+  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant, isPublicNamespace]);
 
   // 计算当前抽屉需要显示的记录（详情与运维信息共用当前选中 VM）
   const drawerRecord = useMemo(() => {

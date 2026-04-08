@@ -116,6 +116,7 @@ export const getNamespaceScenario = (namespace: any): 'public' | 'tenant' | null
  * @param options 选项（可选）
  * @param options.scenario 场景类型：'public' | 'tenant'，用于标识是公共空间还是租户空间
  * @param options.addFinalizer 是否添加终结器，默认为 true
+ * @param options.bindingLabels 灾备/关联用稳定 ID（写入 metadata.labels），如 tenant-id、organization-id、cloud-id
  */
 export const createHarvesterNamespace = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -124,6 +125,7 @@ export const createHarvesterNamespace = async (
   options?: {
     scenario?: 'public' | 'tenant';
     addFinalizer?: boolean;
+    bindingLabels?: Record<string, string>;
   },
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
@@ -148,6 +150,10 @@ export const createHarvesterNamespace = async (
     labels['tower.io/scenario'] = 'public';
   } else if (options?.scenario === 'tenant') {
     labels['tower.io/scenario'] = 'tenant';
+  }
+
+  if (options?.bindingLabels) {
+    Object.assign(labels, options.bindingLabels);
   }
   
   // 构建注解：合并用户提供的注解
@@ -179,6 +185,46 @@ export const createHarvesterNamespace = async (
     },
   } as any;
   return requestJson('POST', url, token, insecure, body);
+};
+
+/**
+ * 合并 PATCH 命名空间的 metadata.labels / metadata.annotations（已存在命名空间时补齐 Tower 关联信息）
+ */
+export const patchHarvesterNamespaceMetadata = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  name: string,
+  fragment: { labels?: Record<string, string>; annotations?: Record<string, string> },
+): Promise<any> => {
+  if (!fragment.labels && !fragment.annotations) {
+    return undefined;
+  }
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
+  const metadata: Record<string, unknown> = {};
+  if (fragment.labels && Object.keys(fragment.labels).length > 0) {
+    metadata.labels = fragment.labels;
+  }
+  if (fragment.annotations && Object.keys(fragment.annotations).length > 0) {
+    metadata.annotations = fragment.annotations;
+  }
+  if (Object.keys(metadata).length === 0) {
+    return undefined;
+  }
+  return requestJson(
+    'PATCH',
+    url,
+    token,
+    insecure,
+    { metadata },
+    { 'Content-Type': 'application/strategic-merge-patch+json' },
+  );
 };
 
 export const deleteHarvesterNamespace = async (

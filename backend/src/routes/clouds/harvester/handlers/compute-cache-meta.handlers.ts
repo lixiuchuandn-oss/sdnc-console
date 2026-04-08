@@ -23,6 +23,10 @@ import {
   syncHarvesterTemplates,
 } from '../../../../services/clouds/harvester/inventory';
 import {
+  buildTenantNamespaceInventoryWhere,
+  getPublicScenarioNamespaceNames,
+} from '../../../../services/clouds/harvester/publicNamespaces';
+import {
   createHarvesterSshKey,
   deleteHarvesterSshKey,
 } from '../../../../services/clouds/harvester/storage';
@@ -38,30 +42,10 @@ export async function harvesterSshKeyListHandler(req: Request, res: Response) {
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const repo = AppDataSource.getRepository(HarvesterSshKeyInventory);
 
-    // [多租户权限] 构建查询条件
-    let whereCondition: any = { cloudId: id };
     const reqAny = req as any;
     const isTenant =
       reqAny.user?.role === 'tenant' ||
       (reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device');
-        
-    // [修复逻辑] SSH Key 租户可见性策略调整
-    // 租户不仅能看到自己的 Namespace，还应该能看到公共 Namespace (default, harvester-public)
-    let tenantNamespace = '';
-    if (isTenant) {
-      const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-      const us = await userSpaceRepo.findOne({
-        where: {
-          tenantId: reqAny.user.tenantId,
-          cloudId: id,
-          status: 'active',
-        },
-      });
-      // 租户未分配空间，理论上只能看公共资源，暂时允许继续执行，但 tenantNamespace 为空
-      if (us && us.namespace) {
-        tenantNamespace = us.namespace;
-      }
-    }
 
     // [缓存策略] 自动同步逻辑
     const totalCount = await repo.count({ where: { cloudId: id } });
@@ -85,7 +69,28 @@ export async function harvesterSshKeyListHandler(req: Request, res: Response) {
     // 查询数据
     const items = await repo.find({ where: { cloudId: id } });
     let list = items.map((i) => i.rawData);
-    
+
+    if (isTenant) {
+      const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+      const orgId = reqAny.user?.organizationId;
+      const whereUs: any = { tenantId: reqAny.user.tenantId, cloudId: id, status: 'active' };
+      if (orgId) whereUs.organizationId = orgId;
+      const us = await userSpaceRepo.findOne({ where: whereUs });
+      if (!us) {
+        list = [];
+      } else {
+        const nsFromUs = (us.namespace || '')
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean);
+        const orgNs = orgId ? `ns-${orgId}` : '';
+        const merged = new Set(nsFromUs);
+        if (orgNs) merged.add(orgNs);
+        (await getPublicScenarioNamespaceNames(id)).forEach((n) => merged.add(n));
+        list = list.filter((item: any) => merged.has(String(item?.metadata?.namespace || '').trim()));
+      }
+    }
+
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -208,16 +213,25 @@ export async function harvesterCloudInitListHandler(req: Request, res: Response)
             
     if (isTenant) {
       const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-      const us = await userSpaceRepo.findOne({
-        where: {
-          tenantId: reqAny.user.tenantId,
-          cloudId: id,
-          status: 'active',
-        },
-      });
-      if (!us)
+      const orgId = reqAny.user?.organizationId;
+      const whereUs: any = {
+        tenantId: reqAny.user.tenantId,
+        cloudId: id,
+        status: 'active',
+      };
+      if (orgId) whereUs.organizationId = orgId;
+      const us = await userSpaceRepo.findOne({ where: whereUs });
+      if (!us) {
         return res.json({ message: '查询成功', data: { items: [] } });
-      if (us.namespace) whereCondition.namespace = us.namespace;
+      }
+      const allowed = (us.namespace || '')
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      whereCondition = await buildTenantNamespaceInventoryWhere(id, allowed);
+      if (Array.isArray(whereCondition) && whereCondition.length === 0) {
+        return res.json({ message: '查询成功', data: { items: [] } });
+      }
     }
 
     const count = await repo.count({ where: whereCondition });
@@ -295,14 +309,12 @@ export async function harvesterTemplateListHandler(req: Request, res: Response) 
       }
 
       const allowedNamespaces = Array.from(
-        new Set([
-          ...namespacesFromUserSpace,
-          'cloud-public',
-          'harvester-public',
-          'default',
-        ]),
+        new Set([...namespacesFromUserSpace, ...(await getPublicScenarioNamespaceNames(id))]),
       );
 
+      if (allowedNamespaces.length === 0) {
+        return res.json({ message: '查询成功', data: { items: [] } });
+      }
       whereCondition = { cloudId: id, namespace: In(allowedNamespaces) };
     }
 

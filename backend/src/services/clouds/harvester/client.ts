@@ -116,6 +116,7 @@ export {
 } from './cluster';
 export {
   createHarvesterNamespace,
+  patchHarvesterNamespaceMetadata,
   deleteHarvesterNamespace,
   listHarvesterNamespacesRaw,
   getHarvesterNamespaceRaw,

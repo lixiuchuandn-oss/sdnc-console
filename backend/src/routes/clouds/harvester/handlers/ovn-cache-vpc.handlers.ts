@@ -24,7 +24,7 @@
  * 子网清单接口（`ovn-cache-subnets.handlers.ts`）不在此做许可证校验。
  *
  * 【租户过滤】
- * GET 列表对租户按 `spec.namespaces` 与租户命名空间交集过滤；允许 `cloud-public` 视为公共可见。
+ * GET 列表对租户按 `spec.namespaces` 与租户命名空间交集过滤；允许绑定在 tower.io/scenario=public 的命名空间上的 VPC 对租户可见。
  */
 
 import { Request, Response } from 'express';
@@ -35,6 +35,7 @@ import { syncKubeOvnVpcs } from '../../../../services/clouds/harvester/inventory
 import { createKubeOvnVpc, deleteKubeOvnVpc, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
 import { licenseService } from '../../../../services/LicenseService';
 import { checkTenantAccess } from '../harvester.direct.helpers';
+import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
 
 /**
  * GET /:id/resources/vpcs — 获取 VPC 列表（Inventory）。
@@ -115,16 +116,14 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
     }));
 
     // [租户过滤] Kube-OVN 资源权限校验
-    // 检查 VPC 的 spec.namespaces 字段是否包含租户的命名空间，或是否为公共资源 (cloud-public)。
     if (isTenant) {
       const userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
+      const publicNameSet = new Set(await getPublicScenarioNamespaceNames(id));
       list = list.filter((vpc: any) => {
         const allowed = vpc?.spec?.namespaces || [];
         if (!Array.isArray(allowed)) return false;
         const isAllowed = userNamespaces.some((ns) => allowed.includes(ns));
-        const isPublic = allowed.some(
-          (n: string) => String(n).toLowerCase() === 'cloud-public',
-        );
+        const isPublic = allowed.some((n: string) => publicNameSet.has(String(n).trim()));
         return isAllowed || isPublic;
       });
     }
