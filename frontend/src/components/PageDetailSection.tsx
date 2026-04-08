@@ -100,7 +100,7 @@ export type PageDetailSectionProps = {
 
   // --- 新增 SharedToolbar 相关属性 ---
   /** 刷新回调函数，如果存在，会显示刷新按钮 */
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
   /** 刷新按钮的 loading 状态 */
   refreshLoading?: boolean;
   /** 

@@ -529,6 +529,7 @@ html, body, #root {
   font-size: 12px;
   line-height: 1.5;
   background-color: #fff;
+  max-height: 500px;
 }
 
 .lined-textarea-gutter {
@@ -538,8 +539,14 @@ html, body, #root {
   text-align: right;
   color: rgba(0, 0, 0, 0.45);
   user-select: none;
-  min-width: 32px;
-  overflow: hidden;
+  min-width: 40px;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.lined-textarea-gutter::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
 }
 
 .lined-textarea-line {
@@ -556,6 +563,25 @@ html, body, #root {
   overflow: auto;
   background-color: transparent;
   color: #1f2329;
+  max-height: 500px;
+}
+
+.lined-textarea-input::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.lined-textarea-input::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.lined-textarea-input::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.lined-textarea-input::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 /* 
@@ -569,6 +595,66 @@ html, body, #root {
   margin: 8px 0;
   padding-bottom: 6px;
   border-bottom: 1px solid #e5e7eb;
+}
+
+/* 
+
+ * 环境变量表格行样式
+
+ * 统一预留错误提示空间（22px），错误提示使用绝对定位不撑开布局
+
+ */
+
+.env-var-row {
+
+  margin-bottom: 0 !important;
+
+  padding-bottom: 22px;
+
+}
+
+
+
+.env-var-row .ant-form-item {
+
+  margin-bottom: 0 !important;
+
+  position: static;
+
+}
+
+
+
+.env-var-row .ant-col {
+
+  position: relative;
+
+}
+
+
+
+/* 错误提示使用绝对定位，显示在预留空间内，不影响布局 */
+
+.env-var-row .ant-form-item-explain {
+
+  position: absolute !important;
+
+  left: 0 !important;
+
+  top: 100% !important;
+
+  margin-top: 2px !important;
+
+  line-height: 1.4 !important;
+
+}
+
+
+
+.env-var-row .ant-form-item-explain-error {
+
+  font-size: 12px;
+
 }
 
 

@@ -1,7 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { Drawer, Tabs, Descriptions, Card, List, Tag } from 'antd';
-import LinedTextArea from '../../../../components/LinedTextArea';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { Drawer, Tabs, Descriptions, Tag, Button, Space, Switch, Select, Card, List } from 'antd';
+import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons';
+import CodeEditor from '../../../../components/CodeEditor';
+import JsonHighlight from '../../../../components/JsonHighlight';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
+import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
+import HarvesterEventsTab from './HarvesterEventsTab';
+import ServiceRelatedPodsTab from './ServiceRelatedPodsTab';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;
@@ -14,6 +19,7 @@ export interface HarvesterResourceDrawerProps {
   namespaces?: any[];
   volumes?: any[];
   images?: any[];
+  pods?: any[]; // Pod 列表，用于 Service 关联 Pod 展示
   onRefresh?: (force?: boolean) => void;
   onOpenReconfigure?: (vm: any) => void;
   onBackup?: (vm: any) => void;
@@ -22,18 +28,23 @@ export interface HarvesterResourceDrawerProps {
   onMigrate?: (vm: any) => void;
   onDelete?: (vm: any) => void;
   forceOpsMode?: boolean;
+  // Pod 操作回调
+  onViewPodDetail?: (pod: any) => void;
+  onViewPodLog?: (pod: any) => void;
+  onOpenPodTerminal?: (pod: any) => void;
+  // 返回按钮回调（用于嵌套抽屉）
+  onBack?: () => void;
+  // 隐藏关联 Pod Tab（用于服务拓扑）
+  hideRelatedPods?: boolean;
 }
 
 const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boolean }> = ({ cloudId, viewLink, active }) => {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
-
-  useEffect(() => {
-    if (active && cloudId && viewLink) {
-      loadContent();
-    }
-  }, [active, cloudId, viewLink]);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(10);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadContent = async () => {
     setLoading(true);
@@ -49,26 +60,97 @@ const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boole
     }
   };
 
+  useEffect(() => {
+    if (active && cloudId && viewLink) {
+      loadContent();
+    }
+  }, [active, cloudId, viewLink]);
+
+  useEffect(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (autoRefresh && active && cloudId && viewLink) {
+      intervalRef.current = setInterval(loadContent, refreshInterval * 1000);
+    }
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [autoRefresh, refreshInterval, active, cloudId, viewLink]);
+
   if (!viewLink) {
     return <div style={{ padding: 16, color: '#999' }}>无 View Link 数据</div>;
   }
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', background: '#fafafa', fontSize: '12px', color: '#666' }}>
-        Request URL: {viewLink}
+      <div style={{ 
+        padding: '8px 16px', 
+        borderBottom: '1px solid #f0f0f0', 
+        background: '#fafafa', 
+        display: 'flex', 
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '8px'
+      }}>
+        <div style={{ fontSize: '12px', color: '#666', flex: 1, minWidth: 200 }}>
+          Request URL: {viewLink}
+        </div>
+        <Space size="small">
+          <Switch
+            checked={autoRefresh}
+            onChange={setAutoRefresh}
+            checkedChildren="自动"
+            unCheckedChildren="手动"
+            size="small"
+          />
+          {autoRefresh && (
+            <Select
+              value={refreshInterval}
+              onChange={setRefreshInterval}
+              size="small"
+              style={{ width: 80 }}
+              options={[
+                { value: 5, label: '5秒' },
+                { value: 10, label: '10秒' },
+                { value: 30, label: '30秒' },
+                { value: 60, label: '1分钟' },
+              ]}
+            />
+          )}
+          <Button 
+            size="small" 
+            icon={<SyncOutlined spin={loading} />} 
+            onClick={loadContent}
+            loading={loading}
+          >
+            刷新
+          </Button>
+        </Space>
       </div>
-      {loading ? (
+      {loading && !content ? (
         <div style={{ padding: 16 }}>加载中...</div>
-      ) : error ? (
+      ) : error && !content ? (
         <div style={{ padding: 16, color: 'red' }}>错误: {error}</div>
       ) : (
-        <LinedTextArea
-          readOnly
-          value={content}
-          className="metadata-viewer"
-          style={{ flex: 1, border: 'none', borderRadius: 0 }}
-        />
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <style>{`
+            .view-link-editor { height: 100% !important; }
+            .view-link-editor .cm-editor { height: 100% !important; }
+            .view-link-editor .cm-scroller { overflow: auto !important; max-height: 100% !important; }
+          `}</style>
+          <CodeEditor
+            readOnly
+            value={content}
+            language="json"
+            className="view-link-editor"
+            style={{ border: 'none', borderRadius: 0 }}
+          />
+        </div>
       )}
     </div>
   );
@@ -80,11 +162,64 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
     onClose,
     resourceType,
     record,
-    activeTab = 'detail',
+    activeTab: externalActiveTab = 'detail',
     onTabChange,
     cloudId,
+    pods,
     forceOpsMode,
+    onViewPodDetail,
+    onViewPodLog,
+    onOpenPodTerminal,
+    onBack,
+    hideRelatedPods = false,
   } = props;
+
+  // 内部管理 tab 状态（当没有外部 onTabChange 时使用）
+  const [internalActiveTab, setInternalActiveTab] = useState('detail');
+  
+  // 判断是否使用内部状态
+  const useInternalState = !onTabChange;
+  const activeTab = useInternalState ? internalActiveTab : externalActiveTab;
+  
+  // 处理 tab 切换
+  const handleTabChange = useCallback((key: string) => {
+    if (useInternalState) {
+      setInternalActiveTab(key);
+    } else {
+      onTabChange?.(key);
+    }
+  }, [useInternalState, onTabChange]);
+
+  if (resourceType === 'VirtualMachine' && !forceOpsMode) {
+    return <HarvesterVmDetailDrawer {...props} />;
+  }
+
+  // 如果 record 没有 links.view，根据 resourceType 和 metadata 自动构造
+  const viewLink = record?.links?.view || (() => {
+    if (!record?.metadata?.name || !record?.metadata?.namespace) return null;
+    
+    const ns = record.metadata.namespace;
+    const name = record.metadata.name;
+    
+    // 根据资源类型构造 Kubernetes API 路径
+    const typeToPath: Record<string, string> = {
+      'Service': `/api/v1/namespaces/${ns}/services/${name}`,
+      'Ingress': `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
+      'Pod': `/api/v1/namespaces/${ns}/pods/${name}`,
+      'Node': `/api/v1/nodes/${name}`,
+      'Namespace': `/api/v1/namespaces/${name}`,
+      'Deployment': `/apis/apps/v1/namespaces/${ns}/deployments/${name}`,
+      'StatefulSet': `/apis/apps/v1/namespaces/${ns}/statefulsets/${name}`,
+      'DaemonSet': `/apis/apps/v1/namespaces/${ns}/daemonsets/${name}`,
+      'Job': `/apis/batch/v1/namespaces/${ns}/jobs/${name}`,
+      'CronJob': `/apis/batch/v1/namespaces/${ns}/cronjobs/${name}`,
+      'ConfigMap': `/api/v1/namespaces/${ns}/configmaps/${name}`,
+      'Secret': `/api/v1/namespaces/${ns}/secrets/${name}`,
+    };
+    
+    return typeToPath[resourceType] || null;
+  })();
+
 
   const drawerTitle = record 
     ? `${resourceType}: ${record.metadata?.name || record.name || ''}`
@@ -95,7 +230,16 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
 
   return (
     <Drawer
-      title={drawerTitle}
+      title={
+        <Space>
+          {onBack && (
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
+              返回
+            </Button>
+          )}
+          <span>{drawerTitle}</span>
+        </Space>
+      }
       open={open}
       onClose={onClose}
       placement="right"
@@ -113,7 +257,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
       <Tabs
         className="full-height-drawer-tabs"
         activeKey={activeTab}
-        onChange={onTabChange}
+        onChange={handleTabChange}
         items={[
           {
             key: 'detail',
@@ -450,7 +594,9 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                          if (value.length > 0 && typeof value[0] !== 'object') {
                              displayValue = value.join(', ');
                          } else {
-                             displayValue = <pre style={{ margin: 0, fontSize: 12, maxHeight: 200, overflow: 'auto' }}>{JSON.stringify(value, null, 2)}</pre>;
+                             displayValue = (
+                               <JsonHighlight value={JSON.stringify(value, null, 2)} />
+                             );
                          }
                       } else {
                           // Expand object keys (Second-level keys)
@@ -488,7 +634,9 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                                         </span>
                                         <span style={{ wordBreak: 'break-all', flex: 1, whiteSpace: 'pre-wrap' }}>
                                             {typeof subValue === 'object' && subValue !== null 
-                                                ? <pre style={{ margin: 0, fontSize: 12, fontFamily: 'Consolas, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{JSON.stringify(subValue, null, 2)}</pre>
+                                                ? (
+                                                  <JsonHighlight value={JSON.stringify(subValue, null, 2)} />
+                                                )
                                                 : String(subValue)}
                                         </span>
                                     </div>
@@ -508,10 +656,25 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
               </div>
             ),
           },
-          ...(record?.links?.view ? [{
+          ...(viewLink ? [{
             key: 'view_link',
             label: '实时数据 (View Link)',
-            children: <ViewLinkTab cloudId={cloudId} viewLink={record.links.view} active={activeTab === 'view_link'} />
+            children: <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />
+          }] : []),
+          // Service 类型显示关联 Pod Tab（除非 hideRelatedPods 为 true）
+          ...(resourceType === 'Service' && !hideRelatedPods ? [{
+            key: 'related_pods',
+            label: '关联 Pod',
+            children: (
+              <ServiceRelatedPodsTab
+                serviceSelector={record?.rawData?.spec?.selector || record?.spec?.selector}
+                pods={pods || []}
+                loading={false}
+                onViewDetail={onViewPodDetail}
+                onViewLog={onViewPodLog}
+                onOpenTerminal={onOpenPodTerminal}
+              />
+            )
           }] : []),
         ]}
       />

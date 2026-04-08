@@ -13,6 +13,7 @@ import { Router, Response } from 'express';
 import { requestJson } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { registerHarvesterCacheRoutesProvider } from './harvester.cache.routes.provider';
+import { registerHarvesterContainerRoutes } from './harvester.cache.container.routes';
 
 /**
  * 注册 Harvester 缓存路由
@@ -74,9 +75,12 @@ export const registerHarvesterRoutes = (
           error: error.message || String(error),
         });
       }
-    },
+    }
   );
 
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）
   registerHarvesterCacheRoutesProvider(router, checkAdminPermission);
+  
+  // 注册容器资源路由（独立模块）
+  registerHarvesterContainerRoutes(router, checkAdminPermission);
 };

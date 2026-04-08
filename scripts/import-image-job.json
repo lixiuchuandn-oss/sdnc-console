@@ -1,0 +1,54 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {
+    "name": "import-registry-image",
+    "namespace": "default"
+  },
+  "spec": {
+    "template": {
+      "spec": {
+        "nodeName": "master1",
+        "containers": [{
+          "name": "importer",
+          "image": "rancher/mirrored-library-nginx:1.24.0-alpine",
+          "command": ["/bin/sh", "-c"],
+          "args": ["set -ex; echo 'Installing tools...'; apk add --no-cache curl; echo 'Downloading registry.tar...'; curl -o /tmp/registry.tar http://192.168.2.22:8080/registry-arm64.tar; echo 'Finding containerd socket...'; SOCKET=/run/k3s/containerd/containerd.sock; echo 'Importing image...'; /host/ctr -a $SOCKET -n k8s.io images import --index-name docker.io/library/registry:2 /tmp/registry.tar; echo 'Verifying import...'; /host/ctr -a $SOCKET -n k8s.io images ls | grep registry; echo 'Done!'"],
+          "securityContext": {
+            "privileged": true
+          },
+          "volumeMounts": [{
+            "name": "run-dir",
+            "mountPath": "/run"
+          }, {
+            "name": "var-run",
+            "mountPath": "/var/run"
+          }, {
+            "name": "rancher-bin",
+            "mountPath": "/host"
+          }]
+        }],
+        "volumes": [{
+          "name": "run-dir",
+          "hostPath": {
+            "path": "/run",
+            "type": "Directory"
+          }
+        }, {
+          "name": "var-run",
+          "hostPath": {
+            "path": "/var/run",
+            "type": "Directory"
+          }
+        }, {
+          "name": "rancher-bin",
+          "hostPath": {
+            "path": "/var/lib/rancher/rke2/bin",
+            "type": "Directory"
+          }
+        }],
+        "restartPolicy": "OnFailure"
+      }
+    }
+  }
+}
