@@ -784,7 +784,8 @@ export const fetchHarvesterVncUrl = async (cloudId: string, id: string) => {
  * @returns Promise<any>
  */
 export const createKubeOvnSubnet = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/subnets`, payload);
+  // 禁用重试：5xx 重试会导致「集群已创建成功但客户端再 POST」类重复
+  return await apiPost(`/api/clouds/${cloudId}/resources/subnets`, payload, { enableRetry: false });
 };
 
 /**

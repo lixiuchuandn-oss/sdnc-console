@@ -92,6 +92,8 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const pendingVpcSubnetCrNameRef = useRef<string>('');
+  /** 同步防抖：连点时 React 的 submitting 尚未更新，需 ref 阻止第二次 submit */
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!open || !cloudId) return;
@@ -164,6 +166,8 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
         return;
       }
       if (!cloudId) return;
+      if (submitInFlightRef.current) return;
+      submitInFlightRef.current = true;
       const excludeIpsParsed =
         values.excludeIps && typeof values.excludeIps === 'string'
           ? String(values.excludeIps)
@@ -254,6 +258,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
         message.error(formatSubnetMutationError(e, isEditMode));
         throw e;
       } finally {
+        submitInFlightRef.current = false;
         setSubmitting(false);
       }
     },

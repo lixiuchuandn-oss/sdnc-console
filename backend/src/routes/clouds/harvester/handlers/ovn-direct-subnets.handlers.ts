@@ -49,7 +49,7 @@ import {
  *    - 必填：name（子网 CR 名，须符合 K8s DNS1123 子域名规则）、cidrBlock。
  *    - 主要可选：vpc、gateway、protocol、excludeIps、vlan、namespace（NAD/逻辑 provider 命名空间，默认 default）、
  *      annotations（含 tower.io/subnet-type）、provider（物理 ProviderNetwork 展示名，写入注解 tower.io/provider-network）、
- *      nat / natOutgoing、allowDhcp、acls、allowEWTraffic、finalizers、harvesterNadNetworkType（仅影响扁平 NAD 的 type 标签）等。
+ *      nat / natOutgoing、allowDhcp、acls、allowEWTraffic、finalizers 等。
  *
  * 3) 推导目标 VPC（targetVpc）
  *    - 若请求体显式传 vpc，则始终使用请求值（覆盖默认）。
@@ -77,8 +77,9 @@ import {
  *    - NAD metadata：
  *        · finalizers: tower.io/managed；
  *        · labels：至少 tower.io/creator=compute-tower；
- *        · 若 subnet-type=flat：须带 network.harvesterhci.io/type（无 VLAN→OverlayNetwork，有 VLAN→L2VlanNetwork，可用 harvesterNadNetworkType 覆盖）。
- *          Harvester 一般不会自动补该 type，需创建时写入。clusternetwork、ready 等可由集群侧后续补全，本接口不强制写入。
+ *        · 须带 network.harvesterhci.io/type=OverlayNetwork：Harvester subnet 准入校验（harvester-network-webhook
+ *          checkIfValidNad）要求与 Subnet 绑定的 NAD 该标签必须为 OverlayNetwork；缺省、L2VlanNetwork 或其它值会导致
+ *          「network type of nad is not kubeovn instead …」。VLAN/underlay 由 Subnet.spec.vlan 等表达，不通过该标签区分。
  *    - NAD spec.config：JSON 字符串，内为 CNI：type=kube-ovn，provider=logicalProvider，server_socket 等。
  *
  * 8) 创建 Subnet CR
@@ -274,8 +275,6 @@ export async function harvesterSubnetDirectCreateHandler(
       annotations,
       provider: providerFromBody,
       finalizers: finalizersFromBody,
-      /** 可选：覆盖 NAD 的 network.harvesterhci.io/type（扁平子网默认：无 VLAN→OverlayNetwork，有 VLAN→L2VlanNetwork） */
-      harvesterNadNetworkType,
     } = req.body;
 
     if (!name || !cidrBlock) {
@@ -483,24 +482,10 @@ export async function harvesterSubnetDirectCreateHandler(
       `${apiBase}/v1/cni.cncf.io.networkattachmentdefinitions`,
     ];
 
-    const defaultHarvesterNadType =
-      subnetTypeAnn === 'flat'
-        ? hasVlan
-          ? 'L2VlanNetwork'
-          : 'OverlayNetwork'
-        : '';
-    const harvesterTypeLabel =
-      typeof harvesterNadNetworkType === 'string' && harvesterNadNetworkType.trim().length > 0
-        ? harvesterNadNetworkType.trim()
-        : defaultHarvesterNadType;
-
+    /** Harvester subnet 准入要求 NAD 须带 network.harvesterhci.io/type=OverlayNetwork（见 harvester-network-controller subnet validator） */
     const nadLabels: Record<string, string> = {
       'tower.io/creator': 'compute-tower',
-      ...(subnetTypeAnn === 'flat' && harvesterTypeLabel
-        ? {
-            'network.harvesterhci.io/type': harvesterTypeLabel,
-          }
-        : {}),
+      'network.harvesterhci.io/type': 'OverlayNetwork',
     };
 
     const nadMetadata = {
@@ -566,11 +551,33 @@ export async function harvesterSubnetDirectCreateHandler(
         const msgLower = msg.toLowerCase();
         const detail = formatNadErrDetail(nadError);
         const detailLower = (detail || '').toLowerCase();
-        const nadBeingDeleted =
-          detailLower.includes('being deleted') ||
-          detailLower.includes('foregrounddeletion') ||
-          detailLower.includes('terminating');
+        const bodyObj = nadError?.body;
+        let k8sReason =
+          typeof bodyObj === 'object' && bodyObj !== null && 'reason' in bodyObj
+            ? String((bodyObj as { reason?: string }).reason || '').toLowerCase()
+            : '';
+        if (!k8sReason && detail && detail.trim().startsWith('{')) {
+          try {
+            k8sReason = String(JSON.parse(detail).reason || '').toLowerCase();
+          } catch {
+            /* ignore */
+          }
+        }
         const isConflict = status === 409 || msgLower.includes('alreadyexists');
+        /**
+         * 并发或连点：第二次 POST NAD 会得到 409 + reason=AlreadyExists；K8s message 可能同时含
+         * "being deleted" 与 "already exists"，若先走「正在删除」会误 return。AlreadyExists 一律视为 NAD 已存在。
+         */
+        if (isConflict && k8sReason === 'alreadyexists') {
+          nadCreatedOrExists = true;
+          createdNewNad = false;
+          break;
+        }
+        const nadBeingDeleted =
+          (detailLower.includes('being deleted') ||
+            detailLower.includes('foregrounddeletion') ||
+            detailLower.includes('terminating')) &&
+          k8sReason !== 'alreadyexists';
         if (isConflict && nadBeingDeleted) {
           if (!res.headersSent) {
             res.status(409).json({

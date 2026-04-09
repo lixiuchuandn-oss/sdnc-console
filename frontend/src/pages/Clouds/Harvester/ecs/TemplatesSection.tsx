@@ -98,6 +98,14 @@ const getTemplateLatestVersion = (tpl: any): string => {
 /** 从模板快速创建 VM：输入框 placeholder 与空值校验提示须一致 */
 const QUICK_CREATE_VM_NAME_HINT = '请输入云主机名称（支持中文）';
 
+/** 临时：按模板 metadata.name 隐藏系统/底座模板（前端硬编码，后续可删） */
+const HIDDEN_VM_TEMPLATE_NAMES = new Set([
+  'windows-raw-image-base-template',
+  'windows-iso-image-base-template',
+  'iso-image-base-template',
+  'raw-image-base-template',
+]);
+
 /**
  * TemplatesSection 组件
  *
@@ -460,10 +468,12 @@ const TemplatesSection: React.FC<Props> = ({
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_templates_table');
 
   /**
-   * 基础数据（租户权限过滤）
+   * 基础数据（租户权限过滤 + 临时隐藏底座模板名）
    */
   const baseData = useMemo(() => {
-    return templates;
+    return templates.filter(
+      (t: any) => !HIDDEN_VM_TEMPLATE_NAMES.has(getTemplateName(t)),
+    );
   }, [templates]);
 
   /**
