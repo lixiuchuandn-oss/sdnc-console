@@ -25,6 +25,10 @@
  *
  * 【租户过滤】
  * GET 列表对租户按 `spec.namespaces` 与租户命名空间交集过滤；允许绑定在 tower.io/scenario=public 的命名空间上的 VPC 对租户可见。
+ *
+ * 【默认列表范围】
+ * 由查询参数 **`ovnNetworkScope`**（必填）控制：`vpc` / `underlay` / `all`，见 `kubeOvnNetworkScope.ts` 与
+ * `docs/Harvester-OVN-网络接口分域规范.md`。
  */
 
 import { Request, Response } from 'express';
@@ -35,7 +39,14 @@ import { syncKubeOvnVpcs } from '../../../../services/clouds/harvester/inventory
 import { createKubeOvnVpc, deleteKubeOvnVpc, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
 import { licenseService } from '../../../../services/LicenseService';
 import { checkTenantAccess } from '../harvester.direct.helpers';
-import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
+import {
+  getPublicScenarioNamespaceNames,
+  mergePublicScenarioNamespacesFromQuery,
+} from '../../../../services/clouds/harvester/publicNamespaces';
+import {
+  ovnNetworkScopeFromAnnotations,
+  parseRequiredOvnNetworkScopeListQuery,
+} from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 
 /**
  * GET /:id/resources/vpcs — 获取 VPC 列表（Inventory）。
@@ -43,6 +54,11 @@ import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/har
  */
 export async function harvesterVpcListHandler(req: Request, res: Response) {
   try {
+    const parsedScope = parseRequiredOvnNetworkScopeListQuery(req);
+    if (!parsedScope.ok) {
+      return res.status(parsedScope.status).json({ message: parsedScope.message });
+    }
+
     if (!licenseService.hasFeature('network.ovn.vpc')) {
       return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
     }
@@ -115,18 +131,35 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
       view: i.view,
     }));
 
-    // [租户过滤] Kube-OVN 资源权限校验
+    // [租户过滤] Kube-OVN 资源权限校验；mergePublicScenarioNamespaces=false 时不放宽「公共场景」VPC
     if (isTenant) {
       const userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
-      const publicNameSet = new Set(await getPublicScenarioNamespaceNames(id));
-      list = list.filter((vpc: any) => {
-        const allowed = vpc?.spec?.namespaces || [];
-        if (!Array.isArray(allowed)) return false;
-        const isAllowed = userNamespaces.some((ns) => allowed.includes(ns));
-        const isPublic = allowed.some((n: string) => publicNameSet.has(String(n).trim()));
-        return isAllowed || isPublic;
-      });
+      const mergePublic = mergePublicScenarioNamespacesFromQuery(req);
+      if (mergePublic) {
+        const publicNameSet = new Set(await getPublicScenarioNamespaceNames(id));
+        list = list.filter((vpc: any) => {
+          const allowed = vpc?.spec?.namespaces || [];
+          if (!Array.isArray(allowed)) return false;
+          const isAllowed = userNamespaces.some((ns) => allowed.includes(ns));
+          const isPublic = allowed.some((n: string) => publicNameSet.has(String(n).trim()));
+          return isAllowed || isPublic;
+        });
+      } else {
+        list = list.filter((vpc: any) => {
+          const allowed = vpc?.spec?.namespaces || [];
+          if (!Array.isArray(allowed)) return false;
+          return userNamespaces.some((ns) => allowed.includes(ns));
+        });
+      }
     }
+
+    const scopeQ = parsedScope.scope;
+    if (scopeQ === 'vpc') {
+      list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'vpc');
+    } else if (scopeQ === 'underlay') {
+      list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'underlay');
+    }
+    // scopeQ === 'all'：不分域
 
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {

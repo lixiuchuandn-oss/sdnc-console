@@ -433,9 +433,19 @@ export const fetchCloudVpcs = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchCloudProviderEcs = async (cloudId: string, force: boolean = false) => {
+export const fetchCloudProviderEcs = async (
+  cloudId: string,
+  force: boolean = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const token = getToken();
-  const qs = force ? '?force=true' : '';
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  if (mergePublicScenarioNamespaces !== undefined) {
+    params.set('mergePublicScenarioNamespaces', mergePublicScenarioNamespaces ? 'true' : 'false');
+  }
+  const q = params.toString();
+  const qs = q ? `?${q}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs${qs}`, {
     method: 'GET',
     headers: {

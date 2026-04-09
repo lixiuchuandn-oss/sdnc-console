@@ -107,13 +107,11 @@ import {
 } from '../../../services/harvesterApi';
 
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
-import SimpleVmCreateModal from '../Harvester/modals/SimpleVmCreateModal';
 import VmSection from '../Harvester/ecs/VmSection';
 import TemplatesSection from '../Harvester/ecs/TemplatesSection';
 import ScheduleVmBackupsSection from '../Harvester/cbr/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from '../Harvester/cbr/VmRestoreTasksSection';
 import EipSection from '../Harvester/kube-ovn/sections/EipSection';
-import FipSection from '../Harvester/kube-ovn/sections/FipSection';
 import MonitoringOverview from '../Harvester/Monitoring/MonitoringOverview';
 import MonitoringAlerts from '../Harvester/Monitoring/MonitoringAlerts';
 import LogsConfig from '../Harvester/Monitoring/LogsConfig';
@@ -372,7 +370,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     useState<string>('backups');
   const [clusterNetworkSegmentKey, setClusterNetworkSegmentKey] =
     useState<string>('clusterNetworks');
-  const [simpleVmCreateOpen, setSimpleVmCreateOpen] = useState(false);
 
   // --- 原始数据缓存 (用于日志展示) ---
   const [rawEcs, setRawEcs] = useState<any | null>(null);
@@ -1104,6 +1101,34 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           );
         }
         break;
+      case 'vpcs':
+        if (checkPerm('clouds.networks:read') && ovnVpcEnabled) {
+          loadResource(
+            'vpcs',
+            () => fetchKubeOvnVpcs(cloudId, force, skipSync),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setKubeOvnVpcs(Array.isArray(list) ? list : []);
+              setRawVpcs(json || null);
+            },
+            force,
+          );
+        }
+        break;
+      case 'subnets':
+        if (checkPerm('clouds.networks:read')) {
+          loadResource(
+            'subnets',
+            () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setKubeOvnSubnets(Array.isArray(list) ? list : []);
+              setRawSubnets(json || null);
+            },
+            force,
+          );
+        }
+        break;
       case 'kube_ovn_group':
         // 进入 VPC 分组时不「一刀切」拉四类 NAT；仅按对应读权限拉取（与内层 Tab filter 一致），避免无原子仍请求
         if (!canViewKubeOvnGroup) break;
@@ -1119,6 +1144,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             force,
           );
         }
+        /* Cloudmap：FIP 入口暂缓联调，恢复时取消注释
         if (checkPerm('clouds.fips.vpc:read')) {
           loadResource(
             'fips',
@@ -1131,6 +1157,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             force,
           );
         }
+        */
         if (checkPerm('clouds.snat.vpc:read')) {
           loadResource(
             'snatRules',
@@ -1170,6 +1197,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             force,
           );
         }
+        /* Cloudmap：FIP 入口暂缓联调，恢复时取消注释
         if (checkPerm('clouds.fips.flat:read')) {
           loadResource(
             'flatFips',
@@ -1181,6 +1209,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             force,
           );
         }
+        */
         if (checkPerm('clouds.snat.flat:read')) {
           loadResource(
             'flatSnatRules',
@@ -1225,6 +1254,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               force,
             );
           }
+          /* Cloudmap：FIP 入口暂缓联调
           if (key === 'fips' || key === 'kubeovn_fips') {
             loadResource(
               'fips',
@@ -1237,6 +1267,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               force,
             );
           }
+          */
           if (key === 'snat' || key === 'kubeovn_snat') {
             loadResource(
               'snatRules',
@@ -1282,6 +1313,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             force,
           );
         }
+        /* Cloudmap：FIP 入口暂缓联调
         if (key === 'flat_kubeovn_fips' && checkPerm('clouds.fips.flat:read')) {
           loadResource(
             'flatFips',
@@ -1293,6 +1325,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             force,
           );
         }
+        */
         if (key === 'flat_kubeovn_snat' && checkPerm('clouds.snat.flat:read')) {
           loadResource(
             'flatSnatRules',
@@ -2383,8 +2416,46 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                                   cloudId={cloudId}
                                   nsValue={nsFilter || undefined}
                                   nodeValue={nodeFilter || undefined}
-                                  onCreateVmOverride={() =>
-                                    setSimpleVmCreateOpen(true)
+                                  storageClasses={harvesterStorageClasses}
+                                  kubeSubnets={kubeOvnSubnets}
+                                  harvesterNads={harvesterNads}
+                                  capabilities={capabilities}
+                                  onReloadQuickCreateSubnets={
+                                    canReadFlatSubnets ||
+                                    canReadVpcSubnets ||
+                                    checkPerm('clouds:read')
+                                      ? () =>
+                                          loadResource(
+                                            'subnets',
+                                            () =>
+                                              fetchKubeOvnSubnets(cloudId, true),
+                                            (json) => {
+                                              setKubeOvnSubnets(
+                                                json?.data?.items || [],
+                                              );
+                                            },
+                                            true,
+                                          )
+                                      : undefined
+                                  }
+                                  onReloadQuickCreateImages={
+                                    checkPerm('clouds.images:read')
+                                      ? () =>
+                                          loadResource(
+                                            'images',
+                                            () =>
+                                              fetchHarvesterImages(
+                                                cloudId,
+                                                true,
+                                              ),
+                                            (json) => {
+                                              setHarvesterImages(
+                                                json?.data?.items || [],
+                                              );
+                                            },
+                                            true,
+                                          )
+                                      : undefined
                                   }
                                   onNsChange={(v) => setNsFilter(v || '')}
                                   onNodeChange={(v) => setNodeFilter(v || '')}
@@ -3341,10 +3412,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                             );
                           }
                           if (i.key === 'flat_kubeovn_fips') {
-                            return (
-                              checkPerm('clouds.fips.flat:read') ||
-                              checkPerm('clouds:read')
-                            );
+                            // Cloudmap：扁平 FIP Tab 未挂载，保留分支
+                            return false;
                           }
                           if (i.key === 'flat_kubeovn_snat') {
                             return (
@@ -3393,8 +3462,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                                   onRefresh={async (
                                     force = false,
                                     silent = false,
+                                    opts,
                                   ) => {
                                     const skipSync = silent;
+                                    const vpcsAll = opts?.vpcsAll === true;
                                     loadResource(
                                       'vpcs',
                                       () =>
@@ -3402,6 +3473,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                                           cloudId,
                                           force,
                                           skipSync,
+                                          vpcsAll ? 'all' : 'vpc',
                                         ),
                                       (json) => {
                                         setKubeOvnVpcs(json?.data?.items || []);
@@ -3482,15 +3554,18 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                                   subnets={kubeOvnSubnets}
                                   vpcs={kubeOvnVpcs}
                                   loading={resourceLoading.eips}
-                                  onRefresh={() =>
-                                    loadTabResource('eips', true)
-                                  }
+                                  onRefresh={() => {
+                                    void loadTabResource('eips', true);
+                                    void loadTabResource('vpcs', true);
+                                    void loadTabResource('subnets', true);
+                                  }}
                                   networkScope="vpc"
                                 />
                                 <DebugJSON data={rawEips} show={showLog} />
                               </>
                             ),
                           },
+                          /* Cloudmap：FIP 入口暂缓联调，恢复时取消注释整个对象
                           {
                             key: 'kubeovn_fips',
                             label: '浮动IP',
@@ -3512,6 +3587,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                               </>
                             ),
                           },
+                          */
                           {
                             key: 'kubeovn_snat',
                             label: 'SNAT 网关',
@@ -3639,10 +3715,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                             );
                           }
                           if (i.key === 'kubeovn_fips') {
-                            return (
-                              checkPerm('clouds.fips.vpc:read') ||
-                              checkPerm('clouds:read')
-                            );
+                            // Cloudmap：FIP Tab 已注释，保留分支避免误显示
+                            return false;
                           }
                           if (i.key === 'kubeovn_snat') {
                             return (
@@ -3707,51 +3781,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                 ]
               : []),
           ]}
-        />
-        <SimpleVmCreateModal
-          open={simpleVmCreateOpen}
-          onClose={() => setSimpleVmCreateOpen(false)}
-          cloudId={cloudId}
-          images={harvesterImages}
-          storageClasses={harvesterStorageClasses}
-          capabilities={capabilities}
-          kubeSubnets={kubeOvnSubnets}
-          harvesterNads={harvesterNads}
-          onReloadSubnets={
-            canReadFlatSubnets || canReadVpcSubnets || checkPerm('clouds:read')
-              ? () =>
-                  loadResource(
-                    'subnets',
-                    () => fetchKubeOvnSubnets(cloudId, true),
-                    (json) => {
-                      setKubeOvnSubnets(json?.data?.items || []);
-                    },
-                    true,
-                  )
-              : undefined
-          }
-          onReloadImages={
-            checkPerm('clouds.images:read')
-              ? () =>
-                  loadResource(
-                    'images',
-                    () => fetchHarvesterImages(cloudId, true),
-                    (json) => {
-                      setHarvesterImages(json?.data?.items || []);
-                    },
-                    true,
-                  )
-              : undefined
-          }
-          existingVms={ecs}
-          onCreated={async () => {
-            try {
-              await apiPost(`/api/clouds/${cloudId}/sync`);
-            } catch {
-              /* ignore */
-            }
-            await refreshVms(false);
-          }}
         />
       </PageDetailContainer>
     </HarvesterPublicNamespacesProvider>

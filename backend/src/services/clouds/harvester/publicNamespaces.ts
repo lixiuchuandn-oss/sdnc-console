@@ -24,13 +24,26 @@ export async function getPublicScenarioNamespaceNames(cloudId: string): Promise<
 }
 
 /**
+ * GET 查询参数 `mergePublicScenarioNamespaces`：
+ * - 未传或 `true`：租户库存类查询仍合并 `tower.io/scenario=public` 命名空间（兼容旧客户端）
+ * - `false`：租户仅按 UserSpace 命名空间，不合并公共场景命名空间（云主机控制台「仅镜像/模板/扁平子网」走合并，其余走 false）
+ */
+export function mergePublicScenarioNamespacesFromQuery(req: { query?: any }): boolean {
+  const v = String(req.query?.mergePublicScenarioNamespaces ?? '').toLowerCase();
+  if (v === 'false' || v === '0') return false;
+  return true;
+}
+
+/**
  * 租户在库存类查询中的 OR 条件：UserSpace 允许的命名空间 + 公共场景命名空间（去重）
  */
 export async function buildTenantNamespaceInventoryWhere(
   cloudId: string,
   tenantNamespaces: string[],
+  options?: { mergePublicScenarioNamespaces?: boolean },
 ): Promise<Array<{ cloudId: string; namespace: string }>> {
-  const publicNs = await getPublicScenarioNamespaceNames(cloudId);
+  const mergePublic = options?.mergePublicScenarioNamespaces !== false;
+  const publicNs = mergePublic ? await getPublicScenarioNamespaceNames(cloudId) : [];
   const merged = [
     ...tenantNamespaces.map((s) => String(s || '').trim()).filter(Boolean),
     ...publicNs,

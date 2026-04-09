@@ -10,7 +10,10 @@ import { HarvesterVmInventory } from '../../../../entities/harvester/HarvesterVm
 import { HarvesterVmiInventory } from '../../../../entities/harvester/HarvesterVmiInventory';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubevirtVms, syncKubevirtVmis } from '../../../../services/clouds/harvester/inventory';
-import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
+import {
+  getPublicScenarioNamespaceNames,
+  mergePublicScenarioNamespacesFromQuery,
+} from '../../../../services/clouds/harvester/publicNamespaces';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
 /**
@@ -146,7 +149,9 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
         }
       }
 
-      (await getPublicScenarioNamespaceNames(id)).forEach((n) => uniqueNamespaces.add(n));
+      if (mergePublicScenarioNamespacesFromQuery(req)) {
+        (await getPublicScenarioNamespaceNames(id)).forEach((n) => uniqueNamespaces.add(n));
+      }
 
       if (uniqueNamespaces.size > 0) {
         validNamespaces = Array.from(uniqueNamespaces);

@@ -75,7 +75,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                 placeholder="选择网络类型"
                 onChange={(v) => { 
                    const initialType =
-                     v === 'vpc' ? 'bridge' : v === 'flat_subnet' ? 'managedtap' : v === 'passthrough' ? 'sriov' : 'bridge';
+                     v === 'vpc' ? 'managedtap' : v === 'flat_subnet' ? 'managedtap' : v === 'passthrough' ? 'sriov' : 'bridge';
                    try {
                      form.setFieldsValue({
                        netMode: v,
@@ -238,7 +238,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                                try {
                                  const curr = form.getFieldValue('primaryNic') || {}; 
                                  // Reset subnet when VPC changes
-                                 form.setFieldsValue({ primaryNic: { ...curr, vpc: val, subnet: undefined, name: undefined, type: 'bridge' } }); 
+                                 form.setFieldsValue({ primaryNic: { ...curr, vpc: val, subnet: undefined, name: undefined, type: 'managedtap' } }); 
                                  // 重新加载子网列表，确保能获取到该VPC下的子网
                                  await reloadSubnets();
                                } catch {}
@@ -277,7 +277,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                                      try {
                                        const curr = form.getFieldValue('primaryNic') || {}; 
                                        // Subnet name IS the network name in Harvester/Kube-OVN
-                                       form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'bridge' } }); 
+                                       form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'managedtap' } }); 
                                      } catch {}
                                   }}
                                 />
@@ -317,7 +317,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                    mode === 'passthrough'
                      ? 'sriov'
                      : mode === 'vpc'
-                       ? 'bridge'
+                       ? 'managedtap'
                        : mode === 'flat_subnet'
                          ? 'managedtap'
                          : netName
@@ -326,7 +326,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                  const typeOptions = mode === 'passthrough'
                    ? PASSTHROUGH_VIRT_IFACE_OPTIONS
                    : mode === 'vpc'
-                     ? [ifaceTypeOption('bridge')]
+                     ? [ifaceTypeOption('managedtap')]
                      : mode === 'flat_subnet'
                        ? [ifaceTypeOption('managedtap')]
                        : (netName

@@ -1,30 +1,7 @@
 /**
- * ==============================================================================
- * 模块名称: Harvester 云控制台 (Harvester Cloud Console)
- * 文件路径: src/pages/Clouds/Console/CloudConsoleHarvester.tsx
- * ==============================================================================
+ * Cloudmap 云主机控制台 — 主内容区（类目 + 资源二级导航，透传数据与各 Section）
  *
- * [功能描述]
- * 租户侧 Harvester 云控制台主容器：通过“类目 + 资源”二级导航组织各资源页面，
- * 统一承载列表展示与刷新入口，并将必要的上下文数据（如 namespaces）透传到子模块。
- *
- * [核心逻辑]
- * 1. [二级导航]:
- *    - activeCategory / activeResource 驱动 Tabs 与资源下拉选择。
- * 2. [数据适配]:
- *    - 将 namespacesOptions 转换为对象数组，以复用 BackupsSection 的入参结构。
- * 3. [内容渲染]:
- *    - renderContent 根据 activeResource 渲染对应 Section，并透传 refresh handler。
- *
- * ------------------------------------------------------------------------------
- * [交互/依赖说明 (Dependencies & Interactions)]
- * ------------------------------------------------------------------------------
- * 1. 数据流向:
- *    上游容器(拉取 Harvester 资源) -> CloudConsoleHarvester -> 各 Section(渲染/操作)
- *
- * 2. 关键依赖/接口:
- *    - 各 Section 内部通过 services/harvesterApi 发起资源操作/刷新
- * ==============================================================================
+ * 数据由上层 `CloudConsole.tsx` 拉取后注入；本组件只负责导航与渲染子模块。
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
@@ -44,24 +21,28 @@ import SnapshotsSection from '../Harvester/ebs/sections/SnapshotsSection';
 import CloudInitsSection from '../Harvester/ecs/CloudInitsSection';
 import GpuSection from '../Harvester/cluster/GpusSection';
 import EipSection from '../Harvester/kube-ovn/sections/EipSection';
-import FipSection from '../Harvester/kube-ovn/sections/FipSection';
 import SnatSection from '../Harvester/kube-ovn/sections/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/sections/DnatSection';
 import VpcsSection from '../Harvester/kube-ovn/sections/VpcsSection';
 import UnderlaySubnetsSection from '../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 
+type NavResource = { key: string; label: string };
 
+type NavCategory = {
+  key: string;
+  label: string;
+  resources: NavResource[];
+};
+
+/** 左侧导航决定的顶部类目范围：`host`=云主机/云盘/整机，`flat`/`vpc`=对应网络，`all`=不过滤（兼容旧用法） */
+export type CloudConsoleLeftNavScope = 'host' | 'flat' | 'vpc' | 'all';
 
 /**
- * CloudConsoleHarvester Props 定义
- * @property cloudId - 云平台 ID
- * @property loading - 是否处于加载状态
- * @property namespacesOptions - 命名空间名称列表（字符串）
- * @property namespaces - 命名空间对象列表（供子模块复用）
- * @property onRefreshVms - 刷新实例列表
- * @property onRefreshVpcs - 刷新 VPC/子网列表
+ * CloudConsoleMainPanel Props
  */
 interface Props {
+  /** 与控制台左侧「产品」导航联动，过滤顶部 Tabs */
+  leftNavScope?: CloudConsoleLeftNavScope;
   cloudId: string;
   vms: any[];
   templates: any[];
@@ -76,19 +57,16 @@ interface Props {
   vpcs?: any[];
   subnets?: any[];
   eips?: any[];
-  fips?: any[];
   snatRules?: any[];
   dnatRules?: any[];
-  storageClasses?: any[]; // 添加存储类属性
+  storageClasses?: any[];
   loading: boolean;
-  
-  // Controlled Navigation State
+
   activeCategory: string;
   setActiveCategory: (category: string) => void;
   activeResource: string;
   setActiveResource: (resource: string) => void;
 
-  // VmSection specific props
   namespacesOptions: string[];
   namespaces?: any[];
   nodesOptions: string[];
@@ -106,7 +84,6 @@ interface Props {
   onUnpause?: (iid: string) => void;
   onDelete: (iid: string, deleteImage?: boolean) => void;
 
-  // Other Refresh Handlers
   onRefreshTemplates: (force?: boolean) => void;
   onRefreshSshKeys: () => void;
   onRefreshVolumes?: () => void;
@@ -119,16 +96,15 @@ interface Props {
   onRefreshGpus?: () => void;
   onRefreshVpcs?: () => void;
   onRefreshEips?: () => void;
-  onRefreshFips?: () => void;
   onRefreshSnatRules?: () => void;
   onRefreshDnatRules?: () => void;
 
   bordered?: boolean;
   showYaml?: boolean;
-  showSys?: boolean;
 }
 
-const CloudConsoleHarvester: React.FC<Props> = ({
+const CloudConsoleMainPanel: React.FC<Props> = ({
+  leftNavScope = 'all',
   cloudId,
   vms,
   templates,
@@ -143,13 +119,11 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   vpcs = [],
   subnets = [],
   eips = [],
-  fips = [],
   snatRules = [],
   dnatRules = [],
-  storageClasses = [], // 添加存储类解构
+  storageClasses = [],
   loading,
-  
-  // Controlled Navigation Props
+
   activeCategory,
   setActiveCategory,
   activeResource,
@@ -183,34 +157,23 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   onRefreshGpus,
   onRefreshVpcs,
   onRefreshEips,
-  onRefreshFips,
   onRefreshSnatRules,
   onRefreshDnatRules,
   bordered = true,
   showYaml = true,
-  showSys = true
 }) => {
   const { user } = useAuth();
   const { hasFeature } = useLicense();
   const ovnVpcEnabled = hasFeature('network.ovn.vpc');
-  
-  // [租户判断] 根据用户角色动态判断是否为租户
+
   const isTenantUser = useMemo(() => {
-    // 租户用户：role === 'tenant' 或者有 tenantId
     return user?.role === 'tenant' || !!user?.tenantId;
   }, [user]);
 
-  // [二级导航] 当前类目与资源：由 Props 驱动 (Controlled Component)
-  // const [activeCategory, setActiveCategory] = useState('compute');
-  // const [activeResource, setActiveResource] = useState('vm');
-
-  // [数据适配] BackupsSection 需要 { metadata: { name } } 结构的 namespaces
   const namespaceObjects = useMemo(() => {
-    return namespacesOptions.map(ns => ({ metadata: { name: ns } }));
+    return namespacesOptions.map((ns) => ({ metadata: { name: ns } }));
   }, [namespacesOptions]);
 
-  // [安全过滤] 过滤掉系统命名空间，仅透传业务命名空间给子组件 (VmSection/VpcsSection)
-  // 防止子组件意外展示或允许操作 kube-system 等敏感命名空间
   const filteredNamespaces = useMemo(() => {
     return (namespaces || []).filter((n: any) => {
       const name = n?.metadata?.name || n?.name || '';
@@ -218,9 +181,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     });
   }, [namespaces]);
 
-  // [结构配置] 类目与资源的二级导航配置
-  const tabConfig = useMemo(() => {
-    const base: any[] = [
+  const fullTabConfig = useMemo((): NavCategory[] => {
+    const base: NavCategory[] = [
       {
         key: 'compute',
         label: '云主机',
@@ -230,7 +192,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
           { key: 'template', label: '模板' },
           { key: 'image', label: '镜像' },
           { key: 'ssh', label: 'SSH密钥' },
-        ]
+        ],
       },
       {
         key: 'storage',
@@ -238,7 +200,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         resources: [
           { key: 'volume', label: '实例' },
           { key: 'volume-snapshot', label: '快照' },
-        ]
+        ],
       },
       {
         key: 'backup',
@@ -247,38 +209,79 @@ const CloudConsoleHarvester: React.FC<Props> = ({
           { key: 'snapshot', label: '快照' },
           { key: 'backup', label: '备份' },
           { key: 'schedule', label: '定时策略' },
-        ]
+        ],
       },
       {
         key: 'flatnet',
         label: '扁平',
-        resources: [
-          { key: 'flat-subnet', label: '子网' },
-        ]
+        resources: [{ key: 'flat-subnet', label: '子网' }],
       },
     ];
     if (ovnVpcEnabled) {
-      base.push({
-        key: 'vpc',
-        label: 'VPC',
-        resources: [
-          { key: 'vpc-subnet', label: '网络' },
-          { key: 'eip', label: 'EIP' },
-          { key: 'fip', label: 'FIP' },
-          { key: 'snat', label: 'SNAT' },
-          { key: 'dnat', label: 'DNAT' },
-        ]
-      });
+      base.push(
+        {
+          key: 'vpc-net',
+          label: 'VPC',
+          resources: [{ key: 'vpc-subnet', label: '网络' }],
+        },
+        {
+          key: 'vpc-nat',
+          label: 'NAT',
+          resources: [
+            { key: 'eip', label: 'EIP' },
+            { key: 'snat', label: 'SNAT' },
+            { key: 'dnat', label: 'DNAT' },
+          ],
+        },
+      );
     }
     return base;
   }, [ovnVpcEnabled]);
 
+  const tabConfig = useMemo((): NavCategory[] => {
+    if (leftNavScope === 'all') return fullTabConfig;
+    if (leftNavScope === 'host') {
+      return fullTabConfig.filter((c) => ['compute', 'storage', 'backup'].includes(c.key));
+    }
+    if (leftNavScope === 'flat') {
+      return fullTabConfig.filter((c) => c.key === 'flatnet');
+    }
+    if (leftNavScope === 'vpc') {
+      return fullTabConfig.filter((c) => c.key === 'vpc-net' || c.key === 'vpc-nat');
+    }
+    return fullTabConfig;
+  }, [fullTabConfig, leftNavScope]);
+
+  /** 左侧切换或过滤变化时，保证当前类目仍存在于 tabConfig */
   useEffect(() => {
-    if (!ovnVpcEnabled && activeCategory === 'vpc') {
+    if (tabConfig.length === 0) return;
+    const keys = tabConfig.map((c) => c.key);
+    if (!keys.includes(activeCategory)) {
+      const first = tabConfig[0];
+      setActiveCategory(first.key);
+      setActiveResource(first.resources[0]?.key ?? '');
+    }
+  }, [tabConfig, activeCategory, setActiveCategory, setActiveResource]);
+
+  useEffect(() => {
+    if (!ovnVpcEnabled && (activeCategory === 'vpc-net' || activeCategory === 'vpc-nat' || activeCategory === 'vpc')) {
       setActiveCategory('compute');
       setActiveResource('vm');
     }
   }, [activeCategory, ovnVpcEnabled, setActiveCategory, setActiveResource]);
+
+  /** 旧版单一 VPC 类目迁移为 VPC网络 / VPC NAT */
+  useEffect(() => {
+    if (activeCategory !== 'vpc') return;
+    setActiveCategory('vpc-net');
+    const next =
+      activeResource === 'fip'
+        ? 'eip'
+        : ['vpc-subnet', 'eip', 'snat', 'dnat'].includes(activeResource)
+          ? activeResource
+          : 'vpc-subnet';
+    setActiveResource(next);
+  }, [activeCategory, activeResource, setActiveCategory, setActiveResource]);
 
   /** NAD/VLAN、SLB、地址池、扁平安全组 已从控制台目录下线，旧状态迁到「扁平 · 子网」 */
   useEffect(() => {
@@ -292,18 +295,19 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     }
   }, [activeResource, setActiveResource]);
 
-  const getDefaultResource = (catKey: string) => {
-    const cat = tabConfig.find(c => c.key === catKey);
-    return cat ? cat.resources[0].key : '';
-  };
+  const getDefaultResource = useCallback(
+    (catKey: string) => {
+      const cat = tabConfig.find((c) => c.key === catKey);
+      return cat?.resources[0]?.key ?? '';
+    },
+    [tabConfig],
+  );
 
   const renderContent = useCallback(() => {
-    if (!ovnVpcEnabled && ['vpc-subnet', 'eip', 'fip', 'snat', 'dnat'].includes(activeResource)) {
+    if (!ovnVpcEnabled && ['vpc-subnet', 'eip', 'snat', 'dnat'].includes(activeResource)) {
       return <Empty description="未授权" />;
     }
-    // [内容渲染] 根据 activeResource 映射到具体 Section，并透传资源数据与刷新函数
     switch (activeResource) {
-      // Compute
       case 'vm':
         return (
           <VmSection
@@ -330,6 +334,12 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onDelete={onDelete}
             isTenant={isTenantUser}
             bordered={bordered}
+            storageClasses={storageClasses}
+            kubeSubnets={subnets}
+            harvesterNads={[]}
+            capabilities={null}
+            onReloadQuickCreateSubnets={onRefreshVpcs}
+            onReloadQuickCreateImages={onRefreshImages}
           />
         );
       case 'recycle-bin':
@@ -386,11 +396,10 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onRefresh={onRefreshGpus || (() => Promise.resolve())}
           />
         );
-      
-      // Storage
+
       case 'volume':
         return (
-          <VolumesSection 
+          <VolumesSection
             volumes={volumes}
             loading={loading}
             onRefresh={onRefreshVolumes}
@@ -417,7 +426,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         );
       case 'image':
         return (
-          <ImagesSection 
+          <ImagesSection
             images={images}
             loading={loading}
             onRefresh={onRefreshImages}
@@ -427,7 +436,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
           />
         );
 
-      // Backup
       case 'snapshot':
         return (
           <BackupsSection
@@ -468,35 +476,29 @@ const CloudConsoleHarvester: React.FC<Props> = ({
           />
         );
 
-      // 「扁平」类目：仅保留子网（Kube-OVN flat）；接替原 NAD/VLAN 网络
       case 'flat-subnet':
         return (
-          <UnderlaySubnetsSection
+          <UnderlaySubnetsSection cloudId={cloudId} mode="flat" displayMode="standard" showYaml={showYaml} />
+        );
+      case 'vpc-subnet':
+        return (
+          <VpcsSection
             cloudId={cloudId}
-            mode="flat"
-            displayMode="standard"
+            vpcs={vpcs}
+            subnets={subnets}
+            namespaces={filteredNamespaces}
+            loading={loading}
+            onRefresh={onRefreshVpcs}
+            bordered={bordered}
             showYaml={showYaml}
           />
         );
-      // VPC Network
-      case 'vpc-subnet':
-         return (
-             <VpcsSection
-                 cloudId={cloudId}
-                 vpcs={vpcs}
-                 subnets={subnets}
-                 namespaces={filteredNamespaces}
-                 loading={loading}
-                 onRefresh={onRefreshVpcs}
-                 bordered={bordered}
-                 showYaml={showYaml}
-             />
-         );
 
       case 'eip':
         return (
           <EipSection
             cloudId={cloudId}
+            networkScope="vpc"
             eips={eips}
             subnets={subnets}
             vpcs={vpcs}
@@ -505,23 +507,11 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             bordered={bordered}
           />
         );
-      case 'fip':
-        return (
-          <FipSection
-            cloudId={cloudId}
-            fips={fips}
-            eips={eips}
-            vpcs={vpcs}
-            subnets={subnets}
-            loading={loading}
-            onRefresh={onRefreshFips || (() => {})}
-            bordered={bordered}
-          />
-        );
       case 'snat':
         return (
           <SnatSection
             cloudId={cloudId}
+            networkScope="vpc"
             snatRules={snatRules}
             eips={eips}
             vpcs={vpcs}
@@ -535,6 +525,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         return (
           <DnatSection
             cloudId={cloudId}
+            networkScope="vpc"
             dnatRules={dnatRules}
             eips={eips}
             vpcs={vpcs}
@@ -563,7 +554,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     vpcs,
     subnets,
     eips,
-    fips,
     snatRules,
     dnatRules,
     storageClasses,
@@ -599,7 +589,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     onRefreshGpus,
     onRefreshVpcs,
     onRefreshEips,
-    onRefreshFips,
     onRefreshSnatRules,
     onRefreshDnatRules,
     bordered,
@@ -607,53 +596,55 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   ]);
 
   const tabItems = useMemo(() => {
-    // [二级导航] 非激活 Tab 仅显示标题；激活 Tab 渲染对应 Section 以降低无效渲染
-    return tabConfig.map(cat => {
+    return tabConfig.map((cat) => {
       const isActive = cat.key === activeCategory;
-      // [展示规则] 未选中时展示默认资源标签；选中时展示当前 activeResource 标签
       const currentResKey = isActive ? activeResource : cat.resources[0].key;
-      const currentResLabel = cat.resources.find((r: any) => r.key === currentResKey)?.label || cat.resources[0].label;
+      const currentResLabel =
+        cat.resources.find((r) => r.key === currentResKey)?.label ?? cat.resources[0].label;
 
       return {
         key: cat.key,
         label: (
           <Space size={4} align="center">
-            <span>{cat.label} {currentResLabel}</span>
+            <span>
+              {cat.label} {currentResLabel}
+            </span>
             <Dropdown
               menu={{
-                items: cat.resources.map((res: any) => ({
+                items: cat.resources.map((res) => ({
                   key: res.key,
                   label: res.label,
-                  onClick: (e: any) => {
+                  onClick: (e: { domEvent: { stopPropagation: () => void } }) => {
                     e.domEvent.stopPropagation();
                     setActiveCategory(cat.key);
                     setActiveResource(res.key);
-                  }
+                  },
                 })),
-                selectedKeys: [isActive ? activeResource : '']
+                selectedKeys: [isActive ? activeResource : ''],
               }}
               trigger={['click']}
             >
-              <span 
-                onClick={(e) => e.stopPropagation()} 
-                className="cloud-console-harvester-dropdown-trigger"
-              >
+              <span onClick={(e) => e.stopPropagation()} className="cloud-console-main-panel-dropdown-trigger">
                 <CaretDownFilled style={{ fontSize: 12 }} />
               </span>
             </Dropdown>
           </Space>
         ),
-        children: (
-          <div>
-             {isActive ? renderContent() : null}
-          </div>
-        )
+        children: <div>{isActive ? renderContent() : null}</div>,
       };
     });
   }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, renderContent]);
 
+  if (tabConfig.length === 0) {
+    return (
+      <div style={{ padding: 48, background: '#fff' }}>
+        <Empty description="当前未开通 VPC 网络能力，请在许可证中启用 network.ovn.vpc" />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ height: '100%', background: '#fff'}}>
+    <div style={{ height: '100%', background: '#fff' }}>
       <Tabs
         type="card"
         activeKey={activeCategory}
@@ -667,4 +658,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   );
 };
 
-export default CloudConsoleHarvester;
+export { shouldMergePublicScenarioForTenantConsole } from './cloudConsoleTenantPublicScope';
+
+export default CloudConsoleMainPanel;

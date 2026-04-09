@@ -53,6 +53,7 @@ import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../utils/
 import { renderMarkdownBold } from '../utils/markdown';
 import '../pages/Dashboard/Dashboard.css';
 import AdminSidebar from './AdminSidebar';
+import { CloudConsoleProHeaderSlotProvider, useCloudConsoleProHeaderSlot } from '../pages/Clouds/Console/CloudConsoleProHeaderSlotContext';
 
 const { Header, Content } = Layout;
 
@@ -204,6 +205,7 @@ const AdminLayout: React.FC = () => {
    */
   const ProHeader: React.FC = () => {
     const primaryColor = settings.primaryColor;
+    const { centerSlot } = useCloudConsoleProHeaderSlot();
 
     const headerTitle = settingsLoading ? '' : String(settings.headerTitle ?? '');
 
@@ -224,7 +226,7 @@ const AdminLayout: React.FC = () => {
           borderBottom: '1px solid ' + NAV_DIVIDER_COLOR,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%', flexShrink: 0 }}>
           {settings.headerIcon ? (
             <img src={settings.headerIcon} alt="Logo" style={{ height: 28, width: 'auto', display: 'block' }} />
           ) : (
@@ -236,7 +238,32 @@ const AdminLayout: React.FC = () => {
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%' }}>
+        {centerSlot ? (
+          <Divider
+            type="vertical"
+            style={{
+              height: 24,
+              margin: '0 10px',
+              borderColor: 'rgba(0,0,0,0.12)',
+              flexShrink: 0,
+            }}
+          />
+        ) : null}
+
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            justifyContent: 'flex-start',
+            alignItems: 'center',
+            padding: centerSlot ? '0 12px 0 0' : '0 12px',
+          }}
+        >
+          {centerSlot}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%', flexShrink: 0 }}>
           {user && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
@@ -955,6 +982,7 @@ const AdminLayout: React.FC = () => {
   // 检索关键词: render layout main 主渲染
   
   return (
+    <CloudConsoleProHeaderSlotProvider>
     <Layout style={{ height:'100vh', overflow:'hidden' }}>
       {/* 根据路径选择 Header 组件 */}
       {isProConsole ? <ProHeader /> : <StandardHeader />}
@@ -1286,6 +1314,7 @@ const AdminLayout: React.FC = () => {
         </Content>
       </Layout>
     </Layout>
+    </CloudConsoleProHeaderSlotProvider>
   );
 };
 

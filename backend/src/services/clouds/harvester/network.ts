@@ -1,7 +1,12 @@
 import { resolveHarvesterK8sApiBase } from '../../../routes/clouds/harvester/harvester.direct.helpers';
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
-import { KUBE_OVN_PUBLIC_VPC } from './kubeOvnNetworkScope';
+import {
+  formatTowerNamespacesAnnotation,
+  KUBE_OVN_PUBLIC_VPC,
+  TOWER_IO_NAMESPACES_ANNOTATION,
+  TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION,
+} from './kubeOvnNetworkScope';
 
 /**
  * 更新 Harvester/Kube-OVN 子网
@@ -762,18 +767,30 @@ export const createKubeOvnVpc = async (
     ...(payload.labels || {}),
   };
   
+  const mergedVpcAnnotations: Record<string, string> = {
+    ...(payload.annotations && typeof payload.annotations === 'object' ? payload.annotations : {}),
+  };
+  const nsCsv = formatTowerNamespacesAnnotation(payload.namespaces);
+  if (nsCsv) mergedVpcAnnotations[TOWER_IO_NAMESPACES_ANNOTATION] = nsCsv;
+  /** Tower 创建的均为业务 VPC 资源，与扁平 ovn-internal/ovn-cluster 域区分 */
+  mergedVpcAnnotations[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] = 'vpc';
+
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'Vpc',
     metadata: {
       name: payload.name,
-      annotations: payload.annotations,
+      ...(Object.keys(mergedVpcAnnotations).length > 0
+        ? { annotations: mergedVpcAnnotations }
+        : {}),
       finalizers,
       labels,
     },
     spec: {
       namespaces: payload.namespaces || [],
       staticRoutes: payload.staticRoutes || [],
+      /** 默认开启外网能力；调用方可传 false 关闭 */
+      enableExternal: typeof payload?.enableExternal === 'boolean' ? payload.enableExternal : true,
     }
   };
 

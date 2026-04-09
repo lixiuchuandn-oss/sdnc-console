@@ -14,19 +14,28 @@ import { KubeOvnNatRuleInventory } from '../../../../entities/kubeovn/KubeOvnNat
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { syncKubeOvnNatRules } from '../../../../services/clouds/harvester/inventory';
 import {
-  classifyFipOrDnat,
-  classifySnatRule,
-  filterItemsByScope,
+  filterItemsByOvnNetworkScopeForApi,
+  formatTowerNamespacesAnnotation,
+  getNamespacesFromKubeOvnSubnet,
+  getNamespacesFromKubeOvnVpc,
+  inferOvnScopeFromSnatSubnetRef,
   isUnderlayVpcName,
   KUBE_OVN_PUBLIC_VPC,
   ovnEipNameFromRule,
   OvnNetworkScope,
+  OvnNetworkScopeListQuery,
+  parseRequiredOvnNetworkScopeCreateQuery,
+  parseRequiredOvnNetworkScopeListQuery,
+  subnetRefToName,
+  TOWER_IO_NAMESPACES_ANNOTATION,
+  TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION,
 } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 import {
   listKubeOvnDnatRules,
   listKubeOvnFips,
   listKubeOvnSnatRules,
 } from '../../../../services/clouds/harvester/network';
+import { upsertVpcPolicyDstRouteForExternalSubnet } from './ovnInternalPublicSubnetSync';
 
 function getOriginFromEndpoint(endpoint: string): string {
   const base = (endpoint || '').replace(/\/+$/, '');
@@ -61,19 +70,9 @@ function dedupeOvnNatRules(list: any[]): any[] {
   return out;
 }
 
-/**
- * 扁平网络分域（/network-flat/ 或 scope=underlay）不应依赖「VPC 授权」license；
- * 仅 VPC 分域与未分域 legacy 接口保留 network.ovn.vpc 校验。
- */
-function shouldRequireOvnVpcLicense(req: any, scope: OvnNetworkScope | null): boolean {
-  const url = String(req.originalUrl || req.path || req.url || '');
-  if (url.includes('/network-flat/')) return false;
-  if (scope === 'underlay') return false;
-  return true;
-}
-
-function assertOvnVpcLicense(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
-  if (!shouldRequireOvnVpcLicense(req, scope)) return true;
+/** GET 列表：`ovnNetworkScope=underlay|all` 不校验 VPC License；`vpc` 须已开通 network.ovn.vpc */
+function assertOvnVpcLicenseForList(req: any, res: Response, scope: OvnNetworkScopeListQuery): boolean {
+  if (scope === 'underlay' || scope === 'all') return true;
   if (!licenseService.hasFeature('network.ovn.vpc')) {
     res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
     return false;
@@ -81,17 +80,42 @@ function assertOvnVpcLicense(req: any, res: Response, scope: OvnNetworkScope | n
   return true;
 }
 
-/** OVN CR：metadata.name 为技术 ID；可选展示名写入 tower.io/alias（与 VM 创建约定一致） */
+/** POST 创建：`underlay` 不校验 VPC License */
+function assertOvnVpcLicenseForCreate(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
+  if (scope === 'underlay') return true;
+  if (!licenseService.hasFeature('network.ovn.vpc')) {
+    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    return false;
+  }
+  return true;
+}
+
+/** DELETE 等：与历史未分域行为一致，须已开通 VPC 能力 */
+function assertOvnVpcLicenseStrict(req: any, res: Response): boolean {
+  if (!licenseService.hasFeature('network.ovn.vpc')) {
+    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    return false;
+  }
+  return true;
+}
+
+/** OVN CR：metadata.name 为技术 ID；可选 tower.io/alias；可选额外 Tower 注解（如 tower.io/namespaces） */
 function ovnCrMetadataWithOptionalAlias(
   name: string,
   alias: unknown,
+  extras?: Record<string, string | undefined>,
 ): { name: string; annotations?: Record<string, string> } {
   const n = String(name || '').trim();
   const a = typeof alias === 'string' ? alias.trim() : '';
-  if (a) {
-    return { name: n, annotations: { [TOWER_IO_ALIAS]: a } };
+  const ann: Record<string, string> = {};
+  if (a) ann[TOWER_IO_ALIAS] = a;
+  if (extras) {
+    for (const [k, v] of Object.entries(extras)) {
+      if (v != null && String(v).trim() !== '') ann[k] = String(v).trim();
+    }
   }
-  return { name: n };
+  if (Object.keys(ann).length === 0) return { name: n };
+  return { name: n, annotations: ann };
 }
 
 async function loadSubnetVpcMap(cloudId: string): Promise<Map<string, string>> {
@@ -105,68 +129,29 @@ async function loadSubnetVpcMap(cloudId: string): Promise<Map<string, string>> {
   return m;
 }
 
-/** 未绑定任何 FIP/SNAT/DNAT 的 EIP 在两侧列表均展示，便于创建规则时选用 */
-async function filterEipsByOvnScope(
-  items: any[],
-  scope: OvnNetworkScope,
-  cloud: any,
-  insecure: boolean,
-): Promise<any[]> {
-  let fips: any[] = [];
-  let snats: any[] = [];
-  let dnats: any[] = [];
-  try {
-    [fips, snats, dnats] = await Promise.all([
-      listKubeOvnFips({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
-      listKubeOvnSnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
-      listKubeOvnDnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
-    ]);
-  } catch {
-    return items;
-  }
-  const subnetMap = await loadSubnetVpcMap(cloud.id);
-  const usedUnderlay = new Set<string>();
-  const usedVpc = new Set<string>();
-  for (const r of fips) {
-    const n = ovnEipNameFromRule(r);
-    if (!n) continue;
-    if (classifyFipOrDnat(r) === 'underlay') usedUnderlay.add(n);
-    else usedVpc.add(n);
-  }
-  for (const r of snats) {
-    const n = ovnEipNameFromRule(r);
-    if (!n) continue;
-    const c = classifySnatRule(r, subnetMap);
-    if (c === 'underlay') usedUnderlay.add(n);
-    else if (c === 'vpc') usedVpc.add(n);
-    else {
-      usedVpc.add(n);
-    }
-  }
-  for (const r of dnats) {
-    const n = ovnEipNameFromRule(r);
-    if (!n) continue;
-    if (classifyFipOrDnat(r) === 'underlay') usedUnderlay.add(n);
-    else usedVpc.add(n);
-  }
-
-  return items.filter((eip) => {
-    const name = eip?.metadata?.name;
-    if (!name) return true;
-    const u = usedUnderlay.has(name);
-    const v = usedVpc.has(name);
-    if (!u && !v) return true;
-    if (scope === 'underlay') return u || !v;
-    return v || !u;
-  });
+/**
+ * 集群级 OVN CR（如 OvnEip）无 metadata.namespace；租户可见性须与创建时写入的
+ * `tower.io/namespaces`（镜像 VPC/子网 spec.namespaces）对齐。
+ */
+function crVisibleToTenantNamespaces(item: any, tenantNamespacesCsv: string | undefined): boolean {
+  if (!tenantNamespacesCsv) return false;
+  const metaNs = String(item?.metadata?.namespace ?? '').trim();
+  if (metaNs && isNamespaceAllowed(tenantNamespacesCsv, metaNs)) return true;
+  const annCsv = String(item?.metadata?.annotations?.[TOWER_IO_NAMESPACES_ANNOTATION] ?? '').trim();
+  if (!annCsv) return false;
+  return annCsv
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .some((ns) => isNamespaceAllowed(tenantNamespacesCsv, ns));
 }
 
 function applyNsFilter(items: any[], isTenant: boolean | undefined, tenantNamespace: string | undefined): any[] {
   if (isTenant) {
-    return tenantNamespace ? items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace)) : [];
+    return tenantNamespace ? items.filter((i: any) => crVisibleToTenantNamespaces(i, tenantNamespace)) : [];
   }
   if (tenantNamespace) {
-    return items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+    return items.filter((i: any) => crVisibleToTenantNamespaces(i, tenantNamespace));
   }
   return items;
 }
@@ -179,25 +164,19 @@ function filterOutSystemLrpEips(items: any[]): any[] {
 }
 
 export async function harvesterOvnEipListHandler(req: any, res: Response, next: any) {
-  return harvesterOvnEipListHandlerScoped(req, res, next, null);
-}
-
-export async function harvesterOvnEipListHandlerUnderlay(req: any, res: Response, next: any) {
-  return harvesterOvnEipListHandlerScoped(req, res, next, 'underlay');
-}
-
-export async function harvesterOvnEipListHandlerVpc(req: any, res: Response, next: any) {
-  return harvesterOvnEipListHandlerScoped(req, res, next, 'vpc');
+  const parsed = parseRequiredOvnNetworkScopeListQuery(req);
+  if (!parsed.ok) return res.status(parsed.status).json({ message: parsed.message });
+  return harvesterOvnEipListHandlerScoped(req, res, next, parsed.scope);
 }
 
 async function harvesterOvnEipListHandlerScoped(
   req: any,
   res: Response,
   next: any,
-  scope: OvnNetworkScope | null,
+  scope: OvnNetworkScopeListQuery,
 ) {
   try {
-    if (!assertOvnVpcLicense(req, res, scope)) return;
+    if (!assertOvnVpcLicenseForList(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -229,8 +208,8 @@ async function harvesterOvnEipListHandlerScoped(
     const rawItems = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data) ? json.data : [];
     const userVisibleItems = filterOutSystemLrpEips(rawItems);
     let items = applyNsFilter(userVisibleItems, isTenant, tenantNamespace);
-    if (scope) {
-      items = await filterEipsByOvnScope(items, scope, cloud, insecure);
+    if (scope !== 'all') {
+      items = filterItemsByOvnNetworkScopeForApi(items, scope);
     }
     res.json({ message: '查询成功', data: { items } });
   } catch (error: any) {
@@ -240,13 +219,19 @@ async function harvesterOvnEipListHandlerScoped(
 }
 
 export async function harvesterOvnEipCreateHandler(req: any, res: Response, next: any) {
+  const p = parseRequiredOvnNetworkScopeCreateQuery(req);
+  if (!p.ok) return res.status(p.status).json({ message: p.message });
+  return harvesterOvnEipCreateHandlerScoped(req, res, next, p.scope);
+}
+
+async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next: any, routeScope: OvnNetworkScope) {
   try {
-    if (!assertOvnVpcLicense(req, res, null)) return;
+    if (!assertOvnVpcLicenseForCreate(req, res, routeScope)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
-    const { name, alias, externalSubnet, v4Ip, type, vpc } = req.body;
+    const { name, alias, externalSubnet, v4Ip, type, vpc, accessRouteCidr: accessRouteCidrRaw } = req.body;
     if (!name || !externalSubnet) {
       return res.status(400).json({ message: '缺少必要参数: name, externalSubnet' });
     }
@@ -257,7 +242,7 @@ export async function harvesterOvnEipCreateHandler(req: any, res: Response, next
       });
     }
 
-    const isVpcScope = String(req.originalUrl || req.path || '').includes('/network-vpc/');
+    const isVpcScope = routeScope === 'vpc';
     const vpcName = String(vpc ?? '').trim();
     if (isVpcScope && !vpcName) {
       return res.status(400).json({ message: '缺少必要参数: vpc' });
@@ -270,29 +255,83 @@ export async function harvesterOvnEipCreateHandler(req: any, res: Response, next
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
     const subnetName = String(externalSubnet ?? '').trim();
 
+    /** VPC 分域创建 EIP：同步业务 VPC 的 extraExternalSubnets + policyDst 路由（下一跳=公共子网网关） */
     if (vpcName && subnetName && !isUnderlayVpcName(vpcName)) {
-      const vpcUrl = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(vpcName)}`;
-      const currentVpc = await getJsonOnce(vpcUrl, cloud.secretKey || '', insecure);
-      if (currentVpc?.spec) {
-        const extra: string[] = Array.isArray(currentVpc.spec.extraExternalSubnets)
-          ? [...currentVpc.spec.extraExternalSubnets]
-          : [];
-        if (!extra.includes(subnetName)) {
-          extra.push(subnetName);
-          const updatedVpc = {
-            ...currentVpc,
-            spec: {
-              ...currentVpc.spec,
-              extraExternalSubnets: extra,
-            },
-          };
-          await requestJson('PUT', vpcUrl, cloud.secretKey || '', insecure, updatedVpc);
+      const routeCidrIn = String(accessRouteCidrRaw ?? '0.0.0.0/0').trim() || '0.0.0.0/0';
+      if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/\d{1,2}$/.test(routeCidrIn)) {
+        return res.status(400).json({
+          message: '可访问范围 CIDR 格式无效，应为 IPv4 CIDR（如 0.0.0.0/0 或 10.0.0.0/8）',
+          code: 'EIP_ACCESS_ROUTE_CIDR_INVALID',
+        });
+      }
+      const prefixBits = Number(routeCidrIn.split('/')[1]);
+      if (!Number.isInteger(prefixBits) || prefixBits < 0 || prefixBits > 32) {
+        return res.status(400).json({
+          message: '可访问范围 CIDR 前缀长度须在 0–32 之间',
+          code: 'EIP_ACCESS_ROUTE_CIDR_INVALID',
+        });
+      }
+
+      const subnetUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnetName)}`;
+      let currentSubnet: any = null;
+      try {
+        currentSubnet = await getJsonOnce(subnetUrl, cloud.secretKey || '', insecure);
+      } catch (e: any) {
+        const st = Number(e?.status ?? 0);
+        if (st === 404) {
+          return res.status(400).json({
+            message: `未找到公共子网 ${subnetName}，无法解析网关`,
+            code: 'EIP_EXTERNAL_SUBNET_NOT_FOUND',
+          });
         }
+        throw e;
+      }
+      const gw = String(currentSubnet?.spec?.gateway ?? '').trim();
+      if (!gw) {
+        return res.status(400).json({
+          message: '所选公共子网未配置网关，无法写入 VPC 静态路由',
+          code: 'EIP_EXTERNAL_SUBNET_GATEWAY_REQUIRED',
+        });
+      }
+
+      try {
+        await upsertVpcPolicyDstRouteForExternalSubnet({
+          harvesterParams: {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey || '',
+            insecure,
+          } as any,
+          vpcName,
+          externalSubnetName: subnetName,
+          gateway: gw,
+          routeCidr: routeCidrIn,
+        });
+      } catch (syncErr: any) {
+        if (!res.headersSent) {
+          res.status(500).json({
+            message: '同步 VPC 外网路由失败',
+            error: syncErr?.message || String(syncErr),
+            code: 'EIP_VPC_ROUTE_SYNC_FAILED',
+          });
+        }
+        return;
       }
     }
 
+    const token = cloud.secretKey || '';
+    const nsListForEip =
+      vpcName && !isUnderlayVpcName(vpcName)
+        ? await getNamespacesFromKubeOvnVpc(origin, vpcName, token, insecure)
+        : await getNamespacesFromKubeOvnSubnet(origin, subnetName, token, insecure);
+    const nsCsvEip = formatTowerNamespacesAnnotation(nsListForEip);
+    const eipOvnScope: OvnNetworkScope =
+      vpcName && !isUnderlayVpcName(vpcName) ? 'vpc' : 'underlay';
+
     const metadata = (() => {
-      const base = ovnCrMetadataWithOptionalAlias(name, alias);
+      const base = ovnCrMetadataWithOptionalAlias(name, alias, {
+        [TOWER_IO_NAMESPACES_ANNOTATION]: nsCsvEip || undefined,
+        [TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION]: eipOvnScope,
+      });
       const ann = { ...(base.annotations || {}) };
       if (vpcName) ann[TOWER_IO_VPC] = vpcName;
       return { name: base.name, ...(Object.keys(ann).length ? { annotations: ann } : {}) };
@@ -357,7 +396,7 @@ async function deleteKubeOvnClusterCr(
 
 export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicense(req, res, null)) return;
+    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -427,7 +466,7 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicense(req, res, null)) return;
+    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -454,7 +493,7 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicense(req, res, null)) return;
+    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -485,7 +524,7 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
 
 export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicense(req, res, null)) return;
+    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -515,25 +554,19 @@ export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, nex
 }
 
 export async function harvesterOvnFipListHandler(req: any, res: Response, next: any) {
-  return harvesterOvnFipListHandlerScoped(req, res, next, null);
-}
-
-export async function harvesterOvnFipListHandlerUnderlay(req: any, res: Response, next: any) {
-  return harvesterOvnFipListHandlerScoped(req, res, next, 'underlay');
-}
-
-export async function harvesterOvnFipListHandlerVpc(req: any, res: Response, next: any) {
-  return harvesterOvnFipListHandlerScoped(req, res, next, 'vpc');
+  const parsed = parseRequiredOvnNetworkScopeListQuery(req);
+  if (!parsed.ok) return res.status(parsed.status).json({ message: parsed.message });
+  return harvesterOvnFipListHandlerScoped(req, res, next, parsed.scope);
 }
 
 async function harvesterOvnFipListHandlerScoped(
   req: any,
   res: Response,
   next: any,
-  scope: OvnNetworkScope | null,
+  scope: OvnNetworkScopeListQuery,
 ) {
   try {
-    if (!assertOvnVpcLicense(req, res, scope)) return;
+    if (!assertOvnVpcLicenseForList(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -564,8 +597,8 @@ async function harvesterOvnFipListHandlerScoped(
 
     const rawItems = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data) ? json.data : [];
     let items = applyNsFilter(rawItems, isTenant, tenantNamespace);
-    if (scope) {
-      items = filterItemsByScope(items, scope, classifyFipOrDnat);
+    if (scope !== 'all') {
+      items = filterItemsByOvnNetworkScopeForApi(items, scope);
     }
     res.json({ message: '查询成功', data: { items } });
   } catch (error: any) {
@@ -575,25 +608,19 @@ async function harvesterOvnFipListHandlerScoped(
 }
 
 export async function harvesterOvnFipCreateHandler(req: any, res: Response, next: any) {
-  return harvesterOvnFipCreateHandlerScoped(req, res, next, null);
-}
-
-export async function harvesterOvnFipCreateHandlerUnderlay(req: any, res: Response, next: any) {
-  return harvesterOvnFipCreateHandlerScoped(req, res, next, 'underlay');
-}
-
-export async function harvesterOvnFipCreateHandlerVpc(req: any, res: Response, next: any) {
-  return harvesterOvnFipCreateHandlerScoped(req, res, next, 'vpc');
+  const p = parseRequiredOvnNetworkScopeCreateQuery(req);
+  if (!p.ok) return res.status(p.status).json({ message: p.message });
+  return harvesterOvnFipCreateHandlerScoped(req, res, next, p.scope);
 }
 
 async function harvesterOvnFipCreateHandlerScoped(
   req: any,
   res: Response,
   next: any,
-  scope: OvnNetworkScope | null,
+  scope: OvnNetworkScope,
 ) {
   try {
-    if (!assertOvnVpcLicense(req, res, scope)) return;
+    if (!assertOvnVpcLicenseForCreate(req, res, scope)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -621,11 +648,24 @@ async function harvesterOvnFipCreateHandlerScoped(
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源创建', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+    const token = cloud.secretKey || '';
+    const vpcStr = String(vpc).trim();
+    const nsListFip = await getNamespacesFromKubeOvnVpc(origin, vpcStr, token, insecure);
+    const nsCsvFip = formatTowerNamespacesAnnotation(nsListFip);
+    const fipOvnScope: OvnNetworkScope =
+      scope === 'underlay' || scope === 'vpc'
+        ? scope
+        : isUnderlayVpcName(vpcStr)
+          ? 'underlay'
+          : 'vpc';
     const candidates = [`${origin}/apis/kubeovn.io/v1/ovnfips`, `${origin}/apis/kubeovn.io/v1/ovn-fips`];
     const payload = {
       apiVersion: 'kubeovn.io/v1',
       kind: 'OvnFip',
-      metadata: ovnCrMetadataWithOptionalAlias(name, alias),
+      metadata: ovnCrMetadataWithOptionalAlias(name, alias, {
+        [TOWER_IO_NAMESPACES_ANNOTATION]: nsCsvFip || undefined,
+        [TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION]: fipOvnScope,
+      }),
       spec: {
         ovnEip,
         vpc,
@@ -662,25 +702,19 @@ async function harvesterOvnFipCreateHandlerScoped(
 }
 
 export async function harvesterOvnSnatCreateHandler(req: any, res: Response, next: any) {
-  return harvesterOvnSnatCreateHandlerScoped(req, res, next, null);
-}
-
-export async function harvesterOvnSnatCreateHandlerUnderlay(req: any, res: Response, next: any) {
-  return harvesterOvnSnatCreateHandlerScoped(req, res, next, 'underlay');
-}
-
-export async function harvesterOvnSnatCreateHandlerVpc(req: any, res: Response, next: any) {
-  return harvesterOvnSnatCreateHandlerScoped(req, res, next, 'vpc');
+  const p = parseRequiredOvnNetworkScopeCreateQuery(req);
+  if (!p.ok) return res.status(p.status).json({ message: p.message });
+  return harvesterOvnSnatCreateHandlerScoped(req, res, next, p.scope);
 }
 
 async function harvesterOvnSnatCreateHandlerScoped(
   req: any,
   res: Response,
   next: any,
-  scope: OvnNetworkScope | null,
+  scope: OvnNetworkScope,
 ) {
   try {
-    if (!assertOvnVpcLicense(req, res, scope)) return;
+    if (!assertOvnVpcLicenseForCreate(req, res, scope)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -690,9 +724,9 @@ async function harvesterOvnSnatCreateHandlerScoped(
       return res.status(400).json({ message: '缺少必要参数: name, ovnEip, vpcSubnet' });
     }
 
+    const subnetMap = await loadSubnetVpcMap(id);
     if (scope) {
-      const subnetMap = await loadSubnetVpcMap(id);
-      const snatClass = classifySnatRule({ spec: { vpcSubnet } }, subnetMap);
+      const snatClass = inferOvnScopeFromSnatSubnetRef({ spec: { vpcSubnet } }, subnetMap);
       if (snatClass === 'unknown') {
         return res.status(400).json({
           message:
@@ -716,11 +750,28 @@ async function harvesterOvnSnatCreateHandlerScoped(
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源创建', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+    const token = cloud.secretKey || '';
+    const snRefName = subnetRefToName(vpcSubnet) || String(vpcSubnet).trim();
+    const vpcResolved = subnetMap.get(snRefName);
+    const nsListSnat =
+      vpcResolved && !isUnderlayVpcName(vpcResolved)
+        ? await getNamespacesFromKubeOvnVpc(origin, vpcResolved, token, insecure)
+        : await getNamespacesFromKubeOvnSubnet(origin, vpcSubnet, token, insecure);
+    const nsCsvSnat = formatTowerNamespacesAnnotation(nsListSnat);
+    const snatOvnScope: OvnNetworkScope =
+      scope === 'underlay' || scope === 'vpc'
+        ? scope
+        : inferOvnScopeFromSnatSubnetRef({ spec: { vpcSubnet } }, subnetMap) === 'vpc'
+          ? 'vpc'
+          : 'underlay';
     const candidates = [`${origin}/apis/kubeovn.io/v1/ovnsnatrules`, `${origin}/apis/kubeovn.io/v1/ovn-snat-rules`];
     const payload = {
       apiVersion: 'kubeovn.io/v1',
       kind: 'OvnSnatRule',
-      metadata: ovnCrMetadataWithOptionalAlias(name, alias),
+      metadata: ovnCrMetadataWithOptionalAlias(name, alias, {
+        [TOWER_IO_NAMESPACES_ANNOTATION]: nsCsvSnat || undefined,
+        [TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION]: snatOvnScope,
+      }),
       spec: { ovnEip, vpcSubnet },
     };
 
@@ -769,25 +820,19 @@ async function harvesterOvnSnatCreateHandlerScoped(
 }
 
 export async function harvesterOvnSnatListHandler(req: any, res: Response, next: any) {
-  return harvesterOvnSnatListHandlerScoped(req, res, next, null);
-}
-
-export async function harvesterOvnSnatListHandlerUnderlay(req: any, res: Response, next: any) {
-  return harvesterOvnSnatListHandlerScoped(req, res, next, 'underlay');
-}
-
-export async function harvesterOvnSnatListHandlerVpc(req: any, res: Response, next: any) {
-  return harvesterOvnSnatListHandlerScoped(req, res, next, 'vpc');
+  const parsed = parseRequiredOvnNetworkScopeListQuery(req);
+  if (!parsed.ok) return res.status(parsed.status).json({ message: parsed.message });
+  return harvesterOvnSnatListHandlerScoped(req, res, next, parsed.scope);
 }
 
 async function harvesterOvnSnatListHandlerScoped(
   req: any,
   res: Response,
   next: any,
-  scope: OvnNetworkScope | null,
+  scope: OvnNetworkScopeListQuery,
 ) {
   try {
-    if (!assertOvnVpcLicense(req, res, scope)) return;
+    if (!assertOvnVpcLicenseForList(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -812,9 +857,9 @@ async function harvesterOvnSnatListHandlerScoped(
     }
     const items = await repo.find({ where: whereCondition });
     let list = items.map((i) => i.rawData).filter((item) => item != null);
-    const subnetMap = scope ? await loadSubnetVpcMap(id) : null;
-    if (scope && subnetMap) {
-      list = filterItemsByScope(list, scope, (raw) => classifySnatRule(raw, subnetMap));
+    list = applyNsFilter(list, isTenant, tenantNamespace);
+    if (scope !== 'all') {
+      list = filterItemsByOvnNetworkScopeForApi(list, scope);
     }
     list = dedupeOvnNatRules(list);
     res.json({ message: '查询成功', data: { items: list } });
@@ -825,25 +870,19 @@ async function harvesterOvnSnatListHandlerScoped(
 }
 
 export async function harvesterOvnDnatCreateHandler(req: any, res: Response, next: any) {
-  return harvesterOvnDnatCreateHandlerScoped(req, res, next, null);
-}
-
-export async function harvesterOvnDnatCreateHandlerUnderlay(req: any, res: Response, next: any) {
-  return harvesterOvnDnatCreateHandlerScoped(req, res, next, 'underlay');
-}
-
-export async function harvesterOvnDnatCreateHandlerVpc(req: any, res: Response, next: any) {
-  return harvesterOvnDnatCreateHandlerScoped(req, res, next, 'vpc');
+  const p = parseRequiredOvnNetworkScopeCreateQuery(req);
+  if (!p.ok) return res.status(p.status).json({ message: p.message });
+  return harvesterOvnDnatCreateHandlerScoped(req, res, next, p.scope);
 }
 
 async function harvesterOvnDnatCreateHandlerScoped(
   req: any,
   res: Response,
   next: any,
-  scope: OvnNetworkScope | null,
+  scope: OvnNetworkScope,
 ) {
   try {
-    if (!assertOvnVpcLicense(req, res, scope)) return;
+    if (!assertOvnVpcLicenseForCreate(req, res, scope)) return;
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -868,11 +907,24 @@ async function harvesterOvnDnatCreateHandlerScoped(
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源创建', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+    const token = cloud.secretKey || '';
+    const vpcDnat = String(vpc).trim();
+    const nsListDnat = await getNamespacesFromKubeOvnVpc(origin, vpcDnat, token, insecure);
+    const nsCsvDnat = formatTowerNamespacesAnnotation(nsListDnat);
+    const dnatOvnScope: OvnNetworkScope =
+      scope === 'underlay' || scope === 'vpc'
+        ? scope
+        : isUnderlayVpcName(vpcDnat)
+          ? 'underlay'
+          : 'vpc';
     const candidates = [`${origin}/apis/kubeovn.io/v1/ovndnatrules`, `${origin}/apis/kubeovn.io/v1/ovn-dnat-rules`];
     const payload = {
       apiVersion: 'kubeovn.io/v1',
       kind: 'OvnDnatRule',
-      metadata: ovnCrMetadataWithOptionalAlias(name, alias),
+      metadata: ovnCrMetadataWithOptionalAlias(name, alias, {
+        [TOWER_IO_NAMESPACES_ANNOTATION]: nsCsvDnat || undefined,
+        [TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION]: dnatOvnScope,
+      }),
       spec: {
         ovnEip,
         ipType: 'ip',
@@ -932,25 +984,19 @@ async function harvesterOvnDnatCreateHandlerScoped(
 }
 
 export async function harvesterOvnDnatListHandler(req: any, res: Response, next: any) {
-  return harvesterOvnDnatListHandlerScoped(req, res, next, null);
-}
-
-export async function harvesterOvnDnatListHandlerUnderlay(req: any, res: Response, next: any) {
-  return harvesterOvnDnatListHandlerScoped(req, res, next, 'underlay');
-}
-
-export async function harvesterOvnDnatListHandlerVpc(req: any, res: Response, next: any) {
-  return harvesterOvnDnatListHandlerScoped(req, res, next, 'vpc');
+  const parsed = parseRequiredOvnNetworkScopeListQuery(req);
+  if (!parsed.ok) return res.status(parsed.status).json({ message: parsed.message });
+  return harvesterOvnDnatListHandlerScoped(req, res, next, parsed.scope);
 }
 
 async function harvesterOvnDnatListHandlerScoped(
   req: any,
   res: Response,
   next: any,
-  scope: OvnNetworkScope | null,
+  scope: OvnNetworkScopeListQuery,
 ) {
   try {
-    if (!assertOvnVpcLicense(req, res, scope)) return;
+    if (!assertOvnVpcLicenseForList(req, res, scope)) return;
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
@@ -975,8 +1021,9 @@ async function harvesterOvnDnatListHandlerScoped(
     }
     const items = await repo.find({ where: whereCondition });
     let list = items.map((i) => i.rawData).filter((item) => item != null);
-    if (scope) {
-      list = filterItemsByScope(list, scope, classifyFipOrDnat);
+    list = applyNsFilter(list, isTenant, tenantNamespace);
+    if (scope !== 'all') {
+      list = filterItemsByOvnNetworkScopeForApi(list, scope);
     }
     list = dedupeOvnNatRules(list);
     res.json({ message: '查询成功', data: { items: list } });

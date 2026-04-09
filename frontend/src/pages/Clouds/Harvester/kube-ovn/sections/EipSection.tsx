@@ -6,7 +6,7 @@ import {
   isBuiltInKubeOvnVpc,
 } from '../lib/kubeOvnSubnetConstants';
 import { buildBusinessVpcPickerRows } from '../lib/kubeOvnUiHelpers';
-import { Table, Modal, Form, Input, Select, message, Alert, MenuProps, Badge, Button, Tooltip, Space } from 'antd';
+import { Table, Modal, Form, Input, Select, message, Alert, MenuProps, Badge, Button, Tooltip, Space, Radio } from 'antd';
 import { ApiTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
@@ -249,11 +249,20 @@ export const EipSection: React.FC<EipSectionProps> = ({
       const v4 = String(values.v4Ip ?? '').trim();
       const displayName = String(values.displayName ?? '').trim();
       const vpc = String(values.vpc ?? '').trim();
+      const routeScope = values.routeScope as string | undefined;
+      const accessRouteCidr =
+        networkScope === 'vpc'
+          ? routeScope === 'custom'
+            ? String(values.accessRouteCidr ?? '').trim()
+            : '0.0.0.0/0'
+          : undefined;
+
       const payload = {
         name: generateHarvesterCrMetadataName('kubeOvnEip'),
         ...(displayName ? { alias: displayName } : {}),
         externalSubnet: values.externalSubnet,
         ...(networkScope === 'vpc' ? { vpc } : {}),
+        ...(networkScope === 'vpc' && accessRouteCidr ? { accessRouteCidr } : {}),
         ...(v4 ? { v4Ip: v4 } : {}),
         type: 'nat',
       };
@@ -514,13 +523,16 @@ export const EipSection: React.FC<EipSectionProps> = ({
         title="创建公网IP"
         open={isCreateVisible}
         centered
-        onCancel={() => setIsCreateVisible(false)}
+        onCancel={() => {
+          form.resetFields();
+          setIsCreateVisible(false);
+        }}
         onOk={handleCreate}
         confirmLoading={createLoading}
         okText="创建"
         cancelText="取消"
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" initialValues={{ routeScope: 'unlimited' }}>
           {networkScope === 'vpc' && vpcOptionsForCreate.length === 0 && (
             <Alert
               type="warning"
@@ -599,6 +611,52 @@ export const EipSection: React.FC<EipSectionProps> = ({
               })}
             </Select>
           </Form.Item>
+
+          {networkScope === 'vpc' && (
+            <>
+              <Form.Item
+                name="routeScope"
+                label="可访问的范围"
+                tooltip="写入所选业务 VPC 的 policyDst 静态路由：目的网段为下方范围，下一跳为所选公共子网的网关。"
+              >
+                <Radio.Group>
+                  <Radio value="unlimited">不限（0.0.0.0/0）</Radio>
+                  <Radio value="custom">指定 IP 范围（CIDR）</Radio>
+                </Radio.Group>
+              </Form.Item>
+              <Form.Item
+                noStyle
+                shouldUpdate={(prev, cur) => prev.routeScope !== cur.routeScope}
+              >
+                {({ getFieldValue }) =>
+                  getFieldValue('routeScope') === 'custom' ? (
+                    <Form.Item
+                      name="accessRouteCidr"
+                      label="CIDR"
+                      rules={[
+                        { required: true, message: '请填写 CIDR' },
+                        {
+                          pattern: /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/\d{1,2}$/,
+                          message: '格式如 10.0.0.0/8 或 192.168.0.0/16',
+                        },
+                        {
+                          validator: async (_, v) => {
+                            const raw = String(v ?? '').trim();
+                            const p = Number(raw.split('/')[1]);
+                            if (!Number.isInteger(p) || p < 0 || p > 32) {
+                              throw new Error('前缀长度须在 0–32 之间');
+                            }
+                          },
+                        },
+                      ]}
+                    >
+                      <Input placeholder="例如 10.0.0.0/8" />
+                    </Form.Item>
+                  ) : null
+                }
+              </Form.Item>
+            </>
+          )}
           <Form.Item
             name="v4Ip"
             label="指定 IP（可选）"

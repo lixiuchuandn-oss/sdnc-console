@@ -25,6 +25,7 @@ import {
 import {
   buildTenantNamespaceInventoryWhere,
   getPublicScenarioNamespaceNames,
+  mergePublicScenarioNamespacesFromQuery,
 } from '../../../../services/clouds/harvester/publicNamespaces';
 import {
   createHarvesterSshKey,
@@ -86,7 +87,9 @@ export async function harvesterSshKeyListHandler(req: Request, res: Response) {
         const orgNs = orgId ? `ns-${orgId}` : '';
         const merged = new Set(nsFromUs);
         if (orgNs) merged.add(orgNs);
-        (await getPublicScenarioNamespaceNames(id)).forEach((n) => merged.add(n));
+        if (mergePublicScenarioNamespacesFromQuery(req)) {
+          (await getPublicScenarioNamespaceNames(id)).forEach((n) => merged.add(n));
+        }
         list = list.filter((item: any) => merged.has(String(item?.metadata?.namespace || '').trim()));
       }
     }
@@ -228,7 +231,9 @@ export async function harvesterCloudInitListHandler(req: Request, res: Response)
         .split(',')
         .map((s: string) => s.trim())
         .filter(Boolean);
-      whereCondition = await buildTenantNamespaceInventoryWhere(id, allowed);
+      whereCondition = await buildTenantNamespaceInventoryWhere(id, allowed, {
+        mergePublicScenarioNamespaces: mergePublicScenarioNamespacesFromQuery(req),
+      });
       if (Array.isArray(whereCondition) && whereCondition.length === 0) {
         return res.json({ message: '查询成功', data: { items: [] } });
       }
@@ -308,8 +313,12 @@ export async function harvesterTemplateListHandler(req: Request, res: Response) 
         }
       }
 
+      const mergePublic = mergePublicScenarioNamespacesFromQuery(req);
       const allowedNamespaces = Array.from(
-        new Set([...namespacesFromUserSpace, ...(await getPublicScenarioNamespaceNames(id))]),
+        new Set([
+          ...namespacesFromUserSpace,
+          ...(mergePublic ? await getPublicScenarioNamespaceNames(id) : []),
+        ]),
       );
 
       if (allowedNamespaces.length === 0) {

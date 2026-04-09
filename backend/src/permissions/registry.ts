@@ -158,23 +158,8 @@ export class PermissionRegistry {
         if (resourcePart && parts.indexOf(resourcePart) < parts.length - 1) {
           const ri = parts.indexOf(resourcePart);
           const seg1 = parts[ri + 1];
-          let scopedNetworkBase = '';
-          if (seg1 === 'network-flat' && parts.length > ri + 2) {
-            const sub = parts[ri + 2];
-            if (sub === 'ovneips') scopedNetworkBase = 'clouds.eips.flat';
-            else if (sub === 'ovnfips') scopedNetworkBase = 'clouds.fips.flat';
-            else if (sub === 'ovnsnatrules') scopedNetworkBase = 'clouds.snat.flat';
-            else if (sub === 'ovndnatrules') scopedNetworkBase = 'clouds.dnat.flat';
-          } else if (seg1 === 'network-vpc' && parts.length > ri + 2) {
-            const sub = parts[ri + 2];
-            if (sub === 'ovneips') scopedNetworkBase = 'clouds.eips.vpc';
-            else if (sub === 'ovnfips') scopedNetworkBase = 'clouds.fips.vpc';
-            else if (sub === 'ovnsnatrules') scopedNetworkBase = 'clouds.snat.vpc';
-            else if (sub === 'ovndnatrules') scopedNetworkBase = 'clouds.dnat.vpc';
-          }
-          if (scopedNetworkBase) {
-            permissionBase = scopedNetworkBase;
-          } else if (seg1 === 'ecs') {
+          // OVN EIP/FIP/SNAT/DNAT：单一路径 /resources/ovn*，分域由 ?ovnNetworkScope= 与 middleware 解析
+          if (seg1 === 'ecs') {
             // 回收站写操作（restore/force）使用独立权限，其他 ECS 路径保持 clouds.ecs
             const isRecycleBinAction = parts.includes('restore') || parts.includes('force');
             permissionBase = isRecycleBinAction ? 'clouds.recycle-bin' : 'clouds.ecs';

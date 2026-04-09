@@ -92,7 +92,7 @@ interface StepNetworksProps {
 /** 切换「网络类型」时主网卡类型的默认值（模型默认 virtio，见 handleNetModeChange） */
 const DEFAULT_PRIMARY_NIC_TYPE_BY_NET_MODE: Record<string, string> = {
   flat: 'bridge',
-  vpc: 'bridge',
+  vpc: 'managedtap',
   flat_subnet: 'managedtap',
   passthrough: 'sriov',
 };
@@ -453,7 +453,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       onChange={(val) => { 
                         // [状态同步] 切换 VPC 时，重置子网和网络名称
                         // 使用合并更新，避免读取过期状态
-                        form.setFieldsValue({ primaryNic: { vpc: val, subnet: undefined, name: undefined } }); 
+                        form.setFieldsValue({ primaryNic: { vpc: val, subnet: undefined, name: undefined, type: 'managedtap' } }); 
                       }}
                     />
                   </Form.Item>
@@ -515,7 +515,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             }
 
                             // 使用合并更新，确保不覆盖 subnet 字段自身的更新
-                            form.setFieldsValue({ primaryNic: { name: netName } }); 
+                            form.setFieldsValue({ primaryNic: { name: netName, type: 'managedtap' } }); 
                           }}
                         />
                       </Form.Item>
@@ -576,7 +576,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             const typeOptions = mode === 'passthrough'
               ? PASSTHROUGH_VIRT_IFACE_OPTIONS
               : mode === 'vpc'
-                ? [ifaceTypeOption('bridge')]
+                ? [ifaceTypeOption('managedtap')]
                 : mode === 'flat_subnet'
                   ? [ifaceTypeOption('managedtap')]
                   : mode === 'flat'
@@ -915,7 +915,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                   const curr = form.getFieldValue('netIfaces') || []; 
                                   const next = [...curr]; 
                                   // [状态同步] 切换 VPC 时重置子网和名称
-                                  next[name] = { ...next[name], vpc: val, subnet: undefined, name: undefined }; 
+                                  next[name] = { ...next[name], vpc: val, subnet: undefined, name: undefined, type: 'managedtap' }; 
                                   form.setFieldsValue({ netIfaces: next }); 
                                 } catch { } 
                               }}
@@ -968,7 +968,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                           if (found) netName = found.value;
                                         } catch {}
                                       }
-                                      next[name] = { ...next[name], subnet: val, name: netName, type: 'bridge' };
+                                      next[name] = { ...next[name], subnet: val, name: netName, type: 'managedtap' };
                                       form.setFieldsValue({ netIfaces: next });
                                     } catch {}
                                   }}
@@ -1022,7 +1022,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         const opts = mode2 === 'passthrough'
                           ? PASSTHROUGH_VIRT_IFACE_OPTIONS
                           : mode2 === 'vpc'
-                            ? [ifaceTypeOption('bridge')]
+                            ? [ifaceTypeOption('managedtap')]
                             : mode2 === 'flat_subnet'
                               ? [ifaceTypeOption('managedtap')]
                               : mode2 === 'flat'
@@ -1100,7 +1100,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
               >
                 添加扁平子网网卡
               </Button>
-              <Button onClick={() => { reloadKubeVpcs(); reloadKubeSubnets(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }}>添加VPC网卡</Button>
+              <Button onClick={() => { reloadKubeVpcs(); reloadKubeSubnets(); add({ mode: 'vpc', type: 'managedtap', model: 'virtio' }); }}>添加VPC网卡</Button>
               <Button onClick={() => { reloadNads(); add({ mode: 'passthrough', type: 'sriov', model: 'virtio' }); }}>添加直通网卡</Button>
               <Button onClick={() => { reloadNads(); add({ mode: 'flat', type: 'bridge', model: 'virtio' }); }}>添加NAD网络网卡</Button>
             </Space>

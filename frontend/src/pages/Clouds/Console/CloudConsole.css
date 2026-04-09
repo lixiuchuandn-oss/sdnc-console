@@ -11,7 +11,41 @@
 .cloud-console-tabs .ant-tabs-ink-bar { display: none; }
 
 /* CloudConsole.css */
-.cloud-console-root { height: 100%; display: flex; gap: 16px; background: transparent; border: none; overflow: hidden; }
+.cloud-console-root {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/** 左侧导航 + 右侧主内容：无独立外框，中间竖线分隔 */
+.cloud-console-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+}
+
+.cloud-console-left-nav-box {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: auto;
+}
+
+.cloud-console-left-nav-box .ant-menu {
+  border-inline-end: none !important;
+  padding: 8px;
+  flex: 1;
+  background: transparent;
+}
 
 .cloud-console-sidebar {
   width: 280px;
@@ -30,13 +64,18 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   overflow: hidden;
 }
 
-.cloud-console-content-scroll { flex: 1; overflow: auto; padding: 12px; }
+/* 有左侧导航时，主内容区左侧竖线分隔（与侧栏相邻） */
+.cloud-console-left-nav-box + .cloud-console-content {
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.cloud-console-content-scroll { flex: 1; overflow: auto; padding: 12px 16px; }
 
 /* Custom Scrollbar */
 .cloud-console-sidebar ::-webkit-scrollbar,
@@ -86,7 +125,7 @@
   padding-right: 10px !important;
 }
 
-.cloud-console-harvester-dropdown-trigger {
+.cloud-console-main-panel-dropdown-trigger {
   cursor: pointer;
   padding: 2px;
   display: inline-flex;
@@ -97,11 +136,11 @@
   transition: background-color 0.15s ease;
 }
 
-.cloud-console-harvester-dropdown-trigger .anticon {
+.cloud-console-main-panel-dropdown-trigger .anticon {
   line-height: 0;
   display: block;
 }
 
-.cloud-console-harvester-dropdown-trigger:hover {
+.cloud-console-main-panel-dropdown-trigger:hover {
   background: rgba(0, 0, 0, 0.06);
 }

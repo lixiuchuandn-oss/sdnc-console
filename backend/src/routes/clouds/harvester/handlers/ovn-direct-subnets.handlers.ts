@@ -14,8 +14,14 @@ import {
 } from '../harvester.direct.helpers';
 import { parseKubeOvnAclRulesInput } from '../../../../services/clouds/harvester/kubeOvnAclRules';
 import {
+  formatTowerNamespacesAnnotation,
+  isUnderlayVpcName,
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
+  listNamespacesFromVpcObject,
+  TOWER_IO_NAMESPACES_ANNOTATION,
+  TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION,
+  type OvnNetworkScope,
 } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 import {
   OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
@@ -367,12 +373,31 @@ export async function harvesterSubnetDirectCreateHandler(
 
     const url = `${apiBase}/apis/kubeovn.io/v1/subnets`;
     const nadName = name;
-    const nadNamespace = namespace || 'default';
+    let nadNamespace = namespace || 'default';
+    /** 创建子网时若需从目标 VPC 推导业务命名空间，复用同一 GET 结果写 tower.io/namespaces */
+    let vpcObjCached: any = null;
+    if (subnetTypeForVpc === 'vpc' && targetVpc) {
+      try {
+        const vpcUrl = `${apiBase}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(String(targetVpc).trim())}`;
+        vpcObjCached = await getJsonOnce(vpcUrl, cloud.secretKey || '', insecure);
+        const namespacesRaw = vpcObjCached?.spec?.namespaces || vpcObjCached?.namespaces || [];
+        if (Array.isArray(namespacesRaw) && namespacesRaw.length > 0) {
+          const firstNs = String(namespacesRaw[0]).trim();
+          if (firstNs) nadNamespace = firstNs;
+        }
+      } catch (e: any) {
+        console.warn(
+          `[CreateSubnet] Failed to fetch VPC ${targetVpc} to determine NAD namespace:`,
+          e?.message || e,
+        );
+      }
+    }
     const nadNsEncoded = encodeURIComponent(nadNamespace);
     /**
-     * 与 VPC 子网创建一致：spec.provider 与 NAD CNI 均使用逻辑交换机名 name.namespace.ovn。
-     * 表单里的「Provider Network」是物理资源名，不能写入 spec.provider（会导致与 NAD 不一致及 Harvester 校验失败）；
-     * 仅记入注解供展示/运维。
+     * Subnet.spec.provider 与 NAD CNI config.provider 一致：Kube-OVN 逻辑交换机名为 name.namespace.ovn。
+     * 部分 Harvester 版本曾对 VPC 子网文档化 external-nad.<ns>.ovn，但 admission webhook 会对该串报
+     * invalid provider name external-nad …；与集群侧一致统一使用子网 CR 名参与拼接。
+     * 表单里的「Provider Network」是物理资源名，不能写入 spec.provider；仅记入注解供展示/运维。
      */
     const logicalProvider = `${nadName}.${nadNamespace}.ovn`;
     /** 注解 tower.io/subnet-type：flat→扁平子网，public→公共子网，vpc→VPC 子网（与前端产品名一致） */
@@ -421,6 +446,33 @@ export async function harvesterSubnetDirectCreateHandler(
         return;
       }
       mergedAnnotations[OVN_INTERNAL_ROUTE_CIDR_ANNOTATION] = routeCidr;
+    }
+    {
+      let towerNsCsv = '';
+      if (namespaces && Array.isArray(namespaces) && namespaces.length > 0) {
+        towerNsCsv = formatTowerNamespacesAnnotation(namespaces);
+      } else if (targetVpc) {
+        let v = vpcObjCached;
+        if (!v) {
+          try {
+            const vpcUrl = `${apiBase}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(String(targetVpc).trim())}`;
+            v = await getJsonOnce(vpcUrl, cloud.secretKey || '', insecure);
+          } catch {
+            v = null;
+          }
+        }
+        towerNsCsv = formatTowerNamespacesAnnotation(listNamespacesFromVpcObject(v));
+      }
+      if (towerNsCsv) mergedAnnotations[TOWER_IO_NAMESPACES_ANNOTATION] = towerNsCsv;
+    }
+    {
+      const subnetOvnScope: OvnNetworkScope =
+        subnetTypeAnn === 'vpc' &&
+        String(targetVpc).trim() !== '' &&
+        !isUnderlayVpcName(targetVpc)
+          ? 'vpc'
+          : 'underlay';
+      mergedAnnotations[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] = subnetOvnScope;
     }
     const nadCandidates = [
       `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNsEncoded}/network-attachment-definitions`,
@@ -553,21 +605,28 @@ export async function harvesterSubnetDirectCreateHandler(
           lastNadError = nadError;
           continue;
         }
-        if (!res.headersSent) res.status(500).json({ message: '创建 NAD 失败', error: nadError.message });
+        if (!res.headersSent) {
+          const errMsg = detail ? `${msg} (详情: ${detail})` : msg;
+          res.status(500).json({ message: '创建 NAD 失败', error: errMsg });
+        }
         return;
       }
     }
 
     if (!nadCreatedOrExists) {
       if (!res.headersSent) {
+        const lastErrDetail = formatNadErrDetail(lastNadError);
+        const lastErrMsg = lastErrDetail
+          ? `${lastNadError?.message} (详情: ${lastErrDetail})`
+          : lastNadError?.message;
         res.status(500).json({
-          message: '创建 NAD 失败 (API 路径未找到)',
-          error: lastNadError?.message,
+          message: '创建 NAD 失败 (API 路径未找到或内部错误)',
+          error: lastErrMsg,
           debug: {
             apiBase,
             triedUrls: nadCandidates,
             lastStatus: lastNadError?.status,
-            lastBodyPreview: formatNadErrDetail(lastNadError) || undefined,
+            lastBodyPreview: lastErrDetail || undefined,
           },
         });
       }
@@ -981,7 +1040,34 @@ export async function harvesterSubnetDirectDeleteHandler(
 
     try {
       const encName = encodeURIComponent(name);
-      const nadNs = 'default';
+      const typeBefore = String(
+        subnetBefore?.metadata?.annotations?.['tower.io/subnet-type'] ?? '',
+      )
+        .trim()
+        .toLowerCase();
+      let nadNs = 'default';
+      if (typeBefore === 'vpc' && subnetBefore?.spec?.vpc) {
+        try {
+          const vpcUrl = `${apiBase}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(String(subnetBefore.spec.vpc).trim())}`;
+          const vpcObj = await getJsonOnce(vpcUrl, cloud.secretKey || '', insecure);
+          const namespacesRaw = vpcObj?.spec?.namespaces || vpcObj?.namespaces || [];
+          if (Array.isArray(namespacesRaw) && namespacesRaw.length > 0) {
+            const firstNs = String(namespacesRaw[0]).trim();
+            if (firstNs) nadNs = firstNs;
+          }
+        } catch (e: any) {
+          console.warn(
+            `[DeleteSubnet] Failed to fetch VPC ${subnetBefore.spec.vpc} for NAD namespace:`,
+            e?.message || e,
+          );
+        }
+      } else if (
+        subnetBefore?.spec?.namespaces &&
+        Array.isArray(subnetBefore.spec.namespaces) &&
+        subnetBefore.spec.namespaces.length > 0
+      ) {
+        nadNs = String(subnetBefore.spec.namespaces[0]).trim() || 'default';
+      }
       const encNs = encodeURIComponent(nadNs);
       const nadDeleteUrls = [
         `${apiBase}/apis/k8s.cni.cncf.io/v1/namespaces/${encNs}/network-attachment-definitions/${encName}`,

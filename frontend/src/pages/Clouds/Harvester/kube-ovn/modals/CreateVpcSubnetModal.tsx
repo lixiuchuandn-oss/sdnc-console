@@ -9,16 +9,10 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
+  isVpcOvnSubnetTableRow,
 } from '../lib/kubeOvnSubnetConstants';
 
 const TOWER_VM_ALIAS = TOWER_ALIAS_ANNOTATION;
-
-function isVpcSubnetRecord(r: any): boolean {
-  const t = String(r?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] || '')
-    .trim()
-    .toLowerCase();
-  return t === 'vpc';
-}
 
 function collectVmDisplayNamesUsingSubnet(subnetName: string, vms: any[]): string[] {
   const sn = String(subnetName || '').trim();
@@ -145,7 +139,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
               ? String(editingRecord?.metadata?.name || editingRecord?.name || '').trim()
               : '';
           const dup = (subnets || []).some((s: any) => {
-            if (!isVpcSubnetRecord(s)) return false;
+            if (!isVpcOvnSubnetTableRow(s)) return false;
             const existingCr = String(s?.metadata?.name || s?.name || '').trim();
             if (curCr && existingCr === curCr) return false;
             const existingAlias = String(s?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();

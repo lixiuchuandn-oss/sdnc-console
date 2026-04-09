@@ -1,5 +1,14 @@
 import { apiRequest, apiPost, apiDelete, apiPatch, apiPut } from './api';
 
+/** 租户控制台：与后端 `mergePublicScenarioNamespaces` 对齐；undefined 表示不传（非租户/兼容旧行为） */
+function appendMergePublicScenarioParam(
+  params: URLSearchParams,
+  mergePublicScenarioNamespaces?: boolean,
+) {
+  if (mergePublicScenarioNamespaces === undefined) return;
+  params.set('mergePublicScenarioNamespaces', mergePublicScenarioNamespaces ? 'true' : 'false');
+}
+
 /**
  * 创建 Harvester VPC
  * @param cloudId 云环境 ID
@@ -60,10 +69,16 @@ export const updateHarvesterVpc = async (cloudId: string, name: string, payload:
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterSnapshots = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterSnapshots = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/snapshots${queryString ? `?${queryString}` : ''}`,
@@ -101,10 +116,16 @@ export const deleteHarvesterPVC = async (cloudId: string, namespace: string, nam
  * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterScheduleVmBackups = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterScheduleVmBackups = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   const url = `/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`;
   // force=true 时，显式传递 skipCache=true 确保跳过前端缓存和去重
@@ -150,10 +171,16 @@ export const updateHarvesterScheduleVmBackup = async (cloudId: string, namespace
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterBackups = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterBackups = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/backups${queryString ? `?${queryString}` : ''}`,
@@ -233,10 +260,16 @@ export const abortHarvesterMigration = async (cloudId: string, instanceId: strin
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterSshKeys = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterSshKeys = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/sshkeys${queryString ? `?${queryString}` : ''}`);
 };
@@ -249,8 +282,16 @@ export const fetchHarvesterSshKeys = async (cloudId: string, force = false, skip
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterCloudInits = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/cloudinits${force ? '?force=true' : ''}`);
+export const fetchHarvesterCloudInits = async (
+  cloudId: string,
+  force = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
+  const qs = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/cloudinits${qs ? `?${qs}` : ''}`);
 };
 
 /**
@@ -285,10 +326,16 @@ export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false
  * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterTemplates = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterTemplates = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/templates${queryString ? `?${queryString}` : ''}`);
 };
@@ -483,29 +530,56 @@ export const fetchHarvesterSystemPods = async (cloudId: string, params: { page: 
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/pods?${query}`);
 };
 
-/** OVN 网络分域：legacy 未分域（Harvester 全量）；flat/vpc 与 Cloudmap 分域 API 对齐 */
+/** UI 侧分域语义；与后端 query `ovnNetworkScope` 映射见下方 */
 export type CloudOvnNetworkScope = 'legacy' | 'flat' | 'vpc';
 
-function cloudOvnResourcePath(
+/** 与 docs/Harvester-OVN-网络接口分域规范.md GET 一致 */
+export type OvnNetworkScopeQuery = 'vpc' | 'underlay' | 'all';
+
+function mapUiScopeToListQuery(scope: CloudOvnNetworkScope): OvnNetworkScopeQuery {
+  if (scope === 'flat') return 'underlay';
+  if (scope === 'vpc') return 'vpc';
+  return 'all';
+}
+
+/** POST 创建仅 vpc | underlay；legacy 按业务默认走 vpc */
+function mapUiScopeToCreateQuery(scope: CloudOvnNetworkScope): 'vpc' | 'underlay' {
+  if (scope === 'flat') return 'underlay';
+  return 'vpc';
+}
+
+function ovnListUrl(
+  cloudId: string,
+  resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
+  scope: CloudOvnNetworkScope,
+  extra: Record<string, string | boolean | undefined>,
+): string {
+  const params = new URLSearchParams();
+  params.set('ovnNetworkScope', mapUiScopeToListQuery(scope));
+  Object.entries(extra).forEach(([k, v]) => {
+    if (v === true) params.set(k, 'true');
+    else if (v === false && k === 'mergePublicScenarioNamespaces') params.set(k, 'false');
+    else if (v != null && v !== false) params.set(k, String(v));
+  });
+  const q = params.toString();
+  return `/api/clouds/${cloudId}/resources/${resource}${q ? `?${q}` : ''}`;
+}
+
+function ovnCreateUrl(
   cloudId: string,
   resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
   scope: CloudOvnNetworkScope,
 ): string {
-  if (scope === 'legacy') {
-    return `/api/clouds/${cloudId}/resources/${resource}`;
-  }
-  const seg = scope === 'flat' ? 'network-flat' : 'network-vpc';
-  return `/api/clouds/${cloudId}/resources/${seg}/${resource}`;
+  const q = mapUiScopeToCreateQuery(scope);
+  return `/api/clouds/${cloudId}/resources/${resource}?ovnNetworkScope=${encodeURIComponent(q)}`;
 }
 
 function cloudOvnResourceItemPath(
   cloudId: string,
   resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
   name: string,
-  scope: CloudOvnNetworkScope,
 ): string {
-  const base = cloudOvnResourcePath(cloudId, resource, scope);
-  return `${base}/${encodeURIComponent(name)}`;
+  return `/api/clouds/${cloudId}/resources/${resource}/${encodeURIComponent(name)}`;
 }
 
 /**
@@ -516,9 +590,13 @@ export const fetchCloudProviderOvnEips = async (
   cloudId: string,
   force = false,
   scope: CloudOvnNetworkScope = 'legacy',
+  mergePublicScenarioNamespaces?: boolean,
 ) => {
-  const base = cloudOvnResourcePath(cloudId, 'ovneips', scope);
-  return await apiRequest(`${base}${force ? '?force=true' : ''}`);
+  const extra: Record<string, string | boolean | undefined> = { force };
+  if (mergePublicScenarioNamespaces !== undefined) {
+    extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
+  }
+  return await apiRequest(ovnListUrl(cloudId, 'ovneips', scope, extra));
 };
 
 /**
@@ -528,9 +606,13 @@ export const fetchCloudProviderOvnFips = async (
   cloudId: string,
   force = false,
   scope: CloudOvnNetworkScope = 'legacy',
+  mergePublicScenarioNamespaces?: boolean,
 ) => {
-  const base = cloudOvnResourcePath(cloudId, 'ovnfips', scope);
-  return await apiRequest(`${base}${force ? '?force=true' : ''}`);
+  const extra: Record<string, string | boolean | undefined> = { force };
+  if (mergePublicScenarioNamespaces !== undefined) {
+    extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
+  }
+  return await apiRequest(ovnListUrl(cloudId, 'ovnfips', scope, extra));
 };
 
 /**
@@ -541,13 +623,13 @@ export const fetchCloudProviderOvnSnatRules = async (
   force = false,
   skipSync = false,
   scope: CloudOvnNetworkScope = 'legacy',
+  mergePublicScenarioNamespaces?: boolean,
 ) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
-  const query = params.toString() ? `?${params.toString()}` : '';
-  const base = cloudOvnResourcePath(cloudId, 'ovnsnatrules', scope);
-  return await apiRequest(`${base}${query}`);
+  const extra: Record<string, string | boolean | undefined> = { force, skipSync };
+  if (mergePublicScenarioNamespaces !== undefined) {
+    extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
+  }
+  return await apiRequest(ovnListUrl(cloudId, 'ovnsnatrules', scope, extra));
 };
 
 /**
@@ -558,13 +640,13 @@ export const fetchCloudProviderOvnDnatRules = async (
   force = false,
   skipSync = false,
   scope: CloudOvnNetworkScope = 'legacy',
+  mergePublicScenarioNamespaces?: boolean,
 ) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
-  const query = params.toString() ? `?${params.toString()}` : '';
-  const base = cloudOvnResourcePath(cloudId, 'ovndnatrules', scope);
-  return await apiRequest(`${base}${query}`);
+  const extra: Record<string, string | boolean | undefined> = { force, skipSync };
+  if (mergePublicScenarioNamespaces !== undefined) {
+    extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
+  }
+  return await apiRequest(ovnListUrl(cloudId, 'ovndnatrules', scope, extra));
 };
 
 /**
@@ -575,7 +657,7 @@ export const createCloudProviderOvnEip = async (
   payload: any,
   scope: CloudOvnNetworkScope = 'legacy',
 ) => {
-  return await apiPost(cloudOvnResourcePath(cloudId, 'ovneips', scope), payload);
+  return await apiPost(ovnCreateUrl(cloudId, 'ovneips', scope), payload);
 };
 
 /**
@@ -586,7 +668,7 @@ export const createCloudProviderOvnFip = async (
   payload: any,
   scope: CloudOvnNetworkScope = 'legacy',
 ) => {
-  return await apiPost(cloudOvnResourcePath(cloudId, 'ovnfips', scope), payload);
+  return await apiPost(ovnCreateUrl(cloudId, 'ovnfips', scope), payload);
 };
 
 /**
@@ -597,7 +679,7 @@ export const createCloudProviderOvnSnatRule = async (
   payload: any,
   scope: CloudOvnNetworkScope = 'legacy',
 ) => {
-  return await apiPost(cloudOvnResourcePath(cloudId, 'ovnsnatrules', scope), payload);
+  return await apiPost(ovnCreateUrl(cloudId, 'ovnsnatrules', scope), payload);
 };
 
 /**
@@ -608,7 +690,7 @@ export const createCloudProviderOvnDnatRule = async (
   payload: any,
   scope: CloudOvnNetworkScope = 'legacy',
 ) => {
-  return await apiPost(cloudOvnResourcePath(cloudId, 'ovndnatrules', scope), payload);
+  return await apiPost(ovnCreateUrl(cloudId, 'ovndnatrules', scope), payload);
 };
 
 /**
@@ -617,12 +699,8 @@ export const createCloudProviderOvnDnatRule = async (
  * @param name EIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnEip = async (
-  cloudId: string,
-  name: string,
-  scope: CloudOvnNetworkScope = 'legacy',
-) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovneips', name, scope));
+export const deleteCloudProviderOvnEip = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovneips', name));
 };
 
 /**
@@ -631,12 +709,8 @@ export const deleteCloudProviderOvnEip = async (
  * @param name FIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnFip = async (
-  cloudId: string,
-  name: string,
-  scope: CloudOvnNetworkScope = 'legacy',
-) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnfips', name, scope));
+export const deleteCloudProviderOvnFip = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnfips', name));
 };
 
 /**
@@ -645,12 +719,8 @@ export const deleteCloudProviderOvnFip = async (
  * @param name SNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnSnatRule = async (
-  cloudId: string,
-  name: string,
-  scope: CloudOvnNetworkScope = 'legacy',
-) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnsnatrules', name, scope));
+export const deleteCloudProviderOvnSnatRule = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnsnatrules', name));
 };
 
 /**
@@ -659,12 +729,8 @@ export const deleteCloudProviderOvnSnatRule = async (
  * @param name DNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnDnatRule = async (
-  cloudId: string,
-  name: string,
-  scope: CloudOvnNetworkScope = 'legacy',
-) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovndnatrules', name, scope));
+export const deleteCloudProviderOvnDnatRule = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovndnatrules', name));
 };
 
 /**
@@ -733,11 +799,18 @@ export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
  * @param excludeSystem 是否排除系统命名空间，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterNamespaces = async (cloudId: string, force = false, excludeSystem = false, skipSync = false) => {
+export const fetchHarvesterNamespaces = async (
+  cloudId: string,
+  force = false,
+  excludeSystem = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (excludeSystem) params.append('excludeSystem', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   // 当 force=true 时，URL 中包含 force=true，requestManager 会自动跳过缓存
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/namespaces${queryString ? `?${queryString}` : ''}`);
@@ -780,10 +853,16 @@ export const deleteHarvesterNamespace = async (cloudId: string, name: string) =>
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterVolumes = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterVolumes = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/volumes${queryString ? `?${queryString}` : ''}`,
@@ -808,10 +887,16 @@ export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterStorageClasses = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterStorageClasses = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
   const mustBypassCache = !!(force || skipSync);
   return await apiRequest(
@@ -836,10 +921,16 @@ export const fetchHarvesterStorageClassDetail = async (cloudId: string, name: st
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterImages = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchHarvesterImages = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/images${queryString ? `?${queryString}` : ''}`,
@@ -1227,33 +1318,42 @@ export const saveHarvesterVmAsTemplate = async (
  * @returns Promise<any>
  */
 /**
- * 获取 KubeOVN VPC 列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 是否跳过全量同步，默认 false
- * @returns Promise<any>
+ * 获取 KubeOVN VPC 列表（须 `ovnNetworkScope`：vpc=业务 VPC；all=含内置；underlay=仅 underlay 注解）
  */
-export const fetchKubeOvnVpcs = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchKubeOvnVpcs = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  ovnNetworkScope: OvnNetworkScopeQuery = 'vpc',
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
+  params.set('ovnNetworkScope', ovnNetworkScope);
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs${query ? `?${query}` : ''}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs?${query}`);
 };
 
 /**
- * 获取 KubeOVN 子网列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
+ * 获取 KubeOVN 子网列表（须 `ovnNetworkScope`）
  */
-export const fetchKubeOvnSubnets = async (cloudId: string, force = false, skipSync = false) => {
+export const fetchKubeOvnSubnets = async (
+  cloudId: string,
+  force = false,
+  skipSync = false,
+  ovnNetworkScope: OvnNetworkScopeQuery = 'all',
+  mergePublicScenarioNamespaces?: boolean,
+) => {
   const params = new URLSearchParams();
+  params.set('ovnNetworkScope', ovnNetworkScope);
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
   const mustBypassCache = !!(force || skipSync);
-  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets${query ? `?${query}` : ''}`, {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets?${query}`, {
     skipCache: mustBypassCache,
   });
 };
@@ -1332,8 +1432,16 @@ export const removeKubeOvnSecurityGroupMember = async (cloudId: string, sgId: st
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterGpuResources = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/gpus${force ? '?force=true' : ''}`);
+export const fetchHarvesterGpuResources = async (
+  cloudId: string,
+  force = false,
+  mergePublicScenarioNamespaces?: boolean,
+) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
+  const qs = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/gpus${qs ? `?${qs}` : ''}`);
 };
 
 /**

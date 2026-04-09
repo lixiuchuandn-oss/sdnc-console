@@ -1,6 +1,33 @@
 /** Kube-OVN 子网（扁平/公共/VPC）在 Tower 侧的统一注解与 finalizer */
 export const TOWER_ALIAS_ANNOTATION = 'tower.io/alias';
+/** 逗号分隔、排序后的业务 K8s 命名空间列表（与 Vpc/Subnet spec.namespaces 对齐，便于集群级 CR 可读） */
+export const TOWER_IO_NAMESPACES_ANNOTATION = 'tower.io/namespaces';
+/** 与后端 OvnNetworkScope 一致：`underlay` | `vpc`，区分扁平域与业务 VPC 域 */
+export const TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION = 'tower.io/ovn-network-scope';
+
+/** 分域识别只读 `tower.io/ovn-network-scope`，不做 spec 推断；无注解返回 null */
+export function parseTowerOvnNetworkScopeFromAnnotations(
+  resource: { metadata?: { annotations?: Record<string, string> } } | null | undefined,
+): 'underlay' | 'vpc' | null {
+  const v = String(
+    resource?.metadata?.annotations?.[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '',
+  )
+    .trim()
+    .toLowerCase();
+  if (v === 'underlay' || v === 'vpc') return v;
+  return null;
+}
+
 export const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
+
+/**
+ * VPC 子网表格：仅当 `metadata.annotations['tower.io/ovn-network-scope']` 规范化后为 `vpc`。
+ * 无该注解或仅为 subnet-type=vpc 的旧数据不再视为 VPC 域行（与后端列表分域一致，避免混入扁平域）。
+ */
+export function isVpcOvnSubnetTableRow(r: any): boolean {
+  return parseTowerOvnNetworkScopeFromAnnotations(r) === 'vpc';
+}
+
 /** 扁平子网挂 VLAN（underlay）；与 `tower.io/subnet-type=flat` 并用 */
 export const SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY = 'tower.io/subnet-type-flat-underlay';
 /** 扁平子网不挂 VLAN（overlay）；与 `tower.io/subnet-type=flat` 并用 */

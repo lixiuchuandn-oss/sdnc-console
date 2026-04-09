@@ -126,6 +126,64 @@ export async function upsertOvnInternalForPublicSubnet(params: {
   });
 }
 
+/**
+ * 业务 VPC 使用公共外网子网（EIP 场景）：在目标 VPC 上登记 extraExternalSubnets，
+ * 并维护一条 policyDst 静态路由（cidr + nextHopIP=公共子网网关）。
+ * 与 ovn-internal 侧 upsertOvnInternalForPublicSubnet 合并规则一致。
+ */
+export async function upsertVpcPolicyDstRouteForExternalSubnet(params: {
+  harvesterParams: HarvesterTestParams;
+  vpcName: string;
+  externalSubnetName: string;
+  gateway: string;
+  routeCidr: string;
+}): Promise<void> {
+  const { harvesterParams, vpcName, externalSubnetName, gateway, routeCidr } = params;
+  const { endpoint, token, insecure = false } = harvesterParams;
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const getUrl = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(vpcName)}`;
+  const vpc = await getJsonOnce(getUrl, token, insecure);
+  if (!vpc?.spec) {
+    throw new Error(`VPC ${vpcName} 不存在或无法读取`);
+  }
+
+  let extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
+    ? [...vpc.spec.extraExternalSubnets]
+    : [];
+  if (!extra.includes(externalSubnetName)) {
+    extra.push(externalSubnetName);
+  }
+
+  let routes: any[] = Array.isArray(vpc.spec.staticRoutes) ? [...vpc.spec.staticRoutes] : [];
+
+  const newT = {
+    cidr: String(routeCidr).trim(),
+    nextHopIP: String(gateway).trim(),
+    policy: POLICY_DST,
+  };
+  routes = routes.filter((r) => !sameRoute(routeTriple(r), newT));
+  routes.push({
+    bfdId: '',
+    cidr: newT.cidr,
+    ecmpMode: '',
+    nextHopIP: newT.nextHopIP,
+    policy: POLICY_DST,
+    routeTable: '',
+  });
+
+  await updateKubeOvnVpc(harvesterParams, vpcName, {
+    extraExternalSubnets: extra,
+    staticRoutes: routes,
+  });
+}
+
 export async function removeOvnInternalForPublicSubnet(params: {
   harvesterParams: HarvesterTestParams;
   subnetName: string;

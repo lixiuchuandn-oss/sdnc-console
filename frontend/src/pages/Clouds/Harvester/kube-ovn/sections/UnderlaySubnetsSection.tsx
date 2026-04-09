@@ -162,7 +162,13 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
 
   const loadTypedSubnets = useCallback(
     async (force = false, skipSync = false) => {
-      const res = await fetchKubeOvnSubnets(cloudId, force, skipSync);
+      const res = await fetchKubeOvnSubnets(
+        cloudId,
+        force,
+        skipSync,
+        'all',
+        isTenantUser ? (isFlatMode ? true : false) : undefined,
+      );
       const items = Array.isArray(res?.data?.items) ? res.data.items : [];
       const expectType = isFlatMode ? 'flat' : 'public';
       return items.filter((item: any) => {
@@ -173,7 +179,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         return true;
       });
     },
-    [cloudId, isFlatMode],
+    [cloudId, isFlatMode, isTenantUser],
   );
 
   /** 接口保存失败后，用集群当前 Subnet 覆盖 ACL 表单，避免「未写入」的规则仍回显在弹窗里 */
@@ -288,7 +294,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
 
       // 校验 EIP 占用（扁平子网改网段等）
       try {
-        const eipsRes = await fetchCloudProviderOvnEips(cloudId, true);
+        const eipsRes = await fetchCloudProviderOvnEips(cloudId, true, 'flat');
         const eips = Array.isArray(eipsRes?.data?.items) ? eipsRes.data.items : [];
         const blocking = eips.filter((eip: any) => {
           const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;

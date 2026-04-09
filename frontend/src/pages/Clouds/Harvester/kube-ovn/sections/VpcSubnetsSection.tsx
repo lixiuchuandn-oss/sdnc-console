@@ -20,12 +20,14 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
+  isVpcOvnSubnetTableRow,
 } from '../lib/kubeOvnSubnetConstants';
 import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
+import { ovnDisplayName } from '../lib/ovnResourceDisplay';
 
 /**
  * =============================================================================
- * VPC 子网（Kube-OVN Subnet + tower.io/subnet-type=vpc）
+ * VPC 子网（Kube-OVN Subnet；列表以 tower.io/ovn-network-scope=vpc 为主，见 isVpcOvnSubnetTableRow）
  * =============================================================================
  *
  * 与 NAD、扁平/公共子网的区别：
@@ -34,7 +36,7 @@ import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
  * - 【扁平子网 / 公共子网】见 UnderlaySubnetsSection（flat→ovn-internal，public→ovn-cluster）。
  * - 【VPC 子网】本页：挂在业务 VPC 下的隔离网段，须选择非内置 VPC；用于租户内虚拟机网络。
  *
- * 列表仅展示 subnet-type=vpc，避免与扁平/公共子网列表混淆。
+ * 列表仅展示 metadata.annotations['tower.io/ovn-network-scope']=vpc 的子网（见 isVpcOvnSubnetTableRow）。
  *
  * 交互与 UnderlaySubnetsSection 对齐：业务 VPC 下拉、表格列、详情抽屉；协议固定 IPv4。
  * ACL 单独弹窗编辑（与「新建/编辑 VPC 子网」网段弹窗分离），见 openAclEditor。
@@ -53,13 +55,6 @@ type Props = {
 };
 
 const TOWER_VM_ALIAS = TOWER_ALIAS_ANNOTATION;
-
-function isVpcSubnetRecord(r: any): boolean {
-  const t = String(r?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] || '')
-    .trim()
-    .toLowerCase();
-  return t === 'vpc';
-}
 
 /** 根据 networks 引用匹配占用某子网 CR 名的虚拟机展示名列表 */
 function collectVmDisplayNamesUsingSubnet(subnetName: string, vms: any[]): string[] {
@@ -138,9 +133,15 @@ const VpcSubnetsSection: React.FC<Props> = ({
     return m;
   }, [vpcPickerRows]);
 
+  /** 与表格一致：先按 ovn-network-scope / subnet-type 收敛为「VPC 域子网」，再参与筛选与 VPC 下拉 */
+  const vpcOnlySubnets = useMemo(
+    () => (subnets || []).filter(isVpcOvnSubnetTableRow),
+    [subnets],
+  );
+
   const vpcToolbarOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const s of subnets || []) {
+    for (const s of vpcOnlySubnets) {
       const v = String(s?.vpc || s?.spec?.vpc || KUBE_OVN_PUBLIC_VPC).trim();
       if (v && !isBuiltInKubeOvnVpc(v)) set.add(v);
     }
@@ -148,14 +149,13 @@ const VpcSubnetsSection: React.FC<Props> = ({
       label: vpcDisplayMap.get(id) || id,
       value: id,
     }));
-  }, [subnets, vpcDisplayMap]);
+  }, [vpcOnlySubnets, vpcDisplayMap]);
 
   const filtered = useMemo(() => {
     const kw = String(keyword || '')
       .toLowerCase()
       .trim();
-    return (subnets || []).filter((r: any) => {
-      if (!isVpcSubnetRecord(r)) return false;
+    return vpcOnlySubnets.filter((r: any) => {
       const vpcVal = String(r?.vpc || r?.spec?.vpc || KUBE_OVN_PUBLIC_VPC);
       const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
       const cidr = String(r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '').toLowerCase();
@@ -174,7 +174,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       }
       return true;
     });
-  }, [subnets, keyword, vpc, nat, dhcp]);
+  }, [vpcOnlySubnets, keyword, vpc, nat, dhcp]);
 
   const openCreateVpcSubnetModal = useCallback(() => {
     if (!hasVpcsWrite) return;
@@ -192,7 +192,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
     async (subnetName: string) => {
       if (!cloudId) return;
       try {
-        const res = await fetchKubeOvnSubnets(cloudId, true, false);
+        const res = await fetchKubeOvnSubnets(cloudId, true, false, 'vpc');
         const items: any[] = (res as any)?.data?.items || [];
         const rec = items.find((x: any) => String(x?.metadata?.name || x?.name || '').trim() === subnetName);
         if (!rec) return;
@@ -298,7 +298,10 @@ const VpcSubnetsSection: React.FC<Props> = ({
   );
 
   const handleDelete = useCallback(
-    async (name: string) => {
+    async (record: any) => {
+      const name = String(record?.metadata?.name || record?.name || '');
+      const displayName = ovnDisplayName(record);
+      if (!name) return;
       if (!hasVpcsWrite) {
         message.error('无权限执行该操作');
         return;
@@ -315,10 +318,10 @@ const VpcSubnetsSection: React.FC<Props> = ({
       const blocked = usingVms.length > 0;
 
       Modal.confirm({
-        title: '确认删除',
+        title: `删除子网: ${displayName}`,
         content: (
           <>
-            <div>{`确定要删除子网 ${name} 吗？此操作不可恢复。`}</div>
+            <div>{`确定要删除子网 ${displayName} 吗？此操作不可恢复。`}</div>
             {blocked && (
               <div style={{ color: '#ff4d4f', marginTop: 8 }}>
                 {`无法删除子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('、')}${usingVms.length > 5 ? ' 等' : ''}`}
@@ -514,7 +517,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
                   label: '删除',
                   danger: true,
                   disabled: !hasVpcsWrite,
-                  onClick: () => void handleDelete(name),
+                  onClick: () => void handleDelete(r),
                 },
               ]}
               buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }}
@@ -658,7 +661,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
         cloudId={cloudId}
         hasVpcsWrite={hasVpcsWrite}
         vpcPickerRows={vpcPickerRows}
-        subnets={subnets}
+        subnets={vpcOnlySubnets}
         onRefresh={onRefresh}
         onRefreshNads={onRefreshNads}
       />

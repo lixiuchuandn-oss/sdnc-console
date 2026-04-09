@@ -25,7 +25,8 @@
  * 前端再按注解过滤出公共/扁平/VPC 子网视图。
  *
  * 【本 handler 内租户过滤】
- * 租户用户：仅返回 `spec.namespaces` 与租户授权命名空间有交集的 Subnet（与 VPC 列表里允许 `cloud-public` 的规则不同）。
+ * 租户用户：返回 `spec.namespaces` 与「租户授权命名空间」有交集的 Subnet；当 `mergePublicScenarioNamespaces=true`（默认，兼容旧客户端）
+ * 时并入 `tower.io/scenario=public` 命名空间后再求交集（扁平子网控制台显式传 true）。
  * 若需空列表，上游 UserSpace 未命中时直接返回 `items: []`。
  *
  * 【写操作 / 直连 CRUD】
@@ -37,6 +38,14 @@ import { AppDataSource } from '../../../../config/database';
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
+import {
+  filterItemsByOvnNetworkScopeForApi,
+  parseRequiredOvnNetworkScopeListQuery,
+} from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
+import {
+  getPublicScenarioNamespaceNames,
+  mergePublicScenarioNamespacesFromQuery,
+} from '../../../../services/clouds/harvester/publicNamespaces';
 
 /**
  * GET /:id/resources/subnets — 子网 Inventory 列表（含同步逻辑）。
@@ -44,6 +53,11 @@ import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/invent
  */
 export async function harvesterSubnetListHandler(req: Request, res: Response) {
   try {
+    const parsedScope = parseRequiredOvnNetworkScopeListQuery(req);
+    if (!parsedScope.ok) {
+      return res.status(parsedScope.status).json({ message: parsedScope.message });
+    }
+
     const cloud = (req as any).cloud;
     const { id } = req.params;
     const { vpcId, force } = req.query as any;
@@ -103,7 +117,11 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
     let list = dbItems.map((i) => i.rawData);
 
     if (isTenant) {
-      const userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
+      let userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
+      if (mergePublicScenarioNamespacesFromQuery(req)) {
+        const pub = await getPublicScenarioNamespaceNames(id);
+        userNamespaces = Array.from(new Set([...userNamespaces, ...pub]));
+      }
       list = list.filter((subnet: any) => {
         const allowed = subnet?.spec?.namespaces || [];
         return Array.isArray(allowed) && userNamespaces.some((ns) => allowed.includes(ns));
@@ -111,9 +129,17 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
     }
 
     let items = list;
+    const scopeQ = parsedScope.scope;
+    if (scopeQ === 'vpc') {
+      items = filterItemsByOvnNetworkScopeForApi(items, 'vpc');
+    } else if (scopeQ === 'underlay') {
+      items = filterItemsByOvnNetworkScopeForApi(items, 'underlay');
+    }
+    // scopeQ === 'all'：不分域
+
     if (vpcId) {
-      items = list.filter(
-        (s: any) => String(s?.vpc || '').trim() === String(vpcId).trim(),
+      items = items.filter(
+        (s: any) => String(s?.spec?.vpc ?? s?.vpc ?? '').trim() === String(vpcId).trim(),
       );
     }
     res.json({ message: '查询成功', data: { items } });

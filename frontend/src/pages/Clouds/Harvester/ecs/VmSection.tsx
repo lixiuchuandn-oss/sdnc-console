@@ -59,6 +59,8 @@ import { OsIcon } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../constants/cloudPermissions';
+import SimpleVmCreateModal from '../modals/SimpleVmCreateModal';
+import { apiPost } from '../../../../services/api';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -101,15 +103,61 @@ type Props = {
   mode?: 'standard' | 'ops';
   bordered?: boolean; // New prop to control table border explicitly
   disableColumnSettings?: boolean; // 禁用列设置组件，避免在某些场景下导致死锁
-  /** 若提供，则「快速创建」点击时调用（如打开 SimpleVmCreateModal），否则该按钮禁用 */
+  /**
+   * 若提供，则「快速创建」点击时改由父级处理（兼容旧页面在页面层挂载 SimpleVmCreateModal 的写法）。
+   * 未提供时，由 VmSection 内置 SimpleVmCreateModal（需传入下方扁平网络/镜像等数据）。
+   */
   onCreateVmOverride?: () => void;
+  /** 内置快速创建弹窗：存储类、Kube-OVN 子网、NAD、集群能力（与 SimpleVmCreateModal 一致） */
+  storageClasses?: any[];
+  kubeSubnets?: any[];
+  harvesterNads?: any[];
+  capabilities?: any | null;
+  onReloadQuickCreateSubnets?: () => void;
+  onReloadQuickCreateImages?: () => void;
+  /** 创建成功且在 sync + onRefresh 之前/之外的额外逻辑（可选） */
+  onQuickVmCreated?: () => void | Promise<void>;
 };
 
 /**
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, mode = 'ops', bordered = true, disableColumnSettings = false, onCreateVmOverride }) => {
+const VmSection: React.FC<Props> = ({
+  vms,
+  loading,
+  namespacesOptions,
+  nodesOptions,
+  cloudId,
+  nsValue,
+  nodeValue,
+  onNsChange,
+  onNodeChange,
+  onRefresh,
+  onOpenReconfigure,
+  onStart,
+  onStop,
+  onReboot,
+  onSoftReboot,
+  onPause,
+  onUnpause,
+  onDelete,
+  images = [],
+  namespaces = [],
+  volumes = [],
+  isTenant = false,
+  mode = 'ops',
+  bordered = true,
+  disableColumnSettings = false,
+  onCreateVmOverride,
+  storageClasses = [],
+  kubeSubnets = [],
+  harvesterNads = [],
+  capabilities = null,
+  onReloadQuickCreateSubnets,
+  onReloadQuickCreateImages,
+  onQuickVmCreated,
+}) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
@@ -129,7 +177,26 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     const perms = (user?.permissions ?? []) as string[];
     return hasPermissionForAction(perms, CLOUD_VM_CREATE_WIZARD_WRITE);
   }, [user?.permissions]);
-  
+
+  const handleQuickCreateClick = useCallback(() => {
+    if (!hasVmCreatePermission) return;
+    if (onCreateVmOverride) {
+      onCreateVmOverride();
+      return;
+    }
+    setInternalSimpleVmOpen(true);
+  }, [hasVmCreatePermission, onCreateVmOverride]);
+
+  const handleInternalQuickVmCreated = useCallback(async () => {
+    try {
+      await apiPost(`/api/clouds/${cloudId}/sync`);
+    } catch {
+      /* ignore */
+    }
+    await Promise.resolve(onQuickVmCreated?.());
+    onRefresh(true);
+  }, [cloudId, onQuickVmCreated, onRefresh]);
+
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
   // ==========================================
@@ -168,6 +235,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const [aliasVm, setAliasVm] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
+
+  /** 未使用 onCreateVmOverride 时，内置 SimpleVmCreateModal */
+  const [internalSimpleVmOpen, setInternalSimpleVmOpen] = useState(false);
 
   // [筛选] 租户/组织
   const [tenantOrgPath, setTenantOrgPath] = useState<string[]>([]);
@@ -1739,11 +1809,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           <Button
             key="quick-create-btn"
             type="primary"
-            disabled={!hasVmCreatePermission || !onCreateVmOverride}
-            onClick={() => {
-              if (!hasVmCreatePermission || !onCreateVmOverride) return;
-              onCreateVmOverride();
-            }}
+            disabled={!hasVmCreatePermission}
+            onClick={handleQuickCreateClick}
           >
             快速创建
           </Button>
@@ -2028,6 +2095,23 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           </Form.Item>
         </Form>
       </Modal>
+
+      {!onCreateVmOverride && (
+        <SimpleVmCreateModal
+          open={internalSimpleVmOpen}
+          onClose={() => setInternalSimpleVmOpen(false)}
+          cloudId={cloudId}
+          images={images}
+          storageClasses={storageClasses}
+          capabilities={capabilities}
+          kubeSubnets={kubeSubnets}
+          harvesterNads={harvesterNads}
+          onReloadSubnets={onReloadQuickCreateSubnets}
+          onReloadImages={onReloadQuickCreateImages}
+          existingVms={vms}
+          onCreated={handleInternalQuickVmCreated}
+        />
+      )}
     </PageDetailSection>
   );
 };

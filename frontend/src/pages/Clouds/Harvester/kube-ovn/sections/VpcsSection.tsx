@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Table, Button, Space, Modal, Input, Tag, Tooltip, Tabs, Form, Select, message, Switch, Radio } from 'antd';
+import { Table, Button, Space, Modal, Input, Tag, Tabs, Form, Select, message, Switch, Radio } from 'antd';
 import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, SearchOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../../components/PageDetailSection';
@@ -7,7 +7,7 @@ import ResourceActionsDropdown from '../../../../../components/ResourceActionsDr
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../components/HarvesterOpsinfoDrawer';
-import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc, createHarvesterNad } from '../../../../../services/harvesterApi';
+import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc } from '../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
@@ -16,6 +16,7 @@ import {
   KUBE_OVN_PUBLIC_VPC,
   KUBE_OVN_PROVIDER_VPC,
   isBuiltInKubeOvnVpc,
+  isVpcOvnSubnetTableRow,
 } from '../lib/kubeOvnSubnetConstants';
 
 /**
@@ -27,7 +28,12 @@ interface KubeOvnVpcsSectionProps {
   subnets?: any[];
   namespaces?: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean, silent?: boolean) => void;
+  /** 第三项 opts.vpcsAll 为 true 时请求 GET /vpcs?all=true（运维模式开关） */
+  onRefresh?: (
+    force?: boolean,
+    silent?: boolean,
+    opts?: { vpcsAll?: boolean },
+  ) => void;
   bordered?: boolean;
   showYaml?: boolean;
 }
@@ -102,6 +108,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   bordered = true,
   showYaml = true,
 }) => {
+  /** 运维模式下：是否请求 all=true（含内置/无注解 VPC） */
+  const [vpcsQueryAll, setVpcsQueryAll] = useState(false);
+
+  useEffect(() => {
+    if (!showYaml) setVpcsQueryAll(false);
+  }, [showYaml]);
+
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasVpcsWrite = useMemo(
@@ -275,7 +288,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       setCreateModalVisible(false);
       form.resetFields();
       // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，silent=true 跳过后端全量同步）
-      onRefresh?.(true, true);
+      onRefresh?.(true, true, { vpcsAll: vpcsQueryAll });
     } catch (error: any) {
       message.error(`${isEditVpc ? '更新' : '创建'} VPC 失败: ${error.message}`);
     } finally {
@@ -390,63 +403,16 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           [SUBNET_TYPE_ANNOTATION_KEY]: 'vpc',
         };
         payload.finalizers = Array.from(new Set([...(Array.isArray(payload?.finalizers) ? payload.finalizers : []), SUBNET_FINALIZER]));
-        
-        // 创建子网前，先创建对应的 NAD（Kube-OVN 要求）
-        // NAD 名称必须与子网名称相同
-        try {
-          const nadPayload = {
-            type: 'k8s.cni.cncf.io.networkattachmentdefinition',
-            metadata: {
-              name: generatedName,
-              namespace: targetNamespace,
-              annotations: {
-                'tower.io/alias': values.name,
-              },
-            },
-            spec: {
-              config: JSON.stringify({
-                cniVersion: '0.3.1',
-                name: generatedName,
-                type: 'kube-ovn',
-                server_socket: '/run/openvswitch/kube-ovn-daemon.sock',
-                provider: `${generatedName}.${targetNamespace}.ovn`,
-              }),
-            },
-          };
-          
-          try {
-            await createHarvesterNad(cloudId, nadPayload);
-          } catch (nadError: any) {
-            // 如果 NAD 已存在，忽略错误继续创建子网
-            if (nadError.message?.includes('already exists') || nadError.message?.includes('AlreadyExists')) {
-              // NAD 已存在，继续创建子网
-            } else if (nadError.message?.includes('being terminated') || nadError.message?.includes('terminating')) {
-              // 命名空间正在终止，无法创建资源
-              const errorMsg = `无法在命名空间 ${targetNamespace} 中创建资源：该命名空间正在被终止。请选择其他命名空间或等待命名空间删除完成。`;
-              message.error(errorMsg);
-              throw new Error(errorMsg);
-            } else {
-              throw nadError;
-            }
-          }
-        } catch (nadError: any) {
-          // 如果错误已经处理过（如命名空间终止），直接抛出
-          if (nadError.message?.includes('正在被终止')) {
-            throw nadError;
-          }
-          // 其他错误，显示详细错误信息
-          const errorMsg = nadError.message || '未知错误';
-          message.error(`创建 NAD 失败: ${errorMsg}`);
-          throw nadError;
-        }
-        
+
+        // NAD 由后端 POST /resources/subnets（harvesterSubnetDirectCreateHandler）与子网一并创建，避免与 Harvester webhook 对 provider 的校验分叉。
+
         await createKubeOvnSubnet(cloudId, payload);
         message.success('子网创建成功');
       }
 
       setCreateSubnetModalVisible(false);
       // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，silent=true 跳过后端全量同步）
-      onRefresh?.(true, true);
+      onRefresh?.(true, true, { vpcsAll: vpcsQueryAll });
     } catch (error: any) {
       // 如果错误信息已经包含友好的提示（如命名空间终止），直接显示
       if (error.message?.includes('正在被终止')) {
@@ -472,17 +438,35 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       return;
     }
     const name = SafeRead.name(record);
+    const displayName = SafeRead.displayName(record);
     if (!cloudId || !name) return;
 
+    const relatedSubnets = (subnets || []).filter((s) => {
+      const targetVpc = SafeRead.subnetVpc(s);
+      return String(targetVpc).trim() === String(name).trim();
+    });
+    if (relatedSubnets.length > 0) {
+      const subnetNames = relatedSubnets
+        .slice(0, 5)
+        .map((s) => SafeRead.displayName(s))
+        .join('、');
+      const moreText = relatedSubnets.length > 5 ? ' 等' : '';
+      Modal.error({
+        title: '无法删除 VPC',
+        content: `该 VPC（${displayName}）下仍有子网（${subnetNames}${moreText}），请先删除全部关联子网后再删除 VPC。`,
+      });
+      return;
+    }
+
     Modal.confirm({
-      title: `删除 VPC: ${name}`,
-      content: '确认要删除此 VPC 吗？此操作不可撤销，且会同时删除关联的子网。',
+      title: `删除 VPC: ${displayName}`,
+      content: `确认要删除 VPC ${displayName} 吗？此操作不可撤销。`,
       okType: 'danger',
       onOk: async () => {
         try {
           await deleteHarvesterVpc(cloudId, name);
           message.success('删除成功');
-          onRefresh?.(true);
+          onRefresh?.(true, false, { vpcsAll: vpcsQueryAll });
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -496,17 +480,18 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       return;
     }
     const name = SafeRead.name(record);
+    const displayName = SafeRead.displayName(record);
     if (!cloudId || !name) return;
 
     Modal.confirm({
-      title: `删除子网: ${name}`,
-      content: '确认要删除此子网吗？此操作不可撤销。',
+      title: `删除子网: ${displayName}`,
+      content: `确认要删除子网 ${displayName} 吗？此操作不可撤销。`,
       okType: 'danger',
       onOk: async () => {
         try {
           await deleteKubeOvnSubnet(cloudId, name);
           message.success('删除成功');
-          onRefresh?.(true);
+          onRefresh?.(true, false, { vpcsAll: vpcsQueryAll });
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -518,11 +503,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const dataSource = useMemo(() => {
     let filtered = vpcs;
 
-    // 过滤内置 VPC（不展示）：与后端 kubeOvnNetworkScope / 前端 lib/kubeOvnSubnetConstants 一致
-    filtered = filtered.filter((item) => {
-      const name = SafeRead.name(item);
-      return !isBuiltInKubeOvnVpc(name);
-    });
+    // 默认列表由 GET /vpcs 只返回 tower.io/ovn-network-scope=vpc；此处不再按内置名过滤
 
     // 搜索过滤
     if (searchText) {
@@ -646,17 +627,17 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
         const alias = String(SafeRead.alias(r) || '').trim();
-        const display = alias || '—';
+        const display = alias || name || '—';
         let tag = null;
-        if (name === KUBE_OVN_PUBLIC_VPC) tag = <Tag color="gold">公共</Tag>;
-        if (name === KUBE_OVN_FLAT_VPC) tag = <Tag color="cyan">扁平</Tag>;
+        if (name === KUBE_OVN_PUBLIC_VPC) tag = <Tag color="blue">公共</Tag>;
+        if (name === KUBE_OVN_FLAT_VPC) tag = <Tag color="blue">扁平</Tag>;
         if (name === KUBE_OVN_PROVIDER_VPC) {
-          tag = <Tag color="purple">Provider</Tag>;
+          tag = <Tag color="blue">Provider</Tag>;
         }
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
             <ApartmentOutlined style={{ color: '#1677ff'}} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={alias || undefined}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={display !== '—' ? display : undefined}>
               {display}
             </span>
             {tag}
@@ -726,15 +707,16 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }} />;
       },
     },
-  ], [cloudId, onRefresh, hasVpcsWrite]);
+  ], [cloudId, onRefresh, hasVpcsWrite, showYaml]);
 
   // --- Render Helpers ---
 
   const renderExpandedRow = (record: any) => {
     const vpcName = SafeRead.name(record);
     
-    // 核心关联逻辑：筛选出 spec.vpc 等于当前 VPC 名称的子网
-    const relatedSubnets = subnets.filter(s => {
+    // 关联子网：同 VPC + tower.io/ovn-network-scope=vpc（无注解时兼容 subnet-type=vpc），避免展开行混入扁平域子网
+    const relatedSubnets = subnets.filter((s) => {
+      if (!isVpcOvnSubnetTableRow(s)) return false;
       const targetVpc = SafeRead.subnetVpc(s);
       return String(targetVpc).trim() === String(vpcName).trim();
     });
@@ -799,12 +781,27 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       )}
       toolbarRight={(
         <div className="toolbar-actions">
+          {showYaml && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={vpcsQueryAll}
+              onChange={(checked) => {
+                setVpcsQueryAll(checked);
+                onRefresh?.(true, false, { vpcsAll: checked });
+              }}
+            />
+          )}
           <Button type="primary" disabled={!hasVpcsWrite} onClick={handleOpenCreateVpc}>创建 VPC</Button>
           <TableColumnSettingsButton 
             allColumns={allColumns} 
             settingsKey="harvester_vpcs_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => onRefresh?.(true, false, { vpcsAll: vpcsQueryAll })}
+            loading={loading}
+          />
         </div>
       )}
     >

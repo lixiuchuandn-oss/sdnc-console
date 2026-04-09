@@ -218,7 +218,7 @@ export function createApiPermissionMiddleware(options?: {
         : ['clouds.security-groups.flat:write', 'clouds.vpcs:write'];
     }
 
-    // 扁平分域 OVN EIP/FIP/SNAT/DNAT（仅 network-flat 路径）
+    // 扁平分域 OVN EIP/FIP/SNAT/DNAT（actionBase 为 *.flat；路径已统一为 /resources/ovn*）
     if (actionBase === 'clouds.eips.flat') {
       return isRead
         ? ['clouds.eips.flat:read', 'clouds:read']
@@ -240,9 +240,13 @@ export function createApiPermissionMiddleware(options?: {
         : ['clouds.dnat.flat:write', 'clouds:write'];
     }
 
-    // EIP/FIP：network-vpc 路径仅 VPC 原子；未分域路径兼容 Harvester 全量（VPC+扁平+vpcs）
+    const ovnNs = String((req as any).query?.ovnNetworkScope ?? '')
+      .trim()
+      .toLowerCase();
+
+    // EIP/FIP：?ovnNetworkScope=vpc 仅 VPC 原子；underlay/all 为扁平或全量
     if (actionBase === 'clouds.eips.vpc') {
-      const scopedVpc = path.includes('/resources/network-vpc/');
+      const scopedVpc = ovnNs === 'vpc';
       if (scopedVpc) {
         return isRead
           ? ['clouds.eips.vpc:read', 'clouds:read']
@@ -253,7 +257,7 @@ export function createApiPermissionMiddleware(options?: {
         : ['clouds.eips.vpc:write', 'clouds.eips.flat:write', 'clouds.vpcs:write'];
     }
     if (actionBase === 'clouds.fips.vpc') {
-      const scopedVpc = path.includes('/resources/network-vpc/');
+      const scopedVpc = ovnNs === 'vpc';
       if (scopedVpc) {
         return isRead
           ? ['clouds.fips.vpc:read', 'clouds:read']
@@ -264,9 +268,9 @@ export function createApiPermissionMiddleware(options?: {
         : ['clouds.fips.vpc:write', 'clouds.fips.flat:write', 'clouds.vpcs:write'];
     }
 
-    // SNAT：network-vpc 仅 VPC SNAT；未分域路径允许 VPC+扁平（Harvester / Cloudmap 旧接口）
+    // SNAT
     if (actionBase === 'clouds.snat.vpc') {
-      const scopedVpc = path.includes('/resources/network-vpc/');
+      const scopedVpc = ovnNs === 'vpc';
       if (scopedVpc) {
         return isRead
           ? ['clouds.snat.vpc:read', 'clouds:read']
@@ -284,9 +288,9 @@ export function createApiPermissionMiddleware(options?: {
         : ['clouds.traffic-mirroring.vpc:write', 'clouds.traffic-mirroring.flat:write', 'clouds.vpcs:write'];
     }
 
-    // DNAT：network-vpc 仅 VPC DNAT；未分域路径兼容 NAT 网关与扁平（与 SNAT 并集）
+    // DNAT
     if (actionBase === 'clouds.dnat.vpc') {
-      const scopedVpc = path.includes('/resources/network-vpc/');
+      const scopedVpc = ovnNs === 'vpc';
       if (scopedVpc) {
         return isRead
           ? ['clouds.dnat.vpc:read', 'clouds:read']

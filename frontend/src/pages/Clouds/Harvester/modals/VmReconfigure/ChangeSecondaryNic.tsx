@@ -255,7 +255,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                         onDropdownVisibleChange={(open) => { if (open) reloadVpcs(); }}
                                         onChange={(val) => { 
                                             const list = form.getFieldValue('secondaryNics');
-                                            list[name] = { ...list[name], vpc: val, subnet: undefined, name: undefined };
+                                            list[name] = { ...list[name], vpc: val, subnet: undefined, name: undefined, type: 'managedtap' };
                                             form.setFieldsValue({ secondaryNics: list });
                                         }}
                                       />
@@ -303,7 +303,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                                                 if (found) netName = found.value;
                                               } catch {}
                                             }
-                                            list[name] = { ...list[name], subnet: val, name: netName, type: 'bridge' };
+                                            list[name] = { ...list[name], subnet: val, name: netName, type: 'managedtap' };
                                             form.setFieldsValue({ secondaryNics: list });
                                         }}
                                       />
@@ -334,12 +334,12 @@ const ChangeSecondaryNic: React.FC<Props> = ({
 
                               {/* --- 通用物理属性 --- */}
                               <Col span={8}>
-                                <Form.Item {...restField} label="类型" name={[name, 'type']} initialValue={mode === 'passthrough' ? 'sriov' : mode === 'flat_subnet' ? 'managedtap' : 'bridge'}>
+                                <Form.Item {...restField} label="类型" name={[name, 'type']} initialValue={mode === 'passthrough' ? 'sriov' : (mode === 'flat_subnet' || mode === 'vpc') ? 'managedtap' : 'bridge'}>
                                   <Select
                                     options={
                                       mode === 'passthrough'
                                         ? PASSTHROUGH_VIRT_IFACE_OPTIONS
-                                        : mode === 'flat_subnet'
+                                        : (mode === 'flat_subnet' || mode === 'vpc')
                                           ? [ifaceTypeOption('managedtap')]
                                           : [ifaceTypeOption('bridge')]
                                     }
@@ -391,7 +391,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                <Button type="dashed" onClick={() => { reloadSubnets(); add({ mode: 'flat_subnet', vpc: KUBE_OVN_FLAT_VPC, type: 'managedtap', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
                  添加扁平子网
                </Button>
-               <Button type="dashed" onClick={() => { reloadVpcs(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
+               <Button type="dashed" onClick={() => { reloadVpcs(); add({ mode: 'vpc', type: 'managedtap', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
                  添加VPC网卡
                </Button>
                <Button type="dashed" onClick={() => add({ mode: 'passthrough', type: 'sriov', model: 'virtio' })} style={{ flex: 1 }} icon={<PlusOutlined />}>

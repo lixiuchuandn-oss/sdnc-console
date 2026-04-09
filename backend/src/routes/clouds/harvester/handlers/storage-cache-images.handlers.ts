@@ -21,7 +21,10 @@ import { HarvesterImageInventory } from '../../../../entities/harvester/Harveste
 import { ImageUploadTask } from '../../../../entities/harvester/ImageUploadTask';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncHarvesterImages } from '../../../../services/clouds/harvester/inventory';
-import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
+import {
+  getPublicScenarioNamespaceNames,
+  mergePublicScenarioNamespacesFromQuery,
+} from '../../../../services/clouds/harvester/publicNamespaces';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 
 // ---------------------------------------------------------------------------
@@ -113,7 +116,8 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
         return res.json({ message: '查询成功', data: { items: [] } });
       }
 
-      const publicNsNames = await getPublicScenarioNamespaceNames(id);
+      const mergePublic = mergePublicScenarioNamespacesFromQuery(req);
+      const publicNsNames = mergePublic ? await getPublicScenarioNamespaceNames(id) : [];
       publicScenarioNsSet = new Set(publicNsNames);
       const organizationId = reqAny.user.organizationId as string | undefined;
 
@@ -133,19 +137,29 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
           }
         }
 
-        whereCondition = uniqueNamespaceWhere(id, [...allowed, ...publicNsNames]);
+        whereCondition = uniqueNamespaceWhere(
+          id,
+          mergePublic ? [...allowed, ...publicNsNames] : allowed,
+        );
       } else if (organizationId) {
         const orgNs = `ns-${organizationId}`;
         us.namespace = orgNs;
         try {
           await userSpaceRepo.save(us);
-          whereCondition = uniqueNamespaceWhere(id, [orgNs, ...publicNsNames]);
+          whereCondition = uniqueNamespaceWhere(
+            id,
+            mergePublic ? [orgNs, ...publicNsNames] : [orgNs],
+          );
         } catch (e) {
           console.warn('Failed to auto-update UserSpace namespace', e);
-          whereCondition = uniqueNamespaceWhere(id, publicNsNames);
+          whereCondition = mergePublic
+            ? uniqueNamespaceWhere(id, publicNsNames)
+            : uniqueNamespaceWhere(id, []);
         }
       } else {
-        whereCondition = uniqueNamespaceWhere(id, publicNsNames);
+        whereCondition = mergePublic
+          ? uniqueNamespaceWhere(id, publicNsNames)
+          : uniqueNamespaceWhere(id, []);
       }
     } else {
       publicScenarioNsSet = new Set(await getPublicScenarioNamespaceNames(id));

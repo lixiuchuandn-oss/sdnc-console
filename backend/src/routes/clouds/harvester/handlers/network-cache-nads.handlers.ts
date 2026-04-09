@@ -12,7 +12,10 @@ import {
   findVmDisplayNamesUsingMultusNetwork,
   resolveHarvesterK8sApiBase,
 } from '../harvester.direct.helpers';
-import { buildTenantNamespaceInventoryWhere } from '../../../../services/clouds/harvester/publicNamespaces';
+import {
+  buildTenantNamespaceInventoryWhere,
+  mergePublicScenarioNamespacesFromQuery,
+} from '../../../../services/clouds/harvester/publicNamespaces';
 
 /**
  * GET /:id/resources/harvester/nads
@@ -62,9 +65,13 @@ export async function harvesterNadListHandler(req: Request, res: Response) {
           }
         }
         
-        whereCondition = await buildTenantNamespaceInventoryWhere(id, allowed);
+        whereCondition = await buildTenantNamespaceInventoryWhere(id, allowed, {
+          mergePublicScenarioNamespaces: mergePublicScenarioNamespacesFromQuery(req),
+        });
       } else {
-        whereCondition = await buildTenantNamespaceInventoryWhere(id, []);
+        whereCondition = await buildTenantNamespaceInventoryWhere(id, [], {
+          mergePublicScenarioNamespaces: mergePublicScenarioNamespacesFromQuery(req),
+        });
       }
       if (Array.isArray(whereCondition) && whereCondition.length === 0) {
         return res.json({ message: '查询成功', data: { items: [] } });

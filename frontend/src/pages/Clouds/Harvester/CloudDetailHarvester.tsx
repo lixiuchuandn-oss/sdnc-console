@@ -1,3 +1,5 @@
+
+// 即将废弃，修改cloudmap 时，不用修改此文件
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Tag, Space, Button, Tabs, Descriptions, message } from 'antd';
@@ -43,6 +45,7 @@ import RecycleBinSection from './ecs/RecycleBinSection';
 import TemplatesSection from './ecs/TemplatesSection';
 import ScheduleVmBackupsSection from './cbr/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from './cbr/VmRestoreTasksSection';
+import { isVpcOvnSubnetTableRow } from './kube-ovn/lib/kubeOvnSubnetConstants';
 import EipSection from './kube-ovn/sections/EipSection';
 import FipSection from './kube-ovn/sections/FipSection';
 import SnatSection from './kube-ovn/sections/SnatSection';
@@ -577,6 +580,34 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               }, force);
             }
             break;
+          case 'vpcs':
+            if (checkPerm('clouds.networks:read') && ovnVpcEnabled) {
+              loadResource(
+                'vpcs',
+                () => fetchKubeOvnVpcs(cloudId, force, skipSync),
+                (json) => {
+                  const list: any[] = (json as any)?.data?.items || [];
+                  setKubeOvnVpcs(Array.isArray(list) ? list : []);
+                  setRawVpcs(json || null);
+                },
+                force,
+              );
+            }
+            break;
+          case 'subnets':
+            if (checkPerm('clouds.networks:read')) {
+              loadResource(
+                'subnets',
+                () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+                (json) => {
+                  const list: any[] = (json as any)?.data?.items || [];
+                  setKubeOvnSubnets(Array.isArray(list) ? list : []);
+                  setRawSubnets(json || null);
+                },
+                force,
+              );
+            }
+            break;
           case 'eips':
           case 'kubeovn_eips':
           case 'fips':
@@ -588,28 +619,28 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
           case 'kube_ovn_group': // Kube-OVN 扩展组
             if (checkPerm('clouds.networks:read')) {
                 if (key === 'eips' || key === 'kube_ovn_group' || key === 'kubeovn_eips') {
-                    loadResource('eips', () => fetchCloudProviderOvnEips(cloudId, force), (json) => {
+                    loadResource('eips', () => fetchCloudProviderOvnEips(cloudId, force, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnEips(Array.isArray(list) ? list : []);
                         setRawEips(json || null);
                     }, force);
                 }
                 if (key === 'fips' || key === 'kube_ovn_group' || key === 'kubeovn_fips') {
-                    loadResource('fips', () => fetchCloudProviderOvnFips(cloudId, force), (json) => {
+                    loadResource('fips', () => fetchCloudProviderOvnFips(cloudId, force, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnFips(Array.isArray(list) ? list : []);
                         setRawFips(json || null);
                     }, force);
                 }
                 if (key === 'snat' || key === 'kube_ovn_group' || key === 'kubeovn_snat') {
-                    loadResource('snatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force), (json) => {
+                    loadResource('snatRules', () => fetchCloudProviderOvnSnatRules(cloudId, force, false, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnSnatRules(Array.isArray(list) ? list : []);
                         setRawSnatRules(json || null);
                     }, force);
                 }
                 if (key === 'dnat' || key === 'kube_ovn_group' || key === 'kubeovn_dnat') {
-                    loadResource('dnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force), (json) => {
+                    loadResource('dnatRules', () => fetchCloudProviderOvnDnatRules(cloudId, force, false, 'vpc'), (json) => {
                         const list: any[] = (json as any)?.data?.items || [];
                         setKubeOvnDnatRules(Array.isArray(list) ? list : []);
                         setRawDnatRules(json || null);
@@ -1420,6 +1451,29 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             images={harvesterImages}
                             namespaces={harvesterNamespaces}
                             mode={harvesterViewMode}
+                            storageClasses={harvesterStorageClasses}
+                            kubeSubnets={kubeOvnSubnets}
+                            harvesterNads={harvesterNads}
+                            capabilities={capabilities}
+                            onReloadQuickCreateSubnets={() =>
+                              loadResource(
+                                'subnets',
+                                () => fetchKubeOvnSubnets(cloudId, true),
+                                (json) => setKubeOvnSubnets(json?.data?.items || []),
+                                true,
+                              )
+                            }
+                            onReloadQuickCreateImages={
+                              checkPerm('clouds.images:read')
+                                ? () =>
+                                    loadResource(
+                                      'images',
+                                      () => fetchHarvesterImages(cloudId, true),
+                                      (json) => setHarvesterImages(json?.data?.items || []),
+                                      true,
+                                    )
+                                : undefined
+                            }
                           />
                           <VmReconfigureModal 
                             open={vmReconfOpen} 
@@ -2020,9 +2074,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                               label: 'VPC 私有网络',
                               children: (
                                 <>
-                                  <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={async (force = false, silent = false) => {
+                                  <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={async (force = false, silent = false, opts) => {
                                     const skipSync = silent;
-                                    loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => setKubeOvnVpcs(json?.data?.items || []), true);
+                                    const vpcsAll = opts?.vpcsAll === true;
+                                    loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync, vpcsAll ? 'all' : 'vpc'), (json) => setKubeOvnVpcs(json?.data?.items || []), true);
                                     loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force, skipSync), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
                                   }} showYaml={harvesterViewMode === 'ops'} />
                                   {showLog && (
@@ -2072,7 +2127,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VPC 子网',
                       children: (
                         <>
-                          <VpcSubnetsSection subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} showYaml={harvesterViewMode === 'ops'} displayMode={harvesterViewMode === 'ops' ? 'ops' : 'standard'} />
+                          <VpcSubnetsSection subnets={(kubeOvnSubnets || []).filter(isVpcOvnSubnetTableRow)} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} showYaml={harvesterViewMode === 'ops'} displayMode={harvesterViewMode === 'ops' ? 'ops' : 'standard'} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
@@ -2100,7 +2155,19 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'EIP 外部IP',
                       children: (
                         <>
-                          <EipSection cloudId={cloudId} eips={kubeOvnEips} subnets={kubeOvnSubnets} loading={resourceLoading.eips} onRefresh={() => loadTabResource('eips', true)} />
+                          <EipSection
+                            cloudId={cloudId}
+                            networkScope="vpc"
+                            eips={kubeOvnEips}
+                            vpcs={kubeOvnVpcs}
+                            subnets={kubeOvnSubnets}
+                            loading={resourceLoading.eips}
+                            onRefresh={() => {
+                              void loadTabResource('eips', true);
+                              void loadTabResource('vpcs', true);
+                              void loadTabResource('subnets', true);
+                            }}
+                          />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawEips, null, 2)}</pre>
@@ -2114,7 +2181,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'FIP 浮动IP',
                       children: (
                         <>
-                          <FipSection cloudId={cloudId} fips={kubeOvnFips} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.fips} onRefresh={() => loadTabResource('fips', true)} />
+                          <FipSection cloudId={cloudId} networkScope="vpc" fips={kubeOvnFips} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.fips} onRefresh={() => loadTabResource('fips', true)} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawFips, null, 2)}</pre>
@@ -2128,10 +2195,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'SNAT 规则',
                       children: (
                         <>
-                          <SnatSection cloudId={cloudId} snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} onRefresh={(force = true, silent = false) => {
+                          <SnatSection cloudId={cloudId} networkScope="vpc" snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} onRefresh={(force = true, silent = false) => {
                             const skipSync = silent;
                             setResourceLoading(prev => ({ ...prev, snatRules: true }));
-                            fetchCloudProviderOvnSnatRules(cloudId, force, skipSync)
+                            fetchCloudProviderOvnSnatRules(cloudId, force, skipSync, 'vpc')
                               .then((json) => {
                                 const list: any[] = (json as any)?.data?.items || [];
                                 setKubeOvnSnatRules(Array.isArray(list) ? list : []);
@@ -2157,10 +2224,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'DNAT 规则',
                       children: (
                         <>
-                          <DnatSection cloudId={cloudId} dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.dnatRules} onRefresh={(force = true, silent = false) => {
+                          <DnatSection cloudId={cloudId} networkScope="vpc" dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.dnatRules} onRefresh={(force = true, silent = false) => {
                             const skipSync = silent;
                             setResourceLoading(prev => ({ ...prev, dnatRules: true }));
-                            fetchCloudProviderOvnDnatRules(cloudId, force, skipSync)
+                            fetchCloudProviderOvnDnatRules(cloudId, force, skipSync, 'vpc')
                               .then((json) => {
                                 const list: any[] = (json as any)?.data?.items || [];
                                 setKubeOvnDnatRules(Array.isArray(list) ? list : []);
