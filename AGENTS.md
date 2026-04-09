@@ -79,7 +79,7 @@ Compute.Tower/
 │   │       ├── kvPodLog.ts    # KubeVirt Pod 日志
 │   │       └── kvPodExec.ts   # KubeVirt Pod 终端
 │   ├── public/                # 静态文件托管
-│   ├── data/                  # 数据文件
+│   ├── data/                  # 运行期数据（授权、系统设置等；须在 backend 目录启动服务，勿使用仓库根 `data/`）
 │   └── package.json
 ├── frontend/                  # 前端应用
 │   ├── src/
@@ -162,18 +162,9 @@ Compute.Tower/
 │   │   └── utils/             # 工具函数
 │   ├── patches/               # npm 包补丁
 │   └── package.json
-├── docs/                      # 设计文档
-├── scripts/                   # 工具脚本
-│   ├── batch-update-token.js  # 批量更新令牌
-│   ├── check-token-usage.js   # 检查令牌使用
-│   ├── deploy-registry.js     # 部署镜像仓库
-│   ├── deploy-registry.ts     # 部署镜像仓库（TS）
-│   ├── import-image-job.json  # 镜像导入任务模板
-│   ├── push-test-job.json     # 推送测试任务模板
-│   └── verify-token-files.js  # 验证令牌文件
+├── deployment/docs/           # 设计/规范/API 说明（含 Harvester、权限、UI 规格等；根目录已无独立 `docs/`）
 ├── tools/                     # 外部工具
 │   └── harvester-uploader/    # Harvester 上传工具
-└── data/                      # 数据目录（授权文件等）
 ```
 
 ## 构建与运行
@@ -465,7 +456,7 @@ const addRule = useCallback(() => {
 
 开发功能对接标准实体时，遵循以下原则：
 
-1. **优先使用标准 API**: 项目已整理的标准 API 文档位于 `docs/` 目录
+1. **优先使用标准 API**: 标准 API 与协议说明见 `deployment/docs/specs/api/` 等目录（根目录 `docs/` 已并入此处）
 2. **发现缺失先核对**: 如果发现缺少某个接口，先提出来核对：
    - 是否实际存在该接口，只是未总结到文档
    - 是否可以用其他接口替代

@@ -367,9 +367,8 @@ return await apiRequest(url);
 
 ## 📚 相关文档
 
-- [为什么页面组件会直接调用接口？](../docs/WHY_PAGES_DIRECT_API_CALLS.md)
-- [页面组件直接调用 API 问题清单](../docs/PAGES_DIRECT_API_CALLS_LIST.md)
-- [Token 存储优化](../docs/TOKEN_STORAGE_OPTIMIZATION.md)
+- 仓库级说明与规范：`AGENTS.md`、`deployment/docs/`（含 `specs/api/`、`architecture/` 等）
+- 以下曾计划在根目录 `docs/` 下的专题稿若未落库，请以代码与 `deployment/docs` 为准
 
 ---
 

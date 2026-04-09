@@ -47,24 +47,6 @@
     "test": "set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-scripts test",
     "eject": "react-scripts eject"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ],
-    "rules": {
-      "no-console": [
-        "warn",
-        {
-          "allow": [
-            "warn",
-            "error",
-            "debug"
-          ]
-        }
-      ]
-    }
-  },
   "browserslist": {
     "production": [
       ">0.2%",

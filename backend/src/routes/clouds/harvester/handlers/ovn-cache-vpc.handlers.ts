@@ -28,7 +28,7 @@
  *
  * 【默认列表范围】
  * 由查询参数 **`ovnNetworkScope`**（必填）控制：`vpc` / `underlay` / `all`，见 `kubeOvnNetworkScope.ts` 与
- * `docs/Harvester-OVN-网络接口分域规范.md`。
+ * `deployment/docs/specs/api/Harvester-OVN-网络接口分域规范.md`。
  */
 
 import { Request, Response } from 'express';

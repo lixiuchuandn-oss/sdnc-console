@@ -543,7 +543,7 @@ export const fetchHarvesterSystemPods = async (cloudId: string, params: { page: 
 /** UI 侧分域语义；与后端 query `ovnNetworkScope` 映射见下方 */
 export type CloudOvnNetworkScope = 'legacy' | 'flat' | 'vpc';
 
-/** 与 docs/Harvester-OVN-网络接口分域规范.md GET 一致 */
+/** 与 deployment/docs/specs/api/Harvester-OVN-网络接口分域规范.md GET 一致 */
 export type OvnNetworkScopeQuery = 'vpc' | 'underlay' | 'all';
 
 function mapUiScopeToListQuery(scope: CloudOvnNetworkScope): OvnNetworkScopeQuery {

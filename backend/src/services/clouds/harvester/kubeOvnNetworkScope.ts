@@ -237,7 +237,7 @@ export function filterItemsByOvnNetworkScopeForApi(
   return filterItemsByOvnNetworkScopeAnnotation(items, 'underlay');
 }
 
-/** GET 列表必填：`ovnNetworkScope=vpc|underlay|all`（见 docs/Harvester-OVN-网络接口分域规范.md） */
+/** GET 列表必填：`ovnNetworkScope=vpc|underlay|all`（见 deployment/docs/specs/api/Harvester-OVN-网络接口分域规范.md） */
 export type OvnNetworkScopeListQuery = 'vpc' | 'underlay' | 'all';
 
 export function parseRequiredOvnNetworkScopeListQuery(req: {

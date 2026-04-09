@@ -12,7 +12,7 @@
  * 集成说明：
  * - 组件本身是一个“轻量视图”，只负责展示与简单筛选，不直接调用后端 API
  * - 列表数据 storageClasses、加载状态 loading 以及刷新函数 onRefresh 由上层 Harvester 页面注入
- * - 工具栏与表格样式遵循 `docs/specs/ui-components/page-detail-container.md` 中的规范，
+ * - 工具栏与表格样式遵循 `deployment/docs/specs/ui-components/page-detail-container.md` 中的规范，
  *   使用 `global-new.css` 中定义的公共样式（std-table、toolbar-search、toolbar-reset-btn 等）
  */
 

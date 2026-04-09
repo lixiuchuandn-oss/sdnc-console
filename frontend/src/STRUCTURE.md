@@ -32,15 +32,16 @@ src/
 
 ### `components/`
 可复用的公共组件，包括：
-- 页面容器组件（PageContainer, PageDetailContainer）
-- 表单组件（StdFormModal, StdSideDrawer）
-- 工具组件（Breadcrumbs, ResourceActionsDropdown）
+- 页面容器组件（PageContainer, PageDetailContainer, PageDetailSection）
+- 表单与抽屉（StdFormModal, StdSideDrawer）
+- 表格列设置（TableColumnSettingsButton，配合 `hooks/useTableColumnSettings`）
+- 工具组件（ResourceActionsDropdown 等）
 - 路由组件（AdminRoute, PrivateRoute）
 
 ### `constants/`
 常量定义，包括：
 - 业务常量（如省份城市数据）
-- 配置常量（如分页配置）
+- 导航与权限相关（如 `navCatalog.ts`、`cloudPermissions.ts`）
 
 ### `contexts/`
 React Context 提供者，包括：
@@ -55,7 +56,7 @@ React Context 提供者，包括：
 ### `pages/`
 页面组件，按功能模块组织：
 - `Access/` - 权限管理
-- `Clouds/` - 云资源管理
+- `Clouds/` - 云资源管理（各云类型下再分子模块；Harvester 体量较大，目录约定见仓库 `deployment/修改纪要_Harvester前端目录结构_域优先与shared.md`）
 - `Dashboard/` - 仪表盘
 - `InterConnect/` - 互联互通
 - `Settings/` - 系统设置
@@ -92,12 +93,16 @@ TypeScript 类型定义文件
 3. ✅ **CSS 迁移**
    - `global.css` → `global-new.css` 的迁移已完成，`global.css` 已删除
 
+4. ✅ **未引用代码清理**（持续进行）
+   - 已移除未被任何模块 import 的组件、常量等；权限元数据以 `hooks/usePermissionDefinitions` 与后端为准，已删除遗留的 `permissionCatalog` 式推断文件
+   - 表格分页在页面内按需配置，未使用单独 `constants/pagination` 模块
+
 ## 📝 命名规范
 
 - **组件文件**: PascalCase（如 `PageContainer.tsx`）
 - **工具文件**: camelCase（如 `harvesterUtils.ts`）
 - **类型文件**: camelCase（如 `cloud.ts`）
-- **常量文件**: camelCase（如 `pagination.ts`）
+- **常量文件**: camelCase（如 `navCatalog.ts`）
 
 ## 🎯 最佳实践
 
@@ -106,3 +111,4 @@ TypeScript 类型定义文件
 3. **API 封装**: 所有 API 调用通过 `services/` 层
 4. **常量管理**: 业务常量统一放在 `constants/`
 5. **工具函数**: 通用工具函数放在 `utils/`
+6. **无用文件**: 可用 `npx knip` 辅助发现未被引用的源文件；`setupProxy.js`、`setupTests.ts` 及 `*.test.ts(x)` 常被静态分析标为「未使用」，属正常，勿删
