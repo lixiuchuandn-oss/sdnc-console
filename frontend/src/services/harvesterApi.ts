@@ -301,7 +301,17 @@ export const fetchHarvesterCloudInits = async (
  * @returns Promise<any>
  */
 export const fetchHarvesterServices = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/services${force ? '?force=true' : ''}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/services${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
+};
+
+/**
+ * 获取 Harvester Ingress 列表
+ * @param cloudId 云环境 ID
+ * @param force 是否强制刷新，默认 false
+ * @returns Promise<any>
+ */
+export const fetchHarvesterIngresses = async (cloudId: string, force = false) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
 };
 
 /**
@@ -1616,6 +1626,17 @@ export const deleteHarvesterCloudInit = async (cloudId: string, namespace: strin
 };
 
 /**
+ * 删除 Harvester Ingress
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Ingress 名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterIngress = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
  * 删除 Harvester Service
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
@@ -1623,7 +1644,7 @@ export const deleteHarvesterCloudInit = async (cloudId: string, namespace: strin
  * @returns Promise<any>
  */
 export const deleteHarvesterService = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester-loadbalancers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
 
 /**
@@ -1671,4 +1692,1069 @@ export const deleteHarvesterIpPool = async (cloudId: string, name: string) => {
   // Our backend likely maps it. Assuming standard resource path structure.
   // Note: IpPools are cluster scoped.
   return await apiDelete(`/api/clouds/${cloudId}/resources/ippools/${encodeURIComponent(name)}`);
+};
+
+// ============================================================
+// 容器相关 API (Containers API)
+// ============================================================
+
+/**
+ * 获取 Deployment 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选，不传则返回所有命名空间)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterDeployments = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/deployments${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 StatefulSet 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterStatefulSets = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/statefulsets${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 DaemonSet 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/daemonsets${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 Pod 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @param force 是否强制刷新缓存
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPods = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const params: string[] = [];
+  if (namespace) {
+    params.push(`namespace=${encodeURIComponent(namespace)}`);
+  }
+  if (force) {
+    params.push('force=true');
+  }
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/containers/pods${query}`,
+    force ? { skipCache: true } : undefined
+  );
+};
+
+/**
+ * 获取 Pod 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Pod 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPodDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 获取 Pod 日志
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Pod 名称
+ * @param container 容器名称 (可选)
+ * @param tailLines 行数限制 (可选)
+ * @returns Promise<string> 日志文本
+ */
+export const fetchHarvesterPodLog = async (cloudId: string, namespace: string, name: string, container?: string, tailLines?: number) => {
+  let query = '?';
+  if (container) query += `container=${encodeURIComponent(container)}&`;
+  if (tailLines) query += `tailLines=${tailLines}&`;
+  
+  // 日志返回纯文本，需要使用 text() 而不是 json()
+  const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  
+  const response = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/containers/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/log${query}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `请求失败: ${response.status}`);
+  }
+  
+  return await response.text();
+};
+
+/**
+ * 获取 Pod 相关的 Kubernetes Events
+ * 包含重要的事件日志，如镜像拉取失败、调度错误等。
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Pod 名称
+ * @returns Promise<any> Events 列表
+ */
+export const fetchHarvesterPodEvents = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/events`);
+};
+
+/**
+ * 创建容器资源 (通用)
+ * @param cloudId 云环境 ID
+ * @param apiPath API 路径 (如 /apis/apps/v1/deployments)
+ * @param namespace 命名空间 (可选)
+ * @param body 资源定义
+ * @returns Promise<any>
+ */
+export const createHarvesterContainerResource = async (cloudId: string, apiPath: string, namespace: string | undefined, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/create`, { apiPath, namespace, body });
+};
+
+/**
+ * 更新容器资源 (通用)
+ * @param cloudId 云环境 ID
+ * @param apiPath API 路径
+ * @param namespace 命名空间
+ * @param name 资源名称
+ * @param body 更新的资源定义
+ * @returns Promise<any>
+ */
+export const updateHarvesterContainerResource = async (cloudId: string, apiPath: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/update`, { apiPath, namespace, name, body });
+};
+
+/**
+ * 删除容器资源 (通用)
+ * @param cloudId 云环境 ID
+ * @param apiPath API 路径
+ * @param namespace 命名空间
+ * @param name 资源名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterContainerResource = async (cloudId: string, apiPath: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/delete`, { apiPath, namespace, name });
+};
+
+/**
+ * 安全驱逐 Pod (Eviction)
+ * 使用 Kubernetes Eviction API，会触发 PDB (PodDisruptionBudget) 保护机制
+ * 如果 PDB 不允许驱逐，将返回 429 错误
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Pod 名称
+ * @returns Promise<any>
+ */
+export const evictHarvesterPod = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/evict`, {});
+};
+
+/**
+ * 批量安全驱逐 Pod (Batch Eviction)
+ * 同时驱逐多个 Pod，用于测试 PDB 规则
+ * @param cloudId 云环境 ID
+ * @param pods Pod 列表 [{ namespace: string, name: string }, ...]
+ * @returns Promise<any>
+ */
+export const batchEvictHarvesterPods = async (cloudId: string, pods: { namespace: string; name: string }[]) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/pods/batch-evict`, { pods });
+};
+
+/**
+ * 扩缩容 Deployment
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Deployment 名称
+ * @param replicas 目标副本数
+ * @returns Promise<any>
+ */
+export const scaleHarvesterDeployment = async (cloudId: string, namespace: string, name: string, replicas: number) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/containers/deployments/scale`, { namespace, name, replicas });
+};
+
+/**
+ * 重启 Deployment
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Deployment 名称
+ * @returns Promise<any>
+ */
+export const restartHarvesterDeployment = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/deployments/restart`, { namespace, name });
+};
+
+/**
+ * 获取 Job 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterJobs = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/jobs${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 CronJob 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterCronJobs = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 ConfigMap 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @param force 是否强制刷新缓存 (可选)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: string, force?: boolean) => {
+  let query = '?';
+  if (namespace) query += `namespace=${encodeURIComponent(namespace)}&`;
+  if (force) query += `force=true&`;
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 Secret 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @param type Secret 类型过滤 (可选)
+ * @param force 是否强制刷新缓存 (可选)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterSecrets = async (cloudId: string, namespace?: string, type?: string, force?: boolean) => {
+  let query = '?';
+  if (namespace) query += `namespace=${encodeURIComponent(namespace)}&`;
+  if (type) query += `type=${encodeURIComponent(type)}&`;
+  if (force) query += `force=true&`;
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets${query}`, { skipCache: force });
+};
+
+// ============================================================
+// ConfigMap CRUD API
+// ============================================================
+
+/**
+ * 获取 ConfigMap 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name ConfigMap 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterConfigMapDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 ConfigMap
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body ConfigMap 资源定义 (完整的 K8s ConfigMap 对象)
+ * @returns Promise<any>
+ */
+export const createHarvesterConfigMap = async (cloudId: string, namespace: string, body: any) => {
+  // 从 K8s 资源对象中提取字段
+  const payload = {
+    namespace: body?.metadata?.namespace || namespace,
+    name: body?.metadata?.name,
+    labels: body?.metadata?.labels,
+    data: body?.data,
+  };
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps`, payload);
+};
+
+/**
+ * 更新 ConfigMap
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name ConfigMap 名称
+ * @param body 更新的 ConfigMap 定义 (完整的 K8s ConfigMap 对象)
+ * @returns Promise<any>
+ */
+export const updateHarvesterConfigMap = async (cloudId: string, namespace: string, name: string, body: any) => {
+  // 从 K8s 资源对象中提取字段
+  const payload = {
+    data: body?.data,
+    labels: body?.metadata?.labels,
+  };
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, payload);
+};
+
+/**
+ * 删除 ConfigMap
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name ConfigMap 名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterConfigMap = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+// ============================================================
+// Secret CRUD API
+// ============================================================
+
+/**
+ * 获取 Secret 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Secret 名称
+ * @param reveal 是否请求明文数据（可选，默认 false）
+ * @returns Promise<any>
+ */
+export const fetchHarvesterSecretDetail = async (cloudId: string, namespace: string, name: string, reveal?: boolean, force?: boolean) => {
+  const params = new URLSearchParams();
+  if (reveal) params.append('reveal', 'true');
+  if (force) params.append('force', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${query}`, { skipCache: force });
+};
+
+/**
+ * 创建 Secret
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body Secret 资源定义 (完整的 K8s Secret 对象)
+ * @returns Promise<any>
+ */
+export const createHarvesterSecret = async (cloudId: string, namespace: string, body: any) => {
+  // 从 K8s 资源对象中提取字段
+  const payload = {
+    namespace: body?.metadata?.namespace || namespace,
+    name: body?.metadata?.name,
+    labels: body?.metadata?.labels,
+    type: body?.type,
+    stringData: body?.stringData,
+  };
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/secrets`, payload);
+};
+
+/**
+ * 更新 Secret
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Secret 名称
+ * @param body 更新的 Secret 定义 (完整的 K8s Secret 对象)
+ * @returns Promise<any>
+ */
+export const updateHarvesterSecret = async (cloudId: string, namespace: string, name: string, body: any) => {
+  // 从 K8s 资源对象中提取字段
+  const payload = {
+    stringData: body?.stringData,
+    labels: body?.metadata?.labels,
+  };
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, payload);
+};
+
+/**
+ * 删除 Secret
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Secret 名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterSecret = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 删除 Job
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Job 名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterJob = async (cloudId: string, namespace: string, name: string) => {
+  return await deleteHarvesterContainerResource(cloudId, '/apis/batch/v1/jobs', namespace, name);
+};
+
+/**
+ * 删除 CronJob
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name CronJob 名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterCronJob = async (cloudId: string, namespace: string, name: string) => {
+  return await deleteHarvesterContainerResource(cloudId, '/apis/batch/v1/cronjobs', namespace, name);
+};
+
+/**
+ * 获取 Job 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Job 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterJobDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/jobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 获取 CronJob 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name CronJob 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterCronJobDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 暂停 CronJob
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name CronJob 名称
+ * @returns Promise<any>
+ */
+export const suspendHarvesterCronJob = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/suspend`, { suspend: true });
+};
+
+/**
+ * 恢复 CronJob
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name CronJob 名称
+ * @returns Promise<any>
+ */
+export const resumeHarvesterCronJob = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/suspend`, { suspend: false });
+};
+
+/**
+ * 手动触发 CronJob
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name CronJob 名称
+ * @returns Promise<any>
+ */
+export const triggerHarvesterCronJob = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/trigger`, {});
+};
+
+/**
+ * 获取镜像凭证列表 (ImagePullSecrets)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ * @description 镜像凭证是 kubernetes.io/dockerconfigjson 类型的 Secret
+ */
+export const fetchHarvesterImagePullSecrets = async (cloudId: string, namespace?: string, force?: boolean) => {
+  return await fetchHarvesterSecrets(cloudId, namespace, 'kubernetes.io/dockerconfigjson', force);
+};
+
+/**
+ * 测试仓库连接
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址 (如 https://registry.example.com)
+ * @param username 用户名 (可选)
+ * @param password 密码 (可选)
+ * @param insecure 是否跳过 TLS 验证 (可选)
+ * @returns Promise<any>
+ */
+export const testRegistryConnection = async (
+  cloudId: string,
+  server: string,
+  username?: string,
+  password?: string,
+  insecure?: boolean,
+) => {
+  const params = new URLSearchParams();
+  params.append('server', server);
+  if (username) params.append('username', username);
+  if (password) params.append('password', password);
+  if (insecure) params.append('insecure', 'true');
+  
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/test?${params.toString()}`);
+};
+
+/**
+ * 获取仓库目录 (Catalog)
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址
+ * @param username 用户名 (可选)
+ * @param password 密码 (可选)
+ * @param insecure 是否跳过 TLS 验证 (可选)
+ * @param n 分页大小 (可选)
+ * @param last 分页标记 (可选)
+ * @returns Promise<any>
+ * @description 返回 { repositories: string[] }
+ */
+export const getRegistryCatalog = async (
+  cloudId: string,
+  server: string,
+  username?: string,
+  password?: string,
+  insecure?: boolean,
+  n?: number,
+  last?: string,
+) => {
+  const params = new URLSearchParams();
+  params.append('server', server);
+  if (username) params.append('username', username);
+  if (password) params.append('password', password);
+  if (insecure) params.append('insecure', 'true');
+  if (n) params.append('n', String(n));
+  if (last) params.append('last', last);
+  
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/catalog?${params.toString()}`);
+};
+
+/**
+ * 获取镜像标签列表
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址
+ * @param repository 镜像仓库名称 (如 library/nginx)
+ * @param username 用户名 (可选)
+ * @param password 密码 (可选)
+ * @param insecure 是否跳过 TLS 验证 (可选)
+ * @param n 分页大小 (可选)
+ * @param last 分页标记 (可选)
+ * @returns Promise<any>
+ * @description 返回 { name: string, tags: string[] }
+ */
+export const getRegistryTags = async (
+  cloudId: string,
+  server: string,
+  repository: string,
+  username?: string,
+  password?: string,
+  insecure?: boolean,
+  n?: number,
+  last?: string,
+) => {
+  const params = new URLSearchParams();
+  params.append('server', server);
+  params.append('repository', repository);
+  if (username) params.append('username', username);
+  if (password) params.append('password', password);
+  if (insecure) params.append('insecure', 'true');
+  if (n) params.append('n', String(n));
+  if (last) params.append('last', last);
+  
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/tags?${params.toString()}`);
+};
+
+/**
+ * 获取镜像 Manifest
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址
+ * @param repository 镜像仓库名称
+ * @param tag 标签或 digest
+ * @param username 用户名 (可选)
+ * @param password 密码 (可选)
+ * @param insecure 是否跳过 TLS 验证 (可选)
+ * @returns Promise<any>
+ */
+export const getRegistryManifest = async (
+  cloudId: string,
+  server: string,
+  repository: string,
+  tag: string,
+  username?: string,
+  password?: string,
+  insecure?: boolean,
+) => {
+  const params = new URLSearchParams();
+  params.append('server', server);
+  params.append('repository', repository);
+  params.append('tag', tag);
+  if (username) params.append('username', username);
+  if (password) params.append('password', password);
+  if (insecure) params.append('insecure', 'true');
+  
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/manifest?${params.toString()}`);
+};
+
+/**
+ * 创建镜像凭证 (ImagePullSecret)
+ * @param cloudId 云环境 ID
+ * @param payload 凭证配置数据
+ * @returns Promise<any>
+ * @description 创建 kubernetes.io/dockerconfigjson 类型的 Secret
+ */
+export const createHarvesterImagePullSecret = async (
+  cloudId: string,
+  payload: {
+    namespace: string;
+    name: string;
+    server: string;
+    username: string;
+    password: string;
+    email?: string;
+  }
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/imagepullsecrets`, payload);
+};
+
+/**
+ * 更新镜像凭证 (ImagePullSecret)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name 凭证名称
+ * @param payload 更新的凭证配置数据
+ * @returns Promise<any>
+ */
+export const updateHarvesterImagePullSecret = async (
+  cloudId: string,
+  namespace: string,
+  name: string,
+  payload: {
+    server: string;
+    username: string;
+    password: string;
+    email?: string;
+  }
+) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/imagepullsecrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, payload);
+};
+
+// ============================================================
+// Containerd Registry 配置 (HTTP 私有仓库)
+// ============================================================
+
+/**
+ * 获取 containerd-registry 配置
+ * 用于配置 containerd 允许从 HTTP 私有仓库拉取镜像
+ * @param cloudId 云环境 ID
+ * @returns Promise<any>
+ */
+export const fetchContainerdRegistry = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/containerd-registry`);
+};
+
+/**
+ * 更新 containerd-registry 配置
+ * @param cloudId 云环境 ID
+ * @param value 配置值 (包含 Mirrors 和 Configs)
+ * @returns Promise<any>
+ */
+export const updateContainerdRegistry = async (cloudId: string, value: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/containerd-registry`, { value });
+};
+
+/**
+ * 快速添加 HTTP 私有仓库到 containerd-registry
+ * 自动配置 Mirrors 和 TLS 跳过验证
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址 (如: 172.16.3.79:30500)
+ * @returns Promise<any>
+ */
+export const addInsecureRegistry = async (cloudId: string, server: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/containerd-registry/insecure`, { server });
+};
+
+// ============================================================
+// Job/CronJob 扩展 API
+// ============================================================
+
+/**
+ * 获取 Job 关联的 Pod 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Job 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterJobPods = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/jobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/pods`);
+};
+
+/**
+ * 获取 Job 相关的事件列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Job 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterJobEvents = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/jobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/events`);
+};
+
+/**
+ * 获取 CronJob 关联的 Job 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name CronJob 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterCronJobJobs = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/jobs`);
+};
+
+/**
+ * 获取 CronJob 相关的事件列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name CronJob 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterCronJobEvents = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/events`);
+};
+
+// ============================================================
+// Gateway API (Kubernetes Next-Generation Ingress)
+// ============================================================
+
+/**
+ * 检测 Gateway API CRD 是否已安装
+ * @param cloudId 云环境 ID
+ * @returns Promise<{ installed: boolean; resources: { gatewayClass: boolean; gateway: boolean; httpRoute: boolean; grpcRoute: boolean } }>
+ */
+export const checkGatewayApiStatus = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/gateway-api/status`);
+};
+
+/**
+ * 获取 GatewayClass 列表
+ * GatewayClass 是集群级别资源，定义 Gateway 的控制器实现
+ * @param cloudId 云环境 ID
+ * @returns Promise<any>
+ */
+export const fetchGatewayClasses = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/gatewayclasses`);
+};
+
+/**
+ * 获取 Gateway 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ */
+export const fetchGateways = async (cloudId: string, namespace?: string) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/gateways${query}`);
+};
+
+/**
+ * 获取 Gateway 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Gateway 名称
+ * @returns Promise<any>
+ */
+export const fetchGatewayDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 Gateway
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body Gateway 资源定义
+ * @returns Promise<any>
+ */
+export const createGateway = async (cloudId: string, namespace: string, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/gateways`, { namespace, body });
+};
+
+/**
+ * 删除 Gateway
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Gateway 名称
+ * @returns Promise<any>
+ */
+export const deleteGateway = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 获取 HTTPRoute 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ */
+export const fetchHttpRoutes = async (cloudId: string, namespace?: string) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/httproutes${query}`);
+};
+
+/**
+ * 获取 HTTPRoute 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name HTTPRoute 名称
+ * @returns Promise<any>
+ */
+export const fetchHttpRouteDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/httproutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 HTTPRoute
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body HTTPRoute 资源定义
+ * @returns Promise<any>
+ */
+export const createHttpRoute = async (cloudId: string, namespace: string, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/httproutes`, { namespace, body });
+};
+
+/**
+ * 删除 HTTPRoute
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name HTTPRoute 名称
+ * @returns Promise<any>
+ */
+export const deleteHttpRoute = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/httproutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 获取 GRPCRoute 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选)
+ * @returns Promise<any>
+ */
+export const fetchGrpcRoutes = async (cloudId: string, namespace?: string) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes${query}`);
+};
+
+/**
+ * 获取 GRPCRoute 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name GRPCRoute 名称
+ * @returns Promise<any>
+ */
+export const fetchGrpcRouteDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 GRPCRoute
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body GRPCRoute 资源定义
+ * @returns Promise<any>
+ */
+export const createGrpcRoute = async (cloudId: string, namespace: string, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes`, { namespace, body });
+};
+
+/**
+ * 删除 GRPCRoute
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name GRPCRoute 名称
+ * @returns Promise<any>
+ */
+export const deleteGrpcRoute = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+// ============================================================
+// Service/Ingress 扩展 API (创建/更新/删除)
+// ============================================================
+
+/**
+ * 获取 Service 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Service 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterServiceDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 Service
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body Service 资源定义
+ * @returns Promise<any>
+ */
+export const createHarvesterService = async (cloudId: string, namespace: string, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/services`, { namespace, body });
+};
+
+/**
+ * 更新 Service
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Service 名称
+ * @param body 更新的 Service 定义
+ * @returns Promise<any>
+ */
+export const updateHarvesterService = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
+ * 获取 Ingress 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Ingress 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterIngressDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 Ingress
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body Ingress 资源定义
+ * @returns Promise<any>
+ */
+export const createHarvesterIngress = async (cloudId: string, namespace: string, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses`, { namespace, body });
+};
+
+/**
+ * 更新 Ingress
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Ingress 名称
+ * @param body 更新的 Ingress 定义
+ * @returns Promise<any>
+ */
+export const updateHarvesterIngress = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+// ============================================================
+// PodDisruptionBudget API
+// ============================================================
+
+/**
+ * 获取 PodDisruptionBudget 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选，不传则返回所有命名空间)
+ * @param force 是否强制刷新缓存
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 PodDisruptionBudget 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name PDB 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPDBDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 PodDisruptionBudget
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body PDB 资源定义
+ * @returns Promise<any>
+ */
+export const createHarvesterPDB = async (cloudId: string, namespace: string, body: any) => {
+  const payload = {
+    namespace: body?.metadata?.namespace || namespace,
+    name: body?.metadata?.name,
+    labels: body?.metadata?.labels,
+    minAvailable: body?.spec?.minAvailable,
+    maxUnavailable: body?.spec?.maxUnavailable,
+    selector: body?.spec?.selector,
+  };
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets`, payload);
+};
+
+/**
+ * 删除 PodDisruptionBudget
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name PDB 名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterPDB = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+// ============================================================
+// NetworkPolicy API
+// ============================================================
+
+/**
+ * 获取 NetworkPolicy 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选，不传则返回所有命名空间)
+ * @param force 是否强制刷新缓存
+ * @returns Promise<any>
+ */
+export const fetchNetworkPolicies = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies${query}`, { skipCache: force });
+};
+
+/**
+ * 获取 NetworkPolicy 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name NetworkPolicy 名称
+ * @param force 是否强制刷新缓存
+ * @returns Promise<any>
+ */
+export const fetchNetworkPolicyDetail = async (cloudId: string, namespace: string, name: string, force?: boolean) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    { skipCache: force }
+  );
+};
+
+/**
+ * 创建 NetworkPolicy
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body NetworkPolicy 资源定义
+ * @returns Promise<any>
+ */
+export const createNetworkPolicy = async (cloudId: string, namespace: string, body: any) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies`, { namespace, body });
+};
+
+/**
+ * 更新 NetworkPolicy
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name NetworkPolicy 名称
+ * @param body NetworkPolicy 资源定义
+ * @returns Promise<any>
+ */
+export const updateNetworkPolicy = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
+ * 删除 NetworkPolicy
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name NetworkPolicy 名称
+ * @returns Promise<any>
+ */
+export const deleteNetworkPolicy = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
