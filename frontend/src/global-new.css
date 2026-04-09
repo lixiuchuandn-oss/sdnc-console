@@ -168,25 +168,44 @@ html, body, #root {
   font-size: 14px;
 }
 
-/* 表头样式 */
-.std-table .ant-table-thead > tr > th {
-  color: #1f2329;                /* 深色文字 */
-  font-weight: normal !important; /* 不加粗 */
-  padding: 12px 16px !important; /* 内边距 */
+/* 表头 / 单元格：统一 .ant-table-cell（含多选列、名称列）
+ * antd 多选列默认 padding-inline 为 paddingXS(8px)，与数据列 16px 不一致；
+ * 需用 padding-inline / padding-block 覆盖逻辑属性，避免与全局 padding 简写冲突。 */
+.std-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell,
+.std-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell {
+  padding: 12px 16px !important;
+  padding-inline: 16px !important;
+  padding-block: 12px !important;
+}
+
+.std-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell {
+  color: #1f2329;
+  font-weight: normal !important;
   line-height: 32px;
   border-bottom: 1px solid #e5e6eb;
 }
 
-/* 单元格样式 */
-.std-table .ant-table-tbody > tr > td {
-  padding: 12px 16px !important;
+.std-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell {
   line-height: 32px;
   color: #1f2329;
   border-bottom: 1px solid #e5e6eb;
 }
 
+/* 多选列：左右与其它列一致，复选框居中 */
+.std-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-selection-column,
+.std-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-selection-column {
+  text-align: center;
+}
+
+/* 横向滚动占位列（scrollbar 槽）不额外撑宽 */
+.std-table.ant-table-wrapper .ant-table-cell.ant-table-cell-scrollbar {
+  padding: 0 !important;
+  padding-inline: 0 !important;
+  padding-block: 0 !important;
+}
+
 /* 鼠标悬停行样式 */
-.std-table .ant-table-tbody > tr:hover > td {
+.std-table .ant-table-tbody > tr:hover > td.ant-table-cell {
   background-color: #f2f3f5 !important;
 }
 

@@ -29,16 +29,9 @@ import {
   Tooltip,
   Alert,
   Input,
+  Dropdown,
 } from 'antd';
-import {
-  ReloadOutlined,
-  DeleteOutlined,
-  PlusOutlined,
-  SafetyCertificateOutlined,
-  EyeOutlined,
-  EditOutlined,
-  SearchOutlined,
-} from '@ant-design/icons';
+import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -305,7 +298,6 @@ const NetworkPolicyDetailDrawer: React.FC<{
         <>
           <div style={{ marginTop: 16, marginBottom: 8, fontWeight: 500 }}>入站规则 (Ingress)</div>
           <Table
-            size="small"
             dataSource={ingressRules.flatMap((rule: any, ruleIdx: number) => {
               const from = rule.from || [];
               const ports = rule.ports || [];
@@ -401,7 +393,6 @@ const NetworkPolicyDetailDrawer: React.FC<{
         <>
           <div style={{ marginTop: 16, marginBottom: 8, fontWeight: 500 }}>出站规则 (Egress)</div>
           <Table
-            size="small"
             dataSource={egressRules.flatMap((rule: any, ruleIdx: number) => {
               const to = rule.to || [];
               const ports = rule.ports || [];
@@ -675,7 +666,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             {
               key: 'detail',
               label: '查看详情',
-              icon: <EyeOutlined />,
               onClick: () => {
                 setCurrentNetworkPolicy(record);
                 setDetailVisible(true);
@@ -684,7 +674,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             {
               key: 'edit',
               label: '编辑',
-              icon: <EditOutlined />,
               onClick: () => {
                 setEditingRecord(record);
                 setEditModalVisible(true);
@@ -693,11 +682,11 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             {
               key: 'delete',
               label: '删除',
-              icon: <DeleteOutlined />,
               danger: true,
               onClick: () => handleDelete(record),
             },
           ]}
+          buttonProps={{ className: 'row-actions-trigger' }}
         />
       ),
     },
@@ -711,6 +700,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
     const kw = keyword.trim().toLowerCase();
     return (networkPolicies || [])
       .filter((item: any) => {
+        if (nsValue && item?.metadata?.namespace !== nsValue) return false;
         if (!kw) return true;
         const name = item?.metadata?.name || '';
         const ns = item?.metadata?.namespace || '';
@@ -721,78 +711,94 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         const timeB = new Date(b?.metadata?.creationTimestamp || 0).getTime();
         return timeB - timeA;
       });
-  }, [networkPolicies, keyword]);
+  }, [networkPolicies, keyword, nsValue]);
 
   return (
     <>
-      <PageDetailSection
-        title="网络策略 (NetworkPolicy)"
-        toolbarLeft={
-          <Space>
-            <Select
+      <PageDetailSection asCard={false}>
+        <div className="page-toolbar">
+          <div className="toolbar-container">
+            <Input
+              className="toolbar-search"
               allowClear
-              placeholder="命名空间"
-              value={nsValue}
+              placeholder="名称/命名空间"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+            <Select
+              className="toolbar-filter-sm"
+              allowClear
+              placeholder="筛选命名空间"
+              value={nsValue || undefined}
               onChange={onNsChange}
-              style={{ width: 150 }}
               showSearch
               optionFilterProp="label"
               options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
             />
-            <Input.Search
-              placeholder="搜索名称/命名空间"
-              allowClear
-              style={{ width: 200 }}
-              onSearch={setKeyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-          </Space>
-        }
-        toolbarRight={
-          <Space>
-            {selectedKeys.length > 0 && (
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                onClick={handleBatchDelete}
-              >
-                批量删除 ({selectedKeys.length})
-              </Button>
-            )}
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setCreateModalVisible(true)}
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                onNsChange(undefined);
+              }}
             >
+              重置
+            </button>
+          </div>
+          <div className="toolbar-actions">
+            <Button type="primary" onClick={() => setCreateModalVisible(true)}>
               创建策略
             </Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => onRefresh(true)}
-              loading={loading}
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'batchDelete',
+                    label:
+                      selectedKeys.length > 0
+                        ? `批量删除 (${selectedKeys.length})`
+                        : '批量删除',
+                    danger: true,
+                    disabled: selectedKeys.length === 0,
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'batchDelete') handleBatchDelete();
+                },
+              }}
+              trigger={['click']}
+              disabled={selectedKeys.length === 0}
             >
-              刷新
-            </Button>
+              <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
+            </Dropdown>
             <TableColumnSettingsButton
               allColumns={allColumns}
               settingsKey="harvester_networkpolicy_table"
             />
-          </Space>
-        }
-      >
+            <Tooltip title="刷新">
+              <Button
+                type="default"
+                icon={<ReloadOutlined />}
+                onClick={() => onRefresh(true)}
+                loading={loading}
+              />
+            </Tooltip>
+          </div>
+        </div>
         <Table
+          className="std-table"
+          bordered={false}
           rowKey={(record) => `${record.metadata.namespace}/${record.metadata.name}`}
           columns={tableColumns}
           dataSource={filteredData}
           loading={loading}
           pagination={{
-            showSizeChanger: true,
-            showQuickJumper: true,
+            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
-            defaultPageSize: 20,
           }}
-          scroll={{ x: 1200 }}
-          size="small"
+          scroll={{ x: 'max-content' }}
           rowSelection={{
             selectedRowKeys: selectedKeys,
             onChange: (keys) => setSelectedKeys(keys),

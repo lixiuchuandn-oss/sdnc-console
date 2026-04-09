@@ -3,7 +3,7 @@ import { Select, Spin, message, Space, Button, Tag } from 'antd';
 import { FullscreenOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { WebglAddon } from '@xterm/addon-webgl';
+import { WebglAddon } from 'xterm-addon-webgl';
 import 'xterm/css/xterm.css';
 import { API_BASE_URL } from '../../../../../services/api';
 import { getToken } from '../../../../../utils/tokenStorage';

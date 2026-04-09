@@ -11,19 +11,18 @@
  * 3. DaemonSet 管理
  * 
  * [核心逻辑]
- * 1. 工作负载类型切换: 通过 Tab 切换不同类型的工作负载
+ * 1. 工作负载类型切换: 通过 Segmented 切换不同类型的工作负载
  * 2. 命名空间筛选: 支持按命名空间过滤
  * 3. 操作功能: 创建、删除、扩缩容、重启
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Table, Tabs, Select, Button, Tag, Space, Dropdown, Modal, Input, InputNumber, App, Badge, Tooltip, Popconfirm } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, PlusOutlined, MinusOutlined, PlayCircleOutlined, DeleteOutlined, SearchOutlined, EditOutlined } from '@ant-design/icons';
+import { Table, Segmented, Select, Tag, Modal, Input, InputNumber, App, Button, Tooltip } from 'antd';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import {
   fetchHarvesterDeployments,
   fetchHarvesterStatefulSets,
@@ -128,14 +127,17 @@ const WorkloadTable: React.FC<{
   loading: boolean;
   cloudId: string;
   onRefresh: () => void;
-  onCreate?: () => void;
   onEdit?: (record: any) => void;
-}> = ({ type, data, loading, cloudId, onRefresh, onCreate, onEdit }) => {
+  namespacesOptions: string[];
+  nsValue?: string;
+  onNsChange: (v?: string) => void;
+  onCreateClick: () => void;
+}> = ({ type, data, loading, cloudId, onRefresh, onEdit, namespacesOptions, nsValue, onNsChange, onCreateClick }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   
-  const typeLabel = type === 'deployment' ? 'Deployment' : type === 'statefulset' ? 'StatefulSet' : 'DaemonSet';
+  const typeLabel = type === 'deployment' ? '部署' : type === 'statefulset' ? '有状态副本集' : '守护进程集';
   const apiPath = type === 'deployment' 
     ? '/apis/apps/v1/deployments' 
     : type === 'statefulset' 
@@ -279,33 +281,28 @@ const WorkloadTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 120,
-      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items = [
           {
             key: 'edit',
             label: '编辑',
-            icon: <EditOutlined />,
             onClick: () => onEdit?.(record),
           },
           {
             key: 'scale',
             label: '扩缩容',
-            icon: <MinusOutlined />,
             onClick: () => handleScale(record),
             show: type === 'deployment' || type === 'statefulset',
           },
           {
             key: 'restart',
             label: '重启',
-            icon: <PlayCircleOutlined />,
             onClick: () => handleRestart(record),
             show: type === 'deployment' || type === 'statefulset',
           },
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -318,7 +315,7 @@ const WorkloadTable: React.FC<{
           },
         ].filter((item) => !item.show || item.show === true).map(({ show, ...rest }) => rest);
         
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [type, handleScale, handleRestart, handleDelete, onEdit, modal, typeLabel]);
@@ -331,43 +328,66 @@ const WorkloadTable: React.FC<{
   
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <Input.Search
-            placeholder="搜索名称/命名空间"
+      <div className="page-toolbar">
+        <div className="toolbar-container">
+          <Input
+            className="toolbar-search"
             allowClear
-            style={{ width: 200 }}
-            onSearch={setKeyword}
+            placeholder="名称/命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
-        </Space>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh()}>
-            刷新
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="筛选命名空间"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={nsValue || undefined}
+            onChange={onNsChange}
+            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              onNsChange(undefined);
+            }}
+          >
+            重置
+          </button>
+        </div>
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={onCreateClick}>
+            创建工作负载
           </Button>
-          {onCreate && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={onCreate}>
-              创建
-            </Button>
-          )}
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey={`harvester-containers-${type}`}
           />
-        </Space>
+          <Tooltip title="刷新">
+            <Button
+              type="default"
+              icon={<ReloadOutlined />}
+              onClick={() => onRefresh()}
+            />
+          </Tooltip>
+        </div>
       </div>
       
       <Table
+        className="std-table"
+        bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 'max-content' }}
         pagination={{
-          showSizeChanger: true,
-          showQuickJumper: true,
+          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          defaultPageSize: 20,
         }}
         rowSelection={{
           selectedRowKeys: selectedKeys,
@@ -403,11 +423,6 @@ const WorkloadsSection: React.FC<Props> = ({
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editRecord, setEditRecord] = useState<any>(null);
   
-  // Tab 切换
-  const handleTabChange = (key: string) => {
-    setActiveTab(key as 'deployment' | 'statefulset' | 'daemonset');
-  };
-  
   // 打开创建弹窗
   const handleOpenCreate = useCallback(() => {
     // 如果镜像凭证为空，先刷新资源
@@ -423,20 +438,6 @@ const WorkloadsSection: React.FC<Props> = ({
     setEditRecord(record);
     setEditModalVisible(true);
   }, []);
-  
-  // 根据当前 Tab 获取数据
-  const getCurrentData = () => {
-    switch (activeTab) {
-      case 'deployment':
-        return deployments;
-      case 'statefulset':
-        return statefulsets;
-      case 'daemonset':
-        return daemonsets;
-      default:
-        return [];
-    }
-  };
   
   // 根据 nsValue 过滤数据，并按创建时间倒序排序
   const filteredDeployments = useMemo(() => {
@@ -456,77 +457,45 @@ const WorkloadsSection: React.FC<Props> = ({
     if (nsValue) result = result.filter((item: any) => item?.metadata?.namespace === nsValue);
     return result.sort((a: any, b: any) => new Date(b?.metadata?.creationTimestamp || 0).getTime() - new Date(a?.metadata?.creationTimestamp || 0).getTime());
   }, [daemonsets, nsValue]);
+
+  const workloadTableData = useMemo(() => {
+    switch (activeTab) {
+      case 'deployment':
+        return filteredDeployments;
+      case 'statefulset':
+        return filteredStatefulSets;
+      case 'daemonset':
+        return filteredDaemonSets;
+      default:
+        return filteredDeployments;
+    }
+  }, [activeTab, filteredDeployments, filteredStatefulSets, filteredDaemonSets]);
   
   return (
     <>
-      <PageDetailSection
-        title="工作负载"
-        toolbarLeft={
-          <Select
-            placeholder="筛选命名空间"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 200 }}
-            value={nsValue}
-            onChange={onNsChange}
-            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
-          />
-        }
-        primaryAction={{
-          label: '创建工作负载',
-          onClick: handleOpenCreate,
-        }}
-        onRefresh={onRefresh}
-      >
-        <Tabs
-          type="line"
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          items={[
-            {
-              key: 'deployment',
-              label: `Deployment (${filteredDeployments.length})`,
-              children: (
-                <WorkloadTable
-                  type="deployment"
-                  data={filteredDeployments}
-                  loading={loading}
-                  cloudId={cloudId}
-                  onRefresh={onRefresh}
-                  onEdit={handleEdit}
-                />
-              ),
-            },
-            {
-              key: 'statefulset',
-              label: `StatefulSet (${filteredStatefulSets.length})`,
-              children: (
-                <WorkloadTable
-                  type="statefulset"
-                  data={filteredStatefulSets}
-                  loading={loading}
-                  cloudId={cloudId}
-                  onRefresh={onRefresh}
-                  onEdit={handleEdit}
-                />
-              ),
-            },
-            {
-              key: 'daemonset',
-              label: `DaemonSet (${filteredDaemonSets.length})`,
-              children: (
-                <WorkloadTable
-                  type="daemonset"
-                  data={filteredDaemonSets}
-                  loading={loading}
-                  cloudId={cloudId}
-                  onRefresh={onRefresh}
-                  onEdit={handleEdit}
-                />
-              ),
-            },
+      <PageDetailSection asCard={false}>
+        <Segmented
+          style={{ marginBottom: 12 }}
+          value={activeTab}
+          onChange={(v) => setActiveTab(v as 'deployment' | 'statefulset' | 'daemonset')}
+          options={[
+            { label: `部署 (${filteredDeployments.length})`, value: 'deployment' },
+            { label: `有状态副本集 (${filteredStatefulSets.length})`, value: 'statefulset' },
+            { label: `守护进程集 (${filteredDaemonSets.length})`, value: 'daemonset' },
           ]}
+        />
+        <WorkloadTable
+          key={activeTab}
+          type={activeTab}
+          data={workloadTableData}
+          loading={loading}
+          cloudId={cloudId}
+          onRefresh={onRefresh}
+          onEdit={handleEdit}
+          namespacesOptions={namespacesOptions}
+          nsValue={nsValue}
+          onNsChange={onNsChange}
+          onCreateClick={handleOpenCreate}
         />
       </PageDetailSection>
       

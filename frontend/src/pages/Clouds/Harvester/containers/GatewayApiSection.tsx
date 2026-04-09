@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Tabs, Alert, Spin, Empty, Button, message, Space, Tag, Table, Modal, Form, Input, Select, Popconfirm } from 'antd';
-import { ApiOutlined, PlusOutlined, ReloadOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import React, { useState, useMemo } from 'react';
+import { Tabs, Alert, Button, message, Tag, Table, Popconfirm, Select } from 'antd';
+import { ApiOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import {
   checkGatewayApiStatus,
@@ -26,6 +26,8 @@ interface GatewayApiSectionProps {
   grpcRoutes: any[];
   loading: boolean;
   namespacesOptions: string[];
+  nsValue?: string;
+  onNsChange?: (v?: string) => void;
   services?: any[];
   onRefresh: () => void;
 }
@@ -45,6 +47,8 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   grpcRoutes,
   loading,
   namespacesOptions,
+  nsValue,
+  onNsChange,
   services,
   onRefresh,
 }) => {
@@ -138,7 +142,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '操作',
       key: 'action',
       width: 80,
-      fixed: 'right' as const,
       render: (_: any, record: any) => (
         <Popconfirm
           title="确定删除此 Gateway？"
@@ -193,7 +196,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '操作',
       key: 'action',
       width: 80,
-      fixed: 'right' as const,
       render: (_: any, record: any) => (
         <Popconfirm
           title="确定删除此 HTTPRoute？"
@@ -248,7 +250,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '操作',
       key: 'action',
       width: 80,
-      fixed: 'right' as const,
       render: (_: any, record: any) => (
         <Popconfirm
           title="确定删除此 GRPCRoute？"
@@ -297,6 +298,21 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     }
   };
 
+  const filteredGateways = useMemo(() => {
+    if (!nsValue) return gateways;
+    return gateways.filter((g: any) => g?.metadata?.namespace === nsValue);
+  }, [gateways, nsValue]);
+
+  const filteredHttpRoutes = useMemo(() => {
+    if (!nsValue) return httpRoutes;
+    return httpRoutes.filter((r: any) => r?.metadata?.namespace === nsValue);
+  }, [httpRoutes, nsValue]);
+
+  const filteredGrpcRoutes = useMemo(() => {
+    if (!nsValue) return grpcRoutes;
+    return grpcRoutes.filter((r: any) => r?.metadata?.namespace === nsValue);
+  }, [grpcRoutes, nsValue]);
+
   // 如果 Gateway API 未安装，显示提示
   if (!loading && !isInstalled) {
     return (
@@ -327,12 +343,17 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       label: 'GatewayClass',
       children: (
         <Table
+          className="std-table"
+          bordered={false}
           columns={gatewayClassColumns}
           dataSource={gatewayClasses}
           rowKey={(record) => record.metadata.uid || record.metadata.name}
           loading={loading}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
-          size="small"
+          scroll={{ x: 'max-content' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       ),
     },
@@ -343,8 +364,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           Gateway
           <Button
             type="primary"
-            size="small"
-            icon={<PlusOutlined />}
             style={{ marginLeft: 8 }}
             onClick={() => setGatewayModalOpen(true)}
           >
@@ -354,13 +373,17 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       ),
       children: (
         <Table
+          className="std-table"
+          bordered={false}
           columns={gatewayColumns}
-          dataSource={gateways}
+          dataSource={filteredGateways}
           rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
           loading={loading}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
-          size="small"
-          scroll={{ x: 1000 }}
+          scroll={{ x: 'max-content' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       ),
     },
@@ -371,8 +394,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           HTTP路由
           <Button
             type="primary"
-            size="small"
-            icon={<PlusOutlined />}
             style={{ marginLeft: 8 }}
             onClick={() => setHttpRouteModalOpen(true)}
           >
@@ -382,13 +403,17 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       ),
       children: (
         <Table
+          className="std-table"
+          bordered={false}
           columns={httpRouteColumns}
-          dataSource={httpRoutes}
+          dataSource={filteredHttpRoutes}
           rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
           loading={loading}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
-          size="small"
-          scroll={{ x: 900 }}
+          scroll={{ x: 'max-content' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       ),
     },
@@ -399,8 +424,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           gRPC路由
           <Button
             type="primary"
-            size="small"
-            icon={<PlusOutlined />}
             style={{ marginLeft: 8 }}
             onClick={() => setGrpcRouteModalOpen(true)}
           >
@@ -410,20 +433,40 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       ),
       children: (
         <Table
+          className="std-table"
+          bordered={false}
           columns={grpcRouteColumns}
-          dataSource={grpcRoutes}
+          dataSource={filteredGrpcRoutes}
           rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
           loading={loading}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
-          size="small"
-          scroll={{ x: 900 }}
+          scroll={{ x: 'max-content' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       ),
     },
   ];
 
   return (
-    <div>
+    <PageDetailSection
+      asCard={false}
+      onRefresh={onRefresh}
+      refreshLoading={loading}
+      toolbarLeft={
+        <Select
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          placeholder="筛选命名空间"
+          value={nsValue || undefined}
+          onChange={(v) => onNsChange?.(v)}
+          options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          className="toolbar-filter-sm"
+        />
+      }
+    >
       <Alert
         type="info"
         showIcon
@@ -431,19 +474,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         message="Gateway API 是 Kubernetes 下一代流量管理 API，将逐步取代 Ingress（Ingress-nginx 将于 2026 年 3 月停止维护）。"
         style={{ marginBottom: 16 }}
       />
-      <Tabs
-        type="line"
-        activeKey={activeSubTab}
-        onChange={setActiveSubTab}
-        items={tabItems}
-        tabBarExtraContent={
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading}>
-              刷新
-            </Button>
-          </Space>
-        }
-      />
+      <Tabs type="line" activeKey={activeSubTab} onChange={setActiveSubTab} items={tabItems} />
 
       {/* Gateway 创建弹窗 */}
       <GatewayFormModal
@@ -485,7 +516,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         }}
         onCancel={() => setGrpcRouteModalOpen(false)}
       />
-    </div>
+    </PageDetailSection>
   );
 };
 

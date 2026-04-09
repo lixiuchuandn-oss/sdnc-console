@@ -1408,7 +1408,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'K8s 服务 ',
                       children: (
                         <>
-<ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} namespacesOptions={namespacesOptions} pods={harvesterPods} mode={harvesterViewMode} />
+<ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} namespacesOptions={namespacesOptions} nsValue={nsFilter || undefined} onNsChange={(v) => setNsFilter(v || '')} pods={harvesterPods} mode={harvesterViewMode} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawServices, null, 2)}</pre>
@@ -1979,6 +1979,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           onRefresh={() => loadTabResource('services', true)}
                           isTenant={user?.role === 'tenant' || !!(user as any)?.tenantId}
                           namespacesOptions={namespacesOptions}
+                          nsValue={nsFilter || undefined}
+                          onNsChange={(v) => setNsFilter(v || '')}
                           pods={harvesterPods}
                         />
                       )
@@ -1993,6 +1995,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           loading={resourceLoading.ingresses}
                           onRefresh={() => loadTabResource('ingresses', true)}
                           namespacesOptions={namespacesOptions}
+                          nsValue={nsFilter || undefined}
+                          onNsChange={(v) => setNsFilter(v || '')}
                           secrets={harvesterSecrets}
                         />
                       )
@@ -2010,6 +2014,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                            grpcRoutes={grpcRoutes}
                            loading={resourceLoading.gatewayApiStatus || resourceLoading.gateways}
                            namespacesOptions={namespacesOptions}
+                           nsValue={nsFilter || undefined}
+                           onNsChange={(v) => setNsFilter(v || '')}
                            services={harvesterServices}
                            onRefresh={() => loadTabResource('gateway_api', true)}
                          />

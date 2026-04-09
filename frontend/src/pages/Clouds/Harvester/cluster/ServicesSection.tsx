@@ -94,11 +94,14 @@ interface Props {
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
   namespacesOptions?: string[];
+  /** 与其它容器 Tab 共用的命名空间筛选 */
+  nsValue?: string;
+  onNsChange?: (v?: string) => void;
   pods?: any[];
   mode?: 'standard' | 'ops';
 }
 
-const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant, namespacesOptions, pods, mode = 'ops' }) => {
+const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant, namespacesOptions, nsValue, onNsChange, pods, mode = 'ops' }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { message } = App.useApp();
   const isStandardView = mode === 'standard';
@@ -258,6 +261,9 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
     if (isTenant) {
       d = d.filter((x: any) => !isPublicNamespace(x.namespace));
     }
+    if (nsValue) {
+      d = d.filter((x: any) => x.namespace === nsValue);
+    }
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
@@ -266,7 +272,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       d = d.filter((x: any) => x.type === typeFilter);
     }
     return d;
-  }, [dataSource, keyword, typeFilter, isTenant, isPublicNamespace]);
+  }, [dataSource, keyword, typeFilter, nsValue, isTenant, isPublicNamespace]);
 
   // 根据当前数据自动生成类型过滤选项（包含 All）
   const serviceTypes = useMemo(() => {
@@ -376,6 +382,16 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
           />
           <Select
             allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="筛选命名空间"
+            value={nsValue || undefined}
+            onChange={(v) => { onNsChange?.(v); setPagination((p) => ({ ...p, current: 1 })); }}
+            options={(namespacesOptions || []).map((ns) => ({ label: ns, value: ns }))}
+            className="toolbar-filter-sm"
+          />
+          <Select
+            allowClear
             placeholder="服务类型"
             value={typeFilter || undefined}
             onChange={v => { setTypeFilter(v || ''); setPagination(p=>({...p, current:1})); }}
@@ -385,7 +401,12 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
           <button
             type="button"
             className="toolbar-reset-btn"
-            onClick={() => { setKeyword(''); setTypeFilter(''); setPagination(p=>({...p, current:1})); }}
+            onClick={() => {
+              setKeyword('');
+              setTypeFilter('');
+              onNsChange?.(undefined);
+              setPagination((p) => ({ ...p, current: 1 }));
+            }}
           >
             重置
           </button>

@@ -283,7 +283,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     setActiveResource(next);
   }, [activeCategory, activeResource, setActiveCategory, setActiveResource]);
 
-  /** NAD/VLAN、SLB、地址池、扁平安全组 已从控制台目录下线，旧状态迁到「扁平 · 子网」 */
+  /** NAD/VLAN、SLB、地址池、扁平安全组 已从控制台目录下线，旧状态迁到「扁平 子网」 */
   useEffect(() => {
     if (
       activeResource === 'nad' ||

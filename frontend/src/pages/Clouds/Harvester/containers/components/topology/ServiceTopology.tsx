@@ -101,7 +101,7 @@ const ServiceTopology: React.FC<ServiceTopologyProps> = ({
         defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e8e8e8" />
-        <Controls showInteractive={false} />
+        <Controls position="top-left" showInteractive={false} />
         <MiniMap
           nodeColor={(node) => {
             switch (node.type) {

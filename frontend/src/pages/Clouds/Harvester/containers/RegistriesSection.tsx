@@ -11,11 +11,11 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Tabs, Modal, Form, Switch, Popconfirm, Empty, Statistic, Card, Divider, Alert } from 'antd';
+import { Table, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Segmented, Modal, Form, Switch, Popconfirm, Empty, Statistic, Card, Divider, Alert } from 'antd';
 import { 
-  ReloadOutlined, DeleteOutlined, EyeOutlined, KeyOutlined, PlusOutlined, 
+  DeleteOutlined, KeyOutlined, 
   FolderOutlined, EditOutlined, SearchOutlined, DatabaseOutlined,
-  SafetyCertificateOutlined, CloudServerOutlined, LinkOutlined, TagOutlined,
+  LinkOutlined, TagOutlined,
   CopyOutlined, GlobalOutlined, LockOutlined, UnlockOutlined, ClockCircleOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
@@ -672,9 +672,14 @@ const RegistriesSection: React.FC<Props> = ({
       title: '仓库地址',
       key: 'registryServer',
       width: 280,
+      ellipsis: true,
       render: (_: any, record: any) => {
         const server = getRegistryServer(record);
-        return <Text code copyable={{ text: server }}>{server}</Text>;
+        return (
+          <Text code copyable={{ text: server }} ellipsis={{ tooltip: server }}>
+            {server}
+          </Text>
+        );
       },
     },
     {
@@ -693,32 +698,28 @@ const RegistriesSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
+      width: 100,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items = [
           {
             key: 'detail',
             label: '详情',
-            icon: <EyeOutlined />,
             onClick: () => handleViewDetail(record),
           },
           {
             key: 'browse',
             label: '浏览仓库',
-            icon: <FolderOutlined />,
             onClick: () => handleBrowseFromSecret(record),
           },
           {
             key: 'edit',
             label: '编辑',
-            icon: <EditOutlined />,
             onClick: () => handleEditCredential(record),
           },
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -730,7 +731,7 @@ const RegistriesSection: React.FC<Props> = ({
             },
           },
         ];
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [handleViewDetail, handleDeleteSecret, handleEditCredential, handleBrowseFromSecret, modal]);
@@ -754,7 +755,12 @@ const RegistriesSection: React.FC<Props> = ({
       dataIndex: 'server',
       key: 'server',
       width: 250,
-      render: (server: string) => <Text code copyable={{ text: server }}>{server}</Text>,
+      ellipsis: true,
+      render: (server: string) => (
+        <Text code copyable={{ text: server }} ellipsis={{ tooltip: server }}>
+          {server}
+        </Text>
+      ),
     },
     {
       title: '协议',
@@ -787,20 +793,18 @@ const RegistriesSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
+      width: 100,
       fixed: 'right' as const,
       render: (_: any, record: RegistryConfig) => {
         const items = [
           {
             key: 'browse',
             label: '浏览镜像',
-            icon: <FolderOutlined />,
             onClick: () => handleBrowseRegistry(record),
           },
           {
             key: 'edit',
             label: '编辑',
-            icon: <EditOutlined />,
             onClick: () => {
               setEditingRegistry(record);
               setAddRegistryVisible(true);
@@ -809,7 +813,6 @@ const RegistriesSection: React.FC<Props> = ({
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -821,7 +824,7 @@ const RegistriesSection: React.FC<Props> = ({
             },
           },
         ];
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [handleViewRegistry, handleBrowseRegistry, handleDeleteRegistry, modal]);
@@ -832,66 +835,67 @@ const RegistriesSection: React.FC<Props> = ({
     'harvester-containers-registries-credentials',
   );
   
-  // Tab 内容
-  const tabItems = [
-    {
-      key: 'credentials',
-      label: (
-        <Space>
-          <SafetyCertificateOutlined />
-          镜像凭证
-        </Space>
-      ),
-      children: (
-        <PageDetailSection
-          title="镜像凭证"
+  return (
+    <>
+      <PageDetailSection asCard={false}>
+        <Segmented
+          style={{ marginBottom: 12 }}
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            { label: `镜像凭证 (${filteredSecrets.length})`, value: 'credentials' },
+            { label: `镜像仓库 (${registries.length})`, value: 'registries' },
+          ]}
+        />
+        {activeTab === 'credentials' ? (
+          <PageDetailSection
+            key="credentials"
+            asCard={false}
           toolbarLeft={
-            <Space>
-              <Input.Search
-                placeholder="搜索名称/命名空间"
+            <div className="toolbar-container">
+              <Input
+                className="toolbar-search"
                 allowClear
-                style={{ width: 200 }}
-                onSearch={setKeyword}
+                placeholder="名称/命名空间"
+                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
               />
               <Select
+                className="toolbar-filter"
                 placeholder="筛选命名空间"
                 allowClear
                 showSearch
                 optionFilterProp="label"
-                style={{ width: 180 }}
-                value={nsValue}
+                value={nsValue || undefined}
                 onChange={onNsChange}
                 options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
               />
-            </Space>
+            </div>
           }
+          primaryAction={{
+            label: '创建凭证',
+            onClick: handleCreateCredential,
+          }}
           toolbarRight={
-            <Space>
-              <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateCredential}>
-                创建凭证
-              </Button>
-              <Button icon={<ReloadOutlined />} onClick={() => onRefresh()}>
-                刷新
-              </Button>
-              <TableColumnSettingsButton
-                allColumns={credentialColumns}
-                settingsKey="harvester-containers-registries-credentials"
-              />
-            </Space>
+            <TableColumnSettingsButton
+              allColumns={credentialColumns}
+              settingsKey="harvester-containers-registries-credentials"
+            />
           }
+          onRefresh={onRefresh}
         >
           <Table
+            className="std-table"
+            bordered={false}
             rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
             columns={credentialDisplayColumns}
             dataSource={filteredSecrets}
             loading={loading}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 'max-content' }}
             pagination={{
-              showSizeChanger: true,
-              showQuickJumper: true,
+              size: 'small',
               showTotal: (total) => `共 ${total} 条`,
-              defaultPageSize: 20,
             }}
             rowSelection={{
               selectedRowKeys: selectedKeys,
@@ -899,49 +903,29 @@ const RegistriesSection: React.FC<Props> = ({
             }}
           />
         </PageDetailSection>
-      ),
-    },
-    {
-      key: 'registries',
-      label: (
-        <Space>
-          <CloudServerOutlined />
-          镜像仓库
-        </Space>
-      ),
-      children: (
+      ) : (
         <PageDetailSection
-          title="镜像仓库"
-          toolbarRight={
-            <Space>
-              <Button 
-                type="primary" 
-                icon={<PlusOutlined />} 
-                onClick={() => {
-                  setEditingRegistry(null);
-                  setAddRegistryVisible(true);
-                }}
-              >
-                添加仓库
-              </Button>
-              <Button 
-                icon={<ReloadOutlined />} 
-                onClick={() => setRegistries(loadRegistries())}
-              >
-                刷新
-              </Button>
-            </Space>
-          }
+          key="registries"
+          asCard={false}
+          primaryAction={{
+            label: '添加仓库',
+            onClick: () => {
+              setEditingRegistry(null);
+              setAddRegistryVisible(true);
+            },
+          }}
+          onRefresh={() => setRegistries(loadRegistries())}
         >
           <Table
+            className="std-table"
+            bordered={false}
             rowKey="id"
             columns={registryColumns}
             dataSource={registries}
-            scroll={{ x: 900 }}
+            scroll={{ x: 'max-content' }}
             pagination={{
-              showSizeChanger: true,
+              size: 'small',
               showTotal: (total) => `共 ${total} 条`,
-              defaultPageSize: 10,
             }}
             locale={{
               emptyText: (
@@ -953,18 +937,8 @@ const RegistriesSection: React.FC<Props> = ({
             }}
           />
         </PageDetailSection>
-      ),
-    },
-  ];
-  
-  return (
-    <>
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        items={tabItems}
-        style={{ marginLeft: -16, marginRight: -16 }}
-      />
+        )}
+      </PageDetailSection>
       
       {/* 镜像凭证详情抽屉 */}
       <RegistryDetailDrawer

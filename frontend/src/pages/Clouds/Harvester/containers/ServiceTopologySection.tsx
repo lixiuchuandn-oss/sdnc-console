@@ -5,12 +5,13 @@
  * 1. 展示 Ingress → Service → Pod 调用链拓扑图
  * 2. 支持命名空间过滤（切换后立即刷新）
  * 3. 支持节点点击查看详情
- * 4. 默认选择有数据的命名空间
+ * 4. 拓扑数据默认「有拓扑数据」；命名空间默认选当前筛选项下第一个（含父级已选时以父级为准）
  * 5. 支持快速操作：编辑、YAML编辑、查看详情、终端等
  */
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { Card, Select, Space, Spin, Empty, Drawer, Descriptions, Tag, Button, Tooltip, App, Table, Tabs } from 'antd';
-import { ReloadOutlined, InfoCircleOutlined, EditOutlined, CodeOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
+import { Select, Space, Spin, Empty, Drawer, Descriptions, Tag, Button, Tooltip, App, Table, Tabs } from 'antd';
+import PageDetailSection from '../../../../components/PageDetailSection';
+import { ReloadOutlined, EditOutlined, CodeOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
 import { ServiceTopology } from './components/topology';
 import { buildServiceTopology, getTopologyStats, TopologyNode } from './components/serviceTopologyUtils';
 import { YamlEditModal, IngressFormModal, ServiceFormModal, PodTerminal } from './components';
@@ -168,7 +169,9 @@ const PodLogViewer: React.FC<{
               { label: '2000行', value: 2000 },
             ]}
           />
-          <Button onClick={loadLogs} loading={loading}>刷新</Button>
+          <Tooltip title="刷新">
+            <Button type="default" icon={<ReloadOutlined />} onClick={loadLogs} loading={loading} />
+          </Tooltip>
         </Space>
       }
     >
@@ -278,6 +281,9 @@ const PodDetailDrawer: React.FC<{
             label: '容器',
             children: (
               <Table
+                className="std-table"
+                bordered={false}
+                scroll={{ x: 'max-content' }}
                 dataSource={containers.map((c: any, idx: number) => ({
                   ...c,
                   key: idx,
@@ -307,7 +313,6 @@ const PodDetailDrawer: React.FC<{
                   },
                 ]}
                 pagination={false}
-                size="small"
               />
             ),
           },
@@ -316,6 +321,9 @@ const PodDetailDrawer: React.FC<{
             label: '事件',
             children: (
               <Table
+                className="std-table"
+                bordered={false}
+                scroll={{ x: 'max-content' }}
                 loading={eventsLoading}
                 dataSource={events.map((e: any, idx: number) => ({ ...e, key: idx }))}
                 columns={[
@@ -326,7 +334,6 @@ const PodDetailDrawer: React.FC<{
                   { title: '时间', dataIndex: 'lastTimestamp', width: 160, render: formatTime },
                 ]}
                 pagination={false}
-                size="small"
                 locale={{ emptyText: '暂无事件' }}
               />
             ),
@@ -336,6 +343,9 @@ const PodDetailDrawer: React.FC<{
             label: '状态条件',
             children: (
               <Table
+                className="std-table"
+                bordered={false}
+                scroll={{ x: 'max-content' }}
                 dataSource={(status.conditions || []).map((c: any, idx: number) => ({ ...c, key: idx }))}
                 columns={[
                   { title: '类型', dataIndex: 'type', width: 200 },
@@ -345,7 +355,6 @@ const PodDetailDrawer: React.FC<{
                   { title: '时间', dataIndex: 'lastTransitionTime', width: 180, render: formatTime },
                 ]}
                 pagination={false}
-                size="small"
               />
             ),
           },
@@ -431,6 +440,9 @@ const PodDetailTabs: React.FC<{
           label: '容器',
           children: (
             <Table
+              className="std-table"
+              bordered={false}
+              scroll={{ x: 'max-content' }}
               dataSource={containers.map((c: any, idx: number) => ({
                 ...c,
                 key: idx,
@@ -460,7 +472,6 @@ const PodDetailTabs: React.FC<{
                 },
               ]}
               pagination={false}
-              size="small"
             />
           ),
         },
@@ -469,6 +480,9 @@ const PodDetailTabs: React.FC<{
           label: '事件',
           children: (
             <Table
+              className="std-table"
+              bordered={false}
+              scroll={{ x: 'max-content' }}
               loading={eventsLoading}
               dataSource={events.map((e: any, idx: number) => ({ ...e, key: idx }))}
               columns={[
@@ -479,7 +493,6 @@ const PodDetailTabs: React.FC<{
                 { title: '时间', dataIndex: 'lastTimestamp', width: 160, render: formatTime },
               ]}
               pagination={false}
-              size="small"
               locale={{ emptyText: '暂无事件' }}
             />
           ),
@@ -489,6 +502,9 @@ const PodDetailTabs: React.FC<{
           label: '状态条件',
           children: (
             <Table
+              className="std-table"
+              bordered={false}
+              scroll={{ x: 'max-content' }}
               dataSource={(status.conditions || []).map((c: any, idx: number) => ({ ...c, key: idx }))}
               columns={[
                 { title: '类型', dataIndex: 'type', width: 200 },
@@ -498,7 +514,6 @@ const PodDetailTabs: React.FC<{
                 { title: '时间', dataIndex: 'lastTransitionTime', width: 180, render: formatTime },
               ]}
               pagination={false}
-              size="small"
             />
           ),
         },
@@ -548,7 +563,6 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
   const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [currentNs, setCurrentNs] = useState<string>('');
-  const hasInitialized = useRef(false);
 
   // YAML 编辑弹窗状态
   const [yamlModalOpen, setYamlModalOpen] = useState(false);
@@ -567,31 +581,20 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
   // Service 运维信息
   const [serviceDrawerOpen, setServiceDrawerOpen] = useState(false);
 
-  // 自动选择有数据的命名空间
+  /** 命名空间列表二次筛选：是否已生成拓扑节点 */
+  const [topologyDataFilter, setTopologyDataFilter] = useState<'all' | 'with' | 'without'>('with');
+
+  /** 用户是否在命名空间下拉中主动清空（避免清空后又自动选回第一项） */
+  const userClearedNamespaceRef = useRef(false);
+
+  // 与父级受控命名空间同步
   useEffect(() => {
-    if (hasInitialized.current) return;
-    if (nsValue) {
-      hasInitialized.current = true;
-      setCurrentNs(nsValue);
-      return;
-    }
-    for (const ns of namespacesOptions) {
-      const hasIngress = ingresses.some((item: any) => item?.metadata?.namespace === ns || item?.namespace === ns);
-      const hasService = services.some((item: any) => item?.metadata?.namespace === ns || item?.namespace === ns);
-      if (hasIngress || hasService) {
-        hasInitialized.current = true;
-        setCurrentNs(ns);
-        onNsChange?.(ns);
-        break;
-      }
-    }
-  }, [namespacesOptions, ingresses, services, nsValue, onNsChange]);
+    setCurrentNs(nsValue ?? '');
+  }, [nsValue]);
 
   useEffect(() => {
-    if (nsValue !== undefined && nsValue !== currentNs) {
-      setCurrentNs(nsValue);
-    }
-  }, [nsValue, currentNs]);
+    userClearedNamespaceRef.current = false;
+  }, [topologyDataFilter]);
 
   const getFilteredData = useCallback((targetNs: string) => {
     if (!targetNs) return { ingresses: [], services: [], pods: [] };
@@ -602,6 +605,46 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
       pods: filterByNamespace(pods),
     };
   }, [ingresses, services, pods]);
+
+  /** 各命名空间在当前数据下是否具备非空拓扑（有节点即视为有拓扑数据） */
+  const namespaceHasTopologyMap = useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const ns of namespacesOptions) {
+      const fd = getFilteredData(ns);
+      const t = buildServiceTopology(fd.ingresses, fd.services, fd.pods);
+      m.set(ns, t.nodes.length > 0);
+    }
+    return m;
+  }, [namespacesOptions, getFilteredData]);
+
+  /** 按「是否有拓扑数据」筛过后的命名空间，用于下拉选项 */
+  const namespacesForSelect = useMemo(() => {
+    if (topologyDataFilter === 'all') return namespacesOptions;
+    return namespacesOptions.filter((ns) => {
+      const has = namespaceHasTopologyMap.get(ns) ?? false;
+      return topologyDataFilter === 'with' ? has : !has;
+    });
+  }, [namespacesOptions, topologyDataFilter, namespaceHasTopologyMap]);
+
+  // 筛选条件变化后，当前选中命名空间若不在可选列表中则清空（非用户主动清空）
+  useEffect(() => {
+    if (!currentNs) return;
+    if (!namespacesForSelect.includes(currentNs)) {
+      setCurrentNs('');
+      onNsChange?.('');
+    }
+  }, [namespacesForSelect, currentNs, onNsChange]);
+
+  // 父级未指定有效命名空间时，默认选中「当前可选列表」中第一个（与拓扑数据筛选一致，通常为第一个有拓扑的命名空间）
+  useEffect(() => {
+    if (namespacesForSelect.length === 0) return;
+    if (nsValue && namespacesForSelect.includes(nsValue)) return;
+    if (currentNs && namespacesForSelect.includes(currentNs)) return;
+    if (userClearedNamespaceRef.current) return;
+    const first = namespacesForSelect[0];
+    setCurrentNs(first);
+    onNsChange?.(first);
+  }, [namespacesForSelect, nsValue, topologyDataFilter, currentNs, onNsChange]);
 
   const topology = useMemo(() => {
     const filteredData = getFilteredData(currentNs);
@@ -620,9 +663,11 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
     setSelectedNode(null);
   }, []);
 
-  const handleNsChange = useCallback((value: string) => {
-    setCurrentNs(value);
-    onNsChange?.(value);
+  const handleNsChange = useCallback((value: string | null | undefined) => {
+    const v = value ?? '';
+    userClearedNamespaceRef.current = !v;
+    setCurrentNs(v);
+    onNsChange?.(v);
   }, [onNsChange]);
 
   const handleRefresh = useCallback(() => onRefresh?.(), [onRefresh]);
@@ -805,40 +850,54 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
   };
 
   return (
-    <Card
-      title={
-        <Space>
-          <span>服务拓扑</span>
-          <Tooltip title="可视化展示 Ingress → Service → Pod 调用链关系，点击节点可查看详情">
-            <InfoCircleOutlined style={{ color: '#999' }} />
-          </Tooltip>
-        </Space>
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            flex: '1 1 auto',
+            minWidth: 0,
+            width: '100%',
+          }}
+        >
+          <div className="toolbar-container">
+            <Select
+              style={{ width: 168 }}
+              placeholder="拓扑数据"
+              value={topologyDataFilter}
+              onChange={(v) => setTopologyDataFilter((v as 'all' | 'with' | 'without') || 'all')}
+              options={[
+                { label: '全部', value: 'all' },
+                { label: '有拓扑数据', value: 'with' },
+                { label: '无拓扑数据', value: 'without' },
+              ]}
+            />
+            <Select
+              className="toolbar-filter"
+              placeholder="选择命名空间"
+              allowClear
+              value={currentNs ? currentNs : undefined}
+              onChange={handleNsChange}
+              options={namespacesForSelect.map((ns) => ({ label: ns, value: ns }))}
+              showSearch
+              optionFilterProp="label"
+            />
+          </div>
+          <Space size={4} wrap align="center" style={{ marginLeft: 'auto' }}>
+            <Tag color="blue">Ingress: {stats.ingressCount}</Tag>
+            <Tag color="green">Service: {stats.serviceCount}</Tag>
+            <Tag color="purple">Pod: {stats.podCount}</Tag>
+            <Tag color="default">连接: {stats.connectionCount}</Tag>
+          </Space>
+        </div>
       }
-      extra={
-        <Space>
-          <Select
-            placeholder="选择命名空间"
-            allowClear
-            style={{ width: 200 }}
-            value={currentNs || undefined}
-            onChange={handleNsChange}
-            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
-            showSearch
-            optionFilterProp="label"
-          />
-          <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading}>刷新</Button>
-        </Space>
-      }
+      onRefresh={handleRefresh}
+      refreshLoading={loading}
     >
-      <div style={{ marginBottom: 16 }}>
-        <Space size="large">
-          <span><Tag color="blue">Ingress: {stats.ingressCount}</Tag></span>
-          <span><Tag color="green">Service: {stats.serviceCount}</Tag></span>
-          <span><Tag color="purple">Pod: {stats.podCount}</Tag></span>
-          <span><Tag color="default">连接: {stats.connectionCount}</Tag></span>
-        </Space>
-      </div>
-
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
           <Spin size="large" tip="加载中..." />
@@ -937,7 +996,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           onClose={() => { setPodTerminalVisible(false); setDrawerVisible(true); }}
         />
       )}
-    </Card>
+    </PageDetailSection>
   );
 };
 

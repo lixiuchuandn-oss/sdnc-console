@@ -39,6 +39,11 @@
   font-size: 12px;
 }
 
+/* 画板内浮层与边缘等距（左上/右下对称），与工具栏 8px 一致 */
+.service-topology-container .react-flow__panel {
+  margin: 8px;
+}
+
 /* ReactFlow 控制器样式 - 彻底修复高度问题 */
 .react-flow__panel {
   height: auto !important;

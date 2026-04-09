@@ -14,7 +14,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip } from 'antd';
-import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { FileTextOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -424,7 +424,6 @@ const PodDetailDrawer: React.FC<{
                   },
                 ]}
                 pagination={false}
-                size="small"
               />
             ),
           },
@@ -478,7 +477,6 @@ const PodDetailDrawer: React.FC<{
                     },
                   ]}
                   pagination={false}
-                  size="small"
                   locale={{ emptyText: '暂无事件' }}
                 />
               </div>
@@ -513,7 +511,6 @@ const PodDetailDrawer: React.FC<{
                   { title: '时间', dataIndex: 'lastTransitionTime', width: 180, render: formatTime },
                 ]}
                 pagination={false}
-                size="small"
               />
             ),
           },
@@ -864,19 +861,16 @@ const PodsSection: React.FC<Props> = ({
           {
             key: 'detail',
             label: '详情',
-            icon: <EyeOutlined />,
             onClick: () => handleViewDetail(record),
           },
           {
             key: 'log',
             label: '日志',
-            icon: <FileTextOutlined />,
             onClick: () => handleViewLog(record),
           },
           {
             key: 'terminal',
             label: '终端',
-            icon: <CodeOutlined />,
             onClick: () => handleOpenTerminal(record),
           },
           // 安全驱逐功能 - PDB 规则验证完成后隐藏入口
@@ -889,7 +883,6 @@ const PodsSection: React.FC<Props> = ({
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -902,7 +895,7 @@ const PodsSection: React.FC<Props> = ({
           },
         ];
         
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal]);
@@ -914,35 +907,42 @@ const PodsSection: React.FC<Props> = ({
   );
   
   return (
-    <PageDetailSection
-      title="Pod"
-      toolbarLeft={
-        <Space>
+    <PageDetailSection asCard={false}>
+      <div className="page-toolbar">
+        <div className="toolbar-container">
+          <Input
+            className="toolbar-search"
+            allowClear
+            placeholder="名称/命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
           <Select
+            className="toolbar-filter-sm"
             placeholder="筛选命名空间"
             allowClear
             showSearch
             optionFilterProp="label"
-            style={{ width: 150 }}
-            value={nsValue}
+            value={nsValue || undefined}
             onChange={onNsChange}
             options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
           />
           <Select
+            className="toolbar-filter-sm"
             placeholder="筛选节点"
             allowClear
             showSearch
             optionFilterProp="label"
-            style={{ width: 150 }}
-            value={nodeValue}
+            value={nodeValue || undefined}
             onChange={onNodeChange}
             options={nodesOptions.map((node) => ({ label: node, value: node }))}
           />
           <Select
+            className="toolbar-filter-sm"
             placeholder="筛选状态"
             allowClear
-            style={{ width: 120 }}
-            value={statusFilter}
+            value={statusFilter ?? undefined}
             onChange={setStatusFilter}
             options={[
               { label: '运行中', value: 'Running' },
@@ -951,55 +951,64 @@ const PodsSection: React.FC<Props> = ({
               { label: '失败', value: 'Failed' },
             ]}
           />
-        </Space>
-      }
-      toolbarRight={
-        selectedKeys.length > 0 && (
-          <Space>
-            {/* 批量驱逐功能 - PDB 规则验证完成后隐藏入口 */}
-            {/* <Button
-              icon={<ExportOutlined />}
-              onClick={handleBatchEvict}
-            >
-              批量驱逐 ({selectedKeys.length})
-            </Button> */}
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              onNsChange(undefined);
+              onNodeChange(undefined);
+              setStatusFilter(undefined);
+            }}
+          >
+            重置
+          </button>
+        </div>
+        <div className="toolbar-actions">
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'batchDelete',
+                  label: selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
+                  danger: true,
+                  disabled: selectedKeys.length === 0,
+                },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'batchDelete') handleBatchDelete();
+              },
+            }}
+            trigger={['click']}
+            disabled={selectedKeys.length === 0}
+          >
+            <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
+          </Dropdown>
+          <TableColumnSettingsButton
+            allColumns={columns}
+            settingsKey="harvester-containers-pods"
+          />
+          <Tooltip title="刷新">
             <Button
-              danger
-              icon={<DeleteOutlined />}
-              onClick={handleBatchDelete}
-            >
-              批量删除 ({selectedKeys.length})
-            </Button>
-          </Space>
-        )
-      }
-      onRefresh={onRefresh}
-    >
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Input.Search
-          placeholder="搜索名称/命名空间"
-          allowClear
-          style={{ width: 250 }}
-          onSearch={setKeyword}
-          onChange={(e) => setKeyword(e.target.value)}
-        />
-        <TableColumnSettingsButton
-          allColumns={columns}
-          settingsKey="harvester-containers-pods"
-        />
+              type="default"
+              icon={<ReloadOutlined />}
+              onClick={() => onRefresh(true)}
+            />
+          </Tooltip>
+        </div>
       </div>
       
       <Table
+        className="std-table"
+        bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 1200 }}
+        scroll={{ x: 'max-content' }}
         pagination={{
-          showSizeChanger: true,
-          showQuickJumper: true,
+          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          defaultPageSize: 20,
         }}
         rowSelection={{
           selectedRowKeys: selectedKeys,

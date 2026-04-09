@@ -5,7 +5,7 @@
  * 支持创建和删除 Ingress 资源。
  */
 import React, { useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Button, message, Input, Modal } from 'antd';
+import { Table, Tag, Button, message, Input, Modal, Select } from 'antd';
 import { ReloadOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -40,10 +40,12 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   namespacesOptions?: string[];
+  nsValue?: string;
+  onNsChange?: (v?: string) => void;
   secrets?: any[];
 }
 
-const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefresh, namespacesOptions, secrets }) => {
+const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefresh, namespacesOptions, nsValue, onNsChange, secrets }) => {
   // 关键字搜索（名称 / 命名空间）
   const [keyword, setKeyword] = useState<string>('');
   
@@ -134,12 +136,15 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
    */
   const filteredData = useMemo(() => {
     let d = dataSource;
+    if (nsValue) {
+      d = d.filter((x: any) => x.namespace === nsValue);
+    }
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
     return d;
-  }, [dataSource, keyword]);
+  }, [dataSource, keyword, nsValue]);
 
   /**
    * 表格列定义
@@ -205,11 +210,22 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
             onChange={e => setKeyword(e.target.value)}
             allowClear
           />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="筛选命名空间"
+            value={nsValue || undefined}
+            onChange={(v) => onNsChange?.(v)}
+            options={(namespacesOptions || []).map((ns) => ({ label: ns, value: ns }))}
+            className="toolbar-filter-sm"
+          />
           <button
             type="button"
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
+              onNsChange?.(undefined);
             }}
           >
             重置
@@ -231,7 +247,7 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"

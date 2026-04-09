@@ -49,6 +49,18 @@ import RecycleBinSection from '../Harvester/ecs/RecycleBinSection';
 import PciDevicesSection from '../Harvester/cluster/PciDevicesSection';
 import UsbDevicesSection from '../Harvester/cluster/UsbDevicesSection';
 import NamespacesTab from '../Harvester/cluster/NamespacesTab';
+import {
+  WorkloadsSection,
+  PodsSection,
+  JobsSection,
+  ConfigsSection,
+  RegistriesSection,
+  GatewayApiSection,
+  PDBSection,
+  NetworkPoliciesSection,
+  ServiceTopologySection,
+} from '../Harvester/containers';
+import IngressesSection from '../Harvester/sections/IngressesSection';
 
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import {
@@ -104,6 +116,23 @@ import {
   stopHarvesterVm,
   fetchHarvesterUsbResources,
   fetchHarvesterPciDevices,
+  fetchHarvesterDeployments,
+  fetchHarvesterStatefulSets,
+  fetchHarvesterDaemonSets,
+  fetchHarvesterPods,
+  fetchHarvesterJobs,
+  fetchHarvesterCronJobs,
+  fetchHarvesterConfigMaps,
+  fetchHarvesterSecrets,
+  fetchHarvesterImagePullSecrets,
+  fetchHarvesterIngresses,
+  checkGatewayApiStatus,
+  fetchGatewayClasses,
+  fetchGateways,
+  fetchHttpRoutes,
+  fetchGrpcRoutes,
+  fetchHarvesterPDBs,
+  fetchNetworkPolicies,
 } from '../../../services/harvesterApi';
 
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
@@ -255,6 +284,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     checkPerm('clouds.recycle-bin:read') ||
     checkPerm('clouds.migrations:read') ||
     checkPerm('clouds:read');
+  /** 与 Harvester 详情页「容器」分组对齐：容器读或相关服务发现读或全量读 */
+  const canViewContainersGroup =
+    checkPerm('clouds.containers:read') ||
+    checkPerm('clouds.services:read') ||
+    checkPerm('clouds.ingresses:read') ||
+    checkPerm('clouds:read');
   const canViewStorageGroup =
     checkPerm('clouds.disks:read') ||
     checkPerm('clouds.snapshots:read') ||
@@ -357,6 +392,37 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [harvesterUsbDevices, setHarvesterUsbDevices] = useState<any[]>([]); // USB 资源
   const [harvesterPciDevices, setHarvesterPciDevices] = useState<any[]>([]); // PCI 设备
 
+  // --- 容器（K8s 工作负载 / 服务发现等）---
+  const [harvesterDeployments, setHarvesterDeployments] = useState<any[]>([]);
+  const [harvesterStatefulSets, setHarvesterStatefulSets] = useState<any[]>([]);
+  const [harvesterDaemonSets, setHarvesterDaemonSets] = useState<any[]>([]);
+  const [harvesterPods, setHarvesterPods] = useState<any[]>([]);
+  const [harvesterJobs, setHarvesterJobs] = useState<any[]>([]);
+  const [harvesterCronJobs, setHarvesterCronJobs] = useState<any[]>([]);
+  const [harvesterIngresses, setHarvesterIngresses] = useState<any[]>([]);
+  const [harvesterConfigMaps, setHarvesterConfigMaps] = useState<any[]>([]);
+  const [harvesterSecrets, setHarvesterSecrets] = useState<any[]>([]);
+  const [harvesterImagePullSecrets, setHarvesterImagePullSecrets] = useState<
+    any[]
+  >([]);
+  const [harvesterPDBs, setHarvesterPDBs] = useState<any[]>([]);
+  const [harvesterNetworkPolicies, setHarvesterNetworkPolicies] = useState<
+    any[]
+  >([]);
+  const [gatewayApiStatus, setGatewayApiStatus] = useState<{
+    installed: boolean;
+    resources: {
+      gatewayClass: boolean;
+      gateway: boolean;
+      httpRoute: boolean;
+      grpcRoute: boolean;
+    };
+  } | null>(null);
+  const [gatewayClasses, setGatewayClasses] = useState<any[]>([]);
+  const [gateways, setGateways] = useState<any[]>([]);
+  const [httpRoutes, setHttpRoutes] = useState<any[]>([]);
+  const [grpcRoutes, setGrpcRoutes] = useState<any[]>([]);
+
   // --- UI 交互状态 ---
   const [vmReconfOpen, setVmReconfOpen] = useState(false); // 虚拟机配额调整模态框开关
   const [vmReconfTarget, setVmReconfTarget] = useState<any | null>(null); // 待调整的虚拟机对象
@@ -402,6 +468,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [rawClusterNetworks, setRawClusterNetworks] = useState<any | null>(
     null,
   );
+  const [rawIngresses, setRawIngresses] = useState<any | null>(null);
 
   // 虚拟机状态更新缓冲，防止 SSE 频繁触发重渲染
   const vmStatusBuffer = React.useRef<Map<string, any>>(new Map());
@@ -938,7 +1005,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         break;
       case 'cluster_services':
       case 'services':
-        if (checkPerm('clouds.cluster-services:read')) {
+        if (
+          checkPerm('clouds.cluster-services:read') ||
+          checkPerm('clouds.services:read') ||
+          checkPerm('clouds.containers:read') ||
+          checkPerm('clouds:read')
+        ) {
           loadResource(
             'services',
             () => fetchHarvesterServices(cloudId, force),
@@ -1349,6 +1421,423 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           );
         }
         break;
+      case 'containers':
+      case 'deployments':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'deployments',
+            () => fetchHarvesterDeployments(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterDeployments(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'statefulsets',
+            () => fetchHarvesterStatefulSets(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterStatefulSets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'daemonsets',
+            () => fetchHarvesterDaemonSets(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterDaemonSets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'pods',
+            () => fetchHarvesterPods(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterPods(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'jobs',
+            () => fetchHarvesterJobs(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterJobs(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'cronjobs',
+            () => fetchHarvesterCronJobs(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterCronJobs(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'services',
+            () => fetchHarvesterServices(cloudId, force),
+            (json) => {
+              const list: any[] = Array.isArray((json as any)?.data?.items)
+                ? (json as any).data.items
+                : [];
+              setHarvesterServices(Array.isArray(list) ? list : []);
+              setRawServices(json || null);
+            },
+            force,
+          );
+          loadResource(
+            'ingresses',
+            () => fetchHarvesterIngresses(cloudId, force),
+            (json) => {
+              const list: any[] = Array.isArray((json as any)?.data?.items)
+                ? (json as any).data.items
+                : [];
+              setHarvesterIngresses(Array.isArray(list) ? list : []);
+              setRawIngresses(json || null);
+            },
+            force,
+          );
+          loadResource(
+            'configmaps',
+            () => fetchHarvesterConfigMaps(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterConfigMaps(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'secrets',
+            () =>
+              fetchHarvesterSecrets(cloudId, undefined, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterSecrets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'imagePullSecrets',
+            () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'pdbs',
+            () => fetchHarvesterPDBs(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterPDBs(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'networkpolicies',
+            () => fetchNetworkPolicies(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterNetworkPolicies(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'workloads':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'deployments',
+            () => fetchHarvesterDeployments(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterDeployments(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'statefulsets',
+            () => fetchHarvesterStatefulSets(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterStatefulSets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'daemonsets',
+            () => fetchHarvesterDaemonSets(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterDaemonSets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'imagePullSecrets',
+            () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'secrets',
+            () =>
+              fetchHarvesterSecrets(cloudId, undefined, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterSecrets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'pods':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'pods',
+            () => fetchHarvesterPods(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterPods(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'jobs':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'jobs',
+            () => fetchHarvesterJobs(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterJobs(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'cronjobs',
+            () => fetchHarvesterCronJobs(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterCronJobs(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          if (!loadedRef.current.has('imagePullSecrets')) {
+            loadResource(
+              'imagePullSecrets',
+              () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
+              (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+              },
+              force,
+            );
+          }
+          if (!loadedRef.current.has('secrets')) {
+            loadResource(
+              'secrets',
+              () => fetchHarvesterSecrets(cloudId),
+              (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setHarvesterSecrets(Array.isArray(list) ? list : []);
+              },
+              force,
+            );
+          }
+        }
+        break;
+      case 'configs':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'configmaps',
+            () => fetchHarvesterConfigMaps(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterConfigMaps(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'secrets',
+            () =>
+              fetchHarvesterSecrets(cloudId, undefined, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterSecrets(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'ingresses':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'ingresses',
+            () => fetchHarvesterIngresses(cloudId, force),
+            (json) => {
+              const list: any[] = Array.isArray((json as any)?.data?.items)
+                ? (json as any).data.items
+                : [];
+              setHarvesterIngresses(Array.isArray(list) ? list : []);
+              setRawIngresses(json || null);
+            },
+            force,
+          );
+        }
+        break;
+      case 'registries':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          if (harvesterSecrets.length > 0 && !force) {
+            const dockerSecrets = harvesterSecrets.filter(
+              (item: any) =>
+                item?.type === 'kubernetes.io/dockerconfigjson',
+            );
+            setHarvesterImagePullSecrets(dockerSecrets);
+            loadedRef.current.add('imagePullSecrets');
+          } else {
+            loadResource(
+              'imagePullSecrets',
+              () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
+              (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+              },
+              force,
+            );
+          }
+          loadResource(
+            'pdbs',
+            () => fetchHarvesterPDBs(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterPDBs(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'gateway_api':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'gatewayApiStatus',
+            () => checkGatewayApiStatus(cloudId),
+            (json) => {
+              setGatewayApiStatus(json?.data || null);
+            },
+            force,
+          );
+          loadResource(
+            'gatewayClasses',
+            () => fetchGatewayClasses(cloudId),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setGatewayClasses(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'gateways',
+            () => fetchGateways(cloudId),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setGateways(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'httpRoutes',
+            () => fetchHttpRoutes(cloudId),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHttpRoutes(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+          loadResource(
+            'grpcRoutes',
+            () => fetchGrpcRoutes(cloudId),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setGrpcRoutes(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'pdbs':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'pdbs',
+            () => fetchHarvesterPDBs(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterPDBs(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'networkpolicies':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'networkpolicies',
+            () => fetchNetworkPolicies(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterNetworkPolicies(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
+      case 'service_topology':
+        if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+          loadResource(
+            'ingresses',
+            () => fetchHarvesterIngresses(cloudId, force),
+            (json) => {
+              const list: any[] = Array.isArray((json as any)?.data?.items)
+                ? (json as any).data.items
+                : [];
+              setHarvesterIngresses(Array.isArray(list) ? list : []);
+              setRawIngresses(json || null);
+            },
+            force,
+          );
+          loadResource(
+            'services',
+            () => fetchHarvesterServices(cloudId, force),
+            (json) => {
+              const list: any[] = Array.isArray((json as any)?.data?.items)
+                ? (json as any).data.items
+                : [];
+              setHarvesterServices(Array.isArray(list) ? list : []);
+              setRawServices(json || null);
+            },
+            force,
+          );
+          loadResource(
+            'pods',
+            () => fetchHarvesterPods(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterPods(Array.isArray(list) ? list : []);
+            },
+            force,
+          );
+        }
+        break;
     }
   };
 
@@ -1411,6 +1900,14 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         'snat',
         'dnat',
         'load_balancers',
+        'containers',
+        'workloads',
+        'pods',
+        'jobs',
+        'configs',
+        'registries',
+        'gateway_api',
+        'ingresses',
       ];
       // 只有当资源之前被加载过，才刷新它
       secondaryKeys.forEach((k) => {
@@ -1459,6 +1956,22 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         if (k === 'snat' && previouslyLoaded.includes('snatRules'))
           shouldRefresh = true;
         if (k === 'dnat' && previouslyLoaded.includes('dnatRules'))
+          shouldRefresh = true;
+        if (k === 'containers' && previouslyLoaded.includes('deployments'))
+          shouldRefresh = true;
+        if (k === 'workloads' && previouslyLoaded.includes('deployments'))
+          shouldRefresh = true;
+        if (k === 'pods' && previouslyLoaded.includes('pods'))
+          shouldRefresh = true;
+        if (k === 'jobs' && previouslyLoaded.includes('jobs'))
+          shouldRefresh = true;
+        if (k === 'configs' && previouslyLoaded.includes('configmaps'))
+          shouldRefresh = true;
+        if (k === 'registries' && previouslyLoaded.includes('imagePullSecrets'))
+          shouldRefresh = true;
+        if (k === 'gateway_api' && previouslyLoaded.includes('gateways'))
+          shouldRefresh = true;
+        if (k === 'ingresses' && previouslyLoaded.includes('ingresses'))
           shouldRefresh = true;
 
         if (shouldRefresh) {
@@ -1742,16 +2255,43 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     return Array.from(s).sort();
   }, [ecs]);
 
-  // 命名空间选项列表
+  // 命名空间选项列表（与 Harvester 一致：合并集群命名空间与容器资源中的命名空间）
   const namespacesOptions = useMemo(() => {
-    // 简单直接：仅基于 harvesterNamespaces 生成列表
-    // 列表的完整性由 loadEssentials 保证 (管理员加载所有，租户只加载可见的)
-    const list = (harvesterNamespaces || [])
-      .map((n: any) => n?.metadata?.name || n?.name || '')
-      .filter(Boolean);
-
-    return Array.from(new Set(list)).sort();
-  }, [harvesterNamespaces]);
+    const nsSet = new Set<string>();
+    (harvesterNamespaces || []).forEach((n: any) => {
+      const name = n?.metadata?.name || n?.name || '';
+      if (name) nsSet.add(name);
+    });
+    const addNamespace = (item: any) => {
+      const ns = item?.metadata?.namespace;
+      if (ns) nsSet.add(ns);
+    };
+    harvesterDeployments.forEach(addNamespace);
+    harvesterStatefulSets.forEach(addNamespace);
+    harvesterDaemonSets.forEach(addNamespace);
+    harvesterPods.forEach(addNamespace);
+    harvesterJobs.forEach(addNamespace);
+    harvesterCronJobs.forEach(addNamespace);
+    harvesterServices.forEach(addNamespace);
+    harvesterIngresses.forEach(addNamespace);
+    harvesterConfigMaps.forEach(addNamespace);
+    harvesterSecrets.forEach(addNamespace);
+    harvesterImagePullSecrets.forEach(addNamespace);
+    return Array.from(nsSet).filter(Boolean).sort();
+  }, [
+    harvesterNamespaces,
+    harvesterDeployments,
+    harvesterStatefulSets,
+    harvesterDaemonSets,
+    harvesterPods,
+    harvesterJobs,
+    harvesterCronJobs,
+    harvesterServices,
+    harvesterIngresses,
+    harvesterConfigMaps,
+    harvesterSecrets,
+    harvesterImagePullSecrets,
+  ]);
 
   const providerName = 'Cloudmap';
 
@@ -2089,6 +2629,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                                   onRefresh={() =>
                                     loadTabResource('services', true)
                                   }
+                                  namespacesOptions={namespacesOptions}
+                                  nsValue={nsFilter || undefined}
+                                  onNsChange={(v) => setNsFilter(v || '')}
+                                  pods={harvesterPods}
                                   mode={mode}
                                 />
                                 <DebugJSON data={rawServices} show={showLog} />
@@ -2961,6 +3505,294 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                               checkPerm('clouds.ecs:read')
                             );
                           return true;
+                        })}
+                      />
+                    ),
+                  },
+                ]
+              : []),
+            ...(canViewContainersGroup
+              ? [
+                  {
+                    key: 'containers',
+                    label: '容器',
+                    children: (
+                      <Tabs
+                        type="line"
+                        destroyOnHidden
+                        defaultActiveKey="workloads"
+                        onChange={handleTabChange}
+                        items={[
+                          {
+                            key: 'workloads',
+                            label: '工作负载',
+                            children: (
+                              <WorkloadsSection
+                                deployments={harvesterDeployments}
+                                statefulsets={harvesterStatefulSets}
+                                daemonsets={harvesterDaemonSets}
+                                loading={
+                                  resourceLoading.deployments ||
+                                  resourceLoading.statefulsets ||
+                                  resourceLoading.daemonsets
+                                }
+                                namespacesOptions={namespacesOptions}
+                                imagePullSecrets={harvesterImagePullSecrets}
+                                secretsWithCredentials={harvesterSecrets}
+                                configMaps={harvesterConfigMaps}
+                                secrets={harvesterSecrets}
+                                persistentVolumeClaims={harvesterVolumes}
+                                cloudId={cloudId}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                onRefresh={() =>
+                                  loadTabResource('workloads', true)
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            key: 'pods',
+                            label: 'Pod',
+                            children: (
+                              <PodsSection
+                                pods={harvesterPods}
+                                loading={resourceLoading.pods}
+                                namespacesOptions={namespacesOptions}
+                                nodesOptions={nodesOptions}
+                                cloudId={cloudId}
+                                nsValue={nsFilter || undefined}
+                                nodeValue={nodeFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                onNodeChange={(v) => setNodeFilter(v || '')}
+                                onRefresh={() =>
+                                  loadTabResource('pods', true)
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            key: 'jobs',
+                            label: '任务',
+                            children: (
+                              <JobsSection
+                                jobs={harvesterJobs}
+                                cronjobs={harvesterCronJobs}
+                                loading={
+                                  resourceLoading.jobs ||
+                                  resourceLoading.cronjobs
+                                }
+                                namespacesOptions={namespacesOptions}
+                                cloudId={cloudId}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                onRefresh={(force) =>
+                                  loadTabResource('jobs', force ?? true)
+                                }
+                                imagePullSecrets={harvesterImagePullSecrets}
+                                secretsWithCredentials={harvesterSecrets}
+                              />
+                            ),
+                          },
+                          {
+                            key: 'services',
+                            label: 'Service',
+                            children: (
+                              <ServicesSection
+                                cloudId={cloudId}
+                                services={harvesterServices}
+                                loading={resourceLoading.services}
+                                onRefresh={() =>
+                                  loadTabResource('services', true)
+                                }
+                                isTenant={
+                                  user?.role === 'tenant' ||
+                                  !!(user as any)?.tenantId
+                                }
+                                namespacesOptions={namespacesOptions}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                pods={harvesterPods}
+                                mode={mode}
+                              />
+                            ),
+                          },
+                          {
+                            key: 'ingresses',
+                            label: 'Ingress',
+                            children: (
+                              <IngressesSection
+                                cloudId={cloudId}
+                                ingresses={harvesterIngresses}
+                                loading={resourceLoading.ingresses}
+                                onRefresh={() =>
+                                  loadTabResource('ingresses', true)
+                                }
+                                namespacesOptions={namespacesOptions}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                secrets={harvesterSecrets}
+                              />
+                            ),
+                          },
+                          {
+                            key: 'gateway_api',
+                            label: '网关路由',
+                            children: (
+                              <GatewayApiSection
+                                cloudId={cloudId}
+                                gatewayApiStatus={gatewayApiStatus}
+                                gatewayClasses={gatewayClasses}
+                                gateways={gateways}
+                                httpRoutes={httpRoutes}
+                                grpcRoutes={grpcRoutes}
+                                loading={
+                                  resourceLoading.gatewayApiStatus ||
+                                  resourceLoading.gateways
+                                }
+                                namespacesOptions={namespacesOptions}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                services={harvesterServices}
+                                onRefresh={() =>
+                                  loadTabResource('gateway_api', true)
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            key: 'service_topology',
+                            label: '服务拓扑',
+                            children: (
+                              <ServiceTopologySection
+                                cloudId={cloudId}
+                                ingresses={harvesterIngresses}
+                                services={harvesterServices}
+                                pods={harvesterPods}
+                                namespacesOptions={namespacesOptions}
+                                loading={
+                                  resourceLoading.ingresses ||
+                                  resourceLoading.services ||
+                                  resourceLoading.pods
+                                }
+                                onRefresh={() => {
+                                  loadTabResource('ingresses', true);
+                                  loadTabResource('services', true);
+                                  loadTabResource('pods', true);
+                                }}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                              />
+                            ),
+                          },
+                          {
+                            key: 'pdbs',
+                            label: 'Pod中断保护',
+                            children: (
+                              <PDBSection
+                                pdbs={harvesterPDBs}
+                                loading={resourceLoading.pdbs}
+                                namespacesOptions={namespacesOptions}
+                                cloudId={cloudId}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                onRefresh={(force) =>
+                                  loadTabResource('containers', force ?? true)
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            key: 'networkpolicies',
+                            label: '网络策略',
+                            children: (
+                              <NetworkPoliciesSection
+                                networkPolicies={harvesterNetworkPolicies}
+                                loading={resourceLoading.networkpolicies}
+                                namespacesOptions={namespacesOptions}
+                                cloudId={cloudId}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                onRefresh={(force) =>
+                                  loadTabResource('containers', force ?? true)
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            key: 'configs',
+                            label: '配置管理',
+                            children: (
+                              <ConfigsSection
+                                configmaps={harvesterConfigMaps}
+                                secrets={harvesterSecrets}
+                                loading={
+                                  resourceLoading.configmaps ||
+                                  resourceLoading.secrets
+                                }
+                                namespacesOptions={namespacesOptions}
+                                cloudId={cloudId}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                onRefresh={(force) =>
+                                  loadTabResource('configs', force)
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            key: 'registries',
+                            label: '镜像仓库',
+                            children: (
+                              <RegistriesSection
+                                secrets={harvesterImagePullSecrets}
+                                secretsWithCredentials={harvesterSecrets}
+                                loading={resourceLoading.imagePullSecrets}
+                                namespacesOptions={namespacesOptions}
+                                cloudId={cloudId}
+                                nsValue={nsFilter || undefined}
+                                onNsChange={(v) => setNsFilter(v || '')}
+                                onRefresh={() =>
+                                  loadTabResource('registries', true)
+                                }
+                              />
+                            ),
+                          },
+                        ].filter((i: any) => {
+                          if (i.key === 'services')
+                            return (
+                              checkPerm('clouds.services:read') ||
+                              checkPerm('clouds:read')
+                            );
+                          if (i.key === 'ingresses')
+                            return (
+                              checkPerm('clouds.ingresses:read') ||
+                              checkPerm('clouds:read')
+                            );
+                          if (i.key === 'gateway_api')
+                            return (
+                              checkPerm('clouds.containers:read') ||
+                              checkPerm('clouds:read')
+                            );
+                          if (i.key === 'pdbs')
+                            return (
+                              checkPerm('clouds.containers:read') ||
+                              checkPerm('clouds:read')
+                            );
+                          if (i.key === 'configs')
+                            return (
+                              checkPerm('clouds.containers:read') ||
+                              checkPerm('clouds:read')
+                            );
+                          if (i.key === 'registries')
+                            return (
+                              checkPerm('clouds.containers:read') ||
+                              checkPerm('clouds:read')
+                            );
+                          return (
+                            checkPerm('clouds.containers:read') ||
+                            checkPerm('clouds:read')
+                          );
                         })}
                       />
                     ),

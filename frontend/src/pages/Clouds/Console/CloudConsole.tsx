@@ -11,7 +11,42 @@ import {
 import PageContainer from '../../../components/PageContainer';
 import { useAuth } from '../../../contexts/AuthContext';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterStorageClasses, fetchCloudProviderOvnEips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, fetchHarvesterVolumes, fetchHarvesterImages, fetchKubeOvnVpcs, fetchKubeOvnSubnets } from '../../../services/harvesterApi';
+import {
+  fetchHarvesterNamespaces,
+  fetchHarvesterTemplates,
+  fetchHarvesterSshKeys,
+  fetchHarvesterSnapshots,
+  fetchHarvesterBackups,
+  fetchHarvesterScheduleVmBackups,
+  fetchHarvesterCloudInits,
+  fetchHarvesterGpuResources,
+  fetchHarvesterStorageClasses,
+  fetchCloudProviderOvnEips,
+  fetchCloudProviderOvnSnatRules,
+  fetchCloudProviderOvnDnatRules,
+  fetchHarvesterVolumes,
+  fetchHarvesterImages,
+  fetchHarvesterServices,
+  fetchKubeOvnVpcs,
+  fetchKubeOvnSubnets,
+  fetchHarvesterDeployments,
+  fetchHarvesterStatefulSets,
+  fetchHarvesterDaemonSets,
+  fetchHarvesterPods,
+  fetchHarvesterJobs,
+  fetchHarvesterCronJobs,
+  fetchHarvesterConfigMaps,
+  fetchHarvesterSecrets,
+  fetchHarvesterImagePullSecrets,
+  fetchHarvesterIngresses,
+  checkGatewayApiStatus,
+  fetchGatewayClasses,
+  fetchGateways,
+  fetchHttpRoutes,
+  fetchGrpcRoutes,
+  fetchHarvesterPDBs,
+  fetchNetworkPolicies,
+} from '../../../services/harvesterApi';
 import {
   fetchClouds,
   fetchCloudProviderEcs,
@@ -27,6 +62,7 @@ import {
 import { getToken } from '../../../utils/tokenStorage';
 import './CloudConsole.css';
 import CloudConsoleMainPanel, { type CloudConsoleLeftNavScope } from './CloudConsoleMainPanel';
+import CloudConsoleContainerPanel from './CloudConsoleContainerPanel';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './cloudConsoleTenantPublicScope';
@@ -84,6 +120,37 @@ const CloudConsolePage: React.FC = () => {
   const [vpcs, setVpcs] = useState<any[]>([]);      // VPC 列表
   const [subnets, setSubnets] = useState<any[]>([]); // 子网列表
   const [storageClasses, setStorageClasses] = useState<any[]>([]); // 存储类
+
+  // 容器服务（控制台）
+  const [ctrDeployments, setCtrDeployments] = useState<any[]>([]);
+  const [ctrStatefulSets, setCtrStatefulSets] = useState<any[]>([]);
+  const [ctrDaemonSets, setCtrDaemonSets] = useState<any[]>([]);
+  const [ctrPods, setCtrPods] = useState<any[]>([]);
+  const [ctrJobs, setCtrJobs] = useState<any[]>([]);
+  const [ctrCronJobs, setCtrCronJobs] = useState<any[]>([]);
+  const [ctrServices, setCtrServices] = useState<any[]>([]);
+  const [ctrIngresses, setCtrIngresses] = useState<any[]>([]);
+  const [ctrConfigMaps, setCtrConfigMaps] = useState<any[]>([]);
+  const [ctrSecrets, setCtrSecrets] = useState<any[]>([]);
+  const [ctrImagePullSecrets, setCtrImagePullSecrets] = useState<any[]>([]);
+  const [ctrPdbs, setCtrPdbs] = useState<any[]>([]);
+  const [ctrNetworkPolicies, setCtrNetworkPolicies] = useState<any[]>([]);
+  const [ctrGatewayApiStatus, setCtrGatewayApiStatus] = useState<{
+    installed: boolean;
+    resources: {
+      gatewayClass: boolean;
+      gateway: boolean;
+      httpRoute: boolean;
+      grpcRoute: boolean;
+    };
+  } | null>(null);
+  const [ctrGatewayClasses, setCtrGatewayClasses] = useState<any[]>([]);
+  const [ctrGateways, setCtrGateways] = useState<any[]>([]);
+  const [ctrHttpRoutes, setCtrHttpRoutes] = useState<any[]>([]);
+  const [ctrGrpcRoutes, setCtrGrpcRoutes] = useState<any[]>([]);
+  const [ctrResourceLoading, setCtrResourceLoading] = useState<Record<string, boolean>>({});
+  const [containerCategory, setContainerCategory] = useState('ctr-run');
+  const [containerResource, setContainerResource] = useState('ctr-workloads');
   
   // UI 状态
   const [loading, setLoading] = useState(false);
@@ -108,7 +175,7 @@ const CloudConsolePage: React.FC = () => {
   const leftNavMenuItems: MenuProps['items'] = useMemo(
     () => [
       { key: 'host', icon: <CloudServerOutlined />, label: '云主机' },
-      { key: 'container', icon: <AppstoreOutlined />, label: '容器' },
+      { key: 'container', icon: <AppstoreOutlined />, label: '容器服务' },
       { key: 'flat', icon: <NodeIndexOutlined />, label: '扁平网络' },
       { key: 'vpc', icon: <ApartmentOutlined />, label: 'VPC网络' },
       { key: 'rds', icon: <DatabaseOutlined />, label: '云RDS' },
@@ -122,6 +189,9 @@ const CloudConsolePage: React.FC = () => {
     if (key === 'host') {
       setHarvesterCategory('compute');
       setHarvesterResource('vm');
+    } else if (key === 'container') {
+      setContainerCategory('ctr-run');
+      setContainerResource('ctr-workloads');
     } else if (key === 'flat') {
       setHarvesterCategory('flatnet');
       setHarvesterResource('flat-subnet');
@@ -720,6 +790,213 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
+  const mergeCtrLoading = useCallback((patch: Record<string, boolean>) => {
+    setCtrResourceLoading((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const loadCtrWorkloads = async (cloudId: string, force = false) => {
+    mergeCtrLoading({
+      deployments: true,
+      statefulsets: true,
+      daemonsets: true,
+      imagePullSecrets: true,
+      secrets: true,
+      configmaps: true,
+    });
+    try {
+      const [d, s, ds, ips, sec, cm] = await Promise.all([
+        fetchHarvesterDeployments(cloudId, undefined, force),
+        fetchHarvesterStatefulSets(cloudId, undefined, force),
+        fetchHarvesterDaemonSets(cloudId, undefined, force),
+        fetchHarvesterImagePullSecrets(cloudId, undefined, force),
+        fetchHarvesterSecrets(cloudId, undefined, undefined, force),
+        fetchHarvesterConfigMaps(cloudId, undefined, force),
+      ]);
+      setCtrDeployments((d as any)?.data?.items || []);
+      setCtrStatefulSets((s as any)?.data?.items || []);
+      setCtrDaemonSets((ds as any)?.data?.items || []);
+      setCtrImagePullSecrets((ips as any)?.data?.items || []);
+      setCtrSecrets((sec as any)?.data?.items || []);
+      setCtrConfigMaps((cm as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrWorkloads', e);
+    } finally {
+      mergeCtrLoading({
+        deployments: false,
+        statefulsets: false,
+        daemonsets: false,
+        imagePullSecrets: false,
+        secrets: false,
+        configmaps: false,
+      });
+    }
+  };
+
+  const loadCtrPods = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ pods: true });
+    try {
+      const res = await fetchHarvesterPods(cloudId, undefined, force);
+      setCtrPods((res as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrPods', e);
+    } finally {
+      mergeCtrLoading({ pods: false });
+    }
+  };
+
+  const loadCtrJobs = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ jobs: true, cronjobs: true, secrets: true, imagePullSecrets: true });
+    try {
+      const [j, c, sec, ips] = await Promise.all([
+        fetchHarvesterJobs(cloudId, undefined, force),
+        fetchHarvesterCronJobs(cloudId, undefined, force),
+        fetchHarvesterSecrets(cloudId, undefined, undefined, force),
+        fetchHarvesterImagePullSecrets(cloudId, undefined, force),
+      ]);
+      setCtrJobs((j as any)?.data?.items || []);
+      setCtrCronJobs((c as any)?.data?.items || []);
+      setCtrSecrets((sec as any)?.data?.items || []);
+      setCtrImagePullSecrets((ips as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrJobs', e);
+    } finally {
+      mergeCtrLoading({ jobs: false, cronjobs: false, secrets: false, imagePullSecrets: false });
+    }
+  };
+
+  const loadCtrServices = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ services: true });
+    try {
+      const res = await fetchHarvesterServices(cloudId, force);
+      setCtrServices((res as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrServices', e);
+    } finally {
+      mergeCtrLoading({ services: false });
+    }
+  };
+
+  const loadCtrIngresses = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ ingresses: true });
+    try {
+      const res = await fetchHarvesterIngresses(cloudId, force);
+      setCtrIngresses((res as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrIngresses', e);
+    } finally {
+      mergeCtrLoading({ ingresses: false });
+    }
+  };
+
+  const loadCtrGateway = async (cloudId: string, force = false) => {
+    mergeCtrLoading({
+      gatewayApiStatus: true,
+      gateways: true,
+      gatewayClasses: true,
+      httpRoutes: true,
+      grpcRoutes: true,
+      services: true,
+    });
+    try {
+      const [st, gc, gw, http, grpc, svc] = await Promise.all([
+        checkGatewayApiStatus(cloudId),
+        fetchGatewayClasses(cloudId),
+        fetchGateways(cloudId),
+        fetchHttpRoutes(cloudId),
+        fetchGrpcRoutes(cloudId),
+        fetchHarvesterServices(cloudId, force),
+      ]);
+      setCtrGatewayApiStatus((st as any)?.data ?? null);
+      setCtrGatewayClasses((gc as any)?.data?.items || []);
+      setCtrGateways((gw as any)?.data?.items || []);
+      setCtrHttpRoutes((http as any)?.data?.items || []);
+      setCtrGrpcRoutes((grpc as any)?.data?.items || []);
+      setCtrServices((svc as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrGateway', e);
+    } finally {
+      mergeCtrLoading({
+        gatewayApiStatus: false,
+        gateways: false,
+        gatewayClasses: false,
+        httpRoutes: false,
+        grpcRoutes: false,
+        services: false,
+      });
+    }
+  };
+
+  const loadCtrConfigs = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ configmaps: true, secrets: true });
+    try {
+      const [cm, sec] = await Promise.all([
+        fetchHarvesterConfigMaps(cloudId, undefined, force),
+        fetchHarvesterSecrets(cloudId, undefined, undefined, force),
+      ]);
+      setCtrConfigMaps((cm as any)?.data?.items || []);
+      setCtrSecrets((sec as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrConfigs', e);
+    } finally {
+      mergeCtrLoading({ configmaps: false, secrets: false });
+    }
+  };
+
+  const loadCtrRegistries = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ imagePullSecrets: true, secrets: true });
+    try {
+      const secRes = await fetchHarvesterSecrets(
+        cloudId,
+        undefined,
+        undefined,
+        force,
+      );
+      const list: any[] = (secRes as any)?.data?.items || [];
+      setCtrSecrets(list);
+      if (list.length > 0 && !force) {
+        const dockerSecrets = list.filter(
+          (item: any) => item?.type === 'kubernetes.io/dockerconfigjson',
+        );
+        setCtrImagePullSecrets(dockerSecrets);
+      } else {
+        const ips = await fetchHarvesterImagePullSecrets(
+          cloudId,
+          undefined,
+          force,
+        );
+        setCtrImagePullSecrets((ips as any)?.data?.items || []);
+      }
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrRegistries', e);
+    } finally {
+      mergeCtrLoading({ imagePullSecrets: false, secrets: false });
+    }
+  };
+
+  const loadCtrPdbs = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ pdbs: true });
+    try {
+      const res = await fetchHarvesterPDBs(cloudId, undefined, force);
+      setCtrPdbs((res as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrPdbs', e);
+    } finally {
+      mergeCtrLoading({ pdbs: false });
+    }
+  };
+
+  const loadCtrNetpol = async (cloudId: string, force = false) => {
+    mergeCtrLoading({ networkpolicies: true });
+    try {
+      const res = await fetchNetworkPolicies(cloudId, undefined, force);
+      setCtrNetworkPolicies((res as any)?.data?.items || []);
+    } catch (e) {
+      console.error('[CloudConsole] loadCtrNetpol', e);
+    } finally {
+      mergeCtrLoading({ networkpolicies: false });
+    }
+  };
+
   // ==================== Effects ====================
 
   useEffect(() => {
@@ -763,6 +1040,28 @@ const CloudConsolePage: React.FC = () => {
       setStorageClasses([]);
       setVpcs([]);
       setSubnets([]);
+
+      setCtrDeployments([]);
+      setCtrStatefulSets([]);
+      setCtrDaemonSets([]);
+      setCtrPods([]);
+      setCtrJobs([]);
+      setCtrCronJobs([]);
+      setCtrServices([]);
+      setCtrIngresses([]);
+      setCtrConfigMaps([]);
+      setCtrSecrets([]);
+      setCtrImagePullSecrets([]);
+      setCtrPdbs([]);
+      setCtrNetworkPolicies([]);
+      setCtrGatewayApiStatus(null);
+      setCtrGatewayClasses([]);
+      setCtrGateways([]);
+      setCtrHttpRoutes([]);
+      setCtrGrpcRoutes([]);
+      setCtrResourceLoading({});
+      setContainerCategory('ctr-run');
+      setContainerResource('ctr-workloads');
       
       setHarvesterCategory('compute');
       setHarvesterResource('vm');
@@ -797,9 +1096,10 @@ const CloudConsolePage: React.FC = () => {
     }
   }, [ovnVpcEnabled]);
 
-  // Cloudmap 资源按需加载：监听 harvesterResource 与 currentCloudId
+  // Cloudmap 资源按需加载：监听 harvesterResource 与 currentCloudId（容器视图走独立 effect）
   useEffect(() => {
     if (!currentCloudId || !isCloudmap) return;
+    if (consoleLeftNavKey === 'container') return;
 
     // 无论哪个 Tab，VM 列表和 Namespace 都是基础数据 (VM 列表可能在其他 Tab 也需要引用，如 Volume 挂载)
     // 且 VM 列表通常是首页，所以始终检查加载
@@ -863,12 +1163,55 @@ const CloudConsolePage: React.FC = () => {
   }, [
     currentCloudId,
     isCloudmap,
+    consoleLeftNavKey,
     harvesterResource,
     ecs.length,
     namespaces.length,
     pvcs.length,
     storageClasses.length,
   ]);
+
+  /** 容器服务：按子页拉取 K8s 资源 */
+  useEffect(() => {
+    if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'container') return;
+    void loadNamespaces(currentCloudId);
+    const cid = currentCloudId;
+    switch (containerResource) {
+      case 'ctr-workloads':
+        void loadCtrWorkloads(cid);
+        break;
+      case 'ctr-pods':
+        void loadCtrPods(cid);
+        break;
+      case 'ctr-jobs':
+        void loadCtrJobs(cid);
+        break;
+      case 'ctr-services':
+        void loadCtrServices(cid);
+        break;
+      case 'ctr-ingresses':
+        void loadCtrIngresses(cid);
+        break;
+      case 'ctr-gateway':
+        void loadCtrGateway(cid);
+        break;
+      case 'ctr-configs':
+        void loadCtrConfigs(cid);
+        break;
+      case 'ctr-registries':
+        void loadCtrRegistries(cid);
+        break;
+      case 'ctr-pdbs':
+        void loadCtrPdbs(cid);
+        break;
+      case 'ctr-netpol':
+        void loadCtrNetpol(cid);
+        break;
+      default:
+        break;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 按导航 key 触发；loadCtr* 为稳定拉数封装
+  }, [currentCloudId, isCloudmap, consoleLeftNavKey, containerResource]);
 
   // ==================== 派生数据（渲染） ====================
   
@@ -878,8 +1221,39 @@ const CloudConsolePage: React.FC = () => {
       const ns = n?.metadata?.name || n?.name || '';
       if (ns && !isSystemNamespace(ns)) s.add(ns);
     });
+    if (consoleLeftNavKey === 'container') {
+      const addNs = (item: any) => {
+        const ns = item?.metadata?.namespace;
+        if (ns && !isSystemNamespace(ns)) s.add(ns);
+      };
+      ctrDeployments.forEach(addNs);
+      ctrStatefulSets.forEach(addNs);
+      ctrDaemonSets.forEach(addNs);
+      ctrPods.forEach(addNs);
+      ctrJobs.forEach(addNs);
+      ctrCronJobs.forEach(addNs);
+      ctrServices.forEach(addNs);
+      ctrIngresses.forEach(addNs);
+      ctrConfigMaps.forEach(addNs);
+      ctrSecrets.forEach(addNs);
+      ctrImagePullSecrets.forEach(addNs);
+    }
     return Array.from(s).sort();
-  }, [namespaces]);
+  }, [
+    namespaces,
+    consoleLeftNavKey,
+    ctrDeployments,
+    ctrStatefulSets,
+    ctrDaemonSets,
+    ctrPods,
+    ctrJobs,
+    ctrCronJobs,
+    ctrServices,
+    ctrIngresses,
+    ctrConfigMaps,
+    ctrSecrets,
+    ctrImagePullSecrets,
+  ]);
 
   const nodesOptions = useMemo(() => {
     return Array.from(new Set(ecs.map(r => r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.nodeName || r?.Extra?.NodeName).filter(Boolean))) as string[];
@@ -896,7 +1270,7 @@ const CloudConsolePage: React.FC = () => {
   const availabilityZoneOptions = useMemo(() => {
     return clouds.map((c) => {
       const name = c.name || String(c.id);
-      const region = c.region ? ` · ${c.region}` : '';
+      const region = c.region ? ` ${c.region}` : '';
       return {
         value: String(c.id),
         label: `[Cloudmap] ${name}${region}`,
@@ -964,10 +1338,67 @@ const CloudConsolePage: React.FC = () => {
 
               {isCloudmap && currentCloudId ? (
                 <>
-                  {consoleLeftNavKey === 'container' && (
-                    <div style={{ flex: 1, padding: 48 }}>
-                      <Empty description="容器服务敬请期待" />
-                    </div>
+                  {consoleLeftNavKey === 'container' && currentCloudId && (
+                    <CloudConsoleContainerPanel
+                      cloudId={currentCloudId}
+                      mode="standard"
+                      activeCategory={containerCategory}
+                      setActiveCategory={setContainerCategory}
+                      activeResource={containerResource}
+                      setActiveResource={setContainerResource}
+                      namespacesOptions={namespacesOptions}
+                      nodesOptions={nodesOptions}
+                      nsValue={nsValue}
+                      nodeValue={nodeValue}
+                      onNsChange={setNsValue}
+                      onNodeChange={setNodeValue}
+                      deployments={ctrDeployments}
+                      statefulsets={ctrStatefulSets}
+                      daemonsets={ctrDaemonSets}
+                      pods={ctrPods}
+                      jobs={ctrJobs}
+                      cronjobs={ctrCronJobs}
+                      services={ctrServices}
+                      ingresses={ctrIngresses}
+                      configmaps={ctrConfigMaps}
+                      secrets={ctrSecrets}
+                      imagePullSecrets={ctrImagePullSecrets}
+                      pdbs={ctrPdbs}
+                      networkpolicies={ctrNetworkPolicies}
+                      gatewayApiStatus={ctrGatewayApiStatus}
+                      gatewayClasses={ctrGatewayClasses}
+                      gateways={ctrGateways}
+                      httpRoutes={ctrHttpRoutes}
+                      grpcRoutes={ctrGrpcRoutes}
+                      volumes={pvcs}
+                      resourceLoading={ctrResourceLoading}
+                      onRefreshWorkloads={() =>
+                        loadCtrWorkloads(currentCloudId, true)
+                      }
+                      onRefreshPods={() => loadCtrPods(currentCloudId, true)}
+                      onRefreshJobs={(force) =>
+                        loadCtrJobs(currentCloudId, force ?? true)
+                      }
+                      onRefreshServices={() =>
+                        loadCtrServices(currentCloudId, true)
+                      }
+                      onRefreshIngresses={() =>
+                        loadCtrIngresses(currentCloudId, true)
+                      }
+                      onRefreshGateway={() => loadCtrGateway(currentCloudId, true)}
+                      onRefreshConfigs={(force) =>
+                        loadCtrConfigs(currentCloudId, force ?? true)
+                      }
+                      onRefreshRegistries={() =>
+                        loadCtrRegistries(currentCloudId, true)
+                      }
+                      onRefreshPdbs={(force) =>
+                        loadCtrPdbs(currentCloudId, force ?? true)
+                      }
+                      onRefreshNetpol={(force) =>
+                        loadCtrNetpol(currentCloudId, force ?? true)
+                      }
+                    />
                   )}
                   {consoleLeftNavKey === 'rds' && (
                     <div style={{ flex: 1, padding: 48 }}>

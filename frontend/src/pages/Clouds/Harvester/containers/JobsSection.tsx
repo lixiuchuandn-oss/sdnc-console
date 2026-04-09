@@ -10,14 +10,14 @@
  * 2. CronJob 列表展示与管理
  * 
  * [核心逻辑]
- * 1. 任务类型切换: 通过 Tab 切换 Job 和 CronJob
+ * 1. 任务类型切换: 通过 Segmented 切换 Job 和 CronJob
  * 2. 命名空间筛选: 支持按命名空间过滤
  * 3. 操作功能: 删除
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Tabs, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Modal, Tooltip, Alert, Spin, Divider, Typography } from 'antd';
-import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, ClockCircleOutlined, PlusOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined, FileTextOutlined, ExclamationCircleOutlined, CloseCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Modal, Tooltip, Alert, Spin, Divider, Typography } from 'antd';
+import { ReloadOutlined, ClockCircleOutlined, FileTextOutlined, ExclamationCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -668,7 +668,6 @@ const JobEventsViewer: React.FC<{
         dataSource={allEvents}
         columns={columns}
         pagination={false}
-        size="small"
         locale={{ emptyText: '暂无事件' }}
         scroll={{ y: 'calc(100vh - 300px)' }}
       />
@@ -862,7 +861,6 @@ const CronJobJobsList: React.FC<{
 
   return (
     <Table
-      size="small"
       dataSource={jobs}
       rowKey={(r) => r.metadata?.name}
       columns={[
@@ -967,16 +965,19 @@ const JobTable: React.FC<{
   cloudId: string;
   onRefresh: (force?: boolean) => void;
   namespacesOptions: string[];
+  nsValue?: string;
+  onNsChange: (v?: string) => void;
   imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
   secretsWithCredentials?: any[];
   defaultNamespace?: string;
-}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, imagePullSecrets, secretsWithCredentials, defaultNamespace }) => {
+  createModalVisible: boolean;
+  onCreateModalChange: (visible: boolean) => void;
+}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentJob, setCurrentJob] = useState<any>(null);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
   
   // 过滤并排序数据（按创建时间倒序）
   const filteredData = useMemo(() => {
@@ -1107,7 +1108,6 @@ const JobTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 120,
-      fixed: 'right' as const,
       render: (_: any, record: any) => {
         // 检查 Job 是否失败
         const conditions = record?.status?.conditions || [];
@@ -1118,14 +1118,12 @@ const JobTable: React.FC<{
           {
             key: 'detail',
             label: '详情',
-            icon: <EyeOutlined />,
             onClick: () => handleViewDetail(record),
           },
           // 失败状态显示重试按钮
           ...(isFailed ? [{
             key: 'retry',
             label: '重试',
-            icon: <ReloadOutlined />,
             onClick: () => {
               modal.confirm({
                 title: '确认重试',
@@ -1137,7 +1135,6 @@ const JobTable: React.FC<{
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -1150,7 +1147,7 @@ const JobTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [handleViewDetail, handleDelete, modal]);
@@ -1163,36 +1160,62 @@ const JobTable: React.FC<{
   
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Input.Search
-          placeholder="搜索名称/命名空间"
-          allowClear
-          style={{ width: 250 }}
-          onSearch={setKeyword}
-          onChange={(e) => setKeyword(e.target.value)}
-        />
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+      <div className="page-toolbar">
+        <div className="toolbar-container">
+          <Input
+            className="toolbar-search"
+            allowClear
+            placeholder="名称/命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="筛选命名空间"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={nsValue || undefined}
+            onChange={onNsChange}
+            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              onNsChange(undefined);
+            }}
+          >
+            重置
+          </button>
+        </div>
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={() => onCreateModalChange(true)}>
             创建 Job
           </Button>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-jobs"
           />
-        </Space>
+          <Tooltip title="刷新">
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+          </Tooltip>
+        </div>
       </div>
       
       <Table
+        className="std-table"
+        bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 'max-content' }}
         pagination={{
-          showSizeChanger: true,
-          showQuickJumper: true,
+          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          defaultPageSize: 20,
         }}
         rowSelection={{
           selectedRowKeys: selectedKeys,
@@ -1215,7 +1238,7 @@ const JobTable: React.FC<{
       <Modal
         title="创建 Job"
         open={createModalVisible}
-        onCancel={() => setCreateModalVisible(false)}
+        onCancel={() => onCreateModalChange(false)}
         footer={null}
         width={800}
         destroyOnClose
@@ -1226,10 +1249,10 @@ const JobTable: React.FC<{
           imagePullSecrets={imagePullSecrets}
           secretsWithCredentials={secretsWithCredentials}
           onSuccess={() => {
-            setCreateModalVisible(false);
+            onCreateModalChange(false);
             onRefresh(true);
           }}
-          onCancel={() => setCreateModalVisible(false)}
+          onCancel={() => onCreateModalChange(false)}
           defaultNamespace={defaultNamespace}
         />
       </Modal>
@@ -1246,16 +1269,19 @@ const CronJobTable: React.FC<{
   cloudId: string;
   onRefresh: (force?: boolean) => void;
   namespacesOptions: string[];
+  nsValue?: string;
+  onNsChange: (v?: string) => void;
   imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
   secretsWithCredentials?: any[];
   defaultNamespace?: string;
-}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, imagePullSecrets, secretsWithCredentials, defaultNamespace }) => {
+  createModalVisible: boolean;
+  onCreateModalChange: (visible: boolean) => void;
+}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentCronJob, setCurrentCronJob] = useState<any>(null);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
   
   // 过滤并排序数据（按创建时间倒序）
   const filteredData = useMemo(() => {
@@ -1399,20 +1425,17 @@ const CronJobTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 160,
-      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const isSuspended = record?.spec?.suspend;
         const items = [
           {
             key: 'detail',
             label: '详情',
-            icon: <EyeOutlined />,
             onClick: () => handleViewDetail(record),
           },
           {
             key: 'trigger',
             label: '立即执行',
-            icon: <ThunderboltOutlined />,
             onClick: () => {
               modal.confirm({
                 title: '确认执行',
@@ -1424,7 +1447,6 @@ const CronJobTable: React.FC<{
           isSuspended ? {
             key: 'resume',
             label: '恢复',
-            icon: <PlayCircleOutlined />,
             onClick: () => {
               modal.confirm({
                 title: '确认恢复',
@@ -1435,7 +1457,6 @@ const CronJobTable: React.FC<{
           } : {
             key: 'suspend',
             label: '暂停',
-            icon: <PauseCircleOutlined />,
             onClick: () => {
               modal.confirm({
                 title: '确认暂停',
@@ -1447,7 +1468,6 @@ const CronJobTable: React.FC<{
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -1460,7 +1480,7 @@ const CronJobTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [handleViewDetail, handleDelete, handleSuspend, handleResume, handleTrigger, modal]);
@@ -1473,36 +1493,62 @@ const CronJobTable: React.FC<{
   
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Input.Search
-          placeholder="搜索名称/命名空间"
-          allowClear
-          style={{ width: 250 }}
-          onSearch={setKeyword}
-          onChange={(e) => setKeyword(e.target.value)}
-        />
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+      <div className="page-toolbar">
+        <div className="toolbar-container">
+          <Input
+            className="toolbar-search"
+            allowClear
+            placeholder="名称/命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="筛选命名空间"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={nsValue || undefined}
+            onChange={onNsChange}
+            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              onNsChange(undefined);
+            }}
+          >
+            重置
+          </button>
+        </div>
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={() => onCreateModalChange(true)}>
             创建 CronJob
           </Button>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-cronjobs"
           />
-        </Space>
+          <Tooltip title="刷新">
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+          </Tooltip>
+        </div>
       </div>
       
       <Table
+        className="std-table"
+        bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 'max-content' }}
         pagination={{
-          showSizeChanger: true,
-          showQuickJumper: true,
+          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          defaultPageSize: 20,
         }}
         rowSelection={{
           selectedRowKeys: selectedKeys,
@@ -1525,7 +1571,7 @@ const CronJobTable: React.FC<{
       <Modal
         title="创建 CronJob"
         open={createModalVisible}
-        onCancel={() => setCreateModalVisible(false)}
+        onCancel={() => onCreateModalChange(false)}
         footer={null}
         width={800}
         destroyOnClose
@@ -1536,10 +1582,10 @@ const CronJobTable: React.FC<{
           imagePullSecrets={imagePullSecrets}
           secretsWithCredentials={secretsWithCredentials}
           onSuccess={() => {
-            setCreateModalVisible(false);
+            onCreateModalChange(false);
             onRefresh(true);
           }}
-          onCancel={() => setCreateModalVisible(false)}
+          onCancel={() => onCreateModalChange(false)}
           defaultNamespace={defaultNamespace}
         />
       </Modal>
@@ -1563,11 +1609,8 @@ const JobsSection: React.FC<Props> = ({
   secretsWithCredentials = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'job' | 'cronjob'>('job');
-  
-  // Tab 切换
-  const handleTabChange = (key: string) => {
-    setActiveTab(key as 'job' | 'cronjob');
-  };
+  const [jobCreateVisible, setJobCreateVisible] = useState(false);
+  const [cronjobCreateVisible, setCronjobCreateVisible] = useState(false);
   
   // 根据 nsValue 过滤数据
   const filteredJobs = useMemo(() => {
@@ -1581,61 +1624,49 @@ const JobsSection: React.FC<Props> = ({
   }, [cronjobs, nsValue]);
   
   return (
-    <PageDetailSection
-      title="任务"
-      toolbarLeft={
-        <Select
-          placeholder="筛选命名空间"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          style={{ width: 200 }}
-          value={nsValue}
-          onChange={onNsChange}
-          options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
-        />
-      }
-      onRefresh={onRefresh}
-    >
-      <Tabs
-        type="line"
-        activeKey={activeTab}
-        onChange={handleTabChange}
-        items={[
-          {
-            key: 'job',
-            label: `Job (${filteredJobs.length})`,
-            children: (
-              <JobTable
-                data={filteredJobs}
-                loading={loading}
-                cloudId={cloudId}
-                onRefresh={onRefresh}
-                namespacesOptions={namespacesOptions}
-                imagePullSecrets={imagePullSecrets}
-                secretsWithCredentials={secretsWithCredentials}
-                defaultNamespace={nsValue}
-              />
-            ),
-          },
-          {
-            key: 'cronjob',
-            label: `CronJob (${filteredCronJobs.length})`,
-            children: (
-              <CronJobTable
-                data={filteredCronJobs}
-                loading={loading}
-                cloudId={cloudId}
-                onRefresh={onRefresh}
-                namespacesOptions={namespacesOptions}
-                imagePullSecrets={imagePullSecrets}
-                secretsWithCredentials={secretsWithCredentials}
-                defaultNamespace={nsValue}
-              />
-            ),
-          },
+    <PageDetailSection asCard={false}>
+      <Segmented
+        style={{ marginBottom: 12 }}
+        value={activeTab}
+        onChange={(v) => setActiveTab(v as 'job' | 'cronjob')}
+        options={[
+          { label: `一次性任务 (${filteredJobs.length})`, value: 'job' },
+          { label: `定时任务 (${filteredCronJobs.length})`, value: 'cronjob' },
         ]}
       />
+      {activeTab === 'job' ? (
+        <JobTable
+          key="job"
+          data={filteredJobs}
+          loading={loading}
+          cloudId={cloudId}
+          onRefresh={onRefresh}
+          namespacesOptions={namespacesOptions}
+          nsValue={nsValue}
+          onNsChange={onNsChange}
+          imagePullSecrets={imagePullSecrets}
+          secretsWithCredentials={secretsWithCredentials}
+          defaultNamespace={nsValue}
+          createModalVisible={jobCreateVisible}
+          onCreateModalChange={setJobCreateVisible}
+        />
+      ) : (
+        <CronJobTable
+          key="cronjob"
+          data={filteredCronJobs}
+          loading={loading}
+          cloudId={cloudId}
+          onRefresh={onRefresh}
+          namespacesOptions={namespacesOptions}
+          nsValue={nsValue}
+          onNsChange={onNsChange}
+          imagePullSecrets={imagePullSecrets}
+          secretsWithCredentials={secretsWithCredentials}
+          defaultNamespace={nsValue}
+          createModalVisible={cronjobCreateVisible}
+          onCreateModalChange={setCronjobCreateVisible}
+        />
+      )}
     </PageDetailSection>
   );
 };

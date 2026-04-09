@@ -17,8 +17,8 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Tabs, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Modal, Switch, Spin } from 'antd';
-import { DeleteOutlined, EyeOutlined, EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Modal, Switch, Spin, Tooltip } from 'antd';
+import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -520,10 +520,11 @@ const ConfigMapTable: React.FC<{
   cloudId: string;
   namespacesOptions: string[];
   nsValue?: string;
-  onRefresh: () => void;
+  onNsChange: (v?: string) => void;
   onCreateClick: () => void;
+  onRefresh: () => void;
   onEditClick: (record: any) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onRefresh, onCreateClick, onEditClick }) => {
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -610,25 +611,21 @@ const ConfigMapTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 150,
-      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items = [
           {
             key: 'detail',
             label: '详情',
-            icon: <EyeOutlined />,
             onClick: () => handleViewDetail(record),
           },
           {
             key: 'edit',
             label: '编辑',
-            icon: <EditOutlined />,
             onClick: () => onEditClick(record),
           },
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -641,7 +638,7 @@ const ConfigMapTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [handleViewDetail, handleDelete, modal, onEditClick]);
@@ -654,36 +651,62 @@ const ConfigMapTable: React.FC<{
   
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Input.Search
-          placeholder="搜索名称/命名空间"
-          allowClear
-          style={{ width: 250 }}
-          onSearch={setKeyword}
-          onChange={(e) => setKeyword(e.target.value)}
-        />
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={onCreateClick}>
+      <div className="page-toolbar">
+        <div className="toolbar-container">
+          <Input
+            className="toolbar-search"
+            allowClear
+            placeholder="名称/命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="筛选命名空间"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={nsValue || undefined}
+            onChange={onNsChange}
+            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              onNsChange(undefined);
+            }}
+          >
+            重置
+          </button>
+        </div>
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={onCreateClick}>
             创建 ConfigMap
           </Button>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-configmaps"
           />
-        </Space>
+          <Tooltip title="刷新">
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+          </Tooltip>
+        </div>
       </div>
       
       <Table
+        className="std-table"
+        bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 950 }}
+        scroll={{ x: 'max-content' }}
         pagination={{
-          showSizeChanger: true,
-          showQuickJumper: true,
+          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          defaultPageSize: 20,
         }}
         rowSelection={{
           selectedRowKeys: selectedKeys,
@@ -713,12 +736,13 @@ const SecretTable: React.FC<{
   cloudId: string;
   namespacesOptions: string[];
   nsValue?: string;
+  onNsChange: (v?: string) => void;
   typeFilter?: string;
   onTypeChange: (type?: string) => void;
-  onRefresh: () => void;
   onCreateClick: () => void;
+  onRefresh: () => void;
   onEditClick: (record: any) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, typeFilter, onTypeChange, onRefresh, onCreateClick, onEditClick }) => {
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -835,25 +859,21 @@ const SecretTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 150,
-      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items = [
           {
             key: 'detail',
             label: '详情',
-            icon: <EyeOutlined />,
             onClick: () => handleViewDetail(record),
           },
           {
             key: 'edit',
             label: '编辑',
-            icon: <EditOutlined />,
             onClick: () => onEditClick(record),
           },
           {
             key: 'delete',
             label: '删除',
-            icon: <DeleteOutlined />,
             danger: true,
             onClick: () => {
               modal.confirm({
@@ -866,7 +886,7 @@ const SecretTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], [handleViewDetail, handleDelete, modal, onEditClick]);
@@ -879,48 +899,73 @@ const SecretTable: React.FC<{
   
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <Input.Search
-            placeholder="搜索名称/命名空间"
+      <div className="page-toolbar">
+        <div className="toolbar-container">
+          <Input
+            className="toolbar-search"
             allowClear
-            style={{ width: 200 }}
-            onSearch={setKeyword}
+            placeholder="名称/命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
           <Select
+            className="toolbar-filter-sm"
+            placeholder="筛选命名空间"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={nsValue || undefined}
+            onChange={onNsChange}
+            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          />
+          <Select
+            className="toolbar-filter"
             placeholder="筛选类型"
             allowClear
             showSearch
             optionFilterProp="label"
-            style={{ width: 180 }}
-            value={typeFilter}
+            value={typeFilter ?? undefined}
             onChange={onTypeChange}
             options={secretTypeOptions}
           />
-        </Space>
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={onCreateClick}>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              onNsChange(undefined);
+              onTypeChange(undefined);
+            }}
+          >
+            重置
+          </button>
+        </div>
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={onCreateClick}>
             创建 Secret
           </Button>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-secrets"
           />
-        </Space>
+          <Tooltip title="刷新">
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+          </Tooltip>
+        </div>
       </div>
       
       <Table
+        className="std-table"
+        bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 1050 }}
+        scroll={{ x: 'max-content' }}
         pagination={{
-          showSizeChanger: true,
-          showQuickJumper: true,
+          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          defaultPageSize: 20,
         }}
         rowSelection={{
           selectedRowKeys: selectedKeys,
@@ -1050,11 +1095,6 @@ const ConfigsSection: React.FC<Props> = ({
     onRefresh(true); // 强制刷新，绕过缓存
   };
   
-  // Tab 切换
-  const handleTabChange = (key: string) => {
-    setActiveTab(key as 'configmap' | 'secret');
-  };
-  
   // 根据 nsValue 过滤数据
   const filteredConfigMaps = useMemo(() => {
     if (!nsValue) return configmaps;
@@ -1076,63 +1116,45 @@ const ConfigsSection: React.FC<Props> = ({
   
   return (
     <>
-      <PageDetailSection
-        title="配置管理"
-        toolbarLeft={
-          <Select
-            placeholder="筛选命名空间"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 200 }}
-            value={nsValue}
-            onChange={onNsChange}
-            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
-          />
-        }
-        onRefresh={onRefresh}
-      >
-        <Tabs
-          type="line"
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          items={[
-            {
-              key: 'configmap',
-              label: `ConfigMap (${filteredConfigMaps.length})`,
-              children: (
-                <ConfigMapTable
-                  data={filteredConfigMaps}
-                  loading={loading}
-                  cloudId={cloudId}
-                  namespacesOptions={namespacesOptions}
-                  nsValue={nsValue}
-                  onRefresh={onRefresh}
-                  onCreateClick={handleCreateConfigMap}
-                  onEditClick={handleEditConfigMap}
-                />
-              ),
-            },
-            {
-              key: 'secret',
-              label: `Secret (${filteredSecrets.length})`,
-              children: (
-                <SecretTable
-                  data={filteredSecrets}
-                  loading={loading}
-                  cloudId={cloudId}
-                  namespacesOptions={namespacesOptions}
-                  nsValue={nsValue}
-                  typeFilter={secretTypeFilter}
-                  onTypeChange={setSecretTypeFilter}
-                  onRefresh={onRefresh}
-                  onCreateClick={handleCreateSecret}
-                  onEditClick={handleEditSecret}
-                />
-              ),
-            },
+      <PageDetailSection asCard={false}>
+        <Segmented
+          style={{ marginBottom: 12 }}
+          value={activeTab}
+          onChange={(v) => setActiveTab(v as 'configmap' | 'secret')}
+          options={[
+            { label: `ConfigMap (${filteredConfigMaps.length})`, value: 'configmap' },
+            { label: `Secret (${filteredSecrets.length})`, value: 'secret' },
           ]}
         />
+        {activeTab === 'configmap' ? (
+          <ConfigMapTable
+            key="configmap"
+            data={filteredConfigMaps}
+            loading={loading}
+            cloudId={cloudId}
+            namespacesOptions={namespacesOptions}
+            nsValue={nsValue}
+            onNsChange={onNsChange}
+            onCreateClick={handleCreateConfigMap}
+            onRefresh={onRefresh}
+            onEditClick={handleEditConfigMap}
+          />
+        ) : (
+          <SecretTable
+            key="secret"
+            data={filteredSecrets}
+            loading={loading}
+            cloudId={cloudId}
+            namespacesOptions={namespacesOptions}
+            nsValue={nsValue}
+            onNsChange={onNsChange}
+            typeFilter={secretTypeFilter}
+            onTypeChange={setSecretTypeFilter}
+            onCreateClick={handleCreateSecret}
+            onRefresh={onRefresh}
+            onEditClick={handleEditSecret}
+          />
+        )}
       </PageDetailSection>
       
       {/* ConfigMap 创建/编辑弹窗 */}
