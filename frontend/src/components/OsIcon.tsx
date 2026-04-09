@@ -1,5 +1,5 @@
 import React from 'react';
-import Icon, { CodeTwoTone } from '@ant-design/icons';
+import Icon, { CodeTwoTone, DatabaseTwoTone } from '@ant-design/icons';
 import { ReactComponent as AndroidSvg } from '../assets/OS/android.svg';
 import { ReactComponent as AnolisSvg } from '../assets/OS/anolis.svg';
 import { ReactComponent as CentosSvg } from '../assets/OS/centos.svg';
@@ -69,6 +69,12 @@ export const OsIcon: React.FC<OsIconProps> = ({ osName, className, style }) => {
     return <span className={className} style={{ fontSize: 16, marginRight: 4, display: 'inline-block', lineHeight: 1, ...style }}>🐧</span>;
   }
 
-  // 3. Default fallback
+  // 3. Generic Database fallback
+  const dbKeywords = ['mysql', 'postgres', 'pgsql', 'redis', 'mongo', 'mariadb', 'oracle', 'sqlserver', 'db', 'rds'];
+  if (dbKeywords.some(k => n.includes(k))) {
+    return <DatabaseTwoTone className={className} twoToneColor="#1677ff" style={{ fontSize: 16, ...style }} />;
+  }
+
+  // 4. Default fallback
   return <CodeTwoTone className={className} style={{ fontSize: 16, ...style }} />;
 };

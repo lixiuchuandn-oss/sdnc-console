@@ -350,15 +350,16 @@ export const requestJson = (
       Accept: 'application/json',
     };
     
-    // 仅当有请求体时设置 Content-Type 和 Length
-    if (data) {
-        defaultHeaders['Content-Type'] = 'application/json';
-        defaultHeaders['Content-Length'] = String(data.length);
-    }
-    
-    // 合并自定义 Header (注意：这会覆盖上面的默认值)
-    // 如果 customHeaders 提供了 Content-Type (例如 application/json-patch+json)，它应该覆盖默认的 application/json
+    // 合并自定义 Header
     const finalHeaders = { ...defaultHeaders, ...(customHeaders || {}) };
+
+    // 仅当有请求体时设置 Content-Type 和 Length (如果未被 customHeaders 覆盖)
+    if (data) {
+        if (!finalHeaders['Content-Type']) {
+            finalHeaders['Content-Type'] = 'application/json';
+        }
+        finalHeaders['Content-Length'] = String(data.length);
+    }
 
     const req = mod.request(
       target,

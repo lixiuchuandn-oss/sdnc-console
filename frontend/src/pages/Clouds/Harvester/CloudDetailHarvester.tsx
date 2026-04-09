@@ -15,6 +15,7 @@ import VlansSection from './kube-ovn/sections/VlansSection';
 import GpusSection from './cluster/GpusSection';
 import PciDevicesSection from './cluster/PciDevicesSection';
 import UsbDevicesSection from './cluster/UsbDevicesSection';
+import RdsSection from './rds/RdsSection';
 import MigrationsSection from './ecs/MigrationsSection';
 import StorageClassesSection from './cluster/StorageClassesSection';
 import SnapshotsSection from './ebs/sections/SnapshotsSection';
@@ -2726,6 +2727,102 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 />
               )
             }] : []),
+            {
+              key: 'rds_group',
+              label: '云数据库',
+              children: (
+                <Tabs
+                  type="line"
+                  destroyOnHidden
+                  defaultActiveKey="rds"
+                  onChange={handleTabChange}
+                  items={[
+                    {
+                      key: 'rds',
+                      label: '云数据库实例',
+                      children: (
+                        <RdsSection
+                          vms={ecs}
+                          loading={resourceLoading.ecs}
+                          cloudId={cloudId}
+                          onRefresh={() => refreshVms(true)}
+                          onForceRefresh={async () => {
+                            setResourceLoading((prev) => ({ ...prev, ecs: true }));
+                            try {
+                              try {
+                                await apiPost(`/api/clouds/${cloudId}/sync`);
+                              } catch {}
+                              const json = await fetchCloudProviderEcs(cloudId, true);
+                              const list: any[] = Array.isArray((json as any)?.data)
+                                ? (json as any).data
+                                : (((json as any)?.data?.Instances?.Instance) ||
+                                   ((json as any)?.data?.items) ||
+                                   ((json as any)?.data?.data) ||
+                                   []);
+                              setEcs(Array.isArray(list) ? list : []);
+                              setRawEcs(json || null);
+                            } finally {
+                              setResourceLoading((prev) => ({ ...prev, ecs: false }));
+                            }
+                          }}
+                          images={harvesterImages}
+                          storageClasses={harvesterStorageClasses}
+                          kubeSubnets={kubeOvnSubnets}
+                          harvesterNads={harvesterNads}
+                          onReloadImages={
+                            checkPerm('clouds.images:read')
+                              ? () =>
+                                  loadResource(
+                                    'images',
+                                    () => fetchHarvesterImages(cloudId, true),
+                                    (json) => setHarvesterImages(json?.data?.items || []),
+                                    true,
+                                  )
+                              : undefined
+                          }
+                          onReloadSubnets={
+                            checkPerm('clouds.networks:read')
+                              ? () =>
+                                  loadResource(
+                                    'subnets',
+                                    () => fetchKubeOvnSubnets(cloudId, true),
+                                    (json) => setKubeOvnSubnets(json?.data?.items || []),
+                                    true,
+                                  )
+                              : undefined
+                          }
+                          onReloadNads={
+                            checkPerm('clouds.networks:read')
+                              ? () =>
+                                  loadResource(
+                                    'nads',
+                                    () => fetchHarvesterNads(cloudId, true),
+                                    (json) => setHarvesterNads(json?.data?.items || []),
+                                    true,
+                                  )
+                              : undefined
+                          }
+                          onReloadStorageClasses={
+                            checkPerm('clouds.disks:read') || checkPerm('clouds.ecs:read')
+                              ? () =>
+                                  loadResource(
+                                    'storageClasses',
+                                    () => fetchHarvesterStorageClasses(cloudId, true),
+                                    (json) => setHarvesterStorageClasses(json?.data?.items || []),
+                                    true,
+                                  )
+                              : undefined
+                          }
+                          isTenant={user?.role === 'tenant' || !!(user as any)?.tenantId}
+                          namespacesOptions={namespacesOptions}
+                          mode={harvesterViewMode === 'ops' ? 'ops' : 'standard'}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+              )
+            },
             ...(canViewLoggingTab ? [{
               key: 'logs-config',
               label: '日志管理',

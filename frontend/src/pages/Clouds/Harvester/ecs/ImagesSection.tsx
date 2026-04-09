@@ -50,6 +50,7 @@ import { isSystemNamespace, isImagePublicByScenario, resolveVmImageKind } from '
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import ImageLabelEditModal from './modals/ImageLabelEditModal';
 
 /**
  * 组件入参说明
@@ -164,6 +165,10 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
+  
+  // 标签编辑状态
+  const [labelEditModalOpen, setLabelEditModalOpen] = useState(false);
+  const [labelEditRecord, setLabelEditRecord] = useState<any>(null);
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const toolTaskListRef = useRef<HarvesterImageUploadTask[]>([]);
   const onRefreshRef = useRef(onRefresh);
@@ -541,6 +546,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
           buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
           items={[
             ...(!isTenant && mode === 'ops' ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
+            { key: 'editLabels', label: '编辑标签', disabled: !hasImagesWrite, onClick: () => { setLabelEditRecord(r); setLabelEditModalOpen(true); } },
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: '确认删除镜像？', content: `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`, onOk: handleDelete }) },
@@ -1103,6 +1109,14 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
           </div>
         )}
       </Drawer>
+
+      <ImageLabelEditModal
+        open={labelEditModalOpen}
+        onClose={() => setLabelEditModalOpen(false)}
+        cloudId={cloudId}
+        resource={labelEditRecord}
+        onSuccess={() => onRefresh?.(true, true)}
+      />
     </PageDetailSection>
   );
 };

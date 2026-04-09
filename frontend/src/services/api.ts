@@ -448,6 +448,7 @@ export const fetchCloudProviderEcs = async (
   const qs = q ? `?${q}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs${qs}`, {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': token ? `Bearer ${token}` : '',

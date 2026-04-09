@@ -378,6 +378,52 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
 }
 
 /**
+ * PATCH /:id/resources/harvester/images/:namespace/:name/patch - Patch 镜像
+ */
+export async function harvesterImagePatchHandler(req: Request, res: Response) {
+  try {
+    const cloud = (req as any).cloud;
+    const { id, namespace, name } = req.params;
+    const payload = req.body;
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const contentType = String(req.headers['content-type'] || 'application/merge-patch+json').split(';')[0].trim() || 'application/merge-patch+json';
+
+    const base = (cloud.endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+
+    const patchUrl = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
+      namespace,
+    )}/virtualmachineimages/${encodeURIComponent(name)}`;
+
+    const json = await requestJson('PATCH', patchUrl, cloud.secretKey || '', insecure, payload, {
+      'Content-Type': contentType,
+    });
+    try {
+      if (json?.metadata?.uid) {
+        const repo = AppDataSource.getRepository(HarvesterImageInventory);
+        await repo.update(
+          { cloudId: id, uid: json.metadata.uid },
+          {
+            labels: json.metadata?.labels,
+            annotations: json.metadata?.annotations,
+            rawData: json,
+          },
+        );
+      }
+    } catch {}
+    res.json({ message: 'Patch 更新成功', data: json });
+  } catch (error: any) {
+    res.status(500).json({ message: 'Patch 镜像失败', error: error.message });
+  }
+}
+
+/**
  * PUT /:id/resources/harvester/images/:namespace/:name - 更新镜像
  */
 export async function harvesterImageUpdateHandler(req: Request, res: Response) {

@@ -51,6 +51,7 @@ import {
   fetchClouds,
   fetchCloudProviderEcs,
   API_BASE_URL,
+  apiPost,
   startCloudProviderEcs,
   stopCloudProviderEcs,
   rebootCloudProviderEcs,
@@ -63,6 +64,10 @@ import { getToken } from '../../../utils/tokenStorage';
 import './CloudConsole.css';
 import CloudConsoleMainPanel, { type CloudConsoleLeftNavScope } from './CloudConsoleMainPanel';
 import CloudConsoleContainerPanel from './CloudConsoleContainerPanel';
+import CloudConsoleDatabasePanel, {
+  type CloudConsoleDatabaseCategory,
+  type CloudConsoleDatabaseResource,
+} from './CloudConsoleDatabasePanel';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './cloudConsoleTenantPublicScope';
@@ -87,6 +92,10 @@ const CloudConsolePage: React.FC = () => {
     () =>
       user?.role === 'tenant' ||
       (!!user?.tenantId && String(user?.role ?? '') !== 'sase_device'),
+    [user],
+  );
+  const isTenantUser = useMemo(
+    () => user?.role === 'tenant' || !!user?.tenantId,
     [user],
   );
   const mergeTenantPublicScope = useCallback(
@@ -169,6 +178,9 @@ const CloudConsolePage: React.FC = () => {
   const [reconfVm, setReconfVm] = useState<any>(null);
 
   const [consoleLeftNavKey, setConsoleLeftNavKey] = useState<ConsoleLeftNavKey>('host');
+
+  const [databaseCategory, setDatabaseCategory] = useState<CloudConsoleDatabaseCategory>('rds');
+  const [databaseResource, setDatabaseResource] = useState<CloudConsoleDatabaseResource>('mysql');
 
   const vmStatusBuffer = useRef(new Map<string, any>());
 
@@ -559,19 +571,22 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载镜像列表
-  const loadImages = async (cloudId?: string, force: boolean = false) => {
+  const loadImages = async (
+    cloudId?: string,
+    force: boolean = false,
+    mergePublicScenarioOverride?: boolean,
+  ) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
 
     setLoading(true);
     setError(null);
     try {
-      const json = await fetchHarvesterImages(
-        cid,
-        force,
-        false,
-        mergeTenantPublicScope(shouldMergePublicScenarioForTenantConsole(harvesterCategory, harvesterResource)),
-      );
+      const mergePublic =
+        mergePublicScenarioOverride !== undefined
+          ? mergePublicScenarioOverride
+          : shouldMergePublicScenarioForTenantConsole(harvesterCategory, harvesterResource);
+      const json = await fetchHarvesterImages(cid, force, false, mergeTenantPublicScope(mergePublic));
       const items: any[] = Array.isArray((json as any)?.data?.items) 
           ? (json as any).data.items 
           : (Array.isArray((json as any)?.items) ? (json as any).items : []);
@@ -719,8 +734,12 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
-  // 加载 VPC 和 子网
-  const loadVpcsAndSubnets = async (cloudId?: string, force: boolean = false) => {
+  // 加载 VPC 和 子网（云数据库创建依赖扁平子网列表时，可对子网请求合并公共场景命名空间）
+  const loadVpcsAndSubnets = async (
+    cloudId?: string,
+    force: boolean = false,
+    mergePublicSubnets: boolean = false,
+  ) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     if (!ovnVpcEnabled) {
@@ -731,7 +750,7 @@ const CloudConsolePage: React.FC = () => {
     try {
       const [vpcsJson, subnetsJson] = await Promise.all([
         fetchKubeOvnVpcs(cid, force, false, 'vpc', mergeTenantPublicScope(false)),
-        fetchKubeOvnSubnets(cid, force, false, 'all', mergeTenantPublicScope(false)),
+        fetchKubeOvnSubnets(cid, force, false, 'all', mergeTenantPublicScope(mergePublicSubnets)),
       ]);
       setVpcs(vpcsJson?.data?.items || []);
       setSubnets(subnetsJson?.data?.items || []);
@@ -1213,6 +1232,55 @@ const CloudConsolePage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 按导航 key 触发；loadCtr* 为稳定拉数封装
   }, [currentCloudId, isCloudmap, consoleLeftNavKey, containerResource]);
 
+  /** 云数据库侧栏：实例列表、镜像（合并公共场景镜像）、存储类、子网 */
+  useEffect(() => {
+    if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds') return;
+    if (ecs.length === 0 && !loading) loadEcs(currentCloudId);
+    if (namespaces.length === 0) loadNamespaces(currentCloudId);
+    if (images.length === 0) loadImages(currentCloudId, false, true);
+    if (storageClasses.length === 0) loadStorageClasses(currentCloudId, true, true);
+    if (ovnVpcEnabled && subnets.length === 0) loadVpcsAndSubnets(currentCloudId, false, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentCloudId,
+    isCloudmap,
+    consoleLeftNavKey,
+    ovnVpcEnabled,
+    ecs.length,
+    namespaces.length,
+    images.length,
+    storageClasses.length,
+    subnets.length,
+    loading,
+  ]);
+
+  const handleDatabaseForceRefresh = useCallback(async () => {
+    const cid = currentCloudId;
+    if (!cid) return;
+    setLoading(true);
+    try {
+      try {
+        await apiPost(`/api/clouds/${cid}/sync`);
+      } catch {
+        /* 同步失败仍尝试拉取列表 */
+      }
+      const json: any = await fetchCloudProviderEcs(cid, true, mergeTenantPublicScope(false));
+      let list: any[] = [];
+      if (Array.isArray(json?.data)) {
+        list = json.data;
+      } else if (json?.data?.Instances?.Instance) {
+        list = json.data.Instances.Instance;
+      } else if (json?.data?.servers) {
+        list = json.data.servers;
+      } else if (json?.data?.InstanceSet) {
+        list = json.data.InstanceSet;
+      }
+      setEcs(Array.isArray(list) ? list : []);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentCloudId, mergeTenantPublicScope]);
+
   // ==================== 派生数据（渲染） ====================
   
   const namespacesOptions = useMemo(() => {
@@ -1400,10 +1468,28 @@ const CloudConsolePage: React.FC = () => {
                       }
                     />
                   )}
-                  {consoleLeftNavKey === 'rds' && (
-                    <div style={{ flex: 1, padding: 48 }}>
-                      <Empty description="云 RDS 敬请期待" />
-                    </div>
+                  {consoleLeftNavKey === 'rds' && currentCloudId && (
+                    <CloudConsoleDatabasePanel
+                      cloudId={currentCloudId}
+                      vms={ecs}
+                      images={images}
+                      storageClasses={storageClasses}
+                      subnets={subnets}
+                      loading={loading}
+                      activeCategory={databaseCategory}
+                      setActiveCategory={setDatabaseCategory}
+                      activeResource={databaseResource}
+                      setActiveResource={setDatabaseResource}
+                      onRefreshVms={(force) => loadEcs(currentCloudId, !!force)}
+                      onForceRefreshVms={handleDatabaseForceRefresh}
+                      onReloadImages={() => loadImages(currentCloudId, true, true)}
+                      onReloadSubnets={() => loadVpcsAndSubnets(currentCloudId, true, true)}
+                      onReloadStorageClasses={(force, skipSync) =>
+                        loadStorageClasses(currentCloudId, !!force, !!skipSync)
+                      }
+                      isTenant={isTenantUser}
+                      namespacesOptions={namespacesOptions}
+                    />
                   )}
                   {(consoleLeftNavKey === 'host' || consoleLeftNavKey === 'flat' || consoleLeftNavKey === 'vpc') && (
                     <CloudConsoleMainPanel

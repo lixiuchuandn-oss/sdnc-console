@@ -1276,6 +1276,19 @@ export const updateHarvesterImage = async (cloudId: string, namespace: string, n
 };
 
 /**
+ * 使用 Patch 方式更新 Harvester 镜像 (例如更新 Label/Annotation)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name 镜像名称
+ * @param payload 更新的配置数据
+ * @param contentType 内容类型，默认为 'application/merge-patch+json'
+ * @returns Promise<any>
+ */
+export const patchHarvesterImage = async (cloudId: string, namespace: string, name: string, payload: any, contentType = 'application/merge-patch+json') => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/images/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/patch`, payload, { contentType });
+};
+
+/**
  * 获取 Harvester 节点列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false

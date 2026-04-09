@@ -3,7 +3,7 @@
  * 使用 provider-router 中间件统一处理不同供应商的路由分发
  */
 
-import { Router, RequestHandler } from 'express';
+import { Router, RequestHandler, json } from 'express';
 import { createProviderRouter } from '../middleware/provider-router';
 import { 
   harvesterVpcListHandler,
@@ -35,6 +35,7 @@ import {
   harvesterImageDetailHandler,
   harvesterImageCreateHandler,
   harvesterImageUpdateHandler,
+  harvesterImagePatchHandler,
   harvesterImageDeleteHandler,
   harvesterImageUploadTaskCreateHandler,
   harvesterImageUploadTaskGetHandler,
@@ -479,6 +480,20 @@ export function registerHarvesterCacheRoutesProvider(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
     createProviderRouter(imageUpdateHandlers)
+  );
+
+  const imagePatchHandlers = {
+    harvester: harvesterImagePatchHandler,
+    cloudmap: harvesterImagePatchHandler,
+    'cloudmap.private': harvesterImagePatchHandler,
+    'cloudmap.edge': harvesterImagePatchHandler,
+  };
+
+  router.patch(
+    '/:id/resources/harvester/images/:namespace/:name/patch',
+    checkAdminPermission,
+    json({ type: ['application/json-patch+json', 'application/merge-patch+json'] }),
+    createProviderRouter(imagePatchHandlers)
   );
 
   const imageDeleteHandlers = {
