@@ -40,6 +40,7 @@ import {
   isHarvesterVmImageReady,
   isSystemStorageClass,
   pickDefaultStorageClassName,
+  pickFirstNamespaceRecordByScenario,
 } from '../../../../utils/harvesterUtils';
 export type SimpleVmCreateModalProps = {
   open: boolean;
@@ -55,9 +56,11 @@ export type SimpleVmCreateModalProps = {
   /** 用于别名重复校验（与同命名空间已有 VM 的 tower.io/alias） */
   existingVms?: any[];
   onCreated: () => void | Promise<void>;
+  /** 命名空间库存对象（metadata.labels.tower.io/scenario） */
+  namespaceRecords?: any[];
+  /** 租户创建时仅选 tenant 场景；管理员选 admin；无匹配时回退 default */
+  isTenant?: boolean;
 };
-
-const NS = 'default';
 
 const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
 
@@ -230,6 +233,8 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   onReloadImages,
   existingVms = [],
   onCreated,
+  namespaceRecords = [],
+  isTenant = false,
 }) => {
   const [form] = Form.useForm();
   const specPresetWatched = Form.useWatch('specPreset', form);
@@ -341,6 +346,14 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     return subnetIpSegmentByName[n] || '';
   }, [selectedFlatSubnet, subnetIpSegmentByName]);
 
+  const targetNamespace = useMemo(() => {
+    const picked = pickFirstNamespaceRecordByScenario(
+      namespaceRecords,
+      isTenant ? 'tenant' : 'admin',
+    );
+    return picked || 'default';
+  }, [namespaceRecords, isTenant]);
+
   const diskImages = useMemo(
     () =>
       (images || []).filter(
@@ -382,7 +395,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       return;
     }
     let cancelled = false;
-    generateUniqueVmId(cloudId, NS).then((id) => {
+    generateUniqueVmId(cloudId, targetNamespace).then((id) => {
       if (cancelled) return;
       vmIdRef.current = id;
     });
@@ -402,7 +415,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, cloudId, form]);
+  }, [open, cloudId, form, targetNamespace]);
 
   useEffect(() => {
     if (!open || flatSubnetOptions.length === 0) return;
@@ -471,7 +484,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
 
       const v: any = {
         ...base,
-        namespace: NS,
+        namespace: targetNamespace,
         name: displayName,
         image: values.image,
         storageClassName: resolvedStorageClass,
@@ -515,7 +528,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       }
 
       setSubmitting(true);
-      const vmId = vmIdRef.current || (await generateUniqueVmId(cloudId, NS));
+      const vmId = vmIdRef.current || (await generateUniqueVmId(cloudId, targetNamespace));
       vmIdRef.current = vmId;
 
       const payload = constructVmPayload({
@@ -584,7 +597,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                   ).trim();
                 const dup = list.some((vm: any) => {
                   const vmNs = getVmNamespace(vm);
-                  if (!vmNs || vmNs !== NS) return false;
+                  if (!vmNs || vmNs !== targetNamespace) return false;
                   const al = getVmAlias(vm);
                   if (!al) return false;
                   return al === name;

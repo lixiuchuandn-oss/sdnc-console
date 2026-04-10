@@ -50,6 +50,8 @@ type Props = {
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
+  /** 创建表单默认命名空间（如按 tower.io/scenario 解析）；未传则用 nsValue */
+  createDefaultNamespace?: string;
 };
 
 /**
@@ -416,7 +418,9 @@ const WorkloadsSection: React.FC<Props> = ({
   nsValue,
   onNsChange,
   onRefresh,
+  createDefaultNamespace,
 }) => {
+  const formDefaultNs = createDefaultNamespace ?? nsValue;
   const [activeTab, setActiveTab] = useState<'deployment' | 'statefulset' | 'daemonset'>('deployment');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createType, setCreateType] = useState<WorkloadType>('deployment');
@@ -509,7 +513,7 @@ const WorkloadsSection: React.FC<Props> = ({
         secrets={secrets}
         persistentVolumeClaims={persistentVolumeClaims}
         onRefreshImagePullSecrets={() => onRefresh(true)}
-        defaultNamespace={nsValue}
+        defaultNamespace={formDefaultNs}
         defaultType={createType}
         onSuccess={() => {
           onRefresh(true);

@@ -1,97 +1,128 @@
 /**
- * ==============================================================================
- * 模块名称: 云资源列表 (Cloud Resource List)
- * 文件路径: src/pages/Clouds/index.tsx
- * ==============================================================================
- * 
- * [功能描述]
- * 展示系统中已接入的所有云资源（公有云、私有云、虚拟化平台等）。
- * 提供资源概览统计（VM数量、VPC数量）、列表展示、搜索过滤以及接入向导入口。
- * 
- * [核心逻辑]
- * 1. [资源加载]: 
- *    - 初始化加载所有云资源列表。
- *    - 并行加载每个云平台的 VPC 统计信息。
- * 2. [数据统计]: 
- *    - 计算全局 VM 在线/离线状态。
- *    - 计算全局 VPC 在线/离线状态 (区分 Harvester 和标准 Cloud Provider)。
- * 3. [交互操作]: 
- *    - 支持按关键字、状态、类型、厂商进行多维过滤。
- *    - 提供连接测试功能。
- * 
- * ------------------------------------------------------------------------------
- * [交互/依赖说明 (Dependencies & Interactions)]
- * ------------------------------------------------------------------------------
- * 1. 涉及接口:
- *    - GET /api/clouds (资源列表)
- *    - GET /api/harvester/clusters/:id/vpcs (Harvester VPC)
- *    - GET /api/clouds/:id/vpcs (通用 VPC)
- *    - POST /api/clouds/:id/test (连接测试)
- * 
- * 2. 关键组件:
- *    - CloudWizard (资源接入向导)
- *    - MetricCard (统计卡片)
- * ==============================================================================
+ * 云资源池列表：概览统计、多维筛选、表格与接入/编辑向导。
+ * 检索关键词: Clouds 资源池 fetchClouds MetricCard VPC VM CloudWizard
  */
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { 
-  Card, Row, Col, Button, Tag, Modal, Form, Input, Select,
-  message, Space, Typography, Dropdown, Badge, Table, MenuProps
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Badge,
+  Button,
+  Card,
+  Col,
+  Dropdown,
+  Form,
+  Input,
+  MenuProps,
+  message,
+  Modal,
+  Row,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { 
-  EllipsisOutlined,
-  ReloadOutlined,
-  SearchOutlined
-} from '@ant-design/icons';
-import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi, apiPost, apiDelete, apiRequest } from '../../services/api';
-import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
-import { 
-  getProviderLogo, getProviderName, cloudProviders,
-  CLOUD_TYPE_MAP, CLOUD_STATUS_MAP,
-  Cloud, 
-} from './providers';
-import PageContainer from '../../components/PageContainer';
-import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
-import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
-import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
-import { useNavigate } from 'react-router-dom';
+import PageContainer from '../../components/PageContainer';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import {
+  apiDelete,
+  apiPost,
+  apiRequest,
+  fetchCloudProviderVpcs,
+  fetchClouds as fetchCloudsApi,
+} from '../../services/api';
+import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
+import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
 import { hasPermissionForAction } from '../../utils/accessMapping';
 import { isMustChangePasswordApiError } from '../../utils/errorHandler';
-import CloudWizard from './CloudWizard';
-import CloudEditModal from './Harvester/modals/CloudEditModal';
- 
 
-// ============================================================================
-// [功能块: 统计卡片组件]
-// 检索关键词: MetricCard 统计卡片 数据展示卡片 进度条卡片
-// ============================================================================
-const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;midLabel:string;midValue:number;mainColor:string;usedLabel?:string}> = ({title,total,unit='',used,midLabel,midValue,mainColor,usedLabel})=>{
-  const remain = Math.max(total-used-midValue,0);
-  const percent = total? used/total*100:0;
-  const trail='#d8dee8';
+import CloudEditModal from './Harvester/modals/CloudEditModal';
+import CloudWizard from './CloudWizard';
+import {
+  CLOUD_STATUS_MAP,
+  CLOUD_TYPE_MAP,
+  type Cloud,
+  cloudProviders,
+  getProviderLogo,
+  getProviderName,
+} from './providers';
+
+const { Text } = Typography;
+
+type MetricCardProps = {
+  title: string;
+  total: number;
+  unit?: string;
+  used: number;
+  midLabel: string;
+  midValue: number;
+  mainColor: string;
+  usedLabel?: string;
+};
+
+type CloudsFilterFormValues = {
+  keyword?: string;
+  status?: string;
+  category?: string;
+  vendor?: string;
+};
+
+const MetricCard: React.FC<MetricCardProps> = ({
+  title,
+  total,
+  unit = '',
+  used,
+  midLabel,
+  midValue,
+  mainColor,
+  usedLabel,
+}) => {
+  const remain = Math.max(total - used - midValue, 0);
+  const percent = total ? (used / total) * 100 : 0;
+  const trail = '#d8dee8';
+  const metrics = [
+    { label: usedLabel || '已用', value: used, color: mainColor },
+    { label: midLabel, value: midValue, color: '#8c8c8c' },
+    ...(remain > 0 ? [{ label: '剩余', value: remain, color: '#8c8c8c' }] : []),
+  ];
   return (
-    <Card styles={{ body: { padding:12 } }} style={{ borderRadius:6, border: '1px solid #1677ff' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-        <span style={{ fontWeight:600, fontSize:13 }}>{title}</span>
-        <span style={{ color:'#8c8c8c', fontSize:12 }}>总共 {total}{unit}</span>
+    <Card styles={{ body: { padding: 12 } }} style={{ borderRadius: 6, border: '1px solid #1677ff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 13 }}>{title}</span>
+        <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+          总共 {total}
+          {unit}
+        </span>
       </div>
-      <div style={{ height:8, background:trail, borderRadius:4, overflow:'hidden', marginBottom:8 }}>
-        <div style={{ width:`${percent}%`, height:'100%', background:mainColor }} />
+      <div style={{ height: 8, background: trail, borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+        <div style={{ width: `${percent}%`, height: '100%', background: mainColor }} />
       </div>
-      <div style={{ display:'flex' }}>
-        {[ 
-          {label:usedLabel || '已用',value:used,color:mainColor},
-          {label:midLabel,value:midValue,color:'#8c8c8c'},
-          ...(remain>0? [{label:'剩余',value:remain,color:'#8c8c8c'}]:[])
-        ].map((m,i,arr)=>(
-          <div key={i} style={{ flex:1, padding:'8px 12px', background:'#fff', borderRight:i< arr.length-1?'1px solid #f0f0f0':'none' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:3, fontSize:12, marginBottom:2 }}>
-              <span style={{ width:8, height:8, background:m.color, borderRadius:2 }} /> {m.label}
+      <div style={{ display: 'flex' }}>
+        {metrics.map((m, i, arr) => (
+          <div
+            key={`${m.label}-${i}`}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              background: '#fff',
+              borderRight: i < arr.length - 1 ? '1px solid #f0f0f0' : 'none',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, marginBottom: 2 }}>
+              <span style={{ width: 8, height: 8, background: m.color, borderRadius: 2 }} /> {m.label}
             </div>
-            <div style={{ fontSize:24, fontWeight:700, color:'#1f1f1f', lineHeight:1 }}>{m.value}{unit && <span style={{ fontSize:12, color:'#8c8c8c', marginLeft:3 }}>{unit}</span>}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: '#1f1f1f', lineHeight: 1 }}>
+              {m.value}
+              {unit ? (
+                <span style={{ fontSize: 12, color: '#8c8c8c', marginLeft: 3 }}>{unit}</span>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>
@@ -99,16 +130,14 @@ const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;mi
   );
 };
 
-const { Text } = Typography;
-
-// ============================================================================
-// [功能块: 云资源列表主组件]
-// 检索关键词: Clouds组件 状态管理 权限检查
-// ============================================================================
 const Clouds: React.FC = () => {
   const navigate = useNavigate();
-  
-  // [状态管理] 云资源数据与UI状态
+  const { user } = useAuth();
+  const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
+  const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
+  const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
+
+  const [filterForm] = Form.useForm();
   const [clouds, setClouds] = useState<Cloud[]>([]);
   const [wizardVisible, setWizardVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -116,20 +145,12 @@ const Clouds: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [vmStats, setVmStats] = useState<{ total: number; online: number; offline: number }>({ total: 0, online: 0, offline: 0 });
   const [vpcStats, setVpcStats] = useState<{ total: number; online: number; offline: number }>({ total: 0, online: 0, offline: 0 });
-  
-  // [状态管理] 筛选表单与过滤条件
-  const [filterForm] = Form.useForm();
+
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string[]|undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<string[]|undefined>(undefined);
   const [vendorFilter, setVendorFilter] = useState<string|undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  
-  // [权限管理] 与 RouteSpec「资源池管理」一致：写 clouds.resource-pools:write（全量 clouds:write 仍兼容）。默认资源池写入系统设置键需 system.settings:write。
-  const { user } = useAuth();
-  const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
-  const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
-  const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
   const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
 
   /** 改密完成或曾遇 MUST_CHANGE_PASSWORD 后，下一次拉取需 skipCache，避免缓存住空/失败结果 */
@@ -348,7 +369,7 @@ const Clouds: React.FC = () => {
       dataIndex: 'name',
       key: 'name',
       width: 220,
-      fixed:'left' as 'left',
+      fixed: 'left',
       render: (text: string, record: Cloud) => (
         <Space size={6}>
           <Button 
@@ -373,7 +394,7 @@ const Clouds: React.FC = () => {
       key: 'status',
       render: (status: string) => (
         <Badge
-          status={status==='online' ? 'success' : status==='offline' ? 'error' : 'warning'}
+          status={status === 'online' ? 'success' : status === 'offline' ? 'error' : 'warning'}
           text={getStatusText(status)}
         />
       )
@@ -476,50 +497,46 @@ const Clouds: React.FC = () => {
   // 使用新的 hook 管理列设置
   const { displayColumns: activeColumns } = useTableColumnSettings(tableColumns, 'clouds-list');
 
-  // ============================================================================
-  // [功能块: 数据过滤逻辑]
-  // 检索关键词: filteredClouds 过滤 筛选 关键字过滤 状态过滤 类型过滤 厂商过滤
-  // ============================================================================
-  // 过滤后的云资源池
-  const filteredClouds = (clouds || []).filter(c=>{
-    if(keyword && !c.name.toLowerCase().includes(keyword.toLowerCase())) return false;
-    if(statusFilter && statusFilter.length && !statusFilter.includes(c.status)) return false;
-    if(typeFilter && typeFilter.length && !typeFilter.includes(c.type)) return false;
-    if(vendorFilter) {
-      const prov = (c.config?.provider || '').toLowerCase();
-      if (prov !== vendorFilter) return false;
-    }
-    return true;
-  });
+  const filteredClouds = useMemo(() => {
+    return (clouds || []).filter((c) => {
+      if (keyword && !c.name.toLowerCase().includes(keyword.toLowerCase())) return false;
+      if (statusFilter?.length && !statusFilter.includes(c.status)) return false;
+      if (typeFilter?.length && !typeFilter.includes(c.type)) return false;
+      if (vendorFilter) {
+        const prov = (c.config?.provider || '').toLowerCase();
+        if (prov !== vendorFilter) return false;
+      }
+      return true;
+    });
+  }, [clouds, keyword, statusFilter, typeFilter, vendorFilter]);
 
-  // ============================================================================
-  // [功能块: 统计数据计算]
-  // 检索关键词: 统计数据 totalCnt onlineCnt 资源池统计 容器统计
-  // ============================================================================
-  // 统计数据
-  const totalCnt = clouds.length;
-  const onlineCnt = clouds.filter(c=>c.status==='online').length;
-  const offlineCnt = totalCnt - onlineCnt;
-  // 资源类型统计（在线/离线）
-  const containerCounts = (() => {
-    const all = clouds.flatMap(c => c.computeResources || []);
-    const list = all.filter(r => r.type === 'container');
-    const total = list.length;
-    const online = list.filter(r => String(r?.status || '').toLowerCase() === 'running').length;
-    return { total, online, offline: Math.max(0, total - online) };
-  })();
-  const vmCounts = vmStats;
-  const vpcCounts = vpcStats;
+  const { totalCnt, onlineCnt, offlineCnt, containerCounts, vmCounts, vpcCounts } = useMemo(() => {
+    const total = clouds.length;
+    const online = clouds.filter((c) => c.status === 'online').length;
+    const offline = total - online;
+    const all = clouds.flatMap((c) => c.computeResources || []);
+    const containerList = all.filter((r) => r.type === 'container');
+    const cTotal = containerList.length;
+    const cOnline = containerList.filter((r) => String(r?.status || '').toLowerCase() === 'running').length;
+    return {
+      totalCnt: total,
+      onlineCnt: online,
+      offlineCnt: offline,
+      containerCounts: {
+        total: cTotal,
+        online: cOnline,
+        offline: Math.max(0, cTotal - cOnline),
+      },
+      vmCounts: vmStats,
+      vpcCounts: vpcStats,
+    };
+  }, [clouds, vmStats, vpcStats]);
 
-  // ============================================================================
-  // [功能块: 筛选表单变更处理]
-  // 检索关键词: handleFilterChange 筛选变更 表单变更
-  // ============================================================================
-  const handleFilterChange = (_: any, all: any) => {
+  const handleFilterChange = (_changed: Partial<CloudsFilterFormValues>, all: CloudsFilterFormValues) => {
     setKeyword(all.keyword || '');
     setStatusFilter(all.status ? [all.status] : undefined);
     setTypeFilter(all.category ? [all.category] : undefined);
-    setVendorFilter(all.vendor ? all.vendor : undefined);
+    setVendorFilter(all.vendor || undefined);
   };
 
   // ============================================================================
@@ -682,9 +699,6 @@ const Clouds: React.FC = () => {
         }}
         cloud={editingCloud}
       />
-
-
-      
     </PageContainer>
   );
 };

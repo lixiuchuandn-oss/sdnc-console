@@ -22,6 +22,7 @@ import { HarvesterPciDeviceInventory } from '../../../entities/harvester/Harvest
 import { HarvesterUsbInventory } from '../../../entities/harvester/HarvesterUsbInventory';
 import { HarvesterCapabilityInventory } from '../../../entities/harvester/HarvesterCapabilityInventory';
 import { HarvesterServiceInventory } from '../../../entities/harvester/HarvesterServiceInventory';
+import { HarvesterIngressInventory } from '../../../entities/harvester/HarvesterIngressInventory';
 import { KubeOvnEipInventory } from '../../../entities/kubeovn/KubeOvnEipInventory';
 import { KubeOvnFipInventory } from '../../../entities/kubeovn/KubeOvnFipInventory';
 import { KubeOvnNatRuleInventory } from '../../../entities/kubeovn/KubeOvnNatRuleInventory';
@@ -71,6 +72,7 @@ import {
   listHarvesterCloudInitsStandard,
   listHarvesterLoadBalancerIPPools,
   listHarvesterServices,
+  listHarvesterIngresses,
   listKubeOvnEips,
   listKubeOvnFips,
   listKubeOvnSnatRules,
@@ -1164,6 +1166,40 @@ export const syncHarvesterServices = async (cloud: any, insecure: boolean) => {
     externalIPs: item.spec?.externalIPs,
     ports: item.spec?.ports,
     selector: item.spec?.selector,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+/**
+ * 同步 Harvester Ingress 库存
+ */
+export const syncHarvesterIngresses = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterIngresses({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    invLog.warn(`${cloud.name}: Ingress 获取失败:`, e.message);
+    return;
+  }
+
+  invLog.debug(`${cloud.name}: Ingress 同步完成，共 ${items.length} 条`);
+
+  const repo = AppDataSource.getRepository(HarvesterIngressInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    links: item.links,
+    ingressClassName: item.spec?.ingressClassName,
+    rules: item.spec?.rules,
+    tls: item.spec?.tls,
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     rawData: item,

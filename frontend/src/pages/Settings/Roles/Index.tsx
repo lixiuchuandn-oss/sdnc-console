@@ -13,6 +13,7 @@ import {
   normalizeFeatureName,
   getPlatformFromDefinition,
   splitResourceConsoleFeatures,
+  sortCloudmapFeatures,
 } from '../../../utils/permissionUtils';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
@@ -112,7 +113,7 @@ const AccessRolesPage: React.FC = () => {
         ? 'CNMC'
         : getPlatformFromDefinition(action, permissionDefinitions);
       const group = isFrontendSubnetSplit
-        ? '资源控制台'
+        ? '资源池管理'
         : getGroupFromDefinition(action, permissionDefinitions);
       const featureRaw = isFrontendSubnetSplit
         ? (SUBNET_SPLIT_RESOURCE_NAME[resource] || resource)
@@ -199,15 +200,18 @@ const AccessRolesPage: React.FC = () => {
                 writeVisible: perms.writeVisible !== false,
               }));
 
-            const features = group === '资源控制台'
-              ? (() => {
-                  const { parents, children } = splitResourceConsoleFeatures(rawFeatures);
-                  return [
-                    ...parents.map((item) => ({ ...item, isResourceParent: true })),
-                    ...children.map((item) => ({ ...item, isResourceParent: false })),
-                  ];
-                })()
-              : rawFeatures.sort((a, b) => a.feature.localeCompare(b.feature));
+            const features =
+              group === '资源池管理'
+                ? (() => {
+                    const { parents, children } = splitResourceConsoleFeatures(rawFeatures);
+                    return [
+                      ...parents.map((item) => ({ ...item, isResourceParent: true })),
+                      ...children.map((item) => ({ ...item, isResourceParent: false })),
+                    ];
+                  })()
+                : group === '资源控制台'
+                  ? sortCloudmapFeatures(rawFeatures)
+                  : rawFeatures.sort((a, b) => a.feature.localeCompare(b.feature));
             return { group, features };
           });
         return { platform, groups };

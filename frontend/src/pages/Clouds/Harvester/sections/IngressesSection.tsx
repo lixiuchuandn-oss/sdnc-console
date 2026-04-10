@@ -43,9 +43,21 @@ interface Props {
   nsValue?: string;
   onNsChange?: (v?: string) => void;
   secrets?: any[];
+  createDefaultNamespace?: string;
 }
 
-const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefresh, namespacesOptions, nsValue, onNsChange, secrets }) => {
+const IngressesSection: React.FC<Props> = ({
+  cloudId,
+  ingresses,
+  loading,
+  onRefresh,
+  namespacesOptions,
+  nsValue,
+  onNsChange,
+  secrets,
+  createDefaultNamespace,
+}) => {
+  const formDefaultNs = createDefaultNamespace ?? nsValue;
   // 关键字搜索（名称 / 命名空间）
   const [keyword, setKeyword] = useState<string>('');
   
@@ -264,6 +276,7 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
         cloudId={cloudId}
         namespacesOptions={namespacesOptions || []}
         secrets={secrets}
+        defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setCreateModalOpen(false);
           onRefresh?.(true);

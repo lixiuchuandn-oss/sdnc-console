@@ -55,16 +55,14 @@ export function normalizeFeatureName(name: string): string {
 }
 
 /**
- * 资源控制台功能权限在角色配置中的展示顺序（本数组为设计源；整改后端时请让
- * backend/src/constants/permissions.ts 中 PERMISSION_GROUPS.CNMC['资源控制台'] 与
- * ALL_PERMISSIONS 中的 clouds.* 前缀与此处一致）
+ * 资源池管理功能权限在角色配置中的展示顺序（本数组为设计源；整改后端时请让
+ * backend/src/constants/permissions.ts 中 PERMISSION_GROUPS.CNMC['资源池管理'] 与
+ * ALL_PERMISSIONS 中的 clouds.* 前缀与此处一致；权限分组「资源控制台」见 CLOUDMAP_FEATURE_ORDER）
  */
 export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds',
   'clouds.dashboard',
   'clouds.resource-pools',
-  'clouds.console',
-  'clouds.cloudmap.ops-view',
   // 云主机
   'clouds.ecs',
   'clouds.vm-create-wizard',
@@ -131,6 +129,18 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.log-configs',
 ];
 
+/** 权限分组「资源控制台」内功能展示顺序（与 PERMISSION_GROUPS.CNMC['资源控制台'] 一致） */
+export const CLOUDMAP_FEATURE_ORDER: readonly string[] = ['clouds.console', 'clouds.cloudmap.ops-view'];
+
+function cloudmapFeatureOrderIndex(prefix: string): number {
+  const i = CLOUDMAP_FEATURE_ORDER.indexOf(prefix);
+  return i === -1 ? 999 : i;
+}
+
+export function sortCloudmapFeatures<T extends { resourcePrefix: string }>(features: T[]): T[] {
+  return [...features].sort((a, b) => cloudmapFeatureOrderIndex(a.resourcePrefix) - cloudmapFeatureOrderIndex(b.resourcePrefix));
+}
+
 /** 聚合/父级权限：资源池总权限（覆盖所有 clouds.*） */
 export const RESOURCE_CONSOLE_PARENT_PREFIXES = new Set<string>([
   // 资源池总权限也作为“平台入口能力”中的卡片展示
@@ -142,7 +152,7 @@ function resourceConsoleOrderIndex(prefix: string): number {
 }
 
 /**
- * 将资源控制台权限拆为父级与细分功能，并按后端分组顺序排序（避免按名称排序导致资源池等位置错乱）
+ * 将资源池管理权限拆为父级与细分功能，并按后端分组顺序排序（避免按名称排序导致资源池等位置错乱）
  */
 export function splitResourceConsoleFeatures<T extends { resourcePrefix: string }>(
   features: T[]
@@ -168,8 +178,6 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
       'clouds',
       'clouds.dashboard',
       'clouds.resource-pools',
-      'clouds.console',
-      'clouds.cloudmap.ops-view',
     ],
   },
   {
@@ -275,7 +283,7 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
 ];
 
 /**
- * 将资源控制台子权限按资源类型分组，并按既定顺序排列
+ * 将资源池管理子权限按资源类型分组，并按既定顺序排列
  */
 export function groupResourceConsoleChildFeatures<T extends { resourcePrefix: string }>(
   children: T[]

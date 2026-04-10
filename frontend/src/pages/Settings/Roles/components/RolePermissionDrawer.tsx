@@ -104,7 +104,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
                   {(() => {
                     const parentFeatures = group.features.filter((feature: any) => feature.isResourceParent);
                     const childFeatures = group.features.filter((feature: any) => !feature.isResourceParent);
-                    const isResourceConsoleGroup = group.group === '资源控制台';
+                    const isResourceConsoleGroup = group.group === '资源池管理';
                     const hasSplit = isResourceConsoleGroup && (parentFeatures.length > 0 || childFeatures.length > 0);
 
                     const renderFeatureCards = (features: any[], opts?: { cardSpan?: number }) => (

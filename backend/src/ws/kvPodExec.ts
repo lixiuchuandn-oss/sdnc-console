@@ -205,16 +205,18 @@ export function createKvPodExecWss() {
           };
           
           // 创建 Promise 来等待连接结果
-          const connectResult = await new Promise<{success: boolean, error?: Error}>((resolve) => {
+          const connectResult = await new Promise<{
+            success: boolean;
+            ws?: WebSocket;
+            error?: Error;
+          }>((resolve) => {
             const testWs = new WebSocket(wsUrl, protocol || undefined, wsOptions);
             let resolved = false;
             
             testWs.on('open', () => {
               if (resolved) return;
               resolved = true;
-              targetWs = testWs;
-              selectedProtocol = protocol || undefined;
-              resolve({ success: true });
+              resolve({ success: true, ws: testWs });
             });
             
             testWs.on('error', (err) => {
@@ -239,7 +241,9 @@ export function createKvPodExecWss() {
             }, 5000);
           });
           
-          if (connectResult.success) {
+          if (connectResult.success && connectResult.ws) {
+            targetWs = connectResult.ws;
+            selectedProtocol = protocol || undefined;
             console.log(`[PodExec] 使用子协议: ${protocol || '(none)'} 连接成功`);
             break;
           } else {
@@ -357,7 +361,7 @@ export function createKvPodExecWss() {
         }
       });
 
-      targetWs.on('close', (code, reason) => {
+      targetWs.on('close', (code: number, reason: Buffer) => {
         console.log(`[PodExec] K8s 连接关闭: code=${code}, reason=${reason.toString()}`);
         isClosing = true;
         if (ws.readyState === WebSocket.OPEN) {
@@ -366,7 +370,7 @@ export function createKvPodExecWss() {
         }
       });
 
-      targetWs.on('error', (err) => {
+      targetWs.on('error', (err: Error) => {
         console.error(`[PodExec] K8s 连接错误:`, err.message);
         isClosing = true;
         if (ws.readyState === WebSocket.OPEN) {

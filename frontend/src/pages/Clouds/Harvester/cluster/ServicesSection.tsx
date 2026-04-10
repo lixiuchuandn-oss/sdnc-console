@@ -99,9 +99,23 @@ interface Props {
   onNsChange?: (v?: string) => void;
   pods?: any[];
   mode?: 'standard' | 'ops';
+  createDefaultNamespace?: string;
 }
 
-const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant, namespacesOptions, nsValue, onNsChange, pods, mode = 'ops' }) => {
+const ServicesSection: React.FC<Props> = ({
+  cloudId,
+  services,
+  loading,
+  onRefresh,
+  isTenant,
+  namespacesOptions,
+  nsValue,
+  onNsChange,
+  pods,
+  mode = 'ops',
+  createDefaultNamespace,
+}) => {
+  const formDefaultNs = createDefaultNamespace ?? nsValue;
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { message } = App.useApp();
   const isStandardView = mode === 'standard';
@@ -464,6 +478,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
         visible={createModalOpen}
         cloudId={cloudId}
         namespacesOptions={namespacesOptions || []}
+        defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setCreateModalOpen(false);
           onRefresh?.(true);

@@ -1,11 +1,44 @@
 import { DataSource } from 'typeorm';
+import fs from 'fs';
 import path from 'path';
 import { logger } from '../utils/logger';
 
 const dbLog = logger.child('Database');
 
-// SQLite 数据库文件路径，可通过环境变量 DB_PATH 覆盖
-const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data.sqlite');
+/**
+ * 解析 backend 包根目录（与 package.json 中 name=compute-tower-backend 同级），
+ * 避免用 process.cwd() 时从仓库根或其它目录启动导致写到「另一个」data.sqlite。
+ */
+function resolveBackendRoot(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 12; i++) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { name?: string };
+        if (pkg.name === 'compute-tower-backend') {
+          return dir;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
+
+const envDb = process.env.DB_PATH?.trim();
+// SQLite：显式 DB_PATH 时沿用（绝对路径直接用；相对路径相对当前工作目录）；否则用 backend 包目录下 data.sqlite
+const DB_PATH = envDb
+  ? path.isAbsolute(envDb)
+    ? envDb
+    : path.resolve(process.cwd(), envDb)
+  : path.join(resolveBackendRoot(), 'data.sqlite');
+
+dbLog.info('SQLite 使用文件:', path.resolve(DB_PATH));
 
 export const AppDataSource = new DataSource({
   type: 'sqlite',

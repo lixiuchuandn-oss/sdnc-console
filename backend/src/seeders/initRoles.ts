@@ -59,13 +59,13 @@ export async function initializeRoles() {
     // 权限设计（与 PermissionChecker / accessMapping 一致）：
     // - 资源总览、资源池管理、Cloudmap 运维视图切换：不包含（与原逻辑一致）
     // - 监控与日志：不包含 clouds.alerts*、clouds.log* 相关权限
-    // - 云主机控制台：clouds.console:read + clouds.console:write（VNC/SSH、租户侧 ECS 接口等对权限数组做字面 includes 校验）
+    // - 资源控制台：clouds.console:read + clouds.console:write（VNC/SSH、租户侧 ECS 接口等对权限数组做字面 includes 校验）
     // - 镜像：仅 clouds.images:read，不包含 clouds.images:write（租户侧镜像仅查看，不上传/删除）
     // - 其余 clouds.* 细分资源：保留显式 read/write（如 clouds.ecs:write），与「其他云资源读写」一致
     await ensureRole({
       name: '云租户根用户',
       description:
-        '租户管理员：云主机控制台可访问与操作；镜像仅查看；其余云资源按各细分权限读写。',
+        '租户管理员：资源控制台可访问与操作；镜像仅查看；其余云资源按各细分权限读写。',
       scope: 'tenant',
       permissions: [
         ...CURATED_PERMISSIONS.filter(
@@ -104,7 +104,7 @@ export async function initializeRoles() {
     // 3. 三权-安全管理员
     // 权限范围：
     // 1. 权限管控分组：角色管理等
-    // 2. 多云平台的资源控制台分组、租户管理分组的所有功能权限（不包括系统用户管理）
+    // 2. 多云平台的资源池管理 / 资源控制台、租户管理分组的所有功能权限（不包括系统用户管理）
     const secadminRoleName = '三权-安全管理员';
     const secadminPerms = [
       // 权限管控分组：角色管理等
@@ -115,10 +115,10 @@ export async function initializeRoles() {
       'system.roles.assignments:read',
       'system.roles.assignments:write',
       'system.rbac:read',
-      // 资源控制台分组：云资源全量（clouds:read 已隐含全部 clouds.* 含 resource-pools）
+      // 资源池管理等：云资源全量（clouds:read 已隐含全部 clouds.* 含 resource-pools）
       'clouds:read',
       'clouds:write',
-      // 资源控制台分组：所有其他权限
+      // 资源池管理 / 资源控制台：所有其他 clouds.* 权限
       ...CURATED_PERMISSIONS.filter((p) => p.startsWith('clouds.')),
       // 租户管理分组：所有权限（不包括系统用户管理 users）
       ...CURATED_PERMISSIONS.filter((p) => 
@@ -130,7 +130,7 @@ export async function initializeRoles() {
     ];
     await ensureRole({
       name: secadminRoleName,
-        description: '拥有权限管控分组（角色管理等）、资源控制台分组和租户管理分组的所有权限（不包括系统用户管理）',
+        description: '拥有权限管控分组（角色管理等）、资源池管理与资源控制台、租户管理分组的所有权限（不包括系统用户管理）',
       scope: 'system',
       permissions: secadminPerms,
       status: 'active',

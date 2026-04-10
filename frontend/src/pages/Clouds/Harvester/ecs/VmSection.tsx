@@ -881,6 +881,11 @@ const VmSection: React.FC<Props> = ({
       // [筛选] 租户/组织
       // 租户侧过滤公共命名空间
       if (isTenant && isPublicNamespace(ns)) return false;
+      if (isTenant) {
+        const nsObj = (namespaces || []).find((n: any) => (n?.metadata?.name || n?.name) === ns);
+        const sc = String(nsObj?.metadata?.labels?.['tower.io/scenario'] ?? '').toLowerCase();
+        if (sc === 'public' || sc === 'admin') return false;
+      }
 
       if (tenantOrgPath && tenantOrgPath.length > 0) {
         const currentNsObj = (namespaces || []).find((n: any) => n?.metadata?.name === ns);
@@ -901,6 +906,15 @@ const VmSection: React.FC<Props> = ({
       return true;
     });
   }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant, isPublicNamespace]);
+
+  /**
+   * 有数据时才开启 scroll.x：固定列依赖横向滚动容器；无数据时若仍设 x，rc-table 会按表头测量列宽，
+   * 多列最小宽度之和常大于容器，空表格也会出现横向滚动条。
+   */
+  const vmTableScroll = useMemo(
+    () => (filtered.length > 0 ? ({ x: true } as const) : undefined),
+    [filtered.length],
+  );
 
   // 计算当前抽屉需要显示的记录（详情与运维信息共用当前选中 VM）
   const drawerRecord = useMemo(() => {
@@ -1762,9 +1776,15 @@ const VmSection: React.FC<Props> = ({
             allowClear
             showSearch
             options={namespacesOptions
-              .filter(ns => {
-                // 租户模式下过滤公共命名空间
+              .filter((ns) => {
                 if (isTenant && isPublicNamespace(ns)) return false;
+                if (isTenant) {
+                  const rec = namespaces.find(
+                    (x: any) => String(x?.metadata?.name || x?.name || '') === ns,
+                  );
+                  const sc = String(rec?.metadata?.labels?.['tower.io/scenario'] ?? '').toLowerCase();
+                  if (sc === 'public' || sc === 'admin') return false;
+                }
                 return true;
               })
               .map(ns=> ({ value: ns, label: ns }))}
@@ -1889,11 +1909,7 @@ const VmSection: React.FC<Props> = ({
         columns={disableColumnSettings ? allColumns : (tableColumns.length > 0 ? tableColumns : allColumns)}
         dataSource={filtered}
         loading={loading}
-        scroll={{ 
-          x: 'max-content',
-          // 只有当数据量超过15条时才启用虚拟滚动，避免显示不可滚动的滚动条
-          
-        }}
+        scroll={vmTableScroll}
         pagination={{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
@@ -2110,6 +2126,8 @@ const VmSection: React.FC<Props> = ({
           onReloadImages={onReloadQuickCreateImages}
           existingVms={vms}
           onCreated={handleInternalQuickVmCreated}
+          namespaceRecords={namespaces}
+          isTenant={isTenant}
         />
       )}
     </PageDetailSection>

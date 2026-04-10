@@ -10,7 +10,8 @@
 export type Platform = 'CNMC' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | '全部';
 
 export type Group = 
-  | '资源控制台' 
+  | '资源池管理' 
+  | '资源控制台'
   | '租户管理' 
   | '售卖管理' 
   | '权限管控' 
@@ -45,6 +46,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
 // 分组排序定义 (Sidebar 使用此顺序渲染分组)
 export const GROUPS: Group[] = [
   '全部',
+  '资源池管理',
   '资源控制台',
   '租户管理',
   '售卖管理',

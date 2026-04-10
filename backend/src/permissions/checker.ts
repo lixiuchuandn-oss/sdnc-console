@@ -73,7 +73,7 @@ export class PermissionChecker {
       }
     }
 
-    // 4. 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
+    // 4. 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（多云资源相关功能）
     if (base && base.startsWith('clouds.') && verb === 'read' && base !== 'clouds') {
       if (permissions.includes('clouds.console:read') || permissions.includes('clouds.console:write')) {
         return true;

@@ -1,129 +1,146 @@
-.cloud-console-tabs.ant-tabs { margin-top: 8px; }
-.cloud-console-tabs .ant-tabs-nav { margin-bottom: 16px; position: relative; }
-.cloud-console-tabs .ant-tabs-nav::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: #1677ff; }
-.cloud-console-tabs .ant-tabs-nav::before { display: none; }
-.cloud-console-tabs .ant-tabs-tab { padding: 4px 10px; border-radius: 8px; }
-.cloud-console-tabs .ant-tabs-tab + .ant-tabs-tab { margin-left: 6px; }
-.cloud-console-tabs .ant-tabs-tab .ant-tabs-tab-btn { color: #1f2a44; }
-.cloud-console-tabs .ant-tabs-tab:hover .ant-tabs-tab-btn { color: #1f2a44; }
-.cloud-console-tabs .ant-tabs-tab-active { background: #e6f4ff; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-.cloud-console-tabs .ant-tabs-tab-active .ant-tabs-tab-btn { color: #1f2a44; font-weight: normal; }
-.cloud-console-tabs .ant-tabs-ink-bar { display: none; }
+/**
+ * 云资源控制台（租户内层）：内层 Layout / Content、顶栏可用区下拉等。
+ * 租户侧栏在 TenantConsoleLayout（antd Sider + Menu，无单独样式表）。
+ */
 
-/* CloudConsole.css */
-.cloud-console-root {
+/* -------------------------------------------------------------------------- */
+/* Layout shell                                                               */
+/* -------------------------------------------------------------------------- */
+
+.cloud-console-layout.ant-layout {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
-/** 左侧导航 + 右侧主内容：无独立外框，中间竖线分隔 */
-.cloud-console-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 0;
-}
-
-.cloud-console-left-nav-box {
-  width: 200px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  overflow: auto;
-}
-
-.cloud-console-left-nav-box .ant-menu {
-  border-inline-end: none !important;
-  padding: 8px;
-  flex: 1;
-  background: transparent;
-}
-
-.cloud-console-sidebar {
-  width: 280px;
-  min-width: 280px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background: #fff;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.cloud-console-content {
+/* 右侧列：灰底由 layout token 铺满，主内容白底由 Content 的 margin 露出灰边 */
+.cloud-console-inner.ant-layout {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background: transparent;
-  border: none;
-  border-radius: 0;
+  min-height: 0;
   overflow: hidden;
+  background: var(--ant-color-bg-layout);
 }
 
-/* 有左侧导航时，主内容区左侧竖线分隔（与侧栏相邻） */
-.cloud-console-left-nav-box + .cloud-console-content {
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
+/* -------------------------------------------------------------------------- */
+/* 顶栏可用区：复合框（类 Input prefix + 无框 Select） */
+/* -------------------------------------------------------------------------- */
+
+.cloud-console-header-az-combo {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding-left: 11px;
+  padding-right: 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+  max-width: min(420px, 100%);
 }
 
-.cloud-console-content-scroll { flex: 1; overflow: auto; padding: 12px 16px; }
+.cloud-console-header-az-combo--disabled {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+}
 
-/* Custom Scrollbar */
-.cloud-console-sidebar ::-webkit-scrollbar,
-.cloud-console-content-scroll ::-webkit-scrollbar {
+.cloud-console-header-az-prefix {
+  flex-shrink: 0;
+  margin-right: 6px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.cloud-console-header-az-select.ant-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-console-header-az-select.ant-select .ant-select-selector {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.cloud-console-header-az-select.ant-select .ant-select-selection-placeholder {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+.cloud-console-header-az-select.ant-select .ant-select-selection-item {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.cloud-console-header-az-select.ant-select .ant-select-arrow {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.cloud-console-header-az-select.ant-select-disabled .ant-select-selector {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 主内容区：与灰底间距；白底与内边距由 .cloud-console-panel-root             */
+/* -------------------------------------------------------------------------- */
+
+.cloud-console-content-antd.ant-layout-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  margin: 8px;
+  padding: 0;
+  background: transparent;
+  border-radius: 8px;
+}
+
+.cloud-console-panel-root {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  background: var(--ant-color-bg-container, #fff);
+  padding: 8px;
+}
+
+.cloud-console-content-placeholder {
+  box-sizing: border-box;
+  padding: 24px 32px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 滚动条（主内容 + 租户侧栏） */
+/* -------------------------------------------------------------------------- */
+
+.cloud-console-content-antd ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-.cloud-console-sidebar ::-webkit-scrollbar-thumb,
-.cloud-console-content-scroll ::-webkit-scrollbar-thumb {
+
+.cloud-console-content-antd ::-webkit-scrollbar-thumb {
   background: #ccc;
   border-radius: 3px;
 }
-.cloud-console-sidebar ::-webkit-scrollbar-track,
-.cloud-console-content-scroll ::-webkit-scrollbar-track {
+
+.cloud-console-content-antd ::-webkit-scrollbar-track {
   background: transparent;
 }
-.cloud-console-root .vr-table { font-size: 12px; }
-.cloud-console-sidebar .ant-tree { padding: 6px 0 0 0; flex: 1; background: transparent; overflow: auto; }
-.cloud-console-sidebar .ant-tree-list, .cloud-console-sidebar .ant-tree-list-holder { background: transparent; }
-.cloud-console-sidebar .ant-tree-treenode { padding: 2px 0; }
-.cloud-console-sidebar .ant-tree-node-content-wrapper { border-radius: 8px; font-size: 13px; }
-.cloud-console-sidebar .ant-tree-node-content-wrapper:hover { background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
-.cloud-console-sidebar .ant-tree-node-content-wrapper:hover .ant-tree-title { color: #1677ff; }
-.cloud-console-sidebar .ant-tree-node-content-wrapper:hover .anticon { color: #1677ff; }
-.cloud-console-sidebar .ant-tree-node-selected .ant-tree-node-content-wrapper { background: #fff !important; box-shadow: 0 0 0 2px #1677ff, 0 4px 12px rgba(22, 119, 255, 0.16); border: 0; border-radius: 8px; padding: 2px 8px; }
-.cloud-console-sidebar .ant-tree-node-selected .ant-tree-node-content-wrapper::before { display: none; }
-.cloud-console-sidebar .ant-tree-node-selected .ant-tree-title { color: #165dff; }
-.cloud-console-sidebar .ant-tree-node-selected .anticon { color: #165dff; }
-.cloud-console-sidebar .region-title { color: #3c4a6b; font-weight: normal; }
-.cloud-console-sidebar .cloud-title { color: #4b5563; }
-.cloud-console-sidebar .ant-tree-indent-unit { width: 24px; }
-.cloud-console-sidebar .ant-tree-switcher { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; margin-right: 0; margin-left: 0; }
-.cloud-console-sidebar .ant-tree-node-content-wrapper { padding: 2px 8px; border-radius: 8px; transition: all 0.15s ease; }
-.sidebar-header { background: linear-gradient(270deg, #1062fe 0%, #2d7cff 50%, #62a0ff 100%); color: #fff; padding: 12px 12px 12px 20px; box-shadow: 0 6px 16px rgba(16,98,254,0.22), 0 2px 6px rgba(16,98,254,0.12); margin-top: 20px; margin-right: 10px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
-.adv-toggle { color: #8c8c8c; }
-.adv-toggle:hover { color: #1677ff; }
-.sidebar-status { font-size: 12px; color: #eaf2ff; }
-.status-dot { width: 8px; height: 8px; border-radius: 8px; display: inline-block; }
-.status-dot.success { background: #52c41a; }
-.status-dot.warning { background: #fa8c16; }
-.status-dot.error { background: #ff4d4f; }
-.status-dot.unknown { background: #d9d9d9; }
 
-/* Harvester Console Menu Sidebar Overrides */
-.harvester-menu-sidebar .ant-menu-item {
-  margin: 0 10px 4px 10px !important;
-  padding-right: 10px !important;
+/* -------------------------------------------------------------------------- */
+/* 控制台内表格（PageDetailSection 等挂载的 vr-table） */
+/* -------------------------------------------------------------------------- */
+
+.cloud-console-layout .vr-table,
+.cloud-console-content-antd .vr-table {
+  font-size: 12px;
 }
+
+/* -------------------------------------------------------------------------- */
+/* 主面板 Segmented + 下拉合并展示 */
+/* -------------------------------------------------------------------------- */
 
 .cloud-console-main-panel-dropdown-trigger {
   cursor: pointer;

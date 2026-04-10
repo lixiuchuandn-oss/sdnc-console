@@ -61,6 +61,7 @@ interface Props {
   onReloadStorageClasses: (force?: boolean, skipSync?: boolean) => void;
   isTenant?: boolean;
   namespacesOptions?: string[];
+  namespaceRecords?: any[];
 }
 
 function resourceMeta(
@@ -89,6 +90,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   onReloadStorageClasses,
   isTenant = false,
   namespacesOptions = [],
+  namespaceRecords = [],
 }) => {
   const getDefaultResource = useCallback((catKey: CloudConsoleDatabaseCategory) => {
     const cat = DB_TAB_CONFIG.find((c) => c.key === catKey);
@@ -132,6 +134,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
         paasType={currentMeta.paasType}
         sectionTitle={`${currentMeta.label} 实例`}
         namespacesOptions={namespacesOptions}
+        namespaceRecords={namespaceRecords}
       />
     );
   }, [
@@ -149,6 +152,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
     isTenant,
     currentMeta,
     namespacesOptions,
+    namespaceRecords,
   ]);
 
   const tabItems = useMemo(() => {
@@ -201,7 +205,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   ]);
 
   return (
-    <div style={{ height: '100%', background: '#fff' }}>
+    <div className="cloud-console-panel-root">
       <Tabs
         type="card"
         activeKey={activeCategory}

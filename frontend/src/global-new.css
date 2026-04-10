@@ -15,11 +15,6 @@ html, body, #root {
   font-family: 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
 }
 
-/* 调整侧边菜单项与其上方的间距为 4px（遵循默认紧凑间距） */
-.ant-menu .ant-menu-item {
-  margin-top: 4px;
-}
-
 /* 让图标按钮中的 SVG 垂直居中 */
 .ant-btn-icon-only .ant-btn-icon {
   display: flex;

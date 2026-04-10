@@ -367,6 +367,8 @@ export const useHarvesterData = (
     if (isTenant) {
       list = list.filter((n: any) => {
         const name = n?.metadata?.name || n?.name;
+        const sc = String(n?.metadata?.labels?.['tower.io/scenario'] || '').toLowerCase();
+        if (sc === 'public' || sc === 'admin') return false;
         return !isPublicNamespace(name);
       });
     }

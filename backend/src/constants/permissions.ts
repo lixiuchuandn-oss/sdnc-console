@@ -24,7 +24,8 @@
  * 
  * 【权限分组说明】
  * 1. CNMC 平台 - 多云管理平台
- *    - 资源控制台：云资源管理相关权限
+ *    - 资源池管理：云资源管理相关权限
+ *    - 资源控制台（分组）：资源控制台页面与运维视图等相关权限（与「资源池管理」分组并列）
  *    - 租户管理：多租户管理相关权限
  *    - 权限管控：RBAC 权限管理相关权限
  * 
@@ -42,7 +43,7 @@
  *   1) ALL_PERMISSIONS
  *   2) PERMISSION_GROUPS
  *   3) backend/src/permissions/definitions.ts（名称映射）
- *   4) frontend/src/utils/permissionUtils.ts（资源控制台展示顺序与业务分组以该文件为准；PERMISSION_GROUPS 应对齐）
+ *   4) frontend/src/utils/permissionUtils.ts（资源池管理 / 资源控制台 分组展示顺序以该文件为准；PERMISSION_GROUPS 应对齐）
  * 
  * 【使用位置】
  * - permissions/definitions.ts - 生成权限定义
@@ -65,7 +66,7 @@ export const ALL_PERMISSIONS = [
   // ============================================================================
   
   // ──────────────────────────────────────────────────────────────────────────
-  // 分组：资源控制台 (Resource Console)
+  // 分组：资源池管理（CNMC · 多云资源）
   // ──────────────────────────────────────────────────────────────────────────
   
   // 资源总览
@@ -275,9 +276,9 @@ export const ALL_PERMISSIONS = [
   'clouds.log-configs:read',   // 日志采集配置列表 - 查看
   'clouds.log-configs:write',  // 日志采集配置管理 - 创建/编辑/删除
   
-  // 云主机控制台
-  'clouds.console:read',       // 云主机控制台 - 访问
-  'clouds.console:write',       // 云主机控制台 - 操作（如执行命令）
+  // 资源控制台（页面）
+  'clouds.console:read',       // 资源控制台 - 访问
+  'clouds.console:write',       // 资源控制台 - 操作（如执行命令）
   
   // ──────────────────────────────────────────────────────────────────────────
   // 分组：租户管理 (Tenant Management)
@@ -418,12 +419,10 @@ export const ALL_PERMISSIONS = [
 export const PERMISSION_GROUPS = {
   // CNMC 平台
   CNMC: {
-    '资源控制台': [
+    '资源池管理': [
       'clouds',
       'clouds.dashboard',
       'clouds.resource-pools',
-      'clouds.console',
-      'clouds.cloudmap.ops-view',
       'clouds.ecs',
       'clouds.vm-create-wizard',
       'clouds.images',
@@ -479,6 +478,7 @@ export const PERMISSION_GROUPS = {
       'clouds.log-receivers',
       'clouds.log-configs',
     ],
+    '资源控制台': ['clouds.console', 'clouds.cloudmap.ops-view'],
     '租户管理': [
       'tenants',
       'organizations',
@@ -579,7 +579,10 @@ export function getGroupByPermission(permission: string): string | null {
   
   // CNMC 平台
   if (prefix.startsWith('clouds')) {
-    return '资源控制台';
+    if (prefix === 'clouds.console' || prefix.startsWith('clouds.cloudmap')) {
+      return '资源控制台';
+    }
+    return '资源池管理';
   }
   if (prefix.startsWith('tenants') || prefix.startsWith('organizations') || prefix.startsWith('tenant-users') || prefix.startsWith('user-spaces')) {
     return '租户管理';

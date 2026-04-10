@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { Select, Alert, App, Space, Spin, Menu, Empty } from 'antd';
+import { Select, Alert, App, Spin, Layout } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ApartmentOutlined,
@@ -46,6 +46,7 @@ import {
   fetchGrpcRoutes,
   fetchHarvesterPDBs,
   fetchNetworkPolicies,
+  fetchHarvesterCapabilities,
 } from '../../../services/harvesterApi';
 import {
   fetchClouds,
@@ -71,15 +72,47 @@ import CloudConsoleDatabasePanel, {
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './cloudConsoleTenantPublicScope';
-import { useCloudConsoleProHeaderSlot } from './CloudConsoleProHeaderSlotContext';
+import { useTenantConsoleHeaderSlot } from './TenantConsoleHeaderSlotContext';
+import { useTenantConsoleSider } from '../../../layouts/TenantConsoleSiderContext';
+
+const { Content } = Layout;
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
+
+/** 可用区下拉的「供应商」展示名（仅 label，不影响 value / 请求） */
+function cloudResourcePoolProviderLabel(c: CloudItem): string {
+  const p = String(c?.config?.provider ?? c?.type ?? '').trim().toLowerCase();
+  const map: Record<string, string> = {
+    cloudmap: 'Cloudmap',
+    'cloudmap.private': 'Cloudmap',
+    'cloudmap.edge': 'Cloudmap 边缘',
+    'cloudmap.csm': 'Cloudmap CSM',
+  };
+  if (map[p]) return map[p];
+  if (p.startsWith('cloudmap.')) return 'Cloudmap';
+  if (p.startsWith('cloudmap')) return 'Cloudmap';
+  return p || 'Cloudmap';
+}
+
+/** region 仍参与数据与筛选逻辑；仅当非空且不是 default 时拼进下拉文案 */
+function cloudResourcePoolRegionSuffix(region?: string): string {
+  const r = String(region ?? '').trim();
+  if (!r) return '';
+  if (r.toLowerCase() === 'default') return '';
+  return ` ${r}`;
+}
 
 /** 左侧产品导航（与 CloudConsoleMainPanel.leftNavScope 联动） */
 type ConsoleLeftNavKey = 'host' | 'container' | 'flat' | 'vpc' | 'rds';
 
 /**
- * 云主机控制台：仅面向 Cloudmap 资源池的快捷管理界面（不再承载多云/非 Cloudmap 分支）。
+ * 云主机控制台（租户侧主入口）
+ *
+ * 【定位】本目录 `frontend/src/pages/Clouds/Console` 为 **租户侧 Cloudmap 控制台** 的正式实现与沟通锚点；
+ * 路由：`/console`（租户云控制台专用前缀，与 `/admin/*` 平台后台分离）。管理员从资源池详情等入口进入时走其它页面，但租户日常以本 Console 为主。
+ * 详见同目录 `README.md`（`#租户控制台入口`）。
+ *
+ * 仅面向 Cloudmap 资源池的快捷管理界面（不再承载多云/非 Cloudmap 分支）。
  */
 const CloudConsolePage: React.FC = () => {
   const { user } = useAuth();
@@ -182,6 +215,9 @@ const CloudConsolePage: React.FC = () => {
   const [databaseCategory, setDatabaseCategory] = useState<CloudConsoleDatabaseCategory>('rds');
   const [databaseResource, setDatabaseResource] = useState<CloudConsoleDatabaseResource>('mysql');
 
+  /** 与资源池详情页一致：供 VmSection / 快速创建使用（架构、推荐 machine.type 等）；勿长期为 null，否则与管理员侧行为不一致 */
+  const [harvesterCapabilities, setHarvesterCapabilities] = useState<any>(null);
+
   const vmStatusBuffer = useRef(new Map<string, any>());
 
   const leftNavMenuItems: MenuProps['items'] = useMemo(
@@ -190,7 +226,7 @@ const CloudConsolePage: React.FC = () => {
       { key: 'container', icon: <AppstoreOutlined />, label: '容器服务' },
       { key: 'flat', icon: <NodeIndexOutlined />, label: '扁平网络' },
       { key: 'vpc', icon: <ApartmentOutlined />, label: 'VPC网络' },
-      { key: 'rds', icon: <DatabaseOutlined />, label: '云RDS' },
+      { key: 'rds', icon: <DatabaseOutlined />, label: '云数据库' },
     ],
     [],
   );
@@ -227,6 +263,28 @@ const CloudConsolePage: React.FC = () => {
       .toLowerCase()
       .startsWith('cloudmap');
   }, [currentCloudId, clouds]);
+
+  const { setTenantConsoleSiderModel } = useTenantConsoleSider();
+
+  useEffect(() => {
+    if (!isCloudmap || !currentCloudId) {
+      setTenantConsoleSiderModel(null);
+      return;
+    }
+    setTenantConsoleSiderModel({
+      selectedKeys: [consoleLeftNavKey],
+      items: leftNavMenuItems,
+      onClick: handleLeftNavClick,
+    });
+    return () => setTenantConsoleSiderModel(null);
+  }, [
+    isCloudmap,
+    currentCloudId,
+    consoleLeftNavKey,
+    leftNavMenuItems,
+    handleLeftNavClick,
+    setTenantConsoleSiderModel,
+  ]);
 
   // ---------- VM 电源与生命周期 ----------
   const handleStart = async (iid: string) => {
@@ -1042,6 +1100,7 @@ const CloudConsolePage: React.FC = () => {
   useEffect(() => {
     if (currentCloudId) {
       // 立即重置旧数据，避免 UI 渲染旧状态或发起错误请求
+      setHarvesterCapabilities(null);
       setEcs([]);
       setNamespaces([]);
       setPvcs([]);
@@ -1092,7 +1151,25 @@ const CloudConsolePage: React.FC = () => {
     }
     // 仅随 currentCloudId / OVN 开关变化；勿把 clouds 放入依赖，否则 setClouds 后反复清空列表导致「一直刷新」
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCloudId, ovnVpcEnabled]);
+   }, [currentCloudId, ovnVpcEnabled]);
+
+  /** 拉取 Harvester 集群能力（与资源池详情页一致），供云主机 Tab 快速创建等使用 */
+  useEffect(() => {
+    if (!currentCloudId || !isCloudmap) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const json: any = await fetchHarvesterCapabilities(currentCloudId);
+        const data = json?.data ?? null;
+        if (!cancelled) setHarvesterCapabilities(data);
+      } catch {
+        if (!cancelled) setHarvesterCapabilities(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCloudId, isCloudmap]);
 
   /** 主面板内切换类目时，同步高亮左侧「云主机 / 扁平 / VPC」 */
   useEffect(() => {
@@ -1334,26 +1411,35 @@ const CloudConsolePage: React.FC = () => {
     return 'all';
   }, [consoleLeftNavKey]);
 
-  /** 页头「可用区」下拉：仅 Cloudmap 资源池（挂到 AdminLayout ProHeader 中间槽位） */
+  /** 页头「可用区」下拉：供应商 / 资源池名称；region 为 default 时不展示但仍随 id 生效 */
   const availabilityZoneOptions = useMemo(() => {
     return clouds.map((c) => {
       const name = c.name || String(c.id);
-      const region = c.region ? ` ${c.region}` : '';
+      const provider = cloudResourcePoolProviderLabel(c);
+      const region = cloudResourcePoolRegionSuffix(c.region);
       return {
         value: String(c.id),
-        label: `[Cloudmap] ${name}${region}`,
+        label: `${provider} / ${name}${region}`,
       };
     });
   }, [clouds]);
 
-  const { setCenterSlot } = useCloudConsoleProHeaderSlot();
+  const { setCenterSlot } = useTenantConsoleHeaderSlot();
 
   const proHeaderAvailabilityZone = useMemo(
     () => (
-      <Space align="center" size={8}>
-        <span style={{ color: 'rgba(0,0,0,0.65)', whiteSpace: 'nowrap' }}>可用区</span>
+      <div
+        className={
+          clouds.length === 0
+            ? 'cloud-console-header-az-combo cloud-console-header-az-combo--disabled'
+            : 'cloud-console-header-az-combo'
+        }
+      >
+        <span className="cloud-console-header-az-prefix">可用区</span>
         <Select
-          style={{ minWidth: 260 }}
+          className="cloud-console-header-az-select"
+          variant="borderless"
+          style={{ minWidth: 220 }}
           showSearch
           placeholder="选择可用区"
           loading={cloudsLoading}
@@ -1364,7 +1450,7 @@ const CloudConsolePage: React.FC = () => {
           optionFilterProp="label"
           popupMatchSelectWidth={false}
         />
-      </Space>
+      </div>
     ),
     [
       availabilityZoneOptions,
@@ -1387,210 +1473,190 @@ const CloudConsolePage: React.FC = () => {
       pagePadding={0}
       style={{ height: '100%' }}
     >
-      <div className="cloud-console-root">
-        <div className="cloud-console-body">
+      <Layout className="cloud-console-layout">
+        <Layout className="cloud-console-inner">
+          <Content className="cloud-console-content-antd">
+          {error && (
+            <div className="cloud-console-content-placeholder">
+              <Alert message={error} type="error" showIcon />
+            </div>
+          )}
+
           {isCloudmap && currentCloudId ? (
-            <aside className="cloud-console-left-nav-box" aria-label="控制台产品导航">
-              <Menu
-                mode="inline"
-                selectedKeys={[consoleLeftNavKey]}
-                items={leftNavMenuItems}
-                onClick={handleLeftNavClick}
-              />
-            </aside>
-          ) : null}
-
-          <div className="cloud-console-content">
-            <div className="cloud-console-content-scroll">
-              {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
-
-              {isCloudmap && currentCloudId ? (
-                <>
-                  {consoleLeftNavKey === 'container' && currentCloudId && (
-                    <CloudConsoleContainerPanel
-                      cloudId={currentCloudId}
-                      mode="standard"
-                      activeCategory={containerCategory}
-                      setActiveCategory={setContainerCategory}
-                      activeResource={containerResource}
-                      setActiveResource={setContainerResource}
-                      namespacesOptions={namespacesOptions}
-                      nodesOptions={nodesOptions}
-                      nsValue={nsValue}
-                      nodeValue={nodeValue}
-                      onNsChange={setNsValue}
-                      onNodeChange={setNodeValue}
-                      deployments={ctrDeployments}
-                      statefulsets={ctrStatefulSets}
-                      daemonsets={ctrDaemonSets}
-                      pods={ctrPods}
-                      jobs={ctrJobs}
-                      cronjobs={ctrCronJobs}
-                      services={ctrServices}
-                      ingresses={ctrIngresses}
-                      configmaps={ctrConfigMaps}
-                      secrets={ctrSecrets}
-                      imagePullSecrets={ctrImagePullSecrets}
-                      pdbs={ctrPdbs}
-                      networkpolicies={ctrNetworkPolicies}
-                      gatewayApiStatus={ctrGatewayApiStatus}
-                      gatewayClasses={ctrGatewayClasses}
-                      gateways={ctrGateways}
-                      httpRoutes={ctrHttpRoutes}
-                      grpcRoutes={ctrGrpcRoutes}
-                      volumes={pvcs}
-                      resourceLoading={ctrResourceLoading}
-                      onRefreshWorkloads={() =>
-                        loadCtrWorkloads(currentCloudId, true)
-                      }
-                      onRefreshPods={() => loadCtrPods(currentCloudId, true)}
-                      onRefreshJobs={(force) =>
-                        loadCtrJobs(currentCloudId, force ?? true)
-                      }
-                      onRefreshServices={() =>
-                        loadCtrServices(currentCloudId, true)
-                      }
-                      onRefreshIngresses={() =>
-                        loadCtrIngresses(currentCloudId, true)
-                      }
-                      onRefreshGateway={() => loadCtrGateway(currentCloudId, true)}
-                      onRefreshConfigs={(force) =>
-                        loadCtrConfigs(currentCloudId, force ?? true)
-                      }
-                      onRefreshRegistries={() =>
-                        loadCtrRegistries(currentCloudId, true)
-                      }
-                      onRefreshPdbs={(force) =>
-                        loadCtrPdbs(currentCloudId, force ?? true)
-                      }
-                      onRefreshNetpol={(force) =>
-                        loadCtrNetpol(currentCloudId, force ?? true)
-                      }
-                    />
-                  )}
-                  {consoleLeftNavKey === 'rds' && currentCloudId && (
-                    <CloudConsoleDatabasePanel
-                      cloudId={currentCloudId}
-                      vms={ecs}
-                      images={images}
-                      storageClasses={storageClasses}
-                      subnets={subnets}
-                      loading={loading}
-                      activeCategory={databaseCategory}
-                      setActiveCategory={setDatabaseCategory}
-                      activeResource={databaseResource}
-                      setActiveResource={setDatabaseResource}
-                      onRefreshVms={(force) => loadEcs(currentCloudId, !!force)}
-                      onForceRefreshVms={handleDatabaseForceRefresh}
-                      onReloadImages={() => loadImages(currentCloudId, true, true)}
-                      onReloadSubnets={() => loadVpcsAndSubnets(currentCloudId, true, true)}
-                      onReloadStorageClasses={(force, skipSync) =>
-                        loadStorageClasses(currentCloudId, !!force, !!skipSync)
-                      }
-                      isTenant={isTenantUser}
-                      namespacesOptions={namespacesOptions}
-                    />
-                  )}
-                  {(consoleLeftNavKey === 'host' || consoleLeftNavKey === 'flat' || consoleLeftNavKey === 'vpc') && (
-                    <CloudConsoleMainPanel
-                      leftNavScope={mainPanelLeftNavScope}
-                      cloudId={currentCloudId}
-                      vms={ecs}
-                      namespaces={namespaces}
-                      templates={templates}
-                      sshKeys={sshKeys}
-                      volumes={pvcs}
-                      images={images}
-                      snapshots={snapshots}
-                      backups={backups}
-                      schedules={schedules}
-                      cloudInits={cloudInits}
-                      gpus={gpus}
-                      vpcs={vpcs}
-                      subnets={subnets}
-                      eips={eips}
-                      snatRules={snatRules}
-                      dnatRules={dnatRules}
-                      storageClasses={storageClasses}
-                      loading={loading}
-                      namespacesOptions={namespacesOptions}
-                      nodesOptions={nodesOptions}
-                      nsValue={nsValue}
-                      nodeValue={nodeValue}
-                      onNsChange={setNsValue}
-                      onNodeChange={setNodeValue}
-                      activeCategory={harvesterCategory}
-                      setActiveCategory={setHarvesterCategory}
-                      activeResource={harvesterResource}
-                      setActiveResource={setHarvesterResource}
-                      onRefreshVms={() => {
-                        loadEcs(currentCloudId, true);
-                        loadPvcs(currentCloudId, true);
-                      }}
-                      onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) =>
-                        loadStorageClasses(currentCloudId, !!force, !!skipSync)
-                      }
-                      onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
-                      onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
-                      onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
-                      onRefreshImages={() => loadImages(currentCloudId, true)}
-                      onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
-                      onRefreshBackups={() => loadBackups(currentCloudId, true)}
-                      onRefreshSchedules={() => loadSchedules(currentCloudId)}
-                      onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
-                      onRefreshGpus={() => loadGpus(currentCloudId)}
-                      onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
-                      onRefreshEips={() => loadEips(currentCloudId)}
-                      onRefreshSnatRules={() => loadSnatRules(currentCloudId)}
-                      onRefreshDnatRules={() => loadDnatRules(currentCloudId)}
-                      onOpenReconfigure={(vm) => {
-                        setReconfVm(vm);
-                        setReconfVisible(true);
-                      }}
-                      onStart={handleStart}
-                      onStop={handleStop}
-                      onReboot={handleReboot}
-                      onSoftReboot={handleSoftReboot}
-                      onPause={handlePause}
-                      onUnpause={handleUnpause}
-                      onDelete={handleDelete}
-                      bordered={false}
-                    />
-                  )}
-                </>
-              ) : cloudsLoading ? (
-                <div style={{ padding: 100, textAlign: 'center' }}>
-                  <Spin size="large" />
-                  <div style={{ marginTop: 8 }}>加载资源池...</div>
-                </div>
-              ) : (
-                <div style={{ padding: 24, textAlign: 'center' }}>
-                  <Alert
-                    message="暂无 Cloudmap 资源池"
-                    description="请先在「资源池管理」中创建 Cloudmap 类型资源池后再使用本控制台。"
-                    type="info"
-                    showIcon
-                    style={{ maxWidth: 600, margin: '0 auto' }}
-                  />
-                </div>
-              )}
-
-              {reconfVisible && (
-                <VmReconfigureModal
-                  open={reconfVisible}
-                  onClose={() => setReconfVisible(false)}
-                  record={reconfVm}
-                  cloudId={currentCloudId || ''}
-                  onOk={() => {
-                    setReconfVisible(false);
-                    loadEcs(currentCloudId, true);
-                  }}
+            <>
+              {consoleLeftNavKey === 'container' && currentCloudId && (
+                <CloudConsoleContainerPanel
+                  cloudId={currentCloudId}
+                  mode="standard"
+                  activeCategory={containerCategory}
+                  setActiveCategory={setContainerCategory}
+                  activeResource={containerResource}
+                  setActiveResource={setContainerResource}
+                  namespacesOptions={namespacesOptions}
+                  namespaceRecords={namespaces}
+                  nodesOptions={nodesOptions}
+                  nsValue={nsValue}
+                  nodeValue={nodeValue}
+                  onNsChange={setNsValue}
+                  onNodeChange={setNodeValue}
+                  deployments={ctrDeployments}
+                  statefulsets={ctrStatefulSets}
+                  daemonsets={ctrDaemonSets}
+                  pods={ctrPods}
+                  jobs={ctrJobs}
+                  cronjobs={ctrCronJobs}
+                  services={ctrServices}
+                  ingresses={ctrIngresses}
+                  configmaps={ctrConfigMaps}
+                  secrets={ctrSecrets}
+                  imagePullSecrets={ctrImagePullSecrets}
+                  pdbs={ctrPdbs}
+                  networkpolicies={ctrNetworkPolicies}
+                  gatewayApiStatus={ctrGatewayApiStatus}
+                  gatewayClasses={ctrGatewayClasses}
+                  gateways={ctrGateways}
+                  httpRoutes={ctrHttpRoutes}
+                  grpcRoutes={ctrGrpcRoutes}
+                  volumes={pvcs}
+                  resourceLoading={ctrResourceLoading}
+                  onRefreshWorkloads={() => loadCtrWorkloads(currentCloudId, true)}
+                  onRefreshPods={() => loadCtrPods(currentCloudId, true)}
+                  onRefreshJobs={(force) => loadCtrJobs(currentCloudId, force ?? true)}
+                  onRefreshServices={() => loadCtrServices(currentCloudId, true)}
+                  onRefreshIngresses={() => loadCtrIngresses(currentCloudId, true)}
+                  onRefreshGateway={() => loadCtrGateway(currentCloudId, true)}
+                  onRefreshConfigs={(force) => loadCtrConfigs(currentCloudId, force ?? true)}
+                  onRefreshRegistries={() => loadCtrRegistries(currentCloudId, true)}
+                  onRefreshPdbs={(force) => loadCtrPdbs(currentCloudId, force ?? true)}
+                  onRefreshNetpol={(force) => loadCtrNetpol(currentCloudId, force ?? true)}
                 />
               )}
+              {consoleLeftNavKey === 'rds' && currentCloudId && (
+                <CloudConsoleDatabasePanel
+                  cloudId={currentCloudId}
+                  vms={ecs}
+                  images={images}
+                  storageClasses={storageClasses}
+                  subnets={subnets}
+                  loading={loading}
+                  activeCategory={databaseCategory}
+                  setActiveCategory={setDatabaseCategory}
+                  activeResource={databaseResource}
+                  setActiveResource={setDatabaseResource}
+                  onRefreshVms={(force) => loadEcs(currentCloudId, !!force)}
+                  onForceRefreshVms={handleDatabaseForceRefresh}
+                  onReloadImages={() => loadImages(currentCloudId, true, true)}
+                  onReloadSubnets={() => loadVpcsAndSubnets(currentCloudId, true, true)}
+                  onReloadStorageClasses={(force, skipSync) =>
+                    loadStorageClasses(currentCloudId, !!force, !!skipSync)
+                  }
+                  isTenant={isTenantUser}
+                  namespacesOptions={namespacesOptions}
+                  namespaceRecords={namespaces}
+                />
+              )}
+              {(consoleLeftNavKey === 'host' ||
+                consoleLeftNavKey === 'flat' ||
+                consoleLeftNavKey === 'vpc') && (
+                <CloudConsoleMainPanel
+                  leftNavScope={mainPanelLeftNavScope}
+                  cloudId={currentCloudId}
+                  harvesterCapabilities={harvesterCapabilities}
+                  vms={ecs}
+                  namespaces={namespaces}
+                  templates={templates}
+                  sshKeys={sshKeys}
+                  volumes={pvcs}
+                  images={images}
+                  snapshots={snapshots}
+                  backups={backups}
+                  schedules={schedules}
+                  cloudInits={cloudInits}
+                  gpus={gpus}
+                  vpcs={vpcs}
+                  subnets={subnets}
+                  eips={eips}
+                  snatRules={snatRules}
+                  dnatRules={dnatRules}
+                  storageClasses={storageClasses}
+                  loading={loading}
+                  namespacesOptions={namespacesOptions}
+                  nodesOptions={nodesOptions}
+                  nsValue={nsValue}
+                  nodeValue={nodeValue}
+                  onNsChange={setNsValue}
+                  onNodeChange={setNodeValue}
+                  activeCategory={harvesterCategory}
+                  setActiveCategory={setHarvesterCategory}
+                  activeResource={harvesterResource}
+                  setActiveResource={setHarvesterResource}
+                  onRefreshVms={() => {
+                    loadEcs(currentCloudId, true);
+                    loadPvcs(currentCloudId, true);
+                  }}
+                  onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) =>
+                    loadStorageClasses(currentCloudId, !!force, !!skipSync)
+                  }
+                  onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
+                  onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
+                  onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
+                  onRefreshImages={() => loadImages(currentCloudId, true)}
+                  onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
+                  onRefreshBackups={() => loadBackups(currentCloudId, true)}
+                  onRefreshSchedules={() => loadSchedules(currentCloudId)}
+                  onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
+                  onRefreshGpus={() => loadGpus(currentCloudId)}
+                  onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
+                  onRefreshEips={() => loadEips(currentCloudId)}
+                  onRefreshSnatRules={() => loadSnatRules(currentCloudId)}
+                  onRefreshDnatRules={() => loadDnatRules(currentCloudId)}
+                  onOpenReconfigure={(vm) => {
+                    setReconfVm(vm);
+                    setReconfVisible(true);
+                  }}
+                  onStart={handleStart}
+                  onStop={handleStop}
+                  onReboot={handleReboot}
+                  onSoftReboot={handleSoftReboot}
+                  onPause={handlePause}
+                  onUnpause={handleUnpause}
+                  onDelete={handleDelete}
+                  bordered={false}
+                />
+              )}
+            </>
+          ) : cloudsLoading ? (
+            <div className="cloud-console-content-placeholder" style={{ textAlign: 'center', paddingTop: 100, paddingBottom: 100 }}>
+              <Spin size="large" />
+              <div style={{ marginTop: 8 }}>加载资源池...</div>
             </div>
-          </div>
-        </div>
-      </div>
+          ) : (
+            <div className="cloud-console-content-placeholder" style={{ textAlign: 'center' }}>
+              <Alert
+                message="暂无 Cloudmap 资源池"
+                description="请先在「资源池管理」中创建 Cloudmap 类型资源池后再使用本控制台。"
+                type="info"
+                showIcon
+                style={{ maxWidth: 600, margin: '0 auto' }}
+              />
+            </div>
+          )}
+
+          {reconfVisible && (
+            <VmReconfigureModal
+              open={reconfVisible}
+              onClose={() => setReconfVisible(false)}
+              record={reconfVm}
+              cloudId={currentCloudId || ''}
+              onOk={() => {
+                setReconfVisible(false);
+                loadEcs(currentCloudId, true);
+              }}
+            />
+          )}
+          </Content>
+        </Layout>
+      </Layout>
     </PageContainer>
   );
 };

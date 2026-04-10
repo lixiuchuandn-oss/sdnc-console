@@ -19,7 +19,7 @@ module.exports = function(app) {
   app.use(
     '/ws/ssh',
     createProxyMiddleware({
-      target: 'http://localhost:5001',
+      target: towerBackend,
       changeOrigin: true,
       ws: true,
       secure: false,
@@ -28,7 +28,35 @@ module.exports = function(app) {
   app.use(
     '/ws/vnc',
     createProxyMiddleware({
-      target: 'http://localhost:5001',
+      target: towerBackend,
+      changeOrigin: true,
+      ws: true,
+      secure: false,
+    })
+  );
+  // KubeVirt / Harvester：noVNC 走 /ws/kv-vnc；未配置时浏览器连 :5000 会握手失败（closed before established）
+  app.use(
+    '/ws/kv-vnc',
+    createProxyMiddleware({
+      target: towerBackend,
+      changeOrigin: true,
+      ws: true,
+      secure: false,
+    })
+  );
+  app.use(
+    '/ws/kv-pod-log',
+    createProxyMiddleware({
+      target: towerBackend,
+      changeOrigin: true,
+      ws: true,
+      secure: false,
+    })
+  );
+  app.use(
+    '/ws/kv-pod-exec',
+    createProxyMiddleware({
+      target: towerBackend,
       changeOrigin: true,
       ws: true,
       secure: false,

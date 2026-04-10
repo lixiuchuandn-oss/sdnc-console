@@ -29,6 +29,8 @@ export interface RegistryCredentialModalProps {
   cloudId: string;
   onCancel: () => void;
   onSuccess: () => void;
+  /** 创建模式优先选中的命名空间（须在 namespaces 内） */
+  defaultNamespace?: string;
 }
 
 // ============================================================
@@ -42,6 +44,7 @@ const RegistryCredentialModal: React.FC<RegistryCredentialModalProps> = ({
   cloudId,
   onCancel,
   onSuccess,
+  defaultNamespace,
 }) => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
@@ -61,15 +64,17 @@ const RegistryCredentialModal: React.FC<RegistryCredentialModalProps> = ({
       } else {
         // 创建模式：重置表单
         form.resetFields();
-        // 设置默认命名空间
-        if (namespaces.includes('default')) {
+        const dn = String(defaultNamespace || '').trim();
+        if (dn && namespaces.includes(dn)) {
+          form.setFieldsValue({ namespace: dn });
+        } else if (namespaces.includes('default')) {
           form.setFieldsValue({ namespace: 'default' });
         } else if (namespaces.length > 0) {
           form.setFieldsValue({ namespace: namespaces[0] });
         }
       }
     }
-  }, [visible, editData, form, namespaces]);
+  }, [visible, editData, form, namespaces, defaultNamespace]);
   
   // 提交表单
   const handleSubmit = useCallback(async () => {

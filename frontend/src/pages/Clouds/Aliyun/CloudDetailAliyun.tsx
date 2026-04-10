@@ -145,7 +145,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
     <PageDetailContainer
       breadcrumbs={[
         { title: <HomeOutlined />, href: '/' },
-        { title: '资源控制台' },
+        { title: '资源池管理' },
         { title: '资源池管理', href: '/admin/clouds' },
         { title: `阿里云 ${cloud?.name || '-'}` }
       ]}

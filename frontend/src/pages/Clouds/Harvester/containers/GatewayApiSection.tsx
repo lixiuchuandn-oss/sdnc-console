@@ -30,6 +30,7 @@ interface GatewayApiSectionProps {
   onNsChange?: (v?: string) => void;
   services?: any[];
   onRefresh: () => void;
+  createDefaultNamespace?: string;
 }
 
 /**
@@ -51,7 +52,9 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   onNsChange,
   services,
   onRefresh,
+  createDefaultNamespace,
 }) => {
+  const formDefaultNs = createDefaultNamespace ?? nsValue;
   const [activeSubTab, setActiveSubTab] = useState('gatewayclasses');
   
   // 创建弹窗状态
@@ -482,6 +485,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         cloudId={cloudId}
         namespacesOptions={namespacesOptions}
         gatewayClasses={gatewayClasses}
+        defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setGatewayModalOpen(false);
           onRefresh();
@@ -496,6 +500,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         namespacesOptions={namespacesOptions}
         gateways={gateways}
         services={services}
+        defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setHttpRouteModalOpen(false);
           onRefresh();
@@ -510,6 +515,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         namespacesOptions={namespacesOptions}
         gateways={gateways}
         services={services}
+        defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setGrpcRouteModalOpen(false);
           onRefresh();

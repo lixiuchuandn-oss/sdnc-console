@@ -75,6 +75,7 @@ type Props = {
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
+  createDefaultNamespace?: string;
 };
 
 /**
@@ -486,7 +487,9 @@ const RegistriesSection: React.FC<Props> = ({
   nsValue,
   onNsChange,
   onRefresh,
+  createDefaultNamespace,
 }) => {
+  const formDefaultNs = createDefaultNamespace ?? nsValue;
   const { modal, message } = App.useApp();
   
   // Tab 状态
@@ -989,6 +992,7 @@ const RegistriesSection: React.FC<Props> = ({
         editData={editData}
         namespaces={namespacesOptions}
         cloudId={cloudId}
+        defaultNamespace={formDefaultNs}
         onCancel={() => {
           setCreateModalVisible(false);
           setEditData(null);

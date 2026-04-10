@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Button, Dropdown, MenuProps, Space, Spin, message } from 'antd';
+import { Alert, Button, Dropdown, MenuProps, Space, Spin, message } from 'antd';
 import { 
   PoweroffOutlined, 
   ReloadOutlined, 
@@ -401,6 +401,16 @@ const HarvesterVNCPage: React.FC = () => {
       style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%'}}>
+        {typeof window !== 'undefined' && !window.isSecureContext ? (
+          <Alert
+            type="info"
+            showIcon
+            closable
+            message="远程控制台访问说明"
+            description="当前未通过加密链接（HTTPS）访问时，部分浏览器可能限制远程桌面相关能力。为保障稳定使用，请通过贵单位已发布的 HTTPS 管理平台地址或统一门户进入；若仍异常，请联系系统管理员协助检查访问方式与安全策略。"
+            style={{ flexShrink: 0, borderRadius: 0 }}
+          />
+        ) : null}
         {/* 
           ========================================
           1. 顶部工具栏 (Header Toolbar)

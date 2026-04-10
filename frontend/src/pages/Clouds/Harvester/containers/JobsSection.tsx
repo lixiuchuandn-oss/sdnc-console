@@ -68,6 +68,7 @@ type Props = {
   onRefresh: (force?: boolean) => void;
   imagePullSecrets?: Array<{ metadata: { name: string; namespace: string } }>;
   secretsWithCredentials?: any[];
+  createDefaultNamespace?: string;
 };
 
 /**
@@ -1607,7 +1608,9 @@ const JobsSection: React.FC<Props> = ({
   onRefresh,
   imagePullSecrets = [],
   secretsWithCredentials = [],
+  createDefaultNamespace,
 }) => {
+  const formDefaultNs = createDefaultNamespace ?? nsValue;
   const [activeTab, setActiveTab] = useState<'job' | 'cronjob'>('job');
   const [jobCreateVisible, setJobCreateVisible] = useState(false);
   const [cronjobCreateVisible, setCronjobCreateVisible] = useState(false);
@@ -1646,7 +1649,7 @@ const JobsSection: React.FC<Props> = ({
           onNsChange={onNsChange}
           imagePullSecrets={imagePullSecrets}
           secretsWithCredentials={secretsWithCredentials}
-          defaultNamespace={nsValue}
+          defaultNamespace={formDefaultNs}
           createModalVisible={jobCreateVisible}
           onCreateModalChange={setJobCreateVisible}
         />
@@ -1662,7 +1665,7 @@ const JobsSection: React.FC<Props> = ({
           onNsChange={onNsChange}
           imagePullSecrets={imagePullSecrets}
           secretsWithCredentials={secretsWithCredentials}
-          defaultNamespace={nsValue}
+          defaultNamespace={formDefaultNs}
           createModalVisible={cronjobCreateVisible}
           onCreateModalChange={setCronjobCreateVisible}
         />

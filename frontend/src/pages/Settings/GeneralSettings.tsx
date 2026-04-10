@@ -7,7 +7,6 @@ import { useSettings } from '../../contexts/SettingsContext';
 const GeneralSettings: React.FC = () => {
   const { message } = App.useApp();
   const [themeForm] = Form.useForm();
-  const [sidebarForm] = Form.useForm();
   const [contentCardForm] = Form.useForm();
   const [loginForm] = Form.useForm();
   const { settings, updateSetting, loading } = useSettings();
@@ -20,11 +19,6 @@ const GeneralSettings: React.FC = () => {
       headerColor: settings.headerColor,
       headerColorEnd: settings.headerColorEnd,
       searchBackgroundColor: settings.searchBackgroundColor,
-    });
-    sidebarForm.setFieldsValue({
-      sidebarMenuItemSelectedColor: settings.sidebarMenuItemSelectedColor,
-      sidebarMenuItemSelectedTextColor: settings.sidebarMenuItemSelectedTextColor,
-      sidebarMenuItemSelectedIconColor: settings.sidebarMenuItemSelectedIconColor,
     });
     contentCardForm.setFieldsValue({
       primaryColor: settings.primaryColor,
@@ -40,7 +34,7 @@ const GeneralSettings: React.FC = () => {
       loginButtonHoverColor: settings.loginButtonHoverColor,
     });
     setPreviewIcon(settings.headerIcon);
-  }, [settings, themeForm, sidebarForm, contentCardForm, loginForm]);
+  }, [settings, themeForm, contentCardForm, loginForm]);
 
   const handleSaveTheme = async (values: any) => {
     const getHexString = (color: any, fallback: string): string => {
@@ -113,40 +107,6 @@ const GeneralSettings: React.FC = () => {
   const handleClearIcon = () => {
     setPreviewIcon(undefined);
     themeForm.setFieldValue('headerIcon', '');
-  };
-
-  const handleSaveSidebar = async (values: any) => {
-    // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
-    const getHexString = (color: any, defaultValue: string): string => {
-      if (!color) return defaultValue;
-      if (typeof color === 'string') {
-        // 如果已经是字符串，确保格式正确
-        return color.startsWith('#') ? color : `#${color}`;
-      }
-      // 如果是 Color 对象，调用 toHexString()
-      if (color && typeof color.toHexString === 'function') {
-        return color.toHexString();
-      }
-      // 如果是对象且有 hex 属性
-      if (color && color.hex) {
-        return color.hex.startsWith('#') ? color.hex : `#${color.hex}`;
-      }
-      return defaultValue;
-    };
-    
-    if (values.sidebarMenuItemSelectedColor !== undefined) {
-      const hexColor = getHexString(values.sidebarMenuItemSelectedColor, settings.sidebarMenuItemSelectedColor ?? '');
-      await updateSetting('sidebarMenuItemSelectedColor', hexColor);
-    }
-    if (values.sidebarMenuItemSelectedTextColor !== undefined) {
-      const hexColor = getHexString(values.sidebarMenuItemSelectedTextColor, settings.sidebarMenuItemSelectedTextColor ?? '');
-      await updateSetting('sidebarMenuItemSelectedTextColor', hexColor);
-    }
-    if (values.sidebarMenuItemSelectedIconColor !== undefined) {
-      const hexColor = getHexString(values.sidebarMenuItemSelectedIconColor, settings.sidebarMenuItemSelectedIconColor ?? '');
-      await updateSetting('sidebarMenuItemSelectedIconColor', hexColor);
-    }
-    message.success('侧边栏设置已保存');
   };
 
   const handleSaveLogin = async (values: any) => {
@@ -345,83 +305,6 @@ const GeneralSettings: React.FC = () => {
                       '#f5222d',
                       '#722ed1',
                       '#eb2f96',
-                    ],
-                  },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
-            </Form.Item>
-          </Form>
-        </Card>
-
-        <Card title={<span><BgColorsOutlined style={{ marginRight: 8 }} />侧边栏设置</span>} style={{ marginBottom: 24 }}>
-          <Form 
-            form={sidebarForm}
-            layout="vertical" 
-            className="general-settings-form"
-            style={{ maxWidth: 360 }} 
-            onFinish={handleSaveSidebar}
-          >
-            <Form.Item label="菜单项选中背景颜色 (Selected Background)" name="sidebarMenuItemSelectedColor">
-              <ColorPicker 
-                showText 
-                format="hex"
-                presets={[
-                  {
-                    label: '预设颜色',
-                    colors: [
-                      '#e6f7ff',
-                      '#bae7ff',
-                      '#91d5ff',
-                      '#69c0ff',
-                      '#40a9ff',
-                      '#1890ff',
-                      '#096dd9',
-                      '#0050b3',
-                    ],
-                  },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item label="菜单项选中文字颜色 (Selected Text Color)" name="sidebarMenuItemSelectedTextColor">
-              <ColorPicker 
-                showText 
-                format="hex"
-                presets={[
-                  {
-                    label: '预设颜色',
-                    colors: [
-                      '#1677ff',
-                      '#0958d9',
-                      '#003eb3',
-                      '#002c8c',
-                      '#001d66',
-                      '#1890ff',
-                      '#096dd9',
-                      '#0050b3',
-                    ],
-                  },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item label="菜单项选中图标颜色 (Selected Icon Color)" name="sidebarMenuItemSelectedIconColor">
-              <ColorPicker 
-                showText 
-                format="hex"
-                presets={[
-                  {
-                    label: '预设颜色',
-                    colors: [
-                      '#1677ff',
-                      '#0958d9',
-                      '#003eb3',
-                      '#002c8c',
-                      '#001d66',
-                      '#1890ff',
-                      '#096dd9',
-                      '#0050b3',
                     ],
                   },
                 ]}

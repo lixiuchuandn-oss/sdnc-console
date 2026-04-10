@@ -28,6 +28,7 @@ type Props = {
   sectionTitle?: string;
   /** 用于创建实例时解析租户允许的业务命名空间（与 VM 向导一致） */
   namespacesOptions?: string[];
+  namespaceRecords?: any[];
 };
 
 const SafeRead = {
@@ -86,6 +87,7 @@ const RdsSection: React.FC<Props> = ({
   paasType,
   sectionTitle,
   namespacesOptions = [],
+  namespaceRecords = [],
 }) => {
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -326,6 +328,7 @@ const RdsSection: React.FC<Props> = ({
         harvesterNads={harvesterNads}
         paasType={paasType || 'mysql'}
         namespacesOptions={namespacesOptions}
+        namespaceRecords={namespaceRecords}
         isTenant={isTenant}
       />
       <RdsManageDrawer

@@ -96,13 +96,13 @@ export const isTowerManagedNamespace = (namespace: any): boolean => {
 /**
  * 获取命名空间的场景类型
  * @param namespace 命名空间对象（包含 metadata.labels）
- * @returns 'public' | 'tenant' | null
+ * @returns 'public' | 'tenant' | 'admin' | null
  */
-export const getNamespaceScenario = (namespace: any): 'public' | 'tenant' | null => {
+export const getNamespaceScenario = (namespace: any): 'public' | 'tenant' | 'admin' | null => {
   if (!namespace || !namespace.metadata) return null;
   const labels = namespace.metadata.labels || {};
   const scenario = labels['tower.io/scenario'];
-  if (scenario === 'public' || scenario === 'tenant') {
+  if (scenario === 'public' || scenario === 'tenant' || scenario === 'admin') {
     return scenario;
   }
   return null;
@@ -114,7 +114,7 @@ export const getNamespaceScenario = (namespace: any): 'public' | 'tenant' | null
  * @param name 命名空间名称
  * @param annotations 注解（可选）
  * @param options 选项（可选）
- * @param options.scenario 场景类型：'public' | 'tenant'，用于标识是公共空间还是租户空间
+ * @param options.scenario 场景类型：'public' | 'tenant' | 'admin'（集群公共 / 租户业务 / 管理员创建）
  * @param options.addFinalizer 是否添加终结器，默认为 true
  * @param options.bindingLabels 灾备/关联用稳定 ID（写入 metadata.labels），如 tenant-id、organization-id、cloud-id
  */
@@ -123,7 +123,7 @@ export const createHarvesterNamespace = async (
   name: string,
   annotations?: Record<string, string>,
   options?: {
-    scenario?: 'public' | 'tenant';
+    scenario?: 'public' | 'tenant' | 'admin';
     addFinalizer?: boolean;
     bindingLabels?: Record<string, string>;
   },
@@ -150,6 +150,8 @@ export const createHarvesterNamespace = async (
     labels['tower.io/scenario'] = 'public';
   } else if (options?.scenario === 'tenant') {
     labels['tower.io/scenario'] = 'tenant';
+  } else if (options?.scenario === 'admin') {
+    labels['tower.io/scenario'] = 'admin';
   }
 
   if (options?.bindingLabels) {

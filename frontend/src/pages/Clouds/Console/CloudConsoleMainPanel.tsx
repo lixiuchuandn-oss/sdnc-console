@@ -44,6 +44,8 @@ interface Props {
   /** 与控制台左侧「产品」导航联动，过滤顶部 Tabs */
   leftNavScope?: CloudConsoleLeftNavScope;
   cloudId: string;
+  /** GET /resources/harvester/capabilities 的 data；与资源池详情页一致，供快速创建 VM（machine.type 等） */
+  harvesterCapabilities?: any | null;
   vms: any[];
   templates: any[];
   sshKeys: any[];
@@ -106,6 +108,7 @@ interface Props {
 const CloudConsoleMainPanel: React.FC<Props> = ({
   leftNavScope = 'all',
   cloudId,
+  harvesterCapabilities = null,
   vms,
   templates,
   sshKeys,
@@ -337,7 +340,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             storageClasses={storageClasses}
             kubeSubnets={subnets}
             harvesterNads={[]}
-            capabilities={null}
+            capabilities={harvesterCapabilities}
             onReloadQuickCreateSubnets={onRefreshVpcs}
             onReloadQuickCreateImages={onRefreshImages}
           />
@@ -541,6 +544,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   }, [
     ovnVpcEnabled,
     activeResource,
+    harvesterCapabilities,
     vms,
     templates,
     sshKeys,
@@ -637,14 +641,14 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
   if (tabConfig.length === 0) {
     return (
-      <div style={{ padding: 48, background: '#fff' }}>
+      <div className="cloud-console-panel-root">
         <Empty description="当前未开通 VPC 网络能力，请在许可证中启用 network.ovn.vpc" />
       </div>
     );
   }
 
   return (
-    <div style={{ height: '100%', background: '#fff' }}>
+    <div className="cloud-console-panel-root">
       <Tabs
         type="card"
         activeKey={activeCategory}

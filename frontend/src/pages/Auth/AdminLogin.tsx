@@ -8,6 +8,7 @@ import { getDefaultAdminPath, hasPermissionForAction } from '../../utils/accessM
 import { getSystemSetting } from '../../services/systemApi';
 import { useSettings } from '../../contexts/SettingsContext';
 import { renderMarkdownBold } from '../../utils/markdown';
+import { TENANT_CLOUD_CONSOLE_PATH } from '../Clouds/Console/tenantConsolePaths';
 import './Login.css';
 
 const AdminLogin: React.FC = () => {
@@ -51,7 +52,7 @@ const AdminLogin: React.FC = () => {
               return;
             }
             if (hasPermissionForAction(perms, 'clouds.console:read')) {
-              navigate('/admin/clouds/console');
+              navigate(TENANT_CLOUD_CONSOLE_PATH);
               return;
             }
           }

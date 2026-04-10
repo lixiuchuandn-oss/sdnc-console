@@ -42,6 +42,7 @@ import {
   pickDefaultStorageClassName,
   isSystemNamespace,
   isPublicNamespace,
+  pickFirstNamespaceRecordByScenarioForOptions,
 } from '../../../../utils/harvesterUtils';
 
 const PAAS_DISPLAY: Record<string, string> = {
@@ -65,6 +66,8 @@ export type RdsCreateModalProps = {
   paasType?: string;
   /** 可选命名空间列表（与 VM 向导一致）；租户时取首个非系统/非公共命名空间，避免固定 default 导致 403 */
   namespacesOptions?: string[];
+  /** 与 namespacesOptions 对应的库存对象，用于 tower.io/scenario 默认选中 */
+  namespaceRecords?: any[];
   isTenant?: boolean;
 };
 
@@ -186,19 +189,32 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
   onCreated,
   paasType = 'mysql',
   namespacesOptions = [],
+  namespaceRecords = [],
   isTenant = false,
 }) => {
   const paasKey = String(paasType || 'mysql').trim().toLowerCase();
   const paasLabel = PAAS_DISPLAY[paasKey] || paasKey.toUpperCase();
 
   const targetNamespace = useMemo(() => {
-    if (!isTenant) return 'default';
     const opts = (namespacesOptions || [])
       .map((n) => String(n || '').trim())
       .filter(Boolean);
+    if (!isTenant) {
+      const preferred = pickFirstNamespaceRecordByScenarioForOptions(
+        namespaceRecords,
+        opts,
+        'admin',
+      );
+      return preferred || 'default';
+    }
     const business = opts.filter((n) => !isSystemNamespace(n) && !isPublicNamespace(n));
-    return business[0] || '';
-  }, [isTenant, namespacesOptions]);
+    const preferred = pickFirstNamespaceRecordByScenarioForOptions(
+      namespaceRecords,
+      business,
+      'tenant',
+    );
+    return preferred || business[0] || '';
+  }, [isTenant, namespacesOptions, namespaceRecords]);
 
   const namespaceReady = !isTenant || !!targetNamespace;
   const [form] = Form.useForm();

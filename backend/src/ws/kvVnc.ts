@@ -85,7 +85,7 @@ export function createKvVncWss() {
         .toLowerCase()
         .trim();
       console.log(`[KvVnc] Cloud Provider Check: id=${cloudId}, provider=${(cloud as any)?.config?.provider}, parsed=${pv}`);
-      const allowedProviders = ['harvester', 'cloudmap.private', 'cloudmap.edge'];
+      const allowedProviders = ['harvester', 'cloudmap', 'cloudmap.private', 'cloudmap.edge'];
       if (!allowedProviders.includes(pv)) throw new Error(`仅支持 Harvester/Cloudmap (current: ${pv})`);
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const base = String(cloud.endpoint || '').replace(/\/+$/, '');

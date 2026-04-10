@@ -53,13 +53,13 @@ export function isImagePublicByScenario(r: any): boolean {
   return r?.namespacePublicByScenario === true;
 }
 
-/** 命名空间管理页「类型」：系统 / 公共 / 租户 */
-export type NamespaceSectionKind = 'system' | 'public' | 'tenant';
+/** 命名空间管理页「类型」：系统 / 公共 / 租户 / 管理员创建 */
+export type NamespaceSectionKind = 'system' | 'public' | 'tenant' | 'admin';
 
 /**
  * 解析命名空间在列表中的业务类型（与 NamespacesTab 列、筛选一致）
  * - 系统：isSystemNamespace(名称)
- * - 公共/租户：优先 label tower.io/scenario；无则名称命中 isPublicNamespace 视为公共，否则租户
+ * - 其余：优先 label tower.io/scenario（public | tenant | admin）；无 label 时名称命中 isPublicNamespace 视为公共，否则租户
  */
 export function namespaceSectionType(record: any): NamespaceSectionKind {
   const name = String(record?.metadata?.name || record?.name || '').trim();
@@ -68,8 +68,39 @@ export function namespaceSectionType(record: any): NamespaceSectionKind {
   const scenario = String(record?.metadata?.labels?.['tower.io/scenario'] || '').trim().toLowerCase();
   if (scenario === 'public') return 'public';
   if (scenario === 'tenant') return 'tenant';
+  if (scenario === 'admin') return 'admin';
   if (isPublicNamespace(name)) return 'public';
   return 'tenant';
+}
+
+/**
+ * 按列表/库存返回顺序，取第一个带指定 tower.io/scenario 的业务命名空间名（跳过系统命名空间前缀规则）
+ */
+export function pickFirstNamespaceRecordByScenario(
+  records: any[] | undefined,
+  scenario: 'tenant' | 'admin',
+): string | undefined {
+  for (const r of records || []) {
+    const name = String(r?.metadata?.name || r?.name || '').trim();
+    if (!name || isSystemNamespace(name)) continue;
+    const sc = String(r?.metadata?.labels?.['tower.io/scenario'] || '').trim().toLowerCase();
+    if (sc === scenario) return name;
+  }
+  return undefined;
+}
+
+/** 在「下拉可选名称」范围内，按 records 顺序取第一个匹配 scenario 的命名空间 */
+export function pickFirstNamespaceRecordByScenarioForOptions(
+  records: any[] | undefined,
+  optionValues: string[],
+  scenario: 'tenant' | 'admin',
+): string | undefined {
+  const allow = new Set(optionValues.map((s) => String(s).trim()).filter(Boolean));
+  const filtered = (records || []).filter((r) => {
+    const n = String(r?.metadata?.name || r?.name || '').trim();
+    return n && allow.has(n);
+  });
+  return pickFirstNamespaceRecordByScenario(filtered, scenario);
 }
 
 /**

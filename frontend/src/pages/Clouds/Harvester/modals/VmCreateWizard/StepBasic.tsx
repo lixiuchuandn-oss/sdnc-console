@@ -32,7 +32,10 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
+import {
+  isSystemNamespace,
+  pickFirstNamespaceRecordByScenarioForOptions,
+} from '../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 
 /**
@@ -77,6 +80,8 @@ interface StepBasicProps {
   filteredNodes: any[];
   /** 是否为租户 */
   isTenant?: boolean;
+  /** 命名空间原始对象（用于按 tower.io/scenario 默认选中） */
+  namespaceRecords?: any[];
 }
 
 const StepBasic: React.FC<StepBasicProps> = ({
@@ -99,6 +104,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
   setSelectedNodeName,
   filteredNodes,
   isTenant,
+  namespaceRecords,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
@@ -141,9 +147,14 @@ const StepBasic: React.FC<StepBasicProps> = ({
       validOptions.some((o) => String(o.value) === String(currentVal));
 
     if (!isValid) {
-      form.setFieldsValue({ namespace: validOptions[0].value });
+      const preferred = pickFirstNamespaceRecordByScenarioForOptions(
+        namespaceRecords,
+        validOptions.map((o) => String(o.value)),
+        isTenant ? 'tenant' : 'admin',
+      );
+      form.setFieldsValue({ namespace: preferred ?? validOptions[0].value });
     }
-  }, [visibleNamespaceOptions, form]);
+  }, [visibleNamespaceOptions, form, namespaceRecords, isTenant]);
 
   // [辅助函数] 判断节点是否就绪
   // 兼容逻辑：优先检查顶层 ready 字段，若不存在则遍历 status.conditions 查找 Type=Ready 且 Status=True

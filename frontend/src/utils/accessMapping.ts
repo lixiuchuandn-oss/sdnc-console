@@ -15,7 +15,7 @@ const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }
       action: spec.requiredActions?.page,
     }))
     .filter((mapping): mapping is { path: string; action: string } => !!mapping.action)
-    // 按路径长度降序排序，确保更具体的路径优先匹配（如 /admin/clouds/console 在 /admin/clouds 之前）
+    // 按路径长度降序排序，确保更具体的路径优先匹配（如 /console 与 /admin/clouds 的先后）
     .sort((a, b) => b.path.length - a.path.length);
 };
 
@@ -31,8 +31,9 @@ const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }
  * - 资源池管理（/admin/clouds）现在已在 RouteSpec 中配置 requiredActions，无需手动映射
  */
 const MANUAL_MAPPINGS: Array<{ path: string; action: string }> = [
-  // 租户专线管理功能已迁移到 AISOC 平台，相关权限映射已移除
-  // 资源池管理（/admin/clouds）现在从 RouteSpec 自动生成，无需手动映射
+  // 租户控制台旧入口：仅重定向到 /console，仍需与 clouds.console 权限对齐
+  { path: '/admin/clouds/console', action: 'clouds.console:read' },
+  { path: '/admin/clouds/ecs', action: 'clouds.console:read' },
 ];
 
 /**
@@ -112,7 +113,7 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
   
-  // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
+  // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（多云资源相关功能）
   // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read
   if (base.startsWith('clouds.') && act.endsWith(':read') && !isDashboardOrPools) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {

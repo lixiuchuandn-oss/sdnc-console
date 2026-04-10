@@ -42,6 +42,7 @@ type Props = {
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
+  createDefaultNamespace?: string;
 };
 
 /**
@@ -999,7 +1000,9 @@ const ConfigsSection: React.FC<Props> = ({
   nsValue,
   onNsChange,
   onRefresh,
+  createDefaultNamespace,
 }) => {
+  const formDefaultNs = createDefaultNamespace ?? nsValue;
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
   const [secretTypeFilter, setSecretTypeFilter] = useState<string | undefined>();
   
@@ -1169,7 +1172,7 @@ const ConfigsSection: React.FC<Props> = ({
         <ConfigMapForm
           cloudId={cloudId}
           namespacesOptions={namespacesOptions}
-          defaultNamespace={nsValue}
+          defaultNamespace={formDefaultNs}
           editMode={configMapEditMode}
           initialData={currentConfigMap}
           onSuccess={handleConfigMapSuccess}
@@ -1189,7 +1192,7 @@ const ConfigsSection: React.FC<Props> = ({
         <SecretForm
           cloudId={cloudId}
           namespacesOptions={namespacesOptions}
-          defaultNamespace={nsValue}
+          defaultNamespace={formDefaultNs}
           editMode={secretEditMode}
           initialData={currentSecret}
           onSuccess={handleSecretSuccess}

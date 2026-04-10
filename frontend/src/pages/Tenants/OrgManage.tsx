@@ -101,7 +101,7 @@ function getCloudPoolDisplayProvider(pool: { config?: { provider?: string }; typ
   return String(pool.config?.provider || pool.type || '-');
 }
 
-const HARVESTER_LIKE_OPERATORS = new Set(['harvester', 'cloudmap.private', 'cloudmap.edge']);
+const HARVESTER_LIKE_OPERATORS = new Set(['harvester', 'cloudmap', 'cloudmap.private', 'cloudmap.edge']);
 
 function isHarvesterLikeOperator(pvRaw: string): boolean {
   return HARVESTER_LIKE_OPERATORS.has(pvRaw);
@@ -216,10 +216,10 @@ const OrgManagePage: React.FC = () => {
       (occupiedNamespaceNames || []).map((n) => String(n || '').trim()).filter(Boolean),
     );
     return (nsOptions || [])
-      .filter(
-        (x: any) =>
-          String(x?.metadata?.labels?.['tower.io/scenario'] || '').toLowerCase() !== 'public',
-      )
+      .filter((x: any) => {
+        const sc = String(x?.metadata?.labels?.['tower.io/scenario'] || '').toLowerCase();
+        return sc !== 'public' && sc !== 'admin';
+      })
       .map((x: any) => x?.metadata?.name || x?.name)
       .map((n: string | undefined) => String(n || '').trim())
       .filter((n: string): n is string => n.length > 0 && !occupied.has(n));
@@ -250,10 +250,24 @@ const OrgManagePage: React.FC = () => {
   // - selectedUserRowKeys：复选集（用于批量删除）
 
   // --- 派生数据 ---
+  /** 已绑定到当前组织的 cloudId（分配抽屉内不再展示，避免重复提交被 skipped） */
+  const assignedCloudIdsForOrg = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of assignments || []) {
+      const cid = (a as { cloudId?: string; cloud?: { id?: string } }).cloudId || (a as { cloud?: { id?: string } }).cloud?.id;
+      if (cid) ids.add(String(cid));
+    }
+    return ids;
+  }, [assignments]);
+
   /** 当前分配 Tab 下可选资源池（与抽屉内 Select 一致，供 labelRender 解析 provider） */
   const assignableResourcePools = useMemo(
-    () => (resourcePools || []).filter((pool: any) => poolMatchesAssignDrawerTab(pool, assignType)),
-    [resourcePools, assignType],
+    () =>
+      (resourcePools || []).filter(
+        (pool: any) =>
+          poolMatchesAssignDrawerTab(pool, assignType) && !assignedCloudIdsForOrg.has(String(pool.id)),
+      ),
+    [resourcePools, assignType, assignedCloudIdsForOrg],
   );
 
   // --- 数据请求 ---
@@ -529,11 +543,32 @@ const OrgManagePage: React.FC = () => {
       // - permissions 固定为 ['use']（表示可用权限）
       // - tenantNamespaceMode / existingTenantNamespace：Harvester 类计算池下主命名空间派生方式（自动 ns-组织ID 或绑定已有）
       // 公共空间由集群 tower.io/scenario=public 标识，不再随分配写入固定 cloud-public/default
-      await apiPost(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload);
+      const resp = (await apiPost(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload)) as {
+        assignedCount?: number;
+        skippedCount?: number;
+        message?: string;
+      };
       setResourcePoolDrawerOpen(false);
       resourcePoolForm.resetFields();
       fetchAssignments(selectedOrg.id);
-      messageApi.success('分配资源池成功');
+      const hasCounts =
+        resp &&
+        typeof resp === 'object' &&
+        'assignedCount' in resp &&
+        'skippedCount' in resp;
+      const assigned = Number((resp as { assignedCount?: unknown }).assignedCount);
+      const skipped = Number((resp as { skippedCount?: unknown }).skippedCount);
+      if (!hasCounts || Number.isNaN(assigned) || Number.isNaN(skipped)) {
+        messageApi.warning(
+          '请求已完成，但未返回 assignedCount/skippedCount。请升级并重启后端；或看浏览器「网络」里该接口响应体，并核对后端日志中的「SQLite 使用文件」是否为您正在查看的 data.sqlite。',
+        );
+      } else if (skipped > 0 && assigned === 0) {
+        messageApi.warning(resp?.message || '所选资源池此前已绑定该组织，未新增记录');
+      } else if (skipped > 0) {
+        messageApi.success(`分配完成：新增 ${assigned}，已绑定跳过 ${skipped}`);
+      } else {
+        messageApi.success(resp?.message || '分配资源池成功');
+      }
     } catch (e: any) {
       const msg = e?.response?.data?.message || '分配资源池失败';
       messageApi.error(msg);
@@ -1612,6 +1647,11 @@ const OrgManagePage: React.FC = () => {
               placeholder="请选择资源池"
               style={{ width: '100%' }}
               optionLabelProp="label"
+              notFoundContent={
+                assignableResourcePools.length === 0
+                  ? '没有可选项：本 Tab 下资源池可能已全部绑定当前组织，或列表尚未加载'
+                  : undefined
+              }
               labelRender={(li) => {
                 const pool = assignableResourcePools.find((p: any) => p.id === li.value);
                 const provider = getCloudPoolDisplayProvider(pool);

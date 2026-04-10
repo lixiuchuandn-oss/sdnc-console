@@ -1,0 +1,30 @@
+diff --git a/node_modules/react-dev-utils/WebpackDevServerUtils.js b/node_modules/react-dev-utils/WebpackDevServerUtils.js
+index d9eea34..11bb5e5 100644
+--- a/node_modules/react-dev-utils/WebpackDevServerUtils.js
++++ b/node_modules/react-dev-utils/WebpackDevServerUtils.js
+@@ -331,7 +331,13 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
+     // used by webpackHotDevClient
+     const isWdsEndpointRequest =
+       isDefaultSockHost && pathname.startsWith(sockPath);
+-    return !(isPublicFileRequest || isWdsEndpointRequest);
++    // WDS_SOCKET_PATH=/webpack-hmr 时，旧客户端仍可能连 /ws；勿把裸 /ws 代理到 package.json 的 API（Tower 后端无此路径 → ECONNRESET）
++    const isBareWs =
++      pathname === '/ws' ||
++      pathname === '/ws/' ||
++      pathname.startsWith('/ws?');
++    const skipProxyBareWs = sockPath !== '/ws' && isBareWs;
++    return !(isPublicFileRequest || isWdsEndpointRequest || skipProxyBareWs);
+   }
+ 
+   if (!/^http(s)?:\/\//.test(proxy)) {
+@@ -364,6 +370,10 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
+       // However API calls like `fetch()` won’t generally accept text/html.
+       // If this heuristic doesn’t work well for you, use `src/setupProxy.js`.
+       context: function (pathname, req) {
++        // WebSocket 升级是 GET，且通常不带 Accept；原逻辑会误判为「不代理」，导致 /ws/* 握手失败
++        if (String(req.headers.upgrade || '').toLowerCase() === 'websocket') {
++          return mayProxy(pathname);
++        }
+         return (
+           req.method !== 'GET' ||
+           (mayProxy(pathname) &&

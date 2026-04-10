@@ -88,7 +88,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const {
     images, imageLoading, reloadImages, imageOptions,
     availableVolumes, reloadVolumes, volumeOptions,
-    reloadNamespaces, namespaceOptions,
+    namespaces, reloadNamespaces, namespaceOptions,
     reloadNads, nadOptions,
     nodes, nodesLoading, reloadNodes,
     clouds, loadClouds, cloudOptions, currentProvider,
@@ -643,6 +643,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   setSelectedNodeName={setSelectedNodeName}
                   filteredNodes={filteredNodes}
                   isTenant={isTenant}
+                  namespaceRecords={namespaces}
                 />
               </div>
               <div

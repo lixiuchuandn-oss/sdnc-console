@@ -33,14 +33,14 @@ export const routeSpecs: RouteSpec[] = [
   // CNMC 平台 (多云管理平台)
   // ============================================================================
   
-  // Group: 资源控制台
+  // Group: 资源池管理
   {
     id: 'dashboard',
     path: '/admin/dashboard',
     element: 'OverviewDashboard',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源控制台',
+    group: '资源池管理',
     title: '资源总览',
     subtitle: '展示全局资源统计概览，包括资源池数量、云主机数量、容器集群数量、VPC网络数量等关键指标，提供多维度数据可视化与实时监控。',
     icon: 'DashboardOutlined',
@@ -59,7 +59,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源控制台',
+    group: '资源池管理',
     title: '资源池管理',
     requiredActions: {
       page: 'clouds.resource-pools:read',
@@ -75,14 +75,14 @@ export const routeSpecs: RouteSpec[] = [
   },
   {
     id: 'console',
-    path: '/admin/clouds/console',
+    path: '/console',
     element: 'CloudConsolePage',
     layout: 'admin',
     platform: 'CNMC',
     group: '资源控制台',
-    title: '云主机控制台',
-    subtitle: '提供统一的云主机控制台访问入口，支持通过 Web SSH 或 VNC 方式远程连接和管理云主机，实现跨云平台的统一运维体验。',
-    breadcrumbLabel: '云主机控制台',
+    title: '资源控制台',
+    subtitle: '提供统一的资源控制台访问入口，支持通过 Web SSH 或 VNC 等方式远程连接与管理云主机，实现跨资源池的统一运维体验。',
+    breadcrumbLabel: '资源控制台',
     icon: 'DesktopOutlined',
     requiredActions: {
       page: 'clouds.console:read',
@@ -208,7 +208,7 @@ export const routeSpecs: RouteSpec[] = [
     guard: 'private',
     backgroundCapable: true,
     platform: 'CNMC',
-    group: '资源控制台',
+    group: '资源池管理',
     hidden: true,
     requiredActions: {
       page: 'clouds.vm-create-wizard:write',
@@ -225,7 +225,7 @@ export const routeSpecs: RouteSpec[] = [
     guard: 'private',
     backgroundCapable: true,
     platform: 'CNMC',
-    group: '资源控制台',
+    group: '资源池管理',
     hidden: true,
     requiredActions: {
       page: 'clouds.vm-create-wizard:write',

@@ -14,9 +14,6 @@ interface Settings {
   headerColorEnd?: string; // 顶部导航栏渐变结束颜色
   searchBackgroundColor?: string; // 搜索框背景颜色
   primaryColor?: string; // 主按钮颜色
-  sidebarMenuItemSelectedColor?: string; // 侧边栏菜单项选中状态背景颜色
-  sidebarMenuItemSelectedTextColor?: string; // 侧边栏菜单项选中状态文字颜色
-  sidebarMenuItemSelectedIconColor?: string; // 侧边栏菜单项选中状态图标颜色
   loginTitle?: string; // 登录页标题
   loginSubtitle?: string; // 登录页副标题
   loginBackgroundColor?: string; // 登录页背景颜色
@@ -55,12 +52,6 @@ function mergeSystemUiIntoSettings(values: Record<string, string>, prev: Setting
     headerColorEnd: getColor('ui.headerColorEnd') || prev.headerColorEnd,
     searchBackgroundColor: getColor('ui.searchBackgroundColor') || prev.searchBackgroundColor,
     primaryColor: getColor('ui.primaryColor') || prev.primaryColor,
-    sidebarMenuItemSelectedColor:
-      getColor('ui.sidebarMenuItemSelectedColor') || prev.sidebarMenuItemSelectedColor,
-    sidebarMenuItemSelectedTextColor:
-      getColor('ui.sidebarMenuItemSelectedTextColor') || prev.sidebarMenuItemSelectedTextColor,
-    sidebarMenuItemSelectedIconColor:
-      getColor('ui.sidebarMenuItemSelectedIconColor') || prev.sidebarMenuItemSelectedIconColor,
     loginTitle: values['ui.loginTitle'] ?? prev.loginTitle,
     loginSubtitle: values['ui.loginSubtitle'] ?? prev.loginSubtitle,
     loginBackgroundColor: getColor('ui.loginBackgroundColor') || prev.loginBackgroundColor,
@@ -101,9 +92,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     headerColorEnd: '',
     searchBackgroundColor: '',
     primaryColor: '',
-    sidebarMenuItemSelectedColor: '',
-    sidebarMenuItemSelectedTextColor: '',
-    sidebarMenuItemSelectedIconColor: '',
     loginTitle: '',
     loginSubtitle: '',
     loginBackgroundColor: '',
@@ -211,9 +199,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       headerColorEnd: 'ui.headerColorEnd',
       searchBackgroundColor: 'ui.searchBackgroundColor',
       primaryColor: 'ui.primaryColor',
-      sidebarMenuItemSelectedColor: 'ui.sidebarMenuItemSelectedColor',
-      sidebarMenuItemSelectedTextColor: 'ui.sidebarMenuItemSelectedTextColor',
-      sidebarMenuItemSelectedIconColor: 'ui.sidebarMenuItemSelectedIconColor',
       loginTitle: 'ui.loginTitle',
       loginSubtitle: 'ui.loginSubtitle',
       loginBackgroundColor: 'ui.loginBackgroundColor',
@@ -226,9 +211,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Process color values to ensure they have # prefix
     let processedValue = value;
-    const colorKeys = [
+       const colorKeys = [
       'headerColor', 'headerColorEnd', 'searchBackgroundColor', 'primaryColor',
-      'sidebarMenuItemSelectedColor', 'sidebarMenuItemSelectedTextColor', 'sidebarMenuItemSelectedIconColor',
       'loginBackgroundColor', 'loginBackgroundGradientStart', 'loginBackgroundGradientEnd',
       'loginButtonColor', 'loginButtonHoverColor'
     ];

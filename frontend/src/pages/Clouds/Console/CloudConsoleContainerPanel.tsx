@@ -10,6 +10,7 @@
  * 说明：服务拓扑、Service 与多资源联动视图放在资源池详情页更合适；控制台以列表与常用操作为主。
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
+import { pickFirstNamespaceRecordByScenario } from '../../../utils/harvesterUtils';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -76,6 +77,8 @@ export interface CloudConsoleContainerPanelProps {
   setActiveResource: (k: string) => void;
 
   namespacesOptions: string[];
+  /** 命名空间库存（含 tower.io/scenario），用于创建表单的默认命名空间 */
+  namespaceRecords?: any[];
   nodesOptions: string[];
   nsValue?: string;
   nodeValue?: string;
@@ -132,6 +135,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   activeResource,
   setActiveResource,
   namespacesOptions,
+  namespaceRecords = [],
   nodesOptions,
   nsValue,
   nodeValue,
@@ -174,6 +178,14 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     [user],
   );
 
+  const createDefaultNamespace = useMemo(() => {
+    const picked = pickFirstNamespaceRecordByScenario(
+      namespaceRecords,
+      isTenantUser ? 'tenant' : 'admin',
+    );
+    return picked || nsValue;
+  }, [namespaceRecords, isTenantUser, nsValue]);
+
   useEffect(() => {
     const keys = CONTAINER_TAB_CONFIG.map((c) => c.key);
     if (!keys.includes(activeCategory)) {
@@ -213,6 +225,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             onRefresh={onRefreshWorkloads}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-pods':
@@ -243,6 +256,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             onRefresh={onRefreshJobs}
             imagePullSecrets={imagePullSecrets}
             secretsWithCredentials={secrets}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-services':
@@ -258,6 +272,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             onNsChange={onNsChange}
             pods={pods}
             mode={mode}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-ingresses':
@@ -271,6 +286,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             secrets={secrets}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-gateway':
@@ -290,6 +306,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             onNsChange={onNsChange}
             services={services}
             onRefresh={onRefreshGateway}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-configs':
@@ -305,6 +322,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             onRefresh={onRefreshConfigs}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-registries':
@@ -318,6 +336,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             onRefresh={onRefreshRegistries}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-pdbs':
@@ -330,6 +349,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             onRefresh={onRefreshPdbs}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-netpol':
@@ -342,6 +362,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             onRefresh={onRefreshNetpol}
+            createDefaultNamespace={createDefaultNamespace}
           />
         );
       default:
@@ -372,6 +393,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     volumes,
     resourceLoading,
     namespacesOptions,
+    namespaceRecords,
     nodesOptions,
     nsValue,
     nodeValue,
@@ -388,6 +410,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     onRefreshPdbs,
     onRefreshNetpol,
     isTenantUser,
+    createDefaultNamespace,
   ]);
 
   const tabItems = useMemo(() => {
@@ -441,7 +464,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   ]);
 
   return (
-    <div style={{ height: '100%', background: '#fff' }}>
+    <div className="cloud-console-panel-root">
       <Tabs
         type="card"
         activeKey={activeCategory}

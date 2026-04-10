@@ -17,6 +17,12 @@ const defaultApiBase = (() => {
       const isPageLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const envIsLocalhost = /localhost|127\.0\.0\.1/.test(envUrl);
       if (!isPageLocalhost && envIsLocalhost) {
+        // 避免浏览器去连「用户本机」的 127.0.0.1；但不能用 location.origin（会把 API/WS 留在 :5000）。
+        const { protocol, hostname, port } = window.location;
+        const isLocalDevPort = port === '3000' || port === '5000' || port === '5173';
+        if (isLocalDevPort) {
+          return `${protocol}//${hostname}:5001`;
+        }
         return window.location.origin;
       }
     }
@@ -25,7 +31,9 @@ const defaultApiBase = (() => {
   if (typeof window !== 'undefined') {
     const { protocol, hostname, port } = window.location;
     const isLocalDevPort = port === '3000' || port === '5000' || port === '5173';
-    if ((hostname === 'localhost' || hostname === '127.0.0.1') && isLocalDevPort) {
+    // 开发态：CRA/Vite 常见端口上，无论 localhost 还是局域网 IP（如 10.x），API 与 WS 都指向同主机 5001。
+    // 否则用页面 origin 会导致 ws 打到 :5000，而 kv-vnc 只在后端监听，出现「closed before established」。
+    if (isLocalDevPort) {
       return `${protocol}//${hostname}:5001`;
     }
     return window.location.origin;

@@ -94,7 +94,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
   const [creating, setCreating] = useState<boolean>(false);
   // 当前正在编辑的命名空间对象 (null 表示新建)
   const [editingNamespace, setEditingNamespace] = useState<any>(null);
-  // 类型过滤器: ''(全部) | system | public | tenant
+  // 类型过滤器: ''(全部) | system | public | tenant | admin
   const [filterType, setFilterType] = useState<string>('');
   // 状态过滤器: ''(全部) | Active | Terminating
   const [filterStatus, setFilterStatus] = useState<string>('');
@@ -199,7 +199,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       }
 
       const parsed = labelPairsToRecord(v.labelPairs);
-      // 本页「新增命名空间」入口：统一标记为公共场景（与租户组织分配创建的租户命名空间区分）
+      // 本页「新增命名空间」入口：统一标记为管理员场景（与租户分配 tenant、集群公共 public 区分）
       const labels = editingNamespace
         ? parsed
         : {
@@ -207,7 +207,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
             'kubernetes.io/metadata.name': name,
             'tower.io/managed': 'true',
             'tower.io/creator': 'compute-tower',
-            'tower.io/scenario': 'public',
+            'tower.io/scenario': 'admin',
           };
 
       // 构造符合 K8s Manifest 标准的 Payload
@@ -292,6 +292,9 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         }
         if (t === 'public') {
           return <span className="std-badge std-badge-info">公共</span>;
+        }
+        if (t === 'admin') {
+          return <span className="std-badge std-badge-warning">管理员</span>;
         }
         return <span className="std-badge std-badge-success">租户</span>;
       }
@@ -429,6 +432,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
               { label: '系统', value: 'system' },
               { label: '公共', value: 'public' },
               { label: '租户', value: 'tenant' },
+              { label: '管理员', value: 'admin' },
             ]}
             className="toolbar-filter-sm"
           />
@@ -470,7 +474,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
               setCreating(true);
             }}
           >
-            创建公共命名空间
+            创建管理员命名空间
           </Button>
           <TableColumnSettingsButton
             allColumns={allColumns}
@@ -515,7 +519,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       {/* === 创建/编辑 模态框 === */}
       <StdFormModal
         open={creating}
-        title={editingNamespace ? "编辑命名空间" : "创建公共命名空间"}
+        title={editingNamespace ? "编辑命名空间" : "创建管理员命名空间"}
         width={720}
         onCancel={() => {
           setCreating(false);

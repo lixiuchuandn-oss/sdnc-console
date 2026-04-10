@@ -16,6 +16,8 @@ import { getSystemSetting } from './services/systemApi';
 import Login from './pages/Auth/Login';
 import AdminLogin from './pages/Auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
+import TenantConsoleLayout from './layouts/TenantConsoleLayout';
+import { TENANT_CLOUD_CONSOLE_PATH } from './pages/Clouds/Console/tenantConsolePaths';
 
 const OverviewDashboard = lazy(() => import('./pages/Dashboard/OverviewDashboard'));
 const Users = lazy(() => import('./pages/Tenants/Users'));
@@ -110,6 +112,10 @@ const AppRoutes: React.FC = () => {
         <Route path="/clouds/:id/instances/create" element={<PrivateRoute><VmCreateWizardModal /></PrivateRoute>} />
 
         {/* Admin area */}
+        <Route path={TENANT_CLOUD_CONSOLE_PATH} element={<AdminRoute><TenantConsoleLayout /></AdminRoute>}>
+          <Route index element={<CloudConsolePage />} />
+        </Route>
+
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
           <Route index element={<AdminIndex />} />
           <Route path="dashboard" element={<OverviewDashboard />} />
@@ -118,8 +124,8 @@ const AppRoutes: React.FC = () => {
           
           <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
-          <Route path="clouds/ecs" element={<Navigate to="/admin/clouds/console" replace />} />
-          <Route path="clouds/console" element={<CloudConsolePage />} />
+          <Route path="clouds/ecs" element={<Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />} />
+          <Route path="clouds/console" element={<Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />} />
           <Route path="tenants" element={<Tenants />} />
           <Route path="tenants/:tenantId/organizations" element={<OrgManagePage />} />
           
@@ -245,7 +251,7 @@ const AdminIndex: React.FC = () => {
       return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
     }
     if (hasPermissionForAction(perms, 'clouds.console:read')) {
-      return <Navigate to="/admin/clouds/console" replace />;
+      return <Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />;
     }
   }
   const target = getDefaultAdminPath(perms, hasFeature);
@@ -263,6 +269,15 @@ const AdminIndex: React.FC = () => {
         token: {
           ...(settings.primaryColor ? { colorPrimary: settings.primaryColor } : {}),
           borderRadius: 6,
+        },
+        components: {
+          Menu: {
+            itemBorderRadius: 0,
+            subMenuItemBorderRadius: 0,
+            activeBarWidth: 3,
+            itemMarginInline: 0,
+            itemMarginBlock: 0,
+          },
         },
       }}
     >

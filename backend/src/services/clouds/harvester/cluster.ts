@@ -632,6 +632,44 @@ export const listHarvesterServices = async ({
 };
 
 /**
+ * 获取 Harvester Ingress 列表
+ * 优先 Steve API，失败则回退 networking.k8s.io/v1
+ */
+export const listHarvesterIngresses = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const steveUrl = `${origin}/v1/networking.k8s.io.ingresses`;
+
+  try {
+    const json = await getJsonOnce(steveUrl, token, insecure, true);
+    const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
+    return items.map((ing: any) => ing);
+  } catch (e) {
+    console.warn('[listHarvesterIngresses] Steve API failed, falling back to K8s API:', e);
+    const k8sUrl = `${origin}/apis/networking.k8s.io/v1/ingresses`;
+    const json = await getJsonOnce(k8sUrl, token, insecure);
+    const items = Array.isArray(json?.items) ? json?.items : [];
+
+    return items.map((ing: any) => ({
+      ...ing,
+      links: ing.links || {
+        view: `${origin}/apis/networking.k8s.io/v1/namespaces/${ing.metadata?.namespace}/ingresses/${ing.metadata?.name}`,
+      },
+    }));
+  }
+};
+
+/**
  * 获取 Harvester StorageClass 列表
  * [功能描述]
  * 获取存储类列表，并手动构造前端所需的 view/self 链接。

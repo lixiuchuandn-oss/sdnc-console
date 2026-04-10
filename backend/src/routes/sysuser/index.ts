@@ -256,10 +256,6 @@ router.post('/me/password', async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ message: '未授权' });
     }
 
-    if ((req.user as any).isTenantUser || (req.user as any).role === 'tenant') {
-      return res.status(403).json({ message: '租户用户暂不支持此接口' });
-    }
-
     const { oldPassword, newPassword } = req.body || {};
     const oldPwd = String(oldPassword || '').trim();
     const newPwd = String(newPassword || '').trim();
@@ -271,6 +267,21 @@ router.post('/me/password', async (req: AuthRequest, res: Response) => {
     const v = validatePasswordAgainstPolicy(newPwd, policy, { username: req.user?.username });
     if (!v.ok) {
       return res.status(400).json({ message: v.message });
+    }
+
+    if ((req.user as any).isTenantUser || (req.user as any).role === 'tenant') {
+      const tenantRepo = AppDataSource.getRepository(TenantUser);
+      const tu = await tenantRepo.findOne({ where: { id: req.user.id } });
+      if (!tu) {
+        return res.status(404).json({ message: '用户不存在' });
+      }
+      const tenantOk = await bcrypt.compare(oldPwd, tu.password);
+      if (!tenantOk) {
+        return res.status(400).json({ message: '原密码错误' });
+      }
+      tu.password = await bcrypt.hash(newPwd, 10);
+      await tenantRepo.save(tu);
+      return res.json({ message: '密码修改成功' });
     }
 
     const userRepository = AppDataSource.getRepository(User);

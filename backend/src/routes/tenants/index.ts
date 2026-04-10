@@ -876,7 +876,14 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
     const { orgId } = req.params;
     const { resourcePoolIds, permissions } = req.body;
 
-    if (!Array.isArray(resourcePoolIds) || resourcePoolIds.length === 0) {
+    const normalizedPoolIds = [
+      ...new Set(
+        (Array.isArray(resourcePoolIds) ? resourcePoolIds : [])
+          .map((id: unknown) => String(id).trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (normalizedPoolIds.length === 0) {
       return res.status(400).json({ message: '请选择要分配的资源池' });
     }
 
@@ -890,13 +897,13 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       return res.status(404).json({ message: '组织不存在' });
     }
 
-    // 验证资源池是否存在
+    // 验证资源池是否存在（使用 In，避免 OR-where 在部分驱动/版本下的歧义）
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const resourcePools = await cloudRepository.find({
-      where: resourcePoolIds.map((id) => ({ id })),
+      where: { id: In(normalizedPoolIds) },
     });
 
-    if (resourcePools.length !== resourcePoolIds.length) {
+    if (resourcePools.length !== normalizedPoolIds.length) {
       return res.status(400).json({ message: '部分资源池不存在' });
     }
 
@@ -907,11 +914,17 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
 
     const isHarvesterLike = (pv: string) => {
       const p = String(pv || '').toLowerCase();
-      return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
+      return (
+        p === 'harvester' ||
+        p === 'cloudmap' ||
+        p === 'cloudmap.private' ||
+        p === 'cloudmap.edge'
+      );
     };
 
     const userSpaceRepository = AppDataSource.getRepository(UserSpace);
     const allocationRepository = AppDataSource.getRepository(UserSpaceAllocation);
+    const rpaRepository = AppDataSource.getRepository(ResourcePoolAssignment);
     const nsRepo = AppDataSource.getRepository(HarvesterNamespaceInventory);
 
     const { tenantNamespaceMode, existingTenantNamespace: existingNsBody } = req.body as {
@@ -952,8 +965,9 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
             });
           }
           const labels = inv.rawData?.metadata?.labels ?? inv.labels ?? {};
-          if (String(labels['tower.io/scenario'] ?? '').toLowerCase() === 'public') {
-            return res.status(400).json({ message: '不可绑定公共空间命名空间' });
+          const sc = String(labels['tower.io/scenario'] ?? '').toLowerCase();
+          if (sc === 'public' || sc === 'admin') {
+            return res.status(400).json({ message: '不可绑定公共或管理员场景命名空间' });
           }
 
           const others = await userSpaceRepository.find({
@@ -1076,8 +1090,10 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
 
     // 创建资源池分配记录 (Using UserSpace and UserSpaceAllocation)
     const assignments = [];
+    const permStr = permissions ? JSON.stringify(permissions) : JSON.stringify(['read', 'use']);
+    const assignedBy = req.user?.id ? String(req.user.id) : undefined;
 
-    for (const resourcePoolId of resourcePoolIds) {
+    for (const resourcePoolId of normalizedPoolIds) {
       // 检查是否已经分配过
       const existingAssignment = await userSpaceRepository.findOne({
         where: {
@@ -1086,41 +1102,78 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
         },
       });
 
-      if (!existingAssignment) {
-        const targetCloud = resourcePools.find((c) => c.id === resourcePoolId);
-        
-        // Auto-generate namespace if not provided
-        const finalNamespace = targetNamespace || `ns-${orgId}`;
+      if (existingAssignment) {
+        tenantLog.info(`资源池已绑定到该组织，跳过重复创建: org=${orgId} cloud=${resourcePoolId}`);
+        const existingRpa = await rpaRepository.findOne({
+          where: { organizationId: orgId, cloudId: resourcePoolId },
+        });
+        if (!existingRpa) {
+          await rpaRepository.save(
+            rpaRepository.create({
+              organizationId: orgId,
+              cloudId: resourcePoolId,
+              namespace: existingAssignment.namespace,
+              permissions: existingAssignment.permissions || permStr,
+              status: 'active',
+              cpuQuota: existingAssignment.cpuQuota ?? 0,
+              memoryQuota: existingAssignment.memoryQuota ?? 0,
+              storageQuota: existingAssignment.storageQuota ?? 0,
+              assignedAt: new Date(),
+              assignedBy,
+            }),
+          );
+        }
+        continue;
+      }
 
-        // 创建 UserSpace
-        const userSpace = userSpaceRepository.create({
-          name: finalNamespace,
-          tenantId: organization.tenantId,
+      const targetCloud = resourcePools.find((c) => c.id === resourcePoolId);
+
+      // Auto-generate namespace if not provided
+      const finalNamespace = targetNamespace || `ns-${orgId}`;
+
+      // 创建 UserSpace
+      const userSpace = userSpaceRepository.create({
+        name: finalNamespace,
+        tenantId: organization.tenantId,
+        organizationId: orgId,
+        cloudId: resourcePoolId,
+        namespace: finalNamespace,
+        permissions: permStr,
+        status: 'active',
+        cpuQuota: 0,
+        memoryQuota: 0,
+        storageQuota: 0,
+      });
+
+      const savedUserSpace = await userSpaceRepository.save(userSpace);
+      assignments.push(savedUserSpace);
+
+      await rpaRepository.save(
+        rpaRepository.create({
           organizationId: orgId,
           cloudId: resourcePoolId,
           namespace: finalNamespace,
-          permissions: permissions ? JSON.stringify(permissions) : JSON.stringify(['read', 'use']),
+          permissions: permStr,
           status: 'active',
           cpuQuota: 0,
           memoryQuota: 0,
           storageQuota: 0,
-        });
-        
-        const savedUserSpace = await userSpaceRepository.save(userSpace);
-        assignments.push(savedUserSpace);
+          assignedAt: new Date(),
+          assignedBy,
+        }),
+      );
 
-        // 创建初始 UserSpaceAllocation 记录
-        const allocationTypes: ('cpu' | 'memory' | 'storage')[] = ['cpu', 'memory', 'storage'];
-        for (const type of allocationTypes) {
-          const allocation = allocationRepository.create({
-            userSpaceId: savedUserSpace.id,
-            type: type,
-            cpu: 0,
-            memory: 0,
-            storage: 0,
-          });
-          await allocationRepository.save(allocation);
-        }
+      // 创建初始 UserSpaceAllocation 记录
+      const allocationTypes: ('cpu' | 'memory' | 'storage')[] = ['cpu', 'memory', 'storage'];
+      for (const type of allocationTypes) {
+        const allocation = allocationRepository.create({
+          userSpaceId: savedUserSpace.id,
+          type: type,
+          cpu: 0,
+          memory: 0,
+          storage: 0,
+        });
+        await allocationRepository.save(allocation);
       }
     }
 
@@ -1128,10 +1181,19 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       tenantLog.debug('保存的 UserSpace 记录:', JSON.stringify(assignments, null, 2).slice(0, 800));
     }
 
+    const assignedCount = assignments.length;
+    const skippedCount = normalizedPoolIds.length - assignedCount;
+    let message = '资源池分配成功';
+    if (assignedCount === 0 && skippedCount > 0) {
+      message = '所选资源池已与当前组织绑定，未新增记录（请勿重复分配同一资源池）';
+    } else if (assignedCount > 0 && skippedCount > 0) {
+      message = `资源池分配成功：新增 ${assignedCount}，跳过已绑定 ${skippedCount}`;
+    }
+
     res.json({
-      message: '资源池分配成功',
-      assignedCount: assignments.length,
-      skippedCount: resourcePoolIds.length - assignments.length,
+      message,
+      assignedCount,
+      skippedCount,
     });
   } catch (error) {
     tenantLog.error('资源池分配失败:', error instanceof Error ? error.message : String(error));
@@ -1242,7 +1304,12 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
       if (userSpace.cloud && userSpace.name) {
         const isHarvesterLike = (pv: string) => {
           const p = String(pv || '').toLowerCase();
-          return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
+          return (
+            p === 'harvester' ||
+            p === 'cloudmap' ||
+            p === 'cloudmap.private' ||
+            p === 'cloudmap.edge'
+          );
         };
         const config = (userSpace.cloud as any).config || {};
         if (isHarvesterLike(config.provider)) {

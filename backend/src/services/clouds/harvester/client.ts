@@ -105,6 +105,7 @@ export {
   listHarvesterNodesStandard,
   listK8sNodesRaw,
   listHarvesterServices,
+  listHarvesterIngresses,
   listHarvesterStorageClassesStandard,
   harvesterHealthCheck,
   testHarvesterConnection,

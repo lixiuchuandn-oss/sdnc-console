@@ -11,7 +11,7 @@ import { ALL_PERMISSIONS, PERMISSION_GROUPS, getPlatformByPermission, getGroupBy
  * 权限名称映射（用于生成显示名称）
  */
 const PERMISSION_NAMES: Record<string, string> = {
-  // CNMC - 资源控制台
+  // CNMC - 资源池管理 / 资源控制台（控制台权限分组）
   'clouds.dashboard': '资源总览（页面权限）',
   'clouds.resource-pools': '资源池管理（页面权限）',
   'clouds': '云资源全量（clouds.* 最高权限）',
@@ -72,7 +72,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.log-targets': '日志采集对象',
   'clouds.log-receivers': '日志接收端',
   'clouds.log-configs': '日志采集配置',
-  'clouds.console': '云主机控制台（页面权限）',
+  'clouds.console': '资源控制台（页面权限）',
   
   // CNMC - 租户管理
   'tenants': '租户管理',
@@ -161,8 +161,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.subnets.public:write': '创建、编辑、删除公共子网',
   'clouds.backups:read': '查看虚拟机备份、快照备份任务和定时策略列表',
   'clouds.backups:write': '创建、删除虚拟机备份/快照，管理定时备份策略与恢复操作',
-  'clouds.console:read': '访问云主机控制台',
-  'clouds.console:write': '在云主机控制台中执行操作',
+  'clouds.console:read': '访问资源控制台',
+  'clouds.console:write': '在资源控制台中执行操作',
   'tenants:read': '查看租户列表',
   'tenants:write': '创建、编辑、删除租户',
   'organizations:read': '查看组织架构树',
