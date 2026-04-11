@@ -4,7 +4,7 @@
  * 这是一个极简版创建向导，去除了常规虚拟机的复杂配置。
  * 特点：
  * - 默认将网络配置为 Kube-OVN 扁平子网。
- * - 默认注入 'tower.io/rds: true' 标签。
+ * - 默认注入 tower.io/rds、tower.io/paas-type；版本写入 tower.io/paas-ver（镜像标签优先，否则取表单 RDS 版本）。
  */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
@@ -22,28 +22,28 @@ import {
   Col,
   Alert,
 } from 'antd';
-import { OsIcon } from '../../../../components/OsIcon';
-import { ReactComponent as CpuSvg } from '../../../../assets/clouds/cpu.svg';
-import { ReactComponent as MemSvg } from '../../../../assets/clouds/mem.svg';
-import { ReactComponent as DiskSvg } from '../../../../assets/clouds/disk.svg';
-import { ReactComponent as NicSvg } from '../../../../assets/clouds/nic.svg';
-import { createHarvesterVm } from '../../../../services/harvesterApi';
+import { OsIcon } from '../../../../../components/OsIcon';
+import { ReactComponent as CpuSvg } from '../../../../../assets/clouds/cpu.svg';
+import { ReactComponent as MemSvg } from '../../../../../assets/clouds/mem.svg';
+import { ReactComponent as DiskSvg } from '../../../../../assets/clouds/disk.svg';
+import { ReactComponent as NicSvg } from '../../../../../assets/clouds/nic.svg';
+import { createHarvesterVm } from '../../../../../services/harvesterApi';
 import {
   initialWizardValues,
   constructVmPayload,
   generateUniqueVmId,
   parseSizeToGi,
-} from '../modals/VmCreateWizard/VmWizardUtils';
+} from '../../modals/VmCreateWizard/VmWizardUtils';
 import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
-} from '../kube-ovn/lib/kubeOvnSubnetConstants';
+} from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 import {
   pickDefaultStorageClassName,
   isSystemNamespace,
   isPublicNamespace,
   pickFirstNamespaceRecordByScenarioForOptions,
-} from '../../../../utils/harvesterUtils';
+} from '../../../../../utils/harvesterUtils';
 
 const PAAS_DISPLAY: Record<string, string> = {
   mysql: 'MySQL',
@@ -172,6 +172,26 @@ function getImageLabels(image: any): Record<string, any> {
   );
 }
 
+function readImagePaasType(image: any): string {
+  return String(getImageLabels(image)['tower.io/paas-type'] || '').trim().toLowerCase();
+}
+
+/** 镜像标签 tower.io/paas-ver，如 5.7、8.0 */
+function readImagePaasVer(image: any): string {
+  return String(getImageLabels(image)['tower.io/paas-ver'] || '').trim();
+}
+
+function comparePaasVer(a: string, b: string): number {
+  const pa = a.split(/[.\-_]/).map((x) => parseInt(x, 10) || 0);
+  const pb = b.split(/[.\-_]/).map((x) => parseInt(x, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i += 1) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d;
+  }
+  return a.localeCompare(b);
+}
+
 function imageMinDiskGi(image: any): number {
   const raw = image?.spec?.virtualSize ?? image?.virtualSize ?? image?.status?.size ?? image?.size;
   const gi = parseSizeToGi(raw);
@@ -219,6 +239,10 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
   const namespaceReady = !isTenant || !!targetNamespace;
   const [form] = Form.useForm();
   const specPresetWatched = Form.useWatch('specPreset', form);
+  const filterPaasTypeWatched = Form.useWatch('rdsPaasType', form);
+  const filterPaasVerWatched = Form.useWatch('rdsPaasVer', form);
+  const modalTypeKey = String(filterPaasTypeWatched ?? paasKey).trim().toLowerCase();
+  const modalPaasLabel = PAAS_DISPLAY[modalTypeKey] || (modalTypeKey ? modalTypeKey.toUpperCase() : paasLabel);
   const showCustomCpuMem = specPresetWatched === 'custom';
   const [submitting, setSubmitting] = useState(false);
   const vmIdRef = useRef<string | null>(null);
@@ -263,14 +287,49 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
       });
   }, [kubeSubnets]);
 
-  const diskImages = useMemo(
-    () =>
-      (images || []).filter((x: any) => {
-        const labels = getImageLabels(x);
-        return String(labels?.['tower.io/paas-type'] || '').trim().toLowerCase() === paasKey;
-      }),
-    [images, paasKey],
+  /** 带 tower.io/paas-type 的镜像，作为 RDS 可选镜像目录 */
+  const catalogImages = useMemo(
+    () => (images || []).filter((x: any) => !!readImagePaasType(x)),
+    [images],
   );
+
+  const paasTypeOptions = useMemo(() => {
+    const s = new Set<string>();
+    catalogImages.forEach((img: any) => {
+      const t = readImagePaasType(img);
+      if (t) s.add(t);
+    });
+    return Array.from(s)
+      .sort((a, b) => a.localeCompare(b))
+      .map((k) => ({ value: k, label: PAAS_DISPLAY[k] || k }));
+  }, [catalogImages]);
+
+  const effectiveFilterType = String(filterPaasTypeWatched || paasKey || '')
+    .trim()
+    .toLowerCase();
+
+  const paasVerOptions = useMemo(() => {
+    const subset = catalogImages.filter((x: any) => readImagePaasType(x) === effectiveFilterType);
+    const vers = new Set<string>();
+    subset.forEach((img: any) => {
+      const v = readImagePaasVer(img);
+      if (v) vers.add(v);
+    });
+    const sorted = Array.from(vers).sort(comparePaasVer);
+    return [
+      { value: '', label: '全部版本' },
+      ...sorted.map((v) => ({ value: v, label: v })),
+    ];
+  }, [catalogImages, effectiveFilterType]);
+
+  const diskImages = useMemo(() => {
+    const t = effectiveFilterType;
+    if (!t) return [];
+    let list = catalogImages.filter((x: any) => readImagePaasType(x) === t);
+    const v = String(filterPaasVerWatched ?? '').trim();
+    if (v) list = list.filter((x: any) => readImagePaasVer(x) === v);
+    return list;
+  }, [catalogImages, effectiveFilterType, filterPaasVerWatched]);
 
   const imageSelectOptions = useMemo(
     () =>
@@ -307,11 +366,16 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
       if (cancelled) return;
       vmIdRef.current = id;
     });
+    const defaultType =
+      paasTypeOptions.some((o) => o.value === paasKey) ? paasKey : paasTypeOptions[0]?.value || paasKey;
+
     form.setFieldsValue({
       alias: generateDefaultRdsAlias(),
       specPreset: '2c4g',
       cpu: 2,
       memoryGi: 4,
+      rdsPaasType: defaultType,
+      rdsPaasVer: '',
       image: undefined,
       rootSizeGi: undefined,
       flatSubnet: undefined,
@@ -319,7 +383,7 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, form, cloudId, targetNamespace]);
+  }, [open, form, cloudId, targetNamespace, paasKey, paasTypeOptions]);
 
   useEffect(() => {
     if (!open || flatSubnetOptions.length === 0) return;
@@ -388,6 +452,11 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
         return;
       }
 
+      const typeForVm = String(values.rdsPaasType || paasKey || '')
+        .trim()
+        .toLowerCase();
+      const paasLabelSubmit = PAAS_DISPLAY[typeForVm] || typeForVm.toUpperCase();
+
       const v: any = {
         ...base,
         namespace: targetNamespace,
@@ -430,14 +499,31 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
       });
 
       // ==========================================
-      // 核心注入: 为创建的实例打上 RDS 的标签
+      // 核心注入: 为创建的实例打上 RDS 的标签（顶层 + spec.template，与列表 SafeRead 一致）
       // ==========================================
+      const formPaasVer = String(values.rdsPaasVer || '').trim();
+      const imgPaasVer = readImagePaasVer(it);
+      const verForVm = imgPaasVer || formPaasVer;
+
       if (!payload.metadata.labels) payload.metadata.labels = {};
       payload.metadata.labels['tower.io/rds'] = 'true';
-      payload.metadata.labels['tower.io/paas-type'] = paasKey;
+      payload.metadata.labels['tower.io/paas-type'] = typeForVm;
+      if (verForVm) {
+        payload.metadata.labels['tower.io/paas-ver'] = verForVm;
+      }
+
+      const tplMeta = payload.spec?.template?.metadata;
+      if (tplMeta) {
+        if (!tplMeta.labels) tplMeta.labels = {};
+        tplMeta.labels['tower.io/rds'] = 'true';
+        tplMeta.labels['tower.io/paas-type'] = typeForVm;
+        if (verForVm) {
+          tplMeta.labels['tower.io/paas-ver'] = verForVm;
+        }
+      }
 
       await createHarvesterVm(cloudId, payload);
-      message.success(`${paasLabel} 实例创建成功`);
+      message.success(`${paasLabelSubmit} 实例创建成功`);
       await Promise.resolve(onCreated());
       onClose();
     } catch (e: any) {
@@ -450,7 +536,7 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
 
   return (
     <Modal
-      title={`创建 ${paasLabel} 实例`}
+      title={`创建 ${modalPaasLabel} 实例`}
       open={open}
       onCancel={onClose}
       width={600}
@@ -467,6 +553,15 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
             style={{ marginBottom: 16 }}
             message="未找到可用的业务命名空间"
             description="租户不允许在 default 等系统/公共命名空间创建资源。请由管理员在 UserSpace 中为本租户分配命名空间后再创建云数据库实例。"
+          />
+        ) : null}
+        {catalogImages.length === 0 ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="暂无可选 RDS 镜像"
+            description="请为镜像配置标签 tower.io/paas-type（可选 tower.io/paas-ver 用于版本筛选）。"
           />
         ) : null}
         <Form.Item name="alias" label="云数据库名称" rules={[{ required: true, message: '请输入实例名称' }]}>
@@ -523,12 +618,47 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
           </Row>
         </div>
 
+        <Row gutter={12}>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="rdsPaasType"
+              label="RDS 类型"
+              rules={[{ required: true, message: '请选择 RDS 类型' }]}
+            >
+              <Select
+                placeholder="按镜像标签 tower.io/paas-type"
+                options={paasTypeOptions}
+                disabled={paasTypeOptions.length === 0}
+                onChange={() => {
+                  form.setFieldsValue({ rdsPaasVer: '', image: undefined, rootSizeGi: undefined });
+                }}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="rdsPaasVer" label="RDS 版本">
+              <Select
+                placeholder="全部版本"
+                options={paasVerOptions}
+                disabled={paasTypeOptions.length === 0 || !effectiveFilterType}
+                onChange={() => {
+                  form.setFieldsValue({ image: undefined, rootSizeGi: undefined });
+                }}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
         <Row gutter={12} align="top">
           <Col xs={24} md={14}>
             <Form.Item name="image" label="选择镜像" rules={[{ required: true, message: '请选择镜像' }]}>
               <Select
                 showSearch
-                placeholder={`仅展示 ${paasLabel} 镜像`}
+                placeholder={
+                  diskImages.length === 0
+                    ? '请先选择类型与版本，或当前无匹配镜像'
+                    : '请选择镜像'
+                }
                 options={imageSelectOptions}
                 optionFilterProp="labelString"
                 disabled={imageSelectOptions.length === 0}

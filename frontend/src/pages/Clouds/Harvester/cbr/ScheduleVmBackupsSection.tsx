@@ -73,6 +73,9 @@ interface Props {
   
   /** 如果传了这个 ID，说明是在“虚拟机详情页”里用，只显示该虚拟机的策略 */
   vmId?: string;
+
+  /** 仅展示目标 VM 满足此谓词的策略（与 vmId 同时存在时两者都需满足） */
+  targetVmPredicate?: (namespace: string, vmName: string) => boolean;
   
   /** 默认隐藏哪些列 */
   defaultHiddenColumns?: string[];
@@ -113,7 +116,8 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   loading, 
   onRefresh, 
   vms, 
-  vmId, 
+  vmId,
+  targetVmPredicate,
   defaultHiddenColumns, 
   isTenant,
   mode = 'ops',
@@ -415,8 +419,13 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
     if (vmId) {
       d = d.filter((x: any) => x.vmName === vmId);
     }
+    if (targetVmPredicate) {
+      d = d.filter(
+        (x: any) => x.vmName && targetVmPredicate(x.namespace, x.vmName),
+      );
+    }
     return d;
-  }, [dataSource, keyword, typeFilter, vmId, namespaceFilter]);
+  }, [dataSource, keyword, typeFilter, vmId, namespaceFilter, targetVmPredicate]);
 
   const namespaceOptions = useMemo(() => {
     const set = new Set<string>();

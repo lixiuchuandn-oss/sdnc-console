@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
-import RdsSection from '../Harvester/rds/RdsSection';
+import { PaasSection } from '../Harvester/paas';
 
 type NavResource = { key: string; label: string; paasType: string };
 
@@ -117,7 +117,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   const renderContent = useCallback(() => {
     if (!currentMeta) return <Empty description="未知产品" />;
     return (
-      <RdsSection
+      <PaasSection
         vms={vms}
         loading={loading}
         cloudId={cloudId}

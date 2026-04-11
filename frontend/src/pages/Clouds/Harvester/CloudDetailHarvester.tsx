@@ -15,7 +15,7 @@ import VlansSection from './kube-ovn/sections/VlansSection';
 import GpusSection from './cluster/GpusSection';
 import PciDevicesSection from './cluster/PciDevicesSection';
 import UsbDevicesSection from './cluster/UsbDevicesSection';
-import RdsSection from './rds/RdsSection';
+import { PaasSection } from './paas';
 import MigrationsSection from './ecs/MigrationsSection';
 import StorageClassesSection from './cluster/StorageClassesSection';
 import SnapshotsSection from './ebs/sections/SnapshotsSection';
@@ -2741,7 +2741,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       key: 'rds',
                       label: '云数据库实例',
                       children: (
-                        <RdsSection
+                        <PaasSection
                           vms={ecs}
                           loading={resourceLoading.ecs}
                           cloudId={cloudId}

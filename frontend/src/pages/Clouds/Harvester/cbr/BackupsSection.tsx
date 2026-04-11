@@ -37,12 +37,31 @@ interface Props {
   vms: any[];
   type?: 'backup' | 'snapshot';
   vmId?: string;
+  /** 仅展示目标 VM 满足此谓词的备份/快照（与 vmId 同时存在时两者都需满足） */
+  targetVmPredicate?: (namespace: string, vmName: string) => boolean;
+  /** 恢复弹窗用的 VM 列表；不传则与 vms 相同（创建弹窗始终用 vms） */
+  restoreVms?: any[];
   isTenant?: boolean;
   mode?: 'standard' | 'ops';
   bordered?: boolean;
 }
 
-const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, mode = 'ops', bordered = true }) => {
+const BackupsSection: React.FC<Props> = ({
+  cloudId,
+  backups,
+  loading,
+  onRefresh,
+  namespaces,
+  vms,
+  type = 'backup',
+  vmId,
+  targetVmPredicate,
+  restoreVms,
+  isTenant,
+  mode = 'ops',
+  bordered = true,
+}) => {
+  const vmsForRestore = restoreVms ?? vms;
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -85,6 +104,11 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
              const target = raw.spec?.source?.name || b.targetVm;
              if (target !== vmId) return false;
         }
+        if (targetVmPredicate) {
+          const ns = raw.metadata?.namespace || b.namespace;
+          const targetName = raw.spec?.source?.name || b.targetVm || '';
+          if (!targetName || !targetVmPredicate(ns, targetName)) return false;
+        }
         return true;
       })
       .map((b: any) => {
@@ -116,7 +140,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         raw,
       };
     });
-  }, [backups, type, vmId, vms]);
+  }, [backups, type, vmId, vms, targetVmPredicate]);
 
   /**
    * 客户端过滤逻辑
@@ -429,7 +453,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         cloudId={cloudId}
         resource={currentSnapshot}
         resourceType={type}
-        vms={vms}
+        vms={vmsForRestore}
       />
     </PageDetailSection>
   );
