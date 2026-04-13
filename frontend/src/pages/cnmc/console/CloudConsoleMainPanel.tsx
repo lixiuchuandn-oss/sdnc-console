@@ -9,22 +9,22 @@ import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import VmSection from '../Harvester/ecs/VmSection';
-import RecycleBinSection from '../Harvester/ecs/RecycleBinSection';
-import TemplatesSection from '../Harvester/ecs/TemplatesSection';
-import SshKeysSection from '../Harvester/ecs/SshKeysSection';
-import VolumesSection from '../Harvester/ebs/sections/VolumesSection';
-import ImagesSection from '../Harvester/ecs/ImagesSection';
-import BackupsSection from '../Harvester/cbr/BackupsSection';
-import ScheduleVmBackupsSection from '../Harvester/cbr/ScheduleVmBackupsSection';
-import SnapshotsSection from '../Harvester/ebs/sections/SnapshotsSection';
-import CloudInitsSection from '../Harvester/ecs/CloudInitsSection';
-import GpuSection from '../Harvester/cluster/GpusSection';
-import EipSection from '../Harvester/kube-ovn/sections/EipSection';
-import SnatSection from '../Harvester/kube-ovn/sections/SnatSection';
-import DnatSection from '../Harvester/kube-ovn/sections/DnatSection';
-import VpcsSection from '../Harvester/kube-ovn/sections/VpcsSection';
-import UnderlaySubnetsSection from '../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
+import VmSection from '../clouds/Harvester/ecs/sections/VmSection';
+import RecycleBinSection from '../clouds/Harvester/ecs/sections/RecycleBinSection';
+import TemplatesSection from '../clouds/Harvester/ecs/sections/TemplatesSection';
+import SshKeysSection from '../clouds/Harvester/ecs/sections/SshKeysSection';
+import VolumesSection from '../clouds/Harvester/ebs/sections/VolumesSection';
+import ImagesSection from '../clouds/Harvester/ecs/sections/ImagesSection';
+import BackupsSection from '../clouds/Harvester/cbr/sections/BackupsSection';
+import ScheduleVmBackupsSection from '../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
+import SnapshotsSection from '../clouds/Harvester/ebs/sections/SnapshotsSection';
+import CloudInitsSection from '../clouds/Harvester/ecs/sections/CloudInitsSection';
+import GpuSection from '../clouds/Harvester/cluster/sections/GpusSection';
+import EipSection from '../clouds/Harvester/kube-ovn/sections/EipSection';
+import SnatSection from '../clouds/Harvester/kube-ovn/sections/SnatSection';
+import DnatSection from '../clouds/Harvester/kube-ovn/sections/DnatSection';
+import VpcsSection from '../clouds/Harvester/kube-ovn/sections/VpcsSection';
+import UnderlaySubnetsSection from '../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 
 type NavResource = { key: string; label: string };
 
@@ -662,6 +662,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   );
 };
 
-export { shouldMergePublicScenarioForTenantConsole } from './cloudConsoleTenantPublicScope';
+export { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
 
 export default CloudConsoleMainPanel;

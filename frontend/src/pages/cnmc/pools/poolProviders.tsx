@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 模块名称: 云平台提供商配置 (Cloud Provider Configurations)
- * 文件路径: src/pages/Clouds/providers.tsx
+ * 文件路径: src/pages/cnmc/pools/poolProviders.tsx
  * ==============================================================================
  *
  * [功能描述]
@@ -20,9 +20,9 @@
  * [交互/依赖说明]
  * ------------------------------------------------------------------------------
  * 1. 被引用模块:
- *    - src/pages/Clouds/index.tsx (云资源列表)
- *    - src/pages/Clouds/CloudWizard.tsx (添加云资源向导)
- *    - src/pages/Clouds/CloudDetailGate.tsx（云资源详情入口，按厂商分发）
+ *    - src/pages/cnmc/pools/index.tsx (云资源列表)
+ *    - src/pages/cnmc/pools/CloudWizard.tsx (添加云资源向导)
+ *    - src/pages/cnmc/pools/CloudDetailGate.tsx（云资源详情入口，按厂商分发）
  *
  * 2. 关键数据结构:
  *    - CloudProviderField: 定义表单字段的类型和校验规则。

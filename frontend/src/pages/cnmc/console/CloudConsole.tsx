@@ -69,10 +69,10 @@ import CloudConsoleDatabasePanel, {
   type CloudConsoleDatabaseCategory,
   type CloudConsoleDatabaseResource,
 } from './CloudConsoleDatabasePanel';
-import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
+import VmReconfigureModal from '../clouds/Harvester/ecs/modals/VmReconfigureModal';
 import { useLicense } from '../../../contexts/LicenseContext';
-import { shouldMergePublicScenarioForTenantConsole } from './cloudConsoleTenantPublicScope';
-import { useTenantConsoleHeaderSlot } from './TenantConsoleHeaderSlotContext';
+import { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
+import { useTenantConsoleHeaderSlot } from '../../../contexts/TenantConsoleHeaderSlotContext';
 import { useTenantConsoleSider } from '../../../layouts/TenantConsoleSiderContext';
 
 const { Content } = Layout;
@@ -108,7 +108,7 @@ type ConsoleLeftNavKey = 'host' | 'container' | 'flat' | 'vpc' | 'rds';
 /**
  * 云主机控制台（租户侧主入口）
  *
- * 【定位】本目录 `frontend/src/pages/Clouds/Console` 为 **租户侧 Cloudmap 控制台** 的正式实现与沟通锚点；
+ * 【定位】本目录 `frontend/src/pages/cnmc/console` 为 **租户侧 Cloudmap 控制台** 的正式实现与沟通锚点；
  * 路由：`/console`（租户云控制台专用前缀，与 `/admin/*` 平台后台分离）。管理员从资源池详情等入口进入时走其它页面，但租户日常以本 Console 为主。
  * 详见同目录 `README.md`（`#租户控制台入口`）。
  *

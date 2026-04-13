@@ -4,9 +4,11 @@
  * 文件路径: src/routes/clouds/harvester/handlers/ecs-lifecycle.handlers.ts
  * ==============================================================================
  * 功能描述:
- * 本文件包含 Harvester 虚拟机 (ECS) 的生命周期管理 handlers，包括：
- * - 生命周期操作：启动、停止、重启、暂停、恢复、删除
- * 
+ * 本文件包含 Harvester 虚拟机（平台侧称 ECS）的标准生命周期 handlers：
+ * 启动、停止、重启、暂停、恢复、删除等，**仅**对应路由前缀
+ * `/:id/resources/ecs/:instanceId/...`（instanceId 常为 namespace/name）。
+ * Harvester 原生路径下的专用操作见其他 handler 文件。
+ *
  * 从 ecs-operations.handlers.ts 中提取的业务逻辑
  * ==============================================================================
  */
@@ -75,24 +77,6 @@ export async function harvesterEcsStartHandler(req: Request, res: Response) {
       error: error.body || error.message,
     });
   }
-}
-
-/**
- * POST /:id/resources/harvester/vms/:namespace/:name/start - 启动 VM（兼容路径）
- */
-export async function harvesterVmStartByNamespaceHandler(req: Request, res: Response) {
-  const { namespace, name } = req.params;
-  req.params.instanceId = `${namespace}/${name}`;
-  return harvesterEcsStartHandler(req, res);
-}
-
-/**
- * POST /:id/resources/harvester/vms/:namespace/:name/stop - 停止 VM（兼容路径）
- */
-export async function harvesterVmStopByNamespaceHandler(req: Request, res: Response) {
-  const { namespace, name } = req.params;
-  req.params.instanceId = `${namespace}/${name}`;
-  return harvesterEcsStopHandler(req, res);
 }
 
 /**

@@ -15,7 +15,7 @@ import './TenantConsoleLayout.css';
 import {
   TenantConsoleHeaderSlotProvider,
   useTenantConsoleHeaderSlot,
-} from '../pages/Clouds/Console/TenantConsoleHeaderSlotContext';
+} from '../contexts/TenantConsoleHeaderSlotContext';
 import { TenantConsoleSiderProvider, useTenantConsoleSider } from './TenantConsoleSiderContext';
 
 const { Header, Content, Sider } = Layout;

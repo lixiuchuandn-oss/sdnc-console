@@ -26,32 +26,33 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
-import PageContainer from '../../components/PageContainer';
-import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
-import { useAuth } from '../../contexts/AuthContext';
-import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import PageContainer from '../../../components/PageContainer';
+import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../contexts/AuthContext';
+import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import {
   apiDelete,
   apiPost,
   apiRequest,
   fetchCloudProviderVpcs,
   fetchClouds as fetchCloudsApi,
-} from '../../services/api';
-import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
-import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
-import { hasPermissionForAction } from '../../utils/accessMapping';
-import { isMustChangePasswordApiError } from '../../utils/errorHandler';
+} from '../../../services/api';
+import { fetchKubeOvnVpcs } from '../../../services/harvesterApi';
+import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { isMustChangePasswordApiError } from '../../../utils/errorHandler';
 
-import CloudEditModal from './Harvester/modals/CloudEditModal';
+import CloudEditModal from '../clouds/Harvester/ecs/modals/CloudEditModal';
 import CloudWizard from './CloudWizard';
 import {
   CLOUD_STATUS_MAP,
   CLOUD_TYPE_MAP,
   type Cloud,
+  type CloudProvider,
   cloudProviders,
   getProviderLogo,
   getProviderName,
-} from './providers';
+} from './poolProviders';
 
 const { Text } = Typography;
 
@@ -618,22 +619,22 @@ const Clouds: React.FC = () => {
           </Form.Item>
           <Form.Item name="vendor">
             <Select className="toolbar-filter-sm" allowClear placeholder="供应商">
-              {cloudProviders.map(p => (
+              {cloudProviders.map((p: CloudProvider) => (
                 <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
               ))}
             </Select>
           </Form.Item>
           <Form.Item name="status">
             <Select className="toolbar-filter-sm" allowClear placeholder="状态">
-              {Object.entries(CLOUD_STATUS_MAP).map(([key, label]) => (
-                <Select.Option key={key} value={key}>{label}</Select.Option>
+              {(Object.keys(CLOUD_STATUS_MAP) as (keyof typeof CLOUD_STATUS_MAP)[]).map((key) => (
+                <Select.Option key={key} value={key}>{CLOUD_STATUS_MAP[key]}</Select.Option>
               ))}
             </Select>
           </Form.Item>
           <Form.Item name="category">
             <Select className="toolbar-filter-sm" allowClear placeholder="类型">
-              {Object.entries(CLOUD_TYPE_MAP).map(([key, label]) => (
-                <Select.Option key={key} value={key}>{label}</Select.Option>
+              {(Object.keys(CLOUD_TYPE_MAP) as (keyof typeof CLOUD_TYPE_MAP)[]).map((key) => (
+                <Select.Option key={key} value={key}>{CLOUD_TYPE_MAP[key]}</Select.Option>
               ))}
             </Select>
           </Form.Item>

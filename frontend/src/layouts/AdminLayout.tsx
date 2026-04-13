@@ -48,7 +48,7 @@ import { fetchClouds, apiPost } from '../services/api';
 import { getPublicAdminPasswordPolicy } from '../services/systemApi';
 import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../utils/markdown';
-import '../pages/Dashboard/Dashboard.css';
+import '../pages/cnmc/dashboard/Dashboard.css';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 
 const { Header, Content } = Layout;
@@ -135,6 +135,9 @@ function sidebarForPath(p: string): string {
   }
 
   const s = p.toLowerCase();
+  if (s.includes('/admin/paas')) {
+    return '/admin/cen_compute';
+  }
   if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security/traffic')) {
     return '/admin/cen_sdn';
   }

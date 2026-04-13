@@ -13,57 +13,59 @@ import PrivateRoute from './components/PrivateRoute';
 import { routeSpecs } from './routes/RouteSpec';
 import { getSystemSetting } from './services/systemApi';
 
-import Login from './pages/Auth/Login';
-import AdminLogin from './pages/Auth/AdminLogin';
+import Login from './pages/auth/Login';
+import AdminLogin from './pages/auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
 import TenantConsoleLayout from './layouts/TenantConsoleLayout';
-import { TENANT_CLOUD_CONSOLE_PATH } from './pages/Clouds/Console/tenantConsolePaths';
+import { TENANT_CLOUD_CONSOLE_PATH } from './pages/cnmc/console/tenantConsolePaths';
 
-const OverviewDashboard = lazy(() => import('./pages/Dashboard/OverviewDashboard'));
-const Users = lazy(() => import('./pages/Tenants/Users'));
-const Clouds = lazy(() => import('./pages/Clouds'));
-const CloudDetailGate = lazy(() => import('./pages/Clouds/CloudDetailGate'));
-const InstanceDetail = lazy(() => import('./pages/Clouds/InstanceDetail'));
-const Tenants = lazy(() => import('./pages/Tenants'));
-const GeneralSettings = lazy(() => import('./pages/Settings/GeneralSettings'));
-const AuditLogs = lazy(() => import('./pages/Settings/AuditLogs'));
-const AdvancedSettings = lazy(() => import('./pages/Settings/AdvancedSettings'));
+const OverviewDashboard = lazy(() => import('./pages/cnmc/dashboard/OverviewDashboard'));
+const Users = lazy(() => import('./pages/cnmc/tenants/Users'));
+const Clouds = lazy(() => import('./pages/cnmc/pools'));
+const CloudDetailGate = lazy(() => import('./pages/cnmc/pools/CloudDetailGate'));
+const InstanceDetail = lazy(() => import('./pages/cnmc/pools/InstanceDetail'));
+const Tenants = lazy(() => import('./pages/cnmc/tenants'));
+const GeneralSettings = lazy(() => import('./pages/settings/GeneralSettings'));
+const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
+const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'));
 
-const LicenseSettingsPage = lazy(() => import('./pages/Settings/LicenseSettings'));
-const SRv6Page = lazy(() => import('./pages/InterConnect/SRv6/index'));
-const SRv6CreatePage = lazy(() => import('./pages/InterConnect/SRv6/Create'));
-const IPsecVPNPage = lazy(() => import('./pages/InterConnect/IPsecVPN/index'));
-const IPsecVPNWizard = lazy(() => import('./pages/InterConnect/IPsecVPN/IPsecVPNWizard'));
-const VRPage = lazy(() => import('./pages/InterConnect/VR/index'));
-const AddVRInstance = lazy(() => import('./pages/InterConnect/VR/AddVRInstance'));
-const EditVRConfig = lazy(() => import('./pages/InterConnect/VR/EditVRConfig'));
-const PEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/PEWizard'));
-const CEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/CEWizard'));
-const StandardWizard = lazy(() => import('./pages/InterConnect/VR/wizards/StandardWizard'));
-const SASEWizard = lazy(() => import('./pages/InterConnect/VR/wizards/SASEWizard'));
-const ACLPage = lazy(() => import('./pages/InterConnect/ACL/index'));
-const NATPage = lazy(() => import('./pages/InterConnect/NAT/index'));
-const SecurityDomainPage = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/index'));
-const SecurityDomainWizardPage = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/Wizard'));
-const SecurityDomainDetail = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/Detail'));
-const CENPage = lazy(() => import('./pages/SecMgrPlane/CascadeChannels/index'));
-const CENDetailPage = lazy(() => import('./pages/SecMgrPlane/CascadeChannels/Detail'));
-const ComingSoon = lazy(() => import('./pages/ComingSoon'));
-const SecurityApps = lazy(() => import('./pages/SecMgrPlane/Applications/index'));
-const SecurityServices = lazy(() => import('./pages/SecMgrPlane/SecurityServices/index'));
-const AccessRolesPage = lazy(() => import('./pages/Settings/Roles/Index'));
-const AccessUsersPage = lazy(() => import('./pages/Settings/Users/Index'));
-const ProtectedObjects = lazy(() => import('./pages/Security/TrafficOrchestration/ProtectedObjects'));
-const ServiceChains = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains'));
-const CreateServiceChainWizard = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains/CreateWizard'));
-const Policies = lazy(() => import('./pages/Security/TrafficOrchestration/Policies'));
-const WebSSHPage = lazy(() => import('./pages/Clouds/WebSSH'));
-const CloudConsolePage = lazy(() => import('./pages/Clouds/Console/CloudConsole'));
-const HarvesterVNCPage = lazy(() => import('./pages/Clouds/Harvester/HarvesterVNC'));
-const OrgManagePage = lazy(() => import('./pages/Tenants/OrgManage'));
-const VmCreateWizardModal = lazy(() => import('./pages/Clouds/Harvester/modals/VmCreateWizardModal'));
-const AiSocPlaceholder = lazy(() => import('./pages/SecOps/AiSocPlaceholder'));
-const AiSocFrame = lazy(() => import('./pages/SecOps/AiSocFrame'));
+const LicenseSettingsPage = lazy(() => import('./pages/settings/LicenseSettings'));
+const SRv6Page = lazy(() => import('./pages/sdncc/SRv6/index'));
+const SRv6CreatePage = lazy(() => import('./pages/sdncc/SRv6/Create'));
+const IPsecVPNPage = lazy(() => import('./pages/sdncc/IPsecVPN/index'));
+const IPsecVPNWizard = lazy(() => import('./pages/sdncc/IPsecVPN/IPsecVPNWizard'));
+const VRPage = lazy(() => import('./pages/sdncc/VR/index'));
+const AddVRInstance = lazy(() => import('./pages/sdncc/VR/AddVRInstance'));
+const EditVRConfig = lazy(() => import('./pages/sdncc/VR/EditVRConfig'));
+const PEWizard = lazy(() => import('./pages/sdncc/VR/wizards/PEWizard'));
+const CEWizard = lazy(() => import('./pages/sdncc/VR/wizards/CEWizard'));
+const StandardWizard = lazy(() => import('./pages/sdncc/VR/wizards/StandardWizard'));
+const SASEWizard = lazy(() => import('./pages/sdncc/VR/wizards/SASEWizard'));
+const ACLPage = lazy(() => import('./pages/sdncc/ACL/index'));
+const NATPage = lazy(() => import('./pages/sdncc/NAT/index'));
+const SecurityDomainPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityDomain/index'));
+const SecurityDomainWizardPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityDomain/Wizard'));
+const SecurityDomainDetail = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityDomain/Detail'));
+const CENPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/CascadeChannels/index'));
+const CENDetailPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/CascadeChannels/Detail'));
+const ComingSoon = lazy(() => import('./pages/coming-soon'));
+const SecurityApps = lazy(() => import('./pages/cnsoc/sec-mgr-plane/Applications/index'));
+const SecurityServices = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityServices/index'));
+const AccessRolesPage = lazy(() => import('./pages/settings/Roles/Index'));
+const AccessUsersPage = lazy(() => import('./pages/settings/Users/Index'));
+const ProtectedObjects = lazy(() => import('./pages/cnsoc/traffic/ProtectedObjects'));
+const ServiceChains = lazy(() => import('./pages/cnsoc/traffic/ServiceChains'));
+const CreateServiceChainWizard = lazy(() => import('./pages/cnsoc/traffic/ServiceChains/CreateWizard'));
+const Policies = lazy(() => import('./pages/cnsoc/traffic/Policies'));
+const WebSSHPage = lazy(() => import('./pages/cnmc/pools/WebSSH'));
+const CloudConsolePage = lazy(() => import('./pages/cnmc/console/CloudConsole'));
+const PaasDatabasesPage = lazy(() => import('./pages/cnmc/paas/PaasDatabasesPage'));
+const PaasSecurityHub = lazy(() => import('./pages/cnmc/paas/PaasSecurityHub'));
+const HarvesterVNCPage = lazy(() => import('./pages/cnmc/clouds/Harvester/HarvesterVNC'));
+const OrgManagePage = lazy(() => import('./pages/cnmc/tenants/OrgManage'));
+const VmCreateWizardModal = lazy(() => import('./pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizardModal'));
+const AiSocPlaceholder = lazy(() => import('./pages/cnsoc/sec-ops/AiSocPlaceholder'));
+const AiSocFrame = lazy(() => import('./pages/cnsoc/sec-ops/AiSocFrame'));
 
 const LoadingFallback: React.FC = () => (
   <div style={{ 
@@ -121,7 +123,9 @@ const AppRoutes: React.FC = () => {
           <Route path="dashboard" element={<OverviewDashboard />} />
           <Route path="clouds" element={<Clouds />} />
           <Route path="clouds/:id" element={<CloudDetailGate />} />
-          
+          <Route path="paas/databases" element={<PaasDatabasesPage />} />
+          <Route path="paas/security" element={<PaasSecurityHub />} />
+
           <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
           <Route path="clouds/ecs" element={<Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />} />

@@ -30,6 +30,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 - **终端**: xterm.js 5.x
 - **远程控制**: noVNC 1.6.0
 - **代码编辑**: CodeMirror 6 (@uiw/react-codemirror)
+- **目录结构**: **`frontend/src/STRUCTURE.md`**（前端目录与放置规则唯一权威）；**`frontend/README.md`** 仅为 `frontend/` 包入口（运行命令）；Harvester 云详情子树见 `deployment/docs/specs/修改纪要_Harvester前端目录结构_域优先与shared.md`
 
 ## 项目结构
 
@@ -99,61 +100,31 @@ Compute.Tower/
 │   │   ├── contexts/          # React Context
 │   │   ├── hooks/             # 自定义 Hooks
 │   │   ├── layouts/           # 布局组件
-│   │   ├── pages/             # 页面组件
-│   │   │   ├── Access/        # 权限管理
-│   │   │   ├── Alarms/        # 告警管理
-│   │   │   ├── ApiDocs/       # API 文档
-│   │   │   ├── Auth/          # 认证页面
-│   │   │   ├── Clouds/        # 云资源管理
-│   │   │   │   ├── Aliyun/    # 阿里云
-│   │   │   │   ├── Harvester/ # Harvester/KubeVirt
-│   │   │   │   │   ├── containers/    # 容器管理模块
-│   │   │   │   │   │   ├── components/        # 容器相关组件
-│   │   │   │   │   │   │   ├── ConfigMapForm.tsx      # ConfigMap 创建表单
-│   │   │   │   │   │   │   ├── CronJobForm.tsx        # CronJob 创建表单
-│   │   │   │   │   │   │   ├── CronExpressionHelper.tsx # Cron 表达式助手
-│   │   │   │   │   │   │   ├── GatewayForm.tsx        # Gateway 创建表单
-│   │   │   │   │   │   │   ├── HTTPRouteForm.tsx      # HTTPRoute 创建表单
-│   │   │   │   │   │   │   ├── GRPCRouteForm.tsx      # GRPCRoute 创建表单
-│   │   │   │   │   │   │   ├── IngressForm.tsx        # Ingress 创建/编辑表单
-│   │   │   │   │   │   │   ├── JobForm.tsx            # Job 创建表单
-│   │   │   │   │   │   │   ├── PDBForm.tsx            # PodDisruptionBudget 创建表单
-│   │   │   │   │   │   │   ├── PodLogViewer.tsx       # Pod 日志查看组件
-│   │   │   │   │   │   │   ├── PodTerminal.tsx        # Pod 终端组件
-│   │   │   │   │   │   │   ├── RegistryBrowser.tsx    # 镜像仓库浏览器
-│   │   │   │   │   │   │   ├── SecretForm.tsx         # Secret 创建表单
-│   │   │   │   │   │   │   ├── ServiceForm.tsx        # Service 创建/编辑表单
-│   │   │   │   │   │   │   ├── WorkloadForm.tsx       # 工作负载创建表单（含高级调度策略）
-│   │   │   │   │   │   │   ├── YamlEditModal.tsx      # YAML 编辑弹窗
-│   │   │   │   │   │   │   └── ...
-│   │   │   │   │   │   ├── ConfigsSection.tsx   # ConfigMap/Secret 列表
-│   │   │   │   │   │   ├── GatewayApiSection.tsx # Gateway API 列表
-│   │   │   │   │   │   ├── JobsSection.tsx       # Job/CronJob 列表
-│   │   │   │   │   │   ├── PDBSection.tsx        # PodDisruptionBudget 列表
-│   │   │   │   │   │   ├── PodsSection.tsx       # Pod 列表
-│   │   │   │   │   │   ├── RegistriesSection.tsx # 镜像仓库列表
-│   │   │   │   │   │   └── WorkloadsSection.tsx  # 工作负载列表
-│   │   │   │   │   ├── sections/          # 虚拟机相关 Section
-│   │   │   │   │   │   ├── ServicesSection.tsx    # Service 列表
-│   │   │   │   │   │   ├── IngressesSection.tsx   # Ingress 列表
-│   │   │   │   │   │   ├── VmSection.tsx           # 虚拟机列表
-│   │   │   │   │   │   ├── VolumesSection.tsx      # 卷管理
-│   │   │   │   │   │   ├── ImagesSection.tsx       # 镜像管理
-│   │   │   │   │   │   └── ...
-│   │   │   │   │   └── components/        # 共享组件
-│   │   │   │   │       ├── HarvesterOpsinfoDrawer.tsx  # 详情抽屉
-│   │   │   │   │       ├── ServiceRelatedPodsTab.tsx   # Service 关联 Pod Tab
-│   │   │   │   │       └── ...
-│   │   │   │   ├── Hw/        # 华为云
-│   │   │   │   ├── Cloudmap/  # Cloudmap
-│   │   │   │   └── Csm/       # CSM
-│   │   │   ├── Dashboard/     # 仪表盘
-│   │   │   ├── InterConnect/  # 互联互通
-│   │   │   ├── SecMgrPlane/   # 安全管理面
-│   │   │   ├── SecOps/        # 安全运营
-│   │   │   ├── Security/      # 安全设置
-│   │   │   ├── Settings/      # 系统设置
-│   │   │   └── Tenants/       # 租户管理
+│   │   ├── pages/             # 页面（完整树与规范见 frontend/src/STRUCTURE.md）
+│   │   │   ├── auth/          # 登录
+│   │   │   ├── cnmc/          # CNMC：多云、控制台、PaaS、租户等
+│   │   │   │   ├── clouds/    # 各云厂商与 Cloudmap
+│   │   │   │   │   ├── Aliyun/
+│   │   │   │   │   ├── Hw/
+│   │   │   │   │   ├── Csm/
+│   │   │   │   │   ├── Cloudmap/
+│   │   │   │   │   └── Harvester/     # Harvester/KubeVirt（域优先）
+│   │   │   │   │       ├── containers/    # K8s 容器：sections + components（表单、拓扑等）
+│   │   │   │   │       ├── cluster/       # 集群、节点、Service、存储类等
+│   │   │   │   │       ├── ecs/           # 计算、镜像、模板、回收站、VM 弹窗向导
+│   │   │   │   │       ├── ebs/           # 卷、快照
+│   │   │   │   │       ├── cbr/           # 备份与计划任务
+│   │   │   │   │       ├── nad/           # NAD、负载均衡、IP 池
+│   │   │   │   │       ├── kube-ovn/      # VPC、子网、EIP/FIP、安全组等
+│   │   │   │   │       ├── shared/components/  # 跨域详情抽屉与 Tab
+│   │   │   │   │       └── monitoring/    # 监控与日志
+│   │   │   │   ├── console/
+│   │   │   │   ├── dashboard/
+│   │   │   │   ├── paas/
+│   │   │   │   └── tenants/
+│   │   │   ├── cnsoc/         # 安全运营等
+│   │   │   ├── sdncc/         # SDN 管理
+│   │   │   └── Settings/      # 部分系统设置
 │   │   ├── routes/            # 路由配置
 │   │   ├── services/          # API 服务层
 │   │   │   ├── harvesterApi.ts    # Harvester API 服务
@@ -336,24 +307,24 @@ Harvester 容器管理模块提供完整的 Kubernetes 容器资源管理能力�
 - `YamlEditor.tsx`: YAML 专用编辑器
 - `ServiceRelatedPodsTab.tsx`: Service 关联 Pod 展示
 
-### Harvester 虚拟机管理
+### Harvester 虚拟机与关联资源
 
-虚拟机管理功能位于 `frontend/src/pages/Clouds/Harvester/sections/`：
+虚拟机及存储、备份、集群、网络等 Section 按域分布在 `frontend/src/pages/cnmc/clouds/Harvester/` 下（与详情页 Tab 一致）：
 
-| Section 组件 | 功能 |
-|-------------|------|
-| `VmSection.tsx` | 虚拟机列表与管理 |
-| `VolumesSection.tsx` | 卷管理 |
-| `ImagesSection.tsx` | 镜像管理 |
-| `BackupsSection.tsx` | 备份管理 |
-| `SnapshotsSection.tsx` | 快照管理 |
-| `NodesSection.tsx` | 节点管理 |
-| `StorageClassesSection.tsx` | 存储类管理 |
-| `IPPoolsSection.tsx` | IP 池管理 |
-| `NadsSection.tsx` | 网络附件定义 |
-| `SshKeysSection.tsx` | SSH 密钥管理 |
-| `TemplatesSection.tsx` | 模板管理 |
-| `RecycleBinSection.tsx` | 回收站 |
+| Section 组件 | 路径（相对 Harvester 根） | 功能 |
+|-------------|---------------------------|------|
+| `VmSection.tsx` | `ecs/sections/` | 虚拟机列表与管理 |
+| `VolumesSection.tsx` | `ebs/sections/` | 卷管理 |
+| `ImagesSection.tsx` | `ecs/sections/` | 镜像管理 |
+| `BackupsSection.tsx` | `cbr/sections/` | 备份管理 |
+| `SnapshotsSection.tsx` | `ebs/sections/` | 快照管理 |
+| `NodesSection.tsx` | `cluster/sections/` | 节点管理 |
+| `StorageClassesSection.tsx` | `cluster/sections/` | 存储类管理 |
+| `IPPoolsSection.tsx` | `nad/sections/` | IP 池管理 |
+| `NadsSection.tsx` | `nad/sections/` | 网络附件定义 |
+| `SshKeysSection.tsx` | `ecs/sections/` | SSH 密钥管理 |
+| `TemplatesSection.tsx` | `ecs/sections/` | 模板管理 |
+| `RecycleBinSection.tsx` | `ecs/sections/` | 回收站 |
 
 ## 认证与权限
 

@@ -1,114 +1,269 @@
-# 前端目录结构说明
+# 前端目录结构（权威）
 
-## 📁 目录结构
+> **适用范围**：`frontend/src/`。  
+> **本文件是前端源码目录划分与文件放置规则的唯一权威说明**；Code Review 与新增代码以本文为准。  
+> **Harvester 云详情子树**（域优先、`shared/`、`sections`/`modals` 等细则）见仓库 **`deployment/docs/specs/修改纪要_Harvester前端目录结构_域优先与shared.md`**——仅约束 `pages/cnmc/clouds/Harvester/` 内部，不重复全站规则。  
+> **`frontend/README.md`** 仅作 **`frontend/` 包的入口**（本地运行命令等），**不写**与目录规范有关的第二套说明。
+
+---
+
+## 1. 目的与读者
+
+- 统一「文件该放哪」的判定规则，降低认知成本与评审成本。
+- 对齐平台心智：**CNMC / SDNCC / CNSOC / SETTINGS**（与 `constants/navigation.ts`、`routes/RouteSpec.ts` 的 `platform` 一致）。
+- 明确 **产品层级 ≠ 文件夹必须逐层同构**：目录可为懒加载与团队边界服务；**产品归属**以路由与本文 **§3、§5** 为准。
+
+**读者**：前端开发、Code Review、架构与交付负责人。
+
+---
+
+## 2. 术语
+
+| 术语 | 含义 |
+|------|------|
+| **平台** | `CNMC` / `SDNCC` / `CNSOC` / `SETTINGS`，见 `constants/navigation.ts`。 |
+| **业务域** | 平台内可独立讲解的一块能力（如 Harvester 下的 `ecs`、`ebs`、`containers`、`kube-ovn`）。 |
+| **前端角色** | 同一域内按 UI 职责划分：`sections`、`drawers`、`modals`、`lib`、`components` 等。 |
+| **横切** | 与具体页面弱相关、多模块复用的代码，放在 `src/components`、`hooks`、`utils` 等根级目录。 |
+
+---
+
+## 3. 设计原则
+
+1. **平台第一刀**：`pages/` 顶层按 **平台** 划分（`cnmc/`、`sdncc/`、`cnsoc/`、`settings/` 等），与 `RouteSpec.platform` 一致，或经团队登记的例外。
+2. **业务域第二刀**：平台内再按 **业务域** 分（云厂商、功能子系统、PaaS 子模块等）。
+3. **域内按前端角色第三刀**：在业务域内使用 `sections/`、`drawers/`、`modals/`、`lib/`（大域必选；小域可先扁平，膨胀后再拆）。
+4. **跨域复用进 shared**：仅当 **≥2 个业务域** 明确依赖时，再上浮到该云类型下的 `shared/`（Harvester 见上述修改纪要）；**跨平台**复用进 `src/components` 等根级。
+5. **PaaS 归属 CNMC**：云数据库等托管能力业务上依赖资源池，**不是**与「多云管理」平级的独立顶层产品；源码放在 **`pages/cnmc/paas/`**（如 `cloud-database/`）。
+6. **URL 不与目录强制同构**：对外 path 无需与文件夹逐段对应；`lazy(import)` 指向真实文件即可。
+7. **迁移可渐进**：允许过渡期 barrel 再导出等；每步 **`npx tsc --noEmit`**验收。
+
+---
+
+## 4. 命名规范
+
+| 对象 | 约定 | 示例 |
+|------|------|------|
+| **目录（pages 内，通用）** | 小写、`kebab-case` | `cloud-database`、`sec-mgr-plane` |
+| **目录（云厂商等）** | 小写、与产品/后端称谓一致 | `harvester`、`aliyun`、`huawei`、`cloudmap` |
+| **React 组件文件** | `PascalCase.tsx` | `VmSection.tsx` |
+| **非组件 TS/TSX** | `camelCase.ts` | `vmWizardUtils.ts` |
+| **样式** | 与组件同目录或 `*.module.css`；全局样式在 `global-new.css` 等约定位置 | — |
+
+与仓库根目录 **`AGENTS.md`** 中「组件 PascalCase、工具 camelCase」一致。
+
+---
+
+## 5. 平台与 `pages/` 顶层映射
+
+| 平台 | 说明 | `pages/` 顶层目录 |
+|------|------|-------------------|
+| **CNMC** | 资源池、云详情、控制台、租户（若路由属 CNMC）、**PaaS** | `pages/cnmc/` |
+| **SDNCC** | SRv6、IPsec、VR、ACL、NAT | `pages/sdncc/` |
+| **CNSOC** | 安全管理面、流量编排、SecOps 等 | `pages/cnsoc/` |
+| **SETTINGS** | 通用设置、审计、授权、访问控制 | `pages/settings/` |
+
+**不放入 `pages/` 的壳层与横切**（保持在 `src/` 根下）：
+
+`components/`、`layouts/`、`contexts/`、`hooks/`、`constants/`、`routes/`、`services/`、`types/`、`utils/`、`assets/`，以及 `App.tsx`、`index.tsx`。
+
+---
+
+## 6. `src/` 顶层目录树与职责
+
+**当前仓库典型顶层（与代码一致）**：
 
 ```
-src/
-├── assets/              # 静态资源（图片、图标等）
-├── components/          # 公共组件
-├── constants/           # 常量定义
-├── contexts/            # React Context（全局状态）
-├── hooks/               # 自定义 Hooks
-├── layouts/             # 布局组件
-├── pages/               # 页面组件（按功能模块组织）
-├── routes/              # 路由配置
-├── services/            # API 服务层
-├── types/               # TypeScript 类型定义
-├── utils/               # 工具函数
-├── App.tsx              # 应用入口组件
-├── index.tsx             # 应用入口文件
-├── global-new.css       # 全局样式
-├── setupProxy.js        # 开发环境代理配置
-└── setupTests.ts        # 测试环境配置
+frontend/src/
+├── App.tsx
+├── index.tsx
+├── global-new.css
+├── setupProxy.js
+├── setupTests.ts
+├── STRUCTURE.md           # 本文件（权威）
+├── assets/                # 静态资源（图片、图标等）
+├── components/            # 全局可复用 UI（弱业务或跨平台）
+├── constants/             # 常量；含 navigation、权限与导航目录等
+├── contexts/              # React Context（如 Auth、License、Settings）
+├── hooks/                 # 全局或跨页面 Hooks
+├── layouts/               # 布局壳
+├── pages/                 # 按平台与业务域组织的页面（见 §7）
+├── routes/                # RouteSpec、路由装配
+├── services/              # API 调用层
+├── types/
+└── utils/
 ```
-
-## 📋 目录职责
 
 ### `assets/`
-静态资源文件，包括：
-- 图片文件（.png, .svg）
-- 图标资源
-- 其他静态文件
+
+静态资源：图片、图标等。
 
 ### `components/`
-可复用的公共组件，包括：
-- 页面容器组件（PageContainer, PageDetailContainer, PageDetailSection）
-- 表单与抽屉（StdFormModal, StdSideDrawer）
-- 表格列设置（TableColumnSettingsButton，配合 `hooks/useTableColumnSettings`）
-- 工具组件（ResourceActionsDropdown 等）
-- 路由组件（AdminRoute, PrivateRoute）
+
+全局复用组件，例如：`PageContainer` / `PageDetailContainer` / `PageDetailSection`，`StdFormModal` / `StdSideDrawer`，`TableColumnSettingsButton`（配合 `hooks/useTableColumnSettings`），`ResourceActionsDropdown`，`AdminRoute` / `PrivateRoute` 等。
+
+**注意**：CNMC 下**强业务**、且仅某一云或某一域使用的块，优先放在对应 `pages/cnmc/...` 域内，避免无故塞进全局 `components/`（见 §9 反模式）。
 
 ### `constants/`
-常量定义，包括：
-- 业务常量（如省份城市数据）
-- 导航与权限相关（如 `navCatalog.ts`、`cloudPermissions.ts`）
+
+业务常量、`navCatalog.ts`、`cloudPermissions.ts` 等与导航/权限相关定义。
 
 ### `contexts/`
-React Context 提供者，包括：
-- AuthContext - 认证状态
-- LicenseContext - 授权状态
-- SettingsContext - 系统设置
+
+如：`AuthContext`、`LicenseContext`、`SettingsContext`。
 
 ### `hooks/`
-自定义 React Hooks，包括：
-- useTableColumnSettings - 表格列设置
+
+如：`useTableColumnSettings`；仅某一业务域使用的 Hook 可放在该域内（若已拆域）。
+
+### `layouts/`
+
+应用级布局组件。
 
 ### `pages/`
-页面组件，按功能模块组织：
-- `Access/` - 权限管理
-- `Clouds/` - 云资源管理（各云类型下再分子模块；Harvester 体量较大，目录约定见仓库 `deployment/修改纪要_Harvester前端目录结构_域优先与shared.md`）
-- `Dashboard/` - 仪表盘
-- `InterConnect/` - 互联互通
-- `Settings/` - 系统设置
-- `Tenants/` - 租户管理
-- 等等
+
+页面与大型业务模块根组件；**顶层按平台分**（§5、§7）。
+
+### `routes/`
+
+`RouteSpec.ts` 等；**`platform` 字段须与页面归属一致**（或登记例外）。
 
 ### `services/`
-API 服务层，每个文件对应一个业务模块的 API：
-- `api.ts` - 通用 API
-- `harvesterApi.ts` - Harvester API
-- `aliyunApi.ts` - 阿里云 API
-- 等等
 
-### `types/`
-TypeScript 类型定义文件
+API 封装：`api.ts`、`harvesterApi.ts`、`aliyunApi.ts` 等。
 
-### `utils/`
-工具函数，包括：
-- 访问权限映射
-- 云资源标准化
-- 格式化工具
-- 等等
+### `types/`、`utils/`
 
-## 🔄 已优化项
+类型定义与通用工具；访问权限映射、格式化等。
 
-1. ✅ **空目录清理**
-   - `domains/` - 已删除
-   - `shared/` - 已删除
-   - `catalogs/` - 已删除（文件已移至 constants/）
+---
 
-2. ✅ **文件整理**
-   - `catalogs/navCatalog.ts` → `constants/navCatalog.ts` - 已完成
+## 7. `pages/` 结构（目标形态与当前方向）
 
-3. ✅ **CSS 迁移**
-   - `global.css` → `global-new.css` 的迁移已完成，`global.css` 已删除
+以下为 **规范目标形态**；子目录会随迁移继续收敛，新增代码 **按此方向** 落位。
 
-4. ✅ **未引用代码清理**（持续进行）
-   - 已移除未被任何模块 import 的组件、常量等；权限元数据以 `hooks/usePermissionDefinitions` 与后端为准，已删除遗留的 `permissionCatalog` 式推断文件
-   - 表格分页在页面内按需配置，未使用单独 `constants/pagination` 模块
+```
+frontend/src/pages/
+├── auth/                    # 登录等
+├── coming-soon/
+│
+├── cnmc/                    # ========== CNMC ==========
+│   ├── dashboard/           # 资源总览
+│   ├── pools/             # 资源池列表、详情闸门、实例详情入口等
+│   ├── clouds/
+│   │   ├── Harvester/     # 云详情：域 + sections/modals/shared（细则见 Harvester 修改纪要）
+│   │   ├── Aliyun/、Hw/、Cloudmap/、Csm/ 等（与仓库目录名一致）
+│   ├── console/           # WebSSH、控制台等
+│   ├── tenants/           # 租户相关（路由属 CNMC 者）
+│   └── paas/
+│       ├── cloud-database/  # sections / modals / drawers、index 聚合导出
+│       └── …                # 未来其他托管子模块
+│
+├── sdncc/                   # ========== SDNCC ==========
+│   └── （SRv6、IPsec、VR、ACL、NAT 等按域分子目录）
+│
+├── cnsoc/                   # ========== CNSOC ==========
+│   └── （安全管理面、流量编排、SecOps 等）
+│
+└── settings/                # ========== SETTINGS ==========
+    └── （通用设置、审计、授权、访问控制等）
+```
 
-## 📝 命名规范
+**补充**：
 
-- **组件文件**: PascalCase（如 `PageContainer.tsx`）
-- **工具文件**: camelCase（如 `harvesterUtils.ts`）
-- **类型文件**: camelCase（如 `cloud.ts`）
-- **常量文件**: camelCase（如 `navCatalog.ts`）
+- `pools/` 承载资源池列表与选云后的壳；各云深度实现放在 `clouds/<vendor>/`。
+- Harvester **内部**目录树 **不在此重复展开**；必须遵守 **`deployment/docs/specs/修改纪要_Harvester前端目录结构_域优先与shared.md`**。
+- 可选：在 `tsconfig.json` 配置路径别名（如 `@/`）缩短 import。
 
-## 🎯 最佳实践
+---
 
-1. **组件复用**: 公共逻辑提取到 `components/` 或 `hooks/`
-2. **类型安全**: 使用 TypeScript 类型定义，放在 `types/`
-3. **API 封装**: 所有 API 调用通过 `services/` 层
-4. **常量管理**: 业务常量统一放在 `constants/`
-5. **工具函数**: 通用工具函数放在 `utils/`
-6. **无用文件**: 可用 `npx knip` 辅助发现未被引用的源文件；`setupProxy.js`、`setupTests.ts` 及 `*.test.ts(x)` 常被静态分析标为「未使用」，属正常，勿删
+## 8. 业务域内子目录角色（通用）
+
+| 子目录 | 用途 |
+|--------|------|
+| `sections/` | 列表页、详情 Tab 主内容区等大型区块 |
+| `drawers/` | 侧滑详情、复杂表单抽屉 |
+| `modals/` | 对话框、向导弹窗 |
+| `lib/` | 域内纯函数、常量、非 UI 拼装逻辑 |
+| `components/` | 域内复用、但不足以单独成 section 的块 |
+
+**判定**：只服务 **一个** 业务域 → 放在该域对应子目录；**≥2 域** → 该云下的 `shared/`（Harvester）或上浮至 `src/components`（跨平台）。
+
+---
+
+## 9. 放置判定表与反模式
+
+| 情况 | 放置位置 |
+|------|----------|
+| 新页面路由归属某平台 | `pages/<平台>/...`，且与 `RouteSpec.platform` 一致 |
+| 仅某云类型使用 | `pages/cnmc/clouds/<vendor>/...` 下对应域 |
+| 仅 Harvester 某域使用 | `Harvester/<域>/sections|drawers|modals|lib|components/` |
+| Harvester 多域共用 | `Harvester/shared/...`（见修改纪要） |
+| 多平台或全局复用 UI | `src/components/` 或 `src/hooks/` |
+| API 封装 | `src/services/` |
+| 路由声明 | `src/routes/RouteSpec.ts` 等 |
+
+**反模式**：
+
+- 在云目录根长期堆积 **仅单域使用** 的 `modals/`、`components/`（应迁入域内或 `shared`）。
+- 因路径或文件夹名把 **PaaS** 口头说成与 **CNMC** 平级产品（与 `platform` 矛盾）。
+- 为省事把 CNMC 强业务组件塞进 `src/components`，造成全局耦合（应先域内，再评估上浮）。
+
+---
+
+## 10. URL、懒加载与路由
+
+- 对外 **path**（如 `/admin/paas/databases`）无需与 `pages/cnmc/paas/...` 逐段对应。
+- 目录调整 **不改变** 对外 URL 时，更新 `lazy(() => import('…'))` 与 import 即可。
+
+---
+
+## 11. 迁移阶段与验收（渐进）
+
+| 阶段 | 内容 | 验收 |
+|------|------|------|
+| 0 | 团队以本文 + Harvester 修改纪要为约定；**新代码按目标路径** | Review |
+| 1 | 新目录壳、必要时 barrel 再导出 | `npx tsc --noEmit` |
+| 2–n | 存量页面与 import 按 §5、§7 持续收敛 | `tsc` + 关键路径手工点选 |
+
+优先 **`git mv`** 保留历史；Windows 上目录 **大小写** 重命名用两步 `git mv` 或团队约定流程，避免索引未更新。
+
+**收敛完成度自检（持续维护）**：
+
+- [ ] `RouteSpec.platform` 与页面归属一致，或本文档登记例外。
+- [ ] PaaS 源码在 `pages/cnmc/paas/`，语义上属 CNMC 子能力。
+- [ ] Harvester 符合修改纪要（域 / `shared` / `monitoring` 小写等）。
+- [ ] `npx tsc --noEmit` 通过；发版前生产构建通过。
+
+---
+
+## 12. 仓库内已做过的整理（参考）
+
+1. **空目录清理**：历史 `domains/`、`src/shared/`、`catalogs/` 等已删除或迁移（`navCatalog` 等已归 `constants/`）。
+2. **样式**：`global.css` 已弃用，统一 `global-new.css`。
+3. **未引用代码**：持续用 `npx knip` 等辅助；`setupProxy.js`、`setupTests.ts`、`*.test.ts(x)` 常被静态分析标为未引用，**属正常，勿删**。
+4. **`pages/` 顶层**：已按平台收敛为 **`cnmc/`、`sdncc/`、`cnsoc/`、`settings/`** 等与 §5 一致的方向（其下各业务仍在演进）。
+
+---
+
+## 13. 本地开发命令
+
+在仓库根目录进入 `frontend/` 后：
+
+```bash
+cd frontend
+npm install
+npm run start    # 开发；端口与代理见 package.json / setupProxy.js
+npm run build
+npx tsc --noEmit
+```
+
+---
+
+## 14. 修订记录
+
+| 日期 | 说明 |
+|------|------|
+| 2026-04-11 | 原 `deployment/docs/specs/前端目录结构规范.md` 全文并入本文；本文成为唯一权威 |
+| 2026-04-11 | 对齐当前 `pages/` 平台顶层与 `cnmc` 子目录；补充与 `README`、Harvester 纪要的分工 |
+| 2026-04-13 | 与 `frontend/README.md` 合并职责：`README` 仅入口；规范与命令统一以本文为准 |

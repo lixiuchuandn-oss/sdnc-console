@@ -11,6 +11,7 @@ export type Platform = 'CNMC' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | '全部';
 
 export type Group = 
   | '资源池管理' 
+  | 'PaaS服务'
   | '资源控制台'
   | '租户管理' 
   | '售卖管理' 
@@ -47,6 +48,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
 export const GROUPS: Group[] = [
   '全部',
   '资源池管理',
+  'PaaS服务',
   '资源控制台',
   '租户管理',
   '售卖管理',

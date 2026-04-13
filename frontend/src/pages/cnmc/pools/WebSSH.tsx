@@ -2,17 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Row, Col, Form, Input, Button, Space, Alert, Radio, Card, Tag } from 'antd';
 import { FullscreenOutlined, FullscreenExitOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
-import PageContainer from '../../components/PageContainer';
-import { API_BASE_URL } from '../../services/api';
+import PageContainer from '../../../components/PageContainer';
+import { API_BASE_URL } from '../../../services/api';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { getToken } from '../../utils/tokenStorage';
+import { getToken } from '../../../utils/tokenStorage';
 import 'xterm/css/xterm.css';
 
 /**
  * ==============================================================================
  * 模块名称: WebSSH 终端页面 (WebSSH Terminal Page)
- * 文件路径: src/pages/Clouds/WebSSH.tsx
+ * 文件路径: frontend/src/pages/cnmc/pools/WebSSH.tsx
  * ==============================================================================
  * 
  * [功能描述]

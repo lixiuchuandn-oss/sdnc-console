@@ -110,6 +110,11 @@ export interface PageContainerProps<T = any> {
   breadcrumb?: Array<{ label: React.ReactNode; href?: string }>;
   /** 标题右侧额外内容 */
   extra?: React.ReactNode;
+  /**
+   * 标题行内、主标题之后的内容（与图标、主标题同一行）。
+   * 用于可用区/资源池等筛选，避免占用 toolbar 单独换行。
+   */
+  headerTrailing?: React.ReactNode;
   /** 页面副标题（如果未提供，将从路由配置中自动获取） */
   subtitle?: React.ReactNode;
   /** 标题级别（h1-h5），默认 4 */
@@ -211,6 +216,7 @@ const PageContainer = <T extends Record<string, any> = any>({
   icon,
   breadcrumb,
   extra,
+  headerTrailing,
   children,
   collapsibleChildren,
   bordered = true,
@@ -583,7 +589,7 @@ const PageContainer = <T extends Record<string, any> = any>({
       {!hideHeader && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           {/* 左侧：图标 + 标题 */}
-          <Space size={8} style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
+          <Space size={8} style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 8 }}>
             {displayIcon}
             <Typography.Title 
               level={titleLevel} 
@@ -597,6 +603,7 @@ const PageContainer = <T extends Record<string, any> = any>({
             >
               {displayTitle}
             </Typography.Title>
+            {headerTrailing}
           </Space>
           
           {/* 右侧：额外内容 + 返回按钮 */}

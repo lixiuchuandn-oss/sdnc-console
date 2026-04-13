@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 模块名称: 云资源接入向导 (Cloud Resource Access Wizard)
- * 文件路径: src/pages/Clouds/CloudWizard.tsx
+ * 文件路径: frontend/src/pages/cnmc/pools/CloudWizard.tsx
  * ==============================================================================
  * 
  * [功能描述]
@@ -40,13 +40,13 @@ import {
   EyeOutlined, EyeInvisibleOutlined,
   AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, ClusterOutlined, AppstoreOutlined, CodeSandboxOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined
 } from '@ant-design/icons';
-import './Harvester/modals/VmCreateWizard/InstanceWizard.css';
-import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from './providers';
-import { useLicense } from '../../contexts/LicenseContext';
-import cloudmapKeyImage from '../../assets/clouds/cloudmapkey.png';
-import cloudmapApiImage from '../../assets/clouds/cloudmapapi.png';
-import { provinces, cityOptionsByProvince } from '../../constants/chinaRegions';
-import { apiPost, apiRequest } from '../../services/api';
+import '../clouds/Harvester/ecs/modals/VmCreateWizard/InstanceWizard.css';
+import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from './poolProviders';
+import { useLicense } from '../../../contexts/LicenseContext';
+import cloudmapKeyImage from '../../../assets/clouds/cloudmapkey.png';
+import cloudmapApiImage from '../../../assets/clouds/cloudmapapi.png';
+import { provinces, cityOptionsByProvince } from '../../../constants/chinaRegions';
+import { apiPost, apiRequest } from '../../../services/api';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -92,7 +92,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   // 试用或未开通多云：跳过选择云平台，直接进入 CloudMap 私有云配置
   useEffect(() => {
     if (visible && !licenseLoading && isCloudMapOnly) {
-      const cloudmapProvider = cloudProviders.find(p => p.id === 'cloudmap.private');
+      const cloudmapProvider = cloudProviders.find((p: CloudProvider) => p.id === 'cloudmap.private');
       if (cloudmapProvider) {
         setPoolType('private');
         setSelectedProvider(cloudmapProvider);
@@ -258,7 +258,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       setTestResult({ success: !!json?.ok, message: msg });
     } catch (error: any) {
       // 使用统一错误处理
-      const { handleApiError } = require('../../utils/errorHandler');
+      const { handleApiError } = require('../../../utils/errorHandler');
       const apiError = handleApiError(error, { 
         showMessage: false, 
         defaultMessage: '连接测试失败' 
@@ -515,12 +515,12 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 ))}
               </Row>
             </div>
-            {poolType === 'central' && renderProviderGrid('central', '公有云', cloudProviders.filter(p => p.category === 'central'))}
-            {poolType === 'private' && renderProviderGrid('private', '私有云', cloudProviders.filter(p => p.category === 'private'))}
-            {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter(p => p.category === 'virtualization'))}
-            {poolType === 'object_storage' && renderProviderGrid('object_storage', '对象存储', cloudProviders.filter(p => p.category === 'object_storage'))}
-            {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter(p => p.category === 'edge'))}
-            {poolType === 'security_pool' && renderProviderGrid('security_pool', '安全资源池', cloudProviders.filter(p => p.category === 'security_pool'))}
+            {poolType === 'central' && renderProviderGrid('central', '公有云', cloudProviders.filter((p: CloudProvider) => p.category === 'central'))}
+            {poolType === 'private' && renderProviderGrid('private', '私有云', cloudProviders.filter((p: CloudProvider) => p.category === 'private'))}
+            {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter((p: CloudProvider) => p.category === 'virtualization'))}
+            {poolType === 'object_storage' && renderProviderGrid('object_storage', '对象存储', cloudProviders.filter((p: CloudProvider) => p.category === 'object_storage'))}
+            {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter((p: CloudProvider) => p.category === 'edge'))}
+            {poolType === 'security_pool' && renderProviderGrid('security_pool', '安全资源池', cloudProviders.filter((p: CloudProvider) => p.category === 'security_pool'))}
           </div>
         );
 
@@ -560,7 +560,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               </Form.Item>
 
               {/* 动态渲染 Provider 定义的字段 */}
-              {selectedProvider.fields.map(field => {
+              {selectedProvider.fields.map((field: CloudProviderField) => {
                 // 渲染输入组件
                 let inputElement: React.ReactNode = null;
                 
@@ -571,7 +571,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 } else if (field.type === 'select') {
                   inputElement = (
                     <Select placeholder={field.placeholder}>
-                      {field.options?.map(option => (
+                      {field.options?.map((option: { value: string; label: string }) => (
                         <Option key={option.value} value={option.value}>
                           {option.label}
                         </Option>

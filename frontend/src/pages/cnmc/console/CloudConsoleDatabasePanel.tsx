@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
-import { PaasSection } from '../Harvester/paas';
+import { PaasSection } from '../paas/cloud-database';
 
 type NavResource = { key: string; label: string; paasType: string };
 

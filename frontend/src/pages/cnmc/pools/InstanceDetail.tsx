@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Descriptions, Divider, Empty, message, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
-import PageContainer from '../../components/PageContainer';
+import PageContainer from '../../../components/PageContainer';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, apiRequest } from '../../services/api';
-import { fetchCloudProviderEnis } from '../../services/aliyunApi';
-import { cnVmStatus } from '../../utils/harvesterUtils';
+import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, apiRequest } from '../../../services/api';
+import { fetchCloudProviderEnis } from '../../../services/aliyunApi';
+import { cnVmStatus } from '../../../utils/harvesterUtils';
 
 const InstanceDetail: React.FC = () => {
   const navigate = useNavigate();

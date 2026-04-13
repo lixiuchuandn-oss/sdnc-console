@@ -14,8 +14,7 @@ import { pickFirstNamespaceRecordByScenario } from '../../../utils/harvesterUtil
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import ServicesSection from '../Harvester/cluster/ServicesSection';
-import IngressesSection from '../Harvester/sections/IngressesSection';
+import ServicesSection from '../clouds/Harvester/cluster/sections/ServicesSection';
 import {
   WorkloadsSection,
   PodsSection,
@@ -25,7 +24,8 @@ import {
   GatewayApiSection,
   PDBSection,
   NetworkPoliciesSection,
-} from '../Harvester/containers';
+  IngressesSection,
+} from '../clouds/Harvester/containers';
 
 type NavResource = { key: string; label: string };
 

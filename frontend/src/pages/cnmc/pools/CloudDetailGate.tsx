@@ -6,14 +6,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Alert, Button, Spin, Space } from 'antd';
 import { CloudUploadOutlined, HomeOutlined, ReloadOutlined } from '@ant-design/icons';
-import PageDetailContainer from '../../components/PageDetailContainer';
-import CloudDetailHw from './Hw/CloudDetailHw';
-import CloudDetailHarvester from './Harvester/CloudDetailHarvester';
-import CloudDetailAliyun from './Aliyun/CloudDetailAliyun';
-import CloudDetailCsm from './Csm/CloudDetailCsm';
-import CloudDetailCloudmap from './Cloudmap/CloudDetailCloudmap';
-import { getProviderName } from './providers';
-import { fetchCloudById } from '../../services/api';
+import PageDetailContainer from '../../../components/PageDetailContainer';
+import CloudDetailHw from '../clouds/Hw/CloudDetailHw';
+import CloudDetailHarvester from '../clouds/Harvester/CloudDetailHarvester';
+import CloudDetailAliyun from '../clouds/Aliyun/CloudDetailAliyun';
+import CloudDetailCsm from '../clouds/Csm/CloudDetailCsm';
+import CloudDetailCloudmap from '../clouds/Cloudmap/CloudDetailCloudmap';
+import { getProviderName } from './poolProviders';
+import { fetchCloudById } from '../../../services/api';
 
 type CloudItem = {
   id: string;

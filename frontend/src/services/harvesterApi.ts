@@ -1513,18 +1513,6 @@ export const patchHarvesterVm = async (cloudId: string, namespace: string, name:
 };
 
 /**
- * 停止 Harvester 虚拟机
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @param force 是否强制停止，默认 false
- * @returns Promise<any>
- */
-export const stopHarvesterVm = async (cloudId: string, namespace: string, name: string, force = false) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/stop`, { force });
-};
-
-/**
  * 恢复虚拟机（从回收站）
  * @param cloudId 云环境 ID
  * @param instanceId 虚拟机实例 ID
@@ -1567,17 +1555,6 @@ export const pauseHarvesterVm = async (cloudId: string, namespace: string, name:
 export const unpauseHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
   const instanceId = `${namespace}/${name}`;
   return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/unpause`, {});
-};
-
-/**
- * 启动 Harvester 虚拟机
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @returns Promise<any>
- */
-export const startHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/start`, {});
 };
 
 // --- Added Delete Functions ---
