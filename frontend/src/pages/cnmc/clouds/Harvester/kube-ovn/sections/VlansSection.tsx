@@ -13,7 +13,7 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { clearCache } from '../../../../../../utils/requestManager';
-import VlanPlanDrawer from '../drawers/vlan-plan-drawer';
+import ProviderNetworkDetailDrawer from '../drawers/provider-network-detail-drawer';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
 
 const { Option } = Select;
@@ -395,7 +395,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         <div className="toolbar-actions">
           {canWriteVlan && (
             <Button type="primary" onClick={() => setVlanPlanOpen(true)}>
-              VLAN 规划
+              网络规划
             </Button>
           )}
           <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_vlans_table" />
@@ -413,7 +413,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
       />
 
-      <VlanPlanDrawer
+      <ProviderNetworkDetailDrawer
         open={vlanPlanOpen}
         onClose={() => setVlanPlanOpen(false)}
         cloudId={cloudId}
@@ -426,7 +426,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
           setDrawerOpen(false);
           setDrawerRecord(null);
         }}
-        resourceType="VLAN 规划 (Kube-OVN)"
+        resourceType="网络规划 (Kube-OVN)"
         record={drawerRecord}
         activeTab={drawerTab}
         onTabChange={setDrawerTab}

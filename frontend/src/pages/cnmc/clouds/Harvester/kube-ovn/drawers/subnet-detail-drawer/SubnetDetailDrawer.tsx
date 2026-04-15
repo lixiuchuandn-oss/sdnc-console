@@ -2,7 +2,7 @@
  * ==============================================================================
  * Kube-OVN 子网详情抽屉（扁平/公共子网、VPC 子网）
  * ==============================================================================
- * 布局对齐 HarvesterVmDetailDrawer（顶栏、Segmented）；详情 Card 样式对齐 vlan-plan-drawer/VlanPlanDrawer「物理网络信息」；ACL 区标题行对齐「VLAN 规划」。
+ * 布局对齐 HarvesterVmDetailDrawer（顶栏、Segmented）；详情 Card 样式对齐 provider-network-detail-drawer/ProviderNetworkDetailDrawer「网络信息」；ACL 区标题行对齐「网络规划」。
  * 用于：虚拟机创建向导、资源列表页等。
  * ==============================================================================
  */
@@ -354,7 +354,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
   const vlanDisplay = vlanRef || (vpcDisplay ? '—' : 'overlay');
   const vlanTitle = !vlanRef && !vpcDisplay ? '未绑定 VLAN，纯 OVN overlay' : undefined;
 
-  /** 与 VlanPlanDrawer「物理网络信息」一致：label 宽度与颜色 */
+  /** 与 ProviderNetworkDetailDrawer「网络信息」一致：label 宽度与颜色 */
   const descLabelStyle = { label: { width: 96, color: '#888' } };
 
   /** VPC 业务子网（注解 vpc 或界面「VPC 子网」）不展示 VLAN/物理网络卡片 */
@@ -366,7 +366,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
 
   const detailCard = (
     <>
-      {/* 卡片样式对齐 vlan-plan-drawer/VlanPlanDrawer：borderless + body padding 16；标题为卡片内首行，非 Card title */}
+      {/* 卡片样式对齐 provider-network-detail-drawer/ProviderNetworkDetailDrawer：borderless + body padding 16；标题为卡片内首行，非 Card title */}
       <Card variant="borderless" styles={{ body: { padding: 16 } }}>
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>基本信息</div>
         <Row gutter={[24, 16]}>
@@ -477,7 +477,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
     />
   );
 
-  /** 与 VlanPlanDrawer「VLAN 规划」一致：标题行 + 主按钮；规则与录入在同一 Card 内平铺，无内层嵌套卡片 */
+  /** 与 ProviderNetworkDetailDrawer「网络规划」一致：标题行 + 主按钮；规则与录入在同一 Card 内平铺，无内层嵌套卡片 */
   const aclPanel = (
     <Card variant="borderless" styles={{ body: { padding: 16 } }}>
       <div

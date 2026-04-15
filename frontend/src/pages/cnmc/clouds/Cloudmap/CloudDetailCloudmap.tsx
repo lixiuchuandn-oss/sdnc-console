@@ -40,6 +40,7 @@ import PageDetailContainer from '../../../../components/PageDetailContainer';
 import {
   API_BASE_URL,
   apiPost,
+  fetchCloudById,
   fetchCloudProviderEcs,
 } from './runtime/api';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -406,6 +407,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [rawClusterNetworks, setRawClusterNetworks] = useState<any | null>(
     null,
   );
+  /**
+   * 物理交换机（ASW-CTL）聚合探测结果。ASW-CTL 部署在集群内、对外 HTTP 由 Service 等暴露；
+   * Tower 通过 `/api/clouds/:id/resources/harvester/asw-ctl/switches` 代理拉取。UI 在 Harvester/cluster
+   * 的 PhysicalSwitchesSection，此处只持状态并下传给 CloudmapClusterTabs。
+   */
+  const [aswSwitchSummary, setAswSwitchSummary] = useState<any | null>(null);
   const [rawIngresses, setRawIngresses] = useState<any | null>(null);
 
   // 虚拟机状态更新缓冲，防止 SSE 频繁触发重渲染
@@ -509,6 +516,15 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
    * 包括: 云信息, VM, 网络, 卷, 镜像, 节点, 命名空间
    * @param force 是否强制刷新
    */
+  const reloadCloudMeta = React.useCallback(async () => {
+    try {
+      const c = await fetchCloudById(cloudId, { skipCache: true });
+      if (c) setCloud(c as CloudItem);
+    } catch {
+      /* 忽略：详情页仍可用缓存的 cloud */
+    }
+  }, [cloudId]);
+
   const loadEssentials = React.useCallback(
     (force = false) => {
       runLoadEssentials(force, {
@@ -608,6 +624,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       setRawIPPools,
       setHarvesterClusterNetworks,
       setRawClusterNetworks,
+      setAswSwitchSummary,
       setHarvesterNodes,
       setRawNodes,
       setHarvesterStorageClasses,
@@ -698,6 +715,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         'vlans',
         'ippools',
         'clusterNetworks',
+        'cluster_physical_switches', // ASW-CTL 探测（resourceLoading.aswSwitches）
         'kubeovn_public_networks',
         'eips',
         'fips',
@@ -746,6 +764,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         if (
           k === 'clusterNetworks' &&
           previouslyLoaded.includes('clusterNetworks')
+        )
+          shouldRefresh = true;
+        if (
+          k === 'cluster_physical_switches' &&
+          previouslyLoaded.includes('aswSwitches')
         )
           shouldRefresh = true;
         if (
@@ -1400,6 +1423,9 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                         rawUsbDevices={rawUsbDevices}
                         harvesterPciDevices={harvesterPciDevices}
                         rawPciDevices={rawPciDevices}
+                        aswSwitchSummary={aswSwitchSummary}
+                        cloudConfig={cloud?.config ?? null}
+                        onReloadCloudMeta={reloadCloudMeta}
                         resourceLoading={resourceLoading}
                       />
                     ),

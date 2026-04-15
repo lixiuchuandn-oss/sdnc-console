@@ -3,9 +3,9 @@ import ReactFlow, {
   Background,
   BackgroundVariant,
   Controls,
-  Position,
   type Edge,
   type Node,
+  Position,
 } from 'react-flow-renderer';
 import 'react-flow-renderer/dist/style.css';
 import { Spin } from 'antd';
@@ -32,6 +32,31 @@ export type PnSubnetRef = {
   cidr: string;
 };
 
+export type ProviderNetworkTopologyGraphProps = {
+  pnDisplayTitle: string;
+  pnMetaName: string;
+  pnReady: boolean;
+  pnNicTopology: PnNicTopologyShape | null;
+  pnReadyNodes: string[];
+  displayedVlans: any[];
+  publicSubnetsForPn: PnSubnetRef[];
+  flatSubnetsForPn: PnSubnetRef[];
+  vlanLoading: boolean;
+};
+
+const FLOW_OUTER_STYLE: React.CSSProperties = {
+  flex: 1,
+  minHeight: 200,
+  width: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  borderRadius: 10,
+  border: '1px solid #e8e8e8',
+  background: '#f5f7fa',
+  overflow: 'hidden',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85)',
+};
+
 const LAYER_X = {
   nic: 0,
   provider: 300,
@@ -53,18 +78,6 @@ function ProviderBlock(props: { title: string; ready: boolean }) {
     />
   );
 }
-
-export type ProviderNetworkTopologyGraphProps = {
-  pnDisplayTitle: string;
-  pnMetaName: string;
-  pnReady: boolean;
-  pnNicTopology: PnNicTopologyShape | null;
-  pnReadyNodes: string[];
-  displayedVlans: any[];
-  publicSubnetsForPn: PnSubnetRef[];
-  flatSubnetsForPn: PnSubnetRef[];
-  vlanLoading: boolean;
-};
 
 const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> = ({
   pnDisplayTitle,
@@ -314,21 +327,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
   ]);
 
   return (
-    <div
-      className="pn-provider-topology-flow"
-      style={{
-        flex: 1,
-        minHeight: 200,
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRadius: 10,
-        border: '1px solid #e8e8e8',
-        background: '#f5f7fa',
-        overflow: 'hidden',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85)',
-      }}
-    >
+    <div className="pn-provider-topology-flow" style={FLOW_OUTER_STYLE}>
       <style>{flowChromeStyles}</style>
       <ReactFlow
         key={flowKey}

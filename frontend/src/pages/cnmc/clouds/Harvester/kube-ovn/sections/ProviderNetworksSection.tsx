@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Table, List, Modal, Form, Input, Select, message, Tag, Space, Alert, Tooltip, Badge, Segmented } from 'antd';
 import { ReloadOutlined, LayoutTwoTone, SearchOutlined } from '@ant-design/icons';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
@@ -19,7 +18,9 @@ import { clearCache } from '../../../../../../utils/requestManager';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_PROVIDER_NETWORKS_READ, CLOUD_PROVIDER_NETWORKS_WRITE } from '../../../../../../constants/cloudPermissions';
-import VlanPlanDrawer from '../drawers/vlan-plan-drawer';
+import ProviderNetworkDetailDrawer, {
+  type ProviderNetworkDetailDrawerSegment,
+} from '../drawers/provider-network-detail-drawer';
 import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../../../utils/towerKubeOvnNames';
 import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../lib/kubeOvnSubnetConstants';
 
@@ -68,33 +69,21 @@ const ProviderNetworksSection: React.FC<Props> = ({
   const [readyFilter, setReadyFilter] = useState<string>('');
   const [vlanFilter, setVlanFilter] = useState<string>('');
   const [customFilter, setCustomFilter] = useState<string>('');
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerRecord, setDrawerRecord] = useState<any>(null);
-  const [drawerTab, setDrawerTab] = useState('detail');
   const [vlanPlanOpen, setVlanPlanOpen] = useState(false);
   const [vlanPlanLockProvider, setVlanPlanLockProvider] = useState<string | null>(null);
+  const [vlanPlanInitialSegment, setVlanPlanInitialSegment] = useState<ProviderNetworkDetailDrawerSegment>('vlan');
 
-  const openVlanPlanForProvider = useCallback((pnName: string) => {
+  const openVlanPlanForProvider = useCallback((pnName: string, segment: ProviderNetworkDetailDrawerSegment = 'vlan') => {
     setVlanPlanLockProvider(pnName);
+    setVlanPlanInitialSegment(segment);
     setVlanPlanOpen(true);
   }, []);
 
   const closeVlanPlanDrawer = useCallback(() => {
     setVlanPlanOpen(false);
     setVlanPlanLockProvider(null);
+    setVlanPlanInitialSegment('vlan');
   }, []);
-
-  const openDrawer = (record: any, tab: string = 'detail') => {
-    const raw = record?.raw || record?.rawData || record;
-    setDrawerRecord({
-      ...raw,
-      kind: 'ProviderNetwork',
-      __flatSubnets: record?.flatSubnets || [],
-      __publicSubnets: record?.publicSubnets || [],
-    });
-    setDrawerTab(tab);
-    setDrawerOpen(true);
-  };
 
   const vlanListForAlias = isParentManaged ? (parentVlans || []) : vlans;
 
@@ -526,18 +515,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
       align: 'left' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
-        if (mode !== 'standard') {
-          items.push({
-            key: 'view',
-            label: '查看YAML',
-            onClick: () => openDrawer(record, 'detail'),
-          });
-        }
         if (canReadProviderNetwork) {
           items.push({
             key: 'vlan-plan',
             label: '详情',
-            onClick: () => openVlanPlanForProvider(String(record.name || '').trim()),
+            onClick: () => openVlanPlanForProvider(String(record.name || '').trim(), 'vlan'),
           });
         }
         if (canWriteProviderNetwork) {
@@ -558,13 +540,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
       },
     },
   ], [
-    openDrawer,
     handleDelete,
     canReadProviderNetwork,
     canWriteProviderNetwork,
     openVlanPlanForProvider,
     vlanAliasMap,
-    mode,
     subnets,
   ]);
 
@@ -789,22 +769,13 @@ const ProviderNetworksSection: React.FC<Props> = ({
         </Form>
       </Modal>
 
-      <VlanPlanDrawer
+      <ProviderNetworkDetailDrawer
         open={vlanPlanOpen}
         onClose={closeVlanPlanDrawer}
         cloudId={cloudId}
         lockProviderName={vlanPlanLockProvider}
+        initialSegment={vlanPlanInitialSegment}
         onSuccess={() => fetchData(true, true)}
-      />
-
-      <HarvesterResourceDrawer
-        open={drawerOpen}
-        onClose={() => { setDrawerOpen(false); setDrawerRecord(null); }}
-        resourceType="物理网络 (ProviderNetwork)"
-        record={drawerRecord}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
-        cloudId={cloudId}
       />
     </div>
   );

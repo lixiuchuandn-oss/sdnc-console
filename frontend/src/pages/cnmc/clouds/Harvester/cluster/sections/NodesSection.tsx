@@ -5,7 +5,7 @@
  * - 按名称关键字、角色、就绪状态过滤
  * - 解析并展示 CPU/内存总量
  * - 通过 metrics.k8s.io 获取实时 CPU/内存使用率并绘制进度条
- * - 打开 HarvesterResourceDrawer 查看节点详情及事件
+ * - 详情抽屉内「运维信息」Tab（ViewLinkTab）查看集群 API 节点 JSON
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress } from 'antd';
@@ -14,8 +14,7 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import HarvesterNodeDetailDrawer from '../../shared/components/HarvesterNodeDetailDrawer';
+import PhysicalNodeDetailDrawer from '../drawers/PhysicalNodeDetailDrawer';
 
 /**
  * 组件入参说明
@@ -32,7 +31,7 @@ type Props = {
   mode?: 'standard' | 'ops';
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mode = 'ops' }) => {
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mode: _mode = 'ops' }) => {
   // 过滤条件：关键字、角色、就绪状态
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
@@ -40,24 +39,9 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mod
   // 从 metrics.k8s.io 拉取到的 CPU/内存使用数据，按节点名索引
   const [metricsMap, setMetricsMap] = useState<Record<string, { cpuUsedCores?: number; memUsedBytes?: number }>>({});
 
-  // 详情抽屉状态
-  const [drawerVisible, setDrawerVisible] = useState(false);
-  const [drawerRecord, setDrawerRecord] = useState<any>(null);
-  const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
-
-  // 物理节点详情抽屉（新）
+  // 物理节点详情抽屉
   const [nodeDetailOpen, setNodeDetailOpen] = useState(false);
   const [nodeDetailRecord, setNodeDetailRecord] = useState<any>(null);
-
-  /**
-   * 统一打开 HarvesterResourceDrawer 的入口
-   * - 在列表视图中 Node 通常没有 kind 字段，这里统一补充为 'Node'
-   */
-  const handleOpenOpsinfo = useCallback(async (record: any, tab: string) => {
-    setDrawerRecord({ ...record, kind: 'Node' });
-    setDrawerActiveTab(tab);
-    setDrawerVisible(true);
-  }, []);
 
   const handleOpenNodeDetail = useCallback((record: any) => {
     setNodeDetailRecord(record);
@@ -328,11 +312,9 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mod
     { title: '内核版本', key: 'kernel', render: (_:any, r:any)=> r?.kernelVersion || r?.status?.nodeInfo?.kernelVersion || '-' },
     { title: '容器运行时', key: 'runtime', render: (_:any, r:any)=> r?.containerRuntimeVersion || r?.status?.nodeInfo?.containerRuntimeVersion || '-' },
     { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
-        const items: any[] = [];
-        items.push({ key: 'detail', label: '详情', onClick: () => handleOpenNodeDetail(r) });
-        if (mode === 'ops') {
-          items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
-        }
+        const items: any[] = [
+          { key: 'detail', label: '详情', onClick: () => handleOpenNodeDetail(r) },
+        ];
         return (
           <ResourceActionsDropdown 
             items={items} 
@@ -341,7 +323,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mod
         );
       } 
     },
-  ], [handleOpenOpsinfo, handleOpenNodeDetail, metricsMap, mode]);
+  ], [handleOpenNodeDetail, metricsMap]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nodes_table');
@@ -405,22 +387,14 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mod
         showTotal: (total) => `共 ${total} 条`,
       }}
     />
-    <HarvesterResourceDrawer
-      open={drawerVisible}
-      onClose={() => setDrawerVisible(false)}
-      resourceType="Node"
-      record={drawerRecord}
-      activeTab={drawerActiveTab}
-      onTabChange={setDrawerActiveTab}
-      cloudId={cloudId}
-    />
-
-    <HarvesterNodeDetailDrawer
+    <PhysicalNodeDetailDrawer
       open={nodeDetailOpen}
       onClose={() => setNodeDetailOpen(false)}
       record={nodeDetailRecord}
       cloudId={cloudId}
       metrics={metricsMap[String(nodeDetailRecord?.name || nodeDetailRecord?.metadata?.name || '')]}
+      onRefreshFromCluster={onRefresh}
+      refreshLoading={loading}
     />
 
     </PageDetailSection>

@@ -1,12 +1,14 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { Drawer, Tabs, Descriptions, Tag, Button, Space, Switch, Select, Card, List } from 'antd';
-import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons';
-import CodeEditor from '../../../../../../components/CodeEditor';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import JsonHighlight from '../../../../../../components/JsonHighlight';
-import { fetchHarvesterResourceByLink } from '../../../../../../services/harvesterApi';
 import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
 import HarvesterEventsTab from './HarvesterEventsTab';
 import ServiceRelatedPodsTab from './ServiceRelatedPodsTab';
+import { ViewLinkTab } from './ViewLinkTab';
+
+export { ViewLinkTab, useViewLinkTab, ViewLinkTabToolbar, ViewLinkTabEditor } from './ViewLinkTab';
+export type { ViewLinkTabModel } from './ViewLinkTab';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;
@@ -37,124 +39,6 @@ export interface HarvesterResourceDrawerProps {
   // 隐藏关联 Pod Tab（用于服务拓扑）
   hideRelatedPods?: boolean;
 }
-
-const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boolean }> = ({ cloudId, viewLink, active }) => {
-  const [content, setContent] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [refreshInterval, setRefreshInterval] = useState(10);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const loadContent = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetchHarvesterResourceByLink(cloudId!, viewLink!);
-      setContent(typeof res === 'object' ? JSON.stringify(res, null, 2) : String(res));
-    } catch (e: any) {
-      console.error(e);
-      setError(e.message || '加载失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (active && cloudId && viewLink) {
-      loadContent();
-    }
-  }, [active, cloudId, viewLink]);
-
-  useEffect(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    if (autoRefresh && active && cloudId && viewLink) {
-      intervalRef.current = setInterval(loadContent, refreshInterval * 1000);
-    }
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [autoRefresh, refreshInterval, active, cloudId, viewLink]);
-
-  if (!viewLink) {
-    return <div style={{ padding: 16, color: '#999' }}>无 View Link 数据</div>;
-  }
-
-  return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ 
-        padding: '8px 16px', 
-        borderBottom: '1px solid #f0f0f0', 
-        background: '#fafafa', 
-        display: 'flex', 
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '8px'
-      }}>
-        <div style={{ fontSize: '12px', color: '#666', flex: 1, minWidth: 200 }}>
-          Request URL: {viewLink}
-        </div>
-        <Space size="small">
-          <Switch
-            checked={autoRefresh}
-            onChange={setAutoRefresh}
-            checkedChildren="自动"
-            unCheckedChildren="手动"
-            size="small"
-          />
-          {autoRefresh && (
-            <Select
-              value={refreshInterval}
-              onChange={setRefreshInterval}
-              size="small"
-              style={{ width: 80 }}
-              options={[
-                { value: 5, label: '5秒' },
-                { value: 10, label: '10秒' },
-                { value: 30, label: '30秒' },
-                { value: 60, label: '1分钟' },
-              ]}
-            />
-          )}
-          <Button 
-            size="small" 
-            icon={<SyncOutlined spin={loading} />} 
-            onClick={loadContent}
-            loading={loading}
-          >
-            刷新
-          </Button>
-        </Space>
-      </div>
-      {loading && !content ? (
-        <div style={{ padding: 16 }}>加载中...</div>
-      ) : error && !content ? (
-        <div style={{ padding: 16, color: 'red' }}>错误: {error}</div>
-      ) : (
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          <style>{`
-            .view-link-editor { height: 100% !important; }
-            .view-link-editor .cm-editor { height: 100% !important; }
-            .view-link-editor .cm-scroller { overflow: auto !important; max-height: 100% !important; }
-          `}</style>
-          <CodeEditor
-            readOnly
-            value={content}
-            language="json"
-            className="view-link-editor"
-            style={{ border: 'none', borderRadius: 0 }}
-          />
-        </div>
-      )}
-    </div>
-  );
-};
 
 const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) => {
   const {
@@ -224,9 +108,6 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
   const drawerTitle = record 
     ? `${resourceType}: ${record.metadata?.name || record.name || ''}`
     : ` ${resourceType} Opsinfo`;
-  const providerFlatSubnets = Array.isArray(record?.__flatSubnets) ? record.__flatSubnets : [];
-  const providerPublicSubnets = Array.isArray(record?.__publicSubnets) ? record.__publicSubnets : [];
-  const isProviderNetwork = record?.kind === 'ProviderNetwork';
 
   return (
     <Drawer
@@ -264,58 +145,6 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
             label: '摘要 (Instance)',
             children: (
               <div style={{ height: '100%', overflow: 'auto', padding: '16px' }}>
-                {isProviderNetwork ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                    <Card size="small" title={`公共子网 (${providerPublicSubnets.length})`}>
-                      <List
-                        size="small"
-                        dataSource={providerPublicSubnets}
-                        locale={{ emptyText: '暂无关联公共子网' }}
-                        renderItem={(item: any) => {
-                          const alias = String(item?.alias || '').trim();
-                          const name = String(item?.name || '-').trim();
-                          const cidr = String(item?.cidr || '-').trim();
-                          const vlan = String(item?.vlan || '-').trim();
-                          return (
-                            <List.Item>
-                              <div style={{ width: '100%' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                                  <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{alias || name}</span>
-                                  <Tag color="blue">VLAN: {vlan}</Tag>
-                                </div>
-                                <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 2 }}>{cidr}</div>
-                              </div>
-                            </List.Item>
-                          );
-                        }}
-                      />
-                    </Card>
-                    <Card size="small" title={`扁平子网 (${providerFlatSubnets.length})`}>
-                      <List
-                        size="small"
-                        dataSource={providerFlatSubnets}
-                        locale={{ emptyText: '暂无关联扁平子网' }}
-                        renderItem={(item: any) => {
-                          const alias = String(item?.alias || '').trim();
-                          const name = String(item?.name || '-').trim();
-                          const cidr = String(item?.cidr || '-').trim();
-                          const vlan = String(item?.vlan || '-').trim();
-                          return (
-                            <List.Item>
-                              <div style={{ width: '100%' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                                  <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{alias || name}</span>
-                                  <Tag color="blue">VLAN: {vlan}</Tag>
-                                </div>
-                                <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 2 }}>{cidr}</div>
-                              </div>
-                            </List.Item>
-                          );
-                        }}
-                      />
-                    </Card>
-                  </div>
-                ) : null}
                 <Descriptions bordered column={1} size="small">
                   {Object.entries(record || {})
                     .sort(([keyA], [keyB]) => {
@@ -659,7 +488,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
           ...(viewLink ? [{
             key: 'view_link',
             label: '实时数据 (View Link)',
-            children: <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />
+            children: <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />,
           }] : []),
           // Service 类型显示关联 Pod Tab（除非 hideRelatedPods 为 true）
           ...(resourceType === 'Service' && !hideRelatedPods ? [{
@@ -674,7 +503,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                 onViewLog={onViewPodLog}
                 onOpenTerminal={onOpenPodTerminal}
               />
-            )
+            ),
           }] : []),
         ]}
       />

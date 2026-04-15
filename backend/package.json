@@ -10,6 +10,7 @@
     "db:init": "ts-node --transpile-only src/scripts/dbInit.ts",
     "db:init-users": "ts-node --transpile-only src/scripts/initUsers.ts",
     "db:check-user": "ts-node --transpile-only src/scripts/checkUser.ts",
+    "asw-ctl:self-test": "ts-node --transpile-only src/scripts/aswCtlSelfTest.ts",
     "test": "jest",
     "plan:sync-routes": "node -r ts-node/register/transpile-only ../deployment/plan/scripts/sync-routespec.js",
     "plan:deploy-remote": "node ../deployment/plan/scripts/deploy-remote.js"

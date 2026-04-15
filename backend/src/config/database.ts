@@ -272,6 +272,55 @@ export async function dropObsoleteKubeOvnIngressInventoryTable() {
  * 镜像上传任务表（后端任务化上传）：
  * 在未开启 TypeORM synchronize 的部署模式下，启动时保障该表存在。
  */
+/**
+ * ASW-CTL 物理交换机探测缓存表（未开启 synchronize 时由启动逻辑创建）
+ */
+export async function ensureHarvesterAswCtlSwitchInventoryTable() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 harvester_asw_ctl_switch_inventory 表检查');
+      return;
+    }
+
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='harvester_asw_ctl_switch_inventory'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 harvester_asw_ctl_switch_inventory 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "harvester_asw_ctl_switch_inventory" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" text NOT NULL,
+          "switchHost" text NOT NULL,
+          "aswCtlBaseUrl" text,
+          "ctlDisplayName" text,
+          "apiVersion" text,
+          "deviceProfile" text,
+          "rowPayload" text,
+          "lastLiveSyncedAt" datetime,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "IDX_harvester_asw_ctl_switch_cloud_host"
+        ON "harvester_asw_ctl_switch_inventory" ("cloudId", "switchHost")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_harvester_asw_ctl_switch_inventory_cloudId"
+        ON "harvester_asw_ctl_switch_inventory" ("cloudId")
+      `);
+      dbLog.info('harvester_asw_ctl_switch_inventory 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      'harvester_asw_ctl_switch_inventory 表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
 export async function ensureImageUploadTaskTable() {
   try {
     if (!AppDataSource.isInitialized) {

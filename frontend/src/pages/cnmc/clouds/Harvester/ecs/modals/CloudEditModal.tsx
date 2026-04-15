@@ -78,7 +78,7 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         secretKey: cloud.secretKey || (cloud as any)?.config?.apiToken || '',
         // 高级参数（从 config 预填，如果不存在则默认为 true）
         ignoreTls: cloud?.config?.ignoreTls !== undefined ? !!cloud?.config?.ignoreTls : true,
-        harvesterVersion: cloud?.config?.harvesterVersion || 'auto'
+        harvesterVersion: cloud?.config?.harvesterVersion || 'auto',
       });
     }
   }, [visible, cloud, form]);
@@ -115,13 +115,13 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
 
       // 合并更新 config（保持 provider 不变）
       const prevCfg = (cloud as any)?.config || {};
-      
+
       submitData.config = {
         ...prevCfg,
         ignoreTls: !!values.ignoreTls,
         // 对于 cloudmap.private 和 cloudmap.edge，强制使用 1.6 版本
         harvesterVersion: isCloudmapPrivate ? '1.6' : (values.harvesterVersion || prevCfg.harvesterVersion || 'auto'),
-        provider: prevCfg.provider
+        provider: prevCfg.provider,
       };
       
       // 后端使用 PUT 方法更新资源池

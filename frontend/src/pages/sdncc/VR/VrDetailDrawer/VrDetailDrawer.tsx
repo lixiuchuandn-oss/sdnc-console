@@ -121,7 +121,7 @@ function healthStatusLabel(healthRaw: string): string {
   return healthRaw;
 }
 
-/** 卡片区块标题：对齐 HarvesterNodeDetailDrawer（物理节点详情抽屉） */
+/** 卡片区块标题：对齐 PhysicalNodeDetailDrawer（物理节点详情抽屉） */
 const VR_DRAWER_SECTION_TITLE: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 500,

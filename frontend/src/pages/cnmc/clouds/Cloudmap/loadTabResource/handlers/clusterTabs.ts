@@ -11,6 +11,7 @@ import {
   fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchHarvesterStorageClasses,
+  fetchAswCtlSwitchesSummary,
 } from '../../runtime/api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
@@ -50,6 +51,7 @@ export async function tryLoadClusterTab(
     setRawIPPools,
     setHarvesterClusterNetworks,
     setRawClusterNetworks,
+    setAswSwitchSummary,
     setHarvesterNodes,
     setRawNodes,
     setHarvesterStorageClasses,
@@ -269,6 +271,37 @@ export async function tryLoadClusterTab(
           },
           force,
         );
+      }
+      return true;
+    // 物理交换机：ASW-CTL 跑在集群内，经 harvester/asw-ctl API 聚合；UI 在 Harvester/cluster/PhysicalSwitchesSection
+    case 'cluster_physical_switches':
+      if (checkPerm('clouds.cluster-networks:read')) {
+        setResourceLoading((prev) => ({ ...prev, aswSwitches: true }));
+        try {
+          if (!force) {
+            const cacheJson = await fetchAswCtlSwitchesSummary(cloudId, {
+              cacheOnly: true,
+            }).catch(() => null);
+            if (
+              cacheJson &&
+              Array.isArray((cacheJson as any).items) &&
+              (cacheJson as any).items.length > 0
+            ) {
+              setAswSwitchSummary(cacheJson);
+              setResourceLoading((prev) => ({ ...prev, aswSwitches: false }));
+            }
+          }
+          const json = await fetchAswCtlSwitchesSummary(cloudId);
+          setAswSwitchSummary(json || null);
+          if (!force) {
+            loadedRef.current.add('aswSwitches');
+          }
+        } catch (e) {
+          console.warn('Failed to load ASW-CTL switches', e);
+          // 若已通过 cacheOnly 展示入库数据，不因实时探测失败清空表格
+        } finally {
+          setResourceLoading((prev) => ({ ...prev, aswSwitches: false }));
+        }
       }
       return true;
     case 'storage_classes':

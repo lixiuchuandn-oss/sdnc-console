@@ -104,6 +104,8 @@ type Props = {
   language?: CodeLanguage;
   /** 文件名，用于自动检测语言 */
   filename?: string;
+  /** CodeMirror 主题，默认 light */
+  cmTheme?: 'light' | 'dark';
 };
 
 const CodeEditor: React.FC<Props> = ({
@@ -119,6 +121,7 @@ const CodeEditor: React.FC<Props> = ({
   tabSize = 2,
   language,
   filename,
+  cmTheme = 'light',
 }) => {
   // 确定语言类型：优先使用显式指定的语言，其次根据文件名推断
   const resolvedLanguage = language || (filename ? detectLanguage(filename) : 'text');
@@ -207,7 +210,7 @@ const CodeEditor: React.FC<Props> = ({
           fontFamily: 'Consolas, Monaco, "Courier New", monospace',
           height: '100%',
         }}
-        theme="light"
+        theme={cmTheme}
       />
     </div>
   );

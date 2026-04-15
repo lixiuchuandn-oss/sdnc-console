@@ -1,5 +1,5 @@
 /**
- * 与 drawers/vlan-plan-drawer/ProviderNetworkTopologyGraph 共用的节点卡片与边样式（物理网络拓扑 / 子网-虚拟机拓扑）。
+ * 与 drawers/provider-network-detail-drawer/ProviderNetworkTopologyGraph 共用的节点卡片与边样式（物理网络拓扑 / 子网-虚拟机拓扑）。
  */
 import React from 'react';
 import { MarkerType } from 'react-flow-renderer';

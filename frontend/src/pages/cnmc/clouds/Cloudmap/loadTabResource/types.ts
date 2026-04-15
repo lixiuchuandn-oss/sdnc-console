@@ -50,6 +50,7 @@ export type LoadTabResourceDeps = {
   setRawIPPools: Dispatch<SetStateAction<any | null>>;
   setHarvesterClusterNetworks: Dispatch<SetStateAction<any[]>>;
   setRawClusterNetworks: Dispatch<SetStateAction<any | null>>;
+  setAswSwitchSummary: Dispatch<SetStateAction<any | null>>;
   setHarvesterNodes: Dispatch<SetStateAction<any[]>>;
   setRawNodes: Dispatch<SetStateAction<any | null>>;
   setHarvesterStorageClasses: Dispatch<SetStateAction<any[]>>;

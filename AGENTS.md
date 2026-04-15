@@ -32,45 +32,64 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 - **代码编辑**: CodeMirror 6 (@uiw/react-codemirror)
 - **目录结构**: **`frontend/src/STRUCTURE.md`**（前端目录与放置规则唯一权威）；**`frontend/README.md`** 仅为 `frontend/` 包入口（运行命令）；Harvester 云详情子树见 `deployment/docs/specs/修改纪要_Harvester前端目录结构_域优先与shared.md`
 
+## 架构文档分工
+
+| 文档 | 职责 |
+|------|------|
+| **`AGENTS.md`**（本文件） | 项目总览、技术栈、环境与运行、**对外 HTTP API / WebSocket 路径**、Harvester 容器能力表、开发与质量约定 |
+| **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
+| **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
+| **`deployment/docs/specs/...`** | Harvester 前端子树、权限、API 规格等专题文档 |
+
+新增或搬迁源码时：**前端**以 `frontend/src/STRUCTURE.md` 为准，**后端**以 `backend/src/STRUCTURE.md` 为准；对外路径以 `backend/src/index.ts` 的挂载为准。
+
 ## 项目结构
 
 ```
 Compute.Tower/
 ├── backend/                    # 后端服务
 │   ├── src/
-│   │   ├── index.ts           # 服务入口
+│   │   ├── index.ts           # 服务入口（Express 挂载、静态资源、WebSocket）
+│   │   ├── STRUCTURE.md       # 后端目录权威（见上文「架构文档分工」）
 │   │   ├── config/            # 配置（数据库、运行时参数、系统设置）
+│   │   ├── constants/         # 权限常量、内置角色等
 │   │   ├── entities/          # TypeORM 实体定义
 │   │   │   ├── harvester/     # Harvester/KubeVirt 相关实体
 │   │   │   ├── kubeovn/       # KubeOVN 网络实体
 │   │   │   ├── kubevirt/      # KubeVirt 虚拟化实体
 │   │   │   ├── monitoring/    # 监控相关实体
-│   │   │   ├── vRouter/       # 虚拟路由器实体
-│   │   │   └── *.ts           # 业务实体（云、租户、用户等）
-│   │   ├── routes/            # API 路由
+│   │   │   ├── vRouter/       # 虚拟路由器实体（与 services/vrouter/ 大小写差异见 backend/src/STRUCTURE.md）
+│   │   │   └── *.ts           # 业务实体（云、租户、用户等，根级平台表）
+│   │   ├── middleware/        # 中间件（认证、审计、错误处理）
+│   │   ├── permissions/       # API 级权限注册与校验
+│   │   ├── routes/            # HTTP 路由（薄；复杂逻辑下沉 services）
+│   │   │   ├── clouds.ts      # 多云聚合入口（体量大时可按主题渐进拆分）
 │   │   │   ├── aisoc/         # AI SOC 路由
 │   │   │   ├── auth/          # 认证路由
-│   │   │   ├── clouds/        # 云资源路由
+│   │   │   ├── clouds/        # 按云厂商 /控制面拆分
 │   │   │   │   ├── aliyun/    # 阿里云
-│   │   │   │   ├── harvester/ # Harvester/KubeVirt
-│   │   │   │   │   ├── harvester.cache.*.routes.ts   # 缓存路由（集群、容器、网络、存储等）
-│   │   │   │   │   ├── harvester.direct.*.routes.ts  # 直接路由（网络、存储、VM等）
-│   │   │   │   │   ├── logging.routes.ts             # 日志路由
-│   │   │   │   │   └── monitoring.routes.ts          # 监控路由
+│   │   │   │   ├── harvester/ # Harvester/KubeVirt（handlers/ + *.provider.ts / *.routes.ts 装配）
+│   │   │   │   │   ├── handlers/              # 按主题拆分（新增接口优先落此）
+│   │   │   │   │   ├── harvester.cache.*.routes.ts    # 缓存路由（集群、容器、网络、存储等）
+│   │   │   │   │   ├── harvester.direct.*.routes.ts   # 直接路由（网络、存储、VM 等）
+│   │   │   │   │   ├── logging.routes.ts              # 日志路由
+│   │   │   │   │   └── monitoring.routes.ts           # 监控路由
 │   │   │   │   ├── huaweicloud/ # 华为云
 │   │   │   │   ├── tencentcloud/ # 腾讯云
-│   │   │   │   └── csm/       # CSM 控制面
+│   │   │   │   ├── csm/       # CSM 控制面
+│   │   │   │   └── middleware/ # 仅 clouds 子树使用的路由中间件
 │   │   │   ├── sdn/           # SDN 网络路由
 │   │   │   ├── sysuser/       # 系统用户路由
 │   │   │   ├── tenants/       # 租户路由
-│   │   │   └── tools/         # 工具路由
-│   │   ├── services/          # 业务服务层
-│   │   │   ├── clouds/        # 云服务（阿里云、华为云、Harvester等）
+│   │   │   └── tools/         # 工具路由（如授权）
+│   │   ├── services/          # 业务服务层（与 routes/clouds/<厂商>/ 对称）
+│   │   │   ├── clouds/        # 各云 SDK 与领域逻辑
 │   │   │   ├── vrouter/       # 虚拟路由器服务
+│   │   │   ├── hms/           # 等独立子系统客户端（以仓库为准）
 │   │   │   ├── CloudSyncService.ts    # 云资源同步服务
 │   │   │   ├── LicenseService.ts      # 授权服务
 │   │   │   └── StandardResourceService.ts # 标准资源服务
-│   │   ├── middleware/        # 中间件（认证、审计、错误处理）
+│   │   ├── scripts/           # 运维/初始化脚本（非 HTTP 入口，见 package.json db:* 等）
 │   │   ├── seeders/           # 数据库种子数据
 │   │   ├── utils/             # 工具函数
 │   │   └── ws/                # WebSocket 服务
@@ -88,27 +107,32 @@ Compute.Tower/
 │   │   ├── index.tsx          # 入口文件
 │   │   ├── global-new.css     # 全局样式
 │   │   ├── setupProxy.js      # 开发环境代理配置
+│   │   ├── setupTests.ts      # 测试 setup（勿因静态分析未引用而删除）
+│   │   ├── STRUCTURE.md       # 前端目录权威（见上文「架构文档分工」）
 │   │   ├── assets/            # 静态资源
-│   │   ├── components/        # 公共组件
+│   │   ├── components/        # 公共组件（跨平台或弱业务复用）
 │   │   │   ├── CodeEditor.tsx       # 代码编辑器（CodeMirror）
 │   │   │   ├── YamlEditor.tsx       # YAML 编辑器
 │   │   │   ├── PageContainer.tsx    # 列表页面容器
 │   │   │   ├── PageDetailContainer.tsx  # 详情页容器
 │   │   │   ├── PageDetailSection.tsx    # Tab 区块容器
 │   │   │   └── ...
-│   │   ├── constants/         # 常量定义
+│   │   ├── constants/         # 常量定义（含导航、权限目录等）
 │   │   ├── contexts/          # React Context
 │   │   ├── hooks/             # 自定义 Hooks
 │   │   ├── layouts/           # 布局组件
-│   │   ├── pages/             # 页面（完整树与规范见 frontend/src/STRUCTURE.md）
+│   │   ├── pages/             # 按平台与业务域组织（细则见 frontend/src/STRUCTURE.md）
 │   │   │   ├── auth/          # 登录
-│   │   │   ├── cnmc/          # CNMC：多云、控制台、PaaS、租户等
+│   │   │   ├── coming-soon/   # 占位页等（可选）
+│   │   │   ├── cnmc/          # CNMC：资源总览、资源池、多云、控制台、PaaS、租户等
+│   │   │   │   ├── dashboard/ # 资源总览
+│   │   │   │   ├── pools/     # 资源池列表、选云闸门、实例详情入口等
 │   │   │   │   ├── clouds/    # 各云厂商与 Cloudmap
 │   │   │   │   │   ├── Aliyun/
 │   │   │   │   │   ├── Hw/
 │   │   │   │   │   ├── Csm/
 │   │   │   │   │   ├── Cloudmap/
-│   │   │   │   │   └── Harvester/     # Harvester/KubeVirt（域优先）
+│   │   │   │   │   └── Harvester/     # Harvester/KubeVirt（域优先；细则见 deployment/docs 修改纪要）
 │   │   │   │   │       ├── containers/    # K8s 容器：sections + components（表单、拓扑等）
 │   │   │   │   │       ├── cluster/       # 集群、节点、Service、存储类等
 │   │   │   │   │       ├── ecs/           # 计算、镜像、模板、回收站、VM 弹窗向导
@@ -119,13 +143,12 @@ Compute.Tower/
 │   │   │   │   │       ├── shared/components/  # 跨域详情抽屉与 Tab
 │   │   │   │   │       └── monitoring/    # 监控与日志
 │   │   │   │   ├── console/
-│   │   │   │   ├── dashboard/
-│   │   │   │   ├── paas/
-│   │   │   │   └── tenants/
-│   │   │   ├── cnsoc/         # 安全运营等
+│   │   │   │   ├── tenants/
+│   │   │   │   └── paas/      # PaaS 归属 CNMC（如 cloud-database/）
 │   │   │   ├── sdncc/         # SDN 管理
-│   │   │   └── Settings/      # 部分系统设置
-│   │   ├── routes/            # 路由配置
+│   │   │   ├── cnsoc/         # 安全运营等
+│   │   │   └── settings/      # SETTINGS：规范目标目录名；存量可能仍为 Settings/（迁移见 STRUCTURE.md）
+│   │   ├── routes/            # RouteSpec、路由装配（platform 与页面归属一致）
 │   │   ├── services/          # API 服务层
 │   │   │   ├── harvesterApi.ts    # Harvester API 服务
 │   │   │   └── ...
@@ -342,6 +365,8 @@ Harvester 容器管理模块提供完整的 Kubernetes 容器资源管理能力�
 
 ## 开发规范
 
+**目录落位**：前端见 **`frontend/src/STRUCTURE.md`**（平台、`pages/`、`sections`/`drawers`/`modals`/`shared`）；后端见 **`backend/src/STRUCTURE.md`**（`routes` → `services` → `entities`、多云目录对称、Harvester `handlers/`）。
+
 ### 命名约定
 - **组件文件**: PascalCase (如 `PageContainer.tsx`)
 - **工具文件**: camelCase (如 `harvesterUtils.ts`)
@@ -468,11 +493,11 @@ const columns = [
 
 | 平台 | 代码 | 说明 |
 |------|------|------|
-| 多云管理 | CNMC | 云资源、云主机、云网络 |
+| 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**PaaS**（源码在 `pages/cnmc/paas/`，与平台子能力一致） |
 | 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略 |
 | SDN管理 | SDNCC | SRv6、IPsec、ACL、NAT、VR |
 | AI SOC中心 | CNSOC | 安全运营、威胁分析、报告 |
-| 系统设置 | SETTINGS | 用户、租户、权限、审计 |
+| 系统设置 | SETTINGS | 用户、系统配置、授权、审计；页面规范落位 `pages/settings/`（与 `RouteSpec.platform` 一致，见 `frontend/src/STRUCTURE.md`） |
 
 ## 注意事项
 

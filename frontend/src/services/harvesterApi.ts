@@ -404,6 +404,29 @@ export const fetchHarvesterClusterNetworks = async (cloudId: string, force = fal
   return await apiRequest(`/api/clouds/${cloudId}/resources/cluster-networks${force ? '?force=true' : ''}`);
 };
 
+/** ASW-CTL：物理接入交换机探测聚合（config.aswCtl）。cacheOnly 时只读 Tower 入库缓存，不访问 ASW-CTL。 */
+export const fetchAswCtlSwitchesSummary = async (
+  cloudId: string,
+  opts?: { cacheOnly?: boolean },
+) => {
+  const q = opts?.cacheOnly === true ? '?cacheOnly=1' : '';
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/switches${q}`,
+    { skipCache: true },
+  );
+};
+
+/** ASW-CTL：按表单草稿探测服务状态（不写库） */
+export const probeAswCtlConnection = async (
+  cloudId: string,
+  body: { baseUrl: string; apiKey?: string; insecureTls?: boolean; name?: string },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/probe`,
+    body,
+  );
+};
+
 /**
  * 获取 Harvester NAD 详情
  * @param cloudId 云环境 ID

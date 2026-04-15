@@ -47,7 +47,6 @@ import cloudmapKeyImage from '../../../assets/clouds/cloudmapkey.png';
 import cloudmapApiImage from '../../../assets/clouds/cloudmapapi.png';
 import { provinces, cityOptionsByProvince } from '../../../constants/chinaRegions';
 import { apiPost, apiRequest } from '../../../services/api';
-
 const { Title, Text } = Typography;
 const { Option } = Select;
 
@@ -295,9 +294,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       // [Payload构造] 组装最终提交给 API 的数据结构
       const cfg: any = {
         provider: selectedProvider.id,
-        ...values
+        ...values,
       };
-      
+
       // [特殊处理] Cloudmap 强制指定版本
       if (selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') {
         cfg.harvesterVersion = '1.6';

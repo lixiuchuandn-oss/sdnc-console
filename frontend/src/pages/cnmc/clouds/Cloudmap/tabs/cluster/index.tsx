@@ -14,6 +14,8 @@ import StorageClassesSection from '../../../Harvester/cluster/sections/StorageCl
 import GpusSection from '../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../Harvester/cluster/sections/PciDevicesSection';
+// 物理交换机（ASW-CTL）：实现放在 Harvester/cluster（ASW-CTL 在集群内以容器+Service 暴露 API，与节点/服务同属集群能力）；此处仅复用 Section。
+import PhysicalSwitchesSection from '../../../Harvester/cluster/sections/PhysicalSwitchesSection';
 import { fetchKubeOvnSubnets } from '../../runtime/api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
 
@@ -95,6 +97,10 @@ export type CloudmapClusterTabsProps = {
   rawUsbDevices: any;
   harvesterPciDevices: any[];
   rawPciDevices: any;
+  aswSwitchSummary: any | null;
+  /** 资源池 config（物理交换机 Tab 内临时 ASW-CTL 配置） */
+  cloudConfig: any | null;
+  onReloadCloudMeta: () => Promise<void>;
   resourceLoading: Record<string, boolean>;
 };
 
@@ -106,6 +112,8 @@ export type CloudmapClusterTabsProps = {
  * [功能描述]
  * - Cloudmap 平台的集群资源管理选项卡 (Tabs) 组件
  * - 集中展示和管理节点、服务、网络、命名空间、存储及硬件设备等资源
+ * - 「物理交换机」与节点/服务相同：UI 从 Harvester/cluster/sections 引入，数据由 CloudDetailCloudmap
+ *   拉取 asw-ctl API 后经 props 传入（ASW-CTL 部署在集群内，归属 Harvester 集群能力，见 PhysicalSwitchesSection 文件头）
  *
  * [核心逻辑]
  * - 接收各类资源的列表数据及加载/刷新方法
@@ -163,6 +171,9 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
     rawUsbDevices,
     harvesterPciDevices,
     rawPciDevices,
+    aswSwitchSummary,
+    cloudConfig,
+    onReloadCloudMeta,
     resourceLoading,
   } = props;
 
@@ -212,6 +223,27 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
                 mode={mode}
               />
               <DebugJSON data={rawServices} show={showLog} />
+            </>
+          ),
+        },
+        {
+          key: 'cluster_physical_switches',
+          label: '物理交换机',
+          children: (
+            <>
+              {/* ASW-CTL：实现见 Harvester/cluster/sections/PhysicalSwitchesSection；summary 来自父级 CloudDetailCloudmap */}
+              <PhysicalSwitchesSection
+                cloudId={cloudId}
+                cloudConfig={cloudConfig}
+                checkPerm={checkPerm}
+                onReloadCloudMeta={onReloadCloudMeta}
+                summary={aswSwitchSummary}
+                loading={!!resourceLoading.aswSwitches}
+                onRefresh={() =>
+                  void loadTabResource('cluster_physical_switches', true)
+                }
+              />
+              <DebugJSON data={aswSwitchSummary} show={showLog} />
             </>
           ),
         },
@@ -449,6 +481,8 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
           return checkPerm('clouds.usb-devices:read');
         if (i.key === 'cluster_pci')
           return checkPerm('clouds.pci-devices:read');
+        if (i.key === 'cluster_physical_switches')
+          return checkPerm('clouds.cluster-networks:read');
         if (i.key === 'namespaces')
           return (
             checkPerm('clouds.namespaces:read') || checkPerm('clouds:read')

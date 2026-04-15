@@ -14,6 +14,10 @@ import { requestJson } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { registerHarvesterCacheRoutesProvider } from './harvester.cache.routes.provider';
 import { registerHarvesterContainerRoutes } from './harvester.cache.container.routes';
+import {
+  harvesterAswCtlProbeHandler,
+  harvesterAswCtlSwitchesHandler,
+} from './handlers/asw-ctl.handlers';
 
 /**
  * 注册 Harvester 缓存路由
@@ -76,6 +80,18 @@ export const registerHarvesterRoutes = (
         });
       }
     }
+  );
+
+  // ASW-CTL：物理接入交换机探测（config.aswCtl）
+  router.get(
+    '/:id/resources/harvester/asw-ctl/switches',
+    checkAdminPermission,
+    harvesterAswCtlSwitchesHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/asw-ctl/probe',
+    checkAdminPermission,
+    harvesterAswCtlProbeHandler,
   );
 
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）
