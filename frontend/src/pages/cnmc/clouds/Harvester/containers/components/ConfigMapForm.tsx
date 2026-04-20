@@ -350,7 +350,6 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
       setLoading(true);
 
       const submitData = buildSubmitData(values);
-      console.log('[ConfigMapForm] 提交数据:', submitData);
 
       if (editMode) {
         // 编辑模式：保留 resourceVersion 以支持更新

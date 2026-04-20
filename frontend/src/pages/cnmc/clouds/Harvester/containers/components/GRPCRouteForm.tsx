@@ -200,7 +200,6 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
       setLoading(true);
 
       const submitData = buildSubmitData(values);
-      console.log('[GRPCRouteForm] 提交数据:', submitData);
 
       await createGrpcRoute(cloudId, values.namespace, submitData);
       message.success('GRPCRoute 创建成功');

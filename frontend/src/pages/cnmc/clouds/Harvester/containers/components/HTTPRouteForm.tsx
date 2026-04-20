@@ -212,7 +212,6 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
       setLoading(true);
 
       const submitData = buildSubmitData(values);
-      console.log('[HTTPRouteForm] 提交数据:', submitData);
 
       await createHttpRoute(cloudId, values.namespace, submitData);
       message.success('HTTPRoute 创建成功');

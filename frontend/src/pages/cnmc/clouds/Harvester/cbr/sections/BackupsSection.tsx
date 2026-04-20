@@ -301,14 +301,6 @@ const BackupsSection: React.FC<Props> = ({
                 }
               }
               
-              // 调试：确保 view link 已设置
-              console.log('[BackupsSection] Setting drawer record with view link:', {
-                hasLinks: !!recordWithLink.links,
-                viewLink: recordWithLink.links?.view,
-                namespace: recordWithLink.metadata?.namespace || recordWithLink.namespace,
-                name: recordWithLink.metadata?.name || recordWithLink.name
-              });
-              
               setDrawerRecord(recordWithLink); 
               setDrawerVisible(true); 
             }

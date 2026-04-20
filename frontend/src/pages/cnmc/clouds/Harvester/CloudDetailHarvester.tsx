@@ -141,6 +141,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [harvesterSnapshots, setHarvesterSnapshots] = useState<any[]>([]); // 卷快照
   const [harvesterBackups, setHarvesterBackups] = useState<any[]>([]); // 虚拟机备份
   const [backupsGroupActiveKey, setBackupsGroupActiveKey] = useState<string>('backups'); // 备份组内层 tab 的 activeKey
+  const [activeContainerTab, setActiveContainerTab] = useState<string>('workloads'); // 容器内层 tab 的 activeKey
   const [harvesterSshKeys, setHarvesterSshKeys] = useState<any[]>([]); // SSH 密钥
   const [harvesterCloudInits, setHarvesterCloudInits] = useState<any[]>([]); // CloudInit 配置
   const [harvesterVlans, setHarvesterVlans] = useState<any[]>([]); // Kube-OVN VLANs
@@ -397,6 +398,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
     loadResource('capabilities', () => fetchHarvesterCapabilities(cloudId), (json) => {
         setCapabilities(json?.data || null);
     }, force);
+
   };
 
   /**
@@ -772,6 +774,16 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterSecrets(Array.isArray(list) ? list : []);
               }, force);
+              // 加载 ConfigMaps（用于环境变量引入）
+              loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setHarvesterConfigMaps(Array.isArray(list) ? list : []);
+              }, force);
+              // 加载 PVC（用于存储卷挂载）
+              loadResource('volumes', () => fetchHarvesterVolumes(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                setHarvesterVolumes(Array.isArray(list) ? list : []);
+              }, force);
             }
             break;
           case 'pods':
@@ -1011,6 +1023,16 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       key === 'kube_ovn_group';
     loadTabResource(key, shouldForceRefresh);
   };
+  
+  // --- 容器子Tab初始化加载 ---
+  // 当容器Tab显示时，自动加载工作负载相关资源
+  useEffect(() => {
+    if (activeContainerTab === 'workloads') {
+      loadTabResource('workloads');
+    }
+    // 刻意仅依赖 activeContainerTab：loadTabResource 随闭包更新，若全量列入依赖会导致不必要的重复拉取
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上
+  }, [activeContainerTab]);
   
   // --- SSE 实时数据更新 Effect ---
   // 建立 EventSource 连接，监听 VM 状态变化
@@ -1918,8 +1940,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 <Tabs
                   type="line"
                   destroyOnHidden
-                  defaultActiveKey="workloads"
-                  onChange={handleTabChange}
+                  activeKey={activeContainerTab}
+                  onChange={(key) => {
+                    setActiveContainerTab(key);
+                    handleTabChange(key);
+                  }}
                   items={[
                     {
                       key: 'workloads',

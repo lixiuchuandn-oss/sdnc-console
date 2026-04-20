@@ -85,14 +85,10 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
       }
 
       const res = await getRecycleBinShutdownRecords(params);
-      console.log('[RecycleBinRecords] API 响应:', res);
       
       // 兼容不同的响应格式
       const records = res?.data?.records || res?.records || [];
       const paginationData = res?.data?.pagination || res?.pagination || {};
-
-      console.log('[RecycleBinRecords] 解析后的记录数:', records.length);
-      console.log('[RecycleBinRecords] 分页信息:', paginationData);
 
       setData(records);
       setPagination({
@@ -102,7 +98,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
         totalPages: paginationData.totalPages || 0,
       });
     } catch (e: any) {
-      console.error('[RecycleBinRecords] 加载失败:', e);
       message.error(e?.message || '加载回收站记录失败');
       setData([]);
     } finally {
@@ -112,7 +107,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
 
   // 初始加载
   useEffect(() => {
-    console.log('[RecycleBinRecords] 组件加载，cloudId:', cloudId);
     loadData(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudId, statusFilter, dateRange]);

@@ -162,6 +162,7 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
         volumeMode,
         accessModes,
         createdAt: v?.metadata?.creationTimestamp,
+        annotations: item.annotations || v?.metadata?.annotations,  // 添加 annotations 字段
         raw: v,
       };
     });

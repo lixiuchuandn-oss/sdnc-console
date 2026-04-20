@@ -248,7 +248,8 @@ const Clouds: React.FC = () => {
         const results = await Promise.allSettled(ids.map(async id => {
           try {
             const prov = String((clouds.find(c => c.id === id)?.config?.provider) || '').toLowerCase();
-            if (prov === 'harvester') {
+            // Harvester 和 Cloudmap 类型的云使用 KubeOVN VPC API
+            if (prov === 'harvester' || prov.startsWith('cloudmap')) {
               const json: any = await fetchKubeOvnVpcs(id);
               const list: any[] = Array.isArray(json?.data?.items) ? json.data.items : Array.isArray(json?.items) ? json.items : [];
               return Array.isArray(list) ? list : [];

@@ -10,7 +10,7 @@ import { Cloud } from '../../../entities/Cloud';
 function normalizeProvider(cloud: Cloud): string | null {
   const provider = String((cloud as any)?.config?.provider || '').toLowerCase().trim();
   
-  if (['harvester', 'cloudmap', 'cloudmap.private', 'cloudmap.edge'].includes(provider)) {
+  if (['harvester', 'cloudmap', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(provider)) {
     return provider;
   }
   

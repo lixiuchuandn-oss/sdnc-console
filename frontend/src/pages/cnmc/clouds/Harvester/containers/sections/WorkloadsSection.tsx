@@ -45,7 +45,14 @@ type Props = {
   configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   // PVC 列表（用于存储卷挂载）
-  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
+  persistentVolumeClaims?: Array<{
+    metadata: { name: string; namespace: string; annotations?: Record<string, string> };
+    raw?: { metadata?: { annotations?: Record<string, string> } };
+    annotations?: Record<string, string>;
+    alias?: string;
+    name?: string;
+    pvcName?: string;
+  }>;
   cloudId: string;
   nsValue?: string;
   onNsChange: (v?: string) => void;
@@ -139,7 +146,7 @@ const WorkloadTable: React.FC<{
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   
-  const typeLabel = type === 'deployment' ? '部署' : type === 'statefulset' ? '有状态副本集' : '守护进程集';
+  const typeLabel = type === 'deployment' ? '无状态副本集' : type === 'statefulset' ? '有状态副本集' : '守护进程集';
   const apiPath = type === 'deployment' 
     ? '/apis/apps/v1/deployments' 
     : type === 'statefulset' 
@@ -429,13 +436,9 @@ const WorkloadsSection: React.FC<Props> = ({
   
   // 打开创建弹窗
   const handleOpenCreate = useCallback(() => {
-    // 如果镜像凭证为空，先刷新资源
-    if (imagePullSecrets.length === 0) {
-      onRefresh(true);
-    }
     setCreateType(activeTab as WorkloadType);
     setCreateModalVisible(true);
-  }, [activeTab, imagePullSecrets.length, onRefresh]);
+  }, [activeTab]);
   
   // 打开编辑弹窗
   const handleEdit = useCallback((record: any) => {
@@ -483,7 +486,7 @@ const WorkloadsSection: React.FC<Props> = ({
           value={activeTab}
           onChange={(v) => setActiveTab(v as 'deployment' | 'statefulset' | 'daemonset')}
           options={[
-            { label: `部署 (${filteredDeployments.length})`, value: 'deployment' },
+            { label: `无状态副本集 (${filteredDeployments.length})`, value: 'deployment' },
             { label: `有状态副本集 (${filteredStatefulSets.length})`, value: 'statefulset' },
             { label: `守护进程集 (${filteredDaemonSets.length})`, value: 'daemonset' },
           ]}

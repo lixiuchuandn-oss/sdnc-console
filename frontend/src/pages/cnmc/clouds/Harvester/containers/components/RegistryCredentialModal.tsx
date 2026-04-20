@@ -96,13 +96,6 @@ const RegistryCredentialModal: React.FC<RegistryCredentialModalProps> = ({
         message.success('凭证更新成功');
       } else {
         // 创建模式：调用创建 API
-        console.log('[RegistryCredentialModal] Creating image pull secret:', {
-          cloudId,
-          namespace: values.namespace,
-          name: values.name,
-          server: values.server,
-          username: values.username,
-        });
         
         await createHarvesterImagePullSecret(cloudId, {
           namespace: values.namespace,

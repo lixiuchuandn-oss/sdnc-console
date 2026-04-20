@@ -89,7 +89,7 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
       items={[
         {
           key: 'backups',
-          label: 'äº?ä¸»æ?ºå¤?ä»½',
+          label: 'è™šæ‹Ÿæœºå¤‡ä»½',
           children: (
             <>
               <BackupsSection
@@ -108,7 +108,7 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
         },
         {
           key: 'vm_snapshots',
-          label: 'äº?ä¸»æ?ºå¿«ç?§',
+          label: 'è™šæ‹Ÿæœºå¿«ç…§',
           children: (
             <>
               <BackupsSection
@@ -127,7 +127,7 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
         },
         {
           key: 'schedule_vm_backups',
-          label: 'å®?æ?¶ç­?ç?¥',
+          label: 'å®šæ—¶å¤‡ä»½',
           children: (
             <>
               <ScheduleVmBackupsSection
@@ -179,7 +179,7 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
         },
         {
           key: 'vm_restores',
-          label: 'æ¢å¤ä»»å?¡',
+          label: 'æ¢å¤ä»»åŠ¡',
           children: (
             <VmRestoreTasksSection
               cloudId={cloudId}
