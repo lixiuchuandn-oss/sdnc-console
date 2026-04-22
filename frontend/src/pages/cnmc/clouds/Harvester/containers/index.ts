@@ -1,6 +1,18 @@
 /**
  * 容器组件导出
  */
+
+// 类型定义导出
+export type {
+  NetworkMode,
+  FlatSubnetConfig,
+  VpcSubnetConfig,
+  NetworkConfig,
+  NetworkModeOption,
+} from './types';
+export { NETWORK_MODE_OPTIONS } from './types';
+
+// Section 组件导出
 export { default as WorkloadsSection } from './sections/WorkloadsSection';
 export { default as PodsSection } from './sections/PodsSection';
 export { default as JobsSection } from './sections/JobsSection';

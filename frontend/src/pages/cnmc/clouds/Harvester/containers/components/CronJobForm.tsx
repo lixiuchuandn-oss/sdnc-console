@@ -46,7 +46,7 @@ import {
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer, CronExpressionHelper } from './index';
 
 // ============================================================
@@ -408,6 +408,7 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
   useEffect(() => {
     const defaultSchedule = '0 2 * * *';
     form.setFieldsValue({
+      name: generateVmWizardStyleDisplayName('cjob'),
       namespace: defaultNamespace || namespacesOptions[0] || 'default',
       imagePullPolicy: 'IfNotPresent',
       schedule: defaultSchedule,

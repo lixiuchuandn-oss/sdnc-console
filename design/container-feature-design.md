@@ -1,8 +1,8 @@
 # 容器功能模块设计文档
 
-> 版本: 2.0
+> 版本: 2.1
 > 创建日期: 2026-03-10
-> 最后更新: 2026-03-27
+> 最后更新: 2026-04-22
 
 ## 目录
 
@@ -20,6 +20,13 @@
 12. [租户视角设计](#12-租户视角设计)
 13. [性能优化](#13-性能优化)
 14. [变更记录](#14-变更记录)
+15. [技术实现细节补充](#15-技术实现细节补充)
+16. [遗漏功能补充设计](#16-遗漏功能补充设计)
+17. [四期功能规划](#17-四期功能规划)
+18. [工作负载表单交互优化](#18-工作负载表单交互优化)
+19. [Job Pod 清理策略设计](#19-job-pod-清理策略设计)
+20. [资源命名与标签规范（双轨制）设计](#20-资源命名与标签规范双轨制设计)
+21. [容器网络配置设计（扁平子网支持）](#21-容器网络配置设计扁平子网支持)
 
 ---
 
@@ -2653,6 +2660,382 @@ const patchBody = [{
 - [ ] 列表页新增 ID 列
 - [ ] 支持通过编辑按钮修改别名
 - [ ] 编辑现有资源时正确回显别名
+
+---
+
+## 21. 容器网络配置设计（扁平子网支持）
+
+> **版本**: 1.0  
+> **创建日期**: 2026-04-22  
+> **优先级**: 高
+
+### 21.1 需求背景
+
+当前容器工作负载（Deployment/StatefulSet/DaemonSet）创建时未支持网络配置，无法使用资源池中创建的扁平子网、VPC子网等网络资源。需要参考虚拟机创建向导的网络配置逻辑，为容器提供相同的网络能力。
+
+### 21.2 技术调研结论
+
+#### 21.2.1 扁平子网功能现状
+
+- **前端位置**: `kube-ovn/sections/UnderlaySubnetsSection.tsx`
+- **识别条件**: 注解 `tower.io/subnet-type=flat` + VPC `ovn-internal`
+- **相关资源**: 安全组、EIP、SNAT、DNAT
+
+#### 21.2.2 虚拟机使用扁平子网方式
+
+- **配置位置**: `spec.template.spec.networks[]` + `interfaces[]`
+- **NAD引用**: `multus: { networkName: <ns>/<name> }`
+- **接口类型**: 必须使用 `managedtap` 绑定
+
+#### 21.2.3 容器Pod使用扁平子网方式（关键技术点）
+
+```yaml
+# Deployment annotation 方式
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    metadata:
+      annotations:
+        k8s.v1.cni.cncf.io/networks: default/flat-subnet-1  # NAD引用
+        ovn.kubernetes.io/ip_address: 10.0.0.100  # 可选：静态IP
+        ovn.kubernetes.io/mac_address: 00:11:22:33:44:55  # 可选：静态MAC
+```
+
+#### 21.2.4 虚拟机 vs 容器网络配置对比
+
+| 项目 | 虚拟机 | 容器Pod |
+|------|--------|--------|
+| 配置位置 | `spec.networks[]` | `spec.template.metadata.annotations` |
+| 子网引用 | `multus.networkName` | `k8s.v1.cni.cncf.io/networks` |
+| 接口类型 | `managedtap` | 无需设置 |
+| 静态IP | cloud-init | `ovn.kubernetes.io/ip_address` |
+| 静态MAC | cloud-init | `ovn.kubernetes.io/mac_address` |
+
+### 21.3 设计决策
+
+| 决策项 | 选择 | 说明 |
+|--------|------|------|
+| UI位置 | 新增步骤3（网络配置） | 原步骤3（高级配置）移为步骤4 |
+| 网络类型 | 完整支持 | 扁平子网、VPC子网、自定义NAD |
+| 直通网卡(SR-IOV) | 预留设计 | Phase2实现 |
+| 多网卡 | 暂不支持 | Phase2预留 |
+| 静态IP | 支持可选配置 | - |
+| 实现策略 | 渐进式实现 | Phase1核心功能，Phase2扩展功能 |
+
+### 21.4 数据结构设计
+
+```typescript
+// 网络类型枚举
+export type NetworkType = 'default' | 'flat_subnet' | 'vpc' | 'custom_nad';
+
+// 网络配置接口
+export interface NetworkConfig {
+  type: NetworkType;
+  
+  // 扁平子网配置
+  flatSubnet?: {
+    subnetName: string;
+    subnetNamespace: string;
+    nadReference: string;  // 格式: <ns>/<name>
+    cidr?: string;
+    gateway?: string;
+  };
+  
+  // VPC子网配置
+  vpcSubnet?: {
+    vpcName: string;
+    subnetName: string;
+    subnetNamespace: string;
+    nadReference: string;
+    cidr?: string;
+  };
+  
+  // 自定义NAD配置
+  customNad?: {
+    nadReference: string;  // 用户手动输入
+  };
+  
+  // 静态IP配置（可选）
+  staticIp?: {
+    enabled: boolean;
+    ipAddress?: string;
+    macAddress?: string;
+  };
+}
+
+// WorkloadFormValues 扩展
+export interface WorkloadFormValues {
+  // ... 现有字段
+  
+  // 新增：网络配置
+  networkConfig?: NetworkConfig;
+}
+```
+
+### 21.5 Payload构造核心逻辑
+
+```typescript
+/**
+ * 构建网络相关注解
+ * 注解将添加到 spec.template.metadata.annotations
+ */
+function buildNetworkAnnotations(networkConfig: NetworkConfig): Record<string, string> {
+  const annotations: Record<string, string> = {};
+  
+  if (!networkConfig || networkConfig.type === 'default') {
+    return annotations;  // 使用默认Pod网络，无需注解
+  }
+  
+  switch (networkConfig.type) {
+    case 'flat_subnet':
+      // 扁平子网：仅设置 networks 注解
+      annotations['k8s.v1.cni.cncf.io/networks'] = networkConfig.flatSubnet!.nadReference;
+      break;
+      
+    case 'vpc':
+      // VPC子网：设置 networks + logical_switch
+      annotations['k8s.v1.cni.cncf.io/networks'] = networkConfig.vpcSubnet!.nadReference;
+      annotations['ovn.kubernetes.io/logical_switch'] = networkConfig.vpcSubnet!.subnetName;
+      break;
+      
+    case 'custom_nad':
+      // 自定义NAD：仅设置 networks 注解
+      annotations['k8s.v1.cni.cncf.io/networks'] = networkConfig.customNad!.nadReference;
+      break;
+  }
+  
+  // 静态IP配置
+  if (networkConfig.staticIp?.enabled) {
+    if (networkConfig.staticIp.ipAddress) {
+      annotations['ovn.kubernetes.io/ip_address'] = networkConfig.staticIp.ipAddress;
+    }
+    if (networkConfig.staticIp.macAddress) {
+      annotations['ovn.kubernetes.io/mac_address'] = networkConfig.staticIp.macAddress;
+    }
+  }
+  
+  return annotations;
+}
+
+// 在 buildK8sResource 中调用
+function buildK8sResource(values: WorkloadFormValues): any {
+  const resource = {
+    // ... 基础结构
+    spec: {
+      template: {
+        metadata: {
+          labels: {},
+          annotations: {},
+        },
+        spec: {
+          containers: [],
+        },
+      },
+    },
+  };
+  
+  // 合并网络注解
+  const networkAnnotations = buildNetworkAnnotations(values.networkConfig);
+  Object.assign(resource.spec.template.metadata.annotations, networkAnnotations);
+  
+  return resource;
+}
+```
+
+### 21.6 UI设计
+
+#### 21.6.1 步骤布局调整
+
+```
+WorkloadForm 步骤（调整后）
+├── 步骤1: 基本信息（名称、命名空间、类型、标签、副本数）
+├── 步骤2: 容器配置（镜像、端口、环境变量、资源限制、健康检查）
+├── 步骤3: 网络配置（新增）  ← 本功能核心
+│   ├── 网络类型选择
+│   │   ├── 默认网络（Pod网络）
+│   │   ├── 扁平子网
+│   │   ├── VPC子网
+│   │   └── 自定义NAD
+│   ├── 子网选择器（根据类型动态显示）
+│   └── 静态IP配置（可选）
+└── 步骤4: 高级配置（原步骤3，调度策略、镜像凭证）
+```
+
+#### 21.6.2 网络配置步骤UI
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 网络配置                                                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│ 网络类型 *                                                           │
+│ ○ 默认网络（Pod网络）                                                 │
+│   使用集群默认的 Pod 网络，无需额外配置                                 │
+│                                                                     │
+│ ○ 扁平子网                                                            │
+│   使用资源池中创建的扁平子网，支持公网IP、SNAT/DNAT                     │
+│                                                                     │
+│ ○ VPC子网                                                            │
+│   使用 Kube-OVN VPC 子网，提供隔离的网络环境                           │
+│                                                                     │
+│ ○ 自定义NAD                                                          │
+│   手动输入 NetworkAttachmentDefinition 引用                           │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│ 扁平子网配置（网络类型=扁平子网时显示）                                  │
+│                                                                     │
+│ 选择子网 *        [flat-subnet-1    ▼]                               │
+│                  CIDR: 10.0.0.0/24                                  │
+│                  网关: 10.0.0.1                                      │
+│                  可用IP: 200                                         │
+│                                                                     │
+│ ☐ 配置静态IP                                                         │
+│   IP地址          [____________]  如: 10.0.0.100                     │
+│   MAC地址         [____________]  如: 00:11:22:33:44:55（可选）       │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│ VPC子网配置（网络类型=VPC子网时显示）                                   │
+│                                                                     │
+│ 选择VPC *         [vpc-1           ▼]                               │
+│ 选择子网 *        [subnet-1        ▼]                               │
+│                  CIDR: 192.168.1.0/24                               │
+│                                                                     │
+│ ☐ 配置静态IP                                                         │
+│   IP地址          [____________]                                    │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│ 自定义NAD配置（网络类型=自定义NAD时显示）                               │
+│                                                                     │
+│ NAD引用 *        [________________]                                 │
+│                  格式: <namespace>/<name> 或 <name>                  │
+│                  示例: default/my-network                            │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 21.7 扁平子网选择逻辑
+
+#### 21.7.1 扁平子网识别条件
+
+```typescript
+// kubeOvnSubnetConstants.ts
+export const KUBE_OVN_FLAT_VPC = 'ovn-internal';  // 扁平子网专用内置VPC
+export const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
+
+// 判断是否为扁平子网
+function isKubeOvnFlatSubnet(subnet: any): boolean {
+  const type = String(subnet?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
+    .trim()
+    .toLowerCase();
+  return type === 'flat';
+}
+
+// 判断VPC是否可承载扁平子网
+function isFlatKubeOvnSubnetVpc(vpc: string): boolean {
+  return vpc === 'ovn-cluster' || vpc === 'ovn-internal';  // 历史兼容
+}
+```
+
+#### 21.7.2 扁平子网下拉过滤
+
+```typescript
+// 扁平子网选项
+const flatSubnetOptions = useMemo(() => {
+  return (kubeSubnets || [])
+    .filter((s: any) => 
+      isFlatKubeOvnSubnetVpc(s?.vpc || s?.spec?.vpc) &&  // VPC为ovn-internal
+      isKubeOvnFlatSubnet(s)                              // 注解subnet-type=flat
+    )
+    .map((s: any) => ({
+      label: `${s.name} (${s.spec?.cidr || 'N/A'})`,
+      value: s.name,
+      subnet: s,
+    }));
+}, [kubeSubnets]);
+```
+
+#### 21.7.3 选择扁平子网时的自动联动
+
+```typescript
+// 选择扁平子网时
+const handleFlatSubnetChange = (subnetName: string) => {
+  const subnet = kubeSubnets.find(s => s.name === subnetName);
+  if (!subnet) return;
+  
+  // 1. 获取Namespace，拼装NAD引用
+  let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+  if (!subnetNs) {
+    const provider = subnet?.provider || subnet?.spec?.provider;
+    if (provider) {
+      const parts = provider.split('.');
+      if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+    }
+  }
+  
+  const nadReference = subnetNs ? `${subnetNs}/${subnetName}` : subnetName;
+  
+  // 2. 更新表单
+  form.setFieldsValue({
+    networkConfig: {
+      type: 'flat_subnet',
+      flatSubnet: {
+        subnetName,
+        subnetNamespace: subnetNs || 'default',
+        nadReference,
+        cidr: subnet.spec?.cidr,
+        gateway: subnet.spec?.gateway,
+      },
+    },
+  });
+};
+```
+
+### 21.8 关键文件路径
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| 扁平子网Section | `kube-ovn/sections/UnderlaySubnetsSection.tsx` | 扁平子网列表组件 |
+| VM网络配置 | `ecs/modals/VmCreateWizard/StepNetworks.tsx` | 虚拟机网络配置步骤（参考） |
+| VM数据获取Hook | `ecs/modals/VmCreateWizard/useHarvesterData.ts` | 加载NAD/VPC/Subnet |
+| 容器工作负载表单 | `containers/components/WorkloadForm.tsx` | 主要修改文件 |
+| KubeOVN常量 | `kube-ovn/lib/kubeOvnSubnetConstants.ts` | 扁平子网VPC标识 |
+| KubeOVN UI辅助 | `kube-ovn/lib/kubeOvnUiHelpers.ts` | VPC/Subnet下拉格式化 |
+| Harvester API | `services/harvesterApi.ts` | API服务层 |
+
+### 21.9 Phase1实现范围
+
+| 功能 | 优先级 | 说明 |
+|------|--------|------|
+| 新增网络配置步骤 | P0 | UI步骤调整 |
+| 扁平子网选择器 | P0 | 复用VM向导逻辑 |
+| VPC子网选择器 | P0 | VPC+Subnet级联选择 |
+| 自定义NAD输入 | P1 | 手动输入NAD引用 |
+| 静态IP配置 | P1 | 可选功能 |
+| Payload构造 | P0 | buildNetworkAnnotations |
+| 数据获取 | P0 | 加载扁平子网、VPC子网、NAD列表 |
+| 类型定义 | P1 | NetworkConfig接口 |
+
+### 21.10 Phase2预留功能
+
+| 功能 | 说明 |
+|------|------|
+| SR-IOV直通网卡 | 使用sriov接口类型 |
+| Macvtap直通网卡 | 使用macvtap接口类型 |
+| 多网卡配置 | 辅助网卡支持 |
+
+### 21.11 验收标准
+
+- [ ] 工作负载创建表单新增"网络配置"步骤（步骤3）
+- [ ] 原步骤3（高级配置）正确移为步骤4
+- [ ] 网络类型支持：默认网络、扁平子网、VPC子网、自定义NAD
+- [ ] 扁平子网选择器正确过滤（VPC=ovn-internal + 注解=flat）
+- [ ] 选择扁平子网后正确生成NAD引用（ns/name格式）
+- [ ] VPC子网选择器支持VPC+Subnet级联选择
+- [ ] 自定义NAD支持手动输入
+- [ ] 静态IP配置可选启用
+- [ ] 生成的Deployment YAML包含正确的网络注解
+- [ ] 使用扁平子网的Pod能正常获取IP
 
 ---
 

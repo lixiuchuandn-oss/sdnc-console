@@ -1973,6 +1973,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           nsValue={nsFilter || undefined}
                           onNsChange={(v) => setNsFilter(v || '')}
                           onRefresh={() => loadTabResource('workloads', true)}
+                          hideFlatSubnet={true}
                         />
                       )
                     },

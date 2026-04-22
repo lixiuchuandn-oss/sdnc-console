@@ -50,7 +50,7 @@ import {
   updateHarvesterSecret,
   fetchHarvesterSecretDetail,
 } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -388,10 +388,12 @@ const SecretForm: React.FC<SecretFormProps> = ({
             setLoadingData(false);
           });
       }
-    } else if (defaultNamespace) {
-      form.setFieldValue('namespace', defaultNamespace);
+    } else {
+      // 创建模式：设置默认命名空间
+      const defaultNs = defaultNamespace || namespacesOptions[0] || 'default';
+      form.setFieldValue('namespace', defaultNs);
     }
-  }, [defaultNamespace, form, editMode, initialData, cloudId, message]);
+  }, [defaultNamespace, namespacesOptions, form, editMode, initialData, cloudId, message]);
 
   // 监听类型变化，自动填充必需键名
   const handleTypeChange = (newType: string) => {
@@ -477,11 +479,12 @@ const SecretForm: React.FC<SecretFormProps> = ({
       <Form
         form={form}
         layout="vertical"
-        initialValues={{
-          type: 'Opaque',
-          labels: [],
-          stringData: [],
-        }}
+initialValues={{
+        name: generateVmWizardStyleDisplayName('sec'),
+        type: 'Opaque',
+        labels: [],
+        stringData: [],
+      }}
       >
         {/* 基本信息 */}
         <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>

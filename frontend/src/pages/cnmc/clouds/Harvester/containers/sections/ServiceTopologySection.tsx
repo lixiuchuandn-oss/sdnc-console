@@ -587,6 +587,9 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
   /** 用户是否在命名空间下拉中主动清空（避免清空后又自动选回第一项） */
   const userClearedNamespaceRef = useRef(false);
 
+  /** 表单默认命名空间 */
+  const formDefaultNs = nsValue || namespacesOptions[0] || 'default';
+
   // 与父级受控命名空间同步
   useEffect(() => {
     setCurrentNs(nsValue ?? '');
@@ -935,6 +938,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           initialData={editingNode.rawData}
           namespacesOptions={namespacesOptions}
           secrets={[]}
+          defaultNamespace={formDefaultNs}
           onCancel={() => setEditModalOpen(false)}
           onSuccess={() => { setEditModalOpen(false); onRefresh?.(); }}
         />
@@ -948,6 +952,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           editMode
           initialData={editingNode.rawData}
           namespacesOptions={namespacesOptions}
+          defaultNamespace={formDefaultNs}
           onCancel={() => setEditModalOpen(false)}
           onSuccess={() => { setEditModalOpen(false); onRefresh?.(); }}
         />

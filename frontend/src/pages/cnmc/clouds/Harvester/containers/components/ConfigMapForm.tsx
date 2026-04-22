@@ -39,7 +39,7 @@ import {
   createHarvesterConfigMap,
   updateHarvesterConfigMap,
 } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import CodeEditor, { 
   CodeLanguage, 
   LANGUAGE_OPTIONS, 
@@ -312,11 +312,10 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
       form.setFieldsValue(values);
     } else {
       // 创建模式：设置默认命名空间
-      if (defaultNamespace) {
-        form.setFieldValue('namespace', defaultNamespace);
-      }
+      const defaultNs = defaultNamespace || namespacesOptions[0] || 'default';
+      form.setFieldValue('namespace', defaultNs);
     }
-  }, [defaultNamespace, form, editMode, initialData]);
+  }, [defaultNamespace, namespacesOptions, form, editMode, initialData]);
 
   // 构建提交数据
   const buildSubmitData = (values: ConfigMapFormValues): any => {
@@ -382,6 +381,7 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
       form={form}
       layout="vertical"
       initialValues={{
+        name: generateVmWizardStyleDisplayName('cm'),
         labels: [],
         data: [],
       }}

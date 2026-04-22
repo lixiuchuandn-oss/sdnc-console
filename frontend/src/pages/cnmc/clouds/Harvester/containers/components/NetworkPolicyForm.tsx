@@ -46,7 +46,7 @@ import {
   CheckOutlined,
 } from '@ant-design/icons';
 import { createNetworkPolicy, updateNetworkPolicy } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 
 // ============================================================
@@ -673,7 +673,7 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
       // 只有当 namespace 未设置且有可用的 namespacesOptions 时才设置默认值
       if (!currentValues.namespace && namespacesOptions.length > 0) {
         form.setFieldsValue({
-          name: currentValues.name || '',
+          name: currentValues.name || generateVmWizardStyleDisplayName('np'),
           namespace: defaultNamespace || namespacesOptions[0] || 'default',
           labels: currentValues.labels || [],
           podSelector: currentValues.podSelector || [],
