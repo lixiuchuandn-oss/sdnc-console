@@ -53,16 +53,17 @@ export async function harvesterNodeListHandler(req: Request, res: Response) {
 
     const items = dbItems.map((item: any) => {
       const n = item.rawData || {};
-      // rawData 中包含入库用的 hmsNics；对外响应统一为 nics，避免重复字段
-      const { hmsNics, ...restRaw } = n || {};
+      // rawData 中包含入库用的 hmsNics / hmsHardware；对外响应统一为 nics / hardware
+      const { hmsNics, hmsHardware, ...restRaw } = n || {};
       const name = n?.metadata?.name || n?.name || item.name || '';
       const viewUrl = name
         ? `${origin}/api/v1/nodes/${encodeURIComponent(name)}`
         : undefined;
       return {
         ...restRaw,
-        // 兼容：HMS 网卡入库到 rawData.hmsNics，对外统一为 nics
+        // 兼容：HMS 入库到 rawData；对外字段名稳定
         nics: Array.isArray(n?.hmsNics) ? n.hmsNics : [],
+        hardware: n?.hmsHardware && typeof n.hmsHardware === 'object' ? n.hmsHardware : null,
         links: viewUrl ? { view: viewUrl } : n?.links,
         name,
         status: item.status,

@@ -273,24 +273,11 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
-    // 物理交换机：ASW-CTL 跑在集群内，经 harvester/asw-ctl API 聚合；UI 在 Harvester/cluster/PhysicalSwitchesSection
+    // 物理交换机：仅读 Tower 已入库列表（.../asw-ctl/switches）；UI 在 PhysicalSwitchesSection
     case 'cluster_physical_switches':
       if (checkPerm('clouds.cluster-networks:read')) {
         setResourceLoading((prev) => ({ ...prev, aswSwitches: true }));
         try {
-          if (!force) {
-            const cacheJson = await fetchAswCtlSwitchesSummary(cloudId, {
-              cacheOnly: true,
-            }).catch(() => null);
-            if (
-              cacheJson &&
-              Array.isArray((cacheJson as any).items) &&
-              (cacheJson as any).items.length > 0
-            ) {
-              setAswSwitchSummary(cacheJson);
-              setResourceLoading((prev) => ({ ...prev, aswSwitches: false }));
-            }
-          }
           const json = await fetchAswCtlSwitchesSummary(cloudId);
           setAswSwitchSummary(json || null);
           if (!force) {
@@ -298,7 +285,6 @@ export async function tryLoadClusterTab(
           }
         } catch (e) {
           console.warn('Failed to load ASW-CTL switches', e);
-          // 若已通过 cacheOnly 展示入库数据，不因实时探测失败清空表格
         } finally {
           setResourceLoading((prev) => ({ ...prev, aswSwitches: false }));
         }

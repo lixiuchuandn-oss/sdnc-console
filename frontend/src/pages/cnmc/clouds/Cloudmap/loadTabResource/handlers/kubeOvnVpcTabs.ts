@@ -61,7 +61,7 @@ export async function tryLoadKubeOvnVpcTab(
         );
       }
       return true;
-    case 'kube_ovn_group':
+    case 'kube_ovn':
       if (!canViewKubeOvnGroup) return true;
       if (checkPerm('clouds.eips.vpc:read')) {
         loadResource(

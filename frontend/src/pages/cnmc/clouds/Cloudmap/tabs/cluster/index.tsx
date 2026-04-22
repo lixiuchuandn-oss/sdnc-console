@@ -17,7 +17,10 @@ import PciDevicesSection from '../../../Harvester/cluster/sections/PciDevicesSec
 // 物理交换机（ASW-CTL）：实现放在 Harvester/cluster（ASW-CTL 在集群内以容器+Service 暴露 API，与节点/服务同属集群能力）；此处仅复用 Section。
 import PhysicalSwitchesSection from '../../../Harvester/cluster/sections/PhysicalSwitchesSection';
 import { fetchKubeOvnSubnets } from '../../runtime/api';
-import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
+import {
+  isCloudmapClusterMainTabVisible,
+} from '../../cloudmapClusterTabVisibility';
+import '../../cloudmap-cluster-inner-tabs.css';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -45,9 +48,12 @@ export type CloudmapClusterTabsProps = {
   showLog: boolean;
   checkPerm: (act: string) => boolean;
   canReadPublicSubnets: boolean;
-  clusterInnerDefaultActiveKey: string;
+  /** 受控：与 URL `cluster_sub`、父级状态同步，避免父级高频重渲染时 rc-tabs 失稳 */
+  clusterInnerActiveKey: string;
+  onClusterInnerTabChange: (key: string) => void;
+  /** Cluster Info 内 Segmented 切换：同步 URL `cluster_segment` 并拉数 */
+  onClusterInfoSegmentChange: (segmentKey: string) => void;
   clusterNetworkSegmentKey: string;
-  setClusterNetworkSegmentKey: (v: string) => void;
   clusterNetworkSegmentOptions: { value: string; label: string }[];
   handleTabChange: (key: string) => void;
   loadTabResource: (
@@ -109,16 +115,6 @@ export type CloudmapClusterTabsProps = {
  * File: frontend/src/pages/cnmc/clouds/Cloudmap/tabs/cluster/index.tsx
  * Component: CloudmapClusterTabs
  * =========================================================================
- * [功能描述]
- * - Cloudmap 平台的集群资源管理选项卡 (Tabs) 组件
- * - 集中展示和管理节点、服务、网络、命名空间、存储及硬件设备等资源
- * - 「物理交换机」与节点/服务相同：UI 从 Harvester/cluster/sections 引入，数据由 CloudDetailCloudmap
- *   拉取 asw-ctl API 后经 props 传入（ASW-CTL 部署在集群内，归属 Harvester 集群能力，见 PhysicalSwitchesSection 文件头）
- *
- * [核心逻辑]
- * - 接收各类资源的列表数据及加载/刷新方法
- * - 根据用户权限动态过滤并渲染可访问的 Tab 页签
- * =========================================================================
  */
 const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
   const {
@@ -128,9 +124,10 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
     showLog,
     checkPerm,
     canReadPublicSubnets,
-    clusterInnerDefaultActiveKey,
+    clusterInnerActiveKey,
+    onClusterInnerTabChange,
+    onClusterInfoSegmentChange,
     clusterNetworkSegmentKey,
-    setClusterNetworkSegmentKey,
     clusterNetworkSegmentOptions,
     handleTabChange,
     loadTabResource,
@@ -180,15 +177,10 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
   return (
     <Tabs
       type="line"
-      destroyOnHidden={false}
-      defaultActiveKey={clusterInnerDefaultActiveKey}
-      onChange={(key) => {
-        if (key === 'clusterNetworks') {
-          handleTabChange(clusterNetworkSegmentKey);
-          return;
-        }
-        handleTabChange(key);
-      }}
+      destroyOnHidden
+      rootClassName="cloudmap-cluster-inner-tabs"
+      activeKey={clusterInnerActiveKey}
+      onChange={(key) => onClusterInnerTabChange(key)}
       items={[
         {
           key: 'cluster_nodes',
@@ -203,26 +195,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
                 mode={mode}
               />
               <DebugJSON data={rawNodes} show={showLog} />
-            </>
-          ),
-        },
-        {
-          key: 'cluster_services',
-          label: '基础服务 ',
-          children: (
-            <>
-              <ServicesSection
-                cloudId={cloudId}
-                services={harvesterServices}
-                loading={resourceLoading.services}
-                onRefresh={() => loadTabResource('services', true)}
-                namespacesOptions={namespacesOptions}
-                nsValue={nsFilter || undefined}
-                onNsChange={(v) => setNsFilter(v || '')}
-                pods={harvesterPods}
-                mode={mode}
-              />
-              <DebugJSON data={rawServices} show={showLog} />
             </>
           ),
         },
@@ -248,73 +220,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
           ),
         },
         {
-          key: 'clusterNetworks',
-          label: '集群网络',
-          children: (
-            <>
-              <Segmented
-                style={{ marginBottom: 12 }}
-                options={clusterNetworkSegmentOptions}
-                value={clusterNetworkSegmentKey}
-                onChange={(value) => {
-                  const v = String(value);
-                  setClusterNetworkSegmentKey(v);
-                  handleTabChange(v);
-                }}
-              />
-              {clusterNetworkSegmentKey === 'clusterNetworks' && (
-                <>
-                  <ClusterNetworksSection
-                    cloudId={cloudId}
-                    clusterNetworks={harvesterClusterNetworks}
-                    loading={resourceLoading.clusterNetworks}
-                    onRefresh={() => loadTabResource('clusterNetworks', true)}
-                    mode={mode}
-                    isTenant={isTenant}
-                  />
-                  <DebugJSON data={rawClusterNetworks} show={showLog} />
-                </>
-              )}
-              {clusterNetworkSegmentKey === 'nads' && (
-                <>
-                  <NadsSection
-                    nads={harvesterNads}
-                    loading={resourceLoading.nads || nadsLoading}
-                    onRefresh={refreshNads}
-                    cloudId={cloudId}
-                    mode={mode}
-                  />
-                  <DebugJSON data={rawNads} show={showLog} />
-                </>
-              )}
-              {clusterNetworkSegmentKey === 'load_balancers' && (
-                <>
-                  <LoadBalancersSection
-                    cloudId={cloudId}
-                    loadBalancers={harvesterLoadBalancers}
-                    loading={resourceLoading.loadBalancers}
-                    onRefresh={() => loadTabResource('load_balancers', true)}
-                    mode={mode}
-                  />
-                  <DebugJSON data={rawLoadBalancers} show={showLog} />
-                </>
-              )}
-              {clusterNetworkSegmentKey === 'ippools' && (
-                <>
-                  <IPPoolsSection
-                    cloudId={cloudId}
-                    ippools={harvesterIPPools}
-                    loading={resourceLoading.ippools}
-                    onRefresh={() => loadTabResource('ippools', true)}
-                    mode={mode}
-                  />
-                  <DebugJSON data={rawIPPools} show={showLog} />
-                </>
-              )}
-            </>
-          ),
-        },
-        {
           key: 'kubeovn_public_networks',
           label: '物理网络',
           children: (
@@ -335,6 +240,27 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               />
               <DebugJSON data={rawSubnets} show={showLog} />
             </>
+          ),
+        },
+        {
+          key: 'namespaces',
+          label: '命名空间',
+          children: (
+            <NamespacesTab
+              cloudId={cloudId}
+              namespaces={harvesterNamespacesForManagement}
+              loading={resourceLoading.namespaces}
+              onRefresh={async (force = false, silent = false) => {
+                await loadTabResource('namespaces', force, silent);
+                if (force && !silent) {
+                  message.success('刷新成功');
+                }
+              }}
+              showLog={showLog}
+              raw={rawNamespaces}
+              isTenant={isTenant}
+              mode={mode}
+            />
           ),
         },
         {
@@ -381,43 +307,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
           ),
         },
         {
-          key: 'namespaces',
-          label: '命名空间',
-          children: (
-            <NamespacesTab
-              cloudId={cloudId}
-              namespaces={harvesterNamespacesForManagement}
-              loading={resourceLoading.namespaces}
-              onRefresh={async (force = false, silent = false) => {
-                await loadTabResource('namespaces', force, silent);
-                if (force && !silent) {
-                  message.success('刷新成功');
-                }
-              }}
-              showLog={showLog}
-              raw={rawNamespaces}
-              isTenant={isTenant}
-              mode={mode}
-            />
-          ),
-        },
-        {
-          key: 'storage_classes',
-          label: '存储池',
-          children: (
-            <>
-              <StorageClassesSection
-                cloudId={cloudId}
-                storageClasses={harvesterStorageClasses}
-                loading={resourceLoading.storageClasses}
-                onRefresh={() => loadTabResource('storage_classes', true)}
-                mode={mode}
-              />
-              <DebugJSON data={harvesterStorageClasses} show={showLog} />
-            </>
-          ),
-        },
-        {
           key: 'gpu',
           label: 'GPU',
           children: (
@@ -446,52 +335,119 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
           ),
         },
         {
-          key: 'cluster_pci',
-          label: 'PCI 设备',
+          key: 'clusterNetworks',
+          label: 'Cluster Info',
           children: (
-            <PciDevicesSection
-              cloudId={cloudId}
-              devices={harvesterPciDevices}
-              loading={resourceLoading.pciDevices}
-              onRefresh={() => loadTabResource('pci_devices', true)}
-              raw={rawPciDevices}
-              showLog={showLog}
-              bordered={false}
-            />
+            <>
+              <Segmented
+                style={{ marginBottom: 12 }}
+                options={clusterNetworkSegmentOptions}
+                value={clusterNetworkSegmentKey}
+                onChange={(value) =>
+                  onClusterInfoSegmentChange(String(value))
+                }
+              />
+              {clusterNetworkSegmentKey === 'clusterNetworks' && (
+                <>
+                  <ClusterNetworksSection
+                    cloudId={cloudId}
+                    clusterNetworks={harvesterClusterNetworks}
+                    loading={resourceLoading.clusterNetworks}
+                    onRefresh={() => loadTabResource('clusterNetworks', true)}
+                    mode={mode}
+                    isTenant={isTenant}
+                  />
+                  <DebugJSON data={rawClusterNetworks} show={showLog} />
+                </>
+              )}
+              {clusterNetworkSegmentKey === 'cluster_services' && (
+                <>
+                  <ServicesSection
+                    cloudId={cloudId}
+                    services={harvesterServices}
+                    loading={resourceLoading.services}
+                    onRefresh={() => loadTabResource('services', true)}
+                    namespacesOptions={namespacesOptions}
+                    nsValue={nsFilter || undefined}
+                    onNsChange={(v) => setNsFilter(v || '')}
+                    pods={harvesterPods}
+                    mode={mode}
+                  />
+                  <DebugJSON data={rawServices} show={showLog} />
+                </>
+              )}
+              {clusterNetworkSegmentKey === 'storage_classes' && (
+                <>
+                  <StorageClassesSection
+                    cloudId={cloudId}
+                    storageClasses={harvesterStorageClasses}
+                    loading={resourceLoading.storageClasses}
+                    onRefresh={() => loadTabResource('storage_classes', true)}
+                    mode={mode}
+                  />
+                  <DebugJSON data={harvesterStorageClasses} show={showLog} />
+                </>
+              )}
+              {clusterNetworkSegmentKey === 'nads' && (
+                <>
+                  <NadsSection
+                    nads={harvesterNads}
+                    loading={resourceLoading.nads || nadsLoading}
+                    onRefresh={refreshNads}
+                    cloudId={cloudId}
+                    mode={mode}
+                  />
+                  <DebugJSON data={rawNads} show={showLog} />
+                </>
+              )}
+              {clusterNetworkSegmentKey === 'load_balancers' && (
+                <>
+                  <LoadBalancersSection
+                    cloudId={cloudId}
+                    loadBalancers={harvesterLoadBalancers}
+                    loading={resourceLoading.loadBalancers}
+                    onRefresh={() => loadTabResource('load_balancers', true)}
+                    mode={mode}
+                  />
+                  <DebugJSON data={rawLoadBalancers} show={showLog} />
+                </>
+              )}
+              {clusterNetworkSegmentKey === 'ippools' && (
+                <>
+                  <IPPoolsSection
+                    cloudId={cloudId}
+                    ippools={harvesterIPPools}
+                    loading={resourceLoading.ippools}
+                    onRefresh={() => loadTabResource('ippools', true)}
+                    mode={mode}
+                  />
+                  <DebugJSON data={rawIPPools} show={showLog} />
+                </>
+              )}
+              {clusterNetworkSegmentKey === 'cluster_pci' && (
+                <>
+                  <PciDevicesSection
+                    cloudId={cloudId}
+                    devices={harvesterPciDevices}
+                    loading={resourceLoading.pciDevices}
+                    onRefresh={() => loadTabResource('pci_devices', true)}
+                    raw={rawPciDevices}
+                    showLog={showLog}
+                    bordered={false}
+                  />
+                  <DebugJSON data={rawPciDevices} show={showLog} />
+                </>
+              )}
+            </>
           ),
         },
-      ].filter((i: any) => {
-        if (i.key === 'cluster_nodes')
-          return checkPerm('clouds.cluster-nodes:read');
-        if (i.key === 'cluster_services')
-          return checkPerm('clouds.cluster-services:read');
-        if (i.key === 'clusterNetworks')
-          return clusterNetworkSegmentOptions.length > 0;
-        if (i.key === 'cluster_vlans') {
-          return (
-            checkPerm('clouds.vlans:read') ||
-            checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
-          );
-        }
-        if (i.key === 'kubeovn_public_networks') {
-          return checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
-        }
-        if (i.key === 'kubeovn_public_subnets') return canReadPublicSubnets;
-        if (i.key === 'cluster_usb')
-          return checkPerm('clouds.usb-devices:read');
-        if (i.key === 'cluster_pci')
-          return checkPerm('clouds.pci-devices:read');
-        if (i.key === 'cluster_physical_switches')
-          return checkPerm('clouds.cluster-networks:read');
-        if (i.key === 'namespaces')
-          return (
-            checkPerm('clouds.namespaces:read') || checkPerm('clouds:read')
-          );
-        if (i.key === 'storage_classes')
-          return checkPerm('clouds.storage-classes:read');
-        if (i.key === 'gpu') return checkPerm('clouds.gpus:read');
-        return false;
-      })}
+      ].filter((i: any) =>
+        isCloudmapClusterMainTabVisible(i.key, {
+          checkPerm,
+          canReadPublicSubnets,
+          clusterNetworkSegmentOptionsLength: clusterNetworkSegmentOptions.length,
+        }),
+      )}
     />
   );
 };

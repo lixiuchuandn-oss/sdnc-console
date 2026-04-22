@@ -30,7 +30,7 @@
  *    - Icons (@ant-design/icons)
  * ==============================================================================
  */
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect } from 'react';
 import { 
   Modal, Card, Row, Col, Button, Form, Input, Select, 
   Switch, message, Space, Typography, Alert, Divider, Collapse, Image, Cascader
@@ -38,7 +38,7 @@ import {
 import { 
   CloudOutlined, CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
   EyeOutlined, EyeInvisibleOutlined,
-  AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, ClusterOutlined, AppstoreOutlined, CodeSandboxOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined
+  AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, AppstoreOutlined, CodeSandboxOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined
 } from '@ant-design/icons';
 import '../clouds/Harvester/ecs/modals/VmCreateWizard/InstanceWizard.css';
 import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from './poolProviders';
@@ -50,15 +50,21 @@ import { apiPost, apiRequest } from '../../../services/api';
 const { Title, Text } = Typography;
 const { Option } = Select;
 
-
+/** 向导里 CSM 使用 UI 类型 sdn_security_pool；创建/测试仍传后端 CloudType.security_pool */
+function poolTypeToApiType(raw: string): string {
+  const t = String(raw || '').toLowerCase();
+  return t === 'sdn_security_pool' ? 'security_pool' : t;
+}
 
 interface CloudWizardProps {
   visible: boolean;
   onCancel: () => void;
   onSuccess: () => void;
+  /** 仅用于 SDN「流量编排」下的 CSM 接入：跳过多云类型选择，直接配置 CSM */
+  csmOnly?: boolean;
 }
 
-const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess }) => {
+const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess, csmOnly = false }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState<CloudProvider | null>(null);
   const [poolType, setPoolType] = useState<string>('central');
@@ -73,7 +79,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
 
   // [权限/功能开关] 开放平台检查
   const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(id);
+    return ['aliyun', 'huaweicloud', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'rancher'].includes(id);
   };
 
   // [级联数据] 构建省份-城市级联选项（必须在组件顶层）
@@ -90,7 +96,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
 
   // 试用或未开通多云：跳过选择云平台，直接进入 CloudMap 私有云配置
   useEffect(() => {
-    if (visible && !licenseLoading && isCloudMapOnly) {
+    if (visible && !licenseLoading && isCloudMapOnly && !csmOnly) {
       const cloudmapProvider = cloudProviders.find((p: CloudProvider) => p.id === 'cloudmap.private');
       if (cloudmapProvider) {
         setPoolType('private');
@@ -99,7 +105,20 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         setTimeout(() => form.setFieldsValue({ ignoreTls: true }), 200);
       }
     }
-  }, [visible, licenseLoading, isCloudMapOnly]);
+  }, [visible, licenseLoading, isCloudMapOnly, csmOnly]);
+
+  useLayoutEffect(() => {
+    if (!visible || !csmOnly || licenseLoading) return;
+    const p = cloudProviders.find((x: CloudProvider) => x.id === 'cloudmap.csm');
+    if (!p) return;
+    setPoolType('sdn_security_pool');
+    setSelectedProvider(p);
+    setCurrentStep(1);
+    setTestResult(null);
+    setFormData(null);
+    form.resetFields();
+    form.setFieldsValue({ type: 'security_pool', ignoreTls: true });
+  }, [visible, csmOnly, licenseLoading, form]);
 
   // [默认值设置] 当选择 provider 后，设置 ignoreTls 默认值为 true
   useEffect(() => {
@@ -129,9 +148,11 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const handleProviderSelect = (provider: CloudProvider) => {
     setSelectedProvider(provider);
     setCurrentStep(1);
-    // 立即设置 ignoreTls 默认值为 true
     setTimeout(() => {
-      form.setFieldsValue({ ignoreTls: true });
+      form.setFieldsValue({
+        ignoreTls: true,
+        type: poolTypeToApiType(poolType),
+      });
     }, 100);
   };
 
@@ -162,7 +183,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         
         // [重要] 确保 type 字段被包含在保存的数据中
         // type 字段不在 selectedProvider.fields 中，需要单独处理
-        trimmedValues.type = values.type || poolType;
+        trimmedValues.type = poolTypeToApiType(String(values.type || poolType));
         
         // [重要] 确保 ignoreTls 被包含在保存的数据中
         // 如果未设置，默认设置为 true
@@ -188,6 +209,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
 
   const handlePrev = () => {
     if (currentStep === 1 && isCloudMapOnly) return;
+    if (csmOnly && currentStep === 1) return;
     setCurrentStep(currentStep - 1);
     if (currentStep === 1) {
       setSelectedProvider(null);
@@ -212,7 +234,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           ? 'https://ecs.aliyuncs.com'
           : selectedProvider?.id === 'huaweicloud'
             ? `https://ecs.${values.region}.myhuaweicloud.com`
-            : (selectedProvider?.id === 'harvester' || selectedProvider?.id === 'cloudmap.edge' || selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.csm')
+            : selectedProvider?.id === 'rancher'
+              ? String(values.rancherUrl || values.endpoint || '').trim()
+            : (selectedProvider?.id === 'cloudmap.edge' || selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.csm')
               ? (values.endpoint || '')
               : (values.endpoint || values.authUrl || values.vcenterHost || '');
       
@@ -289,7 +313,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       // [数据标准化] 资源类型
       // 后端已更新 CloudType 枚举，直接使用前端选择的类型
       // 如果 values.type 为空，使用 poolType 作为兜底
-      const normalizedType = String(values.type || poolType || '').toLowerCase();
+      const normalizedType = poolTypeToApiType(String(values.type || poolType || '').toLowerCase());
 
       // [Payload构造] 组装最终提交给 API 的数据结构
       const cfg: any = {
@@ -324,7 +348,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         finalEndpoint = 'https://ecs.aliyuncs.com';
       } else if (selectedProvider.id === 'huaweicloud') {
         finalEndpoint = `https://ecs.${finalRegion}.myhuaweicloud.com`;
-      } else if (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') {
+      } else if (selectedProvider.id === 'rancher') {
+        finalEndpoint = (values.rancherUrl && String(values.rancherUrl).trim()) || '';
+      } else if (selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') {
         finalEndpoint = (values.endpoint && String(values.endpoint).trim()) || '';
       } else {
         finalEndpoint = (values.endpoint || values.authUrl || values.vcenterHost || '').toString().trim();
@@ -466,8 +492,15 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     switch (currentStep) {
       case 0:
         // ==============================================================================
-        // 步骤 0: 选择云平台 (Provider Selection)
+        // 步骤 0: 选择云平台 (Provider Selection) — CSM 仅走 csmOnly 向导，不进入多云步骤 0
         // ==============================================================================
+        if (csmOnly) {
+          return (
+            <div style={{ padding: 24, textAlign: 'center' }}>
+              <LoadingOutlined style={{ fontSize: 32 }} spin />
+            </div>
+          );
+        }
         return (
           <div>
             <div style={{ marginBottom: 12 }}>
@@ -481,9 +514,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                   { key: 'central', label: '公有云' },
                   { key: 'private', label: '私有云' },
                   { key: 'edge', label: '边缘计算' },
+                  { key: 'container_cloud', label: '容器云' },
                   { key: 'virtualization', label: '虚拟化平台' },
                   { key: 'object_storage', label: '对象存储' },
-                  { key: 'security_pool', label: '安全资源池' }
                 ].map(t => (
                   <Col xs={12} sm={8} md={6} lg={6} key={t.key}>
                     <Card
@@ -504,9 +537,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                         {t.key === 'central' && <CloudUploadOutlined />}
                         {t.key === 'private' && <CloudServerOutlined />}
                         {t.key === 'edge' && <DeploymentUnitOutlined />}
+                        {t.key === 'container_cloud' && <ContainerOutlined />}
                         {t.key === 'virtualization' && <DesktopOutlined />}
                         {t.key === 'object_storage' && <DatabaseOutlined />}
-                        {t.key === 'security_pool' && <SafetyCertificateOutlined />}
                       </div>
                       <div>{t.label}</div>
                     </Card>
@@ -519,7 +552,14 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter((p: CloudProvider) => p.category === 'virtualization'))}
             {poolType === 'object_storage' && renderProviderGrid('object_storage', '对象存储', cloudProviders.filter((p: CloudProvider) => p.category === 'object_storage'))}
             {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter((p: CloudProvider) => p.category === 'edge'))}
-            {poolType === 'security_pool' && renderProviderGrid('security_pool', '安全资源池', cloudProviders.filter((p: CloudProvider) => p.category === 'security_pool'))}
+            {poolType === 'container_cloud' && (
+              <>
+                {renderProviderGrid('container_cloud', '选择厂商', cloudProviders.filter((p: CloudProvider) => p.category === 'container_cloud'))}
+                <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 4 }}>
+                  如 Rancher 等；更多厂商可后续对接。
+                </div>
+              </>
+            )}
           </div>
         );
 
@@ -534,7 +574,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             <div style={{ marginBottom: 12 }}>
               <div className="modal-group-title">配置云账号</div>
               <div style={{ color: '#8c8c8c', marginTop: 6 }}>
-                {(poolType === 'security_pool' && selectedProvider.id === 'cloudmap.csm')
+                {(poolType === 'sdn_security_pool' && selectedProvider.id === 'cloudmap.csm')
                   ? '添加 CSM'
                   : selectedProvider.description}
               </div>
@@ -547,14 +587,21 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 try { setFormData(all); } catch {}
               }}
             >
-              <Form.Item name="type" label="资源类型" initialValue={poolType} rules={[{ required:true }]}> 
+              <Form.Item
+                name="type"
+                label="资源类型"
+                initialValue={poolTypeToApiType(poolType)}
+                rules={[{ required: true }]}
+              > 
                 <Select disabled={isCloudMapOnly}>
                   <Option value="central">公有云</Option>
                   <Option value="private">私有云</Option>
                   <Option value="edge">边缘计算</Option>
+                  <Option value="container_cloud">容器云</Option>
+                  <Option value="rancher">容器云（历史）</Option>
                   <Option value="virtualization">虚拟化</Option>
                   <Option value="object_storage">对象存储</Option>
-                  <Option value="security_pool">安全资源池</Option>
+                  <Option value="security_pool">SDN 业务域</Option>
                 </Select>
               </Form.Item>
 
@@ -837,7 +884,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
 
   return (
     <Modal
-      title="新增资源池"
+      title={csmOnly ? '接入 CSM 安全资源池' : '新增资源池'}
       open={visible}
       onCancel={handleCancel}
       footer={null}
@@ -891,7 +938,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             <div className="wizard-preview-actions">
               <Space>
                 <Button onClick={handleCancel}>取消</Button>
-                {currentStep > 0 && !(currentStep === 1 && isCloudMapOnly) && (
+                {currentStep > 0 &&
+                  !(currentStep === 1 && isCloudMapOnly) &&
+                  !(csmOnly && currentStep === 1) && (
                   <Button onClick={handlePrev}>上一步</Button>
                 )}
                 {currentStep === 0 && selectedProvider && (

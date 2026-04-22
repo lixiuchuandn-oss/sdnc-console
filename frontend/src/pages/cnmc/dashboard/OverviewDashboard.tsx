@@ -38,6 +38,7 @@ import {
 import { isMustChangePasswordApiError } from '../../../utils/errorHandler';
 import { getProviderChartOption } from './chartUtils';
 import './Dashboard.css';
+import { isCsmCloud } from '../pools/poolProviders';
 
 function pickSettledResult<T>(result: PromiseSettledResult<T>, fallback: T): T {
   return result.status === 'fulfilled' ? result.value : fallback;
@@ -123,7 +124,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   harvester: 'Harvester',
   'cloudmap.edge': 'Cloudmap边缘云',
   'cloudmap.private': 'Cloudmap私有云',
-  'cloudmap.csm': 'CSM安全资源池',
+  'cloudmap.csm': 'CSM（SDN 业务域）',
   Unknown: '未知厂商',
 };
 
@@ -209,16 +210,17 @@ const OverviewDashboard: React.FC = () => {
         skipNextCloudsFetchCacheRef.current = true;
       }
       const cloudsList = pickSettledResult(results[1], []);
+      const cnmcClouds = (cloudsList || []).filter((c: any) => !isCsmCloud(c));
 
       setStats(statsData);
-      setClouds(cloudsList || []);
+      setClouds(cnmcClouds);
 
       let totalRunning = 0;
       let totalInstances = 0;
       let onlineClouds = 0;
       const counts: Record<string, { total: number, running: number }> = {};
 
-      (cloudsList || []).forEach((c: any) => {
+      cnmcClouds.forEach((c: any) => {
         const count = Number(c.vmCount || 0);
         const running = Number(c.runningVmCount || 0);
         if (c.status === 'online' || c.status === 'active') onlineClouds++;
@@ -229,7 +231,7 @@ const OverviewDashboard: React.FC = () => {
       
       setInstanceStats({ running: totalRunning, total: totalInstances });
       setInstanceCounts(counts);
-      setCloudStats({ online: onlineClouds, total: cloudsList.length });
+      setCloudStats({ online: onlineClouds, total: cnmcClouds.length });
     } catch (err) {
       console.error('Failed to load critical data:', err);
     } finally {

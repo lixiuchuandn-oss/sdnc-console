@@ -1,6 +1,6 @@
 /**
  * ASW-CTL 北向 HTTP 客户端（集群侧部署的接入交换机只读探测服务）。
- * 细节以运行实例 GET /openapi.yaml 为准。
+ * 北向契约以运行实例与部署文档为准（Tower 聚合探测不拉取根路径 /openapi.yaml）。
  *
  * 使用 Node 原生 http/https，避免 axios 受 HTTP(S)_PROXY、重定向丢头等影响导致 /v1 鉴权头未到达 ASW-CTL。
  */
@@ -100,6 +100,47 @@ function aswCtlAuthHeaders(k: string): Record<string, string> {
  * - 无协议时补 http://（避免被当成相对路径或异常解析）
  * - 只保留 origin（scheme+host+port），去掉 path；末尾无 `/`，与 `/v1/...` 拼接不会出现 `//v1`
  */
+/**
+ * 北向业务 API 路径前缀（无末尾 `/`）。
+ * - 默认 `/v1`：旧版 ASW-CTL，如 `/v1/switch/info`。
+ * - 集群 HSM：`/v1/hms`，如 `/v1/hms/switch/info`（与对端 SwitchRouter 前缀一致）。
+ * 覆盖：环境变量 `ASW_CTL_V1_PREFIX`（例：`/v1/hms`）。
+ */
+export function getAswCtlNorthApiPrefix(): string {
+  const raw = process.env.ASW_CTL_V1_PREFIX;
+  if (raw != null && String(raw).trim()) {
+    let p = String(raw).trim().replace(/\/+$/, '');
+    if (!p.startsWith('/')) p = `/${p}`;
+    return p;
+  }
+  return '/v1';
+}
+
+function normalizeNorthPrefix(raw: string): string {
+  let p = String(raw || '').trim().replace(/\/+$/, '');
+  if (!p.startsWith('/')) p = `/${p}`;
+  return p;
+}
+
+/** 拼接北向业务路径，如 `northApiPath('/switch/info')` → `/v1/switch/info` 或 `/v1/hms/switch/info` */
+export function northApiPath(pathAfterPrefix: string): string {
+  const pfx = normalizeNorthPrefix(getAswCtlNorthApiPrefix());
+  const seg = pathAfterPrefix.startsWith('/') ? pathAfterPrefix : `/${pathAfterPrefix}`;
+  return `${pfx}${seg}`;
+}
+
+/** 显式指定前缀（用于「集群内置 HSM」固定 `/v1/hms`，与独立 ASW-CTL 的 env 前缀区分） */
+export function northApiPathWithPrefix(pathAfterPrefix: string, northPrefix: string): string {
+  const pfx = normalizeNorthPrefix(northPrefix);
+  const seg = pathAfterPrefix.startsWith('/') ? pathAfterPrefix : `/${pathAfterPrefix}`;
+  return `${pfx}${seg}`;
+}
+
+/** 与 Harvester 控制面探测一致：从资源池 endpoint 得到 scheme+host+port，供 HSM 北向根地址 */
+export function harvesterControlPlaneOrigin(endpoint: string): string {
+  return sanitizeAswCtlBaseUrl(String(endpoint || '').trim());
+}
+
 export function sanitizeAswCtlBaseUrl(raw: string): string {
   let s = String(raw || '')
     .trim()

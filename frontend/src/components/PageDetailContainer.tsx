@@ -34,6 +34,10 @@ export interface PageDetailContainerProps {
   tabBarExtraContent?: React.ReactNode;
   /** 手动指定面包屑项，如果提供将覆盖自动生成的面包屑 */
   breadcrumbs?: Array<{ title: React.ReactNode; href?: string }>;
+  /** 合并到最外层容器（与 pagePadding 同一 div），用于占满父级高度等 */
+  rootStyle?: React.CSSProperties;
+  /** asCard=false 时合并到包裹 children 的 div（默认仅有 margin:0） */
+  contentWrapperStyle?: React.CSSProperties;
 }
 
 const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
@@ -64,6 +68,8 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   onTabChange,
   tabBarExtraContent,
   breadcrumbs,
+  rootStyle,
+  contentWrapperStyle,
 }) => {
   const loc = useLocation();
   const { token } = theme.useToken();
@@ -135,8 +141,15 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
     background: '#fff',
   };
 
+  const rootPad = pagePadding !== undefined ? pagePadding : '24px 36px';
+
   return (
-    <div style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px' }}>
+    <div
+      style={{
+        padding: rootPad,
+        ...(rootStyle || {}),
+      }}
+    >
       {!hideHeader && (
         <Breadcrumb style={{ marginBottom: 12 }} items={finalBreadcrumbs} />
       )}
@@ -247,7 +260,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
           {children}
         </Card>
       ) : (
-        <div style={{ margin: 0 }}>{children}</div>
+        <div style={{ margin: 0, ...(contentWrapperStyle || {}) }}>{children}</div>
       )}
     </div>
   );

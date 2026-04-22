@@ -57,6 +57,8 @@ const ProtectedObjects = lazy(() => import('./pages/cnsoc/traffic/ProtectedObjec
 const ServiceChains = lazy(() => import('./pages/cnsoc/traffic/ServiceChains'));
 const CreateServiceChainWizard = lazy(() => import('./pages/cnsoc/traffic/ServiceChains/CreateWizard'));
 const Policies = lazy(() => import('./pages/cnsoc/traffic/Policies'));
+const CsmPoolsPage = lazy(() => import('./pages/cnsoc/traffic/CsmPoolsPage'));
+const CsmPoolDetailPage = lazy(() => import('./pages/cnsoc/traffic/CsmPoolDetailPage'));
 const WebSSHPage = lazy(() => import('./pages/cnmc/pools/WebSSH'));
 const CloudConsolePage = lazy(() => import('./pages/cnmc/console/CloudConsole'));
 const PaasDatabasesPage = lazy(() => import('./pages/cnmc/paas/PaasDatabasesPage'));
@@ -68,15 +70,18 @@ const AiSocPlaceholder = lazy(() => import('./pages/cnsoc/sec-ops/AiSocPlacehold
 const AiSocFrame = lazy(() => import('./pages/cnsoc/sec-ops/AiSocFrame'));
 
 const LoadingFallback: React.FC = () => (
-  <div style={{ 
-    display: 'flex', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    minHeight: '400px',
-    width: '100%'
-  }}>
+  <div
+    style={{
+      position: 'relative',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      minHeight: '400px',
+      width: '100%',
+    }}
+  >
     <Spin size="large" tip="加载中...">
-      <div style={{ minHeight: 200 }} />
+      <div style={{ minHeight: 200, minWidth: 200 }} />
     </Spin>
   </div>
 );
@@ -180,6 +185,8 @@ const AppRoutes: React.FC = () => {
           <Route path="access/users" element={<AccessUsersPage />} />
           
           {/* SSLO Traffic Orchestration */}
+          <Route path="security/traffic/csm-pools" element={<CsmPoolsPage />} />
+          <Route path="security/traffic/csm-pools/:cloudId" element={<CsmPoolDetailPage />} />
           <Route path="security/traffic/protected-objects" element={<ProtectedObjects />} />
           <Route path="security/traffic/service-chains" element={<ServiceChains />} />
           <Route path="security/traffic/service-chains/create" element={<CreateServiceChainWizard />} />
@@ -273,15 +280,6 @@ const AdminIndex: React.FC = () => {
         token: {
           ...(settings.primaryColor ? { colorPrimary: settings.primaryColor } : {}),
           borderRadius: 6,
-        },
-        components: {
-          Menu: {
-            itemBorderRadius: 0,
-            subMenuItemBorderRadius: 0,
-            activeBarWidth: 3,
-            itemMarginInline: 0,
-            itemMarginBlock: 0,
-          },
         },
       }}
     >

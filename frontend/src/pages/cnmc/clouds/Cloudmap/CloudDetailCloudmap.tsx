@@ -3,40 +3,37 @@
 // 2) RBAC：用户是否有读写权限
 // 3) 标准/运维（mode）：仅影响各 Section 内交互/展示细节；Tab 显隐仅由授权 + RBAC 决定
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  Tag,
-  Space,
-  Button,
-  Alert,
-  Tabs,
-  Descriptions,
-  message,
-  Segmented,
-} from 'antd';
-import {
-  CloudUploadOutlined,
-  ArrowLeftOutlined,
-  HomeOutlined,
-  LoginOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Alert, Tabs, message } from 'antd';
 
 // Harvester 页面子模块（路径 ../Harvester，与独立 Harvester 详情页复用同一套 Section）
-import CloudmapOverviewTab from './tabs/overview';
-import CloudmapMonitoringAlertsTab from './tabs/monitoring-alerts';
-import CloudmapClusterTabs from './tabs/cluster';
-import CloudmapComputeGroupTabs from './tabs/compute_group';
-import CloudmapContainersTabs from './tabs/containers';
-import CloudmapLogsConfigTab from './tabs/logs-config';
-import CloudmapStorageGroupTabs from './tabs/storage_group';
-import CloudmapBackupsGroupTabs from './tabs/backups_group';
-import CloudmapFlatNetworkGroupTabs from './tabs/flat_network_group';
-import CloudmapKubeOvnGroupTabs from './tabs/kube_ovn_group';
+import CloudmapMonitoringAlertsTab from './tabs/monitoring_alerts/index';
+import CloudmapClusterTabs from './tabs/cluster/index';
+import CloudmapComputeGroupTabs from './tabs/compute/index';
+import CloudmapContainersTabs from './tabs/containers/index';
+import CloudmapLogsConfigTab from './tabs/logs_config/index';
+import CloudmapStorageGroupTabs from './tabs/storage/index';
+import CloudmapBackupsGroupTabs from './tabs/backups/index';
+import CloudmapFlatNetworkGroupTabs from './tabs/flat_network/index';
+import CloudmapKubeOvnGroupTabs from './tabs/kube_ovn/index';
+import CloudmapCloudDatabaseTabs from './tabs/paas_databases/index';
+import {
+  ResourceOverviewDatacenterTopologyPanel,
+  ResourceOverviewMonitoringPanel,
+  ResourceOverviewNetworkTopologyPanel,
+} from './tabs/resource_hub/index';
 import { runLoadTabResource, runLoadEssentials } from './loadTabResource';
 
 import PageDetailContainer from '../../../../components/PageDetailContainer';
+import './cloudmap-detail-layout.css';
+import './cloudmap-resource-hub-inner-tabs.css';
+import {
+  normalizeCloudmapPoolTabParam,
+  normalizeCloudmapResourceSubParam,
+  type CloudmapResourceSubKey,
+} from '../../../../layouts/admin/cloudPoolSidebar';
+import { readClusterStateFromUrl } from './cloudmapClusterTabVisibility';
 import {
   API_BASE_URL,
   apiPost,
@@ -52,75 +49,19 @@ import {
   CLOUD_SUBNETS_PUBLIC_READ,
   CLOUD_SUBNETS_VPC_READ,
 } from '../../../../constants/cloudPermissions';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import {
-  fetchHarvesterSnapshots,
-  fetchHarvesterBackups,
-  fetchHarvesterSshKeys,
-  fetchHarvesterCloudInits,
-  fetchHarvesterServices,
-  fetchHarvesterLoadBalancers,
-  fetchHarvesterIPPools,
-  fetchHarvesterNads,
   fetchHarvesterImages,
+  fetchHarvesterNads,
   fetchHarvesterNodes,
-  fetchKubeOvnSubnets,
-  fetchKubeOvnVlans,
-  fetchKubeOvnProviderNetworks,
-  fetchHarvesterGpuResources,
-  fetchHarvesterNamespaces,
   fetchHarvesterStorageClasses,
-  fetchHarvesterTemplates,
-  fetchHarvesterClusterNetworks,
-  fetchHarvesterUsbResources,
-  fetchHarvesterPciDevices,
-  fetchHarvesterDeployments,
-  fetchHarvesterStatefulSets,
-  fetchHarvesterDaemonSets,
-  fetchHarvesterPods,
-  fetchHarvesterJobs,
-  fetchHarvesterCronJobs,
-  fetchHarvesterConfigMaps,
-  fetchHarvesterSecrets,
-  fetchHarvesterImagePullSecrets,
-  fetchHarvesterIngresses,
-  checkGatewayApiStatus,
-  fetchGatewayClasses,
-  fetchGateways,
-  fetchHttpRoutes,
-  fetchGrpcRoutes,
-  fetchHarvesterPDBs,
-  fetchNetworkPolicies,
+  fetchKubeOvnSubnets,
 } from './runtime/api';
 
 import { HarvesterPublicNamespacesProvider } from '../Harvester/context/HarvesterPublicNamespacesContext';
 import { getToken } from '../../../../utils/tokenStorage';
-import { clearCache } from '../../../../utils/requestManager';
 import { useLicense } from '../../../../contexts/LicenseContext';
 
 const REQUEST_TIMEOUT = 30000;
-
-/**
- * 调试用的 JSON 展示组件
- */
-const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
-  if (!show) return null;
-  return (
-    <div style={{ marginTop: 12 }}>
-      <pre
-        style={{
-          background: '#f7f7f7',
-          padding: 12,
-          borderRadius: 8,
-          maxHeight: 300,
-          overflow: 'auto',
-        }}
-      >
-        {JSON.stringify(data, null, 2)}
-      </pre>
-    </div>
-  );
-};
 
 /**
  * 云资源项接口定义
@@ -148,6 +89,7 @@ interface CloudItem {
  * 4. 提供全局的刷新机制和权限控制。
  */
 const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
+  const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
   const permissions = user?.permissions;
@@ -223,6 +165,9 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     checkPerm('clouds.recycle-bin:read') ||
     checkPerm('clouds.migrations:read') ||
     checkPerm('clouds:read');
+  /** 云数据库（RDS）：与 RouteSpec `paas-databases` 页级权限一致 */
+  const canViewCloudDatabaseTab =
+    checkPerm('clouds.ecs:read') || checkPerm('clouds:read');
   /** 与 Harvester 详情页「容器」分组对齐：容器读或相关服务发现读或全量读 */
   const canViewContainersGroup =
     checkPerm('clouds.containers:read') ||
@@ -370,11 +315,26 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [showLog] = useState<boolean>(false); // 是否显示原始 JSON 日志
   /** 标准：租户向精简；运维：命名空间、ACL、运维抽屉等 */
   const [mode, setMode] = useState<'standard' | 'ops'>('standard');
-  const [activeTabKey, setActiveTabKey] = useState<string>('overview');
+  const [activeTabKey, setActiveTabKey] = useState<string>(() =>
+    normalizeCloudmapPoolTabParam(
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('tab')
+        : null,
+    ),
+  );
+  const [resourceHubSubKey, setResourceHubSubKey] = useState<CloudmapResourceSubKey>(() =>
+    normalizeCloudmapResourceSubParam(
+      typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null,
+      typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('sub') : null,
+    ),
+  );
+
   const [backupsGroupActiveKey, setBackupsGroupActiveKey] =
     useState<string>('backups');
   const [clusterNetworkSegmentKey, setClusterNetworkSegmentKey] =
     useState<string>('clusterNetworks');
+  /** 集群内层 Tab：'' 表示跟随 clusterInnerDefaultActiveKey；与 URL `cluster_sub` 同步 */
+  const [clusterInnerActiveKey, setClusterInnerActiveKey] = useState<string>('');
 
   // --- 原始数据缓存 (用于日志展示) ---
   const [rawEcs, setRawEcs] = useState<any | null>(null);
@@ -408,9 +368,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     null,
   );
   /**
-   * 物理交换机（ASW-CTL）聚合探测结果。ASW-CTL 部署在集群内、对外 HTTP 由 Service 等暴露；
-   * Tower 通过 `/api/clouds/:id/resources/harvester/asw-ctl/switches` 代理拉取。UI 在 Harvester/cluster
-   * 的 PhysicalSwitchesSection，此处只持状态并下传给 CloudmapClusterTabs。
+   * 物理交换机列表：Tower 通过 `.../asw-ctl/switches` 返回本机已入库的末次实例快照，不对集群发实时 HSM 探测。
+   * UI 在 PhysicalSwitchesSection 等，此处只持状态并下传给 CloudmapClusterTabs。
    */
   const [aswSwitchSummary, setAswSwitchSummary] = useState<any | null>(null);
   const [rawIngresses, setRawIngresses] = useState<any | null>(null);
@@ -662,6 +621,13 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     });
   };
 
+  /**
+   * `loadTabResource` 为每渲染新函数，若直接列入 URL 同步 `useEffect` 依赖会导致效果每帧执行，
+   * 在 `cluster_sub` 缺省时把 `setClusterInnerActiveKey('')` 打回，内层 Tab 受控与点击失步无法切换。
+   */
+  const loadTabResourceRef = React.useRef(loadTabResource);
+  loadTabResourceRef.current = loadTabResource;
+
   const refreshVlans = async (force = false, skipSync = false) => {
     if (
       !checkPerm('clouds.vlans:read') &&
@@ -669,144 +635,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     )
       return;
     await loadTabResource('vlans', force, skipSync);
-  };
-
-  /**
-   * 全局/手动刷新函数
-   * 策略：刷新所有核心资源 + 刷新所有"已加载过"的按需资源
-   * 这保证了用户看到的页面内容最新，同时避免盲目加载所有 Tab
-   */
-  const loadAll = async (force: boolean | any = false) => {
-    // 兼容事件对象调用
-    const isForce =
-      force === true || (typeof force === 'object' && force !== null);
-
-    if (isForce) {
-      message.loading({ content: '正在刷新资源...', key: 'refreshing' });
-      // 触发后端数据库同步
-      try {
-        await apiPost(`/api/clouds/${cloudId}/sync`);
-      } catch (e) {
-        console.warn('Sync failed', e);
-      }
-    }
-
-    // 1. 获取当前已加载的资源列表 (用于智能刷新)
-    const previouslyLoaded = Array.from(loadedRef.current);
-
-    // 2. 清空缓存标记，强制重新请求
-    if (isForce) {
-      loadedRef.current.clear();
-    }
-
-    // 3. 刷新核心资源
-    await loadEssentials(isForce);
-
-    // 4. 智能刷新已加载的按需资源
-    if (isForce) {
-      const secondaryKeys = [
-        'snapshots',
-        'backups',
-        'ssh_keys',
-        'cloud_inits',
-        'templates',
-        'gpu',
-        'services',
-        'vlans',
-        'ippools',
-        'clusterNetworks',
-        'cluster_physical_switches', // ASW-CTL 探测（resourceLoading.aswSwitches）
-        'kubeovn_public_networks',
-        'eips',
-        'fips',
-        'snat',
-        'dnat',
-        'load_balancers',
-        'containers',
-        'workloads',
-        'pods',
-        'jobs',
-        'configs',
-        'registries',
-        'gateway_api',
-        'ingresses',
-      ];
-      // 只有当资源之前被加载过，才刷新它
-      secondaryKeys.forEach((k) => {
-        let shouldRefresh = false;
-        if (k === 'snapshots' && previouslyLoaded.includes('snapshots'))
-          shouldRefresh = true;
-        if (
-          k === 'backups' &&
-          (previouslyLoaded.includes('backups') ||
-            previouslyLoaded.includes('scheduleVmBackups'))
-        )
-          shouldRefresh = true;
-        if (k === 'ssh_keys' && previouslyLoaded.includes('sshKeys'))
-          shouldRefresh = true;
-        if (k === 'cloud_inits' && previouslyLoaded.includes('cloudInits'))
-          shouldRefresh = true;
-        if (k === 'templates' && previouslyLoaded.includes('templates'))
-          shouldRefresh = true;
-        if (k === 'gpu' && previouslyLoaded.includes('gpu'))
-          shouldRefresh = true;
-        if (k === 'services' && previouslyLoaded.includes('services'))
-          shouldRefresh = true;
-        if (k === 'vlans' && previouslyLoaded.includes('vlans'))
-          shouldRefresh = true;
-        if (k === 'ippools' && previouslyLoaded.includes('ippools'))
-          shouldRefresh = true;
-        if (
-          k === 'load_balancers' &&
-          previouslyLoaded.includes('loadBalancers')
-        )
-          shouldRefresh = true;
-        if (
-          k === 'clusterNetworks' &&
-          previouslyLoaded.includes('clusterNetworks')
-        )
-          shouldRefresh = true;
-        if (
-          k === 'cluster_physical_switches' &&
-          previouslyLoaded.includes('aswSwitches')
-        )
-          shouldRefresh = true;
-        if (
-          k === 'kubeovn_public_networks' &&
-          previouslyLoaded.includes('providerNetworksTab')
-        )
-          shouldRefresh = true;
-        if (k === 'eips' && previouslyLoaded.includes('eips'))
-          shouldRefresh = true;
-        if (k === 'fips' && previouslyLoaded.includes('fips'))
-          shouldRefresh = true;
-        if (k === 'snat' && previouslyLoaded.includes('snatRules'))
-          shouldRefresh = true;
-        if (k === 'dnat' && previouslyLoaded.includes('dnatRules'))
-          shouldRefresh = true;
-        if (k === 'containers' && previouslyLoaded.includes('deployments'))
-          shouldRefresh = true;
-        if (k === 'workloads' && previouslyLoaded.includes('deployments'))
-          shouldRefresh = true;
-        if (k === 'pods' && previouslyLoaded.includes('pods'))
-          shouldRefresh = true;
-        if (k === 'jobs' && previouslyLoaded.includes('jobs'))
-          shouldRefresh = true;
-        if (k === 'configs' && previouslyLoaded.includes('configmaps'))
-          shouldRefresh = true;
-        if (k === 'registries' && previouslyLoaded.includes('imagePullSecrets'))
-          shouldRefresh = true;
-        if (k === 'gateway_api' && previouslyLoaded.includes('gateways'))
-          shouldRefresh = true;
-        if (k === 'ingresses' && previouslyLoaded.includes('ingresses'))
-          shouldRefresh = true;
-
-        if (shouldRefresh) {
-          loadTabResource(k, true);
-        }
-      });
-      message.success({ content: '刷新完成', key: 'refreshing' });
-    }
   };
 
   /**
@@ -838,6 +666,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     }
   };
 
+  // 切换资源池时必须清空按需加载缓存，否则 loadResource 会认为 ecs/cloud 等已加载而跳过请求（仍显示旧池数据）
+  useEffect(() => {
+    loadedRef.current.clear();
+    vmStatusBuffer.current.clear();
+  }, [cloudId]);
+
   // --- 初始化 Effect ---
   // 仅在组件挂载或 cloudId 变化时加载核心资源
   useEffect(() => {
@@ -854,8 +688,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
    * 此处仅保留：多个 Tab 共用「备份+策略」加载。
    */
   const handleTabChange = (key: string) => {
+    if (key === 'paas_databases') {
+      void loadTabResource('backups');
+      return;
+    }
     if (
-      key === 'backups_group' ||
+      key === 'backups' ||
       key === 'schedule_vm_backups' ||
       key === 'vm_snapshots' ||
       key === 'rds_data_backups' ||
@@ -867,7 +705,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       return;
     }
     const shouldForceRefresh =
-      key === 'kube_ovn_group' ||
+      key === 'kube_ovn' ||
       key === 'flat_kubeovn_eips' ||
       key === 'flat_kubeovn_fips' ||
       key === 'flat_kubeovn_snat' ||
@@ -1124,25 +962,22 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     harvesterImagePullSecrets,
   ]);
 
-  const providerName = 'Cloudmap';
-
-  const versionText = useMemo(() => {
-    const fromConfig = cloud?.config?.harvesterVersion;
-    const fromNodes =
-      harvesterNodes.find((n: any) => n?.version)?.version || undefined;
-    return fromConfig || fromNodes || '-';
-  }, [cloud, harvesterNodes]);
-  const hasKubeOvn = useMemo(
-    () => kubeOvnVpcs.length > 0 || kubeOvnSubnets.length > 0,
-    [kubeOvnVpcs, kubeOvnSubnets],
-  );
-  const tlsIgnored = !!cloud?.config?.ignoreTls;
   const clusterNetworkSegmentOptions = useMemo(() => {
     const opts = [
       {
         value: 'clusterNetworks',
         label: '集群网络',
         visible: checkPerm('clouds.cluster-networks:read'),
+      },
+      {
+        value: 'cluster_services',
+        label: '基础服务',
+        visible: checkPerm('clouds.cluster-services:read'),
+      },
+      {
+        value: 'storage_classes',
+        label: '存储池',
+        visible: checkPerm('clouds.storage-classes:read'),
       },
       { value: 'nads', label: '附加网络(NAD)', visible: canReadNetworkScope },
       {
@@ -1155,11 +990,22 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         label: 'IP地址池',
         visible: checkPerm('clouds.nads:read'),
       },
+      {
+        value: 'cluster_pci',
+        label: 'PCI 设备',
+        visible: checkPerm('clouds.pci-devices:read'),
+      },
     ];
     return opts
       .filter((i) => i.visible)
       .map(({ value, label }) => ({ value, label }));
   }, [checkPerm, canReadNetworkScope, canReadLoadBalancers]);
+
+  /** 与 `cluster_sub` 同步的 layout effect 仅应随 options 的 value 集合而变，避免 [] 引用抖动把内层 Tab 打回。 */
+  const clusterNetworkSegmentOptionsSyncKey = useMemo(
+    () => clusterNetworkSegmentOptions.map((o) => o.value).join('\0'),
+    [clusterNetworkSegmentOptions],
+  );
 
   useEffect(() => {
     if (!clusterNetworkSegmentOptions.length) return;
@@ -1176,8 +1022,13 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   /** 集群内层 Tabs：defaultActiveKey 与首个有权限的子 Tab 对齐，避免空白内容区 */
   const clusterInnerDefaultActiveKey = useMemo(() => {
     if (checkPerm('clouds.cluster-nodes:read')) return 'cluster_nodes';
-    if (checkPerm('clouds.cluster-services:read')) return 'cluster_services';
-    if (clusterNetworkSegmentOptions.length > 0) return 'clusterNetworks';
+    if (checkPerm('clouds.cluster-networks:read'))
+      return 'cluster_physical_switches';
+    if (checkPerm(CLOUD_PROVIDER_NETWORKS_READ))
+      return 'kubeovn_public_networks';
+    if (checkPerm('clouds.namespaces:read') || checkPerm('clouds:read'))
+      return 'namespaces';
+    if (canReadPublicSubnets) return 'kubeovn_public_subnets';
     if (
       checkPerm('clouds.vlans:read') ||
       checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
@@ -1186,15 +1037,144 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         ? 'cluster_vlans'
         : 'kubeovn_public_networks';
     }
-    if (canReadPublicSubnets) return 'kubeovn_public_subnets';
-    if (checkPerm('clouds.namespaces:read') || checkPerm('clouds:read'))
-      return 'namespaces';
-    if (checkPerm('clouds.storage-classes:read')) return 'storage_classes';
     if (checkPerm('clouds.gpus:read')) return 'gpu';
     if (checkPerm('clouds.usb-devices:read')) return 'cluster_usb';
-    if (checkPerm('clouds.pci-devices:read')) return 'cluster_pci';
+    if (clusterNetworkSegmentOptions.length > 0) return 'clusterNetworks';
     return 'cluster_nodes';
   }, [checkPerm, clusterNetworkSegmentOptions.length, canReadPublicSubnets]);
+
+  /**
+   * 集群子 Tab 与 `cluster_sub` / `cluster_segment` 的单一数据源：在绘制前用 `useLayoutEffect` 与地址栏同步，
+   * 避免与其它 `useEffect`（按需加载、不稳定的 dep）互相覆盖导致 Tab 点不动或闪回。
+   */
+  useLayoutEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    if (normalizeCloudmapPoolTabParam(sp.get('tab')) !== 'cluster') {
+      return;
+    }
+    const { innerKey, networkSegment } = readClusterStateFromUrl(sp, {
+      defaultSubKey: clusterInnerDefaultActiveKey,
+      checkPerm,
+      canReadPublicSubnets,
+      networkSegmentOptions: clusterNetworkSegmentOptions,
+    });
+    setClusterInnerActiveKey(innerKey);
+    if (networkSegment !== undefined) {
+      setClusterNetworkSegmentKey(networkSegment);
+    }
+  }, [
+    location.search,
+    clusterInnerDefaultActiveKey,
+    checkPerm,
+    canReadPublicSubnets,
+    clusterNetworkSegmentOptionsSyncKey,
+  ]);
+
+  const effectiveClusterInnerKey =
+    clusterInnerActiveKey || clusterInnerDefaultActiveKey;
+
+  const onClusterInnerTabChange = React.useCallback(
+    (key: string) => {
+      if (key === 'clusterNetworks') {
+        handleTabChange(clusterNetworkSegmentKey);
+      } else {
+        handleTabChange(key);
+      }
+      setClusterInnerActiveKey(key);
+      const sp = new URLSearchParams(location.search);
+      sp.set('tab', 'cluster');
+      sp.set('cluster_sub', key);
+      if (key === 'clusterNetworks') {
+        sp.set('cluster_segment', clusterNetworkSegmentKey);
+      } else {
+        sp.delete('cluster_segment');
+      }
+      navigate(`${location.pathname}?${sp.toString()}`, { replace: true });
+    },
+    [
+      clusterNetworkSegmentKey,
+      handleTabChange,
+      location.pathname,
+      location.search,
+      navigate,
+    ],
+  );
+
+  const onClusterInfoSegmentChange = React.useCallback(
+    (segmentKey: string) => {
+      setClusterNetworkSegmentKey(segmentKey);
+      handleTabChange(segmentKey);
+      setClusterInnerActiveKey('clusterNetworks');
+      const sp = new URLSearchParams(location.search);
+      sp.set('tab', 'cluster');
+      sp.set('cluster_sub', 'clusterNetworks');
+      sp.set('cluster_segment', segmentKey);
+      navigate(`${location.pathname}?${sp.toString()}`, { replace: true });
+    },
+    [handleTabChange, location.pathname, location.search, navigate],
+  );
+
+  /** 从 URL 同步一级 `tab`、资源总览 `sub` 与 PaaS 预拉，不包含集群子 Tab（见上方 `readClusterStateFromUrl`） */
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const rawTab = sp.get('tab');
+    const sub = sp.get('sub');
+    const tab = normalizeCloudmapPoolTabParam(rawTab);
+    setActiveTabKey(tab);
+    let nextSub = normalizeCloudmapResourceSubParam(rawTab, sub);
+    if (nextSub === 'datacenter_topology' && !canViewClusterGroup) {
+      nextSub = 'overview';
+    }
+    setResourceHubSubKey(nextSub);
+    const rawTabStr = String(rawTab || '').trim();
+    if (rawTabStr && rawTabStr !== tab) {
+      const next = new URLSearchParams(location.search);
+      next.set('tab', tab);
+      navigate(`${location.pathname}?${next.toString()}`, { replace: true });
+    }
+    if (tab === 'paas_databases') {
+      void loadTabResourceRef.current('backups');
+    }
+  }, [
+    location.search,
+    cloudId,
+    canViewClusterGroup,
+    navigate,
+    location.pathname,
+  ]);
+
+  /** 原一级「资源总览」下的子 Tab：总览 / 机房拓扑 / 网络拓扑 */
+  const resourceHubInnerTabItems = useMemo(
+    () => [
+      {
+        key: 'overview',
+        label: '资源总览',
+        children: <ResourceOverviewMonitoringPanel cloudId={cloudId} />,
+      },
+      ...(canViewClusterGroup
+        ? [
+            {
+              key: 'datacenter_topology',
+              label: '机房拓扑',
+              children: (
+                <ResourceOverviewDatacenterTopologyPanel cloudId={cloudId} checkPerm={checkPerm} />
+              ),
+            },
+          ]
+        : []),
+      {
+        key: 'network_topology',
+        label: '网络拓扑',
+        children: (
+          <ResourceOverviewNetworkTopologyPanel
+            cloudId={cloudId}
+            canReadNetworkScope={canReadNetworkScope}
+          />
+        ),
+      },
+    ],
+    [canViewClusterGroup, cloudId, checkPerm, canReadNetworkScope],
+  );
 
   useEffect(() => {
     if (!canToggleOpsView && mode === 'ops') setMode('standard');
@@ -1203,150 +1183,75 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   return (
     <HarvesterPublicNamespacesProvider cloudId={cloudId}>
       <PageDetailContainer
-        breadcrumbs={[
-          { title: <HomeOutlined />, href: '/' },
-          { title: '资源池管理' },
-          { title: '资源池管理', href: '/admin/clouds' },
-          { title: `${providerName} ${cloud?.name || '-'}` },
-        ]}
-        icon={<CloudUploadOutlined />}
-        title={`${providerName} ${cloud?.name || '-'}`}
-        titleLevel={3}
-        extra={
-          <Space size="small">
-            {canToggleOpsView ? (
-              <Segmented
-                options={[
-                  { label: '标准', value: 'standard' },
-                  { label: '运维', value: 'ops' },
-                ]}
-                value={mode}
-                onChange={(value) => {
-                  const nextMode = value as 'standard' | 'ops';
-                  if (nextMode === mode) return;
-                  setMode(nextMode);
-                  setActiveTabKey('overview');
-                }}
-              />
-            ) : null}
-            <Button
-              icon={<ArrowLeftOutlined />}
-              onClick={() => navigate('/admin/clouds')}
-            ></Button>
-            <Button icon={<ReloadOutlined />} onClick={() => loadAll(true)} />
-          </Space>
-        }
+        hideHeader
         asCard={false}
-        subtitle="Cloudmap云平台详情页，统一纳管与可视化平台资源及网络拓扑"
-        defaultOverviewCollapsed
-        overviewContent={
-          <Descriptions bordered size="small" column={4}>
-            <Descriptions.Item label="资源名称">
-              {cloud?.name || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="资源供应商">
-              {providerName}
-            </Descriptions.Item>
-            <Descriptions.Item label="资源地域">
-              {cloud?.region || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="资源类型">
-              {cloud?.type || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="资源状态">
-              {cloud?.status === 'online' ? (
-                <Tag color="green">在线</Tag>
-              ) : cloud?.status === 'maintenance' ? (
-                <Tag color="orange">维护</Tag>
-              ) : cloud?.status === 'offline' ? (
-                <Tag color="red">离线</Tag>
-              ) : (
-                <Tag>未知</Tag>
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="Endpoint">
-              <Space>
-                {cloud?.endpoint || '-'}
-                {cloud?.endpoint && (
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<LoginOutlined />}
-                    style={{ padding: 0 }}
-                    onClick={() => {
-                      let url = cloud.endpoint || '';
-                      if (url.endsWith('/v3')) {
-                        url = url.substring(0, url.length - 3);
-                      } else if (url.endsWith('/v3/')) {
-                        url = url.substring(0, url.length - 4);
-                      }
-                      window.open(url, '_blank');
-                    }}
-                  >
-                    登录OPS
-                  </Button>
-                )}
-              </Space>
-            </Descriptions.Item>
-            <Descriptions.Item label="版本">{versionText}</Descriptions.Item>
-            <Descriptions.Item label="CPU 架构">
-              {capabilities?.architecture ? (
-                capabilities.architecture === 'arm64' ||
-                capabilities.architecture === 'aarch64' ? (
-                  <Tag color="blue">ARM64</Tag>
-                ) : (
-                  <Tag color="blue">x86_64</Tag>
-                )
-              ) : (
-                '-'
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="TLS 忽略">
-              {tlsIgnored ? <Tag color="orange">是</Tag> : <Tag>否</Tag>}
-            </Descriptions.Item>
-            <Descriptions.Item label="网络插件">
-              {hasKubeOvn ? (
-                <Tag color="blue">Kube-OVN</Tag>
-              ) : (
-                <Tag>未知/未启用</Tag>
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="资源ID">
-              {cloud?.id || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="更新时间">
-              {cloud?.updatedAt || '-'}
-            </Descriptions.Item>
-          </Descriptions>
-        }
+        rootStyle={{
+          height: '100%',
+          maxHeight: '100%',
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxSizing: 'border-box',
+        }}
+        contentWrapperStyle={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
       >
         {error && (
           <Alert
             type="error"
             message="查询失败"
             description={error}
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 16, flexShrink: 0 }}
             showIcon
           />
         )}
         <Tabs
-          type="card"
+          type="line"
           destroyOnHidden
+          className="cloudmap-detail-outer-tabs"
+          /** 一级 Tab 由管理侧栏 + `?tab=` 驱动，此处仅保留切换逻辑与内容区 */
+          tabBarStyle={{ display: 'none', margin: 0, height: 0, minHeight: 0, padding: 0 }}
           activeKey={activeTabKey}
           onChange={(key) => {
             setActiveTabKey(key);
+            navigate(
+              `/admin/clouds/${encodeURIComponent(cloudId)}?tab=${encodeURIComponent(key)}`,
+              { replace: true },
+            );
             handleTabChange(key);
           }}
           items={[
             {
-              key: 'overview',
+              key: 'resource_hub',
               label: '资源总览',
-              children: <CloudmapOverviewTab cloudId={cloudId} />,
+              children: (
+                <Tabs
+                  type="line"
+                  destroyOnHidden
+                  rootClassName="cloudmap-resource-hub-inner-tabs"
+                  activeKey={resourceHubSubKey}
+                  onChange={(sub) => {
+                    const sk = sub as CloudmapResourceSubKey;
+                    setResourceHubSubKey(sk);
+                    navigate(
+                      `/admin/clouds/${encodeURIComponent(cloudId)}?tab=resource_hub&sub=${encodeURIComponent(sk)}`,
+                      { replace: true },
+                    );
+                  }}
+                  items={resourceHubInnerTabItems}
+                />
+              ),
             },
             ...(canViewMonitoringTab
               ? [
                   {
-                    key: 'monitoring-alerts',
+                    key: 'monitoring_alerts',
                     label: '监控告警',
                     children: (
                       <CloudmapMonitoringAlertsTab
@@ -1370,13 +1275,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                         showLog={showLog}
                         checkPerm={checkPerm}
                         canReadPublicSubnets={canReadPublicSubnets}
-                        clusterInnerDefaultActiveKey={
-                          clusterInnerDefaultActiveKey
-                        }
+                        clusterInnerActiveKey={effectiveClusterInnerKey}
+                        onClusterInnerTabChange={onClusterInnerTabChange}
+                        onClusterInfoSegmentChange={onClusterInfoSegmentChange}
                         clusterNetworkSegmentKey={clusterNetworkSegmentKey}
-                        setClusterNetworkSegmentKey={
-                          setClusterNetworkSegmentKey
-                        }
                         clusterNetworkSegmentOptions={
                           clusterNetworkSegmentOptions
                         }
@@ -1435,7 +1337,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             ...(canViewComputeGroup
               ? [
                   {
-                    key: 'compute_group',
+                    key: 'compute',
                     label: '云主机',
                     children: (
                       <CloudmapComputeGroupTabs
@@ -1504,6 +1406,106 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   },
                 ]
               : []),
+            ...(canViewCloudDatabaseTab
+              ? [
+                  {
+                    key: 'paas_databases',
+                    label: '云数据库',
+                    children: (
+                      <CloudmapCloudDatabaseTabs
+                        cloudId={cloudId}
+                        onTabChange={handleTabChange}
+                        showBackupsTab={canViewBackupsGroup}
+                        ecs={ecs}
+                        ecsLoading={!!resourceLoading.ecs}
+                        onRefreshVms={() => refreshVms(true)}
+                        onForceRefreshVms={() => refreshVms(true)}
+                        harvesterImages={harvesterImages}
+                        harvesterStorageClasses={harvesterStorageClasses}
+                        kubeOvnSubnets={kubeOvnSubnets}
+                        harvesterNads={harvesterNads}
+                        onReloadImages={
+                          checkPerm('clouds.images:read') ||
+                          checkPerm('clouds.ecs:read')
+                            ? () =>
+                                loadResource(
+                                  'images',
+                                  () => fetchHarvesterImages(cloudId, true),
+                                  (json) =>
+                                    setHarvesterImages(
+                                      (json as any)?.data?.items || [],
+                                    ),
+                                  true,
+                                )
+                            : undefined
+                        }
+                        onReloadSubnets={
+                          canReadFlatSubnets ||
+                          canReadVpcSubnets ||
+                          checkPerm('clouds.networks:read')
+                            ? () =>
+                                loadResource(
+                                  'subnets',
+                                  () => fetchKubeOvnSubnets(cloudId, true),
+                                  (json) =>
+                                    setKubeOvnSubnets(
+                                      (json as any)?.data?.items || [],
+                                    ),
+                                  true,
+                                )
+                            : undefined
+                        }
+                        onReloadNads={
+                          checkPerm('clouds.networks:read')
+                            ? () =>
+                                loadResource(
+                                  'nads',
+                                  () => fetchHarvesterNads(cloudId, true),
+                                  (json) =>
+                                    setHarvesterNads(
+                                      (json as any)?.data?.items || [],
+                                    ),
+                                  true,
+                                )
+                            : undefined
+                        }
+                        onReloadStorageClasses={
+                          checkPerm('clouds.disks:read') ||
+                          checkPerm('clouds.ecs:read')
+                            ? () =>
+                                loadResource(
+                                  'storageClasses',
+                                  () =>
+                                    fetchHarvesterStorageClasses(
+                                      cloudId,
+                                      true,
+                                    ),
+                                  (json) =>
+                                    setHarvesterStorageClasses(
+                                      (json as any)?.data?.items || [],
+                                    ),
+                                  true,
+                                )
+                            : undefined
+                        }
+                        harvesterBackups={harvesterBackups}
+                        harvesterScheduleVmBackups={harvesterScheduleVmBackups}
+                        backupsLoading={!!resourceLoading.backups}
+                        scheduleVmBackupsLoading={
+                          !!resourceLoading.scheduleVmBackups
+                        }
+                        harvesterNamespaces={harvesterNamespaces}
+                        onRefreshBackups={() =>
+                          void loadTabResource('backups', true)
+                        }
+                        isTenant={isTenant}
+                        mode={mode}
+                        namespacesOptions={namespacesOptions}
+                      />
+                    ),
+                  },
+                ]
+              : []),
             ...(canViewContainersGroup
               ? [
                   {
@@ -1551,7 +1553,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             ...(canViewStorageGroup
               ? [
                   {
-                    key: 'storage_group',
+                    key: 'storage',
                     label: '云存储',
                     children: (
                       <CloudmapStorageGroupTabs
@@ -1581,7 +1583,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             ...(canViewBackupsGroup
               ? [
                   {
-                    key: 'backups_group',
+                    key: 'backups',
                     label: '云备份',
                     children: (
                       <CloudmapBackupsGroupTabs
@@ -1614,7 +1616,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             ...(canViewFlatNetworkGroup
               ? [
                   {
-                    key: 'flat_network_group',
+                    key: 'flat_network',
                     label: '扁平子网',
                     children: (
                       <CloudmapFlatNetworkGroupTabs
@@ -1646,7 +1648,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             ...(ovnVpcEnabled && canViewKubeOvnGroup
               ? [
                   {
-                    key: 'kube_ovn_group',
+                    key: 'kube_ovn',
                     label: '虚拟专有云 (VPC)',
                     children: (
                       <CloudmapKubeOvnGroupTabs
@@ -1686,7 +1688,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             ...(canViewLoggingTab
               ? [
                   {
-                    key: 'logs-config',
+                    key: 'logs_config',
                     label: '日志管理',
                     children: (
                       <CloudmapLogsConfigTab

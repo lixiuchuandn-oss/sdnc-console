@@ -14,6 +14,10 @@ export enum CloudType {
   PRIVATE = 'private',
   VIRTUALIZATION = 'virtualization',
   OBJECT_STORAGE = 'object_storage',
+  /** 容器类统一资源池（Rancher 等）；细分子厂商见 config.provider */
+  CONTAINER_CLOUD = 'container_cloud',
+  /** 历史存量：曾单独使用 rancher 作为 type */
+  RANCHER = 'rancher',
 }
 
 export enum CloudStatus {

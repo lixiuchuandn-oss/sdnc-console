@@ -3,15 +3,14 @@
  * 未覆盖的 provider 显示轻量提示。
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { Alert, Button, Spin, Space } from 'antd';
 import { CloudUploadOutlined, HomeOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import CloudDetailHw from '../clouds/Hw/CloudDetailHw';
-import CloudDetailHarvester from '../clouds/Harvester/CloudDetailHarvester';
 import CloudDetailAliyun from '../clouds/Aliyun/CloudDetailAliyun';
-import CloudDetailCsm from '../clouds/Csm/CloudDetailCsm';
 import CloudDetailCloudmap from '../clouds/Cloudmap/CloudDetailCloudmap';
+import CloudDetailRancher from '../clouds/rancher/CloudDetailRancher';
 import { getProviderName } from './poolProviders';
 import { fetchCloudById } from '../../../services/api';
 
@@ -81,14 +80,56 @@ const CloudDetailGate: React.FC = () => {
   if (provider.includes('aliyun')) {
     return <CloudDetailAliyun cloudId={id} />;
   }
-  if (provider === 'cloudmap.csm') {
-    return <CloudDetailCsm cloudId={id} />;
+  if (cloud && provider === 'cloudmap.csm') {
+    return (
+      <Navigate
+        to={`/admin/security/traffic/csm-pools/${encodeURIComponent(String(id))}`}
+        replace
+      />
+    );
   }
   if (provider === 'cloudmap.edge' || provider === 'cloudmap.private') {
     return <CloudDetailCloudmap cloudId={id} />;
   }
-  if (provider === 'harvester') {
-    return <CloudDetailHarvester cloudId={id} defaultProvider={provider} />;
+  if (provider === 'rancher') {
+    return <CloudDetailRancher cloudId={id} />;
+  }
+  if (provider === 'harvester' && cloud) {
+    return (
+      <PageDetailContainer
+        breadcrumbs={[
+          { title: <HomeOutlined />, href: '/' },
+          { title: '资源池管理' },
+          { title: '资源池管理', href: '/admin/clouds' },
+          { title: `${providerName} ${cloud.name || '-'}` },
+        ]}
+        icon={<CloudUploadOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
+        title={`${providerName} ${cloud.name || '-'}`}
+        titleLevel={3}
+        onBack={() => navigate('/admin/clouds')}
+        backTooltip="返回列表"
+        moreMenuItems={[{ key: 'refresh', label: '刷新' }]}
+        onMoreMenuClick={() => {}}
+        asCard={false}
+      >
+        <Alert
+          type="warning"
+          message="Harvester 独立资源池已下线"
+          description={
+            <div>
+              <p>该类型资源池的专属管理界面已移除，平台不再支持新接入 Harvester 独立资源池。</p>
+              <p>请改用 Cloudmap 私有云或融合边缘云接入；存量池可在「资源池管理」列表中进行连接测试、编辑凭证或删除。</p>
+            </div>
+          }
+          showIcon
+          action={
+            <Button type="primary" onClick={() => navigate('/admin/clouds')}>
+              返回资源池列表
+            </Button>
+          }
+        />
+      </PageDetailContainer>
+    );
   }
 
   if (!cloud || !provider) {
@@ -110,7 +151,17 @@ const CloudDetailGate: React.FC = () => {
             }
           />
         ) : (
-          <Spin size="large" tip="加载资源池信息..." />
+          <div
+            style={{
+              position: 'relative',
+              minHeight: 160,
+              minWidth: 200,
+            }}
+          >
+            <Spin size="large" tip="加载资源池信息...">
+              <div style={{ minHeight: 120, minWidth: 120 }} />
+            </Spin>
+          </div>
         )}
       </div>
     );

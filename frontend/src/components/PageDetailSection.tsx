@@ -82,6 +82,8 @@ export type PageDetailSectionProps = {
   asCard?: boolean;
   /** 容器样式 */
   style?: React.CSSProperties;
+  /** 主内容区容器样式（非 asCard 时为包裹 children 的 div；asCard 时合并到 Card body） */
+  contentStyle?: React.CSSProperties;
   
   /** 
    * 是否自动样式化输入框和表格
@@ -164,6 +166,7 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
   titleLevel = 5,
   asCard = false,
   style,
+  contentStyle,
   autoStyleInputs = true,
   keywordWidth = 240,
   selectWidth = 200,
@@ -341,11 +344,16 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
   
   // --- 渲染内容区域 (Content) ---
   const content = asCard ? (
-    <Card size="small" variant={bordered ? 'outlined' : 'borderless'} style={cardStyle} styles={{ body: { padding: contentPadding } }}>
+    <Card
+      size="small"
+      variant={bordered ? 'outlined' : 'borderless'}
+      style={cardStyle}
+      styles={{ body: { padding: contentPadding, ...(contentStyle || {}) } }}
+    >
       {contentChildren}
     </Card>
   ) : (
-    <div style={{ margin: 0 }}>{contentChildren}</div>
+    <div style={{ margin: 0, ...(contentStyle || {}) }}>{contentChildren}</div>
   );
 
   return (

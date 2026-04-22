@@ -40,13 +40,14 @@ import CreateFlatSubnetModal from '../../modals/CreateFlatSubnetModal';
 import CreatePublicSubnetModal from '../../modals/CreatePublicSubnetModal';
 import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../../lib/kubeOvnSubnetConstants';
 import UnderlaySubnetFormFields from '../../lib/UnderlaySubnetFormFields';
-import ProviderNetworkTopologyGraph from './ProviderNetworkTopologyGraph';
+import { formatOriginNicsDetailLines, parseProviderNetworkOriginNics } from '../../lib/providerNetworkOriginNics';
 import { ViewLinkTab } from '../../../shared/components/ViewLinkTab';
 
 /**
  * 主抽屉 Tab 分段。`yaml` 仅作入口兼容：打开时会切到默认 Tab 并弹出 YAML 子抽屉。
+ * 网络拓扑图仅在 Cloudmap「资源总览」中提供，本抽屉不再包含拓扑 Tab。
  */
-export type ProviderNetworkDetailDrawerSegment = 'network' | 'vlan' | 'topology' | 'yaml';
+export type ProviderNetworkDetailDrawerSegment = 'network' | 'vlan' | 'yaml';
 
 export type ProviderNetworkDetailDrawerProps = {
   open: boolean;
@@ -92,14 +93,6 @@ const TAB_PANEL_PLAN: React.CSSProperties = {
   ...TAB_PANEL_PADDING,
 };
 
-const TAB_PANEL_TOPOLOGY: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 0,
-  minHeight: 0,
-  ...TAB_PANEL_PADDING,
-};
-
 const PROVIDER_SELECT_BLOCK: React.CSSProperties = { marginBottom: 12 };
 
 const NO_PN_EMPTY_WRAP: React.CSSProperties = {
@@ -108,13 +101,6 @@ const NO_PN_EMPTY_WRAP: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-};
-
-const TOPOLOGY_CHART_BOX: React.CSSProperties = {
-  height: 560,
-  minHeight: 360,
-  display: 'flex',
-  flexDirection: 'column',
 };
 
 /** YAML 子抽屉内 ViewLink 区域高度 */
@@ -257,12 +243,17 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
       setYamlSubDrawerOpen(false);
       return;
     }
-    const seg = initialSegment ?? 'vlan';
-    if (seg === 'yaml') {
+    const raw = String(initialSegment ?? 'vlan').trim();
+    if (raw === 'yaml') {
       setDrawerSegment('vlan');
       setYamlSubDrawerOpen(true);
+    } else if (raw === 'network') {
+      setDrawerSegment('network');
+    } else if (raw === 'topology') {
+      /* 旧入口兼容：拓扑已迁至资源总览 */
+      setDrawerSegment('vlan');
     } else {
-      setDrawerSegment(seg);
+      setDrawerSegment('vlan');
     }
   }, [open, initialSegment]);
 
@@ -676,22 +667,15 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
     return '请选择物理网络或从列表进入';
   }, [pnMetaName, pnDisplayName, lockProviderName]);
 
-  /** 拓扑：物理网卡 ← ProviderNetwork.spec（默认口 + customInterfaces 节点映射） */
-  const pnNicTopology = useMemo(() => {
-    if (!effectivePn) return null;
-    const spec = effectivePn.spec || {};
-    const defaultIf = String(spec.defaultInterface || '').trim();
-    const customList = Array.isArray(spec.customInterfaces) ? spec.customInterfaces : [];
-    const nodesInCustom = new Set<string>();
-    customList.forEach((c: any) => {
-      (Array.isArray(c?.nodes) ? c.nodes : []).forEach((n: unknown) => {
-        const s = String(n ?? '').trim();
-        if (s) nodesInCustom.add(s);
-      });
-    });
-    const nodesOnDefault = pnReadyNodes.filter((n: string) => !nodesInCustom.has(String(n).trim()));
-    return { defaultIf, customList, nodesOnDefault };
-  }, [effectivePn, pnReadyNodes]);
+  const pnOriginNics = useMemo(() => {
+    const ann = effectivePn?.metadata?.annotations as Record<string, string> | undefined;
+    return parseProviderNetworkOriginNics(ann);
+  }, [effectivePn]);
+
+  const pnOriginNicsDescriptionText = useMemo(
+    () => (pnOriginNics?.bondFromAnnotation ? formatOriginNicsDetailLines(pnOriginNics, undefined) : null),
+    [pnOriginNics],
+  );
 
   /** 优先用对象上的 links.view；列表接口常不带该字段，按 Kube-OVN 约定补全（与集群内 YAML 视图同源） */
   const pnViewLink = useMemo(() => {
@@ -917,7 +901,7 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
       <div className="provider-network-detail-drawer-scroll" style={DRAWER_SCROLL_BODY}>
         <Tabs
           activeKey={drawerSegment === 'yaml' ? 'vlan' : drawerSegment}
-          onChange={(k) => setDrawerSegment(k as Exclude<ProviderNetworkDetailDrawerSegment, 'yaml'>)}
+          onChange={(k) => setDrawerSegment(k as 'network' | 'vlan')}
           tabBarStyle={TAB_BAR_STYLE}
           items={[
             {
@@ -971,10 +955,30 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
                 )}
               </Descriptions.Item>
               <Descriptions.Item label="默认接口">
-                {String(effectivePn?.spec?.defaultInterface || '').trim() ? (
-                  <Tag>{String(effectivePn?.spec?.defaultInterface || '').trim()}</Tag>
+                <Space size={4} wrap align="start">
+                  {String(effectivePn?.spec?.defaultInterface || '').trim() ? (
+                    <Tag>{String(effectivePn?.spec?.defaultInterface || '').trim()}</Tag>
+                  ) : (
+                    <span style={{ color: '#999' }}>—</span>
+                  )}
+                  {pnOriginNics?.bondFromAnnotation ? (
+                    <Tag color="processing">Bond</Tag>
+                  ) : null}
+                </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label="网卡 Bond">
+                {pnOriginNics?.bondFromAnnotation ? (
+                  pnOriginNicsDescriptionText ? (
+                    <div
+                      style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,0.85)' }}
+                    >
+                      {pnOriginNicsDescriptionText}
+                    </div>
+                  ) : (
+                    '—'
+                  )
                 ) : (
-                  '—'
+                  <span style={{ color: '#999' }}>未在注解中声明</span>
                 )}
               </Descriptions.Item>
               <Descriptions.Item label="自定义映射">
@@ -1302,33 +1306,6 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
           )
         ) : null}
         </>
-        )}
-                </div>
-              ),
-            },
-            {
-              key: 'topology',
-              label: '网络拓扑',
-              children: (
-                <div style={TAB_PANEL_TOPOLOGY}>
-        {!effectivePn ? (
-          <div style={NO_PN_EMPTY_WRAP}>
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无物理网络数据或未选择物理网络" />
-          </div>
-        ) : (
-          <div style={TOPOLOGY_CHART_BOX}>
-            <ProviderNetworkTopologyGraph
-              pnDisplayTitle={headerTitle}
-              pnMetaName={pnMetaName}
-              pnReady={pnReady}
-              pnNicTopology={pnNicTopology}
-              pnReadyNodes={pnReadyNodes}
-              displayedVlans={displayedVlans}
-              publicSubnetsForPn={publicSubnetsForPn}
-              flatSubnetsForPn={flatSubnetsForPn}
-              vlanLoading={vlanLoading}
-            />
-          </div>
         )}
                 </div>
               ),

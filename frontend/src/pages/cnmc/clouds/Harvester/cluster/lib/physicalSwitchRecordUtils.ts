@@ -23,7 +23,7 @@ export function switchRecordDeviceProfile(r: any): string {
   return p ? String(p).trim() : '';
 }
 
-/** 从 /v1/switch/info 的 lines[].stdout 抽取交换机展示名（如 WOS system dump 的 Description）。 */
+/** 从 /v1/switch/info 的 lines[].stdout 抽取交换机展示名（WOS Description、Host/System Name、华为 sysname 等）。 */
 export function parseSwitchDisplayNameFromInfoLines(lines: any[] | undefined): string {
   if (!Array.isArray(lines)) return '';
   for (const ln of lines) {
@@ -44,10 +44,249 @@ export function parseSwitchDisplayNameFromInfoLines(lines: any[] | undefined): s
       const s = sysName[1].replace(/\s+/g, ' ').trim();
       if (s) return s.slice(0, 160);
     }
+    /** 华为 / 华三类：`display current-configuration | include sysname` → 行首 `sysname <name>` */
+    const cnSysname = out.match(/(?:^|\n)\s*sysname\s+(\S+)/i);
+    if (cnSysname?.[1]) {
+      const s = cnSysname[1].trim();
+      if (s) return s.slice(0, 160);
+    }
+  }
+  return '';
+}
+
+/**
+ * 从 info 各命令 stdout 抽取硬件型号（如华为 `display version` 中的 `HUAWEI S5720S-28P-LI-AC Routing Switch`）。
+ */
+export function parseSwitchProductModelFromInfoLines(lines: any[] | undefined): string {
+  if (!Array.isArray(lines)) return '';
+  for (const ln of lines) {
+    const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
+    if (!out.trim()) continue;
+
+    const huaweiRouting = out.match(
+      /(?:^|[\r\n])\s*HUAWEI\s+(\S+)\s+Routing Switch\b/i,
+    );
+    if (huaweiRouting?.[1]) {
+      const m = huaweiRouting[1].trim();
+      if (m && !/^VRP$/i.test(m)) return m.slice(0, 120);
+    }
+
+    const h3c = out.match(/(?:^|[\r\n])\s*H3C\s+(\S+)\s+(?:Switch|Router|Routing Switch)\b/i);
+    if (h3c?.[1]) {
+      const m = h3c[1].trim();
+      if (m) return m.slice(0, 120);
+    }
+
+    const ciscoModel = out.match(/(?:^|[\r\n])\s*Model\s+Number\s*:\s*(\S+)/i);
+    if (ciscoModel?.[1]) return ciscoModel[1].trim().slice(0, 120);
   }
   return '';
 }
 
 export function isWinicssecSwitchRecord(r: any): boolean {
   return /winicssec|winics|wos/i.test(switchRecordDeviceProfile(r));
+}
+
+/** 从 record 各探测块 stdout 拼成一段文本，供厂商指纹判断（不持久化）。 */
+function switchRecordStdoutsBlob(r: any): string {
+  if (!r || typeof r !== 'object') return '';
+  const parts: string[] = [];
+  for (const key of ['info', 'interfaces', 'performance', 'vlans'] as const) {
+    const lines = (r as any)?.[key]?.lines;
+    if (!Array.isArray(lines)) continue;
+    for (const ln of lines) {
+      const out = typeof (ln as any)?.stdout === 'string' ? (ln as any).stdout : '';
+      if (out.trim()) parts.push(out);
+    }
+  }
+  return parts.join('\n');
+}
+
+/**
+ * 华为交换机（VRP）：`device_profile` 或各命令回显中含 HUAWEI / VRP 等特征。
+ * 与 Winicssec 互斥：已判为 Winicssec 则不再视为华为。
+ */
+export function isHuaweiSwitchRecord(r: any): boolean {
+  if (!r) return false;
+  if (isWinicssecSwitchRecord(r)) return false;
+  const p = switchRecordDeviceProfile(r);
+  if (p && /huawei|\bvrp\b/i.test(p)) return true;
+  const blob = switchRecordStdoutsBlob(r);
+  if (!blob.trim()) return false;
+  if (/<HUAWEI>/i.test(blob)) return true;
+  if (/\bHUAWEI\s+\S+\s+Routing Switch\b/i.test(blob)) return true;
+  if (/\bHuawei Versatile Routing Platform\b/i.test(blob)) return true;
+  if (/\bCopyright\s+.*\bHuawei\b/i.test(blob)) return true;
+  return false;
+}
+
+/** 与物理交换机详情抽屉 / 交换机端口面板（HSM）中 performance 解析一致，供机房拓扑等复用 */
+export type PerformanceMetricsParsed = {
+  cpu?: string;
+  memory?: string;
+  temperature?: string;
+  fan?: string;
+  psu?: string;
+};
+
+function mergeCpuMemoryFromStdout(text: string, out: PerformanceMetricsParsed) {
+  const t = text;
+  if (!t.trim()) return;
+
+  if (!out.cpu) {
+    const cpuRes =
+      t.match(/(?:^|\n)\s*CPU\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*CPU\s+Utilization\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*Processor\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*Cpu\s+usage\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*CPU\s+usage\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*CPU\s+(\d+\s*%)\s*(?:\n|$)/i);
+    if (cpuRes?.[1]) {
+      out.cpu = cpuRes[1].replace(/\s+/g, ' ').trim().slice(0, 80);
+    }
+  }
+  if (!out.memory) {
+    const memRes =
+      t.match(/(?:^|\n)\s*Memory\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*Mem(?:ory)?\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*Memory\s+Usage\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*Mem\s+Utilization\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*MEM(?:ORY)?\s+UTIL\S*\s*[:：]\s*([^\n\r]+)/i) ||
+      t.match(/(?:^|\n)\s*Memory\s+(\d+\s*%)\s*(?:\n|$)/i);
+    if (memRes?.[1]) {
+      out.memory = memRes[1].replace(/\s+/g, ' ').trim().slice(0, 80);
+    }
+  }
+
+  /** 华为 VRP 常见：`display cpu-usage` / `display memory` */
+  if (!out.cpu) {
+    const hwCpu =
+      t.match(/(?:^|\n)\s*System CPU Using Percentage\s*[:：]\s*(\d+)\s*%/i) ||
+      t.match(/(?:^|\n)\s*CPU utilization for five seconds\s*[:：]\s*(\d+)\s*%/i) ||
+      t.match(/(?:^|\n)\s*CPU utilization for 5 seconds\s*[:：]\s*(\d+)\s*%/i);
+    if (hwCpu?.[1]) out.cpu = `${hwCpu[1].trim()}%`;
+  }
+  if (!out.memory) {
+    const hwMem =
+      t.match(/(?:^|\n)\s*Memory Using Percentage Is\s*[:：]\s*([\d.]+)\s*%/i) ||
+      t.match(/(?:^|\n)\s*Memory utilization\s*[:：]\s*([\d.]+)\s*%/i) ||
+      t.match(/(?:^|\n)\s*Memory Used Percentage\s*[:：]\s*([\d.]+)\s*%/i);
+    if (hwMem?.[1]) out.memory = `${hwMem[1].trim()}%`;
+  }
+
+  if (!out.cpu) {
+    const tabCpu = t.match(/(?:^|\n)\s*CPU\s+(\d+)\b/);
+    if (tabCpu?.[1]) out.cpu = `${tabCpu[1]}%`;
+  }
+  if (!out.memory) {
+    const tabMem =
+      t.match(/(?:^|\n)\s*Memory\s+(\d+)\b/im) || t.match(/(?:^|\n)\s*Mem\s+(\d+)\b/im);
+    if (tabMem?.[1]) out.memory = `${tabMem[1]}%`;
+  }
+}
+
+function mergeTemperatureFromStdout(text: string, out: PerformanceMetricsParsed) {
+  if (out.temperature) return;
+  const t = text;
+  const colon =
+    t.match(/(?:^|\n)\s*Temp(?:erature)?:\s*([^\n\r]+)/i) ||
+    t.match(/(?:^|\n)\s*Temp:\s*([^\n\r]+)/i) ||
+    t.match(/(?:^|\n)\s*Current temperature\s*[:：]\s*(\d+)/i);
+  if (colon?.[1]) {
+    const v = colon[1].trim();
+    out.temperature = /^\d+$/.test(v) ? `${v}°C` : v.slice(0, 80);
+    return;
+  }
+  const lines = t.split(/\r?\n/);
+  const headIdx = lines.findIndex((l) => /Current/i.test(l) && /Range/i.test(l));
+  if (headIdx >= 0) {
+    for (let i = headIdx + 1; i < lines.length; i++) {
+      const row = lines[i];
+      if (!row?.trim() || /^[\s|+:-]+$/.test(row)) continue;
+      const m = row.match(/^\s*[\w/]+\s+(\d+)\s+\d+\s+to\s+\d+/i);
+      if (m?.[1]) {
+        out.temperature = `${m[1]}°C`;
+        return;
+      }
+    }
+  }
+  const fallback = t.match(/(?:^|\n)\s*[\w/]+\s+(\d+)\s+\d+\s+to\s+\d+/i);
+  if (fallback?.[1]) out.temperature = `${fallback[1]}°C`;
+}
+
+function mergeFanFromStdout(text: string, out: PerformanceMetricsParsed) {
+  if (out.fan) return;
+  const m = text.match(/(?:^|\n)\s*\d+\/\d+\s+\d+\s+(\w+)\s+(\d+)/m);
+  if (m?.[2]) {
+    out.fan = `${m[1]} · ${m[2]} RPM`.slice(0, 96);
+    return;
+  }
+  const line = text.split(/\r?\n/).find((lineStr: string) => lineStr.trim());
+  if (line) out.fan = line.trim().slice(0, 96);
+}
+
+function mergePsuFromStdout(text: string, out: PerformanceMetricsParsed) {
+  if (out.psu) return;
+  const m = text.match(/(?:^|\n)\s*\d+\/\d+\s+(\d+)\s+(\w+)\s+(UP|DOWN)\b/im);
+  if (m?.[1]) {
+    out.psu = `${m[2]} ${m[1]}W ${m[3]}`.slice(0, 96);
+    return;
+  }
+  const line = text.split(/\r?\n/).find((lineStr: string) => lineStr.trim());
+  if (line) out.psu = line.trim().slice(0, 96);
+}
+
+function parsePerformanceMetrics(lines: any[] | undefined): PerformanceMetricsParsed {
+  const out: PerformanceMetricsParsed = {};
+  if (!Array.isArray(lines)) return out;
+  for (const ln of lines) {
+    const cmd = String(ln?.command || '').toLowerCase();
+    const stdout = typeof ln?.stdout === 'string' ? ln.stdout : '';
+    if (!stdout.trim()) continue;
+
+    mergeCpuMemoryFromStdout(stdout, out);
+    /* 不限定 command 名：health dump 等输出里也可能含 Current/Range 温度表 */
+    mergeTemperatureFromStdout(stdout, out);
+
+    if (/fan/.test(cmd)) {
+      mergeFanFromStdout(stdout, out);
+    }
+    if (/power/.test(cmd)) {
+      mergePsuFromStdout(stdout, out);
+    }
+  }
+  return out;
+}
+
+/** 合并 performance；若仍缺 CPU/内存，再从 info 各命令 stdout 里扫一遍 */
+export function buildPerformanceMetrics(record: any): PerformanceMetricsParsed {
+  const out = parsePerformanceMetrics(record?.performance?.lines);
+  if (record?.info?.lines && (!out.cpu || !out.memory)) {
+    for (const ln of record.info.lines as any[]) {
+      const stdout = typeof ln?.stdout === 'string' ? ln.stdout : '';
+      if (!stdout.trim()) continue;
+      mergeCpuMemoryFromStdout(stdout, out);
+      if (out.cpu && out.memory) break;
+    }
+  }
+  return out;
+}
+
+/**
+ * 从 CLI 解析出的 CPU/内存展示串中提取 0–100 的利用率（如「21%」、表里裸数字「21」）。
+ */
+export function parseSwitchUtilizationPercent(value?: string): number {
+  if (!value || !String(value).trim()) return 0;
+  const s = String(value).trim();
+  const withPct = s.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (withPct) {
+    const n = parseFloat(withPct[1]);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+  }
+  const leadNum = s.match(/^(\d+(?:\.\d+)?)\b/);
+  if (leadNum) {
+    const n = parseFloat(leadNum[1]);
+    if (Number.isFinite(n) && n >= 0 && n <= 100) return n;
+  }
+  return 0;
 }

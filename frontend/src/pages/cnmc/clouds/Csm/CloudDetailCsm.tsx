@@ -8,6 +8,7 @@ import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCs
 import CsmVmDetailModal from './modals/CsmVmDetailModal';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import CsmServiceChainSection from './sections/CsmServiceChainSection';
+import { resolvePoolTypeLabel } from '../../pools/poolProviders';
 
 interface CloudItem { id: string; name: string; region: string; type: string; config?: any; status?: string; endpoint?: string; description?: string; createdAt?: string; updatedAt?: string; }
 
@@ -28,7 +29,12 @@ const createRowSelection = (selectedRowKeys: React.Key[], onChange: (keys: React
   ...extraProps,
 });
 
-const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
+const CloudDetailCsm: React.FC<{
+  cloudId: string;
+  /** 面包屑与返回：多云列表为 `/admin/clouds`；SDN 流量编排下为 `/admin/security/traffic/csm-pools` */
+  backListPath?: string;
+  backListLabel?: string;
+}> = ({ cloudId, backListPath = '/admin/clouds', backListLabel = '资源池管理' }) => {
   const navigate = useNavigate();
   const [cloud, setCloud] = useState<CloudItem | null>(null);
   const [loading, setLoading] = useState(false);
@@ -794,16 +800,15 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     <PageDetailContainer
       breadcrumbs={[
         { title: <HomeOutlined />, href: '/' },
-        { title: '资源池管理' },
-        { title: '资源池管理', href: '/admin/clouds' },
-        { title: `CSM ${cloud?.name || '-'}` }
+        { title: backListLabel, href: backListPath },
+        { title: `CSM ${cloud?.name || '-'}` },
       ]}
       icon={<CloudUploadOutlined />}
       title={`CSM ${cloud?.name || '-'}`}
       titleLevel={3}
       extra={
         <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/clouds')}></Button>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(backListPath)}></Button>
           <Dropdown
             menu={{
               items: [
@@ -825,9 +830,11 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源供应商">CSM</Descriptions.Item>
+          <Descriptions.Item label="资源供应商">CSM（SDN）</Descriptions.Item>
           <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源类型">
+            {cloud?.type ? resolvePoolTypeLabel(cloud.type) : '-'}
+          </Descriptions.Item>
           <Descriptions.Item label="资源状态">{cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}</Descriptions.Item>
           <Descriptions.Item label="Endpoint">
             <Space>

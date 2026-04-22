@@ -54,8 +54,8 @@ export {
 export {
   fetchHarvesterCapabilities, // 集群能力/特性（首屏或鉴能力）
   fetchHarvesterClusterNetworks, // 集群网络（Harvester Cluster Network）
-  fetchAswCtlSwitchesSummary, // ASW-CTL 物理交换机探测聚合
-  probeAswCtlConnection, // ASW-CTL 临时配置内探测（不写库）
+  fetchAswCtlSwitchesSummary, // 物理交换机：Tower 已入库列表（不触发集群侧实时探测）
+  probeAswCtlConnection, // 集群 HSM 探测（不写库）
   fetchHarvesterNamespaces, // 命名空间列表
   fetchHarvesterNodes, // 物理节点列表
   fetchHarvesterStorageClasses, // 存储类（StorageClass）列表

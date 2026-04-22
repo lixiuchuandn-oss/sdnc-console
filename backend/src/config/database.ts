@@ -386,6 +386,57 @@ export async function ensureImageUploadTaskTable() {
 /**
  * users 表增加 passwordChangedAt（管理员密码策略 / 有效期用）
  */
+/** Cloudmap 机房拓扑：机柜与柜内设备（Tower 本地持久化） */
+export async function ensureDatacenterTopologyTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过机房拓扑表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_datacenter_racks'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 cloud_datacenter_racks / cloud_datacenter_rack_devices 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_datacenter_racks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" text NOT NULL,
+          "sortOrder" integer NOT NULL DEFAULT 0,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_datacenter_racks_cloudId" ON "cloud_datacenter_racks" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_datacenter_rack_devices" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "rackId" varchar NOT NULL,
+          "sourceKind" text NOT NULL,
+          "refKey" text,
+          "customLabel" text,
+          "slotOrder" integer NOT NULL DEFAULT 0,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_datacenter_rack_devices_rackId" ON "cloud_datacenter_rack_devices" ("rackId")
+      `);
+      dbLog.info('机房拓扑表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      '机房拓扑表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
 export async function ensureUsersPasswordChangedAtColumn() {
   try {
     if (!AppDataSource.isInitialized) {

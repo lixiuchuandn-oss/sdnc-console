@@ -23,11 +23,12 @@
  * - verb: 操作类型（read=读取, write=写入）
  * 
  * 【权限分组说明】
- * 1. CNMC 平台 - 多云管理平台
+ * 1. CNMC 平台 - 资源池 / 多云资源管理
  *    - 资源池管理：云资源管理相关权限
  *    - 资源控制台（分组）：资源控制台页面与运维视图等相关权限（与「资源池管理」分组并列）
- *    - 租户管理：多租户管理相关权限
- *    - 权限管控：RBAC 权限管理相关权限
+ * 
+ * 1b. TENANTS 平台 - 租户管理（与 CNMC 顶栏入口并列）
+ *    - 租户管理：租户、组织、租户组织用户、用户空间等权限
  * 
  * 2. SDNCC 平台 - SDN 控制中心
  *    - 安全管理面：安全域、CEN、安全服务等
@@ -280,8 +281,11 @@ export const ALL_PERMISSIONS = [
   'clouds.console:read',       // 资源控制台 - 访问
   'clouds.console:write',       // 资源控制台 - 操作（如执行命令）
   
+  // ============================================================================
+  // TENANTS 平台 · 租户管理 (Tenant Management)
+  // ============================================================================
   // ──────────────────────────────────────────────────────────────────────────
-  // 分组：租户管理 (Tenant Management)
+  // 分组：租户管理
   // ──────────────────────────────────────────────────────────────────────────
   
   // 租户管理
@@ -479,12 +483,10 @@ export const PERMISSION_GROUPS = {
       'clouds.log-configs',
     ],
     '资源控制台': ['clouds.console', 'clouds.cloudmap.ops-view'],
-    '租户管理': [
-      'tenants',
-      'organizations',
-      'tenant-users',
-      'user-spaces',
-    ],
+  },
+  // TENANTS 平台（多租户管理）
+  TENANTS: {
+    '租户管理': ['tenants', 'organizations', 'tenant-users', 'user-spaces'],
   },
   // SETTINGS 平台
   SETTINGS: {
@@ -543,13 +545,18 @@ export function getPlatformByPermission(permission: string): string | null {
     return 'SETTINGS';
   }
   
+  // TENANTS 平台（多租户）
+  if (
+    prefix.startsWith('tenants') ||
+    prefix.startsWith('organizations') ||
+    prefix.startsWith('tenant-users') ||
+    prefix.startsWith('user-spaces')
+  ) {
+    return 'TENANTS';
+  }
+
   // CNMC 平台
-  if (prefix.startsWith('ops.') || 
-      prefix.startsWith('clouds') || 
-      prefix.startsWith('tenants') || 
-      prefix.startsWith('organizations') ||
-      prefix.startsWith('tenant-users') ||
-      prefix.startsWith('user-spaces')) {
+  if (prefix.startsWith('ops.') || prefix.startsWith('clouds')) {
     return 'CNMC';
   }
   
@@ -577,13 +584,14 @@ export function getPlatformByPermission(permission: string): string | null {
 export function getGroupByPermission(permission: string): string | null {
   const prefix = permission.split(':')[0];
   
-  // CNMC 平台
+  // CNMC / 资源池
   if (prefix.startsWith('clouds')) {
     if (prefix === 'clouds.console' || prefix.startsWith('clouds.cloudmap')) {
       return '资源控制台';
     }
     return '资源池管理';
   }
+  // TENANTS 平台 · 租户管理分组
   if (prefix.startsWith('tenants') || prefix.startsWith('organizations') || prefix.startsWith('tenant-users') || prefix.startsWith('user-spaces')) {
     return '租户管理';
   }

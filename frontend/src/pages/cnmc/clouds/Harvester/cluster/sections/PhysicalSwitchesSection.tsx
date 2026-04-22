@@ -1,22 +1,23 @@
 /**
- * 物理接入交换机（ASW-CTL）— 集群 Tab 区块
+ * 物理接入交换机（HSM / 北向 API）— 集群 Tab 区块
  *
  * 【部署与产品归属】
- * - ASW-CTL 作为工作负载部署在 Harvester/K8s 集群内，通常经 Service/Ingress 对外暴露 HTTP（北向 API）；
- *   南向 SSH 至接入交换机执行只读 CLI。与「集群内服务」同属 Harvester 集群能力，故 **UI 源码放在
- *   `Harvester/cluster/`**（与本目录下 NodesSection、ServicesSection 等并列），而不是放在 Cloudmap 树里单独一套。
+ * - HSM（或 ASW-CTL）北向 HTTP 通常挂在 Harvester/Kubernetes API 同入口（如 `/v1/hms/switch/*`），
+ *   南向 SSH 至接入交换机执行只读 CLI。与「集群内能力」同属 Harvester 集群，故 UI 放在 `Harvester/cluster/`。
  *
- * 【Cloudmap 与 Harvester 的关系】
- * - Cloudmap 资源池详情「集群 → 物理交换机」Tab **仅引用本 Section**（与节点、服务同样从 Harvester 导入），
- *   避免同一功能两套目录。数据请求仍走 Tower后端 `.../harvester/asw-ctl/*`（cloudId 为当前资源池）。
+ * 【Cloudmap 与 Harvester】
+ * - Cloudmap「集群 → 物理交换机」Tab 引用本 Section；数据经 Tower `.../harvester/asw-ctl/*`（cloudId 为当前资源池）。
  *
- * 【配置存哪】
- * - 资源池 `config.aswCtl`：服务根 URL、API Key、TLS 等；对端进程内 `ASW_CTL_API_KEY` 须与之一致。
+ * 【配置】
+ * - 访问地址固定为资源池 **API Endpoint**（与控制台连集群相同），路径 `/v1/hms/*`。
+ * - 可选 `config.aswCtl`：HSM API Key、跳过 HTTPS 证书校验等。
  *
  * 【契约文档】
  * - `deployment/docs/specs/api/ASW-CTL简明完整说明.md`
  */
 import React, { useMemo, useState } from 'react';
+import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -27,6 +28,7 @@ import {
   Typography,
   Form,
   Input,
+  Select,
   Switch,
   Modal,
   message,
@@ -34,6 +36,8 @@ import {
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { apiPut, fetchCloudById } from '../../../../../../services/api';
 import { probeAswCtlConnection } from '../../../../../../services/harvesterApi';
 import {
@@ -44,6 +48,8 @@ import {
 import PhysicalSwitchDetailDrawer from '../drawers/PhysicalSwitchDetailDrawer';
 import {
   parseSwitchDisplayNameFromInfoLines,
+  parseSwitchProductModelFromInfoLines,
+  switchRecordDeviceProfile,
   switchRecordManagementHost,
 } from '../lib/physicalSwitchRecordUtils';
 
@@ -56,7 +62,6 @@ export type PhysicalSwitchesSectionProps = {
   summary: {
     configured?: boolean;
     message?: string;
-    apiVersion?: string;
     apiKeyConfigured?: boolean;
     onlyFirstAswCtl?: boolean;
     onlyFirstAswCtlMessage?: string;
@@ -131,37 +136,6 @@ function buildAswCtlProbeRows(res: any, row: any): AswCtlProbeRow[] {
       label: '健康检查',
       status: 'success',
       summary: '正常',
-    });
-  }
-  if (row.openapiNotApplicable) {
-    rows.push({
-      key: 'openapi',
-      label: 'OpenAPI',
-      status: 'warning',
-      summary: '未提供',
-      detail: row.openapiNaMessage ? String(row.openapiNaMessage) : undefined,
-    });
-  } else if (row.openapiYamlError) {
-    rows.push({
-      key: 'openapi',
-      label: 'OpenAPI',
-      status: 'error',
-      summary: '不可达',
-      detail: String(row.openapiYamlError),
-    });
-  } else if (row.openapiYaml) {
-    rows.push({
-      key: 'openapi',
-      label: 'OpenAPI',
-      status: 'success',
-      summary: '可达',
-    });
-  } else {
-    rows.push({
-      key: 'openapi',
-      label: 'OpenAPI',
-      status: 'default',
-      summary: '未知',
     });
   }
   if (row.infoError) {
@@ -384,10 +358,11 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     AswCtlProbeRow[] | null
   >(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
+  const navigate = useNavigate();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any | null>(null);
-  const [detailInitialTab, setDetailInitialTab] = useState<'overview' | 'cli' | 'panel'>('overview');
   const [hostKeyword, setHostKeyword] = useState('');
+  const [deviceTemplateFilter, setDeviceTemplateFilter] = useState('');
   const canEditPool = checkPerm('clouds.resource-pools:write');
   const canProbe = checkPerm('clouds.cluster-networks:read');
 
@@ -395,8 +370,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     const d = aswCtlModalDefaults(cloudConfig?.aswCtl);
     cfgForm.setFieldsValue({
       aswCtlInsecureTls: !!cloudConfig?.aswCtl?.insecureTls,
-      aswCtlName: d.name,
-      aswCtlBaseUrl: d.baseUrl,
       aswCtlApiKey: d.apiKey,
     });
     setProbeSummaryRows(null);
@@ -406,18 +379,32 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
   const items = Array.isArray(summary?.items) ? summary!.items! : [];
   const unconfigured = summary?.configured === false;
 
+  const deviceTemplateOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of items) {
+      const p = switchRecordDeviceProfile(r);
+      if (p) set.add(p);
+    }
+    return Array.from(set)
+      .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+      .map((v) => ({ label: v, value: v }));
+  }, [items]);
+
   const filteredItems = useMemo(() => {
     const kw = hostKeyword.trim().toLowerCase();
-    if (!kw) return items;
+    const dt = deviceTemplateFilter.trim();
     return items.filter((r: any) => {
+      if (dt && switchRecordDeviceProfile(r) !== dt) return false;
+      if (!kw) return true;
       const host = switchRecordManagementHost(r).toLowerCase();
       const name = String(r?.name || '')
         .trim()
         .toLowerCase();
       const swName = parseSwitchDisplayNameFromInfoLines(r?.info?.lines).toLowerCase();
-      return host.includes(kw) || name.includes(kw) || swName.includes(kw);
+      const model = parseSwitchProductModelFromInfoLines(r?.info?.lines).toLowerCase();
+      return host.includes(kw) || name.includes(kw) || swName.includes(kw) || model.includes(kw);
     });
-  }, [items, hostKeyword]);
+  }, [items, hostKeyword, deviceTemplateFilter]);
 
   const handleSaveAswCtl = async () => {
     if (!canEditPool) return;
@@ -429,8 +416,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       const aswCtl = buildAswCtlConfig(
         prevCfg.aswCtl,
         {
-          name: String(values.aswCtlName || ''),
-          baseUrl: String(values.aswCtlBaseUrl || ''),
           apiKey: String(values.aswCtlApiKey || ''),
         },
         !!values.aswCtlInsecureTls,
@@ -462,8 +447,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       const empty = aswCtlModalDefaults(undefined);
       cfgForm.setFieldsValue({
         aswCtlInsecureTls: false,
-        aswCtlName: empty.name,
-        aswCtlBaseUrl: empty.baseUrl,
         aswCtlApiKey: empty.apiKey,
       });
       await onReloadCloudMeta();
@@ -480,12 +463,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
   const handleProbeDraft = async () => {
     if (!canProbe) return;
     try {
-      const values = await cfgForm.validateFields(['aswCtlBaseUrl']);
-      const baseUrl = String(values.aswCtlBaseUrl || '').trim();
-      if (!baseUrl) {
-        message.warning('请先填写服务地址');
-        return;
-      }
+      const values = await cfgForm.validateFields();
       setProbing(true);
       setProbeSummaryRows(null);
       const apiKey = getEffectiveAswCtlApiKey(
@@ -493,10 +471,8 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         String(values.aswCtlApiKey || ''),
       );
       const res: any = await probeAswCtlConnection(cloudId, {
-        baseUrl,
         apiKey,
         insecureTls: !!values.aswCtlInsecureTls,
-        name: String(values.aswCtlName || '').trim() || undefined,
       });
       const aggregate = aswCtlProbeAggregateFromResponse(res);
       if (!aggregate) {
@@ -526,15 +502,190 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     }
   };
 
+  const allColumns: ColumnsType<any> = useMemo(
+    () => [
+      {
+        title: '交换机名称',
+        key: 'switchDisplayName',
+        ellipsis: true,
+        render: (_: unknown, r: any) => {
+          const n = parseSwitchDisplayNameFromInfoLines(r?.info?.lines);
+          const label = n || '—';
+          return (
+            <Button
+              type="link"
+              onClick={() => {
+                setDetailRecord(r);
+                setDetailOpen(true);
+              }}
+              title={label}
+              style={{
+                padding: 0,
+                height: 'auto',
+                maxWidth: '100%',
+                display: 'inline-block',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                verticalAlign: 'middle',
+                textAlign: 'left',
+              }}
+            >
+              {label}
+            </Button>
+          );
+        },
+      },
+      {
+        title: '管理地址',
+        key: 'mgmtAddress',
+        ellipsis: true,
+        render: (_: unknown, r: any) => switchRecordManagementHost(r),
+      },
+      {
+        title: '型号',
+        key: 'productModel',
+        ellipsis: true,
+        render: (_: unknown, r: any) => {
+          const m = parseSwitchProductModelFromInfoLines(r?.info?.lines);
+          return m ? (
+            <Typography.Text ellipsis={{ tooltip: m }} style={{ maxWidth: '100%' }}>
+              {m}
+            </Typography.Text>
+          ) : (
+            '—'
+          );
+        },
+      },
+      {
+        title: '设备模板',
+        key: 'deviceTemplate',
+        ellipsis: true,
+        render: (_: unknown, r: any) => switchRecordDeviceProfile(r) || '—',
+      },
+      {
+        title: '基本信息',
+        key: 'info',
+        render: (_: unknown, r: any) =>
+          r.infoError ? (
+            <Tag color="error">失败</Tag>
+          ) : r.info && r.info.ok === false ? (
+            <Tag color="error">失败</Tag>
+          ) : r.info ? (
+            <Tag color="success">成功</Tag>
+          ) : (
+            <Tag>—</Tag>
+          ),
+      },
+      {
+        title: '接口状态',
+        key: 'interfaces',
+        render: (_: unknown, r: any) =>
+          r.interfacesError ? (
+            <Tag color="error">失败</Tag>
+          ) : r.interfaces && r.interfaces.ok === false ? (
+            <Tag color="error">失败</Tag>
+          ) : r.interfaces ? (
+            <Tag color="success">成功</Tag>
+          ) : (
+            <Tag>—</Tag>
+          ),
+      },
+      {
+        title: '性能',
+        key: 'performance',
+        render: (_: unknown, r: any) =>
+          r.performanceError ? (
+            <Tag color="error">失败</Tag>
+          ) : r.performanceNotApplicable ? (
+            <Tag>未配置</Tag>
+          ) : r.performance && r.performance.ok === false ? (
+            <Tag color="error">失败</Tag>
+          ) : r.performance ? (
+            <Tag color="success">成功</Tag>
+          ) : (
+            <Tag>—</Tag>
+          ),
+      },
+      {
+        title: '设备 Profile',
+        key: 'deviceProfiles',
+        render: (_: unknown, r: any) =>
+          r.deviceProfilesError ? (
+            <Tag color="error">失败</Tag>
+          ) : r.deviceProfiles ? (
+            <Tag color="success">成功</Tag>
+          ) : (
+            <Tag>—</Tag>
+          ),
+      },
+      {
+        title: 'VLAN',
+        key: 'vlans',
+        render: (_: unknown, r: any) =>
+          r.vlansError ? (
+            <Tag color="error">失败</Tag>
+          ) : r.vlansNotApplicable ? (
+            <Tag>未提供</Tag>
+          ) : r.vlans && r.vlans.ok === false ? (
+            <Tag color="error">失败</Tag>
+          ) : r.vlans ? (
+            <Tag color="success">成功</Tag>
+          ) : (
+            <Tag>—</Tag>
+          ),
+      },
+      {
+        title: '操作',
+        key: 'actions',
+        width: 80,
+        render: (_: unknown, r: any) => (
+          <ResourceActionsDropdown
+            items={[
+              {
+                key: 'detail',
+                label: '详情',
+                onClick: () => {
+                  setDetailRecord(r);
+                  setDetailOpen(true);
+                },
+              },
+              {
+                key: 'panel',
+                label: '端口面板',
+                onClick: () => {
+                  const ref = switchRecordManagementHost(r);
+                  const q =
+                    ref && ref !== '—'
+                      ? `?tab=resource_hub&sub=datacenter_topology&switch_ref=${encodeURIComponent(ref)}`
+                      : '?tab=resource_hub&sub=datacenter_topology';
+                  navigate(`/admin/clouds/${encodeURIComponent(cloudId)}${q}`);
+                },
+              },
+            ]}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        ),
+      },
+    ],
+    [cloudId, navigate],
+  );
+
+  const { displayColumns: tableColumns } = useTableColumnSettings(
+    allColumns,
+    'harvester_physical_switches_table',
+  );
+
   return (
     <>
       <Modal
-        title="ASW-CTL配置"
+        title="API Key 设置"
         open={configModalOpen}
         onCancel={() => setConfigModalOpen(false)}
-        width={720}
+        width={600}
         centered
         destroyOnHidden
+        styles={{ body: { padding: '10px 0' } }}
         footer={
           <div
             style={{
@@ -595,41 +746,12 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         ) : null}
         <Form form={cfgForm} layout="vertical">
           <Form.Item
-            name="aswCtlBaseUrl"
-            label="服务地址"
-            extra="含协议与端口，勿以 / 结尾。示例：http://192.168.2.19:8080"
-            rules={[
-              { required: true, message: '请填写服务地址' },
-              {
-                validator: async (_, v) => {
-                  const s = String(v || '').trim();
-                  if (!s) return;
-                  if (!/^https?:\/\//i.test(s)) {
-                    throw new Error('请以 http:// 或 https:// 开头');
-                  }
-                },
-              },
-            ]}
-          >
-            <Input
-              placeholder="http://主机:端口"
-              disabled={saving || (!canEditPool && !canProbe)}
-            />
-          </Form.Item>
-          <Form.Item
             name="aswCtlApiKey"
-            label="API Key"
-            extra="可选。保存时留空表示保留原值；测试时留空表示沿用已保存的密钥。"
           >
             <Input.Password
-              placeholder="与对端 ASW_CTL_API_KEY 一致"
+              placeholder="需要时填写 HSM API Key"
+              prefix="API Key"
               autoComplete="new-password"
-              disabled={saving || (!canEditPool && !canProbe)}
-            />
-          </Form.Item>
-          <Form.Item name="aswCtlName" label="显示名称">
-            <Input
-              placeholder="可选，列表展示用"
               disabled={saving || (!canEditPool && !canProbe)}
             />
           </Form.Item>
@@ -637,7 +759,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
             name="aswCtlInsecureTls"
             label="HTTPS 跳过证书校验"
             valuePropName="checked"
-            extra="仅 https 且证书不受信时临时使用；http 无需开启。"
           >
             <Switch disabled={saving || (!canEditPool && !canProbe)} />
           </Form.Item>
@@ -653,31 +774,43 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
           <>
             <Input
               allowClear
-              placeholder="交换机名称 / 管理地址 / ASW-CTL"
+              placeholder="名称 / 管理地址"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={hostKeyword}
               onChange={(e) => setHostKeyword(e.target.value)}
               className="toolbar-search"
             />
+            <Select
+              allowClear
+              placeholder="设备模板"
+              value={deviceTemplateFilter || undefined}
+              onChange={(v) => setDeviceTemplateFilter(v || '')}
+              className="toolbar-filter-sm"
+              options={deviceTemplateOptions}
+              showSearch
+              optionFilterProp="label"
+            />
             <button
               type="button"
               className="toolbar-reset-btn"
-              onClick={() => setHostKeyword('')}
+              onClick={() => {
+                setHostKeyword('');
+                setDeviceTemplateFilter('');
+              }}
             >
               重置
             </button>
-            {summary?.apiVersion ? (
-              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                api_version：{summary.apiVersion}
-              </Typography.Text>
-            ) : null}
           </>
         }
         toolbarRight={
           <div className="toolbar-actions">
             <Button type="primary" onClick={openAswConfigModal}>
-              ASW-CTL配置
+              连接设置
             </Button>
+            <TableColumnSettingsButton
+              allColumns={allColumns}
+              settingsKey="harvester_physical_switches_table"
+            />
             <Button icon={<ReloadOutlined />} loading={loading} onClick={() => onRefresh()} />
           </div>
         }
@@ -695,23 +828,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         <Alert type="warning" showIcon message={summary.onlyFirstAswCtlMessage} />
       ) : null}
 
-      {summary?.configured === true && summary?.apiKeyConfigured === false ? (
-        <Alert
-          type="warning"
-          showIcon
-          message="未配置 ASW-CTL 的 API Key"
-          description="对端若启用鉴权，未配置 API Key 时受保护接口会返回 401。请在「临时配置」中填写与对端一致的密钥并保存。"
-        />
-      ) : null}
-
-      {summary?.configured === true && items.length === 0 ? (
-        <Alert
-          type="warning"
-          showIcon
-          message="已配置 ASW-CTL 但未返回探测条目"
-        />
-      ) : null}
-
       <Table
         className="std-table"
         bordered={false}
@@ -719,205 +835,14 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         rowKey="id"
         loading={loading}
         pagination={false}
-        scroll={{ x: 1680 }}
         dataSource={filteredItems}
-        columns={[
-          {
-            title: '交换机名称',
-            key: 'switchDisplayName',
-            width: 200,
-            ellipsis: true,
-            render: (_: unknown, r: any) => {
-              const n = parseSwitchDisplayNameFromInfoLines(r?.info?.lines);
-              const label = n || '—';
-              return (
-                <Button
-                  type="link"
-                  onClick={() => {
-                    setDetailInitialTab('overview');
-                    setDetailRecord(r);
-                    setDetailOpen(true);
-                  }}
-                  title={label}
-                  style={{
-                    padding: 0,
-                    height: 'auto',
-                    maxWidth: '100%',
-                    display: 'inline-block',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    verticalAlign: 'middle',
-                    textAlign: 'left',
-                  }}
-                >
-                  {label}
-                </Button>
-              );
-            },
-          },
-          {
-            title: '管理地址',
-            width: 168,
-            ellipsis: true,
-            render: (_: unknown, r: any) => switchRecordManagementHost(r),
-          },
-          {
-            title: 'ASW-CTL',
-            dataIndex: 'name',
-            width: 120,
-            ellipsis: true,
-            render: (v: unknown) => (v != null && String(v).trim() ? v : '—'),
-          },
-          {
-            title: '设备模板',
-            width: 110,
-            ellipsis: true,
-            render: (_: unknown, r: any) =>
-              r.info?.device_profile ||
-              r.interfaces?.device_profile ||
-              r.performance?.device_profile ||
-              r.vlans?.device_profile ||
-              '—',
-          },
-          {
-            title: '服务健康',
-            width: 96,
-            render: (_: unknown, r: any) =>
-              r.healthError ? (
-                <Tag color="error">失败</Tag>
-              ) : r.healthNotApplicable ? (
-                <Tag>未提供</Tag>
-              ) : r.health != null ? (
-                <Tag color="success">正常</Tag>
-              ) : (
-                <Tag>—</Tag>
-              ),
-          },
-          {
-            title: 'OpenAPI',
-            width: 88,
-            render: (_: unknown, r: any) =>
-              r.openapiNotApplicable ? (
-                <Tag>未提供</Tag>
-              ) : r.openapiYamlError || r.openapiYaml === false ? (
-                <Tag color="error">失败</Tag>
-              ) : r.openapiYaml ? (
-                <Tag color="success">可达</Tag>
-              ) : (
-                <Tag>—</Tag>
-              ),
-          },
-          {
-            title: '基本信息',
-            width: 88,
-            render: (_: unknown, r: any) =>
-              r.infoError ? (
-                <Tag color="error">失败</Tag>
-              ) : r.info && r.info.ok === false ? (
-                <Tag color="error">失败</Tag>
-              ) : r.info ? (
-                <Tag color="success">成功</Tag>
-              ) : (
-                <Tag>—</Tag>
-              ),
-          },
-          {
-            title: '接口状态',
-            width: 88,
-            render: (_: unknown, r: any) =>
-              r.interfacesError ? (
-                <Tag color="error">失败</Tag>
-              ) : r.interfaces && r.interfaces.ok === false ? (
-                <Tag color="error">失败</Tag>
-              ) : r.interfaces ? (
-                <Tag color="success">成功</Tag>
-              ) : (
-                <Tag>—</Tag>
-              ),
-          },
-          {
-            title: '性能',
-            width: 88,
-            render: (_: unknown, r: any) =>
-              r.performanceError ? (
-                <Tag color="error">失败</Tag>
-              ) : r.performanceNotApplicable ? (
-                <Tag>未配置</Tag>
-              ) : r.performance && r.performance.ok === false ? (
-                <Tag color="error">失败</Tag>
-              ) : r.performance ? (
-                <Tag color="success">成功</Tag>
-              ) : (
-                <Tag>—</Tag>
-              ),
-          },
-          {
-            title: '设备 Profile',
-            width: 88,
-            render: (_: unknown, r: any) =>
-              r.deviceProfilesError ? (
-                <Tag color="error">失败</Tag>
-              ) : r.deviceProfiles ? (
-                <Tag color="success">成功</Tag>
-              ) : (
-                <Tag>—</Tag>
-              ),
-          },
-          {
-            title: 'VLAN',
-            width: 80,
-            render: (_: unknown, r: any) =>
-              r.vlansError ? (
-                <Tag color="error">失败</Tag>
-              ) : r.vlansNotApplicable ? (
-                <Tag>未提供</Tag>
-              ) : r.vlans && r.vlans.ok === false ? (
-                <Tag color="error">失败</Tag>
-              ) : r.vlans ? (
-                <Tag color="success">成功</Tag>
-              ) : (
-                <Tag>—</Tag>
-              ),
-          },
-          {
-            title: '操作',
-            key: 'actions',
-            width: 80,
-            fixed: 'right',
-            render: (_: unknown, r: any) => (
-              <ResourceActionsDropdown
-                items={[
-                  {
-                    key: 'detail',
-                    label: '详情',
-                    onClick: () => {
-                      setDetailInitialTab('overview');
-                      setDetailRecord(r);
-                      setDetailOpen(true);
-                    },
-                  },
-                  {
-                    key: 'panel',
-                    label: '端口面板',
-                    onClick: () => {
-                      setDetailInitialTab('panel');
-                      setDetailRecord(r);
-                      setDetailOpen(true);
-                    },
-                  },
-                ]}
-                buttonProps={{ className: 'row-actions-trigger' }}
-              />
-            ),
-          },
-        ]}
+        columns={tableColumns}
       />
 
       <PhysicalSwitchDetailDrawer
         open={detailOpen}
         record={detailRecord}
-        initialTab={detailInitialTab}
+        initialTab="overview"
         onClose={() => {
           setDetailOpen(false);
           setDetailRecord(null);

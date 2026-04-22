@@ -24,6 +24,11 @@ docs/
 /backend/*.sqlite-journal
 /backend/data.sqlite-shm
 /backend/data.sqlite-wal
+/backend/_boot-err.txt
+/backend/_boot-out.txt
+
+# 本地/运维部署脚本与密钥（勿入库）
+/remote/
 
 /frontend/node_modules/
 /frontend/node_modules/.cache/

@@ -339,12 +339,14 @@ AppDataSource.initialize()
         dropObsoleteKubeOvnIngressInventoryTable,
         ensureHarvesterAswCtlSwitchInventoryTable,
         ensureImageUploadTaskTable,
+        ensureDatacenterTopologyTables,
       } = await import('./config/database');
       await ensureRecycleBinTables();
       await ensureKubeOvnSecurityGroupTables();
       await dropObsoleteKubeOvnIngressInventoryTable();
       await ensureHarvesterAswCtlSwitchInventoryTable();
       await ensureImageUploadTaskTable();
+      await ensureDatacenterTopologyTables();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
     }

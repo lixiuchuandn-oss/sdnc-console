@@ -82,7 +82,7 @@ export const registerHarvesterRoutes = (
     }
   );
 
-  // ASW-CTL：物理接入交换机探测（config.aswCtl）
+  // 物理交换机 / HSM：默认同资源池 API Endpoint；可选 config.aswCtl 覆盖
   router.get(
     '/:id/resources/harvester/asw-ctl/switches',
     checkAdminPermission,

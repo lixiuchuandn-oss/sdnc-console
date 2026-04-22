@@ -5,7 +5,7 @@
 /**
  * 权限平台
  */
-export type PermissionPlatform = 'CNMC' | 'SDNCC' | 'CNSOC' | 'SETTINGS';
+export type PermissionPlatform = 'CNMC' | 'TENANTS' | 'SDNCC' | 'CNSOC' | 'SETTINGS';
 
 /**
  * 权限动词类型

@@ -1,32 +1,22 @@
 /**
- * ASW-CTL：物理接入交换机北向 HTTP 探测。
+ * 物理交换机北向 HTTP 探测（集群 HSM）。
  *
- * 【部署】ASW-CTL 通常作为工作负载跑在 Harvester/K8s 集群内，经 Service（或 Ingress）对外暴露 Base URL；
- * 南向 SSH 登录接入交换机执行只读 CLI。与「集群内发布的服务」一致，前端 UI 归在 Harvester/cluster 下，
- * Cloudmap 仅复用同一 Section。
+ * 【部署】HSM 挂在 Harvester/Kubernetes API 同入口，北向路径为 `/v1/hms/*`。
  *
- * 【Tower 角色】根据资源池 config.aswCtl 中的根地址与 Key，由本模块直连 ASW-CTL HTTP（见 aswCtlClient），
- * 聚合 /healthz、OpenAPI、/v1/switch/*等；不替代 ASW-CTL 进程。
+ * 【Tower 角色】始终使用资源池 `endpoint` 的 origin 作为 HTTP 根地址；`config.aswCtl` 仅保留可选的 API Key、
+ * TLS 校验开关、显示名等。聚合 /healthz、北向 switch/*、device/profiles 等（不探测根路径 /openapi.yaml）。
  */
 import { Request, Response } from 'express';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
 import {
   aswCtlGetJson,
-  aswCtlGetText,
   aswCtlProbeHealth,
   normalizeAswCtlApiKeySecret,
-  normalizeAswCtlEndpoints,
-  normalizeAswCtlEndpointsAll,
-  sanitizeAswCtlBaseUrl,
+  harvesterControlPlaneOrigin,
+  northApiPathWithPrefix,
   type NormalizedAswEndpoint,
 } from '../../../../services/clouds/harvester/aswCtlClient';
-import {
-  loadAswCtlSwitchInventory,
-  persistAswCtlSwitchInventory,
-} from '../../../../services/clouds/harvester/aswCtlInventory';
-import { logger } from '../../../../utils/logger';
-
-const aswCtlInvLog = logger.child('AswCtlInventory');
+import { loadAswCtlSwitchInventory } from '../../../../services/clouds/harvester/aswCtlInventory';
 
 /**
  * 聚合探测里每条 /v1/* JSON 的超时。
@@ -124,16 +114,11 @@ function expandAswCtlSwitchRowToInstances(
   const perfSlices = extractInstanceSlices(perfRoot);
   const vlanSlices = extractInstanceSlices(vlanRoot);
 
-  let hosts = mergeInstanceHosts(infoSlices, ifSlices, perfSlices, vlanSlices);
+  const hosts = mergeInstanceHosts(infoSlices, ifSlices, perfSlices, vlanSlices);
 
+  /** 无 instances / 顶层 host 时不造「占位」行，避免把聚合层推测数据当成一台交换机展示 */
   if (hosts.length === 0) {
-    return [
-      {
-        ...aggregate,
-        id: '0',
-        name: ep.name,
-      },
-    ];
+    return [];
   }
 
   const sharedProfile =
@@ -205,12 +190,6 @@ export type AswCtlSwitchRow = {
   healthHttpStatus?: number;
   healthNotApplicable?: boolean;
   healthNaMessage?: string;
-  openapiYaml: boolean | null;
-  openapiYamlError?: string;
-  openapiYamlHttpStatus?: number;
-  openapiYamlPreview?: string;
-  openapiNotApplicable?: boolean;
-  openapiNaMessage?: string;
   info: any | null;
   interfaces: any | null;
   infoError?: string;
@@ -228,57 +207,87 @@ export type AswCtlSwitchRow = {
   vlans: any | null;
   vlansError?: string;
   vlansHttpStatus?: number;
-  /** 对端无 /v1/switch/vlans（如 HTTP 404，旧版 ASW-CTL） */
+  /** 对端无 VLAN 路由（如 HTTP 404，旧版 ASW-CTL 或未挂载 HSM） */
   vlansNotApplicable?: boolean;
   vlansNaMessage?: string;
   /** 本次出站请求是否携带了规范化后的 API Key（便于区分「未带密钥」与「密钥错误」） */
   apiKeySent?: boolean;
 };
 
-/** 北向 HTTP 上 /v1/switch/info 与 interfaces 均失败时，回读末次入库缓存（若有）。 */
-function shouldServeCachedAswCtlInventory(aggregate: AswCtlSwitchRow): boolean {
-  return !!aggregate.infoError && !!aggregate.interfacesError;
+/** 集群内置 HSM：挂在 Harvester API 同 host，北向前缀固定为 `/v1/hms`（与对端 SwitchRouter 一致）。 */
+const CLUSTER_HSM_NORTH_PREFIX = '/v1/hms';
+
+type AswCtlRouteResolved = {
+  endpoints: NormalizedAswEndpoint[];
+  northPrefix: string;
+};
+
+/** 历史 `config.aswCtl.endpoints` 多条时用于提示（仅首条上的 apiKey 仍可能被合并读取）。 */
+function legacyEndpointsCount(cfg: unknown): number {
+  if (!cfg || typeof cfg !== 'object') return 0;
+  const eps = (cfg as Record<string, unknown>).endpoints;
+  return Array.isArray(eps) ? eps.length : 0;
+}
+
+/** 固定走资源池 API Endpoint + `/v1/hms`；可选密钥等来自 `config.aswCtl`。 */
+function resolveAswCtlRouting(cloud: { endpoint?: string; config?: any }): AswCtlRouteResolved | null {
+  const origin = harvesterControlPlaneOrigin(String(cloud.endpoint || ''));
+  if (!origin) return null;
+  const cfg = cloud.config?.aswCtl;
+  const c = cfg && typeof cfg === 'object' ? (cfg as Record<string, unknown>) : {};
+  let apiKey = normalizeAswCtlApiKeySecret(c.apiKey);
+  if (!apiKey) {
+    const eps = c.endpoints;
+    if (Array.isArray(eps) && eps[0] && typeof eps[0] === 'object') {
+      apiKey = normalizeAswCtlApiKeySecret((eps[0] as Record<string, unknown>).apiKey);
+    }
+  }
+  return {
+    endpoints: [{ name: 'HSM', baseUrl: origin, apiKey }],
+    northPrefix: CLUSTER_HSM_NORTH_PREFIX,
+  };
 }
 
 async function fetchAswCtlSwitchRow(
   ep: NormalizedAswEndpoint,
   insecureTls: boolean,
   rowId: string,
+  northPrefix: string,
 ): Promise<AswCtlSwitchRow> {
-  const [healthRes, openRes, infoRes, ifRes, perfRes, profRes, vlanRes] = await Promise.all([
+  const path = (seg: string) => northApiPathWithPrefix(seg, northPrefix);
+  const [healthRes, infoRes, ifRes, perfRes, profRes, vlanRes] = await Promise.all([
     aswCtlProbeHealth(ep.baseUrl, ep.apiKey, insecureTls),
-    aswCtlGetText(ep.baseUrl, '/openapi.yaml', ep.apiKey, insecureTls, 15000),
     aswCtlGetJson(
       ep.baseUrl,
-      '/v1/switch/info',
+      path('/switch/info'),
       ep.apiKey,
       insecureTls,
       ASW_CTL_V1_JSON_TIMEOUT_MS,
     ),
     aswCtlGetJson(
       ep.baseUrl,
-      '/v1/switch/interfaces',
+      path('/switch/interfaces'),
       ep.apiKey,
       insecureTls,
       ASW_CTL_V1_JSON_TIMEOUT_MS,
     ),
     aswCtlGetJson(
       ep.baseUrl,
-      '/v1/switch/performance',
+      path('/switch/performance'),
       ep.apiKey,
       insecureTls,
       ASW_CTL_V1_JSON_TIMEOUT_MS,
     ),
     aswCtlGetJson(
       ep.baseUrl,
-      '/v1/device/profiles',
+      path('/device/profiles'),
       ep.apiKey,
       insecureTls,
       ASW_CTL_V1_JSON_TIMEOUT_MS,
     ),
     aswCtlGetJson(
       ep.baseUrl,
-      '/v1/switch/vlans',
+      path('/switch/vlans'),
       ep.apiKey,
       insecureTls,
       ASW_CTL_V1_JSON_TIMEOUT_MS,
@@ -302,31 +311,6 @@ async function fetchAswCtlSwitchRow(
   } else {
     healthNotApplicable = true;
     healthNaMessage = healthRes.message;
-  }
-
-  let openapiYaml: boolean | null = null;
-  let openapiYamlError: string | undefined;
-  let openapiYamlHttpStatus: number | undefined;
-  let openapiYamlPreview: string | undefined;
-  let openapiNotApplicable = false;
-  let openapiNaMessage: string | undefined;
-  if (openRes.ok) {
-    const snippet = openRes.data.replace(/\s+/g, ' ').trim().slice(0, 160);
-    const nonEmpty = openRes.data.trim().length > 0;
-    openapiYaml = nonEmpty;
-    openapiYamlPreview = snippet || undefined;
-    if (!nonEmpty) {
-      openapiYaml = false;
-      openapiYamlError = 'OpenAPI 文档为空';
-    }
-  } else if (openRes.status === 404) {
-    openapiNotApplicable = true;
-    openapiNaMessage = '未提供 /openapi.yaml（可忽略）';
-    openapiYamlHttpStatus = 404;
-  } else {
-    openapiYaml = false;
-    openapiYamlError = openRes.message;
-    openapiYamlHttpStatus = openRes.status;
   }
 
   let performance: any | null = null;
@@ -354,8 +338,7 @@ async function fetchAswCtlSwitchRow(
     vlans = vlanRes.data;
   } else if (vlanRes.status === 404) {
     vlansNotApplicable = true;
-    vlansNaMessage =
-      'HTTP 404：北向未注册 GET /v1/switch/vlans（常见：旧版 ASW-CTL、路径拼写、Base URL 指到非 ASW-CTL 或网关未转发）。非 VLAN 业务失败；SSH/业务失败多为 502/503且 JSON。';
+    vlansNaMessage = `HTTP 404：北向未注册 GET ${path('/switch/vlans')}（常见：集群未挂载 HSM、路径或网关未转发）。非 VLAN 业务失败；SSH/业务失败多为 502/503 且 JSON。`;
     vlansHttpStatus = 404;
   } else {
     vlansError = vlanRes.message;
@@ -372,12 +355,6 @@ async function fetchAswCtlSwitchRow(
     healthHttpStatus,
     healthNotApplicable,
     healthNaMessage,
-    openapiYaml,
-    openapiYamlError,
-    openapiYamlHttpStatus,
-    openapiYamlPreview,
-    openapiNotApplicable,
-    openapiNaMessage,
     info: infoRes.ok ? infoRes.data : null,
     interfaces: ifRes.ok ? ifRes.data : null,
     infoError: infoRes.ok ? undefined : infoRes.message,
@@ -403,7 +380,8 @@ async function fetchAswCtlSwitchRow(
 
 /**
  * GET /:id/resources/harvester/asw-ctl/switches
- * 单台 ASW-CTL：/healthz、OpenAPI、/v1/switch/*（含 vlans）、/v1/device/profiles（与 OpenAPI 契约一致）
+ * 仅返回 Tower SQLite 中末次已入库的实例行（HarvesterAswCtlSwitchInventory），不对集群 HSM 发实时北向请求。
+ * 补库需另行通过运维流程或本仓库内可调用 persist 的同步脚本；`?cacheOnly=1` 与无参行为一致（兼容旧客户端）。
  */
 export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response) {
   try {
@@ -413,118 +391,46 @@ export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
 
     const cfg = (cloud.config as any)?.aswCtl;
-    const allConfigured = normalizeAswCtlEndpointsAll(cfg);
-    const endpoints = normalizeAswCtlEndpoints(cfg);
-    const insecureTls = !!(
-      (cfg && typeof cfg === 'object' && (cfg as any).insecureTls) ||
-      (cloud.config as any)?.ignoreTls
-    );
+    const routed = resolveAswCtlRouting(cloud);
 
-    if (endpoints.length === 0) {
+    if (!routed) {
       return res.json({
         configured: false,
         message:
-          '未配置 ASW-CTL：请在资源池「物理交换机 → 临时配置」中填写服务根地址（及可选 API Key）。每资源池仅关联一台 ASW-CTL。',
+          '未配置资源池 API Endpoint。请在资源池连接信息中填写与控制台相同的集群 API 地址后再查看物理交换机列表（列表数据来自本机入库缓存）。',
         items: [],
       });
     }
 
+    const { endpoints } = routed;
+    const legacyEps = legacyEndpointsCount(cfg);
     const ep = endpoints[0]!;
 
-    /** 仅读 SQLite 末次入库，不访问 ASW-CTL；供前端首屏快速展示 */
-    const cacheOnly =
-      String(req.query.cacheOnly || '') === '1' ||
-      String(req.query.cacheOnly || '').toLowerCase() === 'true';
-    if (cacheOnly) {
-      const { items: cached, syncedAt } = await loadAswCtlSwitchInventory(id);
-      const first = cached[0] as any;
-      return res.json({
-        configured: true,
-        apiKeyConfigured: itemApiKeySent(ep),
-        apiVersion:
-          first?.info?.api_version ||
-          first?.interfaces?.api_version ||
-          first?.performance?.api_version ||
-          first?.vlans?.api_version ||
-          first?.deviceProfiles?.api_version,
-        onlyFirstAswCtl: allConfigured.length > 1,
-        onlyFirstAswCtlMessage:
-          allConfigured.length > 1
-            ? `已忽略 ${allConfigured.length - 1} 条额外 ASW-CTL 配置；每资源池仅保留第一台。`
-            : undefined,
-        items: cached,
-        source: 'database',
-        stale: true,
-        cacheSyncedAt: syncedAt,
-        cacheOnly: true,
-      });
-    }
-
-    const aggregate = await fetchAswCtlSwitchRow(ep, insecureTls, '0');
-
-    if (shouldServeCachedAswCtlInventory(aggregate)) {
-      const { items: cached, syncedAt } = await loadAswCtlSwitchInventory(id);
-      if (cached.length > 0) {
-        const liveError = [aggregate.healthError, aggregate.infoError, aggregate.interfacesError]
-          .filter((x) => x && String(x).trim())
-          .map((x) => String(x))
-          .join('；');
-        const first = cached[0] as any;
-        return res.json({
-          configured: true,
-          apiKeyConfigured: itemApiKeySent(ep),
-          apiVersion:
-            first?.info?.api_version ||
-            first?.interfaces?.api_version ||
-            first?.performance?.api_version ||
-            first?.vlans?.api_version ||
-            first?.deviceProfiles?.api_version,
-          onlyFirstAswCtl: allConfigured.length > 1,
-          onlyFirstAswCtlMessage:
-            allConfigured.length > 1
-              ? `已忽略 ${allConfigured.length - 1} 条额外 ASW-CTL 配置；每资源池仅保留第一台。`
-              : undefined,
-          items: cached,
-          source: 'database',
-          stale: true,
-          cacheSyncedAt: syncedAt,
-          liveError: liveError || undefined,
-        });
-      }
-    }
-
-    const items = expandAswCtlSwitchRowToInstances(aggregate, ep);
-    const persistable = !aggregate.infoError || !aggregate.interfacesError;
-    if (persistable && items.length > 0) {
-      try {
-        await persistAswCtlSwitchInventory(id, items);
-      } catch (e) {
-        aswCtlInvLog.warn('物理交换机探测结果入库失败', e instanceof Error ? e.message : String(e));
-      }
-    }
-
+    const { items: cached, syncedAt } = await loadAswCtlSwitchInventory(id);
+    const first = cached[0] as any;
     return res.json({
       configured: true,
       apiKeyConfigured: itemApiKeySent(ep),
       apiVersion:
-        aggregate.info?.api_version ||
-        aggregate.interfaces?.api_version ||
-        aggregate.performance?.api_version ||
-        aggregate.vlans?.api_version ||
-        aggregate.deviceProfiles?.api_version,
-      onlyFirstAswCtl: allConfigured.length > 1,
+        first?.info?.api_version ||
+        first?.interfaces?.api_version ||
+        first?.performance?.api_version ||
+        first?.vlans?.api_version ||
+        first?.deviceProfiles?.api_version,
+      onlyFirstAswCtl: legacyEps > 1,
       onlyFirstAswCtlMessage:
-        allConfigured.length > 1
-          ? `已忽略 ${allConfigured.length - 1} 条额外 ASW-CTL 配置；每资源池仅保留第一台。`
+        legacyEps > 1
+          ? `检测到 config.aswCtl.endpoints 共 ${legacyEps} 条历史记录；访问地址已固定为资源池 API Endpoint，可选 API Key 仅从首条读取。建议保存「连接设置」以清理多余条目。`
           : undefined,
-      items,
-      source: 'live',
-      stale: false,
+      items: cached,
+      source: 'database',
+      stale: true,
+      cacheSyncedAt: syncedAt,
     });
   } catch (e: any) {
     if (res.headersSent) return;
     return res.status(500).json({
-      message: e?.message || 'ASW-CTL 聚合请求失败',
+      message: e?.message || '物理交换机列表读取失败',
     });
   }
 }
@@ -544,16 +450,22 @@ export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
       string,
       unknown
     >;
-    const baseUrl = sanitizeAswCtlBaseUrl(String(body.baseUrl || '').trim());
-    if (!baseUrl) {
-      return res.status(400).json({ message: 'baseUrl 不能为空' });
-    }
-    const name = String(body.name || 'ASW-CTL').trim() || 'ASW-CTL';
-    const apiKey = normalizeAswCtlApiKeySecret(body.apiKey);
     const insecureTls = !!body.insecureTls;
 
-    const ep: NormalizedAswEndpoint = { name, baseUrl, apiKey };
-    const aggregate = await fetchAswCtlSwitchRow(ep, insecureTls, 'probe');
+    const routed = resolveAswCtlRouting(cloud);
+    if (!routed) {
+      return res.status(400).json({
+        message:
+          '资源池 API Endpoint 为空，无法探测集群 HSM。请在资源池连接信息中填写 Harvester/Kubernetes API 地址。',
+      });
+    }
+    const draftKey = normalizeAswCtlApiKeySecret(body.apiKey);
+    const mergedEp = { ...routed.endpoints[0]! };
+    if (draftKey) mergedEp.apiKey = draftKey;
+    const ep = mergedEp;
+    const northPrefix = routed.northPrefix;
+
+    const aggregate = await fetchAswCtlSwitchRow(ep, insecureTls, 'probe', northPrefix);
     const items = expandAswCtlSwitchRowToInstances(aggregate, ep);
 
     return res.json({

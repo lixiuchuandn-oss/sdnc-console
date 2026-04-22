@@ -7,7 +7,7 @@
 // 主要用于侧边栏(Sidebar)的分组排序与展示逻辑
 // ============================================================================
 
-export type Platform = 'CNMC' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | '全部';
+export type Platform = 'CNMC' | 'TENANTS' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | '全部';
 
 export type Group = 
   | '资源池管理' 
@@ -33,13 +33,14 @@ export type Group =
   | '全部';
 
 // 平台列表定义
-export const PLATFORMS: Platform[] = ['全部', 'CNMC', 'SDNCC', 'CNSOC', 'SETTINGS'];
+export const PLATFORMS: Platform[] = ['全部', 'CNMC', 'TENANTS', 'SDNCC', 'CNSOC', 'SETTINGS'];
 
 // 平台显示名称映射
 export const PLATFORM_LABELS: Record<Platform, string> = {
-  'CNMC': '多云管理',
-  'SDNCC': 'SDN管理',
-  'CNSOC': 'AI SOC中心',
+  'CNMC': '资源池管理',
+  'TENANTS': '租户管理',
+  'SDNCC': 'SDN控制台',
+  'CNSOC': '云安全中心',
   'SETTINGS': '系统设置',
   '全部': '全部'
 };

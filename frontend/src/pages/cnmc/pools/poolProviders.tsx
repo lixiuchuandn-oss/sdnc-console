@@ -40,7 +40,8 @@ import {
   ClusterOutlined,
   SafetyCertificateOutlined,
   DeploymentUnitOutlined,
-  CloudUploadOutlined
+  CloudUploadOutlined,
+  ContainerOutlined
 } from '@ant-design/icons';
 
 /**
@@ -48,14 +49,29 @@ import {
  * 用于前端展示云资源的分类名称 (中文)。
  * @constant
  */
+/** CSM 安全资源池：业务归属 SDN 流量编排，不纳入多云资源池列表语义 */
+export function isCsmCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();
+  return pv === 'cloudmap.csm';
+}
+
 export const CLOUD_TYPE_MAP: Record<string, string> = {
   central: '公有云',
   private: '私有云',
   edge: '边缘计算',
+  /** Rancher 等子厂商见 config.provider，旧库可能仍为 type=rancher */
+  container_cloud: '容器云',
   virtualization: '虚拟化',
   object_storage: '对象存储',
-  security_pool: '云安全资源池',
+  security_pool: 'SDN 业务域',
 };
+
+/** 资源池 type 展示（含历史 `rancher` → 容器云） */
+export function resolvePoolTypeLabel(type?: string): string {
+  const t = String(type || '').toLowerCase();
+  if (t === 'rancher') return '容器云';
+  return CLOUD_TYPE_MAP[t] || type || '未知';
+}
 
 /**
  * [常量定义] 云资源状态映射 (Cloud Status)
@@ -120,7 +136,7 @@ export interface Cloud {
   id: string;
   name: string;
   description: string;
-  type: 'central' | 'private' | 'edge' | 'virtualization' | 'object_storage' | 'security_pool';
+  type: 'central' | 'private' | 'edge' | 'container_cloud' | 'rancher' | 'virtualization' | 'object_storage' | 'security_pool';
   status: 'online' | 'offline' | 'maintenance';
   region: string;
   endpoint: string;
@@ -178,7 +194,7 @@ export interface CloudProvider {
   id: string;              // 唯一标识 (e.g., 'aliyun', 'aws')
   name: string;            // 显示名称
   logo?: React.ReactNode;   // 平台图标 (可选，若为空则使用大类默认图标)
-  category: 'central' | 'private' | 'edge' | 'virtualization' | 'object_storage' | 'security_pool'; // 分类
+  category: 'central' | 'private' | 'edge' | 'container_cloud' | 'virtualization' | 'object_storage' | 'sdn_security_pool'; // 分类（「容器云」下再选子厂商，如 rancher；CSM 归 SDN 业务域）
   description: string;     // 简短描述
   fields: CloudProviderField[]; // 动态表单字段配置
 }
@@ -412,12 +428,15 @@ export const cloudProviders: CloudProvider[] = [
       { key: 'apiToken', label: 'Cloudmap API 令牌', type: 'password', required: true, placeholder: '请输入 Cloudmap API 令牌' }
     ]
   },
+  // ==============================================================================
+  // 3b. 容器云（类型 container_cloud；子厂商由 id 区分，如 rancher）
+  // ==============================================================================
   {
     id: 'rancher',
     name: 'Rancher',
-    category: 'edge',
+    category: 'container_cloud',
     logo: <ClusterOutlined />,
-    description: 'Rancher容器管理平台',
+    description: 'Rancher 容器/Kubernetes 管理平台',
     fields: [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
       { key: 'rancherUrl', label: 'Rancher地址', type: 'input', required: true, placeholder: 'https://rancher.example.com' },
@@ -442,23 +461,6 @@ export const cloudProviders: CloudProvider[] = [
       { key: 'username', label: '用户名', type: 'input', required: true, placeholder: '请输入用户名' },
       { key: 'password', label: '密码', type: 'password', required: true, placeholder: '请输入密码' },
       { key: 'datacenter', label: '数据中心', type: 'input', required: false, placeholder: '可选，数据中心名称' }
-    ]
-  },
-  {
-    id: 'harvester',
-    name: 'Harvester',
-    category: 'virtualization',
-    logo: <DesktopOutlined />, // 补充图标
-    description: 'Harvester HCI',
-    fields: [
-      { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-      { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://harvester.example.com' },
-      { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入Harvester API令牌' },
-      { key: 'harvesterVersion', label: 'Harvester版本', type: 'select', required: false, placeholder: '自动识别', options: [
-        { label: '自动', value: 'auto' },
-        { label: '1.5', value: '1.5' },
-        { label: '1.6', value: '1.6' }
-      ]}
     ]
   },
   {
@@ -521,14 +523,14 @@ export const cloudProviders: CloudProvider[] = [
   },
 
   // ==============================================================================
-  // 6. 安全资源池 (Security Pool)
+  // 6. SDN 业务域 — CSM 安全资源池（不纳入「云类型」语义；入库 type 仍为 security_pool）
   // ==============================================================================
   {
     id: 'cloudmap.csm',
     name: 'CSM',
-    category: 'security_pool',
+    category: 'sdn_security_pool',
     logo: <SafetyCertificateOutlined />,
-    description: '添加CSM安全资源池',
+    description: '接入 CSM 安全控制面（SDN 业务域）',
     fields: [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
       { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap.example.com' },
@@ -582,11 +584,14 @@ export const getProviderLogo = (providerId?: string, category?: string): React.R
       return <CloudServerOutlined />;
     case 'edge':
       return <DeploymentUnitOutlined />;
+    case 'container_cloud':
+      return <ContainerOutlined />;
     case 'virtualization':
       return <DesktopOutlined />;
     case 'object_storage':
       return <DatabaseOutlined />;
     case 'security_pool':
+    case 'sdn_security_pool':
       return <SafetyCertificateOutlined />;
     default:
       return <CloudUploadOutlined />;
@@ -604,6 +609,9 @@ export const getProviderName = (providerId?: string): string => {
   if (!providerId) return '未知';
   
   const pId = providerId.toLowerCase();
+
+  /** 已从前端接入向导移除，但列表/详情仍可能展示存量池 */
+  if (pId === 'harvester') return 'Harvester';
   
   // 查找规则：ID精确匹配 OR ID包含 (取第一个匹配项)
   const provider = cloudProviders.find(p => {
@@ -636,7 +644,18 @@ export const getCredentialLabels = (provider?: string) => {
     case 'cloudmap.private':
     case 'cloudmap.edge':
       return { akLabel: '访问密钥', skLabel: 'Cloudmap API 令牌', akPlaceholder: '不需要访问密钥', skPlaceholder: '请输入 Cloudmap API 令牌' };
+    case 'rancher':
+      return { akLabel: '访问密钥（可选）', skLabel: 'Rancher API 令牌', akPlaceholder: '通常留空', skPlaceholder: '请输入 Rancher API 令牌' };
     default:
       return { akLabel: '访问密钥 (Access Key)', skLabel: '私有密钥 (Secret Key)', akPlaceholder: '请输入访问密钥', skPlaceholder: '请输入私有密钥' };
   }
 };
+
+/** CloudWizardeasy：固定使用 Cloudmap 边缘接入模板 */
+export function getCloudmapEdgeProvider(): CloudProvider {
+  const p = cloudProviders.find((x) => x.id === 'cloudmap.edge');
+  if (!p) {
+    throw new Error('cloudmap.edge provider config missing');
+  }
+  return p;
+}
