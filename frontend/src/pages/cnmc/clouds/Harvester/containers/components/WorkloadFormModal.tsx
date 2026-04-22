@@ -37,6 +37,8 @@ export interface WorkloadFormModalProps {
     name?: string;
     pvcName?: string;
   }>;
+  // 网络配置相关 props
+  hideFlatSubnet?: boolean;  // 是否隐藏扁平子网选项（Harvester 资源池不显示）
 }
 
 const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
@@ -54,6 +56,7 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
   configMaps,
   secrets,
   persistentVolumeClaims,
+  hideFlatSubnet = false,
 }) => {
   const isEditMode = !!editData;
   
@@ -90,6 +93,7 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
         configMaps={configMaps}
         secrets={secrets}
         persistentVolumeClaims={persistentVolumeClaims}
+        hideFlatSubnet={hideFlatSubnet}
       />
     </Modal>
   );

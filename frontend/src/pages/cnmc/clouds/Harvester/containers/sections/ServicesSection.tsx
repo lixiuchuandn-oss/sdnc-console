@@ -509,7 +509,7 @@ const ServicesSection: React.FC<Props> = ({
   onRefresh,
   createDefaultNamespace,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
   const [createModalVisible, setCreateModalVisible] = useState(false);
 
   // 打开创建弹窗

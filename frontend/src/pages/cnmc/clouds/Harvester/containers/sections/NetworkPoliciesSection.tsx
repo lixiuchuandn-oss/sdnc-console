@@ -961,6 +961,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         initialData={editingRecord}
         cloudId={cloudId}
         namespacesOptions={namespacesOptions}
+        defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setEditModalVisible(false);
           setEditingRecord(null);

@@ -1356,7 +1356,7 @@ const ConfigsSection: React.FC<Props> = ({
   onRefresh,
   createDefaultNamespace,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
   const [secretTypeFilter, setSecretTypeFilter] = useState<string | undefined>();
   

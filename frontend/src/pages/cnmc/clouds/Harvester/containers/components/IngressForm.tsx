@@ -41,7 +41,7 @@ import {
   GlobalOutlined,
 } from '@ant-design/icons';
 import { createHarvesterIngress, updateHarvesterIngress } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -356,6 +356,7 @@ const IngressForm: React.FC<IngressFormProps> = ({
       form={form}
       layout="vertical"
       initialValues={{
+        name: generateVmWizardStyleDisplayName('ing'),
         labels: [],
         rules: [{ host: '', paths: [{ pathType: 'Prefix', backend: { service: { name: '', port: {} } } }] }],
         tls: [],

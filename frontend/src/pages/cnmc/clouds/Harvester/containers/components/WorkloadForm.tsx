@@ -17,7 +17,9 @@
  * [步骤设计]
  * 步骤1: 基本信息 - 名称、命名空间、类型、标签
  * 步骤2: 容器配置 - 镜像、端口、环境变量、资源限制
- * 步骤3: 高级配置 - 副本数、存储、调度、健康检查
+ * 步骤3: 网络配置 - 网络类型、子网选择、静态IP
+ * 步骤4: 存储配置 - 存储卷定义、卷挂载
+ * 步骤5: 高级配置 - 副本数、调度、健康检查
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -38,6 +40,9 @@ import {
   Segmented,
   Alert,
   Collapse,
+  Radio,
+  Checkbox,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -53,10 +58,11 @@ import {
   CheckOutlined,
   CopyOutlined,
   DeleteOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 import yaml from 'js-yaml';
-import { createHarvesterContainerResource, updateHarvesterContainerResource } from '../../../../../../services/harvesterApi';
+import { createHarvesterContainerResource, updateHarvesterContainerResource, fetchKubeOvnSubnets, fetchKubeOvnVpcs, fetchHarvesterNads } from '../../../../../../services/harvesterApi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 import { 
@@ -65,7 +71,7 @@ import {
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -147,6 +153,38 @@ export interface Toleration {
   value?: string;         // 污点值 (Equal 时需要)
   effect?: 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute' | 'All';  // 效果
   tolerationSeconds?: number;  // 容忍时间 (NoExecute 时可选)
+}
+
+// ============================================================
+// 网络配置类型定义
+// ============================================================
+
+// 网络模式
+export type NetworkMode = 'none' | 'flat_subnet' | 'vpc';
+
+// 扁平子网配置
+export interface FlatSubnetConfig {
+  subnetName: string;
+  subnetNamespace: string;
+  nadReference: string;
+  cidr?: string;
+  gateway?: string;
+}
+
+// VPC 子网配置
+export interface VpcSubnetConfig {
+  vpcName: string;
+  subnetName: string;
+  subnetNamespace: string;
+  nadReference: string;
+  cidr?: string;
+}
+
+// 网络配置
+export interface NetworkConfig {
+  networkMode: NetworkMode;
+  flatSubnet?: FlatSubnetConfig;
+  vpcSubnet?: VpcSubnetConfig;
 }
 
 // 存储卷类型
@@ -275,6 +313,15 @@ export interface WorkloadFormValues {
   // 存储卷配置
   volumes?: VolumeConfig[];
   volumeMounts?: VolumeMountConfig[];
+  
+  // 网络配置
+  networkType?: 'default' | 'flat_subnet' | 'vpc' | 'custom_nad';
+  flatSubnet?: string;
+  vpcName?: string;
+  vpcSubnet?: string;
+  customNad?: string;
+  enableStaticIP?: boolean;
+  staticIP?: string;
 }
 
 export interface WorkloadFormProps {
@@ -304,6 +351,8 @@ export interface WorkloadFormProps {
     pvcName?: string;
   }>;
   onRefreshPVCs?: () => void;
+  // 网络配置相关 props
+  hideFlatSubnet?: boolean;  // 是否隐藏扁平子网选项（Harvester 资源池不显示）
 }
 
 // ============================================================
@@ -868,6 +917,7 @@ const EMPTY_DIR_MEDIUM_OPTIONS = [
 const WORKLOAD_STEPS = [
   { key: 'basic', title: '基本信息', icon: <ProfileOutlined /> },
   { key: 'containers', title: '容器配置', icon: <AppstoreOutlined /> },
+  { key: 'network', title: '网络配置', icon: <AppstoreOutlined /> },
   { key: 'storage', title: '存储配置', icon: <FolderOutlined /> },
   { key: 'advanced', title: '高级配置', icon: <SettingOutlined /> },
 ];
@@ -2811,6 +2861,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // PVC 相关 props
   persistentVolumeClaims = [],
   onRefreshPVCs,
+  // 网络配置相关 props
+  hideFlatSubnet = false,
 }) => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
@@ -2834,6 +2886,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 快速创建 ConfigMap/Secret 弹窗状态
   const [showQuickCreateConfigMap, setShowQuickCreateConfigMap] = useState(false);
   const [showQuickCreateSecret, setShowQuickCreateSecret] = useState(false);
+  
+  // 网络配置数据状态
+  const [kubeSubnets, setKubeSubnets] = useState<any[]>([]);
+  const [kubeVpcs, setKubeVpcs] = useState<any[]>([]);
+  const [nads, setNads] = useState<any[]>([]);
+  const [loadingNetworkData, setLoadingNetworkData] = useState(false);
+  
   const editMetadata = editData?.metadata;
   const syncingContainerRef = useRef(false);
   const watchedImagePullSecretsValue = Form.useWatch('imagePullSecrets', form);
@@ -3308,6 +3367,156 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     }
   }, [editData, defaultType, form]);
   
+  // 获取网络配置数据（扁平子网、VPC、NAD）
+  useEffect(() => {
+    const fetchNetworkData = async () => {
+      setLoadingNetworkData(true);
+      try {
+        // 并行获取所有网络数据
+        const [subnetsRes, vpcsRes, nadsRes] = await Promise.all([
+          fetchKubeOvnSubnets(cloudId, false, false, 'underlay').catch(() => ({ items: [] })),
+          fetchKubeOvnVpcs(cloudId, false, false, 'vpc').catch(() => ({ items: [] })),
+          fetchHarvesterNads(cloudId).catch(() => ({ items: [] })),
+        ]);
+        
+        // 规范化子网数据（参考 VM 创建向导 useHarvesterData.ts）
+        const subnetItems: any[] = subnetsRes?.data?.items || subnetsRes?.items || (Array.isArray(subnetsRes) ? subnetsRes : []);
+        const normalizedSubnets = subnetItems.map((x: any) => ({
+          ...x,
+          name: x?.metadata?.name || x?.name,
+          namespace: x?.metadata?.namespace || 'default',
+          vpc: x?.spec?.vpc || x?.vpc,
+          cidr: x?.spec?.cidrBlock || x?.cidr,
+        }));
+        
+        // 规范化 VPC 数据
+        const vpcItems: any[] = vpcsRes?.data?.items || vpcsRes?.items || (Array.isArray(vpcsRes) ? vpcsRes : []);
+        const normalizedVpcs = vpcItems.map((x: any) => ({
+          ...x,
+          name: x?.metadata?.name || x?.name,
+          alias: x?.metadata?.annotations?.['tower.io/alias'] || x?.annotations?.['tower.io/alias'] || '',
+        }));
+        
+        setKubeSubnets(normalizedSubnets);
+        setKubeVpcs(normalizedVpcs);
+        setNads(Array.isArray(nadsRes?.items) ? nadsRes.items : (Array.isArray(nadsRes) ? nadsRes : []));
+      } catch (error) {
+        console.error('获取网络数据失败:', error);
+      } finally {
+        setLoadingNetworkData(false);
+      }
+    };
+    
+    fetchNetworkData();
+  }, [cloudId]);
+  
+  // 扁平子网识别条件
+  const isFlatSubnet = useCallback((subnet: any) => {
+    const type = subnet?.metadata?.annotations?.['tower.io/subnet-type'];
+    return type === 'flat';
+  }, []);
+  
+  const isFlatVpc = useCallback((vpc: string) => {
+    return vpc === 'ovn-internal' || vpc === 'ovn-cluster';
+  }, []);
+  
+  // 扁平子网选项
+  const flatSubnetOptions = useMemo(() => {
+    return (kubeSubnets || [])
+      .filter(s => isFlatVpc(s?.vpc || s?.spec?.vpc) && isFlatSubnet(s))
+      .map(s => {
+        const name = s.name || s?.metadata?.name || '-';
+        const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
+        const cidr = s?.cidr || s?.spec?.cidrBlock || 'N/A';
+        const label = alias ? `${alias}(${name})@${cidr}` : `${name}@${cidr}`;
+        return {
+          label,
+          value: name,
+          subnet: s,
+        };
+      });
+  }, [kubeSubnets, isFlatSubnet, isFlatVpc]);
+  
+  // VPC 选项
+  const vpcOptions = useMemo(() => {
+    return (kubeVpcs || [])
+      .filter(v => !isFlatVpc(v?.name || v?.metadata?.name))
+      .map(v => {
+        const name = v.name || v?.metadata?.name || '-';
+        const alias = v.alias || v?.metadata?.annotations?.['tower.io/alias'] || '';
+        const label = alias ? `${alias}(${name})` : name;
+        return {
+          label,
+          value: name,
+        };
+      });
+  }, [kubeVpcs, isFlatVpc]);
+  
+  // 根据选中的 VPC 过滤子网选项
+  const selectedVpc = Form.useWatch('vpcName', form);
+  const vpcSubnetOptions = useMemo(() => {
+    if (!selectedVpc) return [];
+    return (kubeSubnets || [])
+      .filter(s => (s?.vpc || s?.spec?.vpc) === selectedVpc)
+      .map(s => {
+        const name = s.name || s?.metadata?.name || '-';
+        const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
+        const cidr = s?.cidr || s?.spec?.cidrBlock || 'N/A';
+        const label = alias ? `${alias}(${name})@${cidr}` : `${name}@${cidr}`;
+        return {
+          label,
+          value: name,
+          subnet: s,
+        };
+      });
+  }, [kubeSubnets, selectedVpc]);
+  
+  // NAD 选项（排除 kube-ovn 类型，参考 VM 创建向导）
+  const allNadOptions = useMemo(() => {
+    const selectedNamespace = form.getFieldValue('namespace') || defaultNamespace || 'default';
+    return (nads || [])
+      .map((n: any) => {
+        const name = n?.metadata?.name || n?.name;
+        const ns = n?.metadata?.namespace || n?.namespace || 'default';
+        const displayName = n?.spec?.displayName || n?.metadata?.annotations?.['tower.io/alias'] || '';
+        
+        // 解析 config 获取 type 和 vlan
+        let type = 'unknown';
+        let vlan: any = undefined;
+        try {
+          const cfg = JSON.parse(n?.spec?.config || '{}');
+          type = String(cfg?.type || 'unknown').toLowerCase();
+          vlan = cfg?.vlan;
+        } catch {}
+        
+        // 排除 kube-ovn 类型的 NAD
+        if (type === 'kube-ovn') return null;
+        
+        const isCurrentNs = ns === selectedNamespace;
+        const tag = type || '-';
+        const labelBase = displayName ? `${displayName}(${name})` : name;
+        const label = vlan 
+          ? `${labelBase} · ${tag} · VLAN ${vlan}${isCurrentNs ? '' : ` [${ns}]`}`
+          : `${labelBase} · ${tag}${isCurrentNs ? '' : ` [${ns}]`}`;
+        
+        return {
+          label,
+          value: `${ns}/${name}`,
+          nad: n,
+          _type: type,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null) // 过滤掉 null
+      .sort((a, b) => {
+        // 当前命名空间的NAD排在前面
+        const aNs = a.value.split('/')[0];
+        const bNs = b.value.split('/')[0];
+        if (aNs === selectedNamespace && bNs !== selectedNamespace) return -1;
+        if (aNs !== selectedNamespace && bNs === selectedNamespace) return 1;
+        return a.label.localeCompare(b.label);
+      });
+  }, [nads, defaultNamespace, form]);
+  
   // 监听工作负载类型变化
   const workloadType = Form.useWatch('workloadType', form) || defaultType;
   
@@ -3355,6 +3564,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       podAntiAffinity,
       tolerations,
       volumes,
+      // 网络配置
+      networkType,
+      flatSubnet,
+      vpcName,
+      vpcSubnet,
+      customNad,
+      enableStaticIP,
+      staticIP,
     } = values;
     
     // 构建标签
@@ -3812,6 +4029,59 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         return toleration;
       });
     
+    // ============================================================
+    // 构建网络相关注解
+    // 注解将添加到 spec.template.metadata.annotations
+    // ============================================================
+    const buildNetworkAnnotations = (): Record<string, string> => {
+      const annotations: Record<string, string> = {};
+      
+      // 默认网络不需要任何注解
+      if (!networkType || networkType === 'default') {
+        return annotations;
+      }
+      
+      // 根据网络类型设置注解
+      switch (networkType) {
+        case 'flat_subnet':
+          // 扁平子网：设置 networks 注解
+          if (flatSubnet) {
+            annotations['k8s.v1.cni.cncf.io/networks'] = flatSubnet;
+          }
+          break;
+          
+        case 'vpc':
+          // VPC 子网：设置 networks 注解
+          if (vpcSubnet) {
+            annotations['k8s.v1.cni.cncf.io/networks'] = vpcSubnet;
+            // Kube-OVN VPC 子网需要额外设置 logical_switch 注解
+            // subnetName 格式为 <namespace>/<subnet-name>，提取子网名称
+            const subnetParts = vpcSubnet.split('/');
+            if (subnetParts.length === 2) {
+              annotations['ovn.kubernetes.io/logical_switch'] = subnetParts[1];
+            }
+          }
+          break;
+          
+        case 'custom_nad':
+          // 自定义 NAD：设置 networks 注解
+          if (customNad) {
+            annotations['k8s.v1.cni.cncf.io/networks'] = customNad;
+          }
+          break;
+      }
+      
+      // 静态 IP 配置
+      if (enableStaticIP && staticIP) {
+        annotations['ovn.kubernetes.io/ip_address'] = staticIP;
+      }
+      
+      return annotations;
+    };
+    
+    // 构建网络注解
+    const networkAnnotations = buildNetworkAnnotations();
+    
     // 构建完整资源
     const resource: any = {
       apiVersion: 'apps/v1',
@@ -3833,6 +4103,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         template: {
           metadata: {
             labels: labelsMap,
+            // 网络注解：合并到 spec.template.metadata.annotations
+            ...(Object.keys(networkAnnotations).length > 0 && { annotations: networkAnnotations }),
           },
           spec: {
             containers: containerList,
@@ -4260,6 +4532,20 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const getFormSummary = useCallback(() => {
     const values = getSyncedFormValues();
     const containers = values.containers || [];
+    
+    // 网络配置摘要
+    let networkSummary = '默认网络';
+    if (values.networkType === 'flat_subnet') {
+      networkSummary = values.flatSubnet ? `扁平子网: ${values.flatSubnet}` : '扁平子网';
+    } else if (values.networkType === 'vpc') {
+      networkSummary = values.vpcSubnet ? `VPC: ${values.vpcName || '-'}/${values.vpcSubnet}` : 'VPC子网';
+    } else if (values.networkType === 'custom_nad') {
+      networkSummary = values.customNad ? `NAD: ${values.customNad}` : '自定义NAD';
+    }
+    if (values.enableStaticIP && values.staticIP) {
+      networkSummary += ` (静态IP: ${values.staticIP})`;
+    }
+    
     return {
       name: values.name || '-',
       namespace: values.namespace || '-',
@@ -4267,6 +4553,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       replicas: values.workloadType === 'daemonset' ? '每节点 1 个' : String(values.replicas || 1),
       imagePullSecrets: values.imagePullSecrets?.length || 0,
       volumes: values.volumes?.length || 0,
+      network: networkSummary,
       containers: containers.map((container, index) => ({
         key: `${container.containerName || 'container'}-${index}`,
         name: container.containerName || `container-${index + 1}`,
@@ -4641,6 +4928,246 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         );
         
       case 2:
+        // 网络配置步骤
+        const networkType = form.getFieldValue('networkType') || 'default';
+        const enableStaticIP = form.getFieldValue('enableStaticIP');
+        
+        return (
+          <div>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="网络配置"
+              description="配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义 NAD。"
+            />
+            
+            {loadingNetworkData ? (
+              <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <Spin tip="加载网络数据..." />
+              </div>
+            ) : (
+              <>
+                <Form.Item
+                  name="networkType"
+                  label="网络类型"
+                  initialValue="default"
+                  extra="选择 Pod 使用的网络类型"
+                >
+                  <Radio.Group>
+                    <Radio value="default">默认网络（Pod网络）</Radio>
+                    {!hideFlatSubnet && <Radio value="flat_subnet">扁平子网</Radio>}
+                    <Radio value="vpc">VPC子网</Radio>
+                    <Radio value="custom_nad">自定义NAD</Radio>
+                  </Radio.Group>
+                </Form.Item>
+                
+                {networkType === 'flat_subnet' && (
+                  <>
+                    {flatSubnetOptions.length === 0 && !loadingNetworkData && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        style={{ marginBottom: 16 }}
+                        message="未找到扁平子网"
+                        description={
+                          <div>
+                            <div>请确保已在资源池中创建扁平子网（Kube-OVN 子网，VPC 为 ovn-internal，注解 tower.io/subnet-type=flat）</div>
+                            <div style={{ marginTop: 8 }}>当前加载了 {kubeSubnets.length} 个子网，{kubeSubnets.filter(s => isFlatVpc(s?.vpc || s?.spec?.vpc)).length} 个属于扁平 VPC</div>
+                          </div>
+                        }
+                      />
+                    )}
+                    <Form.Item
+                      name="flatSubnet"
+                      label="选择子网"
+                      rules={[{ required: true, message: '请选择扁平子网' }]}
+                      extra="扁平子网提供 Underlay 网络连接，将自动生成 NAD 引用"
+                    >
+                      <Select
+                        placeholder="选择扁平子网"
+                        showSearch
+                        optionFilterProp="label"
+                        options={flatSubnetOptions}
+                        onChange={(val) => {
+                          // 查找选中的子网对象
+                          const subnet = (kubeSubnets || []).find(s => (s.name || s?.metadata?.name) === val);
+                          if (!subnet) {
+                            form.setFieldsValue({ flatSubnet: val });
+                            return;
+                          }
+                          
+                          // 提取 namespace
+                          let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
+                          if (!subnetNs) {
+                            const provider = subnet?.provider || subnet?.spec?.provider;
+                            if (provider) {
+                              const parts = provider.split('.');
+                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                            }
+                          }
+                          subnetNs = subnetNs || 'default';
+                          
+                          // 生成 NAD 引用（namespace/name 格式）
+                          const nadRef = `${subnetNs}/${val}`;
+                          
+                          // 存储 NAD 引用
+                          form.setFieldsValue({ flatSubnet: nadRef });
+                        }}
+                      />
+                    </Form.Item>
+                  </>
+                )}
+                
+                {networkType === 'vpc' && (
+                  <>
+                    <Form.Item
+                      name="vpcName"
+                      label="选择VPC"
+                      rules={[{ required: true, message: '请选择VPC' }]}
+                    >
+                      <Select
+                        placeholder="选择VPC"
+                        showSearch
+                        optionFilterProp="label"
+                        options={vpcOptions}
+                        onChange={() => {
+                          // VPC 变化时清空子网选择
+                          form.setFieldsValue({ vpcSubnet: undefined });
+                        }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="vpcSubnet"
+                      label="选择子网"
+                      rules={[{ required: true, message: '请选择子网' }]}
+                    >
+                      <Select
+                        placeholder={selectedVpc ? "选择子网" : "请先选择VPC"}
+                        showSearch
+                        optionFilterProp="label"
+                        options={vpcSubnetOptions}
+                        disabled={!selectedVpc}
+                        onChange={(val) => {
+                          // 查找选中的子网对象
+                          const subnet = (kubeSubnets || []).find(s => 
+                            (s.name || s?.metadata?.name) === val && 
+                            (s.vpc || s?.spec?.vpc) === selectedVpc
+                          );
+                          if (!subnet) {
+                            form.setFieldsValue({ vpcSubnet: val });
+                            return;
+                          }
+                          
+                          // 提取 namespace
+                          let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
+                          if (!subnetNs) {
+                            const provider = subnet?.provider || subnet?.spec?.provider;
+                            if (provider) {
+                              const parts = provider.split('.');
+                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                            }
+                          }
+                          subnetNs = subnetNs || 'default';
+                          
+                          // 生成 NAD 引用（namespace/name 格式）
+                          const nadRef = `${subnetNs}/${val}`;
+                          
+                          // 存储 NAD 引用
+                          form.setFieldsValue({ vpcSubnet: nadRef });
+                        }}
+                      />
+                    </Form.Item>
+                  </>
+                )}
+                
+                {networkType === 'custom_nad' && (
+                  <Form.Item
+                    name="customNad"
+                    label="选择NAD"
+                    rules={[{ required: true, message: '请选择NAD' }]}
+                    extra="选择已创建的网络附件定义（NetworkAttachmentDefinition）"
+                  >
+                    <Select
+                      placeholder="选择NAD网络"
+                      options={allNadOptions}
+                      showSearch
+                      optionFilterProp="label"
+                      allowClear
+                      onDropdownVisibleChange={(open) => {
+                        if (open) {
+                          // 重新加载NAD数据
+                          const fetchNads = async () => {
+                            try {
+                              const res = await fetchHarvesterNads(cloudId, true, false);
+                              const nadItems = res?.data?.items || res?.items || (Array.isArray(res) ? res : []);
+                              setNads(nadItems);
+                            } catch (e) {
+                              console.error('重新加载NAD失败:', e);
+                            }
+                          };
+                          fetchNads();
+                        }
+                      }}
+                    />
+                  </Form.Item>
+                )}
+                
+                <Divider />
+                
+                <Form.Item
+                  name="enableStaticIP"
+                  label="配置静态IP"
+                  valuePropName="checked"
+                  extra="为 Pod 分配固定的 IP 地址（仅部分网络类型支持）"
+                >
+                  <Checkbox />
+                </Form.Item>
+                
+                {enableStaticIP && (
+                  <Form.Item
+                    name="staticIP"
+                    label="静态IP地址"
+                    rules={[
+                      { required: true, message: '请输入静态IP地址' },
+                      {
+                        pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                        message: '请输入有效的IPv4地址'
+                      }
+                    ]}
+                  >
+                    <Input placeholder="例如: 192.168.1.100" />
+                  </Form.Item>
+                )}
+                
+                {networkType !== 'default' && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 16 }}
+                    message="注意"
+                    description={
+                      <div>
+                        <div>选择非默认网络类型时，请确保集群已正确配置对应的网络插件（如 Kube-OVN）。</div>
+                        {networkType === 'flat_subnet' && (
+                          <div style={{ marginTop: 8 }}>扁平子网需要 Pod 所在节点配置对应的物理网络接口。</div>
+                        )}
+                        {networkType === 'vpc' && (
+                          <div style={{ marginTop: 8 }}>VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。</div>
+                        )}
+                        {networkType === 'custom_nad' && (
+                          <div style={{ marginTop: 8 }}>自定义 NAD 需要预先创建 NetworkAttachmentDefinition 资源。</div>
+                        )}
+                      </div>
+                    }
+                  />
+                )}
+              </>
+            )}
+          </div>
+        );
+        
+      case 3:
         const containersForStorage = getSyncedFormValues().containers || [];
         const activeContainerForStorage = containersForStorage[activeContainerIndex];
         return (
@@ -4693,7 +5220,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           </div>
         );
 
-      case 3:
+      case 4:
         const nodeAffinity = form.getFieldValue('nodeAffinity');
         const nodeAntiAffinity = form.getFieldValue('nodeAntiAffinity');
         const podAffinity = form.getFieldValue('podAffinity');
@@ -4833,6 +5360,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             }}
             initialValues={{
               workloadType: defaultType,
+              name: generateVmWizardStyleDisplayName('app'),
               namespace: defaultNamespace,
               containers: [createEmptyContainer(defaultType === 'daemonset' ? 'daemonset-container' : 'main-container')],
               imagePullPolicy: 'IfNotPresent',
@@ -4852,6 +5380,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               readinessProbe: { enabled: false, type: 'httpGet' as const, initialDelaySeconds: 5, periodSeconds: 10 },
               volumes: [],
               volumeMounts: [],
+              // 网络配置默认值
+              networkType: 'default',
+              enableStaticIP: false,
             }}
           >
             <Row gutter={[0, 0]} style={{ height: '100%' }}>
@@ -4914,6 +5445,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
                         <span style={{ color: '#888' }}>存储卷</span>
                         <span style={{ color: '#333' }}>{summary.volumes} 个</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                        <span style={{ color: '#888' }}>网络</span>
+                        <span style={{ color: '#333', maxWidth: '60%', textAlign: 'right', wordBreak: 'break-all' }}>{summary.network}</span>
                       </div>
                       <div style={{ padding: '8px 0' }}>
                         <div style={{ color: '#888', marginBottom: 8 }}>容器列表</div>

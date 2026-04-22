@@ -42,7 +42,7 @@ import {
   SafetyOutlined,
 } from '@ant-design/icons';
 import { createHarvesterPDB } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -148,6 +148,7 @@ const PDBForm: React.FC<PDBFormProps> = ({
   // 初始化默认值
   useEffect(() => {
     form.setFieldsValue({
+      name: generateVmWizardStyleDisplayName('pdb'),
       namespace: defaultNamespace || namespacesOptions[0] || 'default',
       strategyType: 'minAvailable',
       strategyValue: '1',

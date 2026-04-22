@@ -40,7 +40,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons';
 import { createHarvesterService, updateHarvesterService } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -206,10 +206,12 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
       const values = extractFormValues(initialData);
       form.setFieldsValue(values);
       setServiceType(values.type || 'ClusterIP');
-    } else if (defaultNamespace) {
-      form.setFieldValue('namespace', defaultNamespace);
+    } else {
+      // 创建模式：设置默认命名空间
+      const defaultNs = defaultNamespace || namespacesOptions[0] || 'default';
+      form.setFieldValue('namespace', defaultNs);
     }
-  }, [defaultNamespace, form, editMode, initialData]);
+  }, [defaultNamespace, namespacesOptions, form, editMode, initialData]);
 
   // 监听 Service 类型变化
   const handleTypeChange = (value: string) => {
@@ -321,6 +323,7 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
       form={form}
       layout="vertical"
       initialValues={{
+        name: generateVmWizardStyleDisplayName('svc'),
         type: 'ClusterIP',
         labels: [],
         selector: [],

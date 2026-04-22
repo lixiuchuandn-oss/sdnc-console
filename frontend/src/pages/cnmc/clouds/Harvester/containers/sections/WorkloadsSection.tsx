@@ -62,6 +62,8 @@ type Props = {
   onRefresh: (force?: boolean) => void;
   /** 创建表单默认命名空间（如按 tower.io/scenario 解析）；未传则用 nsValue */
   createDefaultNamespace?: string;
+  /** 是否隐藏扁平子网选项（Harvester 资源池不显示，Cloudmap 显示） */
+  hideFlatSubnet?: boolean;
 };
 
 /**
@@ -603,8 +605,9 @@ const WorkloadsSection: React.FC<Props> = ({
   onNsChange,
   onRefresh,
   createDefaultNamespace,
+  hideFlatSubnet = false,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
   const [activeTab, setActiveTab] = useState<'deployment' | 'statefulset' | 'daemonset'>('deployment');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createType, setCreateType] = useState<WorkloadType>('deployment');
@@ -695,6 +698,7 @@ const WorkloadsSection: React.FC<Props> = ({
         onRefreshImagePullSecrets={() => onRefresh(true)}
         defaultNamespace={formDefaultNs}
         defaultType={createType}
+        hideFlatSubnet={hideFlatSubnet}
         onSuccess={() => {
           onRefresh(true);
         }}
@@ -711,7 +715,9 @@ const WorkloadsSection: React.FC<Props> = ({
         secrets={secrets}
         persistentVolumeClaims={persistentVolumeClaims}
         onRefreshImagePullSecrets={() => onRefresh(true)}
+        defaultNamespace={formDefaultNs}
         editData={editRecord}
+        hideFlatSubnet={hideFlatSubnet}
         onSuccess={() => {
           setEditModalVisible(false);
           setEditRecord(null);

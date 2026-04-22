@@ -61,7 +61,7 @@ const IngressesSection: React.FC<Props> = ({
 }) => {
   const { message: antMessage } = App.useApp();
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? (namespacesOptions?.[0]) ?? 'default';
   // 关键字搜索（名称 / 命名空间）
   const [keyword, setKeyword] = useState<string>('');
 
@@ -416,6 +416,7 @@ const IngressesSection: React.FC<Props> = ({
         cloudId={cloudId}
         namespacesOptions={namespacesOptions || []}
         secrets={secrets}
+        defaultNamespace={formDefaultNs}
         editMode={true}
         initialData={editingRecord?.raw}
         onSuccess={() => {

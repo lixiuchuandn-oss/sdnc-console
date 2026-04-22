@@ -45,7 +45,7 @@ import {
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer } from './index';
 
 // ============================================================
@@ -346,6 +346,7 @@ const JobForm: React.FC<JobFormProps> = ({
   // 初始化默认值
   useEffect(() => {
     form.setFieldsValue({
+      name: generateVmWizardStyleDisplayName('job'),
       namespace: defaultNamespace || namespacesOptions[0] || 'default',
       imagePullPolicy: 'IfNotPresent',
       backoffLimit: 6,
