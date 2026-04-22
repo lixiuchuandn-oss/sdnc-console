@@ -107,6 +107,7 @@ export function registerHarvesterCacheRoutesProvider(
     cloudmap: harvesterVpcListHandler,
     'cloudmap.private': harvesterVpcListHandler,
     'cloudmap.edge': harvesterVpcListHandler,
+    'cloudmap.csm': harvesterVpcListHandler,
   };
 
   const vpcCreateHandlers = {
@@ -114,6 +115,7 @@ export function registerHarvesterCacheRoutesProvider(
     cloudmap: harvesterVpcCreateHandler,
     'cloudmap.private': harvesterVpcCreateHandler,
     'cloudmap.edge': harvesterVpcCreateHandler,
+    'cloudmap.csm': harvesterVpcCreateHandler,
   };
 
   const vpcDeleteHandlers = {
@@ -121,6 +123,7 @@ export function registerHarvesterCacheRoutesProvider(
     cloudmap: harvesterVpcDeleteHandler,
     'cloudmap.private': harvesterVpcDeleteHandler,
     'cloudmap.edge': harvesterVpcDeleteHandler,
+    'cloudmap.csm': harvesterVpcDeleteHandler,
   };
 
   const vpcUpdateHandlers = {
@@ -128,6 +131,7 @@ export function registerHarvesterCacheRoutesProvider(
     cloudmap: harvesterVpcUpdateHandler,
     'cloudmap.private': harvesterVpcUpdateHandler,
     'cloudmap.edge': harvesterVpcUpdateHandler,
+    'cloudmap.csm': harvesterVpcUpdateHandler,
   };
 
   const ecsListHandlers = {

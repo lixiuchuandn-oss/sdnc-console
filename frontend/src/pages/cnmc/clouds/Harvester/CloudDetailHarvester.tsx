@@ -141,6 +141,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [harvesterSnapshots, setHarvesterSnapshots] = useState<any[]>([]); // 卷快照
   const [harvesterBackups, setHarvesterBackups] = useState<any[]>([]); // 虚拟机备份
   const [backupsGroupActiveKey, setBackupsGroupActiveKey] = useState<string>('backups'); // 备份组内层 tab 的 activeKey
+  const [activeContainerTab, setActiveContainerTab] = useState<string>('workloads'); // 容器内层 tab 的 activeKey
   const [harvesterSshKeys, setHarvesterSshKeys] = useState<any[]>([]); // SSH 密钥
   const [harvesterCloudInits, setHarvesterCloudInits] = useState<any[]>([]); // CloudInit 配置
   const [harvesterVlans, setHarvesterVlans] = useState<any[]>([]); // Kube-OVN VLANs
@@ -270,7 +271,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * @param force 是否强制刷新 (忽略缓存)
    */
   // 请求超时时间（毫秒）- 防止单个请求阻塞整个页面
-  const REQUEST_TIMEOUT = 30000; // 30秒
+  const REQUEST_TIMEOUT = 60000; // 60秒（K8s API 响应慢时需要更长超时）
   
   const loadResource = async (key: string, fn: () => Promise<any>, cb: (json: any) => void, force = false) => {
       // 如果非强制刷新且已加载过，直接跳过
@@ -397,6 +398,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
     loadResource('capabilities', () => fetchHarvesterCapabilities(cloudId), (json) => {
         setCapabilities(json?.data || null);
     }, force);
+
   };
 
   /**
@@ -560,6 +562,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterServices(Array.isArray(list) ? list : []);
                 setRawServices(json || null);
+              }, force);
+            }
+            break;
+          case 'ingresses':
+            if (checkPerm('clouds.cluster-services:read')) {
+              loadResource('ingresses', () => fetchHarvesterIngresses(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                setHarvesterIngresses(Array.isArray(list) ? list : []);
+                setRawIngresses(json || null);
               }, force);
             }
             break;
@@ -730,11 +741,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterSecrets(Array.isArray(list) ? list : []);
-              }, force);
-              // 加载镜像拉取凭证
-              loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
-                const list: any[] = (json as any)?.data?.items || [];
-                setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+                // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                setHarvesterImagePullSecrets(dockerSecrets);
+                loadedRef.current.add('imagePullSecrets');
               }, force);
               // 加载 PodDisruptionBudget
               loadResource('pdbs', () => fetchHarvesterPDBs(cloudId, undefined, force), (json) => {
@@ -762,15 +772,24 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterDaemonSets(Array.isArray(list) ? list : []);
               }, force);
-              // 加载镜像凭证（用于创建工作负载时选择）
-              loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
-                const list: any[] = (json as any)?.data?.items || [];
-                setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
-              }, force);
-              // 加载 Secrets（用于仓库浏览器显示仓库列表）
+              // 加载 Secrets（用于仓库浏览器显示仓库列表），同时过滤出镜像凭证
               loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterSecrets(Array.isArray(list) ? list : []);
+                // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                setHarvesterImagePullSecrets(dockerSecrets);
+                loadedRef.current.add('imagePullSecrets');
+              }, force);
+              // 加载 ConfigMaps（用于环境变量引入）
+              loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setHarvesterConfigMaps(Array.isArray(list) ? list : []);
+              }, force);
+              // 加载 PVC（用于存储卷挂载）
+              loadResource('volumes', () => fetchHarvesterVolumes(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                setHarvesterVolumes(Array.isArray(list) ? list : []);
               }, force);
             }
             break;
@@ -792,18 +811,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterCronJobs(Array.isArray(list) ? list : []);
               }, force);
-              // 加载镜像拉取凭证（用于创建 Job/CronJob 时选择）
-              if (!loadedRef.current.has('imagePullSecrets')) {
-                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
-                  const list: any[] = (json as any)?.data?.items || [];
-                  setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
-                }, force);
-              }
-              // 加载 Secrets（用于仓库浏览器显示仓库列表）
+              // 加载 Secrets（用于仓库浏览器显示仓库列表），同时过滤出镜像凭证
               if (!loadedRef.current.has('secrets')) {
-                loadResource('secrets', () => fetchHarvesterSecrets(cloudId), (json) => {
+                loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                   const list: any[] = (json as any)?.data?.items || [];
                   setHarvesterSecrets(Array.isArray(list) ? list : []);
+                  // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                  const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                  setHarvesterImagePullSecrets(dockerSecrets);
+                  loadedRef.current.add('imagePullSecrets');
                 }, force);
               }
             }
@@ -831,10 +847,14 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 setHarvesterImagePullSecrets(dockerSecrets);
                 loadedRef.current.add('imagePullSecrets');
               } else {
-                // secrets 未加载或强制刷新，则请求 API
-                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
+                // secrets 未加载或强制刷新，则请求 secrets API 然后过滤
+                loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                   const list: any[] = (json as any)?.data?.items || [];
-                  setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+                  setHarvesterSecrets(Array.isArray(list) ? list : []);
+                  // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                  const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                  setHarvesterImagePullSecrets(dockerSecrets);
+                  loadedRef.current.add('imagePullSecrets');
                 }, force);
               }
               // 加载 PodDisruptionBudget
@@ -1011,6 +1031,16 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       key === 'kube_ovn_group';
     loadTabResource(key, shouldForceRefresh);
   };
+  
+  // --- 容器子Tab初始化加载 ---
+  // 当容器Tab显示时，自动加载工作负载相关资源
+  useEffect(() => {
+    if (activeContainerTab === 'workloads') {
+      loadTabResource('workloads');
+    }
+    // 刻意仅依赖 activeContainerTab：loadTabResource 随闭包更新，若全量列入依赖会导致不必要的重复拉取
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上
+  }, [activeContainerTab]);
   
   // --- SSE 实时数据更新 Effect ---
   // 建立 EventSource 连接，监听 VM 状态变化
@@ -1918,8 +1948,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 <Tabs
                   type="line"
                   destroyOnHidden
-                  defaultActiveKey="workloads"
-                  onChange={handleTabChange}
+                  activeKey={activeContainerTab}
+                  onChange={(key) => {
+                    setActiveContainerTab(key);
+                    handleTabChange(key);
+                  }}
                   items={[
                     {
                       key: 'workloads',

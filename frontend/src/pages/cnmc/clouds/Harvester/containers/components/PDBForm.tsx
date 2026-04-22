@@ -42,6 +42,7 @@ import {
   SafetyOutlined,
 } from '@ant-design/icons';
 import { createHarvesterPDB } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -193,9 +194,12 @@ const PDBForm: React.FC<PDBFormProps> = ({
         apiVersion: 'policy/v1',
         kind: 'PodDisruptionBudget',
         metadata: {
-          name: values.name,
+          name: generateHarvesterCrMetadataName('pdb'),
           namespace: values.namespace,
           labels: Object.keys(labels).length > 0 ? labels : undefined,
+          annotations: values.name ? {
+            'tower.io/alias': values.name,
+          } : undefined,
         },
         spec: {
           selector: {

@@ -213,6 +213,30 @@ export const HARVESTER_CR_METADATA_ENTITY = {
   kubeOvnFip: 'fip',
   /** NetworkAttachmentDefinition（与 Subnet 同名） */
   nad: 'nad',
+  /** 容器资源 - Deployment */
+  deployment: 'dep',
+  /** 容器资源 - StatefulSet */
+  statefulset: 'sts',
+  /** 容器资源 - DaemonSet */
+  daemonset: 'ds',
+  /** 容器资源 - Job */
+  job: 'job',
+  /** 容器资源 - CronJob */
+  cronjob: 'cjob',
+  /** 容器资源 - Service */
+  service: 'svc',
+  /** 容器资源 - Ingress */
+  ingress: 'ing',
+  /** 容器资源 - ConfigMap */
+  configmap: 'cm',
+  /** 容器资源 - Secret */
+  secret: 'sec',
+  /** 容器资源 - PodDisruptionBudget */
+  pdb: 'pdb',
+  /** 容器资源 - NetworkPolicy */
+  networkpolicy: 'np',
+  /** 容器资源 - ImagePullSecret（镜像仓库凭证） */
+  imagepullsecret: 'imgsc',
 } as const;
 
 export type HarvesterCrMetadataNameKind = keyof typeof HARVESTER_CR_METADATA_ENTITY;

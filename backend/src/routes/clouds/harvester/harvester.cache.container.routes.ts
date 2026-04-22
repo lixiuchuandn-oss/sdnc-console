@@ -24,7 +24,7 @@
  * - networking.k8s.io/v1: Ingress
  * ==============================================================================
  */
-import { Router, Response } from 'express';
+import { Router, Response, json } from 'express';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { getJsonOnce, requestJson } from '../../../services/clouds/harvester/utils';
 import { syncHarvesterServices, syncHarvesterIngresses } from '../../../services/clouds/harvester/inventory';
@@ -39,12 +39,15 @@ interface CacheItem<T> {
 }
 
 const resourceCache = new Map<string, CacheItem<any>>();
-const CACHE_TTL = 30 * 1000; // 30 秒
+const CACHE_TTL = 30 * 1000; // 30 秒（默认）
+const CACHE_TTL_SECRETS = 5 * 60 * 1000; // 5 分钟（Secrets 响应慢，缓存更久）
+const CACHE_TTL_CONFIGMAPS = 2 * 60 * 1000; // 2 分钟（ConfigMaps 响应较慢）
 
-const getCached = <T>(key: string): T | null => {
+const getCached = <T>(key: string, customTtl?: number): T | null => {
   const item = resourceCache.get(key);
   if (!item) return null;
-  if (Date.now() - item.timestamp > CACHE_TTL) {
+  const ttl = customTtl || CACHE_TTL;
+  if (Date.now() - item.timestamp > ttl) {
     resourceCache.delete(key);
     return null;
   }
@@ -1008,9 +1011,10 @@ export const registerHarvesterContainerRoutes = (
         const cacheKey = `configmaps:${id}:${namespace || 'all'}`;
         
         // 尝试从缓存获取（force=true 时跳过缓存）
+        // ConfigMaps 响应较慢，使用更长的缓存时间
         let items: any[] | null = null;
         if (force !== 'true' && force !== '1') {
-          items = getCached<any[]>(cacheKey);
+          items = getCached<any[]>(cacheKey, CACHE_TTL_CONFIGMAPS);
         }
         
         if (!items) {
@@ -1056,9 +1060,10 @@ export const registerHarvesterContainerRoutes = (
         const cacheKey = `secrets:${id}:${namespace || 'all'}`;
         
         // 尝试从缓存获取（force=true 时跳过缓存）
+        // Secrets 响应慢，使用更长的缓存时间
         let items: any[] | null = null;
         if (force !== 'true' && force !== '1') {
-          items = getCached<any[]>(cacheKey);
+          items = getCached<any[]>(cacheKey, CACHE_TTL_SECRETS);
         }
         
         if (!items) {
@@ -1126,8 +1131,8 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 创建 ConfigMap
    * POST /:id/resources/harvester/containers/configmaps
-   * Body: { namespace, name, labels?, data }
-   * 说明: 创建 Kubernetes ConfigMap 资源
+   * Body: 完整的 ConfigMap 定义（包含 metadata、data）
+   * 说明: 直接透传前端构建的完整资源定义
    */
   router.post(
     '/:id/resources/harvester/containers/configmaps',
@@ -1135,12 +1140,12 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, name, labels, data } = req.body;
+        const { namespace, body } = req.body;
         
         // 参数验证
-        if (!namespace || !name) {
+        if (!namespace || !body) {
           return res.status(400).json({ 
-            message: '缺少必要参数: namespace, name' 
+            message: '缺少必要参数: namespace, body' 
           });
         }
         
@@ -1152,25 +1157,16 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
-        // 构建 ConfigMap 对象
-        const configMapBody = {
-          apiVersion: 'v1',
-          kind: 'ConfigMap',
-          metadata: {
-            name: name,
-            namespace: namespace,
-            labels: labels || {},
-          },
-          data: data || {},
-        };
+        // 确保 body.metadata.namespace 存在
+        if (body.metadata) {
+          body.metadata.namespace = namespace;
+        }
         
         // 使用原生 K8s API 创建
         const url = buildCreateUrl(base, '/api/v1/configmaps', namespace);
         console.log('[ConfigMap 创建] URL:', url);
-        console.log('[ConfigMap 创建] namespace:', namespace);
-        console.log('[ConfigMap 创建] name:', name);
         
-        const result = await requestJson('POST', url, token, insecure, configMapBody);
+        const result = await requestJson('POST', url, token, insecure, body);
         
         // 清除 configmaps 缓存
         clearCacheByPrefix(`configmaps:${id}:`);
@@ -1316,8 +1312,8 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 创建 Secret
    * POST /:id/resources/harvester/containers/secrets
-   * Body: { namespace, name, labels?, type?, stringData }
-   * 说明: 创建 Kubernetes Secret 资源，使用 stringData 让 K8s 自动 base64 编码
+   * Body: 完整的 Secret 定义（包含 metadata、type、stringData）
+   * 说明: 直接透传前端构建的完整资源定义
    */
   router.post(
     '/:id/resources/harvester/containers/secrets',
@@ -1325,12 +1321,12 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, name, labels, type, stringData } = req.body;
+        const { namespace, body } = req.body;
         
         // 参数验证
-        if (!namespace || !name) {
+        if (!namespace || !body) {
           return res.status(400).json({ 
-            message: '缺少必要参数: namespace, name' 
+            message: '缺少必要参数: namespace, body' 
           });
         }
         
@@ -1342,27 +1338,16 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
-        // 构建 Secret 对象，使用 stringData 让 K8s 自动编码
-        const secretBody: any = {
-          apiVersion: 'v1',
-          kind: 'Secret',
-          metadata: {
-            name: name,
-            namespace: namespace,
-            labels: labels || {},
-          },
-          type: type || 'Opaque',
-          stringData: stringData || {},
-        };
+        // 确保 body.metadata.namespace 存在
+        if (body.metadata) {
+          body.metadata.namespace = namespace;
+        }
         
         // 使用原生 K8s API 创建
         const url = buildCreateUrl(base, '/api/v1/secrets', namespace);
         console.log('[Secret 创建] URL:', url);
-        console.log('[Secret 创建] namespace:', namespace);
-        console.log('[Secret 创建] name:', name);
-        console.log('[Secret 创建] type:', secretBody.type);
         
-        const result = await requestJson('POST', url, token, insecure, secretBody);
+        const result = await requestJson('POST', url, token, insecure, body);
         
         // 清除 secrets 缓存
         clearCacheByPrefix(`secrets:${id}:`);
@@ -1654,7 +1639,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 创建镜像凭证
    * POST /:id/resources/harvester/containers/imagepullsecrets
-   * Body: { namespace, name, server, username, password, email? }
+   * Body: { namespace, name, alias?, server, username, password, email? }
    * 说明: 创建 kubernetes.io/dockerconfigjson 类型的 Secret
    */
   router.post(
@@ -1663,7 +1648,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, name, server, username, password, email } = req.body;
+        const { namespace, name, alias, server, username, password, email } = req.body;
         
         // 参数验证
         if (!namespace || !name || !server || !username || !password) {
@@ -1680,6 +1665,15 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
+        // 构建 annotations
+        const annotations: Record<string, string> = {
+          'compute-tower.io/managed': 'true',
+          'compute-tower.io/type': 'imagepullsecret',
+        };
+        if (alias) {
+          annotations['tower.io/alias'] = alias;
+        }
+        
         // 构建 Secret 对象
         const secretBody = {
           apiVersion: 'v1',
@@ -1691,6 +1685,7 @@ export const registerHarvesterContainerRoutes = (
               'compute-tower.io/managed': 'true',
               'compute-tower.io/type': 'imagepullsecret',
             },
+            annotations,
           },
           type: 'kubernetes.io/dockerconfigjson',
           data: {
@@ -1951,7 +1946,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, force } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1961,11 +1956,21 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
-        let items: any[];
-        if (namespace) {
-          items = await getNamespacedResources(base, '/apis/networking.k8s.io/v1/ingresses', String(namespace), token, insecure);
-        } else {
-          items = await getAllNamespacedResources(base, '/apis/networking.k8s.io/v1/ingresses', token, insecure);
+        // 尝试从缓存获取（force=true 时跳过缓存）
+        const cacheKey = `ingresses:${id}:${namespace || 'all'}`;
+        let items: any[] | null = null;
+        if (force !== 'true' && force !== '1') {
+          items = getCached<any[]>(cacheKey);
+        }
+        
+        if (!items) {
+          if (namespace) {
+            items = await getNamespacedResources(base, '/apis/networking.k8s.io/v1/ingresses', String(namespace), token, insecure);
+          } else {
+            items = await getAllNamespacedResources(base, '/apis/networking.k8s.io/v1/ingresses', token, insecure);
+          }
+          // 缓存结果（30秒）
+          setCache(cacheKey, items);
         }
         
         res.json({ message: '查询成功', data: { items } });
@@ -2593,8 +2598,8 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 创建 PodDisruptionBudget
    * POST /:id/resources/harvester/containers/poddisruptionbudgets
-   * Body: { namespace, name, labels?, minAvailable?, maxUnavailable?, selector }
-   * 说明: minAvailable 和 maxUnavailable 只能设置其中一个
+   * Body: 完整的 PDB 定义（包含 metadata、spec）
+   * 说明: 直接透传前端构建的完整资源定义
    */
   router.post(
     '/:id/resources/harvester/containers/poddisruptionbudgets',
@@ -2602,25 +2607,12 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, name, labels, minAvailable, maxUnavailable, selector } = req.body;
+        const { namespace, body } = req.body;
         
         // 参数验证
-        if (!namespace || !name) {
+        if (!namespace || !body) {
           return res.status(400).json({ 
-            message: '缺少必要参数: namespace, name' 
-          });
-        }
-        
-        // minAvailable 和 maxUnavailable 只能设置其中一个
-        if (minAvailable && maxUnavailable) {
-          return res.status(400).json({ 
-            message: 'minAvailable 和 maxUnavailable 只能设置其中一个' 
-          });
-        }
-        
-        if (!minAvailable && !maxUnavailable) {
-          return res.status(400).json({ 
-            message: '必须设置 minAvailable 或 maxUnavailable 其中一个' 
+            message: '缺少必要参数: namespace, body' 
           });
         }
         
@@ -2632,48 +2624,16 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
-        // 构建 PDB 对象
-        const pdbBody: any = {
-          apiVersion: 'policy/v1',
-          kind: 'PodDisruptionBudget',
-          metadata: {
-            name: name,
-            namespace: namespace,
-            labels: labels || {},
-          },
-          spec: {
-            selector: selector || {},
-          },
-        };
-        
-        // 设置 minAvailable 或 maxUnavailable
-        // 处理类型转换：纯数字字符串转整数，百分比字符串保持原样
-        const parsePdbValue = (value: any): number | string => {
-          if (typeof value === 'number') return value;
-          if (typeof value === 'string') {
-            // 如果是百分比字符串（如 "50%"），保持原样
-            if (value.endsWith('%')) return value;
-            // 否则转换为整数
-            const num = parseInt(value, 10);
-            if (!isNaN(num)) return num;
-          }
-          return value;
-        };
-
-        if (minAvailable !== undefined) {
-          pdbBody.spec.minAvailable = parsePdbValue(minAvailable);
-        }
-        if (maxUnavailable !== undefined) {
-          pdbBody.spec.maxUnavailable = parsePdbValue(maxUnavailable);
+        // 确保 body.metadata.namespace 存在
+        if (body.metadata) {
+          body.metadata.namespace = namespace;
         }
         
         // 使用原生 K8s API 创建
         const url = buildCreateUrl(base, '/apis/policy/v1/poddisruptionbudgets', namespace);
         console.log('[PDB 创建] URL:', url);
-        console.log('[PDB 创建] namespace:', namespace);
-        console.log('[PDB 创建] name:', name);
         
-        const result = await requestJson('POST', url, token, insecure, pdbBody);
+        const result = await requestJson('POST', url, token, insecure, body);
         
         res.json({ message: '创建 PodDisruptionBudget 成功', data: result });
       } catch (error: any) {
@@ -3377,6 +3337,43 @@ export const registerHarvesterContainerRoutes = (
         res.json({ message: '更新成功', data: result });
       } catch (error: any) {
         res.status(500).json({ message: '更新资源失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] Patch 资源 (JSON Patch)
+   * PATCH /:id/resources/harvester/containers/patch
+   * Body: { apiPath, namespace, name, patchBody }
+   */
+  router.patch(
+    '/:id/resources/harvester/containers/patch',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { apiPath, namespace, name, patchBody } = req.body;
+        
+        if (!apiPath || !namespace || !name || !patchBody) {
+          return res.status(400).json({ message: '缺少必要参数: apiPath, namespace, name, patchBody' });
+        }
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        const url = buildK8sUrl(base, apiPath, namespace, name);
+        const result = await requestJson('PATCH', url, token, insecure, patchBody, {
+          'Content-Type': 'application/json-patch+json'
+        });
+        
+        res.json({ message: '更新成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: 'Patch 资源失败', error: error.message });
       }
     },
   );

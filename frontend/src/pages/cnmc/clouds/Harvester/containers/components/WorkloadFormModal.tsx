@@ -29,7 +29,14 @@ export interface WorkloadFormModalProps {
   configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   // PVC 列表（用于存储卷挂载）
-  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
+  persistentVolumeClaims?: Array<{
+    metadata: { name: string; namespace: string; annotations?: Record<string, string> };
+    raw?: { metadata?: { annotations?: Record<string, string> } };
+    annotations?: Record<string, string>;
+    alias?: string;
+    name?: string;
+    pvcName?: string;
+  }>;
 }
 
 const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({

@@ -46,6 +46,7 @@ import {
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer, CronExpressionHelper } from './index';
 
 // ============================================================
@@ -534,9 +535,12 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
       apiVersion: 'batch/v1',
       kind: 'CronJob',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('cronjob'),
         namespace: values.namespace,
         labels: Object.keys(labels).length > 0 ? labels : undefined,
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
       spec,
     };

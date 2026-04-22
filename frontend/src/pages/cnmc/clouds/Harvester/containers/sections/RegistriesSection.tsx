@@ -6,26 +6,29 @@
  * 
  * [功能描述]
  * 该组件负责展示和管理 Harvester/Kubernetes 镜像仓库相关资源，包括：
- * 1. 镜像凭证 (Secrets) 管理 - dockerconfigjson 类型
- * 2. 镜像仓库管理 - 添加/删除/浏览仓库
+ * 1. 镜像凭证 (Secrets) 管理 - dockerconfigjson 类型（支持双轨制命名）
+ * 2. 镜像仓库管理 - 添加/删除/浏览仓库（localStorage，本地配置）
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Segmented, Modal, Form, Switch, Popconfirm, Empty, Statistic, Card, Divider, Alert } from 'antd';
+import { Table, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Segmented, Modal, Form, Switch, Popconfirm, Empty, Statistic, Card, Divider, Alert, Tooltip } from 'antd';
 import { 
   DeleteOutlined, KeyOutlined, 
   FolderOutlined, EditOutlined, SearchOutlined, DatabaseOutlined,
   LinkOutlined, TagOutlined,
   CopyOutlined, GlobalOutlined, LockOutlined, UnlockOutlined, ClockCircleOutlined,
-  InfoCircleOutlined,
+  InfoCircleOutlined, EyeOutlined, EditTwoTone,
 } from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   deleteHarvesterContainerResource,
   addInsecureRegistry,
+  patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 import { RegistryCredentialModal, RegistryBrowserDrawer } from '../components';
 
@@ -33,6 +36,9 @@ const { Text, Link } = Typography;
 
 // 本地存储键名
 const REGISTRIES_STORAGE_KEY = 'harvester-registries';
+
+// API 路径（镜像凭证使用）
+const SECRETS_API_PATH = '/api/v1/secrets';
 
 /**
  * 仓库配置接口
@@ -476,6 +482,383 @@ const AddRegistryModal: React.FC<{
 };
 
 /**
+ * 凭证表格组件（支持双轨制命名）
+ */
+const CredentialTable: React.FC<{
+  secrets: any[];
+  loading: boolean;
+  cloudId: string;
+  keyword: string;
+  onKeywordChange: (v: string) => void;
+  nsValue?: string;
+  onNsChange: (v?: string) => void;
+  namespacesOptions: string[];
+  onViewDetail: (secret: any) => void;
+  onEdit: (secret: any) => void;
+  onDelete: (secret: any) => void;
+  onBrowse: (secret: any) => void;
+  onRefresh: (force?: boolean) => void;
+}> = ({
+  secrets,
+  loading,
+  cloudId,
+  keyword,
+  onKeywordChange,
+  nsValue,
+  onNsChange,
+  namespacesOptions,
+  onViewDetail,
+  onEdit,
+  onDelete,
+  onBrowse,
+  onRefresh,
+}) => {
+  const { modal, message } = App.useApp();
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasRecord, setAliasRecord] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
+  const [yamlModalVisible, setYamlModalVisible] = useState(false);
+  const [yamlContent, setYamlContent] = useState('');
+
+  // 过滤数据
+  const filteredSecrets = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    return secrets.filter((item: any) => {
+      const name = item?.metadata?.name || '';
+      const ns = item?.metadata?.namespace || '';
+      const alias = item?.metadata?.annotations?.['tower.io/alias'] || '';
+      
+      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw) && !alias.toLowerCase().includes(kw)) {
+        return false;
+      }
+      if (nsValue && ns !== nsValue) {
+        return false;
+      }
+      return true;
+    });
+  }, [secrets, keyword, nsValue]);
+
+  // 打开别名编辑弹窗
+  const handleOpenAliasModal = useCallback((record: any) => {
+    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+    setAliasRecord(record);
+    setAliasModalVisible(true);
+    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+  }, [aliasForm]);
+
+  // 提交别名修改
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasRecord) return false;
+    const ns = aliasRecord?.metadata?.namespace;
+    const name = aliasRecord?.metadata?.name;
+    if (!ns || !name) {
+      message.error('未能解析资源命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterContainerResource(cloudId, SECRETS_API_PATH, ns, name, patchBody);
+      message.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasRecord(null);
+      aliasForm.resetFields();
+      onRefresh(true); // 强制刷新
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      message.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasRecord, cloudId, message, onRefresh, aliasForm]);
+
+  // 查看 YAML
+  const handleViewYaml = useCallback((record: any) => {
+    try {
+      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
+      setYamlContent(yamlStr);
+      setYamlModalVisible(true);
+    } catch (e: any) {
+      message.error('生成 YAML 失败: ' + e.message);
+    }
+  }, [message]);
+
+  // 表格列
+  const columns = useMemo(() => [
+    {
+      title: '名称',
+      key: 'name',
+      width: 220,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const alias = record?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.metadata?.name || '';
+        const hasAlias = !!alias;
+        
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>{hasAlias ? alias : id}</span>
+            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(record);
+                }}
+              />
+            </Tooltip>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      dataIndex: ['metadata', 'name'],
+      key: 'id',
+      width: 200,
+      ellipsis: true,
+      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
+    },
+    {
+      title: '命名空间',
+      dataIndex: ['metadata', 'namespace'],
+      key: 'namespace',
+      width: 140,
+      render: (ns: string) => <Tag>{ns}</Tag>,
+    },
+    {
+      title: '仓库地址',
+      key: 'registryServer',
+      width: 280,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const server = getRegistryServer(record);
+        return (
+          <Text code copyable={{ text: server }} ellipsis={{ tooltip: server }}>
+            {server}
+          </Text>
+        );
+      },
+    },
+    {
+      title: '运行时长',
+      key: 'age',
+      width: 120,
+      render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
+    },
+    {
+      title: '创建时间',
+      dataIndex: ['metadata', 'creationTimestamp'],
+      key: 'creationTimestamp',
+      width: 180,
+      render: formatTime,
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 120,
+      fixed: 'right' as const,
+      render: (_: any, record: any) => {
+        const items = [
+          {
+            key: 'detail',
+            label: '详情',
+            onClick: () => onViewDetail(record),
+          },
+          {
+            key: 'yaml',
+            label: '查看 YAML',
+            icon: <EyeOutlined />,
+            onClick: () => handleViewYaml(record),
+          },
+          {
+            key: 'browse',
+            label: '浏览仓库',
+            onClick: () => onBrowse(record),
+          },
+          {
+            key: 'edit',
+            label: '编辑',
+            onClick: () => onEdit(record),
+          },
+          {
+            key: 'delete',
+            label: '删除',
+            danger: true,
+            onClick: () => {
+              modal.confirm({
+                title: '确认删除',
+                content: `确定要删除镜像凭证 "${record?.metadata?.name}" 吗？`,
+                okType: 'danger',
+                onOk: () => onDelete(record),
+              });
+            },
+          },
+        ];
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+      },
+    },
+  ], [handleOpenAliasModal, handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, modal]);
+
+  // 使用列设置 Hook
+  const { displayColumns: credentialDisplayColumns } = useTableColumnSettings(
+    columns,
+    'harvester-containers-registries-credentials',
+  );
+
+  return (
+    <div>
+      <div className="page-toolbar">
+        <div className="toolbar-container">
+          <Input
+            className="toolbar-search"
+            allowClear
+            placeholder="名称/命名空间/别名"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={(e) => onKeywordChange(e.target.value)}
+          />
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="筛选命名空间"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={nsValue || undefined}
+            onChange={onNsChange}
+            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              onKeywordChange('');
+              onNsChange(undefined);
+            }}
+          >
+            重置
+          </button>
+        </div>
+        <div className="toolbar-actions">
+          <TableColumnSettingsButton
+            allColumns={columns}
+            settingsKey="harvester-containers-registries-credentials"
+          />
+        </div>
+      </div>
+
+      <Table
+        className="std-table"
+        bordered={false}
+        rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
+        columns={credentialDisplayColumns}
+        dataSource={filteredSecrets}
+        loading={loading}
+        scroll={{ x: 'max-content' }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+      />
+
+      {/* 别名编辑弹窗 */}
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {}
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasRecord(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入名称' },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入名称（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* YAML 查看弹窗 */}
+      <Modal
+        title="YAML 查看"
+        open={yamlModalVisible}
+        onCancel={() => setYamlModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <YamlEditor
+          value={yamlContent}
+          onChange={() => {}}
+          maxHeight={500}
+          readOnly
+        />
+      </Modal>
+    </div>
+  );
+};
+
+/**
  * Registries Section 主组件
  */
 const RegistriesSection: React.FC<Props> = ({
@@ -523,23 +906,6 @@ const RegistriesSection: React.FC<Props> = ({
     setRegistries(loadRegistries());
   }, []);
   
-  // 过滤凭证数据
-  const filteredSecrets = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
-    return secrets.filter((item: any) => {
-      const name = item?.metadata?.name || '';
-      const ns = item?.metadata?.namespace || '';
-      
-      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw)) {
-        return false;
-      }
-      if (nsValue && ns !== nsValue) {
-        return false;
-      }
-      return true;
-    });
-  }, [secrets, keyword, nsValue]);
-  
   // 查看凭证详情
   const handleViewDetail = useCallback((secret: any) => {
     setCurrentSecret(secret);
@@ -552,9 +918,9 @@ const RegistriesSection: React.FC<Props> = ({
     const name = secret?.metadata?.name;
     
     try {
-      await deleteHarvesterContainerResource(cloudId, '/api/v1/secrets', namespace, name);
+      await deleteHarvesterContainerResource(cloudId, SECRETS_API_PATH, namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -649,97 +1015,7 @@ const RegistriesSection: React.FC<Props> = ({
     onRefresh(true);
   }, [onRefresh]);
   
-  // 凭证表格列
-  const credentialColumns = useMemo(() => [
-    {
-      title: '名称',
-      dataIndex: ['metadata', 'name'],
-      key: 'name',
-      width: 250,
-      ellipsis: true,
-      render: (name: string, record: any) => (
-        <Space>
-          <KeyOutlined style={{ color: '#1890ff' }} />
-          <Link onClick={() => handleViewDetail(record)}>{name}</Link>
-        </Space>
-      ),
-    },
-    {
-      title: '命名空间',
-      dataIndex: ['metadata', 'namespace'],
-      key: 'namespace',
-      width: 140,
-      render: (ns: string) => <Tag>{ns}</Tag>,
-    },
-    {
-      title: '仓库地址',
-      key: 'registryServer',
-      width: 280,
-      ellipsis: true,
-      render: (_: any, record: any) => {
-        const server = getRegistryServer(record);
-        return (
-          <Text code copyable={{ text: server }} ellipsis={{ tooltip: server }}>
-            {server}
-          </Text>
-        );
-      },
-    },
-    {
-      title: '运行时长',
-      key: 'age',
-      width: 120,
-      render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
-    },
-    {
-      title: '创建时间',
-      dataIndex: ['metadata', 'creationTimestamp'],
-      key: 'creationTimestamp',
-      width: 180,
-      render: formatTime,
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 100,
-      fixed: 'right' as const,
-      render: (_: any, record: any) => {
-        const items = [
-          {
-            key: 'detail',
-            label: '详情',
-            onClick: () => handleViewDetail(record),
-          },
-          {
-            key: 'browse',
-            label: '浏览仓库',
-            onClick: () => handleBrowseFromSecret(record),
-          },
-          {
-            key: 'edit',
-            label: '编辑',
-            onClick: () => handleEditCredential(record),
-          },
-          {
-            key: 'delete',
-            label: '删除',
-            danger: true,
-            onClick: () => {
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除镜像凭证 "${record?.metadata?.name}" 吗？`,
-                okType: 'danger',
-                onOk: () => handleDeleteSecret(record),
-              });
-            },
-          },
-        ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
-      },
-    },
-  ], [handleViewDetail, handleDeleteSecret, handleEditCredential, handleBrowseFromSecret, modal]);
-  
-  // 仓库表格列
+  // 仓库表格列（localStorage 仓库列表，不需要双轨制）
   const registryColumns = useMemo(() => [
     {
       title: '名称',
@@ -832,12 +1108,6 @@ const RegistriesSection: React.FC<Props> = ({
     },
   ], [handleViewRegistry, handleBrowseRegistry, handleDeleteRegistry, modal]);
   
-  // 使用列设置 Hook
-  const { displayColumns: credentialDisplayColumns } = useTableColumnSettings(
-    credentialColumns,
-    'harvester-containers-registries-credentials',
-  );
-  
   return (
     <>
       <PageDetailSection asCard={false}>
@@ -846,7 +1116,7 @@ const RegistriesSection: React.FC<Props> = ({
           value={activeTab}
           onChange={setActiveTab}
           options={[
-            { label: `镜像凭证 (${filteredSecrets.length})`, value: 'credentials' },
+            { label: `镜像凭证 (${secrets.length})`, value: 'credentials' },
             { label: `镜像仓库 (${registries.length})`, value: 'registries' },
           ]}
         />
@@ -854,92 +1124,62 @@ const RegistriesSection: React.FC<Props> = ({
           <PageDetailSection
             key="credentials"
             asCard={false}
-          toolbarLeft={
-            <div className="toolbar-container">
-              <Input
-                className="toolbar-search"
-                allowClear
-                placeholder="名称/命名空间"
-                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-              />
-              <Select
-                className="toolbar-filter"
-                placeholder="筛选命名空间"
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                value={nsValue || undefined}
-                onChange={onNsChange}
-                options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
-              />
-            </div>
-          }
-          primaryAction={{
-            label: '创建凭证',
-            onClick: handleCreateCredential,
-          }}
-          toolbarRight={
-            <TableColumnSettingsButton
-              allColumns={credentialColumns}
-              settingsKey="harvester-containers-registries-credentials"
+            primaryAction={{
+              label: '创建凭证',
+              onClick: handleCreateCredential,
+            }}
+            onRefresh={onRefresh}
+          >
+            <CredentialTable
+              secrets={secrets}
+              loading={loading}
+              cloudId={cloudId}
+              keyword={keyword}
+              onKeywordChange={setKeyword}
+              nsValue={nsValue}
+              onNsChange={onNsChange}
+              namespacesOptions={namespacesOptions}
+              onViewDetail={handleViewDetail}
+              onEdit={handleEditCredential}
+              onDelete={handleDeleteSecret}
+              onBrowse={handleBrowseFromSecret}
+              onRefresh={onRefresh}
             />
-          }
-          onRefresh={onRefresh}
-        >
-          <Table
-            className="std-table"
-            bordered={false}
-            rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
-            columns={credentialDisplayColumns}
-            dataSource={filteredSecrets}
-            loading={loading}
-            scroll={{ x: 'max-content' }}
-            pagination={{
-              size: 'small',
-              showTotal: (total) => `共 ${total} 条`,
+          </PageDetailSection>
+        ) : (
+          <PageDetailSection
+            key="registries"
+            asCard={false}
+            primaryAction={{
+              label: '添加仓库',
+              onClick: () => {
+                setEditingRegistry(null);
+                setAddRegistryVisible(true);
+              },
             }}
-            rowSelection={{
-              selectedRowKeys: selectedKeys,
-              onChange: setSelectedKeys,
-            }}
-          />
-        </PageDetailSection>
-      ) : (
-        <PageDetailSection
-          key="registries"
-          asCard={false}
-          primaryAction={{
-            label: '添加仓库',
-            onClick: () => {
-              setEditingRegistry(null);
-              setAddRegistryVisible(true);
-            },
-          }}
-          onRefresh={() => setRegistries(loadRegistries())}
-        >
-          <Table
-            className="std-table"
-            bordered={false}
-            rowKey="id"
-            columns={registryColumns}
-            dataSource={registries}
-            scroll={{ x: 'max-content' }}
-            pagination={{
-              size: 'small',
-              showTotal: (total) => `共 ${total} 条`,
-            }}
-            locale={{
-              emptyText: (
-                <Empty
-                  description='暂无仓库，点击"添加仓库"开始'
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                />
-              ),
-            }}
-          />
-        </PageDetailSection>
+            onRefresh={() => setRegistries(loadRegistries())}
+          >
+            <Table
+              className="std-table"
+              bordered={false}
+              rowKey="id"
+              columns={registryColumns}
+              dataSource={registries}
+              scroll={{ x: 'max-content' }}
+              pagination={{
+                size: 'small',
+                showTotal: (total) => `共 ${total} 条`,
+              }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    description='暂无仓库，点击"添加仓库"开始'
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
+                ),
+              }}
+            />
+          </PageDetailSection>
         )}
       </PageDetailSection>
       
@@ -1000,30 +1240,31 @@ const RegistriesSection: React.FC<Props> = ({
         onSuccess={handleCredentialSuccess}
       />
       
+      {/* 仓库浏览器抽屉 */}
+      {browserVisible && (
+        <RegistryBrowserDrawer
+          cloudId={cloudId}
+          visible={browserVisible}
+          credential={browserCredential}
+          onClose={() => {
+            setBrowserVisible(false);
+            setBrowserCredential(null);
+          }}
+        />
+      )}
+      
       {/* 添加/编辑仓库弹窗 */}
       <AddRegistryModal
         visible={addRegistryVisible}
-        editData={editingRegistry}
-        cloudId={cloudId}
         onOk={handleSaveRegistry}
         onCancel={() => {
           setAddRegistryVisible(false);
           setEditingRegistry(null);
         }}
-      />
-      
-      {/* 仓库浏览器抽屉 */}
-      <RegistryBrowserDrawer
-        visible={browserVisible}
+        editData={editingRegistry}
         cloudId={cloudId}
-        credential={browserCredential}
-        onClose={() => {
-          setBrowserVisible(false);
-          setBrowserCredential(null);
-        }}
       />
-    </>
-  );
+    </>  );
 };
 
 export default RegistriesSection;

@@ -172,7 +172,6 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
 
       setLoading(true);
       const submitData = buildSubmitData(values);
-      console.log('[GatewayForm] 提交数据:', submitData);
 
       await createGateway(cloudId, values.namespace, submitData);
       message.success('Gateway 创建成功');

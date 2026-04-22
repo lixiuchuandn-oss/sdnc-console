@@ -30,15 +30,19 @@ import {
   Alert,
   Input,
   Dropdown,
+  Form,
 } from 'antd';
-import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchNetworkPolicyDetail,
   deleteNetworkPolicy,
+  patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 import NetworkPolicyFormModal from '../components/NetworkPolicyFormModal';
 
@@ -509,6 +513,93 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
+  
+  // 双轨制：别名编辑相关状态
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasRecord, setAliasRecord] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
+  
+  // YAML 查看相关状态
+  const [yamlModalVisible, setYamlModalVisible] = useState(false);
+  const [yamlContent, setYamlContent] = useState('');
+  
+  // apiPath 用于 PATCH 请求
+  const apiPath = '/apis/networking.k8s.io/v1/networkpolicies';
+  
+  // 别名编辑 Modal 打开
+  const handleOpenAliasModal = useCallback((record: any) => {
+    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+    setAliasRecord(record);
+    setAliasModalVisible(true);
+    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+  }, [aliasForm]);
+  
+  // 别名提交
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasRecord) return false;
+    const ns = aliasRecord?.metadata?.namespace;
+    const name = aliasRecord?.metadata?.name;
+    if (!ns || !name) {
+      message.error('未能解析资源命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+      message.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasRecord(null);
+      aliasForm.resetFields();
+      onRefresh(true);
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      message.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+  
+  // 查看 YAML
+  const handleViewYaml = useCallback((record: any) => {
+    try {
+      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
+      setYamlContent(yamlStr);
+      setYamlModalVisible(true);
+    } catch (e: any) {
+      message.error('生成 YAML 失败: ' + e.message);
+    }
+  }, [message]);
 
   // 删除处理
   const handleDelete = useCallback((record: any) => {
@@ -594,22 +685,49 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   const allColumns = useMemo(() => [
     {
       title: '名称',
-      dataIndex: ['metadata', 'name'],
       key: 'name',
       fixed: 'left' as const,
+      width: 180,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const alias = record?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.metadata?.name || '';
+        const hasAlias = !!alias;
+        
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                setCurrentNetworkPolicy(record);
+                setDetailVisible(true);
+              }}
+            >
+              {hasAlias ? alias : id}
+            </Button>
+            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(record);
+                }}
+              />
+            </Tooltip>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      dataIndex: ['metadata', 'name'],
+      key: 'id',
       width: 200,
-      render: (name: string, record: any) => (
-        <Button
-          type="link"
-          size="small"
-          onClick={() => {
-            setCurrentNetworkPolicy(record);
-            setDetailVisible(true);
-          }}
-        >
-          {name}
-        </Button>
-      ),
+      ellipsis: true,
+      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
       title: '命名空间',
@@ -683,6 +801,12 @@ const NetworkPoliciesSection: React.FC<Props> = ({
               },
             },
             {
+              key: 'yaml',
+              label: '查看 YAML',
+              icon: <EyeOutlined />,
+              onClick: () => handleViewYaml(record),
+            },
+            {
               key: 'delete',
               label: '删除',
               danger: true,
@@ -693,7 +817,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         />
       ),
     },
-  ], [handleDelete]);
+  ], [handleDelete, handleViewYaml]);
 
   // 使用 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_networkpolicy_table');
@@ -847,6 +971,68 @@ const NetworkPoliciesSection: React.FC<Props> = ({
           setEditingRecord(null);
         }}
       />
+
+      {/* 别名编辑 Modal */}
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {}
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasRecord(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入名称' },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入名称（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* YAML 查看 Modal */}
+      <Modal
+        title="YAML 查看"
+        open={yamlModalVisible}
+        onCancel={() => setYamlModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <YamlEditor
+          value={yamlContent}
+          onChange={() => {}}
+          maxHeight={500}
+          readOnly
+        />
+      </Modal>
     </>
   );
 };

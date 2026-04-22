@@ -5,12 +5,14 @@
  * 支持创建和删除 Ingress 资源。
  */
 import React, { useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Button, message, Input, Modal, Select } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
+import { Table, Tag, Button, message, Input, Modal, Select, App, Form, Tooltip } from 'antd';
+import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import YamlEditor from '../../../../../../components/YamlEditor';
 import { IngressFormModal, YamlEditModal } from '../components';
-import { deleteHarvesterIngress, fetchHarvesterIngressDetail, updateHarvesterIngress } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterIngress, fetchHarvesterIngressDetail, updateHarvesterIngress, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 
 /**
  * 格式化时间 - 将 UTC 时间转换为本地时间显示
@@ -57,9 +59,96 @@ const IngressesSection: React.FC<Props> = ({
   secrets,
   createDefaultNamespace,
 }) => {
+  const { message: antMessage } = App.useApp();
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
   const formDefaultNs = createDefaultNamespace ?? nsValue;
   // 关键字搜索（名称 / 命名空间）
   const [keyword, setKeyword] = useState<string>('');
+
+  // 别名编辑相关状态
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasRecord, setAliasRecord] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+
+  // YAML 查看相关状态
+  const [yamlViewModalVisible, setYamlViewModalVisible] = useState(false);
+  const [yamlViewContent, setYamlViewContent] = useState('');
+
+  const apiPath = '/apis/networking.k8s.io/v1/ingresses';
+
+  // 别名编辑 - 打开弹窗
+  const handleOpenAliasModal = useCallback((record: any) => {
+    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+    setAliasRecord(record);
+    setAliasModalVisible(true);
+    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+  }, [aliasForm]);
+
+  // 别名编辑 - 提交
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasRecord) return false;
+    const ns = aliasRecord?.metadata?.namespace;
+    const name = aliasRecord?.metadata?.name;
+    if (!ns || !name) {
+      antMessage.error('未能解析资源命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+      antMessage.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasRecord(null);
+      aliasForm.resetFields();
+      onRefresh?.(true);
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      antMessage.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasRecord, apiPath, cloudId, antMessage, onRefresh, aliasForm]);
+
+  // 查看 YAML
+  const handleViewYaml = useCallback((record: any) => {
+    try {
+      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
+      setYamlViewContent(yamlStr);
+      setYamlViewModalVisible(true);
+    } catch (e: any) {
+      antMessage.error('生成 YAML 失败: ' + e.message);
+    }
+  }, [antMessage]);
   
   // 创建/编辑弹窗状态
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -119,7 +208,7 @@ const IngressesSection: React.FC<Props> = ({
 
   /**
    * 将原始 Ingress 对象转换为表格可直接展示的数据结构
-   * - 规则字段会拼接为 “host -> [path1, path2]” 格式的简要描述
+   * - 规则字段会拼接为 "host -> [path1, path2]" 格式的简要描述
    */
   const dataSource = useMemo(() => {
     return (ingresses || []).map((i: any) => {
@@ -133,6 +222,7 @@ const IngressesSection: React.FC<Props> = ({
 
       return {
         key: raw.metadata?.uid || i.id,
+        metadata: raw.metadata,
         name: raw.metadata?.name || i.name,
         namespace: raw.metadata?.namespace || i.namespace,
         rules: ruleDesc,
@@ -164,34 +254,70 @@ const IngressesSection: React.FC<Props> = ({
    * - 操作列当前仅提供删除占位（实际删除能力未开放）
    */
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    {
+      title: '名称',
+      key: 'name',
+      width: 180,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const alias = record?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.metadata?.name || '';
+        const hasAlias = !!alias;
+
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>{hasAlias ? alias : id}</span>
+            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(record);
+                }}
+              />
+            </Tooltip>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      dataIndex: ['metadata', 'name'],
+      key: 'id',
+      width: 200,
+      ellipsis: true,
+      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
+    },
+    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', ellipsis: true, render: (ns: string) => <Tag>{ns}</Tag> },
     { title: '规则', dataIndex: 'rules', key: 'rules', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', render: formatTime, sorter: (a: any, b: any) => new Date(a?.creationTimestamp || 0).getTime() - new Date(b?.creationTimestamp || 0).getTime(), defaultSortOrder: 'descend' as const },
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 120,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => (
-        <ResourceActionsDropdown 
+        <ResourceActionsDropdown
           buttonProps={{ className: 'row-actions-trigger' }}
           items={[
-            { 
-              key: 'edit', 
+            {
+              key: 'edit',
               label: '编辑',
               onClick: () => handleEdit(record),
             },
-            { 
-              key: 'yaml', 
-              label: 'YAML 编辑',
-              onClick: () => handleYamlEdit(record),
+            {
+              key: 'yaml',
+              label: '查看 YAML',
+              icon: <EyeOutlined />,
+              onClick: () => handleViewYaml(record.raw),
             },
-            { 
-              key: 'delete', 
-              label: '删除', 
-              danger: true, 
+            {
+              key: 'delete',
+              label: '删除',
+              danger: true,
               onClick: () => {
                 Modal.confirm({
                   title: '确认删除',
@@ -323,6 +449,68 @@ const IngressesSection: React.FC<Props> = ({
           onRefresh?.(true);
         }}
       />
+
+      {/* 别名编辑弹窗 */}
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {}
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasRecord(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入名称' },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入名称（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* YAML 查看弹窗 */}
+      <Modal
+        title="YAML 查看"
+        open={yamlViewModalVisible}
+        onCancel={() => setYamlViewModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <YamlEditor
+          value={yamlViewContent}
+          onChange={() => {}}
+          maxHeight={500}
+          readOnly
+        />
+      </Modal>
     </PageDetailSection>
   );
 };

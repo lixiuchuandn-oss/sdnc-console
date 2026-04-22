@@ -50,6 +50,7 @@ import {
   updateHarvesterSecret,
   fetchHarvesterSecretDetail,
 } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -427,12 +428,15 @@ const SecretForm: React.FC<SecretFormProps> = ({
       apiVersion: 'v1',
       kind: 'Secret',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('secret'),
         namespace: values.namespace,
         labels: values.labels?.reduce((acc, { key, value }) => {
           if (key && value) acc[key] = value;
           return acc;
         }, {} as Record<string, string>),
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
       type: values.type,
       stringData,

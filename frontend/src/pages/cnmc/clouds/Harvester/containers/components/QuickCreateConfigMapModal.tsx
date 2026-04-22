@@ -294,7 +294,6 @@ const QuickCreateConfigMapModal: React.FC<QuickCreateConfigMapModalProps> = ({
       setLoading(true);
 
       const submitData = buildSubmitData(values);
-      console.log('[QuickCreateConfigMapModal] 提交数据:', submitData);
 
       await createHarvesterConfigMap(cloudId, values.namespace, submitData);
       message.success('ConfigMap 创建成功');
