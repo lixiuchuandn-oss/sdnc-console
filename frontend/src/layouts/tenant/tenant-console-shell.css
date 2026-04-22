@@ -1,4 +1,5 @@
 /*
+ * 租户控制台壳层样式（由 tenant/TenantConsoleLayout.tsx 引入）。
  * 租户顶栏纯图标按钮：antd 默认 padding + icon 槽位会把盒子撑到约 30×32，而图标仅 16×16。
  * 盒子与 16px 图标对齐（16×16），并去掉 .ant-btn-icon 的横向间距。
  */

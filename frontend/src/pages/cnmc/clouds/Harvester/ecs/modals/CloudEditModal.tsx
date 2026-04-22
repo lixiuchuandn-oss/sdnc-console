@@ -4,7 +4,7 @@ import { apiPost, apiPut } from '../../../../../../services/api';
 import { 
   Cloud, 
   getCredentialLabels, 
-  CLOUD_TYPE_MAP 
+  resolvePoolTypeLabel
 } from '../../../../pools/poolProviders';
 
 interface CloudEditModalProps {
@@ -22,7 +22,7 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
   const [akVisible, setAkVisible] = useState(false);
   const [skVisible, setSkVisible] = useState(false);
 
-  const getTypeText = (type: string) => CLOUD_TYPE_MAP[type] || '未知';
+  const getTypeText = (type: string) => resolvePoolTypeLabel(type);
 
   useEffect(() => {
     if (!visible) {

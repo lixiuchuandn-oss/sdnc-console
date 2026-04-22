@@ -123,9 +123,9 @@ router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
   try {
     const cloudRepo = AppDataSource.getRepository(Cloud);
 
-    // 仅统计中心云与边缘云两类云资源，其它类型忽略
+    // 仅统计中心云与边缘云两类云资源，其它类型忽略（Rancher 并入边缘云维度展示）
     const clouds = await cloudRepo.find({
-      where: { type: In(['central', 'edge']) },
+      where: { type: In(['central', 'edge', 'rancher', 'container_cloud']) },
     } as any);
 
     // 按云类型维度聚合资源使用情况
@@ -199,7 +199,7 @@ router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
 
     // 遍历云资源，累加总配额与已分配配额，并根据云在线状态计算整体状态
     clouds.forEach((c) => {
-      const key = c.type as 'central' | 'edge';
+      const key = c.type === 'central' ? 'central' : 'edge';
       const entry = aggregate[key];
       entry.totalCpu += c.totalCpu || 0;
       entry.totalMemory += c.totalMemory || 0;

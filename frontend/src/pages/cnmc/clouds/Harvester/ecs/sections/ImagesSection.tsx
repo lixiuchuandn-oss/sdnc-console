@@ -21,7 +21,7 @@
  *    - 在打开抽屉前，自动补全 `kind: VirtualMachineImage` 以适配通用抽屉逻辑。
  *
  * === 交互依赖 ===
- * - 上游: 依赖 `CloudDetailHarvester` 传入 `images` 列表。
+ * - 上游: 由资源池详情（如 Cloudmap）传入 `images` 列表。
  * - 下游: 调用 `createHarvesterImage`, `deleteHarvesterImage` 等 API。
  * - 外部: 依赖镜像与上传任务相关 API。
  */

@@ -404,22 +404,20 @@ export const fetchHarvesterClusterNetworks = async (cloudId: string, force = fal
   return await apiRequest(`/api/clouds/${cloudId}/resources/cluster-networks${force ? '?force=true' : ''}`);
 };
 
-/** ASW-CTL：物理接入交换机探测聚合（config.aswCtl）。cacheOnly 时只读 Tower 入库缓存，不访问 ASW-CTL。 */
+/** 物理交换机 / HSM：只读 Tower 已入库的末次实例快照（与 GET 是否带 cacheOnly 无差异；兼容旧入参） */
 export const fetchAswCtlSwitchesSummary = async (
   cloudId: string,
-  opts?: { cacheOnly?: boolean },
+  _opts?: { cacheOnly?: boolean },
 ) => {
-  const q = opts?.cacheOnly === true ? '?cacheOnly=1' : '';
-  return await apiRequest(
-    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/switches${q}`,
-    { skipCache: true },
-  );
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/asw-ctl/switches`, {
+    skipCache: true,
+  });
 };
 
-/** ASW-CTL：按表单草稿探测服务状态（不写库） */
+/** 按表单草稿探测 HSM（不写库）；与线上拉取一致，始终走资源池 API Endpoint + /v1/hms */
 export const probeAswCtlConnection = async (
   cloudId: string,
-  body: { baseUrl: string; apiKey?: string; insecureTls?: boolean; name?: string },
+  body: { apiKey?: string; insecureTls?: boolean },
 ) => {
   return await apiPost(
     `/api/clouds/${cloudId}/resources/harvester/asw-ctl/probe`,

@@ -1,5 +1,5 @@
 /**
- * 子网（逻辑交换机）→ 虚拟机：布局与样式对齐物理网络 ProviderNetworkTopologyGraph（React Flow + 点阵背景 + 缩放控件）。
+ * 子网（逻辑交换机）→ 虚拟机：布局与样式对齐物理网络拓扑（React Flow + 点阵背景 + 缩放控件）；样式见 `hsm/lib/networkTopology/kubeOvnTopoPrimitives`。
  */
 import React, { useMemo } from 'react';
 import ReactFlow, {
@@ -12,7 +12,16 @@ import ReactFlow, {
 } from 'react-flow-renderer';
 import 'react-flow-renderer/dist/style.css';
 import { Spin } from 'antd';
-import { ACCENT, edgeDefault, flowChromeStyles, LabelBlock, safeNodeId, TopoNodeCard } from './kubeOvnTopoPrimitives';
+import {
+  ACCENT,
+  edgeDefault,
+  flowChromeStyles,
+  LabelBlock,
+  safeNodeId,
+  TOPO_CARD_LOADING_LAYOUT,
+  TOPO_LOADING_CAPTION_STYLE,
+  TopoNodeCard,
+} from '../../../hsm/lib/networkTopology/kubeOvnTopoPrimitives';
 
 export type SubnetVmTopoVm = {
   key: string;
@@ -80,9 +89,9 @@ const SubnetVmTopologyGraph: React.FC<SubnetVmTopologyGraphProps> = ({
         data: {
           label: (
             <TopoNodeCard accent={ACCENT.hub}>
-              <div style={{ padding: '28px 24px', minHeight: 78, textAlign: 'left' }}>
+              <div style={TOPO_CARD_LOADING_LAYOUT}>
                 <Spin size="small" />
-                <div style={{ marginTop: 10, fontSize: 12, color: '#8c8c8c', fontWeight: 500 }}>加载虚拟机…</div>
+                <div style={TOPO_LOADING_CAPTION_STYLE}>加载虚拟机…</div>
               </div>
             </TopoNodeCard>
           ),

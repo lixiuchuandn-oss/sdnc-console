@@ -26,6 +26,31 @@ html, body, #root {
   vertical-align: middle !important;
 }
 
+/* Input / Number 的 prefix：主题蓝（不覆盖更具体作用域，如顶栏/登录卡片的局部覆盖） */
+.ant-input-affix-wrapper .ant-input-prefix,
+.ant-input-number-affix-wrapper .ant-input-number-prefix {
+  color: #1890ff;
+}
+
+/* Select 的 prefix：antd 5 用 CSS-in-JS 后注入会覆盖普通全局色，需 !important 才能压过；顶栏等仍可用更高优先级 + !important 覆盖为浅色 */
+.ant-select .ant-select-prefix {
+  color: #1890ff !important;
+}
+
+.ant-input-affix-wrapper-disabled .ant-input-prefix,
+.ant-input-number-affix-wrapper-disabled .ant-input-number-prefix {
+  color: rgba(0, 0, 0, 0.25);
+}
+
+.ant-select-disabled .ant-select-prefix {
+  color: rgba(0, 0, 0, 0.25) !important;
+}
+
+/* 模态框内容区：在 antd 默认 body 内边距基础上，顶部再增加 10px（注入样式较后，需 !important） */
+.ant-modal .ant-modal-body {
+  padding-top: 10px !important;
+}
+
 /* ==========================================================================
    Harvester / Clouds — 自定义详情抽屉标题主图标外框
    ========================================================================== */

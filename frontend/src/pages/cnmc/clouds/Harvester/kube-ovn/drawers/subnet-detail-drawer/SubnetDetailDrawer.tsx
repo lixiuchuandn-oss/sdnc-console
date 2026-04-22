@@ -466,7 +466,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
     </>
   );
 
-  /** 与物理网络「网络拓扑」Tab 一致：React Flow + 点阵背景 + 缩放控件，节点卡片同 ProviderNetworkTopologyGraph */
+  /** 与 Cloudmap 资源总览「网络拓扑」一致：React Flow + 点阵背景 + 缩放控件，节点卡片同 `hsm/lib/networkTopology` */
   const topologyPanel = (
     <SubnetVmTopologyGraph
       subnetDisplay={subnetDisplay}

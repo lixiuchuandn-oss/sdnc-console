@@ -16,6 +16,8 @@ import { VMCard } from './components/VMCard';
 
 const ROW1_HEIGHT = 380;
 const ROW2_HEIGHT = 300;
+/** 概览卡片之间横、纵间距统一（与 Ant Design Row gutter 一致） */
+const CARD_GAP = 16;
 
 interface MonitoringOverviewProps {
   cloudId: string;
@@ -33,15 +35,22 @@ const MonitoringOverview: React.FC<MonitoringOverviewProps> = ({ cloudId }) => {
   return (
     <div>
       <DashboardProviders cloudId={cloudId}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: CARD_GAP,
+          }}
+        >
         {/* 第一行：告警 | CPU+内存 | 储存空间 */}
-        <Row gutter={[16, 16]} style={{ marginBottom: 20, alignItems: 'stretch' }}>
+        <Row gutter={[CARD_GAP, CARD_GAP]} style={{ alignItems: 'stretch' }}>
           <Col xs={24} lg={10} style={{ display: 'flex' }}>
             <div style={{ height: ROW1_HEIGHT, display: 'flex', flexDirection: 'column', width: '100%' }}>
               <AlertsCard />
             </div>
           </Col>
           <Col xs={24} lg={7} style={{ display: 'flex' }}>
-            <div style={{ height: ROW1_HEIGHT, display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
+            <div style={{ height: ROW1_HEIGHT, display: 'flex', flexDirection: 'column', gap: CARD_GAP, width: '100%' }}>
               <div style={{ flex: '0 0 auto', minHeight: 0, display: 'flex', flexDirection: 'column', maxHeight: '52%' }}>
                 <CPUCard />
               </div>
@@ -58,7 +67,7 @@ const MonitoringOverview: React.FC<MonitoringOverviewProps> = ({ cloudId }) => {
         </Row>
 
         {/* 第二行：物理主机 | 磁盘 | 虚拟机 */}
-        <Row gutter={[16, 16]} style={{ alignItems: 'stretch' }}>
+        <Row gutter={[CARD_GAP, CARD_GAP]} style={{ alignItems: 'stretch' }}>
           <Col xs={24} md={12} lg={8} style={{ display: 'flex' }}>
             <div style={{ height: ROW2_HEIGHT, display: 'flex', flexDirection: 'column', width: '100%' }}>
               <HostsCard />
@@ -75,6 +84,7 @@ const MonitoringOverview: React.FC<MonitoringOverviewProps> = ({ cloudId }) => {
             </div>
           </Col>
         </Row>
+        </div>
       </DashboardProviders>
     </div>
   );

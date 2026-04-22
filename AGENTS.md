@@ -140,6 +140,7 @@ Compute.Tower/
 │   │   │   │   │       ├── cbr/           # 备份与计划任务
 │   │   │   │   │       ├── nad/           # NAD、负载均衡、IP 池
 │   │   │   │   │       ├── kube-ovn/      # VPC、子网、EIP/FIP、安全组等
+│   │   │   │   │       ├── hsm/           # Tower HSM：Cloudmap 资源总览（机房拓扑、网络拓扑）；拓扑图与样式见 `hsm/lib/networkTopology/`
 │   │   │   │   │       ├── shared/components/  # 跨域详情抽屉与 Tab
 │   │   │   │   │       └── monitoring/    # 监控与日志
 │   │   │   │   ├── console/
@@ -348,6 +349,8 @@ Harvester 容器管理模块提供完整的 Kubernetes 容器资源管理能力�
 | `SshKeysSection.tsx` | `ecs/sections/` | SSH 密钥管理 |
 | `TemplatesSection.tsx` | `ecs/sections/` | 模板管理 |
 | `RecycleBinSection.tsx` | `ecs/sections/` | 回收站 |
+| `NetworkTopologySection.tsx` | `hsm/sections/` | Cloudmap 资源总览 · 网络拓扑（物理网络 React Flow；实现位于 `hsm/lib/networkTopology/`） |
+| `DatacenterTopologySection.tsx` | `hsm/sections/` | Cloudmap 资源总览 · 机房拓扑 |
 
 ## 认证与权限
 
@@ -507,6 +510,7 @@ const columns = [
 4. **代理**: 开发环境前端通过 `setupProxy.js` 代理后端 API 和 WebSocket
 5. **补丁**: 前端使用 `patch-package` 修复第三方库问题（novnc、zrender）
 6. **代码规范**: 使用 Husky + lint-staged 进行提交前代码检查
+7. **Cloudmap 网络拓扑**：物理网络拓扑仅在 Cloudmap「资源总览 → 网络拓扑」提供（`Harvester/hsm/`）；物理网络（ProviderNetwork）**详情抽屉不含拓扑 Tab**。子网详情中的「子网 → 虚拟机」拓扑复用 `hsm/lib/networkTopology/kubeOvnTopoPrimitives.tsx` 与 Kube-OVN 域数据。
 
 ## 前端代码质量
 

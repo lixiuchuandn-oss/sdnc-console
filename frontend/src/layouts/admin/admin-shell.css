@@ -1,0 +1,149 @@
+/**
+ * 管理后台壳层样式（侧栏 Sider 覆盖 + 顶栏原生图标按钮）。
+ * 分割线颜色：`--admin-nav-divider-color`，由 AdminLayout 根节点 style 注入。
+ */
+
+/* ----- 侧栏（Ant Layout.Sider）：整块 aside + 内容区 + 底栏折叠触发器 同色 ----- */
+.admin-sidebar.ant-layout-sider {
+  background: #F9F9FA !important;
+}
+
+.admin-sidebar .ant-layout-sider-children {
+  background: #F9F9FA !important;
+}
+
+.admin-sidebar.ant-layout-sider .ant-layout-sider-trigger {
+  background: #F9F9FA !important;
+  border-inline-end: none !important;
+  box-sizing: border-box;
+}
+
+/* 菜单区与 Sider 一致（子菜单/内嵌区域仍走 ant-menu 变量） */
+.admin-sidebar .ant-menu {
+  background: #F9F9FA !important;
+}
+
+/* ----- 顶栏内原生图标按钮（无 Ant Button min-width） ----- */
+button.admin-header-platform-trigger {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #fff;
+  line-height: 0;
+  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+button.admin-header-platform-trigger:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 顶栏：设定默认资源池等图标按钮（与平台切换按钮同系） */
+button.admin-header-pool-icon-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #fff;
+  line-height: 0;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+button.admin-header-pool-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+button.admin-header-pool-icon-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button.admin-header-pool-access-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  margin: 0;
+  height: 24px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+button.admin-header-pool-access-btn:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+button.admin-header-pool-access-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+button.admin-header-pool-access-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+
+/* ----- 顶栏「可用区」Select：antd 5.13+ 支持 prefix；深色顶栏配色 ----- */
+.admin-header-zone-select.ant-select .ant-select-prefix {
+  margin-inline-end: 4px;
+  font-size: inherit;
+  line-height: inherit;
+  color: rgba(255, 255, 255, 0.95) !important;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.admin-header-zone-select.ant-select .ant-select-selector {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.admin-header-zone-select.ant-select .ant-select-selection-item {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.admin-header-zone-select.ant-select .ant-select-selection-placeholder {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.admin-header-zone-select.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+.admin-header-zone-select.ant-select.ant-select-focused:not(.ant-select-disabled) .ant-select-selector {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.admin-header-zone-select.ant-select .ant-select-arrow {
+  color: rgba(255, 255, 255, 0.85);
+}

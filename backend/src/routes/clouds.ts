@@ -16,6 +16,7 @@ import { licenseService } from '../services/LicenseService';
 // 新权限体系
 import { createApiPermissionMiddleware } from '../permissions';
 import { logger } from '../utils/logger';
+import { attachDatacenterTopologyRoutes } from './clouds/datacenterTopology.routes';
 
 const cloudRouteLog = logger.child('Cloud');
 const cloudDebugLog = logger.child('Cloud-Debug');
@@ -110,6 +111,46 @@ const testCloudConnectionUnified = async (args: {
     }
     return { ok: !!t.ok, message };
   }
+  if (provider === 'rancher') {
+    let base = String(args.endpoint || args.config?.rancherUrl || '')
+      .trim()
+      .replace(/\/+$/, '');
+    if (base && !/^https?:\/\//i.test(base)) {
+      base = `https://${base}`;
+    }
+    const token = String(
+      args.secretKey || args.config?.apiToken || args.config?.token || '',
+    ).trim();
+    const insecure = !!args.config?.ignoreTls;
+    if (!base || !token) {
+      return { ok: false, message: '缺少 Rancher 地址或 API 令牌' };
+    }
+    try {
+      const u = new URL(base);
+      const isHttps = u.protocol === 'https:';
+      const agent = isHttps
+        ? new https.Agent({ keepAlive: true, rejectUnauthorized: !insecure })
+        : undefined;
+      const url = `${u.origin}/v3`;
+      const res = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        ...(isHttps && agent ? { httpsAgent: agent } : {}),
+        timeout: 20000,
+        validateStatus: () => true,
+      });
+      if (res.status === 200) {
+        return { ok: true, message: 'Rancher 接口连通' };
+      }
+      if (res.status === 401) {
+        return { ok: false, message: '认证失败：Rancher API 令牌无效或已过期' };
+      }
+      return { ok: false, message: `Rancher 连接失败: HTTP ${res.status}` };
+    } catch (err: any) {
+      const m =
+        err?.response?.data?.message || err?.message || 'Rancher 连接失败';
+      return { ok: false, message: `连接失败: ${m}` };
+    }
+  }
   if (provider === 'harvester') {
     const t = await testHarvesterConnection({
       endpoint: args.endpoint || '',
@@ -160,10 +201,10 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
     'aliyun',
     'huaweicloud',
     'tencentcloud',
-    'harvester',
     'cloudmap.private',
     'cloudmap.edge',
     'cloudmap.csm',
+    'rancher',
   ];
   if (!allowed.includes(pvRaw)) {
     return res.status(400).json({ message: `不支持的 provider：${pvRaw}` });
@@ -870,7 +911,7 @@ router.post(
       // 2. 未启用多云时仅允许 CloudMap 类资源池（默认授权、导入授权但未含 platform.multi-cloud 均适用）
       const provider = String(config?.provider || '').toLowerCase();
       if (!isMultiCloud) {
-        const allowedWithoutMultiCloud = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'harvester'];
+        const allowedWithoutMultiCloud = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'];
         if (!allowedWithoutMultiCloud.includes(provider)) {
           return res.status(403).json({ message: '当前授权仅支持接入 CloudMap 类型的资源池。需接入多云资源请升级授权。' });
         }
@@ -1813,6 +1854,8 @@ router.post(
     }
   },
 );
+
+attachDatacenterTopologyRoutes(router);
 
 // 获取单个云资源详情
 router.get('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {

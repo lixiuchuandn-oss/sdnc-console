@@ -47,11 +47,13 @@ import CloudWizard from './CloudWizard';
 import {
   CLOUD_STATUS_MAP,
   CLOUD_TYPE_MAP,
+  resolvePoolTypeLabel,
   type Cloud,
   type CloudProvider,
   cloudProviders,
   getProviderLogo,
   getProviderName,
+  isCsmCloud,
 } from './poolProviders';
 
 const { Text } = Typography;
@@ -221,7 +223,9 @@ const Clouds: React.FC = () => {
     const loadVmStats = () => {
       let total = 0;
       let online = 0;
-      (clouds || []).forEach((c: any) => {
+      (clouds || [])
+        .filter((c: Cloud) => !isCsmCloud(c))
+        .forEach((c: any) => {
         total += Number(c.vmCount || 0);
         online += Number(c.runningVmCount || 0);
       });
@@ -243,7 +247,7 @@ const Clouds: React.FC = () => {
     // 注意：Promise.allSettled 模式处理部分请求失败的情况 (代码中使用 try-catch 模拟)。
     const loadVpcStats = async () => {
       try {
-        const ids = (clouds || []).map(c => c.id);
+        const ids = (clouds || []).filter((c) => !isCsmCloud(c)).map((c) => c.id);
         // 使用 Promise.allSettled 确保单个云平台连接失败不会阻塞其他
         const results = await Promise.allSettled(ids.map(async id => {
           try {
@@ -311,7 +315,7 @@ const Clouds: React.FC = () => {
   // 检索关键词: getStatusText getTypeText 状态映射 类型映射
   // ============================================================================
   const getStatusText = (status: string) => CLOUD_STATUS_MAP[status] || '未知';
-  const getTypeText = (type: string) => CLOUD_TYPE_MAP[type] || '未知';
+  const getTypeText = (type: string) => resolvePoolTypeLabel(type);
 
   // 编辑模态框样式：分组标题与表单标签/输入字号
   // 样式已迁移至 global-new.css
@@ -500,6 +504,7 @@ const Clouds: React.FC = () => {
 
   const filteredClouds = useMemo(() => {
     return (clouds || []).filter((c) => {
+      if (isCsmCloud(c)) return false;
       if (keyword && !c.name.toLowerCase().includes(keyword.toLowerCase())) return false;
       if (statusFilter?.length && !statusFilter.includes(c.status)) return false;
       if (typeFilter?.length && !typeFilter.includes(c.type)) return false;
@@ -512,10 +517,11 @@ const Clouds: React.FC = () => {
   }, [clouds, keyword, statusFilter, typeFilter, vendorFilter]);
 
   const { totalCnt, onlineCnt, offlineCnt, containerCounts, vmCounts, vpcCounts } = useMemo(() => {
-    const total = clouds.length;
-    const online = clouds.filter((c) => c.status === 'online').length;
+    const cnmcClouds = (clouds || []).filter((c) => !isCsmCloud(c));
+    const total = cnmcClouds.length;
+    const online = cnmcClouds.filter((c) => c.status === 'online').length;
     const offline = total - online;
-    const all = clouds.flatMap((c) => c.computeResources || []);
+    const all = cnmcClouds.flatMap((c) => c.computeResources || []);
     const containerList = all.filter((r) => r.type === 'container');
     const cTotal = containerList.length;
     const cOnline = containerList.filter((r) => String(r?.status || '').toLowerCase() === 'running').length;

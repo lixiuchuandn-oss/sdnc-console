@@ -276,6 +276,9 @@ export class PermissionRegistry {
             // 例如：/api/clouds/:id/resources/cluster-networks -> clouds.cluster-networks
             permissionBase = `clouds.${seg1}`;
           }
+        } else if (parts.length >= 3 && parts[2] === 'datacenter-topology') {
+          // 机房拓扑（机柜布局持久化），与集群侧物理网络能力对齐
+          permissionBase = 'clouds.cluster-networks';
         } else {
           // /api/clouds/:id/... 且非 resources 子树（如连接测试等）归入资源池管理权限
           permissionBase = 'clouds.resource-pools';

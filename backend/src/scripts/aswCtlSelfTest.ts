@@ -9,6 +9,7 @@
  *   npm run asw-ctl:self-test
  *
  * 可选：$env:ASW_CTL_RAW_API_KEY="1"  （与后端一致，仅 trim 密钥）
+ * 可选：$env:ASW_CTL_V1_PREFIX="/v1/hms"  （HSM 北向前缀；默认 /v1）
  *
  * bash:
  *   ASW_CTL_HTTP_ADDR=192.168.2.19:8080 ASW_CTL_API_KEY='...' npm run asw-ctl:self-test
@@ -17,6 +18,7 @@ import 'dotenv/config';
 import {
   aswCtlGetJson,
   aswCtlGetText,
+  northApiPath,
   normalizeAswCtlApiKeySecret,
   sanitizeAswCtlBaseUrl,
 } from '../services/clouds/harvester/aswCtlClient';
@@ -93,15 +95,12 @@ async function main() {
     `[2] GET /openapi.yaml (无 Key) -> ${openapi.ok ? 'OK' : 'FAIL'}${openapi.ok ? ` ${openapi.data.length} bytes` : ` ${openapi.message}`}`,
   );
 
-  const info = await aswCtlGetJson(
-    baseUrl,
-    '/v1/switch/info',
-    apiKey,
-    false,
-    120000,
-  );
+  const pathInfo = northApiPath('/switch/info');
+  const pathVlans = northApiPath('/switch/vlans');
+
+  const info = await aswCtlGetJson(baseUrl, pathInfo, apiKey, false, 120000);
   console.log(
-    `[3] GET /v1/switch/info (使用上文「本次自测使用的 API Key」) -> ${info.ok ? 'OK' : 'FAIL'}${info.ok ? '' : ` ${info.status} ${info.message}`}`,
+    `[3] GET ${pathInfo} (使用上文「本次自测使用的 API Key」) -> ${info.ok ? 'OK' : 'FAIL'}${info.ok ? '' : ` ${info.status} ${info.message}`}`,
   );
 
   if (info.ok && info.data && typeof info.data === 'object') {
@@ -110,30 +109,25 @@ async function main() {
     console.log(`    host: ${d.host ?? '?'}`);
   }
 
-  const vlans = await aswCtlGetJson(
-    baseUrl,
-    '/v1/switch/vlans',
-    apiKey,
-    false,
-    120000,
-  );
+  const vlans = await aswCtlGetJson(baseUrl, pathVlans, apiKey, false, 120000);
   console.log(
-    `[4] GET /v1/switch/vlans -> ${vlans.ok ? 'OK' : 'FAIL'}${vlans.ok ? '' : ` ${vlans.status} ${vlans.message}`}`,
+    `[4] GET ${pathVlans} -> ${vlans.ok ? 'OK' : 'FAIL'}${vlans.ok ? '' : ` ${vlans.status} ${vlans.message}`}`,
   );
 
   const openapiDeclaresVlans =
     openapi.ok &&
     typeof openapi.data === 'string' &&
-    /\/v1\/switch\/vlans\b/.test(openapi.data);
+    (openapi.data.includes(pathVlans) ||
+      openapi.data.includes('/v1/switch/vlans'));
 
   console.log('');
   console.log(
     '========== 【VLAN 接口举证】（可复制本节给对接方；勿公开完整 Key）==========',
   );
-  console.log(`探测 URL: ${baseUrl}/v1/switch/vlans`);
-  console.log(`请求路径必须与文档一致: /v1/switch/vlans（复数 vlans）`);
+  console.log(`探测 URL: ${baseUrl}${pathVlans}`);
+  console.log(`请求路径必须与对端一致: ${pathVlans}（复数 vlans）`);
   console.log(
-    `OpenAPI 是否声明 /v1/switch/vlans: ${openapi.ok ? (openapiDeclaresVlans ? '是' : '否（当前实例契约里可能没有该路径 → 多为旧版或未更新）') : '未能拉取 openapi.yaml，跳过此项'}`,
+    `OpenAPI 是否声明 VLAN 路径: ${openapi.ok ? (openapiDeclaresVlans ? '是' : '否（当前实例契约里可能没有该路径 → 多为旧版或未更新）') : '未能拉取 openapi.yaml，跳过此项'}`,
   );
   if (vlans.ok && vlans.data && typeof vlans.data === 'object') {
     const v = vlans.data as Record<string, unknown>;
@@ -165,13 +159,13 @@ async function main() {
     console.log('');
     if (is404) {
       console.log(
-        '【结论】HTTP 404：当前 HTTP 服务上未注册 GET /v1/switch/vlans（默认处理器纯文本 404）。',
+        `【结论】HTTP 404：当前 HTTP 服务上未注册 GET ${pathVlans}（默认处理器纯文本 404）。`,
       );
       console.log(
         '  含义优先：旧版 ASW-CTL、路径/Base URL 指错、网关未转发——非「VLAN 业务执行失败」。',
       );
       console.log(
-        '  若 [3] /v1/switch/info 已成功而仅 [4] 404：强烈指向对端进程未含该路由。',
+        `  若 [3] ${pathInfo} 已成功而仅 [4] 404：强烈指向对端进程未含该路由。`,
       );
     } else {
       console.log(`【结论】非 2xx（HTTP ${st ?? '?'}）：${vlans.message || '见上行'}`);
@@ -210,15 +204,15 @@ async function main() {
   console.log('');
   console.log(`[1] GET /healthz           -> ${hzOk}`);
   console.log(`[2] GET /openapi.yaml      -> ${openapiOk}`);
-  console.log(`[3] GET /v1/switch/info    -> ${infoOk}`);
-  console.log(`[4] GET /v1/switch/vlans   -> ${vlansOk}`);
+  console.log(`[3] GET ${pathInfo}    -> ${infoOk}`);
+  console.log(`[4] GET ${pathVlans}   -> ${vlansOk}`);
   console.log('');
   console.log('对端可用同密钥自证（在能访问该 IP 的机器上执行）：');
   console.log(
-    ` curl -sS -D - -o NUL "${baseUrl}/v1/switch/info" -H "X-API-Key: ${keyForRequest}"`,
+    ` curl -sS -D - -o NUL "${baseUrl}${pathInfo}" -H "X-API-Key: ${keyForRequest}"`,
   );
   console.log(
-    ` curl -sS "${baseUrl}/v1/switch/vlans" -H "X-API-Key: ${keyForRequest}"`,
+    ` curl -sS "${baseUrl}${pathVlans}" -H "X-API-Key: ${keyForRequest}"`,
   );
   console.log(' （Linux/mac将 -o NUL 改为 -o /dev/null）');
   console.log(

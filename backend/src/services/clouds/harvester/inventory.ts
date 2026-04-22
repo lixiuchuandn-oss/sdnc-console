@@ -34,6 +34,7 @@ import { HarvesterMigrationInventory } from '../../../entities/harvester/Harvest
 import { getJsonOnce } from './utils';
 import { logger } from '../../../utils/logger';
 import { fetchHmsNodeNics } from '../../hms/nodeNics';
+import { fetchHmsNodeHardwareInfo } from '../../hms/nodeHardwareInfo';
 
 const invLog = logger.child('Compute-Inventory');
 
@@ -801,18 +802,26 @@ export const syncHarvesterNodes = async (cloud: any, insecure: boolean) => {
     return;
   }
 
-  // [HMS NICs 入库] 与 Harvester 节点同步同周期写入 rawData，避免每次 list API 都实时请求
+  // [HMS 入库] 与 Harvester 节点同步同周期写入 rawData，避免每次 list API 都实时请求
+  let nicsByNode: Record<string, any[]> = {};
   try {
-    const nicsByNode = await fetchHmsNodeNics({ endpoint: cloud.endpoint, insecure });
-    items.forEach((it: any) => {
-      const nodeName =
-        String(it?.name || it?.metadata?.name || it?.rawData?.metadata?.name || '').trim();
-      if (!nodeName) return;
-      it.hmsNics = nicsByNode[nodeName] || [];
-    });
+    nicsByNode = await fetchHmsNodeNics({ endpoint: cloud.endpoint, insecure });
   } catch (e: any) {
     invLog.warn(`${cloud.name}: HMS 网卡信息获取失败（忽略，不影响节点同步）: ${e?.message || e}`);
   }
+  let hardwareByNode: Record<string, any> = {};
+  try {
+    hardwareByNode = await fetchHmsNodeHardwareInfo({ endpoint: cloud.endpoint, insecure });
+  } catch (e: any) {
+    invLog.warn(`${cloud.name}: HMS 硬件信息获取失败（忽略，不影响节点同步）: ${e?.message || e}`);
+  }
+  items.forEach((it: any) => {
+    const nodeName =
+      String(it?.name || it?.metadata?.name || it?.rawData?.metadata?.name || '').trim();
+    if (!nodeName) return;
+    it.hmsNics = nicsByNode[nodeName] || [];
+    it.hmsHardware = hardwareByNode[nodeName] ?? null;
+  });
 
   invLog.debug(`${cloud.name}: 节点同步完成，共 ${items.length} 条`);
 

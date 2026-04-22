@@ -19,8 +19,12 @@ export async function persistAswCtlSwitchInventory(
   cloudId: string,
   items: any[],
 ): Promise<void> {
-  if (!cloudId || !items.length) return;
+  if (!cloudId) return;
   const repo = AppDataSource.getRepository(HarvesterAswCtlSwitchInventory);
+  if (!items.length) {
+    await repo.delete({ cloudId });
+    return;
+  }
   const now = new Date();
   const seen = new Set<string>();
 

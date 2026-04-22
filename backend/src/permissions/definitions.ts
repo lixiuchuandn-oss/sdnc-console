@@ -5,7 +5,7 @@
  */
 
 import { PermissionDefinition } from './types';
-import { ALL_PERMISSIONS, PERMISSION_GROUPS, getPlatformByPermission, getGroupByPermission } from '../constants/permissions';
+import { ALL_PERMISSIONS, getPlatformByPermission, getGroupByPermission } from '../constants/permissions';
 
 /**
  * 权限名称映射（用于生成显示名称）
@@ -74,7 +74,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.log-configs': '日志采集配置',
   'clouds.console': '资源控制台（页面权限）',
   
-  // CNMC - 租户管理
+  // TENANTS - 租户管理
   'tenants': '租户管理',
   'organizations': '组织管理',
   'tenant-users': '组织用户管理',
@@ -203,7 +203,13 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
     throw new Error(`Invalid permission format: ${permissionId}`);
   }
 
-  const platform = getPlatformByPermission(permissionId) as 'CNMC' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | null;
+  const platform = getPlatformByPermission(permissionId) as
+    | 'CNMC'
+    | 'TENANTS'
+    | 'SDNCC'
+    | 'CNSOC'
+    | 'SETTINGS'
+    | null;
   const group = getGroupByPermission(permissionId);
 
   // 生成显示名称

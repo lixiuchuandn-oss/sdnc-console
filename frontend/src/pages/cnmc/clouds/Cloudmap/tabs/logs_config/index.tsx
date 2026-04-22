@@ -10,7 +10,7 @@ export type CloudmapLogsConfigTabProps = {
   checkPerm: (act: string) => boolean;
 };
 
-/** Cloudmap \u8be6\u60c5\u9875 \u2014 \u65e5\u5fd7\u7ba1\u7406 Tab\uff1aLoggingProvider + \u5185\u5c42 Tabs + \u6743\u9650\u8fc7\u6ee4 */
+/** Cloudmap 详情页 — 日志管理 Tab：LoggingProvider + 内层 Tabs + 权限过滤 */
 const CloudmapLogsConfigTab: React.FC<CloudmapLogsConfigTabProps> = ({
   cloudId,
   checkPerm,
@@ -24,17 +24,17 @@ const CloudmapLogsConfigTab: React.FC<CloudmapLogsConfigTabProps> = ({
       items={[
         {
           key: 'logs-target',
-          label: '\u65e5\u5fd7\u91c7\u96c6\u5bf9\u8c61',
+          label: '日志采集对象',
           children: <LogsTarget cloudId={cloudId} />,
         },
         {
           key: 'log-outputs',
-          label: '\u65e5\u5fd7\u63a5\u6536\u7aef',
+          label: '日志接收端',
           children: <LogOutputs cloudId={cloudId} />,
         },
         {
           key: 'logs-flow-config',
-          label: '\u65e5\u5fd7\u91c7\u96c6\u914d\u7f6e',
+          label: '日志采集配置',
           children: <LogsConfig cloudId={cloudId} />,
         },
       ].filter((i: any) => {

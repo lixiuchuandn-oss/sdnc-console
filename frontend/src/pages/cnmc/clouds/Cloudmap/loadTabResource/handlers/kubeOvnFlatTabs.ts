@@ -23,7 +23,7 @@ export async function tryLoadKubeOvnFlatTab(
   } = deps;
 
   switch (key) {
-    case 'flat_network_group':
+    case 'flat_network':
       if (!canViewFlatNetworkGroup) return true;
       if (checkPerm('clouds.eips.flat:read')) {
         loadResource(

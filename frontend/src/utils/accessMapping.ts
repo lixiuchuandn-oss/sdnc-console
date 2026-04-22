@@ -150,7 +150,7 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
  * 获取默认首页路径
  * 
  * 【逻辑说明】
- * 1. 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由
+ * 1. 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由（`hidden` 一般排除，`/console` 除外）
  * 2. 按 homePagePriority 升序排序（数值越小优先级越高）
  * 3. 依次检查每个候选路由的权限和授权
  * 4. 返回第一个通过检查的路由路径
@@ -167,12 +167,13 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
 export const getDefaultAdminPath = (perms: string[] = [], hasFeature?: (feature: string) => boolean): string => {
   // 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由
   // 过滤条件：
-  // 1. 不是隐藏的路由
+  // 1. 非 hidden，或仅为侧栏隐藏的租户控制台 `/console`
   // 2. 设置了 homePagePriority 字段
   // 3. 有 requiredActions.page 配置（需要权限检查）
   const candidates = routeSpecs
     .filter(spec => 
-      !spec.hidden && 
+      // `hidden` 仅表示不出管理端侧栏等；租户控制台 `/console` 仍参与首页候选
+      (!spec.hidden || spec.path === '/console') &&
       spec.homePagePriority !== undefined &&
       spec.requiredActions?.page
     )

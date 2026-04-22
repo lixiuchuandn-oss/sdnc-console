@@ -71,6 +71,50 @@ const TAB_PANEL_PADDING: React.CSSProperties = { padding: '4px 0 16px' };
 const TAB_PANEL_PADDING_WIDE: React.CSSProperties = { padding: '4px 0 24px' };
 const TAB_BAR_STYLE: React.CSSProperties = { marginBottom: 8, fontWeight: 500 };
 
+const descLabelNarrow: React.CSSProperties = { width: 200, background: 'rgba(0,0,0,0.02)' };
+
+const HMS_DISK_COLS = [
+  { title: '设备', dataIndex: 'name', key: 'name', width: 120, ellipsis: true },
+  { title: '类型', dataIndex: 'type', key: 'type', width: 90 },
+  { title: '容量', dataIndex: 'size', key: 'size', width: 100 },
+  { title: '型号', dataIndex: 'model', key: 'model', ellipsis: true, render: (v: any) => String(v || '-') },
+  { title: '序列号', dataIndex: 'serial', key: 'serial', width: 160, ellipsis: true, render: (v: any) => String(v || '-') },
+  { title: '挂载', dataIndex: 'mountpoint', key: 'mountpoint', ellipsis: true, render: (v: any) => String(v || '-') },
+];
+
+const HMS_MEM_COLS = [
+  { title: '插槽', dataIndex: 'Locator', key: 'loc', width: 160, ellipsis: true },
+  { title: 'Bank', dataIndex: 'Bank Locator', key: 'bank', width: 100, ellipsis: true },
+  { title: '容量', dataIndex: 'Size', key: 'size', width: 120 },
+  { title: '类型', dataIndex: 'Type', key: 'type', width: 100 },
+  { title: '速率', dataIndex: 'Speed', key: 'speed', width: 110 },
+  { title: '厂商', dataIndex: 'Manufacturer', key: 'mfg', width: 120, ellipsis: true },
+  { title: '料号', dataIndex: 'Part Number', key: 'pn', ellipsis: true },
+  { title: '序列号', dataIndex: 'Serial Number', key: 'sn', width: 160, ellipsis: true },
+];
+
+function buildHmsSwitchTableColumns(swList: any[]) {
+  const switchKeySet = new Set<string>();
+  for (const row of swList) {
+    if (row && typeof row === 'object') Object.keys(row).forEach((k) => switchKeySet.add(k));
+  }
+  const switchKeys = Array.from(switchKeySet).sort();
+  if (!switchKeys.length) return [];
+  return switchKeys.map((k) => ({
+    title: k,
+    dataIndex: k,
+    key: k,
+    width: 200,
+    ellipsis: true,
+    render: (_: unknown, row: any) => (
+      <span style={{ wordBreak: 'break-word' }}>{String(row?.[k] ?? '-')}</span>
+    ),
+  }));
+}
+
+const HMS_HARDWARE_SYNC_HINT =
+  '请确认集群已暴露 /v1/hms/node/hardwareInfo。在节点列表点击「刷新」或带 ?force=true 拉取，会与物理网卡（HMS）在同一同步周期写入。';
+
 /** 与 ProviderNetworkDetailDrawer 运维子抽屉内 ViewLink 区域一致 */
 const NODE_OPS_SUB_DRAWER_VIEW_LINK_BOX: React.CSSProperties = {
   width: '100%',
@@ -227,6 +271,12 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     return Array.isArray(arr) ? arr : [];
   }, [record]);
 
+  /** 节点列表 API 已将 rawData.hmsHardware 映射为 hardware */
+  const hardware = useMemo(() => {
+    const h = record?.hardware;
+    return h && typeof h === 'object' ? h : null;
+  }, [record]);
+
   const ready = useMemo(() => {
     if (typeof record?.ready === 'boolean') return record.ready;
     const conds: any[] = Array.isArray(record?.status?.conditions) ? record.status.conditions : [];
@@ -358,6 +408,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     !hasMetrics || memTotalBytes <= 0 ? 'muted' : memPct != null && memPct >= 90 ? 'warn' : 'ok';
   const nicKpiTone: KpiTone = nics.length > 0 ? 'ok' : 'muted';
   const nicUsed = nics.filter((x) => Boolean(x?.usedByHarvester)).length;
+  const hwKpiTone: KpiTone = hardware ? 'ok' : 'muted';
 
   const nodeViewLink = useMemo(() => {
     if (!record) return '';
@@ -370,10 +421,33 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
 
   const tabItems = useMemo(() => {
     if (!record) return [];
+
+    const hw = hardware;
+    const diskList: any[] = hw && Array.isArray(hw.disk) ? hw.disk : [];
+    const memList: any[] = hw && Array.isArray(hw.memory) ? hw.memory : [];
+    const swList: any[] = hw && Array.isArray(hw.switch) ? hw.switch : [];
+    const systemObj = hw?.system && typeof hw.system === 'object' ? hw.system : null;
+    const cpuObj = hw?.cpu && typeof hw.cpu === 'object' ? hw.cpu : null;
+    const cpuRows = cpuObj
+      ? Object.entries(cpuObj).map(([attr, val]) => ({
+          key: attr,
+          attr,
+          val: String(val ?? '-'),
+        }))
+      : [];
+    const switchCols = buildHmsSwitchTableColumns(swList);
+
+    const hmsNoPayload = (
+      <div style={TAB_PANEL_PADDING_WIDE}>
+        <Alert type="info" showIcon message="暂无 HMS 硬件数据" description={HMS_HARDWARE_SYNC_HINT} />
+      </div>
+    );
+
+    /** Tab 顺序：控制面 → 调度 → HMS 硬件 → 物理网卡（倒数第二，便于与末位 LLDP 对照） */
     return [
       {
         key: 'node',
-        label: '节点信息',
+        label: '节点',
         children: (
           <div style={TAB_PANEL_PADDING}>
             <Descriptions bordered size="small" column={1} labelStyle={descLabelStyle}>
@@ -420,7 +494,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
       },
       {
         key: 'cluster',
-        label: '集群信息',
+        label: '集群',
         children: (
           <div style={TAB_PANEL_PADDING}>
             <Descriptions bordered size="small" column={1} labelStyle={descLabelStyle}>
@@ -453,7 +527,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
       },
       {
         key: 'reservations',
-        label: '资源预留',
+        label: '调度预留',
         children: (
           <div style={TAB_PANEL_PADDING}>
             <Descriptions bordered size="small" column={1} labelStyle={descLabelStyle}>
@@ -486,8 +560,116 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
         ),
       },
       {
-        key: 'nics',
-        label: '网卡信息',
+        key: 'hms-system',
+        label: '主板',
+        children: (
+          <div style={TAB_PANEL_PADDING_WIDE}>
+            {!hw ? (
+              hmsNoPayload
+            ) : systemObj ? (
+              <Descriptions bordered size="small" column={1} labelStyle={descLabelNarrow}>
+                {Object.entries(systemObj).map(([k, v]) => (
+                  <Descriptions.Item key={k} label={k}>
+                    {String(v ?? '-')}
+                  </Descriptions.Item>
+                ))}
+              </Descriptions>
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="HMS 未返回 system（SMBIOS）" />
+            )}
+          </div>
+        ),
+      },
+      {
+        key: 'hms-cpu',
+        label: '处理器',
+        children: (
+          <div style={TAB_PANEL_PADDING_WIDE}>
+            {!hw ? (
+              hmsNoPayload
+            ) : cpuRows.length ? (
+              <Table
+                size="small"
+                bordered
+                rowKey="key"
+                pagination={{ pageSize: 25, showTotal: (t) => `共 ${t} 条` }}
+                scroll={{ y: 420 }}
+                columns={[
+                  { title: '属性', dataIndex: 'attr', width: 300, ellipsis: true },
+                  { title: '值', dataIndex: 'val', ellipsis: true },
+                ]}
+                dataSource={cpuRows}
+              />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="HMS 未返回 cpu（lscpu）" />
+            )}
+          </div>
+        ),
+      },
+      {
+        key: 'hms-memory',
+        label: '内存',
+        children: (
+          <div style={TAB_PANEL_PADDING_WIDE}>
+            {!hw ? (
+              hmsNoPayload
+            ) : memList.length ? (
+              <Table
+                size="small"
+                bordered
+                rowKey={(r: any, i?: number) => `${String(r?.Locator ?? '')}-${i ?? 0}`}
+                columns={HMS_MEM_COLS as any}
+                dataSource={memList}
+                scroll={{ x: 1200 }}
+                pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }}
+              />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="HMS 未返回 memory（DMI）" />
+            )}
+          </div>
+        ),
+      },
+      {
+        key: 'hms-disk',
+        label: '磁盘',
+        children: (
+          <div style={TAB_PANEL_PADDING_WIDE}>
+            {!hw ? (
+              hmsNoPayload
+            ) : diskList.length ? (
+              <Table
+                size="small"
+                bordered
+                rowKey={(r: any, i?: number) => `${r?.name || ''}-${r?.type || ''}-${i ?? 0}`}
+                columns={HMS_DISK_COLS as any}
+                dataSource={diskList}
+                pagination={{ pageSize: 12, showTotal: (t) => `共 ${t} 条` }}
+                expandable={{
+                  expandedRowRender: (r: any) =>
+                    Array.isArray(r?.children) && r.children.length ? (
+                      <Table
+                        size="small"
+                        bordered
+                        rowKey={(c: any, j?: number) => `${c?.name}-${j ?? 0}`}
+                        columns={HMS_DISK_COLS as any}
+                        dataSource={r.children}
+                        pagination={false}
+                      />
+                    ) : (
+                      <Typography.Text type="secondary">无子项（children）</Typography.Text>
+                    ),
+                  rowExpandable: (r: any) => Array.isArray(r?.children) && r.children.length > 0,
+                }}
+              />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="HMS 未返回 disk" />
+            )}
+          </div>
+        ),
+      },
+      {
+        key: 'hms-nics',
+        label: '物理网卡',
         children: (
           <div style={TAB_PANEL_PADDING_WIDE}>
             <Table
@@ -499,6 +681,29 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
               dataSource={nics}
               pagination={{ size: 'small', showTotal: (t) => `共 ${t} 条` }}
             />
+          </div>
+        ),
+      },
+      {
+        key: 'hms-switch',
+        label: '上联交换机（LLDP）',
+        children: (
+          <div style={TAB_PANEL_PADDING_WIDE}>
+            {!hw ? (
+              hmsNoPayload
+            ) : swList.length && switchCols.length ? (
+              <Table
+                size="small"
+                bordered
+                rowKey={(_: any, i?: number) => `sw-${i ?? 0}`}
+                columns={switchCols as any}
+                dataSource={swList}
+                scroll={{ x: Math.min(2400, switchCols.length * 200) }}
+                pagination={{ pageSize: 8, showTotal: (t) => `共 ${t} 条` }}
+              />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="HMS 未返回 switch（LLDP）" />
+            )}
           </div>
         ),
       },
@@ -516,6 +721,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     podLimits,
     nics,
     nicColumns,
+    hardware,
   ]);
 
   const nodeOpsSubDrawerTitle = (
@@ -687,6 +893,12 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 <Typography.Text style={{ color: UI.textMuted, fontSize: 13 }}>
                   网卡 {nics.length} · 占用 {nicUsed}
                 </Typography.Text>
+                {hardware?.system?.['Product Name'] ? (
+                  <Typography.Text style={{ color: UI.textMuted, fontSize: 13 }}>
+                    机型 {String(hardware.system?.Manufacturer || '').trim()}{' '}
+                    {String(hardware.system?.['Product Name'] || '').trim()}
+                  </Typography.Text>
+                ) : null}
                 {ready ? (
                   <Tag style={heroTagSuccess}>就绪 · Ready</Tag>
                 ) : (
@@ -726,6 +938,12 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 <div aria-hidden style={HERO_KPI_DIVIDER} />
                 <PulseStat label="物理网卡" tone={nicKpiTone}>
                   {nics.length} 块{nicUsed > 0 ? ` · ${nicUsed} 已占用` : ''}
+                </PulseStat>
+                <div aria-hidden style={HERO_KPI_DIVIDER} />
+                <PulseStat label="HMS 硬件" tone={hwKpiTone}>
+                  {hardware
+                    ? `磁盘 ${Array.isArray(hardware.disk) ? hardware.disk.length : 0} · 内存 DMI ${Array.isArray(hardware.memory) ? hardware.memory.length : 0} · LLDP ${Array.isArray(hardware.switch) ? hardware.switch.length : 0}`
+                    : '未获取'}
                 </PulseStat>
               </div>
             </div>

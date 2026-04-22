@@ -1,11 +1,9 @@
 /**
- * 资源池 config.aswCtl 与「临时配置」表单之间的转换。
- * 每资源池仅一台 ASW-CTL；编辑时 apiKey 留空表示保留原值。
+ * 资源池 config.aswCtl 与「连接设置」表单之间的转换。
+ * HSM 访问地址固定为资源池 API Endpoint；此处仅可选 API Key、TLS。apiKey 留空表示保留原值。
  */
 
 export type AswCtlModalFields = {
-  name: string;
-  baseUrl: string;
   apiKey: string;
 };
 
@@ -36,29 +34,9 @@ export function normalizeAswCtlApiKeyInput(raw: unknown): string | undefined {
   return s || undefined;
 }
 
-/** 从已有 config.aswCtl 生成弹窗初始值（不预填 apiKey） */
-export function aswCtlModalDefaults(cfg: unknown): AswCtlModalFields {
-  if (!cfg || typeof cfg !== 'object') {
-    return { name: '', baseUrl: '', apiKey: '' };
-  }
-  const c = cfg as Record<string, unknown>;
-  const eps = c.endpoints;
-  if (Array.isArray(eps) && eps.length > 0) {
-    const raw = eps[0];
-    if (raw && typeof raw === 'object') {
-      const e = raw as Record<string, unknown>;
-      return {
-        name: String(e.name ?? ''),
-        baseUrl: String(e.baseUrl ?? e.url ?? ''),
-        apiKey: '',
-      };
-    }
-  }
-  return {
-    name: String(c.name ?? ''),
-    baseUrl: String(c.baseUrl ?? c.url ?? ''),
-    apiKey: '',
-  };
+/** 从已有 config.aswCtl 生成弹窗初始值（不预填 apiKey；密钥沿用 getEffectiveAswCtlApiKey） */
+export function aswCtlModalDefaults(_cfg?: unknown): AswCtlModalFields {
+  return { apiKey: '' };
 }
 
 /**
@@ -83,33 +61,28 @@ export function getEffectiveAswCtlApiKey(
 }
 
 /**
- * 将弹窗字段合并为写入后端的 aswCtl（扁平单实例）；全空 baseUrl 则返回 undefined。
+ * 将弹窗字段合并为写入后端的 aswCtl（不含 baseUrl；Tower 始终用资源池 endpoint 访问 `/v1/hms/*`）。
  */
 export function buildAswCtlConfig(
   prev: unknown,
   row: AswCtlModalFields,
   insecureTls: boolean,
 ): Record<string, unknown> | undefined {
-  const baseUrl = String(row?.baseUrl || '')
-    .trim()
-    .replace(/\/+$/, '');
-  if (!baseUrl) return undefined;
-
   const typed = normalizeAswCtlApiKeyInput(row?.apiKey);
   const p = prev && typeof prev === 'object' ? (prev as Record<string, unknown>) : null;
   const prevEp0 =
     Array.isArray(p?.endpoints) && p!.endpoints[0] && typeof p!.endpoints[0] === 'object'
       ? (p!.endpoints[0] as Record<string, unknown>)
       : null;
-  const apiKey =
-    typed ||
+  const apiKeyFromPrev =
     normalizeAswCtlApiKeyInput(prevEp0?.apiKey) ||
     normalizeAswCtlApiKeyInput(p?.apiKey) ||
     undefined;
 
-  const out: Record<string, unknown> = { insecureTls, baseUrl };
-  const name = String(row?.name || '').trim();
-  if (name) out.name = name;
-  if (apiKey) out.apiKey = apiKey;
+  const out: Record<string, unknown> = { insecureTls };
+  if (typed) out.apiKey = typed;
+  else if (apiKeyFromPrev) out.apiKey = apiKeyFromPrev;
+
+  if (!out.apiKey && !insecureTls) return undefined;
   return out;
 }

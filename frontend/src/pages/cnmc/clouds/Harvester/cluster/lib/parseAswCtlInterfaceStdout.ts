@@ -42,6 +42,154 @@ function splitTableRow(line: string): string[] {
     .filter(Boolean);
 }
 
+/** 华为 VRP `display interface brief` 等：NULL、Vlanif、环回等为逻辑口，前面板不展示 */
+export function isHuaweiStyleLogicalInterfaceName(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n) return true;
+  if (/^NULL\d*$/i.test(n)) return true;
+  if (/^Vlanif\d+/i.test(n)) return true;
+  if (/^LoopBack\d*$/i.test(n)) return true;
+  if (/^InLoopBack/i.test(n)) return true;
+  if (/^Virtual-Template/i.test(n)) return true;
+  if (/^MTunnel/i.test(n)) return true;
+  if (/^Tunnel\d*$/i.test(n)) return true;
+  if (/^Nve\d*$/i.test(n)) return true;
+  if (/^Register-Tunnel/i.test(n)) return true;
+  return false;
+}
+
+function isHuaweiDisplayInterfaceBriefHeaderLine(trimmed: string): boolean {
+  return /^\s*Interface\s+\S+\s+Protocol\b/i.test(trimmed) && /\bPHY\b/i.test(trimmed);
+}
+
+/**
+ * 华为 `display interface brief`：表头含 Interface / PHY / Protocol，数据行首列为接口名。
+ * @returns `null` 表示非该版式；`[]` 表示已识别表头但无物理口；非空为解析结果。
+ */
+function tryParseHuaweiDisplayInterfaceBriefTable(stdout: string): ParsedSwitchPort[] | null {
+  if (!stdout || typeof stdout !== 'string') return null;
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (isHuaweiDisplayInterfaceBriefHeaderLine(t)) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx < 0) return null;
+
+  const ports: ParsedSwitchPort[] = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (/^[-=─]+$/.test(trimmed)) continue;
+    if (/^<[\w-]+>$/i.test(trimmed)) continue;
+
+    const parts = splitTableRow(trimmed);
+    if (parts.length < 3) continue;
+    const name = parts[0]!;
+    const phy = parts[1]!;
+    const protocol = parts[2]!;
+    if (/^interface$/i.test(name)) continue;
+    if (/^(PHY|Protocol|InUti|OutUti|inErrors|outErrors)$/i.test(name)) continue;
+    if (!name || !phy) continue;
+
+    if (isHuaweiStyleLogicalInterfaceName(name)) continue;
+
+    const rest = parts.slice(3);
+    const speed = rest.length ? rest.join(' ') : undefined;
+    const status = `${phy} / ${protocol}`.replace(/\s+/g, ' ').trim();
+
+    ports.push({
+      name,
+      status,
+      speed: speed || undefined,
+      rawLine: trimmed,
+    });
+  }
+  return ports;
+}
+
+/**
+ * 从端口名解析 `槽/子槽/端口` 三元组，供前面板排序与奇偶排布。
+ * 支持纯 `1/0/5`（Broadcom）与 `GigabitEthernet0/0/12`（华为）等后缀形式。
+ */
+export function parseSwitchPortSlotTriplet(name: string): [number, number, number] | null {
+  const s = String(name || '').trim();
+  if (!s) return null;
+  const direct = s.match(/^(\d+)\/(\d+)\/(\d+)$/);
+  if (direct) {
+    return [parseInt(direct[1]!, 10), parseInt(direct[2]!, 10), parseInt(direct[3]!, 10)];
+  }
+  const tail = s.match(/(\d+)\/(\d+)\/(\d+)\s*$/);
+  if (tail) {
+    return [parseInt(tail[1]!, 10), parseInt(tail[2]!, 10), parseInt(tail[3]!, 10)];
+  }
+  return null;
+}
+
+function parseMbpsField(raw?: string): number | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s || s === '-') return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 万兆及以上：仅依据**接口类型命名**（常见华为/思科/H3C 等），**不用**槽位末段数字猜测。
+ */
+export function isSwitchPortTenGigabitClassByName(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  if (
+    /^(?:XGigabitEthernet|10GigabitEthernet|TenGigabitEthernet|Ten-GigabitEthernet|10GE|25GE|40GE|100GE|400GE|HundredGigabitEthernet|FortyGigabitEthernet|TwentyFiveGigE|TwoHundredGigE|TwoHundredGigabitEthernet)/i.test(
+      n,
+    )
+  ) {
+    return true;
+  }
+  if (/^Te\d+[./]/i.test(n)) return true;
+  if (/^XGE(?:\d|[/.])/i.test(n)) return true;
+  return false;
+}
+
+/**
+ * 前面板「千兆区 | 万兆区」：接口名判型；纯 `槽/子槽/口` 且无类型前缀时，用 Broadcom 表解析出的检测/配置速率（≥10000Mbps → 万兆区）。
+ */
+export function partitionSwitchPortsGigabitVsTenG(ports: ParsedSwitchPort[]): {
+  gigabit: ParsedSwitchPort[];
+  tenG: ParsedSwitchPort[];
+} {
+  const isTenG = (p: ParsedSwitchPort): boolean => {
+    if (isSwitchPortTenGigabitClassByName(p.name)) return true;
+    const det = parseMbpsField(p.detectedSpeedMbps);
+    if (det != null && det >= 10000) return true;
+    const cfg = parseMbpsField(p.configuredSpeedMbps);
+    if (cfg != null && cfg >= 10000) return true;
+    return false;
+  };
+
+  const sorted = [...ports].sort((a, b) => {
+    const ka = parseSwitchPortSlotTriplet(a.name) ?? [9999, 9999, 9999];
+    const kb = parseSwitchPortSlotTriplet(b.name) ?? [9999, 9999, 9999];
+    for (let i = 0; i < 3; i++) {
+      if (ka[i] !== kb[i]) return ka[i] - kb[i];
+    }
+    return 0;
+  });
+
+  const gigabit: ParsedSwitchPort[] = [];
+  const tenG: ParsedSwitchPort[] = [];
+  for (const p of sorted) {
+    if (isTenG(p)) tenG.push(p);
+    else gigabit.push(p);
+  }
+  return { gigabit, tenG };
+}
+
 /**
  * Broadcom 等：含 `--------+------+` 分隔线，数据行以 `槽/槽/口` 开头，检测速率列为数字或 `-`。
  */
@@ -121,6 +269,9 @@ export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
   const broadcom = parseBroadcomStylePortTable(stdout);
   if (broadcom.length > 0) return broadcom;
 
+  const huaweiBrief = tryParseHuaweiDisplayInterfaceBriefTable(stdout);
+  if (huaweiBrief !== null) return huaweiBrief;
+
   const lines = stdout.replace(/\r\n/g, '\n').split('\n');
   let headerIdx = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -140,7 +291,9 @@ export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
       if (parts.length < 2) continue;
       const [name, status, ...rest] = parts;
       if (/^interface$|^status$|^speed$/i.test(name)) continue;
+      if (/^interface$/i.test(String(name)) && /^PHY$/i.test(String(status))) continue;
       if (!name || !status) continue;
+      if (isHuaweiStyleLogicalInterfaceName(String(name))) continue;
       const speed = rest.length ? rest.join(' ') : undefined;
       ports.push({
         name,
@@ -159,7 +312,11 @@ export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
     if (parts.length < 2) continue;
     const [a, b, c] = parts;
     if (/^interface$/i.test(a) && /^status$/i.test(b)) continue;
+    if (/^interface$/i.test(a) && /^PHY$/i.test(b)) continue;
+    if (/^interface$/i.test(a)) continue;
+    if (/^(PHY|Protocol|InUti|OutUti|inErrors|outErrors)$/i.test(a)) continue;
     if (/^[\w./:-]+$/.test(a) && a.length <= 64 && b.length <= 32) {
+      if (isHuaweiStyleLogicalInterfaceName(a)) continue;
       ports.push({
         name: a,
         status: b,
@@ -188,6 +345,7 @@ export function extractInterfacesStdoutFromRecord(record: {
 
     let score = 0;
     if (/DETECTED-VALUES/i.test(out) && /CONFIGURED-VALUES/i.test(out)) score += 4;
+    if (/^\s*Interface\s+\S+\s+Protocol\b/im.test(out) && /\bPHY\b/.test(out)) score += 5;
     if (/^\s*\d+\/\d+\/\d+\s+/m.test(out)) score += 3;
     if (/[\-+]{12,}/.test(out) && /\+/.test(out)) score += 2;
     if (/Chas\//i.test(out) && /Port/i.test(out)) score += 2;

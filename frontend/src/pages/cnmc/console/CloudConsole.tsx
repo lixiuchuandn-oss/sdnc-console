@@ -73,7 +73,7 @@ import VmReconfigureModal from '../clouds/Harvester/ecs/modals/VmReconfigureModa
 import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
 import { useTenantConsoleHeaderSlot } from '../../../contexts/TenantConsoleHeaderSlotContext';
-import { useTenantConsoleSider } from '../../../layouts/TenantConsoleSiderContext';
+import { useTenantConsoleSider } from '../../../layouts/tenant';
 
 const { Content } = Layout;
 
@@ -86,7 +86,7 @@ function cloudResourcePoolProviderLabel(c: CloudItem): string {
     cloudmap: 'Cloudmap',
     'cloudmap.private': 'Cloudmap',
     'cloudmap.edge': 'Cloudmap 边缘',
-    'cloudmap.csm': 'Cloudmap CSM',
+    'cloudmap.csm': 'CSM（SDN）',
   };
   if (map[p]) return map[p];
   if (p.startsWith('cloudmap.')) return 'Cloudmap';
@@ -535,8 +535,8 @@ const CloudConsolePage: React.FC = () => {
       const list: any[] = await fetchClouds();
       const arr = Array.isArray(list) ? list : [];
       const filtered = arr.filter((c) => {
-        const pRaw = String(c?.config?.provider || '');
-        return pRaw.toLowerCase().startsWith('cloudmap');
+        const p = String(c?.config?.provider || '').toLowerCase();
+        return p === 'cloudmap.private' || p === 'cloudmap.edge';
       });
       setClouds(filtered);
 

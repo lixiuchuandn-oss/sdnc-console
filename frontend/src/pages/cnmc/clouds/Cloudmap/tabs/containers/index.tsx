@@ -135,7 +135,7 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         },
         {
           key: 'pods',
-          label: 'Pod',
+          label: '容器实例',
           children: (
             <PodsSection
               pods={harvesterPods}
@@ -175,7 +175,7 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         },
         {
           key: 'services',
-          label: 'Service',
+          label: '服务',
           children: (
             <ServicesSection
               cloudId={cloudId}
@@ -193,7 +193,7 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         },
         {
           key: 'ingresses',
-          label: 'Ingress',
+          label: 'Ingress 路由',
           children: (
             <IngressesSection
               cloudId={cloudId}

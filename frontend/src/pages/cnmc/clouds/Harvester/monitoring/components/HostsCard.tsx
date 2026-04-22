@@ -31,6 +31,15 @@ export const HostsCard: React.FC = () => {
     }));
   }, [segments]);
 
+  // 切云/重新拉数时先走 loading，图表容器会换成 Spin，旧实例仍指向已卸载的 DOM；
+  // 若不 dispose，loading 结束后因 ref 非空不会 init，饼图会一直空白。
+  useEffect(() => {
+    if (ctx?.loading) {
+      chartInstanceRef.current?.dispose();
+      chartInstanceRef.current = null;
+    }
+  }, [ctx?.loading]);
+
   useEffect(() => {
     if (!chartRef.current || ctx?.loading) return;
 

@@ -6,6 +6,9 @@
 export const CLOUD_RESOURCE_POOLS_READ = 'clouds.resource-pools:read';
 export const CLOUD_RESOURCE_POOLS_WRITE = 'clouds.resource-pools:write';
 
+/** 资源池接入向导：新建 / 编辑 / 连接测试（与 CloudWizardeasy、后端原子对齐） */
+export const CLOUD_RESOURCE_POOLS_CREATE_WRITE = 'clouds.resource-pools.create:write';
+
 /** 虚拟机创建向导：入口按钮与 /instances/create 路由页门控 */
 export const CLOUD_VM_CREATE_WIZARD_WRITE = 'clouds.vm-create-wizard:write';
 

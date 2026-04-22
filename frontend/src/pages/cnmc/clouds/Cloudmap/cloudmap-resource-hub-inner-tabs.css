@@ -1,0 +1,37 @@
+/**
+ * 资源总览二级 Tabs：由外层 cloudmap-detail-outer-tabs 限定高度，此处仅用 flex 铺满，勿再用 100vh
+ *（否则会超过 AdminLayout Content = 100vh - 顶栏，触发主内容区竖条）。
+ *
+ * 横向允许外扩以减轻机框阴影裁切；纵向 hidden，滚动在子面板（如机柜 rack-body）内。
+ */
+.cloudmap-resource-hub-inner-tabs.ant-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-nav {
+  flex: 0 0 auto;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-content-holder {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: visible !important;
+  overflow-y: hidden !important;
+  display: flex;
+  flex-direction: column;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-tabpane {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

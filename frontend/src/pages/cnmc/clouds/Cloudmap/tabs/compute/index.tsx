@@ -285,7 +285,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
 
                         if (resizingPvc) {
                           message.error(
-                            `\u6682\u4e0d\u53ef\u542f\u52a8\uff1a\u4e91\u76d8\u300c${resizingPvc.metadata.name}\u300d\u5904\u4e8e Resizing \u6269\u5bb9\u4e2d\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002`,
+                            `暂不可启动：云盘「${resizingPvc.metadata.name}」处于 Resizing 扩容中，请稍后再试。`,
                           );
                           return;
                         }

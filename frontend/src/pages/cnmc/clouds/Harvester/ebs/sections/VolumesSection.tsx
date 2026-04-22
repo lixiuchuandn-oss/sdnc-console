@@ -40,7 +40,7 @@
  * [数据流]
  * 
  * 上游数据源:
- *   - `CloudDetailHarvester` 传入 `volumes`, `vms`, `storageClasses` 数据
+ *   - 资源池详情页传入 `volumes`, `vms`, `storageClasses` 数据
  *   - Props 定义: 第 68-78 行
  * 
  * 下游接口调用:

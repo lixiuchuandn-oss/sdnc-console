@@ -1,0 +1,8 @@
+/* Rancher 资源池详情页（cnmc/clouds/rancher） */
+.rancher-detail-wrap {
+  max-width: 1200px;
+}
+
+.rancher-detail-overview .ant-descriptions-item-label {
+  width: 140px;
+}
