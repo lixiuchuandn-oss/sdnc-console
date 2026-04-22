@@ -17,12 +17,14 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Table, Segmented, Select, Tag, Modal, Input, InputNumber, App, Button, Tooltip } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Segmented, Select, Tag, Modal, Input, InputNumber, App, Button, Tooltip, Form } from 'antd';
+import { ReloadOutlined, SearchOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchHarvesterDeployments,
   fetchHarvesterStatefulSets,
@@ -30,6 +32,7 @@ import {
   scaleHarvesterDeployment,
   restartHarvesterDeployment,
   deleteHarvesterContainerResource,
+  patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 import { WorkloadFormModal, WorkloadType } from '../components';
 
@@ -45,7 +48,14 @@ type Props = {
   configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   // PVC 列表（用于存储卷挂载）
-  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
+  persistentVolumeClaims?: Array<{
+    metadata: { name: string; namespace: string; annotations?: Record<string, string> };
+    raw?: { metadata?: { annotations?: Record<string, string> } };
+    annotations?: Record<string, string>;
+    alias?: string;
+    name?: string;
+    pvcName?: string;
+  }>;
   cloudId: string;
   nsValue?: string;
   onNsChange: (v?: string) => void;
@@ -138,8 +148,14 @@ const WorkloadTable: React.FC<{
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasRecord, setAliasRecord] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
+  const [yamlModalVisible, setYamlModalVisible] = useState(false);
+  const [yamlContent, setYamlContent] = useState('');
   
-  const typeLabel = type === 'deployment' ? '部署' : type === 'statefulset' ? '有状态副本集' : '守护进程集';
+  const typeLabel = type === 'deployment' ? '无状态副本集' : type === 'statefulset' ? '有状态副本集' : '守护进程集';
   const apiPath = type === 'deployment' 
     ? '/apis/apps/v1/deployments' 
     : type === 'statefulset' 
@@ -158,6 +174,79 @@ const WorkloadTable: React.FC<{
       return true;
     });
   }, [data, keyword]);
+  
+  // 别名编辑
+  const handleOpenAliasModal = useCallback((record: any) => {
+    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+    setAliasRecord(record);
+    setAliasModalVisible(true);
+    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+  }, [aliasForm]);
+
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasRecord) return false;
+    const ns = aliasRecord?.metadata?.namespace;
+    const name = aliasRecord?.metadata?.name;
+    if (!ns || !name) {
+      message.error('未能解析资源命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+      message.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasRecord(null);
+      aliasForm.resetFields();
+      onRefresh();
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      message.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+
+  // 查看 YAML
+  const handleViewYaml = useCallback((record: any) => {
+    try {
+      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
+      setYamlContent(yamlStr);
+      setYamlModalVisible(true);
+    } catch (e: any) {
+      message.error('生成 YAML 失败: ' + e.message);
+    }
+  }, [message]);
   
   // 扩缩容操作
   const handleScale = useCallback((record: any) => {
@@ -225,10 +314,39 @@ const WorkloadTable: React.FC<{
   const columns = useMemo(() => [
     {
       title: '名称',
-      dataIndex: ['metadata', 'name'],
       key: 'name',
+      width: 180,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const alias = record?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.metadata?.name || '';
+        const hasAlias = !!alias;
+        
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>{hasAlias ? alias : id}</span>
+            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(record);
+                }}
+              />
+            </Tooltip>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      dataIndex: ['metadata', 'name'],
+      key: 'id',
       width: 200,
       ellipsis: true,
+      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
       title: '命名空间',
@@ -291,6 +409,12 @@ const WorkloadTable: React.FC<{
             onClick: () => onEdit?.(record),
           },
           {
+            key: 'yaml',
+            label: '查看 YAML',
+            icon: <EyeOutlined />,
+            onClick: () => handleViewYaml(record),
+          },
+          {
             key: 'scale',
             label: '扩缩容',
             onClick: () => handleScale(record),
@@ -320,7 +444,7 @@ const WorkloadTable: React.FC<{
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [type, handleScale, handleRestart, handleDelete, onEdit, modal, typeLabel]);
+  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, onEdit, modal, typeLabel]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -396,6 +520,66 @@ const WorkloadTable: React.FC<{
           onChange: setSelectedKeys,
         }}
       />
+
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {}
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasRecord(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入名称' },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入名称（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="YAML 查看"
+        open={yamlModalVisible}
+        onCancel={() => setYamlModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <YamlEditor
+          value={yamlContent}
+          onChange={() => {}}
+          maxHeight={500}
+          readOnly
+        />
+      </Modal>
     </div>
   );
 };
@@ -429,13 +613,9 @@ const WorkloadsSection: React.FC<Props> = ({
   
   // 打开创建弹窗
   const handleOpenCreate = useCallback(() => {
-    // 如果镜像凭证为空，先刷新资源
-    if (imagePullSecrets.length === 0) {
-      onRefresh(true);
-    }
     setCreateType(activeTab as WorkloadType);
     setCreateModalVisible(true);
-  }, [activeTab, imagePullSecrets.length, onRefresh]);
+  }, [activeTab]);
   
   // 打开编辑弹窗
   const handleEdit = useCallback((record: any) => {
@@ -483,7 +663,7 @@ const WorkloadsSection: React.FC<Props> = ({
           value={activeTab}
           onChange={(v) => setActiveTab(v as 'deployment' | 'statefulset' | 'daemonset')}
           options={[
-            { label: `部署 (${filteredDeployments.length})`, value: 'deployment' },
+            { label: `无状态副本集 (${filteredDeployments.length})`, value: 'deployment' },
             { label: `有状态副本集 (${filteredStatefulSets.length})`, value: 'statefulset' },
             { label: `守护进程集 (${filteredDaemonSets.length})`, value: 'daemonset' },
           ]}

@@ -41,6 +41,7 @@ import {
   GlobalOutlined,
 } from '@ant-design/icons';
 import { createHarvesterIngress, updateHarvesterIngress } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -227,8 +228,11 @@ const IngressForm: React.FC<IngressFormProps> = ({
       apiVersion: 'networking.k8s.io/v1',
       kind: 'Ingress',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('ingress'),
         namespace: values.namespace,
+        annotations: {
+          'tower.io/alias': values.name,
+        },
         labels: values.labels?.reduce((acc, { key, value }) => {
           if (key && value) acc[key] = value;
           return acc;

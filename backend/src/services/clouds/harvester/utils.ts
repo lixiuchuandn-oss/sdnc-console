@@ -138,8 +138,21 @@ export const requestOnce = (target: string, token: string, insecure: boolean = f
 /**
  * [通用 GET 请求]
  * 执行一次 JSON GET 请求，自动解析响应体并在常见错误场景下抛出结构化错误。
+ * @param target 请求URL
+ * @param token 认证Token
+ * @param insecure 是否跳过证书验证
+ * @param silent 是否静默模式（不打印日志）
+ * @param retryCount 重试次数
+ * @param timeout 超时时间（毫秒），默认30秒
  */
-export const getJsonOnce = async (target: string, token: string, insecure: boolean = false, silent: boolean = false, retryCount = 3): Promise<any> => {
+export const getJsonOnce = async (
+  target: string,
+  token: string,
+  insecure: boolean = false,
+  silent: boolean = false,
+  retryCount = 3,
+  timeout: number = 30000
+): Promise<any> => {
   try {
     const agent = getAgent(target, insecure);
     const isHttp = target.startsWith('http:');
@@ -151,7 +164,7 @@ export const getJsonOnce = async (target: string, token: string, insecure: boole
       },
       httpAgent: isHttp ? agent : undefined,
       httpsAgent: !isHttp ? agent : undefined,
-      timeout: 15000,
+      timeout: timeout,
       maxRedirects: 5,
     });
     return res.data;
@@ -161,7 +174,7 @@ export const getJsonOnce = async (target: string, token: string, insecure: boole
         if (!silent)
           computeApiLog.warn(`Network error ${error.code} for ${target}, retrying (${retryCount} left)...`);
         await new Promise(r => setTimeout(r, 500));
-        return getJsonOnce(target, token, insecure, silent, retryCount - 1);
+        return getJsonOnce(target, token, insecure, silent, retryCount - 1, timeout);
     }
 
     if (axios.isAxiosError(error)) {

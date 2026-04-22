@@ -17,18 +17,21 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Modal, Switch, Spin, Tooltip } from 'antd';
-import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Modal, Switch, Spin, Tooltip, Form } from 'antd';
+import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import YamlEditor from '../../../../../../components/YamlEditor';
 import { ConfigMapForm, SecretForm } from '../components';
 import CodeEditor, { detectLanguage } from '../../../../../../components/CodeEditor';
 import {
   deleteHarvesterConfigMap,
   deleteHarvesterSecret,
   fetchHarvesterSecretDetail,
+  patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 
 const { Text } = Typography;
@@ -523,7 +526,7 @@ const ConfigMapTable: React.FC<{
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onCreateClick: () => void;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
 }> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick }) => {
   const { modal, message } = App.useApp();
@@ -531,6 +534,14 @@ const ConfigMapTable: React.FC<{
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentConfigMap, setCurrentConfigMap] = useState<any>(null);
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasRecord, setAliasRecord] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
+  const [yamlModalVisible, setYamlModalVisible] = useState(false);
+  const [yamlContent, setYamlContent] = useState('');
+
+  const apiPath = '/api/v1/configmaps';
   
   // 过滤数据
   const filteredData = useMemo(() => {
@@ -538,7 +549,8 @@ const ConfigMapTable: React.FC<{
     return data.filter((item: any) => {
       const name = item?.metadata?.name || '';
       const ns = item?.metadata?.namespace || '';
-      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw)) {
+      const alias = item?.metadata?.annotations?.['tower.io/alias'] || '';
+      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw) && !alias.toLowerCase().includes(kw)) {
         return false;
       }
       return true;
@@ -559,23 +571,124 @@ const ConfigMapTable: React.FC<{
     try {
       await deleteHarvesterConfigMap(cloudId, namespace, name);
       message.success('删除成功');
-      onRefresh();
-    } catch (e: any) {
-      message.error(e?.message || '删除失败');
+      onRefresh(true);
+    } catch (error: any) {
+      message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
   }, [cloudId, message, onRefresh]);
+
+  // 修改别名
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasRecord) return false;
+    const ns = aliasRecord?.metadata?.namespace;
+    const name = aliasRecord?.metadata?.name;
+    if (!ns || !name) {
+      message.error('未能解析资源命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+      message.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasRecord(null);
+      aliasForm.resetFields();
+      onRefresh(true); // 强制刷新
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      message.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+
+  // 查看 YAML
+  const handleViewYaml = useCallback((record: any) => {
+    try {
+      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
+      setYamlContent(yamlStr);
+      setYamlModalVisible(true);
+    } catch (e: any) {
+      message.error('生成 YAML 失败: ' + e.message);
+    }
+  }, [message]);
+  
+  // 打开别名修改弹窗
+  const handleOpenAliasModal = useCallback((record: any) => {
+    setAliasRecord(record);
+    aliasForm.setFieldsValue({ alias: record?.metadata?.annotations?.['tower.io/alias'] || '' });
+    setAliasModalVisible(true);
+  }, [aliasForm]);
   
   // 表格列定义
   const columns = useMemo(() => [
     {
       title: '名称',
-      dataIndex: ['metadata', 'name'],
       key: 'name',
-      width: 250,
+      width: 180,
       ellipsis: true,
-      render: (name: string, record: any) => (
-        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
-      ),
+      render: (_: any, record: any) => {
+        const alias = record?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.metadata?.name || '';
+        const hasAlias = !!alias;
+        
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>
+              {hasAlias ? alias : id}
+            </a>
+            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(record);
+                }}
+              />
+            </Tooltip>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      dataIndex: ['metadata', 'name'],
+      key: 'id',
+      width: 200,
+      ellipsis: true,
+      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
       title: '命名空间',
@@ -615,14 +728,20 @@ const ConfigMapTable: React.FC<{
       render: (_: any, record: any) => {
         const items = [
           {
-            key: 'detail',
-            label: '详情',
-            onClick: () => handleViewDetail(record),
-          },
-          {
             key: 'edit',
             label: '编辑',
             onClick: () => onEditClick(record),
+          },
+          {
+            key: 'yaml',
+            label: '查看 YAML',
+            icon: <EyeOutlined />,
+            onClick: () => handleViewYaml(record),
+          },
+          {
+            key: 'detail',
+            label: '详情',
+            onClick: () => handleViewDetail(record),
           },
           {
             key: 'delete',
@@ -642,7 +761,7 @@ const ConfigMapTable: React.FC<{
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleDelete, modal, onEditClick]);
+  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -724,6 +843,66 @@ const ConfigMapTable: React.FC<{
           setCurrentConfigMap(null);
         }}
       />
+
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {}
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasRecord(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入名称' },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入名称（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="YAML 查看"
+        open={yamlModalVisible}
+        onCancel={() => setYamlModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <YamlEditor
+          value={yamlContent}
+          onChange={() => {}}
+          maxHeight={500}
+          readOnly
+        />
+      </Modal>
     </div>
   );
 };
@@ -741,7 +920,7 @@ const SecretTable: React.FC<{
   typeFilter?: string;
   onTypeChange: (type?: string) => void;
   onCreateClick: () => void;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
 }> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick }) => {
   const { modal, message } = App.useApp();
@@ -749,6 +928,14 @@ const SecretTable: React.FC<{
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentSecret, setCurrentSecret] = useState<any>(null);
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasRecord, setAliasRecord] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
+  const [yamlModalVisible, setYamlModalVisible] = useState(false);
+  const [yamlContent, setYamlContent] = useState('');
+
+  const apiPath = '/api/v1/secrets';
 
   // 当列表数据刷新时，同步更新当前查看的 Secret
   useEffect(() => {
@@ -782,7 +969,8 @@ const SecretTable: React.FC<{
     return data.filter((item: any) => {
       const name = item?.metadata?.name || '';
       const ns = item?.metadata?.namespace || '';
-      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw)) {
+      const alias = item?.metadata?.annotations?.['tower.io/alias'] || '';
+      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw) && !alias.toLowerCase().includes(kw)) {
         return false;
       }
       return true;
@@ -808,18 +996,118 @@ const SecretTable: React.FC<{
       message.error(e?.message || '删除失败');
     }
   }, [cloudId, message, onRefresh]);
+
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasRecord) return false;
+    const ns = aliasRecord?.metadata?.namespace;
+    const name = aliasRecord?.metadata?.name;
+    if (!ns || !name) {
+      message.error('未能解析资源命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+      message.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasRecord(null);
+      aliasForm.resetFields();
+      onRefresh(true); // 强制刷新
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      message.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+
+  // 查看 YAML
+  const handleViewYaml = useCallback((record: any) => {
+    try {
+      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
+      setYamlContent(yamlStr);
+      setYamlModalVisible(true);
+    } catch (e: any) {
+      message.error('生成 YAML 失败: ' + e.message);
+    }
+  }, [message]);
+  
+  // 打开别名修改弹窗
+  const handleOpenAliasModal = useCallback((record: any) => {
+    setAliasRecord(record);
+    aliasForm.setFieldsValue({ alias: record?.metadata?.annotations?.['tower.io/alias'] || '' });
+    setAliasModalVisible(true);
+  }, [aliasForm]);
   
   // 表格列定义
   const columns = useMemo(() => [
     {
       title: '名称',
-      dataIndex: ['metadata', 'name'],
       key: 'name',
-      width: 250,
+      width: 180,
       ellipsis: true,
-      render: (name: string, record: any) => (
-        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
-      ),
+      render: (_: any, record: any) => {
+        const alias = record?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.metadata?.name || '';
+        const hasAlias = !!alias;
+        
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>
+              {hasAlias ? alias : id}
+            </a>
+            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(record);
+                }}
+              />
+            </Tooltip>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      dataIndex: ['metadata', 'name'],
+      key: 'id',
+      width: 200,
+      ellipsis: true,
+      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
       title: '命名空间',
@@ -863,14 +1151,20 @@ const SecretTable: React.FC<{
       render: (_: any, record: any) => {
         const items = [
           {
-            key: 'detail',
-            label: '详情',
-            onClick: () => handleViewDetail(record),
-          },
-          {
             key: 'edit',
             label: '编辑',
             onClick: () => onEditClick(record),
+          },
+          {
+            key: 'yaml',
+            label: '查看 YAML',
+            icon: <EyeOutlined />,
+            onClick: () => handleViewYaml(record),
+          },
+          {
+            key: 'detail',
+            label: '详情',
+            onClick: () => handleViewDetail(record),
           },
           {
             key: 'delete',
@@ -890,7 +1184,7 @@ const SecretTable: React.FC<{
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleDelete, modal, onEditClick]);
+  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -984,6 +1278,66 @@ const SecretTable: React.FC<{
           setCurrentSecret(null);
         }}
       />
+
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {}
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasRecord(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入名称' },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入名称（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="YAML 查看"
+        open={yamlModalVisible}
+        onCancel={() => setYamlModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <YamlEditor
+          value={yamlContent}
+          onChange={() => {}}
+          maxHeight={500}
+          readOnly
+        />
+      </Modal>
     </div>
   );
 };

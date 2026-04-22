@@ -236,42 +236,28 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
     if (!currentImageInfo) {
       setSelectedTag(null);
     }
-
-    console.log('[RegistryBrowser] currentImage changed:', currentImage);
-    console.log('[RegistryBrowser] currentImageInfo:', currentImageInfo);
-    console.log('[RegistryBrowser] initialLoaded:', initialLoaded);
-    console.log('[RegistryBrowser] loadedKeys:', Array.from(loadedKeys));
-    console.log('[RegistryBrowser] current treeData:', treeData);
     
     if (currentImageInfo && initialLoaded) {
       const repoKey = `repo:${currentImageInfo.repository}`;
       const tagKey = `tag:${currentImageInfo.repository}:${currentImageInfo.tag}`;
 
-      console.log('[RegistryBrowser] repoKey:', repoKey, 'tagKey:', tagKey);
-
       // 检查仓库节点是否存在
       const repoNode = treeData.find(node => node.key === repoKey);
-      console.log('[RegistryBrowser] Found repo node:', repoNode);
       
       // 如果仓库节点不存在，等待加载
       if (!repoNode) {
-        console.log('[RegistryBrowser] Repo node not found, waiting for load');
         return;
       }
 
       // 如果仓库节点存在但没有 children，或者 loadedKeys 不包含该节点，重新加载
       const needReload = !loadedKeys.has(repoKey) || !repoNode.children || repoNode.children.length === 0;
-      console.log('[RegistryBrowser] Need reload:', needReload, 'loadedKeys.has:', loadedKeys.has(repoKey), 'has children:', !!(repoNode.children && repoNode.children.length > 0));
 
       if (needReload) {
-        console.log('[RegistryBrowser] Loading tags for repository:', currentImageInfo.repository);
         loadTags(currentImageInfo.repository).then((tagNodes) => {
-          console.log('[RegistryBrowser] Tags loaded:', tagNodes.length, 'tags');
           setTreeData((prevData) => {
             const updateNode = (nodes: ExtendedTreeDataNode[]): ExtendedTreeDataNode[] => {
               return nodes.map((n) => {
                 if (n.key === repoKey) {
-                  console.log('[RegistryBrowser] Updating node with children:', n.key, tagNodes.length);
                   return { ...n, children: tagNodes };
                 }
                 if (n.children) {
@@ -281,7 +267,6 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
               });
             };
             const newData = updateNode(prevData);
-            console.log('[RegistryBrowser] New treeData:', newData);
             return newData;
           });
           setLoadedKeys((prev) => new Set(prev).add(repoKey));
@@ -292,19 +277,15 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
           setSelectedTag(tagKey);
         });
       } else {
-        console.log('[RegistryBrowser] Repository already loaded with children, just expanding and selecting');
-        console.log('[RegistryBrowser] Repo node children:', repoNode.children);
         // 仓库已经加载，直接展开和高亮
         setExpandedKeys((prev) => {
           if (!prev.includes(repoKey)) {
             const newKeys = [...prev, repoKey];
-            console.log('[RegistryBrowser] Expanding keys:', newKeys);
             return newKeys;
           }
           return prev;
         });
 
-        console.log('[RegistryBrowser] Setting selected tag:', tagKey);
         setSelectedTag(tagKey);
         setTreeKey(prev => prev + 1); // 强制重新渲染 Tree
       }
@@ -316,20 +297,16 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
     const key = String(node.key);
     
     if (loadedKeys.has(key) && node.children && node.children.length > 0) {
-      console.log('[RegistryBrowser] Node already loaded with children:', key);
       return;
     }
     
     if (node.nodeType === 'repository' && node.repository) {
-      console.log('[RegistryBrowser] Loading tags for node:', key);
       const tagNodes = await loadTags(node.repository);
       
-      console.log('[RegistryBrowser] Loaded', tagNodes.length, 'tags for:', key);
       setTreeData((prevData) => {
         const updateNode = (nodes: ExtendedTreeDataNode[]): ExtendedTreeDataNode[] => {
           return nodes.map((n) => {
             if (n.key === key) {
-              console.log('[RegistryBrowser] Updating node:', key, 'with', tagNodes.length, 'children');
               return { ...n, children: tagNodes };
             }
             if (n.children) {
@@ -339,7 +316,6 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
           });
         };
         const newData = updateNode(prevData);
-        console.log('[RegistryBrowser] TreeData after update:', newData);
         return newData;
       });
       

@@ -37,6 +37,7 @@ import {
   App,
   Segmented,
   Alert,
+  Collapse,
 } from 'antd';
 import {
   PlusOutlined,
@@ -64,6 +65,7 @@ import {
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -212,6 +214,7 @@ export interface WorkloadContainerFormValue {
     periodSeconds: number;
   };
   volumeMounts?: VolumeMountConfig[];
+  imagePullSecrets?: string[];
 }
 
 export interface WorkloadFormValues {
@@ -291,7 +294,15 @@ export interface WorkloadFormProps {
   onRefreshConfigMaps?: () => void;
   onRefreshSecrets?: () => void;
   // PVC 相关 props（用于存储卷挂载）
-  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
+  persistentVolumeClaims?: Array<{
+    metadata: { name: string; namespace: string; annotations?: Record<string, string> };
+    raw?: { metadata?: { annotations?: Record<string, string> } };
+    annotations?: Record<string, string>;
+    alias?: string;
+    name?: string;
+    namespace?: string;  // 顶层 namespace 字段
+    pvcName?: string;
+  }>;
   onRefreshPVCs?: () => void;
 }
 
@@ -873,6 +884,7 @@ const createEmptyContainer = (fallbackName = ''): WorkloadContainerFormValue => 
   livenessProbe: { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
   readinessProbe: { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
   volumeMounts: [],
+  imagePullSecrets: [],
 });
 
 const toContainerEditorFields = (container?: Partial<WorkloadContainerFormValue>) => ({
@@ -887,6 +899,7 @@ const toContainerEditorFields = (container?: Partial<WorkloadContainerFormValue>
   livenessProbe: container?.livenessProbe || { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
   readinessProbe: container?.readinessProbe || { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
   volumeMounts: container?.volumeMounts || [],
+  imagePullSecrets: container?.imagePullSecrets || [],
 });
 
 interface VolumesEditorProps {
@@ -895,7 +908,14 @@ interface VolumesEditorProps {
   selectedNamespace: string;
   configMaps: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   secrets: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
-  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
+  persistentVolumeClaims?: Array<{
+    metadata: { name: string; namespace: string; annotations?: Record<string, string> };
+    raw?: { metadata?: { annotations?: Record<string, string> } };
+    annotations?: Record<string, string>;
+    alias?: string;
+    name?: string;
+    pvcName?: string;
+  }>;
   onRefreshConfigMaps: () => void;
   onRefreshSecrets: () => void;
   onOpenQuickCreateConfigMap: () => void;
@@ -930,7 +950,10 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   
   const filteredPVCs = useMemo(() => {
     if (!selectedNamespace) return persistentVolumeClaims || [];
-    return (persistentVolumeClaims || []).filter(pvc => pvc?.metadata?.namespace === selectedNamespace);
+    return (persistentVolumeClaims || []).filter((pvc: any) => {
+      const pvcNs = pvc?.metadata?.namespace || pvc?.namespace;
+      return pvcNs === selectedNamespace;
+    });
   }, [persistentVolumeClaims, selectedNamespace]);
   
   const formValues = Form.useWatch([], form);
@@ -1164,10 +1187,19 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                   placeholder="选择 PVC"
                   showSearch
                   optionFilterProp="label"
-                  options={filteredPVCs.map(pvc => ({
-                    label: pvc.metadata.name,
-                    value: pvc.metadata.name,
-                  }))}
+                  options={filteredPVCs.map((pvc: any) => {
+                    // 从多个位置获取 annotations（优先 rawData）
+                    const alias = pvc?.rawData?.metadata?.annotations?.['tower.io/alias']
+                      || pvc?.raw?.metadata?.annotations?.['tower.io/alias']
+                      || pvc?.metadata?.annotations?.['tower.io/alias']
+                      || pvc?.annotations?.['tower.io/alias']
+                      || pvc?.alias;
+                    const name = pvc?.rawData?.metadata?.name || pvc?.raw?.metadata?.name || pvc?.metadata?.name || pvc?.name || pvc?.pvcName;
+                    return {
+                      label: alias ? `${alias} (${name})` : name,
+                      value: name,
+                    };
+                  })}
                 />
               </Form.Item>
             </Col>
@@ -2968,6 +3000,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       livenessProbe: values.livenessProbe,
       readinessProbe: values.readinessProbe,
       volumeMounts: values.volumeMounts || [],
+      imagePullSecrets: values.imagePullSecrets || [],
     };
   }, []);
 
@@ -3315,7 +3348,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       labels,
       containers,
       replicas,
-      imagePullSecrets: pullSecrets,
       nodeSelector,
       nodeAffinity,
       nodeAntiAffinity,
@@ -3485,8 +3517,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       }
     });
     
-    // 构建镜像拉取凭证
-    const imagePullSecretsList = (pullSecrets || []).map((secretName) => ({
+    // 构建镜像拉取凭证（从所有容器收集并去重）
+    const allContainerSecrets = new Set<string>();
+    (containers || []).forEach((container) => {
+      (container.imagePullSecrets || []).forEach((secretName) => {
+        allContainerSecrets.add(secretName);
+      });
+    });
+    const imagePullSecretsList = Array.from(allContainerSecrets).map((secretName) => ({
       name: secretName,
     }));
     
@@ -3781,9 +3819,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           : workloadType === 'statefulset' ? 'StatefulSet' 
           : 'DaemonSet',
       metadata: {
-        name,
+        name: generateHarvesterCrMetadataName(workloadType),
         namespace,
         labels: labelsMap,
+        annotations: {
+          'tower.io/alias': name,
+        },
       },
       spec: {
         selector: {
@@ -3840,7 +3881,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         : 'deployment';
       
       // 提取容器配置
-      const parseContainer = (container: any): WorkloadContainerFormValue => ({
+      const podImagePullSecrets = (resource.spec?.template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
+      const parseContainer = (container: any, index: number): WorkloadContainerFormValue => ({
         containerName: container.name || '',
         image: container.image || '',
         imagePullPolicy: container.imagePullPolicy || 'IfNotPresent',
@@ -3890,15 +3932,15 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           subPath: mount.subPath,
           readOnly: mount.readOnly,
         })),
+        imagePullSecrets: index === 0 ? podImagePullSecrets : [],
       });
 
-      const containers = (resource.spec?.template?.spec?.containers || []).map(parseContainer);
+      const containers = (resource.spec?.template?.spec?.containers || []).map((c: any, i: number) => parseContainer(c, i));
       const firstContainer = containers[0] || createEmptyContainer(name);
       
       // 提取高级配置
       const replicas = resource.spec?.replicas || 1;
       const nodeSelector = resource.spec?.template?.spec?.nodeSelector || {};
-      const imagePullSecrets = (resource.spec?.template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
       
       // 提取亲和性配置
       const affinity = resource.spec?.template?.spec?.affinity;
@@ -4006,7 +4048,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         containers,
         ...toContainerEditorFields(firstContainer),
         replicas,
-        imagePullSecrets,
         nodeSelector: Object.entries(nodeSelector).map(([key, value]) => ({ key, value: String(value) })),
         nodeAffinity: parseNodeAffinityFromYaml(affinity?.nodeAffinity),
         nodeAntiAffinity: undefined,
@@ -4025,10 +4066,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     if (newMode === 'yaml' && mode === 'form') {
       // 表单 → YAML
       try {
-        const currentFormValues = {
-          ...getSyncedFormValues(),
-          imagePullSecrets: watchedImagePullSecrets,
-        };
+        const currentFormValues = getSyncedFormValues();
         
         if (isEditMode && editData) {
           const k8sResource = buildK8sResource(currentFormValues);
@@ -4218,68 +4256,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     }
   }, [currentStep, form]);
 
-  const renderContainerSwitchPanel = useCallback((title: string, description: string) => (
-    <>
-      <Card
-        size="small"
-        title={title}
-        style={{ marginBottom: 16 }}
-        extra={
-          <Space>
-            <Button type="dashed" size="small" htmlType="button" icon={<PlusOutlined />} onClick={handleAddContainer}>
-              添加容器
-            </Button>
-            <Button type="dashed" size="small" htmlType="button" icon={<CopyOutlined />} onClick={handleDuplicateContainer}>
-              复制容器
-            </Button>
-            <Button danger size="small" htmlType="button" icon={<DeleteOutlined />} onClick={handleRemoveContainer}>
-              删除容器
-            </Button>
-          </Space>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {(getSyncedFormValues().containers || []).map((container, index) => {
-            const isActive = index === activeContainerIndex;
-            return (
-              <div
-                key={`${container.containerName || 'container'}-${index}`}
-                onClick={() => handleSelectContainer(index)}
-                style={{
-                  border: isActive ? '1px solid #1677ff' : '1px solid #f0f0f0',
-                  background: isActive ? '#f0f7ff' : '#fff',
-                  borderRadius: 8,
-                  padding: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Space>
-                    <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
-                    <span style={{ fontWeight: 500 }}>{container.containerName || `container-${index + 1}`}</span>
-                  </Space>
-                  {isActive && <Tag color="processing">编辑中</Tag>}
-                </div>
-                <div style={{ color: '#666', fontSize: 12, marginTop: 6 }}>{container.image || '未配置镜像'}</div>
-                <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
-                  端口 {container.ports?.length || 0} / 环境变量 {container.env?.length || 0} / 挂载 {container.volumeMounts?.length || 0}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
 
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message={`当前编辑：${getSyncedFormValues().containers?.[activeContainerIndex]?.containerName || `容器 ${activeContainerIndex + 1}`}`}
-        description={description}
-      />
-    </>
-  ), [activeContainerIndex, getSyncedFormValues, handleAddContainer, handleDuplicateContainer, handleRemoveContainer, handleSelectContainer]);
-  
   const getFormSummary = useCallback(() => {
     const values = getSyncedFormValues();
     const containers = values.containers || [];
@@ -4366,266 +4343,413 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             </Row>
             
             <LabelEditor name="labels" label="标签" />
-          </div>
-        );
-        
-      case 1:
-        return (
-          <div>
-            {renderContainerSwitchPanel('容器列表', '容器级配置包括镜像、端口、环境变量、资源限制、启动命令和健康检查。切换容器不会丢失已填写内容。')}
-
-            <Form.Item
-              name="image"
-              label="镜像地址"
-              rules={[{ required: true, message: '请输入镜像地址' }]}
-              extra={<span style={{ color: '#999' }}>例如: nginx:latest 或 harbor.example.com/library/nginx:v1.0</span>}
-            >
-              <Input
-                placeholder="镜像地址"
-                addonAfter={
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<FolderOutlined />}
-                    onClick={() => {
-                      if (allRegistries.length > 0) {
-                        // 尝试根据当前镜像地址智能选择仓库
-                        const currentImage = form.getFieldValue('image');
-                        let targetCredential = registryToCredential(allRegistries[0]);
-
-                        if (currentImage) {
-                          // 从镜像地址中提取服务器地址
-                          const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
-                          if (serverMatch) {
-                            const serverFromImage = serverMatch[1];
-                            // 查找匹配的仓库
-                            const matchingRegistry = allRegistries.find(r => r.server === serverFromImage);
-                            if (matchingRegistry) {
-                              targetCredential = registryToCredential(matchingRegistry);
-                            }
-                          }
-                        }
-
-                        if (targetCredential) {
-                          setBrowserCredential(targetCredential);
-                          setBrowserVisible(true);
-                        } else {
-                          message.error('解析镜像凭证失败，请检查凭证配置');
-                        }
-                      } else {
-                        message.warning('请先在镜像仓库中添加仓库或创建凭证');
-                      }
-                    }}
-                  >
-                    浏览仓库
-                  </Button>
-                }
-              />
-            </Form.Item>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="containerName"
-                  label="容器名称"
-                  extra="默认与工作负载名称相同"
-                >
-                  <Input placeholder="容器名称 (可选)" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="imagePullPolicy"
-                  label="镜像拉取策略"
-                  initialValue="IfNotPresent"
-                >
-                  <Select options={IMAGE_PULL_POLICY_OPTIONS} />
-                </Form.Item>
-              </Col>
-            </Row>
             
-            <Divider orientation="left">端口配置</Divider>
-            <PortsEditor />
-            
-            <Divider orientation="left">环境变量</Divider>
-            <EnvEditor
-              cloudId={cloudId}
-              namespacesOptions={namespacesOptions}
-              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
-              configMaps={configMaps}
-              secrets={secrets}
-              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
-              onRefreshSecrets={() => onRefreshSecrets?.()}
-              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
-              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
-            />
-            
-            <Divider orientation="left">资源限制</Divider>
-            <Row gutter={16}>
-              <Col span={6}>
-                <Form.Item name={['resources', 'requests', 'cpu']} label="CPU 请求">
-                  <Input placeholder="如: 100m" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name={['resources', 'requests', 'memory']} label="内存请求">
-                  <Input placeholder="如: 128Mi" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name={['resources', 'limits', 'cpu']} label="CPU 限制">
-                  <Input placeholder="如: 500m" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name={['resources', 'limits', 'memory']} label="内存限制">
-                  <Input placeholder="如: 512Mi" />
-                </Form.Item>
-              </Col>
-            </Row>
-            
-            <Divider orientation="left">启动命令 (可选)</Divider>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="command" label="启动命令" extra="多个命令用逗号分隔">
-                  <Select
-                    mode="tags"
-                    placeholder="如: /bin/sh"
-                    style={{ width: '100%' }}
-                    tokenSeparators={[',']}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="args" label="启动参数" extra="多个参数用逗号分隔">
-                  <Select
-                    mode="tags"
-                    placeholder="如: -c, script.sh"
-                    style={{ width: '100%' }}
-                    tokenSeparators={[',']}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Divider orientation="left">健康检查</Divider>
-            <ProbeEditor name="livenessProbe" label="存活探针 (Liveness Probe)" />
-            <ProbeEditor name="readinessProbe" label="就绪探针 (Readiness Probe)" />
-          </div>
-        );
-        
-      case 2:
-        return (
-          <div>
-            {renderContainerSwitchPanel('存储配置', '先定义工作负载共享的存储卷，再为当前选中的容器配置卷挂载。卷定义共享，卷挂载属于当前容器。')}
-
-            <Divider orientation="left">存储卷定义</Divider>
-            <VolumesEditor
-              cloudId={cloudId}
-              namespacesOptions={namespacesOptions}
-              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
-              configMaps={configMaps}
-              secrets={secrets}
-              persistentVolumeClaims={persistentVolumeClaims}
-              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
-              onRefreshSecrets={() => onRefreshSecrets?.()}
-              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
-              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
-            />
-          </div>
-        );
-
-      case 3:
-        return (
-          <div>
-            {workloadType !== 'daemonset' && (
+            {(workloadType === 'deployment' || workloadType === 'statefulset') && (
               <Form.Item
                 name="replicas"
                 label="副本数"
                 initialValue={1}
+                rules={[{ required: true, message: '请输入副本数' }]}
               >
-                <InputNumber min={0} max={1000} style={{ width: 200 }} />
+                <InputNumber min={1} max={1000} style={{ width: '100%' }} />
               </Form.Item>
             )}
             
             {workloadType === 'daemonset' && (
-              <div style={{ marginBottom: 16 }}>
-                <Tag color="blue">
-                  <InfoCircleOutlined /> DaemonSet 会在每个节点上运行一个 Pod，无需设置副本数
-                </Tag>
-              </div>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginTop: 16 }}
+                message="DaemonSet 会在每个节点上运行一个 Pod，无需设置副本数"
+              />
             )}
-            
-            <Form.Item
-              label={
-                <Space>
-                  镜像拉取凭证
-                  {imagePullSecrets.length === 0 && (
-                    <Tag color="warning">暂无凭证</Tag>
-                  )}
-                </Space>
+          </div>
+        );
+        
+      case 1:
+        const containers = getSyncedFormValues().containers || [];
+        return (
+          <div>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="容器配置"
+              description={
+                <div>
+                  <div>每个容器独立配置镜像、端口、环境变量、资源限制、启动命令和健康检查。点击容器卡片可展开详细配置。</div>
+                  <div style={{ marginTop: 8, color: '#faad14' }}>
+                    <strong>注意：</strong>Kubernetes 限制镜像拉取凭证只能在 Pod 级别配置。如果您在多个容器中配置了不同的凭证，系统会自动合并去重后应用到 Pod。
+                  </div>
+                </div>
               }
-              extra={
-                <Space direction="vertical" size={0}>
-                  <span>{imagePullSecrets.length === 0 ? "暂无可用的镜像凭证，请先创建 Secret" : "选择已创建的 Docker 镜像仓库凭证"}</span>
-                  {imagePullSecrets.length === 0 && (
-                    <span style={{ color: '#999', fontSize: 12 }}>
-                      提示: Secret 需要是 kubernetes.io/dockerconfigjson 类型才能作为镜像拉取凭证使用
-                    </span>
-                  )}
-                </Space>
-              }
-            >
-              <Space.Compact style={{ width: '100%' }}>
-                <Form.Item name="imagePullSecrets" noStyle>
-                <Select
-                  mode="multiple"
-                  style={{ width: 'calc(100% - 120px)' }}
-                  placeholder={imagePullSecrets.length === 0 ? "暂无可用的镜像凭证" : "选择镜像拉取凭证"}
-                  allowClear
-                  disabled={imagePullSecrets.length === 0}
-                  options={imagePullSecrets.map((secret) => ({
-                    label: `${secret.metadata.name} (${secret.metadata.namespace})`,
-                    value: secret.metadata.name,
-                  }))}
-                  notFoundContent={
-                    <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                      <div style={{ color: '#999' }}>暂无镜像拉取凭证</div>
-                      <div style={{ fontSize: 12, color: '#bbb', marginTop: 4 }}>
-                        请创建类型为 kubernetes.io/dockerconfigjson 的 Secret
+            />
+            {containers.map((container, index) => {
+              const isActive = index === activeContainerIndex;
+              const portsCount = container.ports?.length || 0;
+              const envCount = container.env?.length || 0;
+              const resourcesCount = (container.resources?.requests?.cpu || container.resources?.requests?.memory || container.resources?.limits?.cpu || container.resources?.limits?.memory) ? 1 : 0;
+              const commandCount = (container.command?.length || container.args?.length) ? 1 : 0;
+              const probeCount = (container.livenessProbe?.enabled ? 1 : 0) + (container.readinessProbe?.enabled ? 1 : 0);
+              
+              return (
+                <Card
+                  key={`container-${index}`}
+                  size="small"
+                  style={{ marginBottom: 16, border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0' }}
+                  title={
+                    <Space>
+                      <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
+                      <span style={{ fontWeight: 500 }}>{container.containerName || `container-${index + 1}`}</span>
+                      {isActive && <Tag color="processing">编辑中</Tag>}
+                    </Space>
+                  }
+                  extra={
+                    <Space>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<CopyOutlined />}
+                        onClick={() => {
+                          const syncedValues = getSyncedFormValues();
+                          const nextContainers = [...(syncedValues.containers || [])];
+                          const current = nextContainers[index];
+                          if (!current) return;
+                          nextContainers.splice(index + 1, 0, {
+                            ...current,
+                            containerName: current.containerName ? `${current.containerName}-copy` : `container-${nextContainers.length + 1}`,
+                            ports: [...(current.ports || [])],
+                            env: [...(current.env || [])],
+                            resources: {
+                              requests: { ...(current.resources?.requests || {}) },
+                              limits: { ...(current.resources?.limits || {}) },
+                            },
+                            command: [...(current.command || [])],
+                            args: [...(current.args || [])],
+                            volumeMounts: [...(current.volumeMounts || [])],
+                          });
+                          form.setFieldsValue({ containers: nextContainers });
+                          setActiveContainerIndex(index + 1);
+                          syncContainerEditorToForm(nextContainers[index + 1]);
+                        }}
+                      >
+                        复制
+                      </Button>
+                      {containers.length > 1 && (
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => {
+                            const syncedValues = getSyncedFormValues();
+                            const nextContainers = [...(syncedValues.containers || [])];
+                            if (nextContainers.length <= 1) {
+                              message.warning('至少需要保留一个容器');
+                              return;
+                            }
+                            nextContainers.splice(index, 1);
+                            const nextIndex = Math.max(0, index - 1);
+                            form.setFieldsValue({ containers: nextContainers });
+                            setActiveContainerIndex(nextIndex);
+                            syncContainerEditorToForm(nextContainers[nextIndex]);
+                          }}
+                        >
+                          删除
+                        </Button>
+                      )}
+                    </Space>
+                  }
+                >
+                  {isActive ? (
+                    <>
+                      <Form.Item
+                        name="image"
+                        label="镜像地址"
+                        rules={[{ required: true, message: '请输入镜像地址' }]}
+                        extra={<span style={{ color: '#999' }}>例如: nginx:latest 或 harbor.example.com/library/nginx:v1.0</span>}
+                      >
+                        <Input
+                          placeholder="镜像地址"
+                          addonAfter={
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<FolderOutlined />}
+                              onClick={() => {
+                                if (allRegistries.length > 0) {
+                                  const currentImage = form.getFieldValue('image');
+                                  let targetCredential = registryToCredential(allRegistries[0]);
+                                  if (currentImage) {
+                                    const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
+                                    if (serverMatch) {
+                                      const serverFromImage = serverMatch[1];
+                                      const matchingRegistry = allRegistries.find(r => r.server === serverFromImage);
+                                      if (matchingRegistry) {
+                                        targetCredential = registryToCredential(matchingRegistry);
+                                      }
+                                    }
+                                  }
+                                  if (targetCredential) {
+                                    setBrowserCredential(targetCredential);
+                                    setBrowserVisible(true);
+                                  } else {
+                                    message.error('解析镜像凭证失败，请检查凭证配置');
+                                  }
+                                } else {
+                                  message.warning('请先在镜像仓库中添加仓库或创建凭证');
+                                }
+                              }}
+                            >
+                              浏览仓库
+                            </Button>
+                          }
+                        />
+                      </Form.Item>
+                      <Row gutter={16}>
+                        <Col span={12}>
+                          <Form.Item name="containerName" label="容器名称" extra="默认与工作负载名称相同">
+                            <Input placeholder="容器名称 (可选)" />
+                          </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                          <Form.Item name="imagePullPolicy" label="镜像拉取策略" initialValue="IfNotPresent">
+                            <Select options={IMAGE_PULL_POLICY_OPTIONS} />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Form.Item
+                        name="imagePullSecrets"
+                        label="镜像拉取凭证"
+                        extra={<span style={{ color: '#999' }}>选择此容器使用的镜像仓库凭证</span>}
+                      >
+                        <Select
+                          mode="multiple"
+                          placeholder="选择镜像拉取凭证"
+                          allowClear
+                          options={(imagePullSecrets || []).map((secret) => ({
+                            label: secret.metadata.name,
+                            value: secret.metadata.name,
+                          }))}
+                        />
+                      </Form.Item>
+                      <Collapse ghost defaultActiveKey={[]} items={[
+                        {
+                          key: 'ports',
+                          label: `端口配置 (${portsCount})`,
+                          children: <PortsEditor />,
+                        },
+                        {
+                          key: 'env',
+                          label: `环境变量 (${envCount})`,
+                          children: (
+                            <EnvEditor
+                              cloudId={cloudId}
+                              namespacesOptions={namespacesOptions}
+                              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
+                              configMaps={configMaps}
+                              secrets={secrets}
+                              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
+                              onRefreshSecrets={() => onRefreshSecrets?.()}
+                              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
+                              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+                            />
+                          ),
+                        },
+                        {
+                          key: 'resources',
+                          label: `资源限制 (${resourcesCount})`,
+                          children: (
+                            <Row gutter={16}>
+                              <Col span={6}>
+                                <Form.Item name={['resources', 'requests', 'cpu']} label="CPU 请求">
+                                  <Input placeholder="如: 100m" />
+                                </Form.Item>
+                              </Col>
+                              <Col span={6}>
+                                <Form.Item name={['resources', 'requests', 'memory']} label="内存请求">
+                                  <Input placeholder="如: 128Mi" />
+                                </Form.Item>
+                              </Col>
+                              <Col span={6}>
+                                <Form.Item name={['resources', 'limits', 'cpu']} label="CPU 限制">
+                                  <Input placeholder="如: 500m" />
+                                </Form.Item>
+                              </Col>
+                              <Col span={6}>
+                                <Form.Item name={['resources', 'limits', 'memory']} label="内存限制">
+                                  <Input placeholder="如: 512Mi" />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          ),
+                        },
+                        {
+                          key: 'command',
+                          label: `启动命令 (${commandCount})`,
+                          children: (
+                            <Row gutter={16}>
+                              <Col span={12}>
+                                <Form.Item name="command" label="启动命令" extra="多个命令用逗号分隔">
+                                  <Select mode="tags" placeholder="如: /bin/sh" style={{ width: '100%' }} tokenSeparators={[',']} />
+                                </Form.Item>
+                              </Col>
+                              <Col span={12}>
+                                <Form.Item name="args" label="启动参数" extra="多个参数用逗号分隔">
+                                  <Select mode="tags" placeholder="如: -c, script.sh" style={{ width: '100%' }} tokenSeparators={[',']} />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          ),
+                        },
+                        {
+                          key: 'probes',
+                          label: `健康检查 (${probeCount})`,
+                          children: (
+                            <>
+                              <ProbeEditor name="livenessProbe" label="存活探针 (Liveness Probe)" />
+                              <ProbeEditor name="readinessProbe" label="就绪探针 (Readiness Probe)" />
+                            </>
+                          ),
+                        },
+                      ]} />
+                    </>
+                  ) : (
+                    <div
+                      onClick={() => handleSelectContainer(index)}
+                      style={{ cursor: 'pointer', padding: '8px 0' }}
+                    >
+                      <div style={{ color: '#666', fontSize: 13 }}>{container.image || '未配置镜像'}</div>
+                      <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
+                        端口 {portsCount} / 环境变量 {envCount} / 挂载 {container.volumeMounts?.length || 0}
                       </div>
                     </div>
+                  )}
+                </Card>
+              );
+            })}
+            <Button
+              type="dashed"
+              block
+              icon={<PlusOutlined />}
+              onClick={handleAddContainer}
+              style={{ marginBottom: 16 }}
+            >
+              添加容器
+            </Button>
+          </div>
+        );
+        
+      case 2:
+        const containersForStorage = getSyncedFormValues().containers || [];
+        const activeContainerForStorage = containersForStorage[activeContainerIndex];
+        return (
+          <div>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="存储配置"
+              description="先定义工作负载共享的存储卷，再为当前选中的容器配置卷挂载。卷定义共享，卷挂载属于当前容器。"
+            />
+            {containersForStorage.map((container, index) => {
+              const isActive = index === activeContainerIndex;
+              return (
+                <Card
+                  key={`storage-container-${index}`}
+                  size="small"
+                  style={{ marginBottom: 16, border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0' }}
+                  title={
+                    <Space>
+                      <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
+                      <span style={{ fontWeight: 500 }}>{container.containerName || `container-${index + 1}`}</span>
+                    </Space>
                   }
-                />
-                </Form.Item>
-                <Button
-                  type="dashed"
-                  icon={<PlusOutlined />}
-                  onClick={() => setShowQuickCreateRegistry(true)}
                 >
-                  创建凭证
-                </Button>
-              </Space.Compact>
-            </Form.Item>
-            
+                  {isActive ? (
+                    <VolumesEditor
+                      cloudId={cloudId}
+                      namespacesOptions={namespacesOptions}
+                      selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
+                      configMaps={configMaps}
+                      secrets={secrets}
+                      persistentVolumeClaims={persistentVolumeClaims}
+                      onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
+                      onRefreshSecrets={() => onRefreshSecrets?.()}
+                      onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
+                      onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+                    />
+                  ) : (
+                    <div
+                      onClick={() => handleSelectContainer(index)}
+                      style={{ cursor: 'pointer', padding: '8px 0' }}
+                    >
+                      <div style={{ color: '#999' }}>点击切换到此容器</div>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        );
+
+      case 3:
+        const nodeAffinity = form.getFieldValue('nodeAffinity');
+        const nodeAntiAffinity = form.getFieldValue('nodeAntiAffinity');
+        const podAffinity = form.getFieldValue('podAffinity');
+        const podAntiAffinity = form.getFieldValue('podAntiAffinity');
+        const tolerations = form.getFieldValue('tolerations') || [];
+        
+        const nodeAffinityCount = (nodeAffinity?.required?.nodeSelectorTerms?.length || 0) + (nodeAffinity?.preferred?.length || 0);
+        const nodeAntiAffinityCount = (nodeAntiAffinity?.required?.nodeSelectorTerms?.length || 0) + (nodeAntiAffinity?.preferred?.length || 0);
+        const podAffinityCount = (podAffinity?.required?.length || 0) + (podAffinity?.preferred?.length || 0);
+        const podAntiAffinityCount = (podAntiAffinity?.required?.length || 0) + (podAntiAffinity?.preferred?.length || 0);
+        const tolerationsCount = tolerations.length;
+        
+        return (
+          <div>
             <Divider orientation="left">调度策略</Divider>
             <LabelEditor name="nodeSelector" label="节点选择器" />
-            <Divider orientation="left">亲和性配置</Divider>
-            <NodeAffinityEditor name="nodeAffinity" label="节点亲和性" />
-            <NodeAffinityEditor name="nodeAntiAffinity" label="节点反亲和性" />
-            <PodAffinityEditor 
-              name="podAffinity" 
-              label="Pod 亲和性" 
-              namespacesOptions={namespacesOptions}
-            />
-            <PodAffinityEditor 
-              name="podAntiAffinity" 
-              label="Pod 反亲和性" 
-              namespacesOptions={namespacesOptions}
-            />
             
-            <Divider orientation="left">污点容忍</Divider>
-            <TolerationsEditor />
+            <Collapse ghost defaultActiveKey={[]} items={[
+              {
+                key: 'nodeAffinity',
+                label: `节点亲和性 (${nodeAffinityCount})`,
+                children: <NodeAffinityEditor name="nodeAffinity" label="节点亲和性" />,
+              },
+              {
+                key: 'nodeAntiAffinity',
+                label: `节点反亲和性 (${nodeAntiAffinityCount})`,
+                children: <NodeAffinityEditor name="nodeAntiAffinity" label="节点反亲和性" />,
+              },
+              {
+                key: 'podAffinity',
+                label: `Pod 亲和性 (${podAffinityCount})`,
+                children: (
+                  <PodAffinityEditor 
+                    name="podAffinity" 
+                    label="Pod 亲和性" 
+                    namespacesOptions={namespacesOptions}
+                  />
+                ),
+              },
+              {
+                key: 'podAntiAffinity',
+                label: `Pod 反亲和性 (${podAntiAffinityCount})`,
+                children: (
+                  <PodAffinityEditor 
+                    name="podAntiAffinity" 
+                    label="Pod 反亲和性" 
+                    namespacesOptions={namespacesOptions}
+                  />
+                ),
+              },
+              {
+                key: 'tolerations',
+                label: `污点容忍 (${tolerationsCount})`,
+                children: <TolerationsEditor />,
+              },
+            ]} />
           </div>
         );
         

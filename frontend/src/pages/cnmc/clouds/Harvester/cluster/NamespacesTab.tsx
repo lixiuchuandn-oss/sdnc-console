@@ -483,12 +483,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
           <Button 
             icon={<ReloadOutlined />} 
             onClick={() => {
-              console.log('[NamespacesTab] 刷新按钮被点击, loading:', loading, 'onRefresh:', !!onRefresh);
               if (onRefresh) {
                 try {
                   onRefresh(true); // 使用 force=true 跳过缓存，强制刷新
                 } catch (e: any) {
-                  console.error('[NamespacesTab] 刷新按钮执行出错:', e);
                   message.error('刷新失败: ' + (e?.message || '未知错误'));
                 }
               } else {

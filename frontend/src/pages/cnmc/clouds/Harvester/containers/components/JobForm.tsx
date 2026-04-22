@@ -45,6 +45,7 @@ import {
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer } from './index';
 
 // ============================================================
@@ -72,6 +73,7 @@ export interface JobFormValues {
   // 任务配置
   backoffLimit: number;
   activeDeadlineSeconds: number;
+  ttlSecondsAfterFinished: number;
   parallelism: number;
   completions: number;
   restartPolicy: 'OnFailure' | 'Never';
@@ -348,6 +350,7 @@ const JobForm: React.FC<JobFormProps> = ({
       imagePullPolicy: 'IfNotPresent',
       backoffLimit: 6,
       activeDeadlineSeconds: 600,
+      ttlSecondsAfterFinished: 3600,
       parallelism: 1,
       completions: 1,
       restartPolicy: 'OnFailure',
@@ -428,13 +431,15 @@ const JobForm: React.FC<JobFormProps> = ({
       container.resources = resources;
     }
 
+    const jobName = generateHarvesterCrMetadataName('job');
+    
     const spec: any = {
       backoffLimit: values.backoffLimit,
       parallelism: values.parallelism,
       completions: values.completions,
       template: {
         metadata: {
-          labels: Object.keys(labels).length > 0 ? labels : { 'job-name': values.name },
+          labels: Object.keys(labels).length > 0 ? { ...labels, 'job-name': jobName } : { 'job-name': jobName },
         },
         spec: {
           restartPolicy: values.restartPolicy,
@@ -447,6 +452,10 @@ const JobForm: React.FC<JobFormProps> = ({
       spec.activeDeadlineSeconds = values.activeDeadlineSeconds;
     }
 
+    if (values.ttlSecondsAfterFinished && values.ttlSecondsAfterFinished > 0) {
+      spec.ttlSecondsAfterFinished = values.ttlSecondsAfterFinished;
+    }
+
     // 镜像拉取凭证
     if (values.imagePullSecrets && values.imagePullSecrets.length > 0) {
       spec.template.spec.imagePullSecrets = values.imagePullSecrets.map((name) => ({ name }));
@@ -456,9 +465,12 @@ const JobForm: React.FC<JobFormProps> = ({
       apiVersion: 'batch/v1',
       kind: 'Job',
       metadata: {
-        name: values.name,
+        name: jobName,
         namespace: values.namespace,
         labels: Object.keys(labels).length > 0 ? labels : undefined,
+        annotations: values.name ? {
+          'tower.io/alias': values.name,
+        } : undefined,
       },
       spec,
     };
@@ -724,6 +736,18 @@ const JobForm: React.FC<JobFormProps> = ({
                   }
                 >
                   <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="ttlSecondsAfterFinished"
+                  label={
+                    <Tooltip title="Job 完成后自动清理 Pod 的等待时间（秒），0 表示不自动清理">
+                      完成后保留时间（秒） <InfoCircleOutlined />
+                    </Tooltip>
+                  }
+                >
+                  <InputNumber min={0} max={86400} style={{ width: '100%' }} placeholder="如 3600 表示 1 小时后清理" />
                 </Form.Item>
               </Col>
               <Col span={8}>

@@ -40,6 +40,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons';
 import { createHarvesterService, updateHarvesterService } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -225,12 +226,15 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
       apiVersion: 'v1',
       kind: 'Service',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('service'),
         namespace: values.namespace,
         labels: values.labels?.reduce((acc, { key, value }) => {
           if (key && value) acc[key] = value;
           return acc;
         }, {} as Record<string, string>),
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
     };
 
@@ -289,7 +293,6 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
       setLoading(true);
 
       const submitData = buildSubmitData(values);
-      console.log('[ServiceForm] 提交数据:', submitData);
 
       if (editMode) {
         // 编辑模式：保留 resourceVersion 以支持更新

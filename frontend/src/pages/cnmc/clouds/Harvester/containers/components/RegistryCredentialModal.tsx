@@ -17,6 +17,7 @@ import {
   createHarvesterImagePullSecret,
   updateHarvesterImagePullSecret,
 } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -96,17 +97,12 @@ const RegistryCredentialModal: React.FC<RegistryCredentialModalProps> = ({
         message.success('凭证更新成功');
       } else {
         // 创建模式：调用创建 API
-        console.log('[RegistryCredentialModal] Creating image pull secret:', {
-          cloudId,
-          namespace: values.namespace,
-          name: values.name,
-          server: values.server,
-          username: values.username,
-        });
+        const secretName = generateHarvesterCrMetadataName('imagepullsecret');
         
         await createHarvesterImagePullSecret(cloudId, {
           namespace: values.namespace,
-          name: values.name,
+          name: secretName,
+          alias: values.name,
           server: values.server,
           username: values.username,
           password: values.password,
