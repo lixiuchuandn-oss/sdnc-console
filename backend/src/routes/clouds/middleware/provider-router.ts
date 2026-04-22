@@ -14,7 +14,7 @@ function normalizeProvider(cloud: Cloud): string | null {
     return provider;
   }
   
-  if (['huaweicloud', 'aliyun', 'tencentcloud', 'csm'].includes(provider)) {
+  if (['huaweicloud', 'aliyun', 'tencentcloud', 'csm', 'cloudmap.csm'].includes(provider)) {
     return provider;
   }
   

@@ -497,7 +497,7 @@ const EditVRConfig: React.FC = () => {
         address_family: [
           {
             address_family: '',
-            modifier: '',
+            modifiler: '',
             activate_address_family: [''],
             export_route: '',
             import_route: '',
@@ -751,33 +751,65 @@ const EditVRConfig: React.FC = () => {
         // 如果包含 ce 对象，先对其内部进行排序
         const copy = { ...obj };
         if (copy.ce && typeof copy.ce === 'object') {
-          const ceOrder = ['wanName', 'wanIpv4', 'wanIpv6', 'bgpAsn', 'bgpRouterId', 'lanName', 'lanIpv4', 'lanIpv6'];
           const newCe: any = {};
-          // 先按顺序放入已知字段
-          ceOrder.forEach(k => {
+          const ceTopOrder = ['publicConfig', 'lanConfig'];
+          ceTopOrder.forEach((k) => {
             if (k in copy.ce) newCe[k] = copy.ce[k];
           });
-          // 放入剩余字段
-          Object.keys(copy.ce).forEach(k => {
-            if (!ceOrder.includes(k)) newCe[k] = copy.ce[k];
+          if (newCe.publicConfig && typeof newCe.publicConfig === 'object') {
+            const pc = newCe.publicConfig;
+            const pcOrder = ['wanName', 'wanIpv4', 'wanIpv6', 'publicBgp'];
+            const npc: any = {};
+            pcOrder.forEach((k) => {
+              if (k in pc) npc[k] = pc[k];
+            });
+            Object.keys(pc).forEach((k) => {
+              if (!(k in npc)) npc[k] = pc[k];
+            });
+            if (npc.publicBgp && typeof npc.publicBgp === 'object') {
+              const pb = npc.publicBgp;
+              const pbOrder = ['asn', 'routerId'];
+              const npb: any = {};
+              pbOrder.forEach((k) => {
+                if (k in pb) npb[k] = pb[k];
+              });
+              Object.keys(pb).forEach((k) => {
+                if (!(k in npb)) npb[k] = pb[k];
+              });
+              npc.publicBgp = npb;
+            }
+            newCe.publicConfig = npc;
+          }
+          Object.keys(copy.ce).forEach((k) => {
+            if (!(k in newCe)) newCe[k] = copy.ce[k];
           });
           copy.ce = newCe;
         }
 
-        // 如果包含 pe 对象，先对其内部进行排序
+        // 如果包含 pe 对象：新结构 publicConfig + lanConfig（camelCase）；旧 lanConfigs / 误写 LanConfig 仍保留在后续合并
         if (copy.pe && typeof copy.pe === 'object') {
-          const peOrder = [
-            'locatorName', 'sidPrefix', 
-            'wanName', 'wanIpv4', 'wanIpv6', 'wanRouteDest', 'wanRoutePriority', 
-            'ipv6Dest', 'ipv6Via', 
-            'lanConfigs'
-          ];
           const newPe: any = {};
-          peOrder.forEach(k => {
+          const peTopOrder = ['publicConfig', 'lanConfig', 'lanConfigs'];
+          peTopOrder.forEach((k) => {
             if (k in copy.pe) newPe[k] = copy.pe[k];
           });
-          Object.keys(copy.pe).forEach(k => {
-            if (!peOrder.includes(k)) newPe[k] = copy.pe[k];
+          if (newPe.publicConfig && typeof newPe.publicConfig === 'object') {
+            const pc = newPe.publicConfig;
+            const pcOrder = [
+              'publicBgpIndex', 'locatorName', 'sidPrefix', 'wanName', 'wanIpv4', 'wanIpv6',
+              'wanRouteDest', 'wanRoutePriority', 'ipv6Dest', 'ipv6Via', 'publicBgp',
+            ];
+            const npc: any = {};
+            pcOrder.forEach((k) => {
+              if (k in pc) npc[k] = pc[k];
+            });
+            Object.keys(pc).forEach((k) => {
+              if (!(k in npc)) npc[k] = pc[k];
+            });
+            newPe.publicConfig = npc;
+          }
+          Object.keys(copy.pe).forEach((k) => {
+            if (!(k in newPe)) newPe[k] = copy.pe[k];
           });
           copy.pe = newPe;
         }

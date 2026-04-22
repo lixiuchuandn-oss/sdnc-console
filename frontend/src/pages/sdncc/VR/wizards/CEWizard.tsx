@@ -7,6 +7,62 @@ import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../
 import { proxyApiRequest } from '../../../../services/api';
 import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 
+/** 平台已存 ce：外网侧元数据（新：ce.publicConfig；旧：顶层扁平） */
+function getCePublicConfig(ce: any): Record<string, any> {
+  if (!ce || typeof ce !== 'object') return {};
+  if (ce.publicConfig && typeof ce.publicConfig === 'object') {
+    return { ...ce.publicConfig };
+  }
+  const legacy: any = {};
+  ['wanName', 'wanDev', 'wanIpv4', 'wanIpv6', 'bgpAsn', 'bgpRouterId'].forEach((k) => {
+    if ((ce as any)[k] !== undefined) legacy[k] = (ce as any)[k];
+  });
+  return legacy;
+}
+
+/** 内网侧：新 ce.lanConfig[]；旧顶层 lanName/lanIpv4 等单行 */
+function readLanListFromCe(ce: any): any[] {
+  if (!ce || typeof ce !== 'object') return [];
+  if (Array.isArray((ce as any).lanConfig)) return (ce as any).lanConfig;
+  if (ce.lanName || ce.ifName || ce.lanIpv4 || ce.lanIpv6 || ce.ifIpv4 || ce.ifIpv6) {
+    return [
+      {
+        lanName: ce.lanName ?? ce.ifName,
+        lanIpv4: ce.lanIpv4 ?? ce.ifIpv4,
+        lanIpv6: ce.lanIpv6 ?? ce.ifIpv6,
+      },
+    ];
+  }
+  return [];
+}
+
+function readCePublicBgpMeta(ce: any): { asn?: number; routerId?: string } {
+  const pub = getCePublicConfig(ce);
+  const pb = pub.publicBgp && typeof pub.publicBgp === 'object' ? pub.publicBgp : {};
+  const root = ce && typeof ce === 'object' ? ce : {};
+  const asnRaw = pb.asn ?? (pb as any).bgpAsn ?? pub.bgpAsn ?? (root as any).bgpAsn;
+  const asnNum = Number(asnRaw);
+  const routerId =
+    String(
+      pb.routerId ?? (pb as any).bgpRouterId ?? pub.bgpRouterId ?? (root as any).bgpRouterId ?? '',
+    ).trim() || undefined;
+  return {
+    ...(Number.isFinite(asnNum) ? { asn: asnNum } : {}),
+    ...(routerId ? { routerId } : {}),
+  };
+}
+
+function normalizeCeLanRowForForm(l: any) {
+  if (!l || typeof l !== 'object') return {};
+  const { lanName, ifName, lanIpv4, ifIpv4, lanIpv6, ifIpv6, ...rest } = l;
+  return {
+    ...rest,
+    lanName: lanName || ifName,
+    lanIpv4: lanIpv4 ?? ifIpv4,
+    lanIpv6: lanIpv6 ?? ifIpv6,
+  };
+}
+
 const CEWizard: React.FC = () => {
   const navigate = useNavigate();
   const { uuid } = useParams();
@@ -184,15 +240,19 @@ const CEWizard: React.FC = () => {
         }
         setIfaceOptions(Array.from(new Set(names)).filter(Boolean));
         const bgpTop = Array.isArray(cfg?.bgp) ? cfg.bgp[0] : undefined;
+        const pcfg = getCePublicConfig(cfg?.ce);
+        const lanRows = readLanListFromCe(cfg?.ce).map((x) => normalizeCeLanRowForForm(x));
+        const firstLan = lanRows[0] || {};
+        const pbg = readCePublicBgpMeta(cfg?.ce);
         form.setFieldsValue({
-          lanName: cfg?.ce?.lanName || cfg?.ce?.ifName,
-          lanIpv4: cfg?.ce?.lanIpv4 || cfg?.ce?.ifIpv4,
-          lanIpv6: cfg?.ce?.lanIpv6 || cfg?.ce?.ifIpv6,
-          wanName: cfg?.ce?.wanName || cfg?.ce?.wanDev,
-          wanIpv4: cfg?.ce?.wanIpv4,
-          wanIpv6: cfg?.ce?.wanIpv6,
-          bgpAsn: cfg?.ce?.bgpAsn ?? bgpTop?.asn,
-          bgpRouterId: cfg?.ce?.bgpRouterId ?? bgpTop?.router_id,
+          lanName: firstLan.lanName,
+          lanIpv4: firstLan.lanIpv4,
+          lanIpv6: firstLan.lanIpv6,
+          wanName: pcfg.wanName || pcfg.wanDev || (cfg?.ce as any)?.wanDev,
+          wanIpv4: pcfg.wanIpv4,
+          wanIpv6: pcfg.wanIpv6,
+          bgpAsn: pbg.asn ?? bgpTop?.asn,
+          bgpRouterId: pbg.routerId ?? bgpTop?.router_id,
         });
       } catch {}
     })();
@@ -230,8 +290,12 @@ const CEWizard: React.FC = () => {
   useEffect(() => {
     if (!csmctlCfg) return;
     
-    const wanDevName = existingCfg?.ce?.wanName || existingCfg?.ce?.wanDev;
-    const lanDevName = existingCfg?.ce?.lanName || existingCfg?.ce?.ifName;
+    const pce = existingCfg?.ce;
+    const pub = getCePublicConfig(pce);
+    const wanDevName = pub.wanName || pub.wanDev || pce?.wanDev;
+    const lanRows = readLanListFromCe(pce).map((x) => normalizeCeLanRowForForm(x));
+    const firstLan = lanRows[0] || {};
+    const lanDevName = firstLan.lanName;
     
     const wanObj = findInterfaceInDevice(csmctlCfg, wanDevName);
     const lanObj = findInterfaceInDevice(csmctlCfg, lanDevName);
@@ -251,6 +315,25 @@ const CEWizard: React.FC = () => {
     // findInterfaceInDevice 随组件每次渲染更新；仅依赖 existingCfg / csmctlCfg / mirrorForm 已足够
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingCfg, csmctlCfg, mirrorForm]);
+
+  /** 由 host IPv4 CIDR 推导网段（如 130.1.1.9/24 → 130.1.1.0/24） */
+  const ipv4NetworkFromCidr = (cidr: string): string | undefined => {
+    const s = String(cidr || '').trim();
+    const [ip, maskStr] = s.split('/');
+    if (!ip || maskStr === undefined || maskStr === '') return undefined;
+    const mask = parseInt(maskStr, 10);
+    if (!Number.isFinite(mask) || mask < 0 || mask > 32) return undefined;
+    const parts = ip.split('.').map((x) => parseInt(x, 10));
+    if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return undefined;
+    const num = ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+    const hostBits = 32 - mask;
+    const netNum = hostBits === 32 ? 0 : (num >>> hostBits) << hostBits;
+    const o0 = (netNum >>> 24) & 255;
+    const o1 = (netNum >>> 16) & 255;
+    const o2 = (netNum >>> 8) & 255;
+    const o3 = netNum & 255;
+    return `${o0}.${o1}.${o2}.${o3}/${mask}`;
+  };
 
   const buildConfigFromValues = (v: any) => {
     const cfg: any = {};
@@ -311,27 +394,47 @@ const CEWizard: React.FC = () => {
 
     if (v?.bgpAsn || v?.bgpRouterId) {
       const bgpArr: any[] = [];
-      bgpArr.push({
+      const wanCidr = String(v?.wanIpv4 || '').trim();
+      const lanCidr = String(v?.lanIpv4 || '').trim();
+      const nets: string[] = [];
+      const nwWan = ipv4NetworkFromCidr(wanCidr);
+      const nwLan = ipv4NetworkFromCidr(lanCidr);
+      if (nwWan) nets.push(nwWan);
+      if (nwLan) nets.push(nwLan);
+      const bgp0: any = {
         asn: Number(v.bgpAsn),
         router_id: String(v.bgpRouterId || '').trim(),
         bgp_ebgp_requires_policy: 'disable',
-      });
+      };
+      if (nets.length > 0) {
+        bgp0.address_family = [
+          {
+            address_family: 'ipv4',
+            modifiler: 'unicast',
+            network: nets,
+          },
+        ];
+      }
+      bgpArr.push(bgp0);
       if (bgpArr.length) cfg.bgp = bgpArr;
     }
 
-    // CE Metadata with strict order
-    const ceMeta = {
+    cfg.role = 'CE';
+    cfg.ce = {
+      publicConfig: {
         wanName: v.wanName,
         wanIpv4: v.wanIpv4,
         wanIpv6: v.wanIpv6,
-        bgpAsn: v.bgpAsn,
-        bgpRouterId: v.bgpRouterId,
-        lanName: v.lanName,
-        lanIpv4: v.lanIpv4,
-        lanIpv6: v.lanIpv6
+        publicBgp: {
+          asn: v.bgpAsn,
+          routerId: v.bgpRouterId,
+        },
+      },
+      lanConfig:
+        v?.lanName && String(v.lanName).trim()
+          ? [{ lanName: v.lanName, lanIpv4: v.lanIpv4, lanIpv6: v.lanIpv6 }]
+          : [],
     };
-    cfg.role = 'CE';
-    cfg.ce = ceMeta;
 
     return sortJsonKeys(cfg);
   };
@@ -465,7 +568,7 @@ const CEWizard: React.FC = () => {
           <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>}>
             <Input placeholder="例如：200.1.1.2/24（可选）" />
           </Form.Item>
-          <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv6 地址</span>} rules={[{ required: true, message: '请输入外网口 IPv6 地址/掩码' }]}>
+          <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv6 地址</span>} rules={[{ message: '请输入外网口 IPv6 地址/掩码' }]}>
             <Input placeholder="例如：2408:3333:1002::1/64（必填）" />
           </Form.Item>
           <div style={{ height: 12 }} />

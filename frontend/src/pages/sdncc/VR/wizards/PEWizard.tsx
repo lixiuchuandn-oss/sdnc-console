@@ -7,6 +7,93 @@ import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../
 import { proxyApiRequest } from '../../../../services/api';
 import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 
+/** 平台已存 pe：公网侧元数据（新：pe.publicConfig；旧：扁平字段） */
+function getPePublicConfig(pe: any): Record<string, any> {
+  if (!pe || typeof pe !== 'object') return {};
+  if (pe.publicConfig && typeof pe.publicConfig === 'object') {
+    return { ...pe.publicConfig };
+  }
+  const legacy: any = {};
+  const keys = [
+    'publicBgpIndex',
+    'locatorName',
+    'sidPrefix',
+    'wanName',
+    'wanDev',
+    'wanIpv4',
+    'wanIpv6',
+    'wanRouteDest',
+    'wanRoutePriority',
+    'ipv6Dest',
+    'ipv6Via',
+    'publicBgp',
+    'bgpNetworkIpv4',
+    'bgpNetworkIpv6',
+  ];
+  keys.forEach((k) => {
+    if ((pe as any)[k] !== undefined) legacy[k] = (pe as any)[k];
+  });
+  return legacy;
+}
+
+/** 内网组列表：新 pe.lanConfig；旧 pe.lanConfigs；曾误写为 pe.LanConfig 的也兼容 */
+function readLanListFromPe(pe: any): any[] {
+  if (!pe || typeof pe !== 'object') return [];
+  if (Array.isArray((pe as any).lanConfig)) return (pe as any).lanConfig;
+  if (Array.isArray((pe as any).LanConfig)) return (pe as any).LanConfig;
+  if (Array.isArray((pe as any).lanConfigs)) return (pe as any).lanConfigs;
+  return [];
+}
+
+/** 公网 BGP（PE–PE）元数据；兼容旧版顶层 bgpAsn / bgpRouterId */
+function readPublicBgpMetaFromPe(pe: any): { asn?: number; routerId?: string } {
+  const pub = getPePublicConfig(pe);
+  const pb = pub.publicBgp && typeof pub.publicBgp === 'object' ? pub.publicBgp : {};
+  const root = pe && typeof pe === 'object' ? pe : {};
+  const asnRaw = pb.asn ?? (pb as any).bgpAsn ?? (root as any).bgpAsn ?? (root as any).publicBgpAsn;
+  const asnNum = Number(asnRaw);
+  const routerId =
+    String(
+      pb.routerId ??
+        (pb as any).bgpRouterId ??
+        (root as any).bgpRouterId ??
+        (root as any).publicBgpRouterId ??
+        '',
+    ).trim() || undefined;
+  return {
+    ...(Number.isFinite(asnNum) ? { asn: asnNum } : {}),
+    ...(routerId ? { routerId } : {}),
+  };
+}
+
+/** 平台已存 lanConfig / lanConfigs 一行 → 表单内网组（兼容 lanBgp 与旧字段 bgpAsn等） */
+function normalizeLanRowFromPeMeta(l: any) {
+  if (!l || typeof l !== 'object') return {};
+  const lb = l.lanBgp && typeof l.lanBgp === 'object' ? l.lanBgp : {};
+  const asnRaw = lb.asn ?? l.lanBgpAsn ?? l.bgpAsn ?? l.asn;
+  const asnNum = Number(asnRaw);
+  const routerId =
+    String(lb.routerId ?? l.lanBgpRouterId ?? l.bgpRouterId ?? l.routerId ?? '').trim() || undefined;
+  const {
+    lanBgp: _lb,
+    lanBgpAsn: _la,
+    lanBgpRouterId: _lr,
+    bgpAsn: _ba,
+    bgpRouterId: _br,
+    asn: _a,
+    routerId: _r,
+    ifName,
+    lanName,
+    ...rest
+  } = l;
+  return {
+    ...rest,
+    ifName: lanName || ifName,
+    ...(Number.isFinite(asnNum) ? { asn: asnNum } : {}),
+    ...(routerId ? { routerId } : {}),
+  };
+}
+
 const PEWizard: React.FC = () => {
   const navigate = useNavigate();
   const { uuid } = useParams();
@@ -155,16 +242,24 @@ const PEWizard: React.FC = () => {
     const applySavedPeToForm = () => {
       if (!existingCfg?.pe || !Object.keys(existingCfg.pe).length) return;
       const pe = existingCfg.pe;
-      let lanConfigs = (pe.lanConfigs || []).map((l: any) => ({
-        ...l,
-        ifName: l.lanName || l.ifName,
-        asn: l.bgpAsn || l.asn,
-        routerId: l.bgpRouterId || l.routerId,
-      }));
+      const pcfg = getPePublicConfig(pe);
+      let lanConfigs = readLanListFromPe(pe).map((x: any) => normalizeLanRowFromPeMeta(x));
       if (!lanConfigs.length) lanConfigs = [{}];
+      const pbg = readPublicBgpMetaFromPe(pe);
       form.setFieldsValue({
-        ...pe,
-        wanDev: pe.wanName || pe.wanDev,
+        locatorName: pcfg.locatorName,
+        sidPrefix: pcfg.sidPrefix,
+        wanDev: pcfg.wanName || pcfg.wanDev,
+        wanIpv4: pcfg.wanIpv4,
+        wanIpv6: pcfg.wanIpv6,
+        wanRouteDest: pcfg.wanRouteDest,
+        wanRoutePriority: pcfg.wanRoutePriority,
+        ipv6Dest: pcfg.ipv6Dest,
+        ipv6Via: pcfg.ipv6Via,
+        bgpNetworkIpv4: pcfg.bgpNetworkIpv4,
+        bgpNetworkIpv6: pcfg.bgpNetworkIpv6,
+        bgpAsn: pbg.asn,
+        bgpRouterId: pbg.routerId,
         lanConfigs,
       });
     };
@@ -318,19 +413,29 @@ const PEWizard: React.FC = () => {
 
     if (existingCfg && existingCfg.pe && Object.keys(existingCfg.pe).length > 0) {
       const pe = existingCfg.pe;
-      let lanConfigs = (pe.lanConfigs || []).map((l: any) => ({
-        ...l,
-        ifName: l.lanName || l.ifName,
-        asn: l.bgpAsn || l.asn,
-        routerId: l.bgpRouterId || l.routerId
-      }));
+      const pcfg = getPePublicConfig(pe);
+      let lanConfigs = readLanListFromPe(pe).map((x: any) => normalizeLanRowFromPeMeta(x));
       if (!lanConfigs.length) {
         lanConfigs = [{}];
       }
+      const pbg = readPublicBgpMetaFromPe(pe);
+      const { publicConfig: _pc, lanConfig: _lnc, LanConfig: _LncLegacy, lanConfigs: _lc, publicBgp: _pb, ...peRest } = pe;
       const mapped = {
-        ...pe,
-        wanDev: pe.wanName || pe.wanDev,
+        ...peRest,
+        locatorName: pcfg.locatorName ?? peRest.locatorName,
+        sidPrefix: pcfg.sidPrefix ?? peRest.sidPrefix,
+        wanDev: pcfg.wanName || pcfg.wanDev || peRest.wanDev,
+        wanIpv4: pcfg.wanIpv4 ?? peRest.wanIpv4,
+        wanIpv6: pcfg.wanIpv6 ?? peRest.wanIpv6,
+        wanRouteDest: pcfg.wanRouteDest ?? peRest.wanRouteDest,
+        wanRoutePriority: pcfg.wanRoutePriority ?? peRest.wanRoutePriority,
+        ipv6Dest: pcfg.ipv6Dest ?? peRest.ipv6Dest,
+        ipv6Via: pcfg.ipv6Via ?? peRest.ipv6Via,
+        bgpNetworkIpv4: pcfg.bgpNetworkIpv4 ?? inferredTop.bgpNetworkIpv4,
+        bgpNetworkIpv6: pcfg.bgpNetworkIpv6 ?? inferredTop.bgpNetworkIpv6,
         lanConfigs,
+        bgpAsn: pbg.asn ?? inferredTop.bgpAsn,
+        bgpRouterId: pbg.routerId ?? inferredTop.bgpRouterId,
       };
       form.setFieldsValue(mapped);
     } else {
@@ -487,7 +592,7 @@ const PEWizard: React.FC = () => {
       if (dest) {
         const route6: any = { destination: dest };
         if (v6via) route6.via = v6via;
-        route6.priority = 100;
+        // 与 pe2 专家一致：不写 priority；此为公网侧 IPv6 静态路由，不写 vrf（避免误挂到切片 VRF）
         cfg.ipv6_route = [route6];
       }
     }
@@ -502,6 +607,13 @@ const PEWizard: React.FC = () => {
         if (globalBgp) {
           bgpArr.push(globalBgp);
         }
+      }
+      const hasPublic = bgpArr.some((b: any) => !b?.vrf || b?.vrf === 0 || b?.vrf === '0');
+      if (!hasPublic) {
+        bgpArr.unshift({
+          bgp_ebgp_requires_policy: 'disable',
+          address_family: [],
+        });
       }
       // 2. 追加 LAN 侧的 VRF BGP 配置
       groups.forEach((g) => {
@@ -518,7 +630,7 @@ const PEWizard: React.FC = () => {
             address_family: [
               {
                 address_family: 'ipv4',
-                modifier: 'unicast',
+                modifiler: 'unicast',
                 export_route: 'enable',
                 import_route: 'enable',
                 // 控制器约束：auto_assign_sid 只能在“私网（VRF）”下开启
@@ -528,29 +640,58 @@ const PEWizard: React.FC = () => {
           });
         }
       });
-      if (bgpArr.length) cfg.bgp = bgpArr;
+      if (bgpArr.length) {
+        // 与 pe2 专家一致：公网 BGP（无 vrf）内嵌 segment_routing_srv6；写入公网 ASN / router_id（第一步表单）
+        const loc = String(v?.locatorName || '').trim();
+        const pubIdx = bgpArr.findIndex((b: any) => !b?.vrf || b?.vrf === 0 || b?.vrf === '0');
+        if (pubIdx >= 0) {
+          const cur = bgpArr[pubIdx] && typeof bgpArr[pubIdx] === 'object' ? bgpArr[pubIdx] : {};
+          const next: any = { ...cur };
+          if (loc) next.segment_routing_srv6 = { locator: loc };
+          const asnPub = Number(v?.bgpAsn);
+          if (Number.isFinite(asnPub)) next.asn = asnPub;
+          const rid = String(v?.bgpRouterId || '').trim();
+          if (rid) next.router_id = rid;
+          bgpArr[pubIdx] = next;
+        }
+        cfg.bgp = bgpArr;
+      }
     }
     
     // Metadata for PE Wizard
     cfg.role = 'PE';
     cfg.pe = {
-      locatorName: v.locatorName,
-      sidPrefix: v.sidPrefix,
-      wanName: v.wanDev,
-      wanIpv4: v.wanIpv4,
-      wanIpv6: v.wanIpv6,
-      wanRouteDest: v.wanRouteDest,
-      wanRoutePriority: v.wanRoutePriority,
-      ipv6Dest: v.ipv6Dest,
-      ipv6Via: v.ipv6Via,
-      lanConfigs: (v.lanConfigs || []).map((l: any) => {
+      publicConfig: {
+        publicBgpIndex: 0,
+        locatorName: v.locatorName,
+        sidPrefix: v.sidPrefix,
+        wanName: v.wanDev,
+        wanIpv4: v.wanIpv4,
+        wanIpv6: v.wanIpv6,
+        wanRouteDest: v.wanRouteDest,
+        wanRoutePriority: v.wanRoutePriority,
+        ipv6Dest: v.ipv6Dest,
+        ipv6Via: v.ipv6Via,
+        publicBgp: {
+          asn: v.bgpAsn,
+          routerId: v.bgpRouterId,
+        },
+      },
+      lanConfig: (v.lanConfigs || []).map((l: any) => {
         const { ifName, asn, routerId, ...rest } = l;
-        return {
+        const asnN = Number(asn);
+        const rid = String(routerId || '').trim();
+        const row: any = {
           ...rest,
           lanName: ifName,
-          bgpAsn: asn,
-          bgpRouterId: routerId
         };
+        if (Number.isFinite(asnN) || rid) {
+          row.lanBgp = {
+            ...(Number.isFinite(asnN) ? { asn: asnN } : {}),
+            ...(rid ? { routerId: rid } : {}),
+          };
+        }
+        return row;
       }),
     };
     
@@ -668,6 +809,14 @@ const PEWizard: React.FC = () => {
             <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
           </Form.Item>
           <div style={{ height: 12 }} />
+          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>公网 BGP（PE to PE）</div>
+          <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>} rules={[{ required: true, message: '请输入公网 BGP ASN' }]}>
+            <InputNumber style={{ width: '100%' }} min={1} placeholder="例如：100" />
+          </Form.Item>
+          <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>} rules={[{ required: true, message: '请输入公网 BGP Router-ID' }]}>
+            <Input placeholder="例如：200.1.1.2" />
+          </Form.Item>
+          <div style={{ height: 12 }} />
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定静态路由</div>
           <Form.Item name="wanRouteDest" label={<span style={{ fontSize: 13, color: '#595959' }}>默认路由目的</span>}>
             <Input placeholder="例如：0.0.0.0/0" />
@@ -755,6 +904,8 @@ const PEWizard: React.FC = () => {
             <Descriptions.Item label="路由优先级">{previewNum(values.wanRoutePriority)}</Descriptions.Item>
             <Descriptions.Item label="公网口 IPv4">{previewStr(values.wanIpv4)}</Descriptions.Item>
             <Descriptions.Item label="公网口 IPv6">{previewStr(values.wanIpv6)}</Descriptions.Item>
+            <Descriptions.Item label="公网 BGP ASN">{previewNum(values.bgpAsn)}</Descriptions.Item>
+            <Descriptions.Item label="公网 BGP Router-ID">{previewStr(values.bgpRouterId)}</Descriptions.Item>
             <Descriptions.Item label="IPv6 路由目的">{previewStr(values.ipv6Dest)}</Descriptions.Item>
             <Descriptions.Item label="IPv6 next-hop">{previewStr(values.ipv6Via)}</Descriptions.Item>
           </Descriptions>
@@ -824,6 +975,14 @@ const PEWizard: React.FC = () => {
                       <Input placeholder="未配置" />
                     </Form.Item>
                     <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>公网口 IPv6 地址</span>}>
+                      <Input placeholder="未配置" />
+                    </Form.Item>
+                    <div style={{ height: 12 }} />
+                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>公网 BGP（PE to PE）</div>
+                    <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>}>
+                      <InputNumber style={{ width: '100%' }} placeholder="未配置" />
+                    </Form.Item>
+                    <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>}>
                       <Input placeholder="未配置" />
                     </Form.Item>
                     <div style={{ height: 12 }} />
@@ -905,6 +1064,8 @@ const PEWizard: React.FC = () => {
                       <Descriptions.Item label="路由优先级">{previewNum(mirrorForm.getFieldValue('wanRoutePriority'))}</Descriptions.Item>
                       <Descriptions.Item label="公网口 IPv4">{previewStr(mirrorForm.getFieldValue('wanIpv4'))}</Descriptions.Item>
                       <Descriptions.Item label="公网口 IPv6">{previewStr(mirrorForm.getFieldValue('wanIpv6'))}</Descriptions.Item>
+                      <Descriptions.Item label="公网 BGP ASN">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
+                      <Descriptions.Item label="公网 BGP Router-ID">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
                       <Descriptions.Item label="IPv6 路由目的">{previewStr(mirrorForm.getFieldValue('ipv6Dest'))}</Descriptions.Item>
                       <Descriptions.Item label="IPv6 next-hop">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
                     </Descriptions>

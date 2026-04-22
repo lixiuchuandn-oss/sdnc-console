@@ -53,7 +53,11 @@ import {
  */
 export async function harvesterSubnetListHandler(req: Request, res: Response) {
   try {
-    const parsedScope = parseRequiredOvnNetworkScopeListQuery(req);
+    const query = { ...(req.query as Record<string, unknown>) };
+    if (!String(query.ovnNetworkScope ?? '').trim()) {
+      query.ovnNetworkScope = 'all';
+    }
+    const parsedScope = parseRequiredOvnNetworkScopeListQuery({ query });
     if (!parsedScope.ok) {
       return res.status(parsedScope.status).json({ message: parsedScope.message });
     }

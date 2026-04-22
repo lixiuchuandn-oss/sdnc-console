@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState, useTransition, useDeferredValue } from 'react';
 import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Table, Divider } from 'antd';
-import { ArrowLeftOutlined, ExportOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, upsertVrCache, getVR2Config } from '../../../services/virtualRouterApi';
-import { API_BASE_URL, proxyApiRequest } from '../../../services/api';
+import { apiRequest, apiPost } from '../../../services/api';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回
 const safeJsonParse = (text: string): any => {
@@ -29,6 +29,18 @@ const safeStringify = (obj: any): string => {
   }
 };
 
+/** SRv6 下发向导步骤（与 IPsec手动下发类似：每台 VR 先预览再推送） */
+const SRV6_DEPLOY_STEP_DEFS: { title: string; desc: string }[] = [
+  { title: '预览 PE-A', desc: '从平台库读取待下发配置（清洗后）' },
+  { title: '下发 PE-A', desc: '推送到 CSMctl' },
+  { title: '预览 PE-B', desc: '从平台库读取待下发配置（清洗后）' },
+  { title: '下发 PE-B', desc: '推送到 CSMctl' },
+  { title: '预览 CE-A', desc: '从平台库读取待下发配置（清洗后）' },
+  { title: '下发 CE-A', desc: '推送到 CSMctl' },
+  { title: '预览 CE-B', desc: '从平台库读取待下发配置（清洗后）' },
+  { title: '下发 CE-B', desc: '推送到 CSMctl' },
+];
+
 const SRv6CreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
@@ -43,6 +55,15 @@ const SRv6CreatePage: React.FC = () => {
   const [isPending, startTransition] = useTransition();
   const [peConfigs, setPeConfigs] = useState<{ peA?: any; peB?: any }>({});
   const [ceConfigs, setCeConfigs] = useState<{ ceA?: any; ceB?: any }>({});
+  /** 第 3 步：已创建隧道记录并写入平台 VR配置库 */
+  const [platformSaved, setPlatformSaved] = useState(false);
+  const [platformSaveLoading, setPlatformSaveLoading] = useState(false);
+  /** 第 4 步：分步下发 */
+  const [deployStep, setDeployStep] = useState(0);
+  const [deployLogs, setDeployLogs] = useState<Record<number, string>>({});
+  const [deployStatus, setDeployStatus] = useState<Record<number, 'wait' | 'process' | 'finish' | 'error'>>({});
+  const deployVrSeqRef = React.useRef<{ label: string; id: string }[]>([]);
+  const deployAutoStartedRef = React.useRef(false);
 
   // 编辑模式：根据 query 参数回显隧道数据
   const location = useLocation();
@@ -97,54 +118,6 @@ const SRv6CreatePage: React.FC = () => {
     return s.includes('/') ? s.split('/')[0] : s;
   };
 
-  // 提取指定端口索引的 IPv6（含掩码），若存在 CIDR 则原样返回
-  const extractPortIpv6Cidr = (cfg: any, portIndex: number): string | undefined => {
-    if (!cfg || typeof cfg !== 'object') return undefined;
-    const keys = Object.keys(cfg);
-    for (const k of keys) {
-      if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
-        const arr = (cfg as any)[k];
-        if (Array.isArray(arr) && arr[portIndex]) {
-          const v = arr[portIndex]?.ipv6_static || arr[portIndex]?.ipv6;
-          if (v) return String(v);
-        }
-      }
-    }
-    // 兜底：第一个可用 IPv6
-    for (const k of keys) {
-      if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
-        const arr = (cfg as any)[k];
-        if (Array.isArray(arr)) {
-          for (const it of arr) {
-            const v = it?.ipv6_static || it?.ipv6;
-            if (v) return String(v);
-          }
-        }
-      }
-    }
-    return undefined;
-  };
-
-  // 根据 IPv6 CIDR 推导网络前缀（简化：将主机位归零）。例如："500::1/64" -> "500::0/64"
-  const getIpv6NetworkFromCidr = (cidr?: string): string | undefined => {
-    if (!cidr) return undefined;
-    const s = String(cidr).trim();
-    const [addr, mask] = s.split('/');
-    if (!addr) return undefined;
-    const m = mask && /^\d{1,3}$/.test(mask) ? mask : '64';
-    // 简化归零策略：若包含"::"，则将最后的"::"后的内容归零；否则在末尾追加"::0"
-    let network = addr;
-    if (addr.includes('::')) {
-      // 保留到"::"，去掉后续主机位，补"0"
-      const idx = addr.indexOf('::');
-      network = addr.substring(0, idx + 2) + '0';
-    } else {
-      // 无缩写时，直接在末尾追加"::0"
-      network = addr + '::0';
-    }
-    return `${network}/${m}`;
-  };
-
   // 提取指定端口索引的 IPv6（0=第一个网口/公网；1=第二个网口/内网），尽力解析
   const extractPortIpv6 = (cfg: any, portIndex: number): string | undefined => {
     if (!cfg || typeof cfg !== 'object') return undefined;
@@ -178,6 +151,66 @@ const SRv6CreatePage: React.FC = () => {
     return undefined;
   };
 
+  /** 接口行：优先 IPv4（与 CE–PE 纯 IPv4 专家配置一致），否则 IPv6 */
+  const rowHostIpPreferV4 = (it: any): string | undefined => {
+    const v4 = trimPrefix(it?.ipv4_static || it?.ipv4);
+    if (v4) return v4;
+    return trimPrefix(it?.ipv6_static || it?.ipv6);
+  };
+
+  /** 按端口索引取“公网/内网”主机地址：IPv4 优先，否则 IPv6（用于 CE 外网、PE 内网等） */
+  const extractPortIp = (cfg: any, portIndex: number): string | undefined => {
+    if (!cfg || typeof cfg !== 'object') return undefined;
+    const keys = Object.keys(cfg);
+    for (const k of keys) {
+      if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
+        const arr = (cfg as any)[k];
+        if (Array.isArray(arr) && arr[portIndex]) {
+          const ip = rowHostIpPreferV4(arr[portIndex]);
+          if (ip) return ip;
+        }
+      }
+    }
+    const candidates: string[] = [];
+    for (const k of keys) {
+      if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
+        const arr = (cfg as any)[k];
+        if (Array.isArray(arr)) {
+          for (const it of arr) {
+            const ip = rowHostIpPreferV4(it);
+            if (ip) candidates.push(ip);
+          }
+        }
+      }
+    }
+    if (portIndex === 0) {
+      return (
+        candidates[0] ||
+        trimPrefix((cfg as any)?.ipv4_static || (cfg as any)?.ipv4) ||
+        trimPrefix((cfg as any)?.ipv6_static || (cfg as any)?.ipv6)
+      );
+    }
+    if (portIndex === 1) return candidates[1] || candidates[0] || undefined;
+    return undefined;
+  };
+
+  /** 按接口名取主机地址：IPv4 优先，否则 IPv6 */
+  const extractInterfaceIp = (cfg: any, ifName?: string): string | undefined => {
+    if (!cfg || typeof cfg !== 'object' || !ifName) return undefined;
+    const keys = Object.keys(cfg);
+    for (const k of keys) {
+      if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
+        const arr = (cfg as any)[k];
+        if (Array.isArray(arr)) {
+          for (const it of arr) {
+            if (String(it?.name || '') === ifName) return rowHostIpPreferV4(it);
+          }
+        }
+      }
+    }
+    return undefined;
+  };
+
   // 提取 BGP ASN：优先第 idx 个结构体，其次第 0 个
   const extractBgpAsnAt = (cfg: any, idx: number): number | undefined => {
     if (!cfg || typeof cfg !== 'object') return undefined;
@@ -187,29 +220,7 @@ const SRv6CreatePage: React.FC = () => {
     return typeof asn === 'number' ? asn : (asn ? Number(asn) : undefined);
   };
 
-  // 根据接口名称提取 IPv6（支持 static 或动态字段）
-  const extractInterfaceIpv6 = (cfg: any, ifName?: string): string | undefined => {
-    if (!cfg || typeof cfg !== 'object' || !ifName) return undefined;
-    const keys = Object.keys(cfg);
-    for (const k of keys) {
-      if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
-        const arr = (cfg as any)[k];
-        if (Array.isArray(arr)) {
-          for (const it of arr) {
-            const name = String(it?.name || '');
-            if (name === ifName) {
-              const v = it?.ipv6_static || it?.ipv6;
-              const ip = trimPrefix(v);
-              if (ip) return ip;
-            }
-          }
-        }
-      }
-    }
-    return undefined;
-  };
-
-  // 根据接口名称提取 VRF（仅当接口对象显式包含 vrf 时返回）
+   // 根据接口名称提取 VRF（仅当接口对象显式包含 vrf 时返回）
   const extractInterfaceVrf = (cfg: any, ifName?: string): string | number | undefined => {
     if (!cfg || typeof cfg !== 'object' || !ifName) return undefined;
     const keys = Object.keys(cfg);
@@ -234,7 +245,7 @@ const SRv6CreatePage: React.FC = () => {
   const listInterfaceOptions = (cfg: any): { value: string; label: string }[] => {
     if (!cfg || typeof cfg !== 'object') return [];
     const keys = Object.keys(cfg);
-    const items: { name: string; vrf?: any; ipv6?: string }[] = [];
+    const items: { name: string; vrf?: any; ipv6?: string; ipv4?: string }[] = [];
     for (const k of keys) {
       if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
         const arr = (cfg as any)[k];
@@ -243,8 +254,9 @@ const SRv6CreatePage: React.FC = () => {
             const name = String(it?.name || '');
             if (!name) continue;
             const vrf = (it as any)?.vrf;
-            const ip = trimPrefix((it as any)?.ipv6_static || (it as any)?.ipv6);
-            items.push({ name, vrf, ipv6: ip });
+            const ip6 = trimPrefix((it as any)?.ipv6_static || (it as any)?.ipv6);
+            const ip4 = trimPrefix((it as any)?.ipv4_static || (it as any)?.ipv4);
+            items.push({ name, vrf, ipv6: ip6, ipv4: ip4 });
           }
         }
       }
@@ -255,77 +267,80 @@ const SRv6CreatePage: React.FC = () => {
     // 重要调整：带 VRF 的接口不再因为“IPv6 等于第一个端口”而被排除，避免误判导致选项消失
     const withVrf = items.filter((it) => it.vrf !== undefined && it.vrf !== null && String(it.vrf) !== '');
     // 若设备未在接口上标注 VRF，则兜底：展示所有具备 IPv6 的接口，辅助显示 IPv6，方便用户人工选择
-    const fallback = withVrf.length > 0 ? [] : items.filter(excludePublic).filter((it) => !!it.ipv6);
+    const fallback = withVrf.length > 0 ? [] : items.filter(excludePublic).filter((it) => !!(it.ipv6 || it.ipv4));
     const finalItems = withVrf.length > 0 ? withVrf : fallback;
     // 以接口名去重，保留其 VRF/IPv6 显示在标签中，便于用户识别“属于哪个内网配置组、VRF是多少”
-    const nameToMeta: Record<string, { vrf?: any; ipv6?: string }> = {};
-    finalItems.forEach((x) => { if (!(x.name in nameToMeta)) nameToMeta[x.name] = { vrf: x.vrf, ipv6: x.ipv6 }; });
+    const nameToMeta: Record<string, { vrf?: any; ipv6?: string; ipv4?: string }> = {};
+    finalItems.forEach((x) => { if (!(x.name in nameToMeta)) nameToMeta[x.name] = { vrf: x.vrf, ipv6: x.ipv6, ipv4: x.ipv4 }; });
     return Object.keys(nameToMeta).map((n) => ({ value: n, label: n }));
   };
 
-  // PE+PE 模式：为 PE JSON 的第一个 ASN 结构体（公网自治域）追加对端 PE 的 neighbor 与关闭直连检查
+  // PE+PE：公网 BGP 去掉 ipv6 unicast；保留 ipv4 vpn + activate_address_family；控制器要求此时必须配置 neighbor，故注入对端公网 IPv6 邻居及对端 ASN
   const injectNeighborsForPEPeer = (selfCfg: any, peerPeCfg: any): any => {
     try {
       const cloned = JSON.parse(JSON.stringify(selfCfg || {}));
-      const peerPublicIp = extractPortIpv6(peerPeCfg, 0); // 对端 PE 的第一个网口（公网）IP
-      const peerPublicIpCidr = extractPortIpv6Cidr(peerPeCfg, 0); // 含掩码的 IPv6
-      const interconnectV6Net = getIpv6NetworkFromCidr(peerPublicIpCidr); // 互联 IPv6 网段（用于地址族 network）
-      const peerPublicAsn = extractBgpAsnAt(peerPeCfg, 0); // 对端 PE 的第一个 ASN（公网自治域）
+      const peerPublicIp = extractPortIpv6(peerPeCfg, 0);
       if (!peerPublicIp) return cloned;
-      const bgpArr = Array.isArray((cloned as any)?.bgp) ? (cloned as any).bgp : [];
-      const bgp0 = bgpArr[0];
-      if (!bgp0 || typeof bgp0 !== 'object') return cloned;
-      // 1) neighbor_disable_connected_check 追加对端公网IP（若不存在则追加）
-      const ndcc = Array.isArray(bgp0.neighbor_disable_connected_check) ? bgp0.neighbor_disable_connected_check : [];
-      if (!ndcc.includes(peerPublicIp)) ndcc.push(peerPublicIp);
-      bgp0.neighbor_disable_connected_check = ndcc;
-      // 2) neighbor 追加 { remote_ip, remote_as } 到第一个 ASN 结构体
-      const neighbors = Array.isArray(bgp0.neighbor) ? bgp0.neighbor : [];
-      const exists = neighbors.some((n: any) => String(n?.remote_ip) === peerPublicIp);
-      if (!exists) {
-        neighbors.push({ remote_ip: peerPublicIp, remote_as: peerPublicAsn ?? 0 });
+      const isPublicBgp = (b: any) =>
+        b && typeof b === 'object' && (!b.vrf || b.vrf === 0 || b.vrf === '0');
+      let bgpArr = Array.isArray((cloned as any)?.bgp) ? (cloned as any).bgp : [];
+      const pubIdxFromMeta = readPePublicBgpIndex((cloned as any)?.pe);
+      let pubIdx = -1;
+      if (
+        typeof pubIdxFromMeta === 'number' &&
+        pubIdxFromMeta >= 0 &&
+        pubIdxFromMeta < bgpArr.length &&
+        isPublicBgp(bgpArr[pubIdxFromMeta])
+      ) {
+        pubIdx = pubIdxFromMeta;
+      } else {
+        pubIdx = bgpArr.findIndex(isPublicBgp);
       }
-      bgp0.neighbor = neighbors;
+      if (pubIdx < 0) {
+        bgpArr = [{ bgp_ebgp_requires_policy: 'disable', address_family: [] }, ...bgpArr];
+        (cloned as any).bgp = bgpArr;
+        pubIdx = 0;
+      }
+      const bgpPub = bgpArr[pubIdx];
+      if (!bgpPub || typeof bgpPub !== 'object') return cloned;
 
-      // 3) 地址族信息（按 PRD）：在第一个 ASN 结构体中设定 IPv6(unicast) 与 IPv4(vpn)
-      const afArr = Array.isArray(bgp0.address_family) ? bgp0.address_family : [];
-      // IPv6 地址族：unicast + activate_address_family + network
-      const afV6Idx = afArr.findIndex((af: any) => String(af?.address_family).toLowerCase() === 'ipv6');
-      if (afV6Idx >= 0) {
-        const af = afArr[afV6Idx];
-        af.modifier = 'unicast';
-        const act = Array.isArray(af.activate_address_family) ? af.activate_address_family : [];
-        if (!act.includes(peerPublicIp)) act.push(peerPublicIp);
-        af.activate_address_family = act;
-        const nets = Array.isArray(af.network) ? af.network : [];
-        if (interconnectV6Net && !nets.includes(interconnectV6Net)) nets.push(interconnectV6Net);
-        af.network = nets;
-        afArr[afV6Idx] = af;
-      } else {
-        afArr.push({
-          address_family: 'ipv6',
-          modifier: 'unicast',
-          activate_address_family: peerPublicIp ? [peerPublicIp] : [],
-          network: interconnectV6Net ? [interconnectV6Net] : [],
-        });
-      }
-      // IPv4 地址族：vpn + activate_address_family（PRD 未要求 network）
-      const afV4Idx = afArr.findIndex((af: any) => String(af?.address_family).toLowerCase() === 'ipv4');
+      const afArr = Array.isArray(bgpPub.address_family) ? bgpPub.address_family : [];
+      const afNoV6 = afArr.filter((af: any) => String(af?.address_family).toLowerCase() !== 'ipv6');
+      const afV4Idx = afNoV6.findIndex((af: any) => String(af?.address_family).toLowerCase() === 'ipv4');
       if (afV4Idx >= 0) {
-        const af = afArr[afV4Idx];
-        af.modifier = 'vpn';
+        const af = afNoV6[afV4Idx];
+        delete (af as any).modifier;
+        af.modifiler = 'vpn';
         const act = Array.isArray(af.activate_address_family) ? af.activate_address_family : [];
         if (!act.includes(peerPublicIp)) act.push(peerPublicIp);
         af.activate_address_family = act;
-        afArr[afV4Idx] = af;
+        afNoV6[afV4Idx] = af;
       } else {
-        afArr.push({
+        afNoV6.push({
           address_family: 'ipv4',
-          modifier: 'vpn',
-          activate_address_family: peerPublicIp ? [peerPublicIp] : [],
+          modifiler: 'vpn',
+          activate_address_family: [peerPublicIp],
         });
       }
-      bgp0.address_family = afArr;
+      bgpPub.address_family = afNoV6;
+      const peerPublicAsn = extractBgpAsnAt(peerPeCfg, 0);
+      const neighbors = Array.isArray(bgpPub.neighbor) ? [...bgpPub.neighbor] : [];
+      const hasPeerNeighbor = neighbors.some((n: any) => String(n?.remote_ip) === String(peerPublicIp));
+      if (!hasPeerNeighbor) {
+        neighbors.push({
+          remote_ip: peerPublicIp,
+          remote_as: peerPublicAsn ?? 0,
+        });
+      }
+      bgpPub.neighbor = neighbors;
+      const ndc = Array.isArray(bgpPub.neighbor_disable_connected_check)
+        ? [...bgpPub.neighbor_disable_connected_check]
+        : [];
+      if (!ndc.some((ip: any) => String(ip) === String(peerPublicIp))) {
+        ndc.push(peerPublicIp);
+      }
+      bgpPub.neighbor_disable_connected_check = ndc;
+      bgpArr[pubIdx] = bgpPub;
       return cloned;
     } catch (_) {
       return selfCfg;
@@ -333,10 +348,10 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   // PE+CE 模式：在 PE 的第二个 ASN 结构体（内网自治域）中追加本端 CE 的公网IP与其“内”ASN
-  const injectNeighborsForPEToCE = (selfCfg: any, ceCfg: any, bgpVrf?: any): any => {
+   const injectNeighborsForPEToCE = (selfCfg: any, ceCfg: any, bgpVrf?: any): any => {
     try {
       const cloned = JSON.parse(JSON.stringify(selfCfg || {}));
-      const cePublicIp = extractPortIpv6(ceCfg, 0); // CE 第一个网口（公网）IP
+      const cePublicIp = extractPortIp(ceCfg, 0); // CE 外网口：IPv4 优先（专家样例），否则 IPv6
       const ceAsnInner = extractBgpAsnAt(ceCfg, 1); // CE 第二个结构体 ASN（内网ASN）
       if (!cePublicIp) return cloned;
       const bgpArr = Array.isArray((cloned as any)?.bgp) ? (cloned as any).bgp : [];
@@ -359,17 +374,12 @@ const SRv6CreatePage: React.FC = () => {
   const injectConnectionsForCE = (selfCfg: any, peCfg: any): any => {
     try {
       const cloned = JSON.parse(JSON.stringify(selfCfg || {}));
-      const peInnerIp = (peCfg as any)?._inner_ip_override || extractPortIpv6(peCfg, 1); // 优先使用选择的内网口 IP
+      const peInnerIp = (peCfg as any)?._inner_ip_override || extractPortIp(peCfg, 1); // 内网口常为 IPv4
       const peAsnInner = extractBgpAsnAt(peCfg, 1); // PE 第二个结构体 ASN
       if (!peInnerIp) return cloned;
       const bgpArr = Array.isArray((cloned as any)?.bgp) ? (cloned as any).bgp : [];
-      const bgp0 = bgpArr[0]; // 明确仅在第一个结构体追加
+      const bgp0 = bgpArr[0]; // 明确仅在第一个结构体追加（与 ce2 专家一致：不写 neighbor_disable_connected_check）
       if (!bgp0 || typeof bgp0 !== 'object') return cloned;
-      // a) 追加禁用直连检查列表
-      const ndcc = Array.isArray(bgp0.neighbor_disable_connected_check) ? bgp0.neighbor_disable_connected_check : [];
-      if (!ndcc.includes(peInnerIp)) ndcc.push(peInnerIp);
-      bgp0.neighbor_disable_connected_check = ndcc;
-      // b) 追加邻居列表
       const neighbors = Array.isArray(bgp0.neighbor) ? bgp0.neighbor : [];
       const exists = neighbors.some((n: any) => String(n?.remote_ip) === peInnerIp);
       if (!exists) {
@@ -382,40 +392,52 @@ const SRv6CreatePage: React.FC = () => {
     }
   };
 
-  // 在指定 BGP 结构体中插入 RD/RT（若 address_family 不存在则创建首个对象）
-  const injectRdRtAtBgpIndex = (cfg: any, bgpIndex: number, rd: string, rt: string): any => {
+  /**
+   * 将 RD/RT 写入指定 BGP 结构体中的「ipv4 + unicast」地址族（与 pe2 专家内网 BGP 一致）；
+   * 若已有则由向导/设备生成的 address_family 条目上合并，否则追加一条。
+   */
+  const injectRdRtIntoIpv4UnicastAfAtBgpIndex = (cfg: any, bgpIndex: number, rd: string, rt: string): any => {
     try {
       const cloned = JSON.parse(JSON.stringify(cfg || {}));
       const bgpArr = Array.isArray((cloned as any)?.bgp) ? (cloned as any).bgp : [];
-      const bgp = bgpArr[bgpIndex] || bgpArr[0];
+      const bgp = bgpArr[bgpIndex];
       if (!bgp || typeof bgp !== 'object') return cloned;
-      const afArr = Array.isArray(bgp.address_family) ? bgp.address_family : [];
-      // 必须在已有的 address_family 结构内插入；若不存在则不创建
-      if (!afArr.length) return cloned;
-      bgp.address_family = afArr.map((af: any) => {
-        // 规范化 activate_address_family：确保包含 ipv6
-        const aaf = Array.isArray(af.activate_address_family) ? af.activate_address_family : [];
-        const nextAaf = Array.from(new Set([...(aaf || []).filter(Boolean), 'ipv6']));
-        return {
-          ...af,
-          modifier: af.modifier || 'unicast',
-          activate_address_family: nextAaf,
-          export_route: af.export_route || 'enable',
-          import_route: af.import_route || 'enable',
-          auto_assign_sid: af.auto_assign_sid || 'enable',
+      const afArr = Array.isArray(bgp.address_family) ? [...bgp.address_family] : [];
+      const modOf = (af: any) => String(af?.modifier || af?.modifiler || '').toLowerCase();
+      const isIpv4Unicast = (af: any) =>
+        String(af?.address_family || '').toLowerCase() === 'ipv4' && modOf(af) === 'unicast';
+      let idx = afArr.findIndex(isIpv4Unicast);
+      if (idx < 0) idx = afArr.findIndex((af: any) => String(af?.address_family || '').toLowerCase() === 'ipv4');
+      if (idx >= 0) {
+        const cur = afArr[idx] || {};
+        afArr[idx] = {
+          ...cur,
+          address_family: cur.address_family || 'ipv4',
+          modifiler: cur.modifiler || cur.modifier || 'unicast',
+          export_route: cur.export_route || 'enable',
+          import_route: cur.import_route || 'enable',
+          auto_assign_sid: cur.auto_assign_sid || 'enable',
           route_distinguisher: rd,
           route_target: rt,
         };
-      });
+        delete (afArr[idx] as any).modifier;
+      } else {
+        afArr.push({
+          address_family: 'ipv4',
+          modifiler: 'unicast',
+          export_route: 'enable',
+          import_route: 'enable',
+          auto_assign_sid: 'enable',
+          route_distinguisher: rd,
+          route_target: rt,
+        });
+      }
+      bgp.address_family = afArr;
       return cloned;
     } catch (_) {
       return cfg;
     }
   };
-
-  // 为 PE/CE 插入 RD/RT：PE 优先第二个结构体（内 ASN），CE 固定第一个结构体
-  const injectRdRtForPE = (cfg: any, rd: string, rt: string): any => injectRdRtAtBgpIndex(cfg, 1, rd, rt);
-  const injectRdRtForCE = (cfg: any, rd: string, rt: string): any => injectRdRtAtBgpIndex(cfg, 0, rd, rt);
 
   // 按 VRF 定位 BGP 结构体索引（完全匹配字符串值）
   const findBgpIndexByVrf = (cfg: any, targetVrf: any): number | undefined => {
@@ -429,60 +451,75 @@ const SRv6CreatePage: React.FC = () => {
     }
   };
 
-  // 在按 VRF 定位到的 BGP 结构体中插入 RD/RT 与地址族路由信息
-  const injectRdRtAtBgpVrf = (cfg: any, bgpVrf: any, rd: string, rt: string): any => {
-    const idx = findBgpIndexByVrf(cfg, bgpVrf);
-    if (idx === undefined) return cfg;
-    return injectRdRtAtBgpIndex(cfg, idx, rd, rt);
+  // 无 VRF（或 vrf 为 0）的 BGP 结构体视为「公网/global」段，与 injectNeighborsForPEPeer 判定一致
+  const isPublicBgpBlock = (b: any) =>
+    b && typeof b === 'object' && (!b.vrf || b.vrf === 0 || b.vrf === '0');
+
+  const computePublicBgpIndex = (cfg: any): number => {
+    try {
+      const bgpArr = Array.isArray((cfg as any)?.bgp) ? (cfg as any).bgp : [];
+      const idx = bgpArr.findIndex(isPublicBgpBlock);
+      return idx >= 0 ? idx : 0;
+    } catch {
+      return 0;
+    }
   };
 
-  // 在指定 BGP 结构体的 neighbor 中追加路由策略对象（包含 address_family、RD/RT、导入导出与自动分配SID）
-  const injectNeighborRoutePolicyAtIndex = (cfg: any, bgpIndex: number, rd: string, rt: string): any => {
+  /** pe 元数据中公网 BGP 下标：新 pe.publicConfig.publicBgpIndex；旧 pe.publicBgpIndex */
+  const readPePublicBgpIndex = (pe: any): number | undefined => {
+    if (!pe || typeof pe !== 'object') return undefined;
+    const pc = pe.publicConfig;
+    if (pc && typeof pc === 'object' && typeof pc.publicBgpIndex === 'number') return pc.publicBgpIndex;
+    if (typeof pe.publicBgpIndex === 'number') return pe.publicBgpIndex;
+    return undefined;
+  };
+
+  const mergePublicBgpIndexIntoPe = (prevPe: any, idx: number): any => {
+    const base = prevPe && typeof prevPe === 'object' ? { ...prevPe } : {};
+    if (base.publicConfig && typeof base.publicConfig === 'object') {
+      return {
+        ...base,
+        publicConfig: { ...base.publicConfig, publicBgpIndex: idx },
+      };
+    }
+    return { ...base, publicBgpIndex: idx };
+  };
+
+  /** 预览/下发前深拷贝，保留 pe、ce、role 等与设备回读一致的顶层字段 */
+  const sanitizeForDevice = (cfg: any): any => {
     try {
-      const cloned = JSON.parse(JSON.stringify(cfg || {}));
-      const bgpArr = Array.isArray((cloned as any)?.bgp) ? (cloned as any).bgp : [];
-      const bgp = bgpArr[bgpIndex] || bgpArr[0];
-      if (!bgp || typeof bgp !== 'object') return cloned;
-      const neighbors = Array.isArray(bgp.neighbor) ? bgp.neighbor : [];
-      // 优先合并已有的“带 address_family 标记”的策略项，避免重复
-      const policyIdx = neighbors.findIndex((n: any) => n && typeof n === 'object' && 'address_family' in n);
-      if (policyIdx >= 0) {
-        const item = { ...(neighbors[policyIdx] || {}) };
-        const afLabel = String(item.address_family || '').toLowerCase();
-        item.address_family = afLabel || 'ipv4';
-        item.modifier = 'unicast';
-        item.route_distinguisher = rd;
-        item.route_target = rt;
-        item.export_route = 'enable';
-        item.import_route = 'enable';
-        item.auto_assign_sid = 'enable';
-        neighbors[policyIdx] = item;
-      } else {
-        neighbors.push({
-          address_family: 'ipv4',
-          modifier: 'unicast',
-          route_distinguisher: rd,
-          route_target: rt,
-          export_route: 'enable',
-          import_route: 'enable',
-          auto_assign_sid: 'enable',
-        });
-      }
-      bgp.neighbor = neighbors;
-      return cloned;
-    } catch (_) {
+      return JSON.parse(JSON.stringify(cfg || {}));
+    } catch {
       return cfg;
     }
   };
 
-  // 预览前清理：移除非接口定义的 pe/ce 字段，保持与后端接口结构一致
-  const sanitizePreview = (cfg: any): any => {
+  /** 平台 vr-config 保存（PE）：设备体 + pe.publicConfig.publicBgpIndex（兼容旧扁平 pe） */
+  const buildPeConfigForPlatformStorage = (injectedFull: any): any => {
     try {
-      const c = JSON.parse(JSON.stringify(cfg || {}));
-      if (c && typeof c === 'object') {
-        delete (c as any).pe;
-        delete (c as any).ce;
-      }
+      const idx = computePublicBgpIndex(injectedFull);
+      const prevPe =
+        injectedFull && typeof injectedFull === 'object' && injectedFull.pe && typeof injectedFull.pe === 'object'
+          ? injectedFull.pe
+          : {};
+      const device = sanitizeForDevice(injectedFull);
+      return {
+        ...device,
+        pe: mergePublicBgpIndexIntoPe(prevPe, idx),
+      };
+    } catch {
+      return sanitizeForDevice(injectedFull);
+    }
+  };
+
+  /** 拉取 PE 后补全公网 BGP 下标（写入 publicConfig 或 legacy 顶层） */
+  const enrichPeConfigWithPublicBgpMeta = (cfg: any): any => {
+    if (!cfg) return cfg;
+    try {
+      const c = JSON.parse(JSON.stringify(cfg));
+      const idx = computePublicBgpIndex(c);
+      const prevPe = c.pe && typeof c.pe === 'object' ? c.pe : {};
+      c.pe = mergePublicBgpIndexIntoPe(prevPe, idx);
       return c;
     } catch {
       return cfg;
@@ -501,17 +538,28 @@ const SRv6CreatePage: React.FC = () => {
     }
   };
 
-  // 向顶层追加 IPv6 路由（destination/via），避免重复
+  /**
+   * 向顶层写入「经对端 PE 公网 IPv6 到达对端 SRv6前缀」的静态路由。
+   * 平台/PE 向导里可能已有同 via +同 vrf 的另一条 IPv6 目的（如 ipv6Dest 写成汇总240f::/64），
+   * 与对端 SRv6 prefix（无掩码时默认补 /128）等语义重复时；此处对相同下一跳 + VRF 只保留本次注入的一条，避免 ipv6_route 双份。
+   */
   const injectIpv6RouteTop = (cfg: any, destination?: string, via?: string, vrf?: number | string): any => {
     if (!destination || !via) return cfg;
     try {
       const cloned = JSON.parse(JSON.stringify(cfg || {}));
       const arr = Array.isArray((cloned as any).ipv6_route) ? (cloned as any).ipv6_route : [];
-      const exists = arr.some((r: any) => String(r?.destination) === String(destination) && String(r?.via) === String(via) && (vrf === undefined || String(r?.vrf) === String(vrf)));
+      const vrfKey = (v: any) => String(v ?? '');
+      const filtered = arr.filter((r: any) => {
+        const dest = String(r?.destination || '');
+        if (!dest.includes(':')) return true;
+        if (String(r?.via || '') !== String(via)) return true;
+        if (vrfKey(r?.vrf) !== vrfKey(vrf)) return true;
+        return false;
+      });
       const route: any = { destination, via };
       if (vrf !== undefined) route.vrf = vrf;
-      if (!exists) arr.push(route);
-      (cloned as any).ipv6_route = arr;
+      filtered.push(route);
+      (cloned as any).ipv6_route = filtered;
       return cloned;
     } catch {
       return cfg;
@@ -711,63 +759,54 @@ const SRv6CreatePage: React.FC = () => {
     return filtered.map((x) => ({ value: x.uuid, label: x.label }));
   }, [vrs, rolesMap]);
 
-  // 监听表单变更以加载 PE 配置（内置于组件作用域，便于访问状态）
+  const wizardMetaEmpty = (v: any) =>
+    v == null || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length === 0;
+
+  /**
+   * 仍以设备实时为底；仅当设备 JSON 里没有向导块 pe/ce 时，用平台 vr-config 缓存补一层（CSM 常不回显这些键）。
+   */
+  const fillWizardMetaGapsFromTower = (deviceNorm: any, towerNorm: any | null): any => {
+    if (!deviceNorm) return towerNorm ? JSON.parse(JSON.stringify(towerNorm)) : null;
+    if (!towerNorm) return deviceNorm;
+    const d = JSON.parse(JSON.stringify(deviceNorm));
+    if (!wizardMetaEmpty(towerNorm.pe) && wizardMetaEmpty(d.pe)) {
+      d.pe = JSON.parse(JSON.stringify(towerNorm.pe));
+    }
+    if (!wizardMetaEmpty(towerNorm.ce) && wizardMetaEmpty(d.ce)) {
+      d.ce = JSON.parse(JSON.stringify(towerNorm.ce));
+    }
+    return d;
+  };
+
+  // 先拉设备实时，再按需补 pe/ce 元数据缺口
   const fetchAndSetPeConfig = async (target: 'peA' | 'peB', uuid: string) => {
     if (!uuid) return;
     try {
       const cfgRaw = await getVR2Config(uuid);
-      const cfg = normalizeVRConfigForPreview(cfgRaw);
-      setPeConfigs((prev) => ({ ...prev, [target]: cfg }));
+      let cfg = normalizeVRConfigForPreview(cfgRaw);
+      const towerRaw = await getVRConfig(uuid);
+      const towerNorm = towerRaw ? normalizeVRConfigForPreview(towerRaw) : null;
+      cfg = fillWizardMetaGapsFromTower(cfg, towerNorm);
+      setPeConfigs((prev) => ({ ...prev, [target]: enrichPeConfigWithPublicBgpMeta(cfg) }));
     } catch (e: any) {
-      console.warn('获取PE配置失败(远端VR2):', e?.message || e);
-      // 回退到平台本地保存的配置
-      try {
-        const localCfg = await getVRConfig(uuid);
-        const norm = localCfg ? normalizeVRConfigForPreview(localCfg) : null;
-        setPeConfigs((prev) => ({ ...prev, [target]: norm }));
-      } catch (ee: any) {
-        console.warn('获取PE配置失败(本地保存):', ee?.message || ee);
-        setPeConfigs((prev) => ({ ...prev, [target]: null }));
-      }
+      console.warn('获取PE配置失败(设备实时):', e?.message || e);
+      setPeConfigs((prev) => ({ ...prev, [target]: null }));
     }
   };
 
-  // 加载 CE 配置（优先最新版本，其次当前配置）
   const fetchAndSetCeConfig = async (target: 'ceA' | 'ceB', uuid: string) => {
     if (!uuid) return;
     try {
       const cfgRaw = await getVR2Config(uuid);
-      const cfg = normalizeVRConfigForPreview(cfgRaw);
+      let cfg = normalizeVRConfigForPreview(cfgRaw);
+      const towerRaw = await getVRConfig(uuid);
+      const towerNorm = towerRaw ? normalizeVRConfigForPreview(towerRaw) : null;
+      cfg = fillWizardMetaGapsFromTower(cfg, towerNorm);
       setCeConfigs((prev) => ({ ...prev, [target]: cfg }));
     } catch (e: any) {
-      console.warn('获取CE配置失败(远端VR2):', e?.message || e);
-      // 回退到平台本地保存的配置
-      try {
-        const localCfg = await getVRConfig(uuid);
-        const norm = localCfg ? normalizeVRConfigForPreview(localCfg) : null;
-        setCeConfigs((prev) => ({ ...prev, [target]: norm }));
-      } catch (ee: any) {
-        console.warn('获取CE配置失败(本地保存):', ee?.message || ee);
-        setCeConfigs((prev) => ({ ...prev, [target]: null }));
-      }
+      console.warn('获取CE配置失败(设备实时):', e?.message || e);
+      setCeConfigs((prev) => ({ ...prev, [target]: null }));
     }
-  };
-
-  // 直接下发配置到设备（通过 /api-proxy 调用远端 VR2/VRConfig）
-  const dispatchVRConfig = async (uuid: string, cfg: any) => {
-    if (!uuid || !cfg) return;
-      const accesskey = 'Cloudmap#123';
-      const secretkey = 'Cloudmap#123';
-      const path = '/V2/ctcontrol/VR2/VRConfig';
-      const method = 'POST';
-      // 与 Postman 的 Pre-request Script 一致：POST 的签名 other 为空，签名计算使用 body 原文
-      const other = '';
-
-      const data = await proxyApiRequest(path, method, other, { uuid, ...cfg }, accesskey, secretkey);
-      if (!data || (data && typeof data.code === 'number' && data.code !== 200)) {
-        throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
-      }
-    return data;
   };
 
   const handleValuesChange = async (changed: any, all: any) => {
@@ -796,8 +835,8 @@ const SRv6CreatePage: React.FC = () => {
   useEffect(() => {
     if (!rdRtMeta) {
       const randNum = () => 100 + Math.floor(Math.random() * 50000);
-      const rtCommon = `200:${randNum()}`; // 四端一致，随机生成
-      const rdMap = { peA: `200:${randNum()}`, peB: `200:${randNum()}`, ceA: `200:${randNum()}`, ceB: `200:${randNum()}` };
+      const rtCommon = `200:${randNum()}`; // PE 两端 VPN 一致，随机生成（CE 不配 RD/RT）
+      const rdMap = { peA: `200:${randNum()}`, peB: `200:${randNum()}` };
       setRdRtMeta({ rtCommon, rdMap });
     }
   }, [rdRtMeta]);
@@ -811,18 +850,37 @@ const SRv6CreatePage: React.FC = () => {
     const vrf = c && peAInnerIf ? extractInterfaceVrf(c, peAInnerIf) : undefined;
     if (c && b) c = injectNeighborsForPEPeer(c, b);
     if (c && ceA) c = injectNeighborsForPEToCE(c, ceA, vrf);
-    // 在 neighbor 中追加 route 信息（address_family 标记下），遵循 PRD：RD 唯一、RT 四端一致
+    // 内网 BGP：RD/RT 写在 ipv4 unicast 的 address_family 上（与 pe2 专家一致）
     if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peA && vrf !== undefined) {
       const idx = findBgpIndexByVrf(c, vrf);
-      c = injectNeighborRoutePolicyAtIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peA, rdRtMeta.rtCommon);
+      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peA, rdRtMeta.rtCommon);
     }
-    // 严格按 PRD：不再在 BGP.address_family 层注入 RD/RT，避免与 neighbor 路由策略产生冗余
-    // IPv6 路由：目的前缀为本端 SRv6 prefix，经由对端 PE 的公网IPv6
-    const dest = extractSrv6Prefix(c);
-    const dest64 = dest && dest.includes('/') ? dest : (dest ? `${dest}/64` : undefined);
+    // IPv6 路由：目的为对端 PE 的 SRv6 prefix（无掩码时补 /128），下一跳为对端 PE 公网 IPv6
+    const peerPrefix = b ? extractSrv6Prefix(b) : undefined;
+    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
     const via = b ? extractPortIpv6(b, 0) : undefined;
-    if (c && dest64 && via && vrf !== undefined) c = injectIpv6RouteTop(c, dest64, via, vrf);
-    return sanitizePreview(c);
+    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+    return c ? sanitizeForDevice(c) : null;
+  }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
+
+  /** 与 peAPreviewCfg 同源拼装，额外带 pe.publicBgpIndex 写入平台 vr-config */
+  const peAPreviewStorageCfg = useMemo(() => {
+    let c = peConfigs.peA;
+    const b = peConfigs.peB;
+    const ceA = ceConfigs.ceA;
+    const peAInnerIf: string | undefined = form.getFieldValue('peAInnerIf');
+    const vrf = c && peAInnerIf ? extractInterfaceVrf(c, peAInnerIf) : undefined;
+    if (c && b) c = injectNeighborsForPEPeer(c, b);
+    if (c && ceA) c = injectNeighborsForPEToCE(c, ceA, vrf);
+    if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peA && vrf !== undefined) {
+      const idx = findBgpIndexByVrf(c, vrf);
+      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peA, rdRtMeta.rtCommon);
+    }
+    const peerPrefix = b ? extractSrv6Prefix(b) : undefined;
+    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
+    const via = b ? extractPortIpv6(b, 0) : undefined;
+    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+    return c ? buildPeConfigForPlatformStorage(c) : null;
   }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
 
   const peBPreviewCfg = useMemo(() => {
@@ -833,40 +891,55 @@ const SRv6CreatePage: React.FC = () => {
     const vrf = c && peBInnerIf ? extractInterfaceVrf(c, peBInnerIf) : undefined;
     if (c && a) c = injectNeighborsForPEPeer(c, a);
     if (c && ceB) c = injectNeighborsForPEToCE(c, ceB, vrf);
-    // 在 neighbor 中追加 route 信息（address_family 标记下），遵循 PRD：RD 唯一、RT 四端一致
     if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peB && vrf !== undefined) {
       const idx = findBgpIndexByVrf(c, vrf);
-      c = injectNeighborRoutePolicyAtIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peB, rdRtMeta.rtCommon);
+      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peB, rdRtMeta.rtCommon);
     }
-    // 严格按 PRD：不在 BGP.address_family 层注入 RD/RT
-    // IPv6 路由：目的前缀为本端 SRv6 prefix，经由对端 PE 的公网IPv6
-    const dest = extractSrv6Prefix(c);
-    const dest64 = dest && dest.includes('/') ? dest : (dest ? `${dest}/64` : undefined);
+    // IPv6 路由：目的为对端 PE 的 SRv6 prefix（无掩码时补 /128），下一跳为对端 PE 公网 IPv6
+    const peerPrefix = a ? extractSrv6Prefix(a) : undefined;
+    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
     const via = a ? extractPortIpv6(a, 0) : undefined;
-    if (c && dest64 && via && vrf !== undefined) c = injectIpv6RouteTop(c, dest64, via, vrf);
-    return sanitizePreview(c);
+    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+    return c ? sanitizeForDevice(c) : null;
   }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
 
-  // CE 预览（不做邻居注入，仅展示配置）
+  const peBPreviewStorageCfg = useMemo(() => {
+    let c = peConfigs.peB;
+    const a = peConfigs.peA;
+    const ceB = ceConfigs.ceB;
+    const peBInnerIf: string | undefined = form.getFieldValue('peBInnerIf');
+    const vrf = c && peBInnerIf ? extractInterfaceVrf(c, peBInnerIf) : undefined;
+    if (c && a) c = injectNeighborsForPEPeer(c, a);
+    if (c && ceB) c = injectNeighborsForPEToCE(c, ceB, vrf);
+    if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peB && vrf !== undefined) {
+      const idx = findBgpIndexByVrf(c, vrf);
+      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peB, rdRtMeta.rtCommon);
+    }
+    const peerPrefix = a ? extractSrv6Prefix(a) : undefined;
+    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
+    const via = a ? extractPortIpv6(a, 0) : undefined;
+    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+    return c ? buildPeConfigForPlatformStorage(c) : null;
+  }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
+
+  // CE 预览：仅注入 PE 内网 neighbor（与 ce2 一致：无 RD/RT、无 neighbor_disable_connected_check）
   const ceAPreviewCfg = useMemo(() => {
     const ceA = ceConfigs.ceA;
     const peA = peConfigs.peA;
     const peAInnerIf: string | undefined = form.getFieldValue('peAInnerIf');
-    const peAInnerIp = peAInnerIf ? extractInterfaceIpv6(peA, peAInnerIf) : extractPortIpv6(peA, 1);
-    let injected = ceA && peA ? injectConnectionsForCE(ceA, peAInnerIp ? { ...peA, _inner_ip_override: peAInnerIp } : peA) : ceA;
-    // 严格按 PRD：SRv6 创建页不向 CE 的 BGP.address_family 注入 RD/RT
-    return sanitizePreview(injected);
-  }, [ceConfigs, peConfigs, rdRtMeta, formValues]);
+    const peAInnerIp = peAInnerIf ? extractInterfaceIp(peA, peAInnerIf) : extractPortIp(peA, 1);
+    const injected = ceA && peA ? injectConnectionsForCE(ceA, peAInnerIp ? { ...peA, _inner_ip_override: peAInnerIp } : peA) : ceA;
+    return injected ? sanitizeForDevice(injected) : null;
+  }, [ceConfigs, peConfigs, formValues]);
 
   const ceBPreviewCfg = useMemo(() => {
     const ceB = ceConfigs.ceB;
     const peB = peConfigs.peB;
     const peBInnerIf: string | undefined = form.getFieldValue('peBInnerIf');
-    const peBInnerIp = peBInnerIf ? extractInterfaceIpv6(peB, peBInnerIf) : extractPortIpv6(peB, 1);
-    let injected = ceB && peB ? injectConnectionsForCE(ceB, peBInnerIp ? { ...peB, _inner_ip_override: peBInnerIp } : peB) : ceB;
-    // 严格按 PRD：SRv6 创建页不向 CE 的 BGP.address_family 注入 RD/RT
-    return sanitizePreview(injected);
-  }, [ceConfigs, peConfigs, rdRtMeta, formValues]);
+    const peBInnerIp = peBInnerIf ? extractInterfaceIp(peB, peBInnerIf) : extractPortIp(peB, 1);
+    const injected = ceB && peB ? injectConnectionsForCE(ceB, peBInnerIp ? { ...peB, _inner_ip_override: peBInnerIp } : peB) : ceB;
+    return injected ? sanitizeForDevice(injected) : null;
+  }, [ceConfigs, peConfigs, formValues]);
 
   // 打开 PE 配置弹窗
   const openPeDialog = (target: 'peA' | 'peB') => {
@@ -991,80 +1064,141 @@ const SRv6CreatePage: React.FC = () => {
   const deferredValues = useDeferredValue(formValues);
   const configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode]);
 
-  const submit = async () => {
+  /** 仅在前两步回退时清空「已保存」标记；从下发向导回到确认页仍保留（避免重复点创建） */
+  useEffect(() => {
+    if (current === 0 || current === 1) setPlatformSaved(false);
+  }, [current]);
+
+  /** 校验隧道表单（与原先提交前一致） */
+  const validateTunnelForm = (): boolean => {
+    const values = form.getFieldsValue(true);
+    const peA = values?.peA;
+    const peB = values?.peB;
+    const ceA = values?.ceA;
+    const ceB = values?.ceB;
+    const tunnelName = String(values?.tunnelName || '').trim();
+    const peAInnerIf = values?.peAInnerIf;
+    const peBInnerIf = values?.peBInnerIf;
+
+    if (peA && peB && String(peA) === String(peB)) {
+      message.error('PE-A 与 PE-B 不能相同');
+      return false;
+    }
+    if (ceA && ceB && String(ceA) === String(ceB)) {
+      message.error('CE-A 与 CE-B 不能相同');
+      return false;
+    }
+    if (!tunnelName || !peA || !peB || !ceA || !ceB) {
+      message.error('请完成隧道名称、PE/CE 选择');
+      return false;
+    }
+    if (!peAInnerIf || !peBInnerIf) {
+      message.error('请在“选择 PE”步骤中选择 PE-A 与 PE-B 的内网口');
+      return false;
+    }
+    const peAHasVrf = extractInterfaceVrf(peConfigs.peA, peAInnerIf);
+    const peBHasVrf = extractInterfaceVrf(peConfigs.peB, peBInnerIf);
+    if (!peAHasVrf || !peBHasVrf) {
+      message.error('所选内网口未携带 VRF，无法识别内网配置组，请重新选择带 VRF 的接口');
+      return false;
+    }
+    return true;
+  };
+
+  /** 第 3 步：创建隧道记录 + 仅保存平台库（不下发设备）；下发在下一步向导中分步执行 */
+  const saveTunnelPlatformOnly = async () => {
+    if (!validateTunnelForm()) return;
+    commitPreview();
+    const values = form.getFieldsValue(true);
+    const peA = values?.peA;
+    const peB = values?.peB;
+    const ceA = values?.ceA;
+    const ceB = values?.ceB;
+    const tunnelName = String(values?.tunnelName || '').trim();
+    setPlatformSaveLoading(true);
     try {
-      // 在第4步（确认创建）表单项未挂载，直接读取存储的字段值
-      const values = form.getFieldsValue(true);
-      const peA = values?.peA;
-      const peB = values?.peB;
-      const ceA = values?.ceA;
-      const ceB = values?.ceB;
-      const tunnelName = String(values?.tunnelName || '').trim();
-      const peAInnerIf = values?.peAInnerIf;
-      const peBInnerIf = values?.peBInnerIf;
-
-      // 仅在两端都已选择时比较，避免空值误判
-      if (peA && peB && String(peA) === String(peB)) {
-        message.error('PE-A 与 PE-B 不能相同');
-        return;
-      }
-      if (ceA && ceB && String(ceA) === String(ceB)) {
-        message.error('CE-A 与 CE-B 不能相同');
-        return;
-      }
-      if (!tunnelName || !peA || !peB || !ceA || !ceB) {
-        message.error('请完成隧道名称、PE/CE 选择');
-        return;
-      }
-      if (!peAInnerIf || !peBInnerIf) {
-        message.error('请在“选择 PE”步骤中选择 PE-A 与 PE-B 的内网口');
-        return;
-      }
-      // 确认所选内网口包含 VRF（否则视为无法识别“内网配置组”，不允许提交）
-      const peAHasVrf = extractInterfaceVrf(peConfigs.peA, peAInnerIf);
-      const peBHasVrf = extractInterfaceVrf(peConfigs.peB, peBInnerIf);
-      if (!peAHasVrf || !peBHasVrf) {
-        message.error('所选内网口未携带 VRF，无法识别内网配置组，请重新选择带 VRF 的接口');
-        return;
-      }
-      // 调用后端创建接口
-      try {
-        const { createSrv6Tunnel } = await import('../../../services/api');
-        await createSrv6Tunnel({ name: tunnelName, peA: String(peA), peB: String(peB), ceA: String(ceA), ceB: String(ceB) });
-        // 保存并下发拼装后的 JSON 至各端（最佳努力）
-        try {
-          const ops: Promise<any>[] = [];
-          if (peA && peAPreviewCfg) ops.push(saveVRConfig(String(peA), peAPreviewCfg));
-          if (peB && peBPreviewCfg) ops.push(saveVRConfig(String(peB), peBPreviewCfg));
-          if (ceA && ceAPreviewCfg) ops.push(saveVRConfig(String(ceA), ceAPreviewCfg));
-          if (ceB && ceBPreviewCfg) ops.push(saveVRConfig(String(ceB), ceBPreviewCfg));
-          if (ops.length) {
-            await Promise.allSettled(ops);
-          }
-
-          const dispatchOps: Promise<any>[] = [];
-          if (peA && peAPreviewCfg) dispatchOps.push(dispatchVRConfig(String(peA), peAPreviewCfg));
-          if (peB && peBPreviewCfg) dispatchOps.push(dispatchVRConfig(String(peB), peBPreviewCfg));
-          if (ceA && ceAPreviewCfg) dispatchOps.push(dispatchVRConfig(String(ceA), ceAPreviewCfg));
-          if (ceB && ceBPreviewCfg) dispatchOps.push(dispatchVRConfig(String(ceB), ceBPreviewCfg));
-          if (dispatchOps.length) {
-            await Promise.allSettled(dispatchOps);
-          }
-        } catch (e) {
-          // 下发失败不阻断导航，提示即可
-          console.warn('部分或全部配置下发失败:', e);
-        }
-        message.success('SRv6 隧道创建提交成功，配置已下发');
-        navigate('/admin/interconnect/srv6');
-      } catch (err: any) {
-        message.error(`创建失败：${err?.message || '请稍后重试'}`);
-      }
-    } catch (e) {
-      // 表单校验失败不处理
+      const { createSrv6Tunnel } = await import('../../../services/api');
+      await createSrv6Tunnel({ name: tunnelName, peA: String(peA), peB: String(peB), ceA: String(ceA), ceB: String(ceB) });
+      const saveOps: Promise<any>[] = [];
+      if (peA && peAPreviewStorageCfg) saveOps.push(saveVRConfig(String(peA), peAPreviewStorageCfg));
+      if (peB && peBPreviewStorageCfg) saveOps.push(saveVRConfig(String(peB), peBPreviewStorageCfg));
+      if (ceA && ceAPreviewCfg) saveOps.push(saveVRConfig(String(ceA), ceAPreviewCfg));
+      if (ceB && ceBPreviewCfg) saveOps.push(saveVRConfig(String(ceB), ceBPreviewCfg));
+      if (saveOps.length) await Promise.all(saveOps);
+      setPlatformSaved(true);
+      message.success('隧道已创建，配置已写入平台库。请进入「下发向导」分步推送到 CSMctl。');
+    } catch (err: any) {
+      message.error(`保存失败：${err?.message || '请稍后重试'}`);
+    } finally {
+      setPlatformSaveLoading(false);
     }
   };
 
-  const next = () => setCurrent((c) => Math.min(c + 1, 2));
+  async function executeSrv6DeployStep(stepIndex: number) {
+    setDeployStatus((prev) => ({ ...prev, [stepIndex]: 'process' }));
+    setDeployLogs((prev) => ({ ...prev, [stepIndex]: '执行中…' }));
+    try {
+      const seq = deployVrSeqRef.current;
+      const vrIdx = Math.floor(stepIndex / 2);
+      const entry = seq[vrIdx];
+      if (!entry?.id) throw new Error(`缺少 ${entry?.label || 'VR'} 的 UUID`);
+      let logMsg = '';
+      if (stepIndex % 2 === 0) {
+        const res: any = await apiRequest(
+          `/api/networks/srv6/deploy/preview?vrId=${encodeURIComponent(entry.id)}`,
+          { skipCache: true },
+        );
+        if (res?.error) throw new Error(res.error);
+        logMsg = `[${entry.label}] 平台待下发配置（清洗后）\n${JSON.stringify(res.config, null, 2)}`;
+      } else {
+        const res: any = await apiPost('/api/networks/srv6/deploy/push', { vrId: entry.id });
+        if (res?.error) throw new Error(res.error);
+        logMsg = `[${entry.label}] 下发 CSMctl 响应\nHTTP 状态: ${res.status}\nBody:\n${JSON.stringify(res.data ?? res, null, 2)}`;
+        if (res.status !== 200 && res.status !== 201) throw new Error(`设备侧返回 HTTP ${res.status}`);
+      }
+      setDeployLogs((prev) => ({ ...prev, [stepIndex]: logMsg }));
+      setDeployStatus((prev) => ({ ...prev, [stepIndex]: 'finish' }));
+      setDeployStep(stepIndex + 1);
+      if (stepIndex < SRV6_DEPLOY_STEP_DEFS.length - 1) {
+        setTimeout(() => void executeSrv6DeployStep(stepIndex + 1), 500);
+      } else {
+        message.success('四台 VR 下发流程已执行完毕');
+      }
+    } catch (e: any) {
+      console.error(e);
+      setDeployLogs((prev) => ({ ...prev, [stepIndex]: `[Error] ${e?.message || String(e)}` }));
+      setDeployStatus((prev) => ({ ...prev, [stepIndex]: 'error' }));
+    }
+  }
+
+  useEffect(() => {
+    if (current !== 3) {
+      deployAutoStartedRef.current = false;
+      return;
+    }
+    if (deployAutoStartedRef.current) return;
+    deployAutoStartedRef.current = true;
+    const v = form.getFieldsValue(true);
+    deployVrSeqRef.current = [
+      { label: 'PE-A', id: String(v.peA || '') },
+      { label: 'PE-B', id: String(v.peB || '') },
+      { label: 'CE-A', id: String(v.ceA || '') },
+      { label: 'CE-B', id: String(v.ceB || '') },
+    ];
+    setDeployStep(0);
+    setDeployLogs({});
+    const initStatus: Record<number, 'wait' | 'process' | 'finish' | 'error'> = {};
+    for (let i = 0; i < SRV6_DEPLOY_STEP_DEFS.length; i++) initStatus[i] = 'wait';
+    setDeployStatus(initStatus);
+    const t = window.setTimeout(() => void executeSrv6DeployStep(0), 400);
+    return () => {
+      window.clearTimeout(t);
+      deployAutoStartedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入第 4 步时触发自动下发链
+  }, [current]);
+
+  const next = () => setCurrent((c) => Math.min(c + 1, 3));
   const prev = () => setCurrent((c) => Math.max(c - 1, 0));
 
   const CoreContent: React.FC = () => {
@@ -1106,7 +1240,7 @@ const SRv6CreatePage: React.FC = () => {
                 name="peAInnerIf" 
                 label="选择 PE-A 内网口" 
                 rules={[{ required: true, message: '请选择 PE-A 内网口' }]} 
-                extra={( () => { const sel = form.getFieldValue('peAInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peA, sel); const ip = extractInterfaceIpv6(peConfigs.peA, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IPv6: {ip ?? '-'}</span>; })()}
+                extra={( () => { const sel = form.getFieldValue('peAInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peA, sel); const ip = extractInterfaceIp(peConfigs.peA, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IP: {ip ?? '-'}</span>; })()}
               > 
                 <Select
                   options={listInterfaceOptions(peConfigs.peA)}
@@ -1152,7 +1286,7 @@ const SRv6CreatePage: React.FC = () => {
                 name="peBInnerIf" 
                 label="选择 PE-B 内网口" 
                 rules={[{ required: true, message: '请选择 PE-B 内网口' }]} 
-                extra={( () => { const sel = form.getFieldValue('peBInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peB, sel); const ip = extractInterfaceIpv6(peConfigs.peB, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IPv6: {ip ?? '-'}</span>; })()}
+                extra={( () => { const sel = form.getFieldValue('peBInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peB, sel); const ip = extractInterfaceIp(peConfigs.peB, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IP: {ip ?? '-'}</span>; })()}
               > 
                 <Select
                   options={listInterfaceOptions(peConfigs.peB)}
@@ -1185,29 +1319,102 @@ const SRv6CreatePage: React.FC = () => {
     }
     if (current === 2) {
       return (
-        <Descriptions title="概要" bordered column={1} size="small">
-          <Descriptions.Item label="隧道名称">{form.getFieldValue('tunnelName') || '-'}</Descriptions.Item>
-          <Descriptions.Item label="模式">{mode || '-'}</Descriptions.Item>
-          <Descriptions.Item label="PE-A">{form.getFieldValue('peA') || '-'}</Descriptions.Item>
-          <Descriptions.Item label="PE-B">{form.getFieldValue('peB') || '-'}</Descriptions.Item>
-          <Descriptions.Item label="CE-A">{form.getFieldValue('ceA') || '-'}</Descriptions.Item>
-          <Descriptions.Item label="CE-B">{form.getFieldValue('ceB') || '-'}</Descriptions.Item>
-        </Descriptions>
+        <>
+          <Descriptions title="概要" bordered column={1} size="small">
+            <Descriptions.Item label="隧道名称">{form.getFieldValue('tunnelName') || '-'}</Descriptions.Item>
+            <Descriptions.Item label="模式">{mode || '-'}</Descriptions.Item>
+            <Descriptions.Item label="PE-A">{form.getFieldValue('peA') || '-'}</Descriptions.Item>
+            <Descriptions.Item label="PE-B">{form.getFieldValue('peB') || '-'}</Descriptions.Item>
+            <Descriptions.Item label="CE-A">{form.getFieldValue('ceA') || '-'}</Descriptions.Item>
+            <Descriptions.Item label="CE-B">{form.getFieldValue('ceB') || '-'}</Descriptions.Item>
+          </Descriptions>
+          <div style={{ marginTop: 16, fontSize: 12, color: '#64748b' }}>
+            请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到 CSMctl（与 IPsec VPN 向导一致）。
+          </div>
+        </>
       );
     }
-    return (
-      <Descriptions title="概要" bordered column={1} size="small">
-        <Descriptions.Item label="隧道名称">{form.getFieldValue('tunnelName') || '-'}</Descriptions.Item>
-        <Descriptions.Item label="模式">{mode || '-'}</Descriptions.Item>
-        <Descriptions.Item label="PE-A">{form.getFieldValue('peA') || '-'}</Descriptions.Item>
-        <Descriptions.Item label="PE-B">{form.getFieldValue('peB') || '-'}</Descriptions.Item>
-        <Descriptions.Item label="CE-A">{form.getFieldValue('ceA') || '-'}</Descriptions.Item>
-        <Descriptions.Item label="CE-B">{form.getFieldValue('ceB') || '-'}</Descriptions.Item>
-      </Descriptions>
-    );
+    if (current === 3) {
+      return (
+        <div>
+          <div style={{ marginBottom: 16, fontSize: 16, fontWeight: 600, color: '#1f1f1f' }}>下发向导</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
+            进入本页后将自动依次执行各步；某步失败时可点击该步「执行」重试。以下为每步返回结果。
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {SRV6_DEPLOY_STEP_DEFS.map((step, idx) => (
+              <Card
+                key={idx}
+                size="small"
+                type="inner"
+                title={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: '50%',
+                        background:
+                          deployStatus[idx] === 'finish'
+                            ? '#52c41a'
+                            : deployStatus[idx] === 'error'
+                              ? '#ff4d4f'
+                              : deployStatus[idx] === 'process'
+                                ? '#1677ff'
+                                : '#d9d9d9',
+                        color: '#fff',
+                        textAlign: 'center',
+                        lineHeight: '24px',
+                        fontSize: 12,
+                      }}
+                    >
+                      {idx + 1}
+                    </div>
+                    <span>{step.title}</span>
+                    <span style={{ fontSize: 12, color: '#888', fontWeight: 'normal' }}>{step.desc}</span>
+                  </div>
+                }
+                extra={
+                  <Button
+                    type="primary"
+                    size="small"
+                    disabled={idx !== deployStep}
+                    loading={deployStatus[idx] === 'process'}
+                    onClick={() => void executeSrv6DeployStep(idx)}
+                  >
+                    执行
+                  </Button>
+                }
+              >
+                {deployLogs[idx] ? (
+                  <pre
+                    style={{
+                      fontSize: 12,
+                      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                      background: '#1e1e1e',
+                      color: '#d4d4d4',
+                      padding: 12,
+                      borderRadius: 6,
+                      overflow: 'auto',
+                      maxHeight: 220,
+                      border: 'none',
+                      marginTop: 0,
+                      marginBottom: 0,
+                    }}
+                  >
+                    {deployLogs[idx]}
+                  </pre>
+                ) : null}
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    return null;
   };
 
-  const stepTitle = ['基础信息与模式', '选择 PE 与 CE', '确认创建'][current];
+  const stepTitle = ['基础信息与模式', '选择 PE 与 CE', '确认并保存', '下发向导'][current];
 
   return (
     <PageContainer
@@ -1224,11 +1431,18 @@ const SRv6CreatePage: React.FC = () => {
               direction="vertical"
               size="small"
               current={current}
-              onChange={(idx) => setCurrent(idx)}
+              onChange={(idx) => {
+                if (idx >= 3 && !platformSaved) {
+                  message.warning('请先在「确认并保存」中完成「创建隧道并保存到平台」');
+                  return;
+                }
+                setCurrent(idx);
+              }}
               items={[
                 { title: '基础信息与模式' },
                 { title: '选择 PE 与 CE' },
-                { title: '确认创建' },
+                { title: '确认并保存' },
+                { title: '下发向导', disabled: !platformSaved },
               ]}
             />
           </Card>
@@ -1237,15 +1451,53 @@ const SRv6CreatePage: React.FC = () => {
           <Card size="small" title={`第 ${current + 1} 步：${stepTitle}`} variant="outlined">
             <CoreContent />
             <Divider style={{ margin: '12px 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Space>
-                <Button onClick={() => navigate('/admin/interconnect/srv6')}>返回列表</Button>
-                <Button onClick={prev} disabled={current===0}>上一步</Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <Space wrap>
+                {current !== 3 && <Button onClick={() => navigate('/admin/interconnect/srv6')}>返回列表</Button>}
+                {current > 0 && (
+                  <Button
+                    onClick={prev}
+                    disabled={
+                      SRV6_DEPLOY_STEP_DEFS.some((_, i) => deployStatus[i] === 'process')
+                    }
+                  >
+                    上一步
+                  </Button>
+                )}
+                {current === 3 && (
+                  <Button type="primary" onClick={() => navigate('/admin/interconnect/srv6')}>
+                    关闭向导
+                  </Button>
+                )}
               </Space>
-              <Space>
-                <Button type="primary" onClick={() => { if (current < 2) { commitPreview(); next(); } else { submit(); } }}>
-                  {current < 2 ? '下一步' : '提交创建'}
-                </Button>
+              <Space wrap>
+                {current < 2 && (
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      commitPreview();
+                      next();
+                    }}
+                  >
+                    下一步
+                  </Button>
+                )}
+                {current === 2 && (
+                  <>
+                    {platformSaved && (
+                      <span style={{ color: '#52c41a', display: 'inline-flex', alignItems: 'center', fontWeight: 500, marginRight: 8 }}>
+                        <CheckCircleOutlined style={{ marginRight: 4 }} />
+                        已保存到平台
+                      </span>
+                    )}
+                    <Button type="primary" loading={platformSaveLoading} disabled={platformSaved} onClick={() => void saveTunnelPlatformOnly()}>
+                      创建隧道并保存到平台
+                    </Button>
+                    <Button type="primary" disabled={!platformSaved} onClick={() => { commitPreview(); next(); }}>
+                      下一步：下发向导
+                    </Button>
+                  </>
+                )}
               </Space>
             </div>
           </Card>

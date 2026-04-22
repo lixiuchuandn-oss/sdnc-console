@@ -10,7 +10,8 @@ Thumbs.db
 
 # 运行期数据请使用 backend/data（在 backend 目录启动）；勿在仓库根再落 data/
 /data/
-
+docs/
+/doc/
 /backend/node_modules/
 /backend/dist/
 /backend/coverage/
