@@ -1134,6 +1134,9 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     }
     if (tab === 'paas_databases') {
       void loadTabResourceRef.current('backups');
+    } else if (tab) {
+      // 其他 Tab 也需要加载数据（解决通过 URL 直接访问时数据不加载的问题）
+      void loadTabResourceRef.current(tab);
     }
   }, [
     location.search,
