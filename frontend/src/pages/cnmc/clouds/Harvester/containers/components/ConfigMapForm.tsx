@@ -39,6 +39,7 @@ import {
   createHarvesterConfigMap,
   updateHarvesterConfigMap,
 } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import CodeEditor, { 
   CodeLanguage, 
   LANGUAGE_OPTIONS, 
@@ -335,9 +336,12 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
       apiVersion: 'v1',
       kind: 'ConfigMap',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('configmap'),
         namespace: values.namespace,
         labels: labels && Object.keys(labels).length > 0 ? labels : undefined,
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
       data: data && Object.keys(data).length > 0 ? data : undefined,
     };

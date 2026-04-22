@@ -1849,6 +1849,19 @@ export const updateHarvesterContainerResource = async (cloudId: string, apiPath:
 };
 
 /**
+ * Patch 容器资源 (JSON Patch)
+ * @param cloudId 云环境 ID
+ * @param apiPath API 路径
+ * @param namespace 命名空间
+ * @param name 资源名称
+ * @param patchBody JSON Patch body
+ * @returns Promise<any>
+ */
+export const patchHarvesterContainerResource = async (cloudId: string, apiPath: string, namespace: string, name: string, patchBody: any) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/containers/patch`, { apiPath, namespace, name, patchBody });
+};
+
+/**
  * 删除容器资源 (通用)
  * @param cloudId 云环境 ID
  * @param apiPath API 路径
@@ -1982,14 +1995,7 @@ export const fetchHarvesterConfigMapDetail = async (cloudId: string, namespace: 
  * @returns Promise<any>
  */
 export const createHarvesterConfigMap = async (cloudId: string, namespace: string, body: any) => {
-  // 从 K8s 资源对象中提取字段
-  const payload = {
-    namespace: body?.metadata?.namespace || namespace,
-    name: body?.metadata?.name,
-    labels: body?.metadata?.labels,
-    data: body?.data,
-  };
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps`, payload);
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps`, { namespace, body });
 };
 
 /**
@@ -2048,15 +2054,7 @@ export const fetchHarvesterSecretDetail = async (cloudId: string, namespace: str
  * @returns Promise<any>
  */
 export const createHarvesterSecret = async (cloudId: string, namespace: string, body: any) => {
-  // 从 K8s 资源对象中提取字段
-  const payload = {
-    namespace: body?.metadata?.namespace || namespace,
-    name: body?.metadata?.name,
-    labels: body?.metadata?.labels,
-    type: body?.type,
-    stringData: body?.stringData,
-  };
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/secrets`, payload);
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/secrets`, { namespace, body });
 };
 
 /**
@@ -2310,6 +2308,7 @@ export const createHarvesterImagePullSecret = async (
   payload: {
     namespace: string;
     name: string;
+    alias?: string;
     server: string;
     username: string;
     password: string;
@@ -2686,15 +2685,7 @@ export const fetchHarvesterPDBDetail = async (cloudId: string, namespace: string
  * @returns Promise<any>
  */
 export const createHarvesterPDB = async (cloudId: string, namespace: string, body: any) => {
-  const payload = {
-    namespace: body?.metadata?.namespace || namespace,
-    name: body?.metadata?.name,
-    labels: body?.metadata?.labels,
-    minAvailable: body?.spec?.minAvailable,
-    maxUnavailable: body?.spec?.maxUnavailable,
-    selector: body?.spec?.selector,
-  };
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets`, payload);
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets`, { namespace, body });
 };
 
 /**

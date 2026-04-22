@@ -8,8 +8,9 @@
  * - 打开 HarvesterResourceDrawer 查看 Service 详情
  */
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { Table, Button, Input, Select, App, Modal, Drawer, Descriptions, Tabs, Tag, Space } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, CodeOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Select, App, Modal, Drawer, Descriptions, Tabs, Tag, Space, Form, Tooltip } from 'antd';
+import { ReloadOutlined, SearchOutlined, PlusOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, EditTwoTone } from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
@@ -17,7 +18,7 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import YamlEditor from '../../../../../../components/YamlEditor';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
-import { deleteHarvesterService, fetchHarvesterServiceDetail, updateHarvesterService, fetchHarvesterPodLog, fetchHarvesterPodEvents } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterService, fetchHarvesterServiceDetail, updateHarvesterService, fetchHarvesterPodLog, fetchHarvesterPodEvents, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { ServiceFormModal, YamlEditModal, PodTerminal, PodLogViewer } from '../../containers/components';
 
 /**
@@ -136,6 +137,19 @@ const ServicesSection: React.FC<Props> = ({
   const [yamlModalOpen, setYamlModalOpen] = useState(false);
   const [yamlEditingRecord, setYamlEditingRecord] = useState<any>(null);
   
+  // 别名编辑状态
+  const [aliasModalVisible, setAliasModalVisible] = useState(false);
+  const [aliasRecord, setAliasRecord] = useState<any>(null);
+  const [aliasSubmitting, setAliasSubmitting] = useState(false);
+  const [aliasForm] = Form.useForm<{ alias?: string }>();
+  
+  // YAML 查看状态（只读）
+  const [yamlViewModalVisible, setYamlViewModalVisible] = useState(false);
+  const [yamlViewContent, setYamlViewContent] = useState('');
+  
+  // API 路径
+  const apiPath = '/api/v1/services';
+  
   // Pod 详情/日志/终端状态
   const [podDetailVisible, setPodDetailVisible] = useState(false);
   const [currentPod, setCurrentPod] = useState<any>(null);
@@ -168,6 +182,80 @@ const ServicesSection: React.FC<Props> = ({
     setYamlEditingRecord(record);
     setYamlModalOpen(true);
   };
+  
+  // 打开别名编辑弹窗
+  const handleOpenAliasModal = useCallback((record: any) => {
+    const currentAlias = record?.raw?.metadata?.annotations?.['tower.io/alias'] || '';
+    setAliasRecord(record);
+    setAliasModalVisible(true);
+    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+  }, [aliasForm]);
+
+  // 提交别名修改
+  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
+    if (!aliasRecord) return false;
+    const ns = aliasRecord?.namespace;
+    const name = aliasRecord?.name;
+    if (!ns || !name) {
+      message.error('未能解析资源命名空间或名称');
+      return false;
+    }
+
+    const next = String(nextAliasRaw || '').trim();
+    const prev = String(aliasRecord?.raw?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    if (next === prev) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    const hasAnnotations = !!aliasRecord?.raw?.metadata?.annotations;
+    const hasPrev = !!aliasRecord?.raw?.metadata?.annotations?.['tower.io/alias'];
+    const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+    const patchBody: any[] = [];
+    if (!next) {
+      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+    } else {
+      if (!hasAnnotations) {
+        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
+      } else {
+        patchBody.push({ op: 'add', path: aliasPath, value: next });
+      }
+    }
+
+    if (patchBody.length === 0) {
+      setAliasModalVisible(false);
+      return true;
+    }
+
+    setAliasSubmitting(true);
+    try {
+      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+      message.success(next ? '名称修改成功' : '已清空别名');
+      setAliasModalVisible(false);
+      setAliasRecord(null);
+      aliasForm.resetFields();
+      onRefresh?.(true);
+      return true;
+    } catch (e: any) {
+      console.error(e);
+      message.error(e?.message || '名称修改失败');
+      return false;
+    } finally {
+      setAliasSubmitting(false);
+    }
+  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+
+  // 查看 YAML（只读）
+  const handleViewYaml = useCallback((record: any) => {
+    try {
+      const yamlStr = yaml.dump(record?.raw || record, { indent: 2, lineWidth: -1, noRefs: true });
+      setYamlViewContent(yamlStr);
+      setYamlViewModalVisible(true);
+    } catch (e: any) {
+      message.error('生成 YAML 失败: ' + e.message);
+    }
+  }, [message]);
   
   // 加载 YAML 内容
   const loadServiceYaml = useCallback(async () => {
@@ -296,17 +384,50 @@ const ServicesSection: React.FC<Props> = ({
 
   /**
    * 表格列定义
-   * - 名称列可点击打开 Service 详情抽屉
+   * - 名称列可点击打开 Service 详情抽屉，并支持别名编辑
    * - 类型列通过 std-badge 区分不同类型
    */
   const allColumns = useMemo(() => [
     { 
       title: '名称', 
-      dataIndex: 'name', 
       key: 'name',
-      render: (text: string, record: any) => (
-        <a onClick={() => { setSelectedRecord(record); setDrawerActiveTab('detail'); setDrawerOpen(true); }} style={{ color: '#1890ff' }}>{text}</a>
-      )
+      width: 180,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const alias = record?.raw?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.name || '';
+        const hasAlias = !!alias;
+        
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <a 
+              onClick={() => { setSelectedRecord(record); setDrawerActiveTab('detail'); setDrawerOpen(true); }} 
+              style={{ color: '#1890ff' }}
+            >
+              {hasAlias ? alias : id}
+            </a>
+            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditTwoTone />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAliasModal(record);
+                }}
+              />
+            </Tooltip>
+          </span>
+        );
+      }
+    },
+    {
+      title: 'ID',
+      dataIndex: 'name',
+      key: 'id',
+      width: 200,
+      ellipsis: true,
+      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { 
@@ -354,6 +475,7 @@ const ServicesSection: React.FC<Props> = ({
               }},
               { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
               { key: 'yaml', label: 'YAML 编辑', onClick: () => handleYamlEdit(record) },
+              { key: 'view_yaml', label: '查看 YAML', icon: <EyeOutlined />, onClick: () => handleViewYaml(record) },
               { 
                 key: 'delete', 
                 label: '删除', 
@@ -375,7 +497,7 @@ const ServicesSection: React.FC<Props> = ({
         />
       ),
     },
-  ], [isTenant, isStandardView]);
+  ], [isTenant, isStandardView, handleOpenAliasModal, handleViewYaml]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_services_table');
@@ -693,6 +815,68 @@ const ServicesSection: React.FC<Props> = ({
           }}
         />
       )}
+      
+      {/* 别名编辑弹窗 */}
+      <Modal
+        title="名称修改"
+        open={aliasModalVisible}
+        centered
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={aliasSubmitting}
+        onOk={async () => {
+          try {
+            const values = await aliasForm.validateFields();
+            await handleSubmitAlias(values?.alias);
+          } catch {}
+        }}
+        onCancel={() => {
+          if (aliasSubmitting) return;
+          setAliasModalVisible(false);
+          setAliasRecord(null);
+          aliasForm.resetFields();
+        }}
+      >
+        <Form form={aliasForm} layout="vertical">
+          <Form.Item
+            name="alias"
+            label="名称"
+            rules={[
+              { max: 64, message: '别名最长 64 个字符' },
+              { required: true, message: '请输入名称' },
+            ]}
+          >
+            <Input
+              autoFocus
+              placeholder="请输入名称（留空则清空别名）"
+              maxLength={64}
+              onPressEnter={async () => {
+                if (aliasSubmitting) return;
+                try {
+                  const values = await aliasForm.validateFields();
+                  await handleSubmitAlias(values?.alias);
+                } catch {}
+              }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+      
+      {/* YAML 查看弹窗（只读） */}
+      <Modal
+        title="YAML 查看"
+        open={yamlViewModalVisible}
+        onCancel={() => setYamlViewModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <YamlEditor
+          value={yamlViewContent}
+          onChange={() => {}}
+          maxHeight={500}
+          readOnly
+        />
+      </Modal>
     </PageDetailSection>
   );
 };

@@ -46,6 +46,7 @@ import {
   CheckOutlined,
 } from '@ant-design/icons';
 import { createNetworkPolicy, updateNetworkPolicy } from '../../../../../../services/harvesterApi';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 
 // ============================================================
@@ -795,9 +796,12 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
         apiVersion: 'networking.k8s.io/v1',
         kind: 'NetworkPolicy',
         metadata: {
-          name: values.name,
+          name: generateHarvesterCrMetadataName('networkpolicy'),
           namespace: values.namespace,
           labels: Object.keys(labels).length > 0 ? labels : undefined,
+          annotations: values.name ? {
+            'tower.io/alias': values.name,
+          } : undefined,
         },
         spec: {
           podSelector,

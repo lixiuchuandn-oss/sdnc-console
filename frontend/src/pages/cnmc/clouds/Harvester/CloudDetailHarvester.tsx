@@ -271,7 +271,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * @param force 是否强制刷新 (忽略缓存)
    */
   // 请求超时时间（毫秒）- 防止单个请求阻塞整个页面
-  const REQUEST_TIMEOUT = 30000; // 30秒
+  const REQUEST_TIMEOUT = 60000; // 60秒（K8s API 响应慢时需要更长超时）
   
   const loadResource = async (key: string, fn: () => Promise<any>, cb: (json: any) => void, force = false) => {
       // 如果非强制刷新且已加载过，直接跳过
@@ -565,6 +565,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               }, force);
             }
             break;
+          case 'ingresses':
+            if (checkPerm('clouds.cluster-services:read')) {
+              loadResource('ingresses', () => fetchHarvesterIngresses(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                setHarvesterIngresses(Array.isArray(list) ? list : []);
+                setRawIngresses(json || null);
+              }, force);
+            }
+            break;
           case 'cluster_vlans':
           case 'vlans':
             if (checkPerm('clouds.networks:read')) {
@@ -732,11 +741,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterSecrets(Array.isArray(list) ? list : []);
-              }, force);
-              // 加载镜像拉取凭证
-              loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
-                const list: any[] = (json as any)?.data?.items || [];
-                setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+                // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                setHarvesterImagePullSecrets(dockerSecrets);
+                loadedRef.current.add('imagePullSecrets');
               }, force);
               // 加载 PodDisruptionBudget
               loadResource('pdbs', () => fetchHarvesterPDBs(cloudId, undefined, force), (json) => {
@@ -764,15 +772,14 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterDaemonSets(Array.isArray(list) ? list : []);
               }, force);
-              // 加载镜像凭证（用于创建工作负载时选择）
-              loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
-                const list: any[] = (json as any)?.data?.items || [];
-                setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
-              }, force);
-              // 加载 Secrets（用于仓库浏览器显示仓库列表）
+              // 加载 Secrets（用于仓库浏览器显示仓库列表），同时过滤出镜像凭证
               loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterSecrets(Array.isArray(list) ? list : []);
+                // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                setHarvesterImagePullSecrets(dockerSecrets);
+                loadedRef.current.add('imagePullSecrets');
               }, force);
               // 加载 ConfigMaps（用于环境变量引入）
               loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force), (json) => {
@@ -804,18 +811,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterCronJobs(Array.isArray(list) ? list : []);
               }, force);
-              // 加载镜像拉取凭证（用于创建 Job/CronJob 时选择）
-              if (!loadedRef.current.has('imagePullSecrets')) {
-                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
-                  const list: any[] = (json as any)?.data?.items || [];
-                  setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
-                }, force);
-              }
-              // 加载 Secrets（用于仓库浏览器显示仓库列表）
+              // 加载 Secrets（用于仓库浏览器显示仓库列表），同时过滤出镜像凭证
               if (!loadedRef.current.has('secrets')) {
-                loadResource('secrets', () => fetchHarvesterSecrets(cloudId), (json) => {
+                loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                   const list: any[] = (json as any)?.data?.items || [];
                   setHarvesterSecrets(Array.isArray(list) ? list : []);
+                  // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                  const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                  setHarvesterImagePullSecrets(dockerSecrets);
+                  loadedRef.current.add('imagePullSecrets');
                 }, force);
               }
             }
@@ -843,10 +847,14 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 setHarvesterImagePullSecrets(dockerSecrets);
                 loadedRef.current.add('imagePullSecrets');
               } else {
-                // secrets 未加载或强制刷新，则请求 API
-                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
+                // secrets 未加载或强制刷新，则请求 secrets API 然后过滤
+                loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                   const list: any[] = (json as any)?.data?.items || [];
-                  setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+                  setHarvesterSecrets(Array.isArray(list) ? list : []);
+                  // 优化：从 secrets 中过滤出镜像拉取凭证，避免重复请求
+                  const dockerSecrets = list.filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson');
+                  setHarvesterImagePullSecrets(dockerSecrets);
+                  loadedRef.current.add('imagePullSecrets');
                 }, force);
               }
               // 加载 PodDisruptionBudget

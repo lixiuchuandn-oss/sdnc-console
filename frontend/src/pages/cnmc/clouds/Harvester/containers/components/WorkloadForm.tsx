@@ -65,6 +65,7 @@ import {
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -3818,9 +3819,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           : workloadType === 'statefulset' ? 'StatefulSet' 
           : 'DaemonSet',
       metadata: {
-        name,
+        name: generateHarvesterCrMetadataName(workloadType),
         namespace,
         labels: labelsMap,
+        annotations: {
+          'tower.io/alias': name,
+        },
       },
       spec: {
         selector: {

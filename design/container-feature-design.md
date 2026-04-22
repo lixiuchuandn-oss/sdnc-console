@@ -2419,6 +2419,243 @@ const pvcOptions = pvcs.map(pvc => {
 
 ---
 
+## 19. Job Pod 清理策略设计
+
+> **版本**: 1.0  
+> **创建日期**: 2026-04-21  
+> **优先级**: 高
+
+### 19.1 需求背景
+
+当前 Job 创建后，其 Pod 不会自动清理，导致集群中残留大量已完成的 Pod。需要支持配置 `ttlSecondsAfterFinished` 策略。
+
+### 19.2 Kubernetes 行为说明
+
+| 操作 | Pod 清理行为 |
+|------|-------------|
+| 删除 Job | ✅ 自动删除关联的所有 Pod（运行中/已完成/失败） |
+| Job 完成后 | ❌ 默认不清理 Pod，需要 `ttlSecondsAfterFinished` 配置 |
+| Job 失败后 | ❌ 默认不清理 Pod |
+
+### 19.3 配置策略
+
+| 策略字段 | 适用范围 | 说明 |
+|---------|---------|------|
+| `spec.ttlSecondsAfterFinished` | Job | Job 完成后自动清理 Pod 的等待时间 |
+| `spec.successfulJobsHistoryLimit` | CronJob | 保留成功 Job 的数量（默认3） |
+| `spec.failedJobsHistoryLimit` | CronJob | 保留失败 Job 的数量（默认1） |
+
+### 19.4 UI 设计
+
+```
+JobForm 创建表单
+├── 基本信息
+│   ├── 名称
+│   ├── 命名空间
+│   └── ...
+│
+├── 容器配置
+│   └── ...
+│
+└── 高级配置
+    ├── 重试次数 (backoffLimit)
+    ├── 超时时间 (activeDeadlineSeconds)
+    ├── 并行数 (parallelism)
+    ├── 完成数 (completions)
+    └── Pod 清理策略
+        └── 完成后保留时间 (ttlSecondsAfterFinished)
+            ├── 默认值: 3600 秒（1小时）
+            ├── 0: 不自动清理
+            └── 范围: 0 - 86400 秒
+```
+
+### 19.5 字段配置
+
+```typescript
+// JobForm.tsx 新增字段
+<Form.Item
+  name="ttlSecondsAfterFinished"
+  label="完成后保留时间（秒）"
+  tooltip="Job 完成后自动清理 Pod 的等待时间，0 表示不自动清理"
+  initialValue={3600}
+>
+  <InputNumber 
+    min={0} 
+    max={86400} 
+    style={{ width: '100%' }} 
+    placeholder="如 3600 表示 1 小时后清理"
+  />
+</Form.Item>
+
+// formValuesToYaml 中构建
+if (values.ttlSecondsAfterFinished && values.ttlSecondsAfterFinished > 0) {
+  spec.ttlSecondsAfterFinished = values.ttlSecondsAfterFinished;
+}
+```
+
+### 19.6 验收标准
+
+- [ ] Job 创建表单包含 `ttlSecondsAfterFinished` 字段
+- [ ] 默认值为 3600 秒
+- [ ] Job 详情页展示该配置值
+- [ ] 配置后 Job 完成能自动清理 Pod
+
+---
+
+## 20. 资源命名与标签规范（双轨制）设计
+
+> **版本**: 1.0  
+> **创建日期**: 2026-04-21  
+> **优先级**: 高
+
+### 20.1 需求背景
+
+当前容器资源直接使用用户输入作为 `metadata.name`，存在以下问题：
+1. 用户无法在页面中修改资源名称（`metadata.name` 不可变）
+2. 名称不符合 K8s 命名规范时创建失败
+3. 与 VM/网络资源的命名风格不一致
+
+### 20.2 设计方案
+
+采用**双轨制命名**：
+- **自动生成 ID**: 作为 `metadata.name`（技术标识，不可变）
+- **用户输入别名**: 作为 `metadata.annotations['tower.io/alias']`（可修改）
+
+### 20.3 适用范围
+
+#### 需要双轨制的资源（独立 K8s 资源）
+
+| 资源类型 | 缩写 | ID 示例 |
+|---------|------|---------|
+| Deployment | dep | `id-dep-juhmrs3j0ie` |
+| StatefulSet | sts | `id-sts-rs0m3keigh` |
+| DaemonSet | ds | `id-ds-6e82c9gvc1f` |
+| Job | job | `id-job-3k9z0x8af21` |
+| CronJob | cjob | `id-cjob-7m2p5q1bh89` |
+| Service | svc | `id-svc-4n8k2w6cd35` |
+| Ingress | ing | `id-ing-1j3l9t7ef02` |
+| ConfigMap | cm | `id-cm-5m8n1p3qr67` |
+| Secret | sec | `id-sec-2j4k6l8mn01` |
+| PDB | pdb | `id-pdb-9a1b3c5de78` |
+| NetworkPolicy | np | `id-np-7m2p5q1bh89` |
+| 镜像凭证 | imgsc | `id-imgsc-6f8g0h2ij45` |
+
+#### 不需要双轨制的（非独立资源）
+
+| 名称 | 存储位置 | 原因 |
+|------|---------|------|
+| Pod 名称 | 自动生成 | 由工作负载自动创建，不可编辑 |
+| 容器名称 | `spec.containers[].name` | 工作负载的一部分，用于日志/终端识别 |
+| 卷名称 | `spec.volumes[].name` | 工作负载的一部分，用于挂载引用 |
+| 镜像仓库配置 | localStorage | 不是 K8s 资源 |
+
+### 20.4 ID 生成规则
+
+**格式**: `id-{缩写}-{11位随机序列}`
+
+**工具函数** (`harvesterUtils.ts`):
+```typescript
+export const generateHarvesterEntityId = (entity: string): string => {
+  const e = String(entity || '').toLowerCase();
+  let rand = '';
+  while (rand.length < 11) {
+    rand += Math.random().toString(36).substring(2);
+  }
+  rand = rand.substring(0, 11);
+  return `id-${e}-${rand}`;
+};
+
+export const HARVESTER_CR_METADATA_ENTITY = {
+  // 原有 VM/网络资源
+  vm: 'vm',
+  vpcSubnet: 'vpcsn',
+  // ...
+  
+  // 新增容器资源
+  deployment: 'dep',
+  statefulset: 'sts',
+  daemonset: 'ds',
+  job: 'job',
+  cronjob: 'cjob',
+  service: 'svc',
+  ingress: 'ing',
+  configmap: 'cm',
+  secret: 'sec',
+  pdb: 'pdb',
+  networkpolicy: 'np',
+  imagepullsecret: 'imgsc',
+} as const;
+```
+
+### 20.5 列表展示设计
+
+**名称列**：显示 `tower.io/alias` + 编辑按钮
+**ID 列**：显示 `metadata.name`（新增列）
+
+```
+| 名称                  | ID                    | 命名空间 | 状态   | 操作 |
+|----------------------|-----------------------|---------|--------|------|
+| nginx-app ✏️          | id-dep-juhmrs3j0ie   | default | 运行中  | ⋮    |
+| redis-cluster ✏️      | id-sts-rs0m3keigh    | default | 运行中  | ⋮    |
+```
+
+### 20.6 别名修改设计
+
+**交互方式**：参考 VM 云主机别名修改
+- 名称列旁有编辑按钮（`EditTwoTone` 图标）
+- 点击弹出 Modal，输入新别名
+- 使用 JSON Patch 格式更新
+
+**API 格式**：
+```typescript
+// JSON Patch (RFC 6902)
+const patchBody = [{
+  op: 'add',
+  path: '/metadata/annotations/tower.io~1alias',
+  value: '新别名'
+}];
+
+// Content-Type: application/json-patch+json
+```
+
+### 20.7 实现步骤
+
+**步骤1：工具函数扩展**
+- 扩展 `harvesterUtils.ts` 缩写映射
+
+**步骤2：表单组件改造**（按顺序执行，先做一个验证）
+1. `WorkloadForm.tsx` - 先做这个验证
+2. `JobForm.tsx`
+3. `CronJobForm.tsx`
+4. `ServiceForm.tsx`
+5. `IngressForm.tsx`
+6. `ConfigMapForm.tsx`
+7. `SecretForm.tsx`
+8. `PDBForm.tsx`
+9. `NetworkPolicyForm.tsx`
+10. `RegistryCredentialForm.tsx`
+
+**步骤3：列表组件改造**
+- 各 Section 添加名称列别名展示 + 编辑按钮
+- 新增 ID 列
+
+**步骤4：API 服务层**
+- 添加各资源类型的 PATCH 方法
+
+**步骤5：后端路由**
+- 添加 PATCH 路由支持
+
+### 20.8 验收标准
+
+- [ ] 创建资源时自动生成 ID 作为 `metadata.name`
+- [ ] 用户输入存为 `tower.io/alias`
+- [ ] 列表页名称列显示别名
+- [ ] 列表页新增 ID 列
+- [ ] 支持通过编辑按钮修改别名
+- [ ] 编辑现有资源时正确回显别名
+
+---
+
 ## 附录
 
 ### A. 关键文件列表

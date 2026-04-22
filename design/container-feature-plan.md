@@ -403,6 +403,99 @@
 
 ---
 
+### 3.10 Job Pod 清理策略
+
+> **优先级**: 高 | **预计工作量**: 0.5天 | **创建日期**: 2026-04-21
+
+#### 功能说明
+
+为 Job 添加 `ttlSecondsAfterFinished` 配置，支持 Job 完成后自动清理 Pod。
+
+#### 任务清单
+
+| 任务ID | 任务描述 | 状态 | 进度 |
+|--------|----------|------|------|
+| F5-01 | JobForm 添加 ttlSecondsAfterFinished 表单字段 | 🔴 | 待开始 |
+| F5-02 | 默认值设置为 3600 秒 | 🔴 | 待开始 |
+| F5-03 | Job 详情页展示该配置值 | 🔴 | 待开始 |
+
+#### 验收标准
+
+- [ ] Job 创建表单包含 `ttlSecondsAfterFinished` 字段
+- [ ] 默认值为 3600 秒
+- [ ] Job 详情页展示该配置值
+
+---
+
+### 3.11 资源命名与标签规范（双轨制）
+
+> **优先级**: 高 | **预计工作量**: 3-4天 | **创建日期**: 2026-04-21
+
+#### 功能说明
+
+为所有容器资源采用双轨制命名：
+- 自动生成 ID 作为 `metadata.name`
+- 用户输入作为 `metadata.annotations['tower.io/alias']`
+
+#### 缩写映射表
+
+| 资源类型 | 缩写 | ID 示例 |
+|---------|------|---------|
+| Deployment | dep | `id-dep-juhmrs3j0ie` |
+| StatefulSet | sts | `id-sts-rs0m3keigh` |
+| DaemonSet | ds | `id-ds-6e82c9gvc1f` |
+| Job | job | `id-job-3k9z0x8af21` |
+| CronJob | cjob | `id-cjob-7m2p5q1bh89` |
+| Service | svc | `id-svc-4n8k2w6cd35` |
+| Ingress | ing | `id-ing-1j3l9t7ef02` |
+| ConfigMap | cm | `id-cm-5m8n1p3qr67` |
+| Secret | sec | `id-sec-2j4k6l8mn01` |
+| PDB | pdb | `id-pdb-9a1b3c5de78` |
+| NetworkPolicy | np | `id-np-7m2p5q1bh89` |
+| 镜像凭证 | imgsc | `id-imgsc-6f8g0h2ij45` |
+
+#### 任务清单
+
+| 任务ID | 任务描述 | 状态 | 进度 |
+|--------|----------|------|------|
+| F5-10 | 扩展 harvesterUtils.ts 缩写映射 | 🔴 | 待开始 |
+| F5-11 | WorkloadForm 双轨制命名（先做验证） | 🔴 | 待开始 |
+| F5-12 | WorkloadsSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
+| F5-13 | JobForm 双轨制命名 | 🔴 | 待开始 |
+| F5-14 | CronJobForm 双轨制命名 | 🔴 | 待开始 |
+| F5-15 | JobsSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
+| F5-16 | ServiceForm 双轨制命名 | 🔴 | 待开始 |
+| F5-17 | ServicesSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
+| F5-18 | IngressForm 双轨制命名 | 🔴 | 待开始 |
+| F5-19 | IngressesSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
+| F5-20 | ConfigMapForm 双轨制命名 | 🔴 | 待开始 |
+| F5-21 | SecretForm 双轨制命名 | 🔴 | 待开始 |
+| F5-22 | ConfigsSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
+| F5-23 | PDBForm 双轨制命名 | 🔴 | 待开始 |
+| F5-24 | PDBSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
+| F5-25 | NetworkPolicyForm 双轨制命名 | 🔴 | 待开始 |
+| F5-26 | NetworkPoliciesSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
+| F5-27 | RegistryCredentialForm 双轨制命名 | 🔴 | 待开始 |
+| F5-28 | harvesterApi.ts 添加各资源 PATCH 方法 | 🔴 | 待开始 |
+| F5-29 | 后端添加 PATCH 路由支持 | 🔴 | 待开始 |
+
+#### 实施策略
+
+**分阶段执行，先验证后推广**：
+1. 先完成 F5-10（工具函数）和 F5-11（WorkloadForm）
+2. 验证通过后，按表单 → 列表 → API 顺序推进其他资源
+
+#### 验收标准
+
+- [ ] 创建资源时自动生成 ID 作为 `metadata.name`
+- [ ] 用户输入存为 `tower.io/alias`
+- [ ] 列表页名称列显示别名
+- [ ] 列表页新增 ID 列
+- [ ] 支持通过编辑按钮修改别名
+- [ ] 编辑现有资源时正确回显别名
+
+---
+
 ### 3.1 高级调度策略
 
 > **优先级**: 高 | **预计工作量**: 3-5天
@@ -1144,6 +1237,7 @@ docs(containers): 更新容器功能设计文档
 | 2026-03-26 | 3.4 | NetworkPolicy 网络策略管理开发完成：后端 API（列表/详情/创建/删除）、前端列表组件、创建表单（支持Pod选择器/命名空间选择器/IP块/端口配置）| - |
 | 2026-03-26 | 3.5 | 新增后续优化计划：工作负载多容器支持、Pod详情术语优化（状态条件+tooltip）、WorkloadForm界面重构（三列布局）| - |
 | 2026-04-02 | 3.6 | 服务拓扑可视化验证完成：Ingress→Service→Pod 拓扑图展示、节点点击交互、命名空间过滤、运维信息 Tab 切换、实时数据查看 | - |
+| 2026-04-21 | 3.7 | 新增 Job Pod 清理策略设计（ttlSecondsAfterFinished）和资源命名双轨制设计 | - |
 
 ---
 
