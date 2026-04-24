@@ -169,17 +169,20 @@ button.admin-header-logout-btn.ant-btn {
   background: transparent !important;
   box-shadow: none !important;
   font-size: var(--admin-header-action-font-size) !important;
-  line-height: 1.2;
-  min-height: 30px;
-  height: auto;
+  line-height: 1;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px;
+  max-height: 32px;
   box-sizing: border-box;
-  padding: 0 12px;
-  min-width: 72px;
+  padding: 0 !important;
   border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 0;
 }
 
 button.admin-header-logout-btn.ant-btn::after {

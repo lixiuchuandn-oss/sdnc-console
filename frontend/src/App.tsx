@@ -246,8 +246,14 @@ const AdminIndex: React.FC = () => {
     }
     setFavoriteReady(false);
     (async () => {
+      const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+        Promise.race([
+          p,
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+        ]);
       try {
-        const fav = await getSystemSetting('favorite.cloudId');
+        // 避免后端短暂不可用/重启时 getSystemSetting 长挂起，导致本页白屏
+        const fav = await withTimeout(getSystemSetting('favorite.cloudId'), 15000);
         setFavoriteCloudId(String(fav?.value || '').trim());
       } catch {
         setFavoriteCloudId('');
@@ -257,7 +263,24 @@ const AdminIndex: React.FC = () => {
     })();
   }, [user, isAdmin]);
 
-  if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
+  if (loading || !user || (isAdmin && !favoriteReady)) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '100vh',
+          width: '100%',
+        }}
+      >
+        <Spin
+          size="large"
+          tip={isAdmin && !favoriteReady ? '正在读取默认资源池…' : '加载中…'}
+        />
+      </div>
+    );
+  }
   if (isAdmin && favoriteCloudId) {
     const r = String(role || '');
     const canPoolWithMgmtLicense =

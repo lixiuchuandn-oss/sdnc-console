@@ -189,8 +189,13 @@ html, body, #root {
 /* 标准表格容器 */
 /* .std-table { } */
 
+.std-table.ant-table-wrapper {
+  width: 100%;
+}
+
 .std-table .ant-table {
   font-size: 14px;
+  width: 100%;
 }
 
 /* 表头 / 单元格：统一 .ant-table-cell（含多选列、名称列）
@@ -258,6 +263,20 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   font-size: 12px;
+}
+
+/* 单元格内 Tag 去掉默认右间距，与同行文字对齐（不改 Tag 配色） */
+.std-table .table-tag-tight.ant-tag {
+  margin-inline-end: 0;
+}
+
+/* 单元格内纵向堆叠（如多行摘要）占满单元格宽度 */
+.std-table .table-stack-full.ant-space {
+  width: 100%;
+}
+
+.std-table .table-stack-line {
+  display: block;
 }
 
 /* 表格列：等宽 ID/UUID，便于阅读 */
@@ -851,5 +870,3 @@ html, body, #root {
   font-size: 12px;
 
 }
-
-

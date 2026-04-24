@@ -113,6 +113,12 @@ const CsmPoolsPage: React.FC = () => {
     });
   }, [clouds, filters]);
 
+  /** 与 VmSection 一致：有数据时才设 scroll.x，避免空表出现横向滚动条 */
+  const csmPoolsTableScroll = useMemo(
+    () => (filteredClouds.length > 0 ? ({ x: true } as const) : undefined),
+    [filteredClouds.length],
+  );
+
   const handleBatchDelete = useCallback(() => {
     if (!canWrite || selectedRowKeys.length === 0) return;
     Modal.confirm({
@@ -265,7 +271,7 @@ const CsmPoolsPage: React.FC = () => {
       asCard={false}
       externalColumnControl
       toolbarRight={
-        <Space size={8} wrap>
+        <div className="toolbar-actions">
           <Button
             type="primary"
             disabled={!canWrite}
@@ -298,7 +304,7 @@ const CsmPoolsPage: React.FC = () => {
             defaultHiddenColumns={[]}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void load()} />
-        </Space>
+        </div>
       }
       toolbarLeft={
         <Form
@@ -349,8 +355,7 @@ const CsmPoolsPage: React.FC = () => {
         dataSource: filteredClouds,
         loading,
         rowKey: 'id',
-        size: 'small',
-        className: 'vr-table std-table',
+        className: 'std-table',
         rowSelection: canWrite
           ? {
               selectedRowKeys,
@@ -359,8 +364,8 @@ const CsmPoolsPage: React.FC = () => {
             }
           : undefined,
         pagination: { size: 'small' as const, showTotal: (t: number) => `共 ${t} 条` },
-        scroll: { x: 'max-content' },
-        bordered: true,
+        scroll: csmPoolsTableScroll,
+        bordered: false,
       }}
     >
       <CsmPoolAccessModal
