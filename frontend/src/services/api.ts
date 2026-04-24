@@ -291,6 +291,25 @@ export const fetchCloudById = async (id: string, options?: { skipCache?: boolean
   return await apiRequest(`/api/clouds/${id}`, { skipCache: options?.skipCache || false });
 };
 
+export type RancherClusterListItem = {
+  id: string;
+  name: string;
+  state: string;
+  kubernetesVersion?: string;
+};
+
+/** Rancher 资源池下游集群列表（Norman /v3/clusters） */
+export const fetchRancherClustersForPool = async (
+  poolId: string,
+  options?: { skipCache?: boolean },
+): Promise<RancherClusterListItem[]> => {
+  const json = await apiRequest(`/api/clouds/${encodeURIComponent(poolId)}/rancher/clusters`, {
+    skipCache: options?.skipCache ?? true,
+  });
+  const data = json?.data;
+  return Array.isArray(data) ? data : [];
+};
+
 
 
 // 获取用户数据
@@ -1379,8 +1398,9 @@ export const deleteIPsecVPN = async (id: string) => {
 };
 
 // ===== 服务目录（Service Catalog）=====
+/** 列表会随注册/编辑/删除变化，不使用内存缓存，避免创建后刷新仍看到旧数据 */
 export const fetchServices = async () => {
-  return await apiRequest('/api/services', { enableCache: true });
+  return await apiRequest('/api/services', { enableCache: false });
 };
 
 export const createService = async (payload: any) => {

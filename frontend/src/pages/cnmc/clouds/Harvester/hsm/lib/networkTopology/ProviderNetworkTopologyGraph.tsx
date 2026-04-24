@@ -18,15 +18,22 @@ import type { ProviderNetworkOriginNicsParse } from '../../../kube-ovn/lib/provi
 import {
   ACCENT,
   CARD_WIDTH,
+  formatNicUplinkStatusInGrayBar,
+  formatSwitchUplinkStatusInGrayBar,
   getEdgePalette,
   getFlowChromeStyles,
+  harvesterNodeManagementAddressText,
   LabelBlock,
+  NICO_UPLINK_CARD_WIDTH,
   safeNodeId,
   TOPO_CARD_LOADING_LAYOUT,
   TopoNodeCard,
   TopoVisualThemeContext,
   type TopoVisualTheme,
   topoLoadingCaptionStyle,
+  topoNodeLeftX,
+  topoGridTopYForRowGroup,
+  TOPO_ROW_CENTER_PITCH,
 } from './kubeOvnTopoPrimitives';
 import type { HsmLldpPhysicalLink } from '../buildHsmLldpPhysicalLinks';
 
@@ -63,6 +70,8 @@ export type ProviderNetworkTopologyGraphProps = {
   physicalLldpLinks?: HsmLldpPhysicalLink[];
   /** `hci.manager.system/provider-network-origin-nics` 解析结果：声明 bond 与成员物理口，便于与 LLDP 本端口对照 */
   pnOriginNics?: ProviderNetworkOriginNicsParse | null;
+  /** 用于在「网口」卡灰条内显示接口状态；与对端机名在 `nics[]` 中按 device 匹配 */
+  harvesterNodes?: any[] | null;
 };
 
 const FLOW_OUTER_STYLE: React.CSSProperties = {
@@ -94,20 +103,19 @@ const FLOW_OUTER_DARK: React.CSSProperties = {
 const DEFAULT_DOTS_LIGHT = '#d9dee8';
 const DEFAULT_DOTS_DARK = 'rgba(255, 255, 255, 0.14)';
 
-const LAYER_X = {
-  lldp: -300,
-  nic: 0,
-  provider: 300,
-  vlan: 600,
-  subnet: 900,
-} as const;
-const NIC_STEP = 104;
-const LLD_LINK_STEP = 80;
-const SUBNET_STEP = 92;
+/**
+ * 物理网络主链 8 列，`TOPO_COL_CENTER_PITCH` 列中心等距；首列中心使第 5 列(中枢)左缘 520。
+ * 0 交换体 / 1 交换口 / 2 网口 / 3 网卡 / 4 物理机 / 5 中枢 / 6 vlan / 7 子网
+ */
+const PN_FIRST_COL_CENTER = -1080;
+const pnX = (col: number, w: number = CARD_WIDTH) => topoNodeLeftX(col, PN_FIRST_COL_CENTER, w);
+/** 行顶 y 等距 = `TOPO_ROW_CENTER_PITCH`，行与行垂直中心点等距 */
+const NIC_STEP = TOPO_ROW_CENTER_PITCH;
 const START_Y = 40;
 
 /** 与卡片固定宽度一致，便于 RF 计算边与 Handle 锚点 */
 const NODE_CARD_STYLE: React.CSSProperties = { width: CARD_WIDTH };
+const NICO_HPORT_OUTER: React.CSSProperties = { width: NICO_UPLINK_CARD_WIDTH };
 
 function ProviderBlock(props: { title: string; ready: boolean }) {
   const { title, ready } = props;
@@ -138,6 +146,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
   visualTheme = 'light',
   physicalLldpLinks: physicalLldpLinksProp,
   pnOriginNics: pnOriginNicsProp,
+  harvesterNodes: harvesterNodesProp,
 }) => {
   const flowOuterStyle = useMemo(() => {
     const base = visualTheme === 'dark' ? FLOW_OUTER_DARK : FLOW_OUTER_STYLE;
@@ -164,44 +173,57 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
       pnOriginNicsProp ?? null,
     );
 
-    lldpList.forEach((link, i) => {
-      const y = START_Y + i * LLD_LINK_STEP;
-      const id = safeNodeId('topo_lldp', link.id);
-      nodesOut.push({
-        id,
-        position: { x: LAYER_X.lldp, y },
-        style: NODE_CARD_STYLE,
-        data: {
-          label: (
-            <LabelBlock
-              kicker="LLDP 物理连接"
-              title={`${link.port} → ${link.nodeName}`}
-              detail={`${link.switchTitle}（${link.switchHost}）· 本端 ${link.localIf}`}
-              accent={ACCENT.phyLldp}
-            />
-          ),
-        },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-      });
-    });
+    const linkRowY: number[] = lldpList.map((_, i) => START_Y + i * NIC_STEP);
+    const harvesterNodes = Array.isArray(harvesterNodesProp) ? harvesterNodesProp : [];
 
-    /** 就绪物理节点名 → 其网卡节点 id，供 LLDP 边按对端机名与 Provider 的节点卡对齐，而非一律连到物理网络 */
-    const nicIdByNodeName = new Map<string, string>();
+    /** 就绪节点名 → 网卡 id（LLDP 网口 接 网卡；再 网卡→物理机→中枢 单链） */
+    const nicSpecIdByNodeName = new Map<string, string>();
 
     let nicIndex = 0;
-    const pushNicNode = (id: string, label: React.ReactNode) => {
+    /** 占位 / 无数据时：仅一列，仍连中枢 */
+    const pushSingleHostColumn = (id: string, label: React.ReactNode) => {
       const y = START_Y + nicIndex * NIC_STEP;
       nicIndex += 1;
       nodesOut.push({
         id,
-        position: { x: LAYER_X.nic, y },
+        position: { x: pnX(3), y },
         style: NODE_CARD_STYLE,
         data: { label },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
       });
       edgesOut.push({ id: `e_${id}_${providerNodeId}`, source: id, target: providerNodeId, ...edgeDef });
+    };
+
+    const pushHostAndNicSpec = (
+      nodeName: string,
+      hostLabel: React.ReactNode,
+      nicLabel: React.ReactNode,
+    ) => {
+      const y = START_Y + nicIndex * NIC_STEP;
+      nicIndex += 1;
+      const hostId = safeNodeId('topo_host', nodeName);
+      const nicSpecId = safeNodeId('topo_nic_spec', nodeName);
+      nicSpecIdByNodeName.set(nodeName, nicSpecId);
+      nodesOut.push({
+        id: nicSpecId,
+        position: { x: pnX(3), y },
+        style: NODE_CARD_STYLE,
+        data: { label: nicLabel },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      });
+      nodesOut.push({
+        id: hostId,
+        position: { x: pnX(4), y },
+        style: NODE_CARD_STYLE,
+        data: { label: hostLabel },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      });
+      /* 单链：网口→网卡→物理机→中枢，网卡不直连 Provider，避免 Y 形分叉 */
+      edgesOut.push({ id: `e_${nicSpecId}_${hostId}_nichost`, source: nicSpecId, target: hostId, ...edgeDef });
+      edgesOut.push({ id: `e_${hostId}_${providerNodeId}_hostpn`, source: hostId, target: providerNodeId, ...edgeDef });
     };
 
     if (pnNicTopology) {
@@ -213,32 +235,25 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
           const nodeName = String(rawName ?? '').trim() || '—';
           const { iface, fromCustom } = resolveNodeInterface(nodeName, pnNicTopology);
           const hasIface = iface && iface !== '—';
-          const logicalLine = hasIface
-            ? pnOriginNicsProp?.bondFromAnnotation
-              ? `逻辑口：${iface}（Bond）`
-              : `逻辑口：${iface}`
-            : '逻辑口：未配置';
           const memberArr = pnOriginNicsProp?.bondFromAnnotation
             ? pnOriginNicsProp.byNode[nodeName]
             : undefined;
-          const memberLine =
-            memberArr && memberArr.length ? `成员口：${memberArr.join('、')}` : null;
-          const nodeDetail = [logicalLine, memberLine].filter(Boolean).join('\n');
+          /** 网卡卡灰条仅展示成员口；标题为接口名 */
+          const memberDetail =
+            memberArr && memberArr.length ? `成员口：${memberArr.join('、')}` : undefined;
+          const hNode = harvesterNodes.find((h: any) => String(h?.metadata?.name ?? '').trim() === nodeName);
+          const mgmtLine = harvesterNodeManagementAddressText(hNode);
+          const accent = fromCustom ? ACCENT.nicCustom : ACCENT.nicDefault;
+          const nicTitle = hasIface ? String(iface).trim() : '—';
 
-          const nicId = safeNodeId('topo_nic_node', nodeName);
-          nicIdByNodeName.set(nodeName, nicId);
-          pushNicNode(
-            nicId,
-            <LabelBlock
-              kicker="物理节点"
-              title={nodeName}
-              detail={nodeDetail}
-              accent={fromCustom ? ACCENT.nicCustom : ACCENT.nicDefault}
-            />,
+          pushHostAndNicSpec(
+            nodeName,
+            <LabelBlock kicker="物理机" title={nodeName} detail={mgmtLine} accent={accent} />,
+            <LabelBlock kicker="网卡" title={nicTitle} detail={memberDetail} accent={accent} />,
           );
         });
       } else if (!hasSpec) {
-        pushNicNode(
+        pushSingleHostColumn(
           'topo_nic_unset',
           <LabelBlock
             kicker="物理网卡"
@@ -249,33 +264,124 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
           />,
         );
       } else {
-        pushNicNode(
+        pushSingleHostColumn(
           'topo_nic_no_ready',
           <LabelBlock
-            kicker="物理节点"
+            kicker="物理机"
             title="暂无就绪节点"
-            detail="status.readyNodes 为空，无法按节点展示网卡；请待节点就绪后刷新"
+            detail="status.readyNodes 为空，无法按节点展示；请待节点就绪后刷新"
             tone="muted"
             dashed
           />,
         );
       }
     } else {
-      pushNicNode(
+      pushSingleHostColumn(
         'topo_nic_na',
         <LabelBlock kicker="物理网卡" title="—" detail="无物理网络数据" tone="muted" dashed />,
       );
     }
 
+    const hostPnicAccent = (nodeName: string) => {
+      if (!pnNicTopology) return ACCENT.nicDefault;
+      const { fromCustom } = resolveNodeInterface(String(nodeName || '').trim() || '—', pnNicTopology);
+      return fromCustom ? ACCENT.nicCustom : ACCENT.nicDefault;
+    };
+
+    lldpList.forEach((link, i) => {
+      const y = linkRowY[i];
+      const swpId = safeNodeId('topo_swport', link.id);
+      const hportId = safeNodeId('topo_hport', link.id);
+      const n = String(link.nodeName ?? '').trim();
+      const hasNicSpec = n ? Boolean(nicSpecIdByNodeName.get(n)) : false;
+      const hNode = n
+        ? harvesterNodes.find((h: any) => String(h?.metadata?.name ?? '').trim() === n)
+        : null;
+      const pnicAccent = n ? hostPnicAccent(n) : ACCENT.nicDefault;
+      const localIf = String(link.localIf || '—').trim() || '—';
+      const port = String(link.port || '—').trim() || '—';
+      const swTitle = port;
+      const hTitle = n
+        ? hasNicSpec
+          ? `${localIf} · 对端 ${n}（与物理机主卡相连）`
+          : `${localIf} · 对端 ${n}（未在 readyNodes，直连物理网络）`
+        : localIf;
+      nodesOut.push({
+        id: swpId,
+        position: { x: pnX(1), y },
+        style: NODE_CARD_STYLE,
+        data: {
+          label: (
+            <LabelBlock
+              kicker="交换机网口"
+              title={swTitle}
+              detail={formatSwitchUplinkStatusInGrayBar(link.switchPortStatus, true)}
+              accent={ACCENT.phyLldp}
+            />
+          ),
+        },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      });
+      nodesOut.push({
+        id: hportId,
+        position: { x: pnX(2, NICO_UPLINK_CARD_WIDTH), y },
+        style: NICO_HPORT_OUTER,
+        data: {
+          label: (
+            <LabelBlock
+              kicker="网口"
+              title={hTitle}
+              width={NICO_UPLINK_CARD_WIDTH}
+              detail={formatNicUplinkStatusInGrayBar(hNode, localIf)}
+              accent={pnicAccent}
+            />
+          ),
+        },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      });
+    });
+
+    const ysBySwHost = new Map<string, number[]>();
+    lldpList.forEach((link, i) => {
+      const h = String(link.switchHost ?? '').trim() || '—';
+      if (!ysBySwHost.has(h)) ysBySwHost.set(h, []);
+      ysBySwHost.get(h)!.push(linkRowY[i]);
+    });
+    ysBySwHost.forEach((ys, h) => {
+      const link0 = lldpList.find((l) => String(l.switchHost ?? '').trim() === h);
+      if (!link0) return;
+      const ySw = topoGridTopYForRowGroup(START_Y, ys, NIC_STEP);
+      const swId = safeNodeId('topo_lldpsw', h);
+      nodesOut.push({
+        id: swId,
+        position: { x: pnX(0), y: ySw },
+        style: NODE_CARD_STYLE,
+        data: {
+          label: (
+            <LabelBlock
+              kicker="交换机"
+              title={String(link0.switchTitle || '').trim() || h}
+              detail={String(link0.switchHost || '').trim() || h}
+              accent={ACCENT.phyLldp}
+            />
+          ),
+        },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      });
+    });
+
     const lldpH = lldpList.length;
     const nicSpan = Math.max(0, nicIndex - 1) * NIC_STEP;
-    const lldpSpan = Math.max(0, lldpH - 1) * LLD_LINK_STEP;
+    const lldpSpan = Math.max(0, lldpH - 1) * NIC_STEP;
     const maxLeftSpan = Math.max(nicSpan, lldpSpan);
     const providerY = START_Y + maxLeftSpan / 2;
 
     nodesOut.push({
       id: providerNodeId,
-      position: { x: LAYER_X.provider, y: providerY },
+      position: { x: pnX(5), y: providerY },
       style: NODE_CARD_STYLE,
       data: {
         label: <ProviderBlock title={pnDisplayTitle || pnMetaName || '物理网络'} ready={pnReady} />,
@@ -285,13 +391,18 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
     });
 
     lldpList.forEach((link) => {
-      const lldpId = safeNodeId('topo_lldp', link.id);
       const n = String(link.nodeName ?? '').trim();
-      const nicId = n ? nicIdByNodeName.get(n) : undefined;
-      if (nicId) {
-        edgesOut.push({ id: `e_${lldpId}_${nicId}_lldp_nic`, source: lldpId, target: nicId, ...edgeLldpTh });
+      const nicSpecId = n ? nicSpecIdByNodeName.get(n) : undefined;
+      const swpId = safeNodeId('topo_swport', link.id);
+      const hportId = safeNodeId('topo_hport', link.id);
+      const h = String(link.switchHost ?? '').trim() || '—';
+      const swId = safeNodeId('topo_lldpsw', h);
+      edgesOut.push({ id: `e_${swId}_${swpId}_int`, source: swId, target: swpId, ...edgeDef });
+      edgesOut.push({ id: `e_${swpId}_${hportId}_ld`, source: swpId, target: hportId, ...edgeLldpTh });
+      if (nicSpecId) {
+        edgesOut.push({ id: `e_${hportId}_${nicSpecId}_hport`, source: hportId, target: nicSpecId, ...edgeDef });
       } else {
-        edgesOut.push({ id: `e_${lldpId}_${providerNodeId}_lldp`, source: lldpId, target: providerNodeId, ...edgeLldpTh });
+        edgesOut.push({ id: `e_${hportId}_${providerNodeId}_hpn`, source: hportId, target: providerNodeId, ...edgeDef });
       }
     });
 
@@ -302,7 +413,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
       const loadingNodeId = 'topo_vlan_loading';
       nodesOut.push({
         id: loadingNodeId,
-        position: { x: LAYER_X.vlan, y: yCursor },
+        position: { x: pnX(6), y: yCursor },
         style: NODE_CARD_STYLE,
         data: {
           label: (
@@ -318,12 +429,12 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
         targetPosition: Position.Left,
       });
       edgesOut.push({ id: `e_${providerNodeId}_${loadingNodeId}`, source: providerNodeId, target: loadingNodeId, ...edgeDef });
-      yCursor += 120;
+      yCursor += NIC_STEP;
     } else if (displayedVlans.length === 0) {
       const emptyNodeId = 'topo_vlan_empty';
       nodesOut.push({
         id: emptyNodeId,
-        position: { x: LAYER_X.vlan, y: yCursor },
+        position: { x: pnX(6), y: yCursor },
         style: NODE_CARD_STYLE,
         data: {
           label: (
@@ -341,7 +452,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
         targetPosition: Position.Left,
       });
       edgesOut.push({ id: `e_${providerNodeId}_${emptyNodeId}`, source: providerNodeId, target: emptyNodeId, ...edgeDef });
-      yCursor += 100;
+      yCursor += NIC_STEP;
     } else {
       displayedVlans.forEach((vlanItem) => {
         const ann = vlanItem?.metadata?.annotations || {};
@@ -365,7 +476,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
 
         nodesOut.push({
           id: vlanNodeId,
-          position: { x: LAYER_X.vlan, y: blockTop },
+          position: { x: pnX(6), y: blockTop },
           style: NODE_CARD_STYLE,
           data: {
             label: (
@@ -386,7 +497,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
           const emptySubnetNodeId = safeNodeId('topo_subnet_empty', metaName || title);
           nodesOut.push({
             id: emptySubnetNodeId,
-            position: { x: LAYER_X.subnet, y: blockTop },
+            position: { x: pnX(7), y: blockTop },
             style: NODE_CARD_STYLE,
             data: {
               label: (
@@ -402,7 +513,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
             targetPosition: Position.Left,
           });
           edgesOut.push({ id: `e_${vlanNodeId}_${emptySubnetNodeId}`, source: vlanNodeId, target: emptySubnetNodeId, ...edgeDef });
-          yCursor = blockTop + 104;
+          yCursor = blockTop + NIC_STEP;
         } else {
           relatedSubnets.forEach((subnet, index) => {
             const subnetNodeId = safeNodeId('topo_sn', `${subnet.kind}-${subnet.name}`);
@@ -412,7 +523,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
 
             nodesOut.push({
               id: subnetNodeId,
-              position: { x: LAYER_X.subnet, y: blockTop + index * SUBNET_STEP },
+              position: { x: pnX(7), y: blockTop + index * NIC_STEP },
               style: NODE_CARD_STYLE,
               data: {
                 label: (
@@ -428,7 +539,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
             });
             edgesOut.push({ id: `e_${vlanNodeId}_${subnetNodeId}`, source: vlanNodeId, target: subnetNodeId, ...edgeDef });
           });
-          yCursor = blockTop + Math.max(100, relatedSubnets.length * SUBNET_STEP) + 28;
+          yCursor = blockTop + Math.max(1, relatedSubnets.length) * NIC_STEP;
         }
       });
     }
@@ -453,6 +564,7 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
     flatSubnetsForPn,
     vlanLoading,
     visualTheme,
+    harvesterNodesProp,
   ]);
 
   const dotsColor = chartDotsColor ?? (visualTheme === 'dark' ? DEFAULT_DOTS_DARK : DEFAULT_DOTS_LIGHT);

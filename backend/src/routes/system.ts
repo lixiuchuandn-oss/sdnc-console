@@ -1,5 +1,4 @@
 // 系统级管理与配置相关路由：
-// - Dify（AI 工作流）集成配置读取与更新
 // - 简单的 Key-Value 形式系统设置读写
 // - RBAC 权限原子扫描与动作列表输出
 // - RBAC 角色（策略）增删改查与角色分配关系管理
@@ -8,12 +7,12 @@
 // 注意：
 // 1. 这里的接口一般挂载在 /api/system 前缀下，由后端入口统一加上鉴权中间件；
 // 2. RBAC 相关接口依赖数据库中的 RBACRole、RoleAssignment、TenantUser 等实体；
-// 3. 文件扫描与日志上传相关逻辑依赖后端运行目录（process.cwd()）以及 runtimeConfig 中的目录配置。
-import { Router, Response } from 'express';
+// 3. 安全日志上传/列出依赖 data/security-logs（或环境变量 SECURITY_LOGS_DIR、遗留 dify-config.cfg 中的 logsDir）
+import { Router } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { getDifyConfig, setDifyConfig } from '../config/runtimeConfig';
+import { getSecurityLogsDir } from '../config/runtimeConfig';
 import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
@@ -23,11 +22,10 @@ import { In } from 'typeorm';
 import { User, UserRole } from '../entities/User';
 import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdownRecord';
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
-import { AuthRequest } from '../middleware/auth';
 import { ALL_PERMISSIONS } from '../constants/permissions';
 import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
 // 新权限体系
-import { createApiPermissionMiddleware, requirePermission, checkPermission, PERMISSION_DEFINITIONS, resolvePermissionFromApi } from '../permissions';
+import { createApiPermissionMiddleware, checkPermission, PERMISSION_DEFINITIONS } from '../permissions';
 import { logger } from '../utils/logger';
 
 const systemLog = logger.child('System');
@@ -46,43 +44,6 @@ const checkRbacPermission = createApiPermissionMiddleware({
 // 权限检查中间件：检查系统设置权限（已迁移到新权限体系）
 const checkSettingsPermission = createApiPermissionMiddleware({
   allowSuperAdmin: true,
-});
-
-// 权限检查中间件：检查高级集成权限（已迁移到新权限体系）
-const checkIntegrationPermission = createApiPermissionMiddleware({
-  allowSuperAdmin: true,
-  customResolver: (req) => {
-    // 明确指定高级集成权限
-    const method = req.method.toUpperCase();
-    const isRead = method === 'GET' || method === 'HEAD';
-    return isRead ? 'system.integration:read' : 'system.integration:write';
-  },
-});
-
-// 读取当前 Dify（AI 工作流）集成配置
-// 用于前端系统设置页面展示当前配置，返回时会对 apiKey 进行脱敏处理
-router.get('/dify-config', checkIntegrationPermission, async (_req, res) => {
-  const cfg = getDifyConfig();
-  const safe = { ...cfg } as any;
-  res.json({ config: { ...safe, apiKey: !!cfg.apiKey ? '****' : '' } });
-});
-
-// 更新 Dify 集成配置
-// 请求体中只要带上需要修改的字段即可，底层会合并并持久化到 runtimeConfig
-// 返回值同样会对 apiKey 做脱敏，避免明文泄露
-router.patch('/dify-config', checkIntegrationPermission, async (req, res) => {
-  const { baseUrl, apiKey, workflowId, logsDir, reportsDir, mode, fileVarName } = req.body as any;
-  const next = setDifyConfig({
-    baseUrl,
-    apiKey,
-    workflowId,
-    logsDir,
-    reportsDir,
-    mode,
-    fileVarName,
-  });
-  const safe = { ...next } as any;
-  res.json({ config: { ...safe, apiKey: !!next.apiKey ? '****' : '' } });
 });
 
 // 读取单个系统设置项（简单的 KV 配置）
@@ -425,143 +386,6 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// API 盘点：静态扫描后端 routes，列出所有对外 API（仅用于运维观察）
-// ---------------------------------------------------------------------------
-router.get('/rbac/api-inventory', checkRbacPermission, async (_req, res) => {
-  try {
-    type ApiItem = { method: string; path: string; file: string };
-    const apis: ApiItem[] = [];
-
-    // 1. 从 index.ts / dist index.js 中构建 routes -> basePath 映射
-    const baseMap: Record<string, string> = {};
-    const buildBaseMap = async (file: string) => {
-      try {
-        if (!fs.existsSync(file)) return;
-        const text = await fs.promises.readFile(file, 'utf8');
-        const importRegexDefault = /import\s+(\w+)\s+from\s+["']\.\/routes\/([^"']+)["']/g;
-        const importRegexNamed = /import\s+\{\s*([^}]+)\s*\}\s+from\s+["']\.\/routes\/([^"']+)["']/g;
-        const uses: Array<{ var: string; name: string }> = [];
-        {
-          let m: RegExpExecArray | null;
-          while ((m = importRegexDefault.exec(text))) {
-            uses.push({ var: m[1], name: m[2] });
-          }
-        }
-        {
-          let m2: RegExpExecArray | null;
-          while ((m2 = importRegexNamed.exec(text))) {
-            const namesRaw = String(m2[1] || '')
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean);
-            const fileName = m2[2];
-            namesRaw.forEach((n) => {
-              const alias = n.includes(' as ') ? n.split(' as ')[1].trim() : n.split(/\s+/)[0].trim();
-              if (alias) uses.push({ var: alias, name: fileName });
-            });
-          }
-        }
-        const useRegex = /app\.use\(\s*(["'][^"']+["'])\s*,[\s\S]*?(\w+)\s*\)/g;
-        let um: RegExpExecArray | null;
-        while ((um = useRegex.exec(text))) {
-          const base = um[1].replace(/^["']|["']$/g, '');
-          const varName = um[2];
-          const u = uses.find((x) => x.var === varName);
-          if (u) baseMap[u.name] = base;
-        }
-      } catch {
-        // ignore
-      }
-    };
-    await buildBaseMap(path.join(process.cwd(), 'src', 'index.ts'));
-    await buildBaseMap(path.join(process.cwd(), 'dist', 'index.js'));
-
-    const normalizeFullPath = (base: string, subPath: string): string => {
-      let b = String(base || '');
-      let s = String(subPath || '');
-      let p = `${b}${s}`.replace(/\\/g, '/');
-      p = p.replace(/\/ {2,}/g, '/');
-      if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
-      if (!p.startsWith('/')) p = '/' + p;
-      return p;
-    };
-
-    const seen = new Set<string>();
-
-    const scanRoutesFile = async (absoluteFilePath: string, basePath: string, depth: number = 0) => {
-      if (!fs.existsSync(absoluteFilePath)) return;
-
-      const text = await fs.promises.readFile(absoluteFilePath, 'utf8');
-      // 尽量匹配各种 Router 变量名，如 router / vrConfigRoutes / cloudRoutes 等
-      const routeRegex = /\b(\w+)\.(get|post|put|delete|patch|head)\s*\(\s*['"]([^'"]+)['"]/g;
-      let rm: RegExpExecArray | null;
-      while ((rm = routeRegex.exec(text))) {
-        const method = rm[2].toUpperCase();
-        const subPath = rm[3];
-        const fullPath = normalizeFullPath(basePath, subPath);
-        const key = `${method} ${fullPath}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const relFile = path
-          .relative(path.join(process.cwd(), 'src'), absoluteFilePath)
-          .replace(/\\/g, '/');
-        apis.push({
-          method,
-          path: fullPath,
-          file: relFile || absoluteFilePath,
-        });
-      }
-
-      // 递归扫描子路由文件，例如：
-      // import { registerHarvesterRoutes } from './clouds/harvester';
-      if (depth < 3) {
-        const importSubRoutesRegex = /from\s+['"]\.\/([^'"]+)['"]/g;
-        let im: RegExpExecArray | null;
-        while ((im = importSubRoutesRegex.exec(text))) {
-          const subName = im[1];
-          const dir = path.dirname(absoluteFilePath);
-          const candidates = [
-            path.join(dir, `${subName}.ts`),
-            path.join(dir, `${subName}.js`),
-            path.join(dir, subName, 'index.ts'),
-            path.join(dir, subName, 'index.js'),
-            path.join(dir, `${subName}.routes.ts`),
-            path.join(dir, `${subName}.routes.js`),
-          ];
-          const subPathToRead = candidates.find((p) => fs.existsSync(p));
-          if (!subPathToRead) continue;
-
-          await scanRoutesFile(subPathToRead, basePath, depth + 1);
-        }
-      }
-    };
-
-    // 按 baseMap 扫描所有挂载到 /api 下的 routes
-    for (const [routesFile, basePath] of Object.entries(baseMap)) {
-      const fullFilePathTs = path.join(process.cwd(), 'src', 'routes', `${routesFile}.ts`);
-      const fullFilePathJs = path.join(process.cwd(), 'dist', 'routes', `${routesFile}.js`);
-      const filePathToRead = fs.existsSync(fullFilePathTs)
-        ? fullFilePathTs
-        : fs.existsSync(fullFilePathJs)
-        ? fullFilePathJs
-        : '';
-      if (!filePathToRead) continue;
-      await scanRoutesFile(filePathToRead, basePath, 0);
-    }
-
-    // 排序输出：先按 path，再按 method
-    apis.sort((a, b) => {
-      if (a.path === b.path) return a.method.localeCompare(b.method);
-      return a.path.localeCompare(b.path);
-    });
-
-    res.json({ apis });
-  } catch (e: any) {
-    res.status(500).json({ message: '扫描 API 列表失败', error: String(e?.message || e) });
-  }
-});
-
 // 为用户分配角色（仅超级管理员或拥有 system.roles.assignments:write 权限）
 // 支持多种 userType（如 'tenant' / 'system' 等），具体含义由业务约定
 router.post('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
@@ -710,14 +534,9 @@ router.delete('/rbac/assignments/:id', checkRbacPermission, async (req: any, res
   }
 });
 
-// 清理角色中的已废弃原子（仅超级管理员）
-// 说明：该功能目前仅预留注释位，具体实现需要结合业务场景，
-// 例如：对比 actions 列表与 /rbac/actions 扫描结果，移除已经不存在的动作。
-export default router;
-
 // 批量上传告警日志（csv/xls/xlsx）
 // - 使用 Multer 将前端上传的文件先保存到临时目录 temp_uploads
-// - 再根据 Dify 配置中的 logsDir 或默认路径 data/security-logs 移动到目标目录
+// - 再根据 getSecurityLogsDir()（环境变量或遗留配置）移动到目标目录
 // - 原始文件名会做简单的字符过滤，避免特殊字符导致的路径问题
 const tempUploadsDir = path.join(process.cwd(), 'temp_uploads');
 if (!fs.existsSync(tempUploadsDir)) fs.mkdirSync(tempUploadsDir, { recursive: true });
@@ -730,8 +549,7 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
   try {
     const files = (req.files as Express.Multer.File[]) || [];
     if (!files.length) return res.status(400).json({ message: '未接收到文件' });
-    const cfg = getDifyConfig();
-    const logsDir = cfg.logsDir || path.join(process.cwd(), 'data', 'security-logs');
+    const logsDir = getSecurityLogsDir();
     await fs.promises.mkdir(logsDir, { recursive: true });
     const saved: { fileName: string; size: number; target: string }[] = [];
 
@@ -782,8 +600,7 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
 // - 携带文件大小与最近修改时间戳，方便前端排序与展示
 router.get('/security-logs', async (_req, res) => {
   try {
-    const cfg = getDifyConfig();
-    const logsDir = cfg.logsDir || path.join(process.cwd(), 'data', 'security-logs');
+    const logsDir = getSecurityLogsDir();
     await fs.promises.mkdir(logsDir, { recursive: true }).catch(() => {});
     const names = await fs.promises.readdir(logsDir).catch(() => [] as string[]);
     const entries = await Promise.all(
@@ -801,3 +618,5 @@ router.get('/security-logs', async (_req, res) => {
     res.status(500).json({ message: '读取失败', error: String(err) });
   }
 });
+
+export default router;

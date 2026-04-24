@@ -1,0 +1,487 @@
+/**
+ * Cloudmap 池主内容区路由：`admin/clouds/:id/*` 下相对路径的 `<Routes>` + Context 注入面板数据。
+ */
+import React from 'react';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Empty } from 'antd';
+import {
+  CloudmapBackupsGroupTabs,
+  CloudmapCloudDatabaseTabs,
+  CloudmapClusterTabs,
+  CloudmapComputeGroupTabs,
+  CloudmapContainersTabs,
+  CloudmapFlatNetworkGroupTabs,
+  CloudmapKubeOvnGroupTabs,
+  CloudmapLogsConfigTab,
+  CloudmapMonitoringAlertsTab,
+  CloudmapStorageGroupTabs,
+  ResourceOverviewDatacenterTopologyPanel,
+  ResourceOverviewMonitoringPanel,
+  ResourceOverviewNetworkTopologyPanel,
+} from '../panels';
+import { CLOUDMAP_RESOURCE_SUB_KEYS, type CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import {
+  fetchHarvesterImages,
+  fetchHarvesterNads,
+  fetchHarvesterStorageClasses,
+  fetchKubeOvnSubnets,
+} from '../api';
+import { useCloudmapPoolDetail } from './cloudmapPoolDetailContext';
+
+const RESOURCE_SUB_SET = new Set<string>(CLOUDMAP_RESOURCE_SUB_KEYS);
+
+const ResourceHubRoute: React.FC = () => {
+  const { resourceHubSub } = useParams<{ resourceHubSub: string }>();
+  const p = useCloudmapPoolDetail();
+  const sub = resourceHubSub as CloudmapResourceSubKey | undefined;
+  if (!sub || !RESOURCE_SUB_SET.has(sub)) {
+    return <Empty description="未知页面" style={{ marginTop: 48 }} />;
+  }
+  switch (sub) {
+    case 'overview':
+      return <ResourceOverviewMonitoringPanel cloudId={p.cloudId} />;
+    case 'datacenter_topology':
+      return p.canViewClusterGroup ? (
+        <ResourceOverviewDatacenterTopologyPanel cloudId={p.cloudId} checkPerm={p.checkPerm} />
+      ) : (
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
+      );
+    case 'network_topology':
+      return (
+        <ResourceOverviewNetworkTopologyPanel
+          cloudId={p.cloudId}
+          canReadNetworkScope={p.canReadNetworkScope}
+        />
+      );
+    default:
+      return <Empty description="未知页面" style={{ marginTop: 48 }} />;
+  }
+};
+
+const MonitoringAlertsRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewMonitoringTab) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapMonitoringAlertsTab
+      cloudId={p.cloudId}
+      checkPerm={p.checkPerm}
+      innerActiveKey={p.poolInnerActive('monitoring_alerts')}
+    />
+  );
+};
+
+const ClusterRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewClusterGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapClusterTabs
+      cloudId={p.cloudId}
+      mode={p.mode}
+      isTenant={p.isTenant}
+      showLog={p.showLog}
+      checkPerm={p.checkPerm}
+      canReadPublicSubnets={p.canReadPublicSubnets}
+      canReadNetworkScope={p.canReadNetworkScope}
+      canReadLoadBalancers={p.canReadLoadBalancers}
+      innerActiveKey={p.poolInnerActive('cluster')}
+      loadTabResource={p.loadTabResource}
+      loadResource={p.loadResource}
+      harvesterNodes={p.harvesterNodes}
+      nodesLoading={p.nodesLoading}
+      refreshNodes={p.refreshNodes}
+      rawNodes={p.rawNodes}
+      harvesterServices={p.harvesterServices}
+      rawServices={p.rawServices}
+      harvesterPods={p.harvesterPods}
+      namespacesOptions={p.namespacesOptions}
+      nsFilter={p.nsFilter}
+      setNsFilter={p.setNsFilter}
+      harvesterClusterNetworks={p.harvesterClusterNetworks}
+      rawClusterNetworks={p.rawClusterNetworks}
+      harvesterNads={p.harvesterNads}
+      nadsLoading={p.nadsLoading}
+      refreshNads={p.refreshNads}
+      rawNads={p.rawNads}
+      harvesterLoadBalancers={p.harvesterLoadBalancers}
+      rawLoadBalancers={p.rawLoadBalancers}
+      harvesterIPPools={p.harvesterIPPools}
+      rawIPPools={p.rawIPPools}
+      harvesterKubeOvnProviderNetworks={p.harvesterKubeOvnProviderNetworks}
+      harvesterVlans={p.harvesterVlans}
+      rawVlans={p.rawVlans}
+      rawSubnets={p.rawSubnets}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setRawSubnets={p.setRawSubnets}
+      refreshVlans={p.refreshVlans}
+      harvesterNamespacesForManagement={p.harvesterNamespacesForManagement}
+      rawNamespaces={p.rawNamespaces}
+      harvesterStorageClasses={p.harvesterStorageClasses}
+      harvesterGpuResources={p.harvesterGpuResources}
+      rawGpu={p.rawGpu}
+      harvesterUsbDevices={p.harvesterUsbDevices}
+      rawUsbDevices={p.rawUsbDevices}
+      harvesterPciDevices={p.harvesterPciDevices}
+      rawPciDevices={p.rawPciDevices}
+      aswSwitchSummary={p.aswSwitchSummary}
+      cloudConfig={p.cloudConfig}
+      onReloadCloudMeta={p.reloadCloudMeta}
+      resourceLoading={p.resourceLoading}
+    />
+  );
+};
+
+const ComputeRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewComputeGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapComputeGroupTabs
+      cloudId={p.cloudId}
+      mode={p.mode}
+      isTenant={p.isTenant}
+      showLog={p.showLog}
+      checkPerm={p.checkPerm}
+      canReadFlatSubnets={p.canReadFlatSubnets}
+      canReadVpcSubnets={p.canReadVpcSubnets}
+      innerActiveKey={p.poolInnerActive('compute')}
+      loadResource={p.loadResource}
+      loadTabResource={p.loadTabResource}
+      resourceLoading={p.resourceLoading}
+      ecs={p.ecs}
+      rawEcs={p.rawEcs}
+      namespacesOptions={p.namespacesOptions}
+      nodesOptions={p.nodesOptions}
+      nsFilter={p.nsFilter}
+      setNsFilter={p.setNsFilter}
+      nodeFilter={p.nodeFilter}
+      setNodeFilter={p.setNodeFilter}
+      harvesterStorageClasses={p.harvesterStorageClasses}
+      kubeOvnSubnets={p.kubeOvnSubnets}
+      harvesterNads={p.harvesterNads}
+      capabilities={p.capabilities}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setHarvesterImages={p.setHarvesterImages}
+      setHarvesterVolumes={p.setHarvesterVolumes}
+      setHarvesterNamespaces={p.setHarvesterNamespaces}
+      refreshVms={p.refreshVms}
+      harvesterImages={p.harvesterImages}
+      harvesterNamespaces={p.harvesterNamespaces}
+      harvesterVolumes={p.harvesterVolumes}
+      harvesterTemplates={p.harvesterTemplates}
+      harvesterSshKeys={p.harvesterSshKeys}
+      harvesterCloudInits={p.harvesterCloudInits}
+      harvesterGpuResources={p.harvesterGpuResources}
+      rawImages={p.rawImages}
+      rawTemplates={p.rawTemplates}
+      rawSshKeys={p.rawSshKeys}
+      rawCloudInits={p.rawCloudInits}
+      vmReconfOpen={p.vmReconfOpen}
+      vmReconfTarget={p.vmReconfTarget}
+      onOpenVmReconfigure={(r: any) => {
+        p.setVmReconfTarget(r);
+        p.setVmReconfOpen(true);
+      }}
+      onVmReconfigureModalClose={() => {
+        p.setVmReconfOpen(false);
+        p.setVmReconfTarget(null);
+      }}
+      onVmReconfigureModalOk={() => {
+        p.refreshVms();
+        if (p.vmReconfTarget) {
+          setTimeout(() => {
+            p.setVmReconfTarget({
+              ...p.vmReconfTarget,
+              _refreshTrigger: Date.now(),
+            });
+          }, 300);
+        }
+      }}
+    />
+  );
+};
+
+const PaasDatabasesRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewCloudDatabaseTab) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapCloudDatabaseTabs
+      cloudId={p.cloudId}
+      innerActiveKey={p.poolInnerActive('paas_databases')}
+      ecs={p.ecs}
+      ecsLoading={!!p.resourceLoading.ecs}
+      onRefreshVms={() => p.refreshVms(true)}
+      onForceRefreshVms={() => p.refreshVms(true)}
+      harvesterImages={p.harvesterImages}
+      harvesterStorageClasses={p.harvesterStorageClasses}
+      kubeOvnSubnets={p.kubeOvnSubnets}
+      harvesterNads={p.harvesterNads}
+      onReloadImages={
+        p.checkPerm('clouds.images:read') || p.checkPerm('clouds.ecs:read')
+          ? () =>
+              p.loadResource(
+                'images',
+                () => fetchHarvesterImages(p.cloudId, true),
+                (json) => p.setHarvesterImages((json as any)?.data?.items || []),
+                true,
+              )
+          : undefined
+      }
+      onReloadSubnets={
+        p.canReadFlatSubnets ||
+        p.canReadVpcSubnets ||
+        p.checkPerm('clouds.networks:read')
+          ? () =>
+              p.loadResource(
+                'subnets',
+                () => fetchKubeOvnSubnets(p.cloudId, true),
+                (json) => p.setKubeOvnSubnets((json as any)?.data?.items || []),
+                true,
+              )
+          : undefined
+      }
+      onReloadNads={
+        p.checkPerm('clouds.networks:read')
+          ? () =>
+              p.loadResource(
+                'nads',
+                () => fetchHarvesterNads(p.cloudId, true),
+                (json) => p.setHarvesterNads((json as any)?.data?.items || []),
+                true,
+              )
+          : undefined
+      }
+      onReloadStorageClasses={
+        p.checkPerm('clouds.disks:read') || p.checkPerm('clouds.ecs:read')
+          ? () =>
+              p.loadResource(
+                'storageClasses',
+                () => fetchHarvesterStorageClasses(p.cloudId, true),
+                (json) => p.setHarvesterStorageClasses((json as any)?.data?.items || []),
+                true,
+              )
+          : undefined
+      }
+      isTenant={p.isTenant}
+      mode={p.mode}
+      namespacesOptions={p.namespacesOptions}
+    />
+  );
+};
+
+const ContainersRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewContainersGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapContainersTabs
+      cloudId={p.cloudId}
+      mode={p.mode}
+      isTenant={p.isTenant}
+      checkPerm={p.checkPerm}
+      innerActiveKey={p.poolInnerActive('containers')}
+      loadTabResource={p.loadTabResource}
+      resourceLoading={p.resourceLoading}
+      namespacesOptions={p.namespacesOptions}
+      nodesOptions={p.nodesOptions}
+      nsFilter={p.nsFilter}
+      setNsFilter={p.setNsFilter}
+      nodeFilter={p.nodeFilter}
+      setNodeFilter={p.setNodeFilter}
+      harvesterDeployments={p.harvesterDeployments}
+      harvesterStatefulSets={p.harvesterStatefulSets}
+      harvesterDaemonSets={p.harvesterDaemonSets}
+      harvesterPods={p.harvesterPods}
+      harvesterJobs={p.harvesterJobs}
+      harvesterCronJobs={p.harvesterCronJobs}
+      harvesterServices={p.harvesterServices}
+      harvesterIngresses={p.harvesterIngresses}
+      gatewayApiStatus={p.gatewayApiStatus}
+      gatewayClasses={p.gatewayClasses}
+      gateways={p.gateways}
+      httpRoutes={p.httpRoutes}
+      grpcRoutes={p.grpcRoutes}
+      harvesterPDBs={p.harvesterPDBs}
+      harvesterNetworkPolicies={p.harvesterNetworkPolicies}
+      harvesterConfigMaps={p.harvesterConfigMaps}
+      harvesterSecrets={p.harvesterSecrets}
+      harvesterImagePullSecrets={p.harvesterImagePullSecrets}
+      harvesterVolumes={p.harvesterVolumes}
+    />
+  );
+};
+
+const StorageRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewStorageGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapStorageGroupTabs
+      cloudId={p.cloudId}
+      mode={p.mode}
+      showLog={p.showLog}
+      checkPerm={p.checkPerm}
+      innerActiveKey={p.poolInnerActive('storage')}
+      loadResource={p.loadResource}
+      loadTabResource={p.loadTabResource}
+      ecs={p.ecs}
+      setEcs={p.setEcs}
+      setRawEcs={p.setRawEcs}
+      harvesterVolumes={p.harvesterVolumes}
+      setHarvesterVolumes={p.setHarvesterVolumes}
+      harvesterStorageClasses={p.harvesterStorageClasses}
+      harvesterSnapshots={p.harvesterSnapshots}
+      harvesterNamespaces={p.harvesterNamespaces}
+      resourceLoading={p.resourceLoading}
+      rawVolumes={p.rawVolumes}
+      rawSnapshots={p.rawSnapshots}
+    />
+  );
+};
+
+const BackupsRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewBackupsGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapBackupsGroupTabs
+      cloudId={p.cloudId}
+      mode={p.mode}
+      isTenant={p.isTenant}
+      showLog={p.showLog}
+      checkPerm={p.checkPerm}
+      loadTabResource={p.loadTabResource}
+      innerActiveKey={p.poolInnerActive('backups')}
+      setResourceLoading={p.setResourceLoading}
+      ecs={p.ecs}
+      harvesterBackups={p.harvesterBackups}
+      harvesterNamespaces={p.harvesterNamespaces}
+      harvesterScheduleVmBackups={p.harvesterScheduleVmBackups}
+      setHarvesterScheduleVmBackups={p.setHarvesterScheduleVmBackups}
+      setRawScheduleVmBackups={p.setRawScheduleVmBackups}
+      resourceLoading={p.resourceLoading}
+      rawBackups={p.rawBackups}
+      rawScheduleVmBackups={p.rawScheduleVmBackups}
+    />
+  );
+};
+
+const FlatNetworkRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewFlatNetworkGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapFlatNetworkGroupTabs
+      cloudId={p.cloudId}
+      mode={p.mode}
+      showLog={p.showLog}
+      checkPerm={p.checkPerm}
+      canReadFlatSubnets={p.canReadFlatSubnets}
+      innerActiveKey={p.poolInnerActive('flat_network')}
+      loadResource={p.loadResource}
+      loadTabResource={p.loadTabResource}
+      setResourceLoading={p.setResourceLoading}
+      kubeOvnSubnets={p.kubeOvnSubnets}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setRawSubnets={p.setRawSubnets}
+      rawSubnets={p.rawSubnets}
+      kubeOvnFlatEips={p.kubeOvnFlatEips}
+      kubeOvnVpcs={p.kubeOvnVpcs}
+      kubeOvnFlatSnatRules={p.kubeOvnFlatSnatRules}
+      setKubeOvnFlatSnatRules={p.setKubeOvnFlatSnatRules}
+      kubeOvnFlatDnatRules={p.kubeOvnFlatDnatRules}
+      setKubeOvnFlatDnatRules={p.setKubeOvnFlatDnatRules}
+      resourceLoading={p.resourceLoading}
+    />
+  );
+};
+
+const KubeOvnRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.ovnVpcEnabled || !p.canViewKubeOvnGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapKubeOvnGroupTabs
+      cloudId={p.cloudId}
+      mode={p.mode}
+      showLog={p.showLog}
+      checkPerm={p.checkPerm}
+      canReadVpcSubnets={p.canReadVpcSubnets}
+      innerActiveKey={p.poolInnerActive('kube_ovn')}
+      loadResource={p.loadResource}
+      loadTabResource={p.loadTabResource}
+      setResourceLoading={p.setResourceLoading}
+      kubeOvnVpcs={p.kubeOvnVpcs}
+      setKubeOvnVpcs={p.setKubeOvnVpcs}
+      setRawVpcs={p.setRawVpcs}
+      kubeOvnSubnets={p.kubeOvnSubnets}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setRawSubnets={p.setRawSubnets}
+      kubeOvnEips={p.kubeOvnEips}
+      kubeOvnSnatRules={p.kubeOvnSnatRules}
+      setKubeOvnSnatRules={p.setKubeOvnSnatRules}
+      setRawSnatRules={p.setRawSnatRules}
+      kubeOvnDnatRules={p.kubeOvnDnatRules}
+      setKubeOvnDnatRules={p.setKubeOvnDnatRules}
+      setRawDnatRules={p.setRawDnatRules}
+      resourceLoading={p.resourceLoading}
+      rawVpcs={p.rawVpcs}
+      rawSubnets={p.rawSubnets}
+      rawEips={p.rawEips}
+      rawSnatRules={p.rawSnatRules}
+      rawDnatRules={p.rawDnatRules}
+    />
+  );
+};
+
+const LogsConfigRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewLoggingTab) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapLogsConfigTab
+      cloudId={p.cloudId}
+      checkPerm={p.checkPerm}
+      innerActiveKey={p.poolInnerActive('logs_config')}
+    />
+  );
+};
+
+/**
+ * 须在 `CloudmapPoolDetailProvider` 内渲染；路由路径相对于资源池根 `/admin/clouds/:id/`。
+ */
+const PoolRoutes: React.FC = () => {
+  return (
+    <div className="cloudmap-detail-main">
+      <Routes>
+        <Route index element={<Navigate to="resource_hub/overview" replace relative="path" />} />
+        <Route path="resource_hub/:resourceHubSub" element={<ResourceHubRoute />} />
+        <Route path="monitoring_alerts/:poolInnerSeg?" element={<MonitoringAlertsRoute />} />
+        <Route path="cluster/:poolInnerSeg?" element={<ClusterRoute />} />
+        <Route path="compute/:poolInnerSeg?" element={<ComputeRoute />} />
+        <Route path="paas_databases/:poolInnerSeg?" element={<PaasDatabasesRoute />} />
+        <Route path="containers/:poolInnerSeg?" element={<ContainersRoute />} />
+        <Route path="storage/:poolInnerSeg?" element={<StorageRoute />} />
+        <Route path="backups/:poolInnerSeg?" element={<BackupsRoute />} />
+        <Route path="flat_network/:poolInnerSeg?" element={<FlatNetworkRoute />} />
+        <Route path="kube_ovn/:poolInnerSeg?" element={<KubeOvnRoute />} />
+        <Route path="logs_config/:poolInnerSeg?" element={<LogsConfigRoute />} />
+        <Route path="*" element={<Empty description="未知页面" style={{ marginTop: 48 }} />} />
+      </Routes>
+    </div>
+  );
+};
+
+export default PoolRoutes;

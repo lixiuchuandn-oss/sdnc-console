@@ -55,6 +55,17 @@ export function isCsmCloud(cloud: { config?: { provider?: string }; type?: strin
   return pv === 'cloudmap.csm';
 }
 
+/** Rancher 容器云资源池（新接入为 type=container_cloud + config.provider=rancher；历史 type=rancher；若列表无 config 则仅能用 type=container_cloud 粗判） */
+export function isRancherPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();
+  const t = String(cloud?.type ?? '').toLowerCase().trim();
+  if (pv === 'rancher' || t === 'rancher') return true;
+  if (t === 'container_cloud') {
+    if (pv === 'rancher' || !pv) return true;
+  }
+  return false;
+}
+
 export const CLOUD_TYPE_MAP: Record<string, string> = {
   central: '公有云',
   private: '私有云',
@@ -441,7 +452,13 @@ export const cloudProviders: CloudProvider[] = [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
       { key: 'rancherUrl', label: 'Rancher地址', type: 'input', required: true, placeholder: 'https://rancher.example.com' },
       { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入Rancher API令牌' },
-      { key: 'clusterId', label: '集群ID', type: 'input', required: false, placeholder: '可选，集群标识' },
+      {
+        key: 'clusterId',
+        label: '活动集群 ID',
+        type: 'input',
+        required: true,
+        placeholder: 'Norman 集群 id（c-xxxxx），一池一集群',
+      },
       { key: 'projectId', label: '项目ID', type: 'input', required: false, placeholder: '可选，项目标识' }
     ]
   },

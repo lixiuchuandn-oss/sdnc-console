@@ -1,19 +1,35 @@
-import React from 'react';
-import { Button, Card, Checkbox, Col, Empty, Form, Input, Row, Select, Space, Typography, Divider } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
-import StdSideDrawer from '../../../../components/StdSideDrawer';
-import type { RBACRole } from '../types';
+import React, { useEffect, useMemo, useRef, startTransition, useState } from 'react';
+import {
+  Anchor,
+  Button,
+  Card,
+  Checkbox,
+  Col,
+  Collapse,
+  Divider,
+  Drawer,
+  Empty,
+  Flex,
+  Input,
+  message,
+  Row,
+  Segmented,
+  Space,
+  Typography,
+} from 'antd';
+import type { DrawerProps } from 'antd';
 import { groupResourceConsoleChildFeatures } from '../../../../utils/permissionUtils';
+import { PLATFORM_LABELS } from '../../../../constants/navigation';
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 
 type Props = {
   open: boolean;
-  target: RBACRole | null;
   kw: string;
   permVerb: '全部' | 'read' | 'write';
   grantSelectedIds: string[];
   permissionStructure: any[];
+  confirmLoading?: boolean;
   onKwChange: (v: string) => void;
   onPermVerbChange: (v: '全部' | 'read' | 'write') => void;
   onClearSelected: () => void;
@@ -22,13 +38,38 @@ type Props = {
   onSave: () => void;
 };
 
+function panelKey(platform: string, group: string) {
+  return `${platform}::${group || '未分组'}`;
+}
+
+function sectionDomId(platform: string, group: string) {
+  const g = String(group || '未分组').replace(/\s+/g, '');
+  return `perm-sec-${platform}-${g}`;
+}
+
+/** 抽屉内统一间距（px） */
+const G = 10;
+
+const drawerStyles: DrawerProps['styles'] = {
+  body: {
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    padding: G,
+  },
+  footer: {
+    marginTop: 0,
+    padding: G,
+  },
+};
+
 const RolePermissionDrawer: React.FC<Props> = ({
   open,
-  target,
   kw,
   permVerb,
   grantSelectedIds,
   permissionStructure,
+  confirmLoading = false,
   onKwChange,
   onPermVerbChange,
   onClearSelected,
@@ -36,154 +77,305 @@ const RolePermissionDrawer: React.FC<Props> = ({
   onClose,
   onSave,
 }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [openCollapseKeys, setOpenCollapseKeys] = useState<string[]>([]);
+
+  const panelKeys = useMemo(
+    () =>
+      permissionStructure.flatMap((p) => p.groups.map((g: any) => panelKey(p.platform, g.group))),
+    [permissionStructure],
+  );
+
+  const structureSig = panelKeys.join('|');
+
+  useEffect(() => {
+    if (!open) return;
+    const keys = panelKeys;
+    startTransition(() => {
+      setOpenCollapseKeys(keys);
+    });
+  }, [open, structureSig, panelKeys]);
+
+  const anchorItems = useMemo(() => {
+    return permissionStructure.map((p) => ({
+      key: p.platform,
+      href: `#perm-plat-${p.platform}`,
+      title: (PLATFORM_LABELS as Record<string, string>)[p.platform] || p.platform,
+      children: p.groups.map((g: any) => ({
+        key: panelKey(p.platform, g.group),
+        href: `#${sectionDomId(p.platform, g.group)}`,
+        title: g.group || '未分组',
+      })),
+    }));
+  }, [permissionStructure]);
+
+  useEffect(() => {
+    if (!open || !kw.trim()) return;
+    const id = requestAnimationFrame(() => {
+      const root = scrollRef.current;
+      if (!root) return;
+      const needle = kw.trim().toLowerCase();
+      const cards = root.querySelectorAll('[data-perm-card="1"]');
+      for (let i = 0; i < cards.length; i++) {
+        const el = cards[i] as HTMLElement;
+        const prefix = (el.getAttribute('data-perm-prefix') || '').toLowerCase();
+        const titleAttr = (el.getAttribute('data-perm-title') || '').toLowerCase();
+        if (prefix.includes(needle) || titleAttr.includes(needle)) {
+          el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          break;
+        }
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [kw, open, permissionStructure]);
+
+  const copyCurrentPermissions = async () => {
+    const sorted = [...grantSelectedIds].sort();
+    const text = JSON.stringify(sorted, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success(sorted.length ? `已复制 ${sorted.length} 条权限` : '已复制（当前未勾选任何权限）');
+    } catch {
+      message.error('复制失败，请检查浏览器剪贴板权限');
+    }
+  };
+
+  const renderFeatureCards = (features: any[], opts?: { cardSpan?: number }) => (
+    <Row gutter={[G, G]}>
+      {features.map((feature) => (
+        <Col span={opts?.cardSpan ?? 8} key={`${feature.resourcePrefix || feature.feature}`}>
+          <Card
+            size="small"
+            variant="borderless"
+            styles={{ body: { padding: G } }}
+            style={{
+              background: 'var(--ant-color-fill-alter, rgba(0,0,0,.02))',
+              borderRadius: 8,
+            }}
+            data-perm-card="1"
+            data-perm-prefix={feature.resourcePrefix || ''}
+            data-perm-title={feature.feature || ''}
+          >
+            <Flex gap={G} align="flex-start" justify="space-between" wrap="wrap">
+              <Flex vertical gap={G / 2} style={{ flex: 1, minWidth: 0 }}>
+                <Text ellipsis style={{ display: 'block' }}>
+                  {feature.feature}
+                </Text>
+                <Text
+                  type="secondary"
+                  style={{ display: 'block', fontSize: 12, lineHeight: 1.4, wordBreak: 'break-all' }}
+                >
+                  {Array.from(
+                    new Set(
+                      [feature.readVisible ? feature.read : null, feature.writeVisible ? feature.write : null]
+                        .filter(Boolean)
+                        .map((id) => String(id).split(':')[0]),
+                    ),
+                  ).join(' / ')}
+                </Text>
+              </Flex>
+              <Space size={G} style={{ flexShrink: 0 }}>
+                {feature.read && feature.readVisible && (
+                  <Checkbox
+                    checked={grantSelectedIds.includes(feature.read)}
+                    onChange={(e) => onPermissionChange(feature.read!, e.target.checked)}
+                  >
+                    只读
+                  </Checkbox>
+                )}
+                {feature.write && feature.writeVisible && (
+                  <Checkbox
+                    checked={grantSelectedIds.includes(feature.write)}
+                    onChange={(e) => onPermissionChange(feature.write!, e.target.checked)}
+                  >
+                    读写
+                  </Checkbox>
+                )}
+              </Space>
+            </Flex>
+          </Card>
+        </Col>
+      ))}
+    </Row>
+  );
+
+  const renderGroupBody = (group: any) => {
+    if (group.group === '平台入口能力') {
+      return renderFeatureCards(group.features);
+    }
+
+    const parentFeatures = group.features.filter((feature: any) => feature.isResourceParent);
+    const childFeatures = group.features.filter((feature: any) => !feature.isResourceParent);
+    const isResourceConsoleGroup = group.group === '资源池管理';
+    const hasSplit = isResourceConsoleGroup && (parentFeatures.length > 0 || childFeatures.length > 0);
+
+    if (!hasSplit) return renderFeatureCards(group.features);
+
+    return (
+      <>
+        {parentFeatures.length > 0 && (
+          <>
+            {renderFeatureCards(parentFeatures, { cardSpan: 24 })}
+            <Divider style={{ margin: `${G}px 0` }} />
+          </>
+        )}
+        {groupResourceConsoleChildFeatures(childFeatures.length > 0 ? childFeatures : group.features).map(
+          (childGroup, idx, arr) => (
+            <div key={childGroup.label}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: G }}>
+                {childGroup.label}
+              </Text>
+              {renderFeatureCards(childGroup.items)}
+              {idx < arr.length - 1 && <Divider style={{ margin: `${G}px 0` }} />}
+            </div>
+          ),
+        )}
+      </>
+    );
+  };
+
   return (
-    <StdSideDrawer
-      title={`配置权限 - ${target?.name}`}
+    <Drawer
+      title="配置权限"
+      placement="right"
+      width={1280}
       open={open}
       onClose={onClose}
-      onOk={onSave}
-      width={1200}
-      styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 24 } }}
+      destroyOnHidden
+      maskClosable
+      styles={drawerStyles}
+      footer={
+        <Flex justify="flex-end" gap={G}>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" onClick={onSave} loading={confirmLoading}>
+            保存
+          </Button>
+        </Flex>
+      }
     >
-      <div className="page-toolbar">
-        <Form className="toolbar-container" layout="vertical" style={{ display: 'flex', alignItems: 'flex-end', rowGap: 12, columnGap: 12 }}>
-          <Form.Item style={{ width: 160, marginBottom: 0 }}>
-            <Select
+      <Flex vertical gap={G} style={{ flex: 1, minHeight: 0 }}>
+        <Flex wrap="wrap" gap={G} align="center" justify="space-between">
+          <Flex wrap="wrap" gap={G} align="center" flex={1} style={{ minWidth: 280 }}>
+            <Segmented
               value={permVerb}
-              onChange={(v: any) => onPermVerbChange(v)}
+              onChange={(v) => onPermVerbChange(v as '全部' | 'read' | 'write')}
               options={[
-                { value: '全部', label: '全部' },
-                { value: 'read', label: '只读' },
-                { value: 'write', label: '读写' },
+                { label: '全部', value: '全部' },
+                { label: '只读', value: 'read' },
+                { label: '读写', value: 'write' },
               ]}
             />
-          </Form.Item>
-          <Form.Item style={{ flex: 1, marginBottom: 0 }}>
-            <Input
+            <Input.Search
               allowClear
-              placeholder="搜索功能名称"
-              className="toolbar-search"
-              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              placeholder="搜索名称或权限 ID（如 clouds.console）"
               value={kw}
               onChange={(e) => onKwChange(e.target.value)}
+              style={{ flex: 1, minWidth: 200, maxWidth: 560 }}
             />
-          </Form.Item>
-        </Form>
-        <div className="toolbar-actions" style={{ display: 'flex', alignItems: 'center' }}>
-          <Space>
-            <Text>
-              已选择 <Text strong style={{ color: '#1890ff' }}>{grantSelectedIds.length}</Text> 个权限
+          </Flex>
+          <Space size={G}>
+            <Text type="secondary">
+              已选择 <Text strong style={{ color: 'var(--ant-color-primary)' }}>{grantSelectedIds.length}</Text> 项
             </Text>
+            <Button type="link" size="small" onClick={copyCurrentPermissions}>
+              复制权限
+            </Button>
             <Button type="link" size="small" onClick={onClearSelected}>
               清空选择
             </Button>
           </Space>
-        </div>
-      </div>
+        </Flex>
 
-      <Card
-        variant="borderless"
-        style={{
-          flex: 1,
-          overflow: 'auto',
+        <Flex gap={G} style={{ flex: 1, minHeight: 0 }}>
+          {permissionStructure.length > 0 ? (
+            <Card
+              className="role-perm-drawer-toc"
+              size="small"
+              title="目录"
+              variant="borderless"
+              style={{
+                width: 220,
+                flexShrink: 0,
+                alignSelf: 'stretch',
+                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                borderRadius: 8,
+                boxShadow: 'none',
+              }}
+              styles={{
+                header: { padding: G },
+                body: { padding: G, maxHeight: '100%', overflow: 'auto' },
+              }}
+            >
+              <Anchor
+                affix={false}
+                getContainer={() => scrollRef.current || window}
+                items={anchorItems}
+              />
+            </Card>
+          ) : null}
 
-        }}
-        styles={{ body: { padding: '0 10px 0 0' } }}
-      >
-        {permissionStructure.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
-        ) : (
-          permissionStructure.map((platform, platformIdx) => (
-            <div key={platform.platform} style={{ marginBottom: platformIdx < permissionStructure.length - 1 ? 32 : 0 }}>
-              {platform.groups.map((group: any, groupIdx: number) => (
-                <div key={group.group} style={{ marginBottom: groupIdx < platform.groups.length - 1 ? 24 : 0 }}>
-                  <Text strong style={{ display: 'block', marginBottom: 12, marginTop: groupIdx > 0 ? 16 : 0 }}>
-                    {group.group}
-                  </Text>
-
-                  {(() => {
-                    const parentFeatures = group.features.filter((feature: any) => feature.isResourceParent);
-                    const childFeatures = group.features.filter((feature: any) => !feature.isResourceParent);
-                    const isResourceConsoleGroup = group.group === '资源池管理';
-                    const hasSplit = isResourceConsoleGroup && (parentFeatures.length > 0 || childFeatures.length > 0);
-
-                    const renderFeatureCards = (features: any[], opts?: { cardSpan?: number }) => (
-                      <Row gutter={[16, 12]}>
-                        {features.map((feature) => (
-                          <Col span={opts?.cardSpan ?? 8} key={`${feature.resourcePrefix || feature.feature}`}>
-                            <Card size="small">
-                              <div style={{ display: 'flex', width: '100%', gap: 12, alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <Text ellipsis style={{ display: 'block' }}>
-                                    {feature.feature}
-                                  </Text>
-                                  <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12, lineHeight: 1.4, wordBreak: 'break-all' }}>
-                                    {Array.from(
-                                      new Set(
-                                        [feature.readVisible ? feature.read : null, feature.writeVisible ? feature.write : null]
-                                          .filter(Boolean)
-                                          .map((id) => String(id).split(':')[0]),
-                                      ),
-                                    ).join(' / ')}
-                                  </Text>
-                                </div>
-                                <Space style={{ flexShrink: 0 }}>
-                                  {feature.read && feature.readVisible && (
-                                    <Checkbox
-                                      checked={grantSelectedIds.includes(feature.read)}
-                                      onChange={(e) => onPermissionChange(feature.read!, e.target.checked)}
-                                    >
-                                      只读
-                                    </Checkbox>
-                                  )}
-                                  {feature.write && feature.writeVisible && (
-                                    <Checkbox
-                                      checked={grantSelectedIds.includes(feature.write)}
-                                      onChange={(e) => onPermissionChange(feature.write!, e.target.checked)}
-                                    >
-                                      读写
-                                    </Checkbox>
-                                  )}
-                                </Space>
-                              </div>
-                            </Card>
-                          </Col>
-                        ))}
-                      </Row>
-                    );
-
-                    if (!hasSplit) return renderFeatureCards(group.features);
-
-                    return (
-                      <>
-                        {parentFeatures.length > 0 && (
-                          <>
-                            {renderFeatureCards(parentFeatures, { cardSpan: 24 })}
-                            <Divider style={{ margin: '16px 0' }} />
-                          </>
-                        )}
-                        {groupResourceConsoleChildFeatures(childFeatures.length > 0 ? childFeatures : group.features).map((childGroup, idx, arr) => (
-                          <div key={childGroup.label}>
-                            <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                              {childGroup.label}
-                            </Text>
-                            {renderFeatureCards(childGroup.items)}
-                            {idx < arr.length - 1 && <Divider style={{ margin: '16px 0' }} />}
-                          </div>
-                        ))}
-                      </>
-                    );
-                  })()}
-
-                  {groupIdx < platform.groups.length - 1 && <Divider style={{ margin: '16px 0' }} />}
+          <div
+            ref={scrollRef}
+            className="role-perm-drawer-scroll"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'auto',
+              padding: G,
+              border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+              borderRadius: 8,
+              background: 'var(--ant-color-bg-container, #fff)',
+            }}
+          >
+            {permissionStructure.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
+            ) : (
+              permissionStructure.map((platform, platformIdx) => (
+                <div
+                  key={platform.platform}
+                  style={{ marginBottom: platformIdx < permissionStructure.length - 1 ? G : 0 }}
+                >
+                  <div id={`perm-plat-${platform.platform}`} style={{ scrollMarginTop: G }}>
+                    <Title level={5} style={{ margin: `0 0 ${G}px` }}>
+                      {(PLATFORM_LABELS as Record<string, string>)[platform.platform] || platform.platform}
+                      <Text type="secondary" style={{ marginLeft: G / 2, fontSize: 13, fontWeight: 'normal' }}>
+                        {platform.platform}
+                      </Text>
+                    </Title>
+                  </div>
+                  <Collapse
+                    bordered={false}
+                    expandIconPosition="end"
+                    activeKey={openCollapseKeys}
+                    onChange={(keys) => setOpenCollapseKeys(Array.isArray(keys) ? keys : [keys])}
+                    style={{ background: 'transparent' }}
+                    className="role-perm-drawer-collapse"
+                    items={platform.groups.map((group: any, groupIdx: number) => ({
+                      key: panelKey(platform.platform, group.group),
+                      label: (
+                        <span id={sectionDomId(platform.platform, group.group)} style={{ scrollMarginTop: G }}>
+                          <Text strong>{group.group}</Text>
+                        </span>
+                      ),
+                      style: { marginBottom: groupIdx < platform.groups.length - 1 ? G : 0 },
+                      styles: {
+                        header: {
+                          padding: G,
+                          borderRadius: 8,
+                          background: 'var(--ant-color-fill-alter, rgba(0,0,0,.02))',
+                        },
+                        body: { padding: G },
+                      },
+                      children: renderGroupBody(group),
+                    }))}
+                  />
                 </div>
-              ))}
-              {platformIdx < permissionStructure.length - 1 && <Divider style={{ margin: '24px 0' }} />}
-            </div>
-          ))
-        )}
-      </Card>
-    </StdSideDrawer>
+              ))
+            )}
+          </div>
+        </Flex>
+      </Flex>
+    </Drawer>
   );
 };
 

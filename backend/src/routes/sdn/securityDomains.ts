@@ -618,12 +618,8 @@ router.get('/:id', async (req, res) => {
             if (domCloud && isCsmCloud(domCloud)) candidateClouds.push(domCloud);
           }
 
-          if (candidateClouds.length === 0) {
-            const allClouds = await cloudRepo().find();
-            (Array.isArray(allClouds) ? allClouds : []).forEach((c: any) => {
-              if (c && isCsmCloud(c)) candidateClouds.push(c);
-            });
-          }
+          // 禁止「无关联候选池」时回退为全量 CSM 云：会导致跨资源池网元/展示串数据
+          // 若需扩展匹配，只应显式使用链路上的 clusterName、resourcePool、cloudId，而非扫库
 
           const seen = new Set<string>();
           const deduped = candidateClouds.filter((c: any) => {
@@ -636,6 +632,9 @@ router.get('/:id', async (req, res) => {
 
           for (const cloud of deduped) {
             if (!cloud || !isCsmCloud(cloud) || !hasCreds(cloud)) continue;
+
+            // 每个云单独拉网元组并匹配，避免多池下相同 gid/候选键互相覆盖
+            groupById.clear();
 
             const endpoint = String(cloud.endpoint || '').trim();
             const accessKey = String(cloud.accessKey || '').trim();
@@ -1026,6 +1025,30 @@ router.post('/', async (req, res) => {
 
         // Ensure VR details (vmId and IPs) are populated if vrUuid is present
         if (entity.vrUuid) {
+          const applyVrLocalConfigJson = (vrRow: any) => {
+            if (!vrRow?.config_json) return;
+            try {
+              const localConf = JSON.parse(vrRow.config_json);
+              const wan =
+                localConf.wan_ip ||
+                localConf.public_ip ||
+                localConf.wanIp ||
+                localConf.publicIp;
+              const lan =
+                localConf.lan_ip ||
+                localConf.private_ip ||
+                localConf.lanIp ||
+                localConf.privateIp;
+              if (wan && !entity.vrPublicIp)
+                entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+              if (lan && !entity.vrPrivateIp)
+                entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+            } catch {
+              // ignore
+            }
+          };
+          const isContainerSd =
+            String((entity as any).category || '').toLowerCase().trim() === 'container';
           try {
             const vrRepo = AppDataSource.getRepository(VRConfig);
             const vr = await vrRepo.findOne({ where: { uuid: entity.vrUuid } });
@@ -1034,37 +1057,23 @@ router.post('/', async (req, res) => {
                 entity.vrInstanceIds = vr.vmId;
               }
 
-              // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
-              try {
-                const csmVr = await vrController.getVRConfig(entity.vrUuid);
-                if (csmVr) {
-                  const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
-                  const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
-                  if (wan && !entity.vrPublicIp)
-                    entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
-                  if (lan && !entity.vrPrivateIp)
-                    entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
-                }
-              } catch (e) {
-                // Fallback to local DB config_json
-                if (vr.config_json) {
-                  try {
-                    const localConf = JSON.parse(vr.config_json);
-                    const wan =
-                      localConf.wan_ip ||
-                      localConf.public_ip ||
-                      localConf.wanIp ||
-                      localConf.publicIp;
-                    const lan =
-                      localConf.lan_ip ||
-                      localConf.private_ip ||
-                      localConf.lanIp ||
-                      localConf.privateIp;
+              if (isContainerSd) {
+                // 容器类安全域：只读本地元数据。创建时不再同步调 CSM getVRConfig（其内部多轮重试+退避，易导致接口长时间阻塞）
+                applyVrLocalConfigJson(vr);
+              } else {
+                // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
+                try {
+                  const csmVr = await vrController.getVRConfig(entity.vrUuid);
+                  if (csmVr) {
+                    const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
+                    const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
                     if (wan && !entity.vrPublicIp)
                       entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
                     if (lan && !entity.vrPrivateIp)
                       entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
-                  } catch {}
+                  }
+                } catch (e) {
+                  applyVrLocalConfigJson(vr);
                 }
               }
             }

@@ -15,7 +15,7 @@ const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }
       action: spec.requiredActions?.page,
     }))
     .filter((mapping): mapping is { path: string; action: string } => !!mapping.action)
-    // 按路径长度降序排序，确保更具体的路径优先匹配（如 /console 与 /admin/clouds 的先后）
+    // 按路径长度降序排序，确保更具体的路径优先匹配（如 Cloudmap 池内路径先于 /admin/clouds 列表）
     .sort((a, b) => b.path.length - a.path.length);
 };
 
@@ -28,7 +28,7 @@ const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }
  * - 需要特殊权限逻辑的路径
  * 
  * 【注意】
- * - 资源池管理（/admin/clouds）现在已在 RouteSpec 中配置 requiredActions，无需手动映射
+ * - 资源池列表 `/admin/clouds` 与 Cloudmap 池内路径均在 RouteSpec 中配置 requiredActions（列表为 resource-pools，池内为 console）
  */
 const MANUAL_MAPPINGS: Array<{ path: string; action: string }> = [
   // 租户控制台旧入口：仅重定向到 /console，仍需与 clouds.console 权限对齐

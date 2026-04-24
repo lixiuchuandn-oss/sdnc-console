@@ -6,6 +6,26 @@ const SIDEBAR_COLLAPSED_WIDTH = 64;
 
 type MenuItem = any;
 
+/** 保留一级菜单 icon；子级（二级及以下）去掉 icon，避免与分组标题重复堆叠。 */
+function menuItemsForSidebar(items: MenuItem[] | undefined): MenuItem[] {
+  if (!items?.length) return [];
+  const stripChildIcons = (nodes: MenuItem[]): MenuItem[] =>
+    nodes.map((node) => {
+      const { icon: _omitIcon, ...rest } = node;
+      if (rest.children?.length) {
+        return { ...rest, children: stripChildIcons(rest.children) };
+      }
+      return rest;
+    });
+  return items.map((item) => {
+    if (!item?.children?.length) return item;
+    return {
+      ...item,
+      children: stripChildIcons(item.children),
+    };
+  });
+}
+
 export type AdminSidebarCenter = {
   key: string;
   label: string;
@@ -84,7 +104,7 @@ const AdminSidebar: React.FC<Props> = ({
             overflowX: 'hidden',
             overflowY: collapsed ? 'visible' : 'auto',
           }}
-          items={center.items || []}
+          items={menuItemsForSidebar(center.items)}
           selectedKeys={[selectedMenuKey ?? selectedPathname]}
           openKeys={collapsed ? undefined : openKeys}
           inlineCollapsed={collapsed}

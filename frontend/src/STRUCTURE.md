@@ -59,9 +59,17 @@
 | 平台 | 说明 | `pages/` 顶层目录 |
 |------|------|-------------------|
 | **CNMC** | 资源池、云详情、控制台、租户（若路由属 CNMC）、**PaaS** | `pages/cnmc/` |
-| **SDNCC** | SRv6、IPsec、VR、ACL、NAT | `pages/sdncc/` |
-| **CNSOC** | 安全管理面、流量编排、SecOps 等 | `pages/cnsoc/` |
+| **SDNCC** | 见下表「`pages/sdncc/` 与导航分组」；与 `RouteSpec.platform: 'SDNCC'` 一致 | `pages/sdncc/` |
+| **CNSOC** | AI SOC、态势、SecOps 等（不含已归 SDNCC 的安全管理面与流量编排） | `pages/cnsoc/` |
 | **SETTINGS** | 通用设置、审计、授权、访问控制 | `pages/settings/` |
+
+**`pages/sdncc/` 与导航分组（`RouteSpec.group`）的对应**（产品层级，目录当前多为平铺，按 **跨域互联 / 安全管理面 / 流量编排** 维护）：
+
+| 导航 / 能力 | 典型 `RouteSpec.group` 或 `requiredFeature` | 典型源码目录（`pages/sdncc/` 下） |
+|-------------|----------------------------------------------|----------------------------------|
+| **跨域互联** | `group: 跨域互联`；`sdn.interconnect` | `interconnect/acl/`、`interconnect/nat/`、`interconnect/srv6/`、`interconnect/ipsec-vpn/`、`interconnect/vr/`（与 RouteSpec 分组一致，kebab-case） |
+| **安全管理面** | `group: 安全管理面` 等；`sdn.cascade` | `sec-mgr-plane/` |
+| **流量编排** | `group: 流量编排` 等；`sdn.traffic` | `traffic/`（其下如 `CsmPools/`、`ServiceChains/`、`ProtectedObjects/`、`Policies/`，PascalCase 与现有一致） |
 
 **不放入 `pages/` 的壳层与横切**（保持在 `src/` 根下）：
 
@@ -152,7 +160,7 @@ frontend/src/pages/
 │   ├── pools/             # 资源池列表、详情闸门、实例详情入口等
 │   ├── clouds/
 │   │   ├── Harvester/     # 云详情：域 + sections/modals/shared（细则见 Harvester 修改纪要）
-│   │   ├── Aliyun/、Hw/、Cloudmap/、Csm/ 等（与仓库目录名一致）
+│   │   ├── Aliyun/、Hw/、Cloudmap/ 等（与仓库目录名一致；CSM 详情在 sdncc/traffic/CsmPools/：CloudDetailCsm、sections/、modals/）
 │   ├── console/           # WebSSH、控制台等
 │   ├── tenants/           # 租户相关（路由属 CNMC 者）
 │   └── paas/
@@ -160,10 +168,12 @@ frontend/src/pages/
 │       └── …                # 未来其他托管子模块
 │
 ├── sdncc/                   # ========== SDNCC ==========
-│   └── （SRv6、IPsec、VR、ACL、NAT 等按域分子目录）
+│   ├── interconnect/        # 跨域互联：acl、nat、srv6、ipsec-vpn、vr（见上表；与 `/admin/interconnect/…` 产品域一致）
+│   ├── sec-mgr-plane/       # 安全管理面：安全域、级联通道、应用、安全服务等
+│   └── traffic/             # 流量编排：CsmPools/（安全资源池列表/详情、modals/ 接入与 VM 详情、sections/）、ServiceChains/、ProtectedObjects/、Policies/ 等
 │
 ├── cnsoc/                   # ========== CNSOC ==========
-│   └── （安全管理面、流量编排、SecOps 等）
+│   └── （如 sec-ops、aisoc 等；与 SDN 编排能力解耦）
 │
 └── settings/                # ========== SETTINGS ==========
     └── （通用设置、审计、授权、访问控制等）

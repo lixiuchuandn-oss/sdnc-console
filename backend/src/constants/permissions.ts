@@ -48,7 +48,7 @@
  * 
  * 【使用位置】
  * - permissions/definitions.ts - 生成权限定义
- * - routes/system.ts - 权限扫描 API
+ * - routes/system.ts - /rbac/actions 等 RBAC 辅助接口
  * - seeders/initRoles.ts - 角色初始化
  * 
  * ============================================================================
@@ -58,7 +58,7 @@
  * 所有权限原子列表
  * 用于：
  * 1. 角色初始化时过滤权限
- * 2. 权限扫描 API 输出
+ * 2. /rbac/actions 等接口输出
  * 3. 前端权限管理页面展示
  */
 export const ALL_PERMISSIONS = [

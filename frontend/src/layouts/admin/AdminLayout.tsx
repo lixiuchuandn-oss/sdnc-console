@@ -24,10 +24,10 @@ import {
   CodeOutlined,
   HomeFilled,
   ApiFilled,
+  LogoutOutlined,
   SettingOutlined,
   TeamOutlined,
   UserOutlined,
-  RightCircleFilled,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLicense } from '../../contexts/LicenseContext';
@@ -35,8 +35,9 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../../utils/accessMapping';
 import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
+import { isSdnccPagePath } from '../../routes/adminRouteMatch';
 import { iconOf } from '../../components/PageContainer';
-import { apiPost, fetchClouds } from '../../services/api';
+import { apiPost, apiRequest, fetchClouds } from '../../services/api';
 import { getPublicAdminPasswordPolicy } from '../../services/systemApi';
 import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../../utils/markdown';
@@ -45,15 +46,31 @@ import {
   CLOUD_RESOURCE_POOLS_READ,
   CLOUD_RESOURCE_POOLS_WRITE,
 } from '../../constants/cloudPermissions';
-import { type Cloud, isCsmCloud } from '../../pages/cnmc/pools/poolProviders';
+import { type Cloud, isCsmCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/poolProviders';
 import PoolEdgeWizard from '../../pages/cnmc/pools/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import {
   parseCloudPoolDetailId,
   buildCloudmapPoolSidebarCenter,
   CLOUD_POOL_SIDEBAR_CENTER_KEY,
-  normalizeCloudmapPoolTabParam,
-} from './cloudPoolSidebar';
+  cloudmapPoolSidebarSelectedKey,
+} from './cloudmap/cloudPoolSidebar';
+import {
+  parseCsmPoolDetailId,
+  buildCsmPoolSidebarCenter,
+  CSM_POOL_SIDEBAR_CENTER_KEY,
+  csmPoolSidebarSelectedKey,
+} from './csm/csmPoolSidebar';
+import {
+  parseRancherClusterWorkspacePath,
+  buildRancherClusterSidebarCenter,
+  RANCHER_CLUSTER_SIDEBAR_CENTER_KEY,
+  normalizeRancherClusterTabParam,
+  normalizeRancherClusterSubParam,
+  normalizeRancherClusterWorkloadsSubParam,
+  normalizeRancherResourceSub,
+  type RancherClusterWorkloadsSubKey,
+} from './rancher/rancherClusterSidebar';
 import './admin-shell.css';
 
 const { Header, Content } = Layout;
@@ -87,7 +104,7 @@ function poolOverviewPath(cloudId: string, clouds: Cloud[]): string {
   if (c && isCsmCloud(c)) {
     return `/admin/security/traffic/csm-pools/${encodeURIComponent(cloudId)}`;
   }
-  return `/admin/clouds/${encodeURIComponent(cloudId)}?tab=resource_hub`;
+  return `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/overview`;
 }
 
 function byCloudCreatedAtAsc(a: Cloud, b: Cloud): number {
@@ -181,7 +198,8 @@ type AdminStandardHeaderProps = {
   navigateToAdminContent: (path: string) => void;
   headerSelectedPoolId: string | undefined;
   setHeaderSelectedPoolId: React.Dispatch<React.SetStateAction<string | undefined>>;
-  canReadPools: boolean;
+  /** 顶栏切换池后是否可进入池内总览（未授权资源池管理时仅依赖控制台读权限） */
+  headerPoolOverviewEnabled: boolean;
   canWritePools: boolean;
   navigate: NavigateFunction;
   user: {
@@ -207,7 +225,7 @@ function AdminStandardHeader({
   navigateToAdminContent,
   headerSelectedPoolId,
   setHeaderSelectedPoolId,
-  canReadPools,
+  headerPoolOverviewEnabled,
   canWritePools,
   navigate,
   user,
@@ -313,18 +331,18 @@ function AdminStandardHeader({
                 style={{ width: 150 }}
                 onChange={(id) => {
                   setHeaderSelectedPoolId(id);
-                  if (canReadPools && id) navigate(poolOverviewPath(String(id), summaryClouds));
+                  if (headerPoolOverviewEnabled && id) navigate(poolOverviewPath(String(id), summaryClouds));
                 }}
                 aria-label="选择资源池（可用区）"
               />
               <button
                 type="button"
                 className="admin-header-pool-access-btn"
-                disabled={!canReadPools || !headerSelectedPoolId || !zoneOptions.length}
+                disabled={!headerPoolOverviewEnabled || !headerSelectedPoolId || !zoneOptions.length}
                 title="进入当前资源池总览"
                 aria-label="访问当前资源池总览"
                 onClick={() => {
-                  if (canReadPools && headerSelectedPoolId) {
+                  if (headerPoolOverviewEnabled && headerSelectedPoolId) {
                     navigate(poolOverviewPath(String(headerSelectedPoolId), summaryClouds));
                   }
                 }}
@@ -349,40 +367,35 @@ function AdminStandardHeader({
           )}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%', flexShrink: 0 }}>
+      <div className="admin-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%', flexShrink: 0 }}>
         {user && (
           <>
-            <div>
-              <UserOutlined style={{ color: '#fff', fontSize: 18, marginRight: 6 }} />
-              {(() => {
-                const full = String(user.fullName || '').trim();
-                const shouldUseUsername = !full || /\?/.test(full);
-                const display = shouldUseUsername ? (user.username || '') : full;
-
-                return (
-                  <Space>
-                    <span style={{ color: '#fff' }}>{display}</span>
-                    {user.tenantName && (
-                      <Tag color="gold" style={{ marginRight: 0 }}>
-                        租户: {user.tenantName}
-                      </Tag>
-                    )}
-                    {user.organizationName && (
-                      <Tag color="cyan" style={{ marginRight: 0 }}>
-                        组织: {user.organizationName}
-                      </Tag>
-                    )}
-                  </Space>
-                );
-              })()}
+            <div className="admin-header-user-strip" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 12px', maxWidth: 520, minWidth: 0 }}>
+              <span className="admin-header-login-user">
+                <UserOutlined aria-hidden />
+                <span className="admin-header-login-user-name">{String(user.username || '').trim() || '—'}</span>
+              </span>
+              {user.tenantName && <Tag color="gold">租户: {user.tenantName}</Tag>}
+              {user.organizationName && <Tag color="cyan">组织: {user.organizationName}</Tag>}
             </div>
             {user.role !== 'tenant' && (
-              <Button type="link" size="small" onClick={openChangePassword} style={{ color: '#fff', padding: 0 }}>
+              <Button
+                type="link"
+                size="small"
+                className="admin-header-change-pwd-link"
+                onClick={openChangePassword}
+              >
                 修改密码
               </Button>
             )}
-            <Button style={{ color: '#1062fe', borderRadius: 16, fontSize: 12 }} size="small" onClick={handleLogout}>
-              Logout
+            <Button
+              type="default"
+              size="small"
+              style={{ width: 32, height: 32 }} 
+              className="admin-header-logout-btn"
+              icon={<LogoutOutlined />}
+              onClick={handleLogout}
+            >
             </Button>
           </>
         )}
@@ -479,6 +492,25 @@ const AdminLayout: React.FC = () => {
       hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user]);
+
+  /** 含「资源池管理」授权（侧栏资源池列表等）；未激活授权时视为 false */
+  const hasPoolManagementLicense = hasFeature('platform.default');
+
+  /**
+   * 顶栏进入池内总览：有资源池管理授权时沿用原 pools 读权限；否则仅要求控制台读权限（与未授权场景一致）。
+   */
+  const headerPoolOverviewEnabled = useMemo(() => {
+    if (!user) return false;
+    if (String(user.role || '').toLowerCase() === 'super_admin') return true;
+    const perms = Array.isArray(user.permissions) ? user.permissions : [];
+    if (hasPoolManagementLicense) {
+      return canReadPools;
+    }
+    return (
+      hasPermissionForAction(perms, 'clouds.console:read') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user, hasPoolManagementLicense, canReadPools]);
 
   const canWritePools = useMemo(() => {
     if (!user) return false;
@@ -633,6 +665,24 @@ const AdminLayout: React.FC = () => {
     })
     .filter((c:any) => (c.items || []).length > 0), [centers, hasFeature, canAccessPath, cleanMenuItem]);
 
+  /** SDN 控制台内容区：用于表格等组件统一去线框（与 PageContainer 内嵌表默认一致）。 */
+  const adminOutletSdnccClassName = useMemo(
+    () => (isSdnccPagePath(location.pathname) ? 'admin-outlet-sdncc' : undefined),
+    [location.pathname],
+  );
+
+  const csmPoolId = useMemo(
+    () => parseCsmPoolDetailId(location.pathname),
+    [location.pathname],
+  );
+  const csmPoolCloud = useMemo(
+    () =>
+      csmPoolId
+        ? summaryClouds.find((c) => String(c.id) === String(csmPoolId))
+        : undefined,
+    [summaryClouds, csmPoolId],
+  );
+
   const poolCloudId = useMemo(
     () => parseCloudPoolDetailId(location.pathname),
     [location.pathname],
@@ -652,27 +702,145 @@ const AdminLayout: React.FC = () => {
     if (!cnmcPools.some((c) => String(c.id) === String(poolCloudId))) return;
     setHeaderSelectedPoolId((prev) => (String(prev) === String(poolCloudId) ? prev : poolCloudId));
   }, [poolCloudId, summaryClouds]);
+
+  const rancherClusterCtx = useMemo(
+    () => parseRancherClusterWorkspacePath(location.pathname),
+    [location.pathname],
+  );
+
+  const [rancherWorkloadCounts, setRancherWorkloadCounts] = useState<
+    Partial<Record<RancherClusterWorkloadsSubKey, number>>
+  >({});
+
+  useEffect(() => {
+    if (!rancherClusterCtx) {
+      setRancherWorkloadCounts({});
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const j = await apiRequest(
+          `/api/clouds/${encodeURIComponent(rancherClusterCtx.poolId)}/rancher/clusters/${encodeURIComponent(rancherClusterCtx.clusterId)}/workloads/counts`,
+          { skipCache: true },
+        );
+        const c = j?.data?.counts;
+        if (cancelled || !c || typeof c !== 'object') return;
+        setRancherWorkloadCounts(c as Partial<Record<RancherClusterWorkloadsSubKey, number>>);
+      } catch {
+        if (!cancelled) setRancherWorkloadCounts({});
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId]);
+
+  const rancherClusterSidebarCenter = useMemo(() => {
+    if (!rancherClusterCtx) return null;
+    const cloud = summaryClouds.find((c) => String(c.id) === String(rancherClusterCtx.poolId));
+    if (summaryClouds.length > 0 && cloud && !isRancherPoolCloud(cloud)) {
+      return null;
+    }
+    return buildRancherClusterSidebarCenter(
+      rancherClusterCtx.poolId,
+      rancherClusterCtx.clusterId,
+      cloud?.name,
+      rancherWorkloadCounts,
+    );
+  }, [rancherClusterCtx, summaryClouds, rancherWorkloadCounts]);
+
+  useEffect(() => {
+    if (!rancherClusterCtx) return;
+    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
+    if (!cnmcPools.some((c) => String(c.id) === String(rancherClusterCtx.poolId))) return;
+    setHeaderSelectedPoolId((prev) =>
+      String(prev) === String(rancherClusterCtx.poolId) ? prev : rancherClusterCtx.poolId,
+    );
+  }, [rancherClusterCtx, summaryClouds]);
+
+  const cloudmapPoolSidebarOpts = useMemo(
+    () => ({
+      ovnVpcEnabled: hasFeature('network.ovn.vpc'),
+      hasFeature,
+    }),
+    [hasFeature],
+  );
+
   const poolSidebarCenter = useMemo(
     () =>
       poolCloud && poolCloudId
-        ? buildCloudmapPoolSidebarCenter(poolCloud, poolCloudId)
+        ? buildCloudmapPoolSidebarCenter(poolCloud, poolCloudId, cloudmapPoolSidebarOpts)
         : null,
-    [poolCloud, poolCloudId],
+    [poolCloud, poolCloudId, cloudmapPoolSidebarOpts],
   );
-  /** 资源池（Cloudmap）详情：侧栏替换为池内 Tab；其它页面仍用平台菜单 */
-  const sidebarCentersForMenu = poolSidebarCenter ? [poolSidebarCenter] : visibleCenters;
+
+  const csmPoolSidebarCenter = useMemo(() => {
+    if (!csmPoolId || !csmPoolCloud) return null;
+    if (summaryClouds.length > 0 && !isCsmCloud(csmPoolCloud)) return null;
+    return buildCsmPoolSidebarCenter(csmPoolCloud, csmPoolId);
+  }, [csmPoolId, csmPoolCloud, summaryClouds.length]);
+
+  /** CSM 安全资源池详情、Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
+  const contextualPoolSidebar =
+    rancherClusterSidebarCenter || csmPoolSidebarCenter || poolSidebarCenter;
+  const sidebarCentersForMenu = contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters;
   const poolSelectedMenuKey = useMemo(() => {
+    if (rancherClusterSidebarCenter && rancherClusterCtx) {
+      const sp = new URLSearchParams(location.search);
+      const rawTab = sp.get('tab');
+      const tab = normalizeRancherClusterTabParam(rawTab);
+      const base = `/admin/clouds/${encodeURIComponent(rancherClusterCtx.poolId)}/clusters/${encodeURIComponent(rancherClusterCtx.clusterId)}`;
+      if (tab === 'cluster') {
+        const sub = normalizeRancherClusterSubParam(rawTab, sp.get('sub'), rawTab);
+        return `${base}?tab=cluster&sub=${encodeURIComponent(sub)}`;
+      }
+      if (tab === 'workloads') {
+        const sub = normalizeRancherClusterWorkloadsSubParam(sp.get('sub'));
+        return `${base}?tab=workloads&sub=${encodeURIComponent(sub)}`;
+      }
+      if (
+        tab === 'apps' ||
+        tab === 'service_discovery' ||
+        tab === 'storage' ||
+        tab === 'policies' ||
+        tab === 'more_resources'
+      ) {
+        const sub = normalizeRancherResourceSub(tab, sp.get('sub'));
+        return `${base}?tab=${encodeURIComponent(tab)}&sub=${encodeURIComponent(sub)}`;
+      }
+      return `${base}?tab=${encodeURIComponent(tab)}`;
+    }
+    if (csmPoolSidebarCenter && csmPoolId) {
+      return csmPoolSidebarSelectedKey(csmPoolId, location.pathname, location.search);
+    }
     if (!poolSidebarCenter || !poolCloudId) return undefined;
-    const tab = normalizeCloudmapPoolTabParam(
-      new URLSearchParams(location.search).get('tab'),
-    );
-    return `/admin/clouds/${encodeURIComponent(poolCloudId)}?tab=${encodeURIComponent(tab)}`;
-  }, [poolSidebarCenter, poolCloudId, location.search]);
-  const platformDropdownSelectedKeys = poolSidebarCenter ? [] : [activeSidebarKey];
+    return cloudmapPoolSidebarSelectedKey(location.pathname, poolSidebarCenter.items);
+  }, [
+    rancherClusterSidebarCenter,
+    rancherClusterCtx,
+    csmPoolSidebarCenter,
+    csmPoolId,
+    poolSidebarCenter,
+    poolCloudId,
+    location.pathname,
+    location.search,
+  ]);
+  const platformDropdownSelectedKeys = contextualPoolSidebar ? [] : [activeSidebarKey];
 
   useEffect(() => {
-    if (poolSidebarCenter) setOpenKeys([]);
-  }, [poolSidebarCenter, poolCloudId]);
+    if (poolSidebarCenter || rancherClusterSidebarCenter || csmPoolSidebarCenter) {
+      setOpenKeys([]);
+    }
+  }, [
+    poolSidebarCenter,
+    rancherClusterSidebarCenter,
+    csmPoolSidebarCenter,
+    poolCloudId,
+    rancherClusterCtx?.poolId,
+    rancherClusterCtx?.clusterId,
+  ]);
 
   const autoBindPoolPromptShownRef = useRef(false);
 
@@ -851,26 +1019,68 @@ const AdminLayout: React.FC = () => {
   }, [searchOpen, filteredSearchList, navigateToAdminContent]);
 
   useEffect(() => {
+    if (rancherClusterSidebarCenter) {
+      setActiveSidebarKey(RANCHER_CLUSTER_SIDEBAR_CENTER_KEY);
+      return;
+    }
+    if (csmPoolSidebarCenter) {
+      setActiveSidebarKey(CSM_POOL_SIDEBAR_CENTER_KEY);
+      return;
+    }
     if (poolSidebarCenter) {
       setActiveSidebarKey(CLOUD_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
     setActiveSidebarKey(sidebarForPath(location.pathname + location.search));
-  }, [location.pathname, location.search, poolSidebarCenter]);
+  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter, csmPoolSidebarCenter]);
 
   useEffect(() => {
     if (collapsed) {
       // 折叠状态下不展开任何分组
       return;
     }
-    
+
+    if (activeSidebarKey === RANCHER_CLUSTER_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
+      const center =
+        sidebarCentersForMenu.find((c) => c.key === activeSidebarKey) ||
+        sidebarCentersForMenu[0];
+      if (!center) return;
+      const activeGroup = (center.items || []).find((item: any) =>
+        item?.children?.some(
+          (child: any) => String(child?.key || '') === poolSelectedMenuKey,
+        ),
+      );
+      if (activeGroup && activeGroup.key != null) {
+        const gk = String(activeGroup.key);
+        setOpenKeys((prev) => (prev.includes(gk) ? prev : [...prev, gk]));
+      }
+      return;
+    }
+
+    if (activeSidebarKey === CLOUD_POOL_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
+      const center =
+        sidebarCentersForMenu.find((c) => c.key === activeSidebarKey) ||
+        sidebarCentersForMenu[0];
+      if (!center) return;
+      const activeGroup = (center.items || []).find((item: any) =>
+        item?.children?.some(
+          (child: any) => String(child?.key || '') === poolSelectedMenuKey,
+        ),
+      );
+      if (activeGroup && activeGroup.key != null) {
+        const gk = String(activeGroup.key);
+        setOpenKeys((prev) => (prev.includes(gk) ? prev : [...prev, gk]));
+      }
+      return;
+    }
+
     const center =
       sidebarCentersForMenu.find((c) => c.key === activeSidebarKey) ||
       sidebarCentersForMenu[0];
     if (!center) return;
-    
+
     const currentPath = location.pathname.split('?')[0]; // 移除查询参数
-    
+
     // 查找包含当前路径的分组
     const activeGroup = (center.items || []).find((item: any) => {
       // 如果是分组（有 children），检查其子项是否包含当前路径
@@ -899,7 +1109,7 @@ const AdminLayout: React.FC = () => {
         return [...nextBase, groupKey];
       });
     }
-  }, [collapsed, activeSidebarKey, location.pathname, sidebarCentersForMenu]);
+  }, [collapsed, activeSidebarKey, location.pathname, sidebarCentersForMenu, poolSelectedMenuKey]);
 
   const rootShellStyle = {
     height: '100vh',
@@ -920,7 +1130,7 @@ const AdminLayout: React.FC = () => {
         navigateToAdminContent={navigateToAdminContent}
         headerSelectedPoolId={headerSelectedPoolId}
         setHeaderSelectedPoolId={setHeaderSelectedPoolId}
-        canReadPools={canReadPools}
+        headerPoolOverviewEnabled={headerPoolOverviewEnabled}
         canWritePools={canWritePools}
         navigate={navigate}
         user={user}
@@ -1099,6 +1309,7 @@ const AdminLayout: React.FC = () => {
           headerOffsetPx={ADMIN_HEADER_HEIGHT_PX}
         />
         <Content
+          className={adminOutletSdnccClassName}
           style={{
             background: location.pathname.includes('/webssh') ? '#1e1e1e' : '#fff',
             height: `calc(100vh - ${ADMIN_HEADER_HEIGHT_PX}px)`,

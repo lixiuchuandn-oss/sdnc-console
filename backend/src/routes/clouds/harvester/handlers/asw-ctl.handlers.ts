@@ -16,7 +16,10 @@ import {
   northApiPathWithPrefix,
   type NormalizedAswEndpoint,
 } from '../../../../services/clouds/harvester/aswCtlClient';
-import { loadAswCtlSwitchInventory } from '../../../../services/clouds/harvester/aswCtlInventory';
+import {
+  loadAswCtlSwitchInventory,
+  persistAswCtlSwitchInventory,
+} from '../../../../services/clouds/harvester/aswCtlInventory';
 
 /**
  * 聚合探测里每条 /v1/* JSON 的超时。
@@ -381,7 +384,7 @@ async function fetchAswCtlSwitchRow(
 /**
  * GET /:id/resources/harvester/asw-ctl/switches
  * 仅返回 Tower SQLite 中末次已入库的实例行（HarvesterAswCtlSwitchInventory），不对集群 HSM 发实时北向请求。
- * 补库需另行通过运维流程或本仓库内可调用 persist 的同步脚本；`?cacheOnly=1` 与无参行为一致（兼容旧客户端）。
+ * 与集群侧数据对齐请使用 POST `.../asw-ctl/sync`（探测并写库后再读）；`?cacheOnly=1` 与无参行为一致（兼容旧客户端）。
  */
 export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response) {
   try {
@@ -431,6 +434,67 @@ export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response
     if (res.headersSent) return;
     return res.status(500).json({
       message: e?.message || '物理交换机列表读取失败',
+    });
+  }
+}
+
+/**
+ * POST /:id/resources/harvester/asw-ctl/sync
+ * 使用资源池已保存的 `config.aswCtl`（与 GET 列表同源），实时探测 HSM/ASW-CTL，成功后写入 SQLite 并返回与 GET switches 对齐的列表字段。
+ */
+export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const cloud = await fetchCloudOr404(id, res);
+    if (!cloud) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
+
+    const cfg = (cloud.config as any)?.aswCtl;
+    const routed = resolveAswCtlRouting(cloud);
+    if (!routed) {
+      return res.status(400).json({
+        message:
+          '资源池 API Endpoint 为空，无法同步。请在资源池连接信息中填写 Harvester/Kubernetes API 地址。',
+      });
+    }
+
+    const insecureTls = !!cfg?.insecureTls;
+    const { endpoints } = routed;
+    const legacyEps = legacyEndpointsCount(cfg);
+    const ep = endpoints[0]!;
+    const northPrefix = routed.northPrefix;
+
+    const aggregate = await fetchAswCtlSwitchRow(ep, insecureTls, 'sync', northPrefix);
+    const items = expandAswCtlSwitchRowToInstances(aggregate, ep);
+
+    await persistAswCtlSwitchInventory(id, items);
+
+    const syncedAt = new Date().toISOString();
+    const first = items[0] as any;
+    return res.json({
+      configured: true,
+      apiKeyConfigured: itemApiKeySent(ep),
+      apiVersion:
+        first?.info?.api_version ||
+        first?.interfaces?.api_version ||
+        first?.performance?.api_version ||
+        first?.vlans?.api_version ||
+        aggregate.deviceProfiles?.api_version,
+      onlyFirstAswCtl: legacyEps > 1,
+      onlyFirstAswCtlMessage:
+        legacyEps > 1
+          ? `检测到 config.aswCtl.endpoints 共 ${legacyEps} 条历史记录；访问地址已固定为资源池 API Endpoint，可选 API Key 仅从首条读取。建议保存「连接设置」以清理多余条目。`
+          : undefined,
+      items,
+      source: 'live',
+      stale: false,
+      cacheSyncedAt: syncedAt,
+      persisted: true,
+    });
+  } catch (e: any) {
+    if (res.headersSent) return;
+    return res.status(500).json({
+      message: e?.message || 'ASW-CTL 同步失败',
     });
   }
 }

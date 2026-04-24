@@ -40,6 +40,7 @@ import React, { useMemo, useState } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider, Table, TableProps, Popover, Checkbox, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
+import { isSdnccPagePath } from '../routes/adminRouteMatch';
 import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined, ReloadOutlined, AuditOutlined } from '@ant-design/icons';
 
 /**
@@ -415,6 +416,13 @@ const PageContainer = <T extends Record<string, any> = any>({
    * 用于自动获取标题、图标、面包屑等信息
    */
   const currentSpec = useMemo(() => findSpec(loc.pathname), [loc.pathname]);
+
+  /** SDN 控制台：内嵌 Table 默认无边框；显式传 tableProps.bordered 仍可打开。 */
+  const resolvedTableBordered = useMemo(() => {
+    if (!tableProps) return undefined as boolean | undefined;
+    if (tableProps.bordered !== undefined) return tableProps.bordered;
+    return !isSdnccPagePath(loc.pathname);
+  }, [tableProps, loc.pathname]);
   /**
    * 自动生成的面包屑导航
    * 
@@ -675,23 +683,24 @@ const PageContainer = <T extends Record<string, any> = any>({
       {/* ========== 工具栏（左侧工具栏 + 右侧操作按钮） ========== */}
       {(toolbarLeft || actionsNode) && (
         <div
+          className="page-container-toolbar"
           style={{
             display: 'flex',
             alignItems: 'flex-end',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-start',
             marginBottom: 16,
             // 如果启用 sticky，工具栏将固定在顶部
             ...(toolbarSticky ? { position: 'sticky', top: 0, zIndex: 1, background: '#fff' } : {}),
             ...(toolbarStyle || {}),
           }}
         >
-          {/* 左侧工具栏 */}
-          <Space size={toolbarGapLeft} wrap>
+          {/* 左侧；minWidth:0 与右侧 marginLeft:'auto' 成对，避免无筛选或换行时操作区贴左 */}
+          <Space size={toolbarGapLeft} wrap style={{ minWidth: 0 }}>
             {toolbarLeft}
           </Space>
-          
+
           {/* 右侧操作按钮 */}
-          <Space size={toolbarGapRight} wrap>
+          <Space size={toolbarGapRight} wrap style={{ marginLeft: 'auto' }}>
             {actionsNode}
           </Space>
         </div>
@@ -713,8 +722,8 @@ const PageContainer = <T extends Record<string, any> = any>({
           {/* 如果提供了 tableProps，自动渲染标准样式的表格 */}
           {tableProps && (
             <Table
-              bordered
               {...tableProps}
+              bordered={resolvedTableBordered}
               className={`page-container-table ${tableProps.className || ''}`}
               columns={filteredColumns || tableProps.columns} // 使用过滤后的列（排除隐藏的列）
               pagination={tableProps.pagination !== false ? {

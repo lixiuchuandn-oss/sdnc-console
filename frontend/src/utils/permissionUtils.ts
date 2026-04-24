@@ -171,14 +171,70 @@ type ResourceConsoleGroupRule = {
   prefixes: readonly string[];
 };
 
+/** 资源池角色抽屉：「平台入口能力」前缀（与下述分组规则首条一致，单点维护） */
+export const RESOURCE_POOL_PLATFORM_ENTRY_PREFIXES: readonly string[] = [
+  'clouds',
+  'clouds.dashboard',
+  'clouds.resource-pools',
+];
+
+export const RESOURCE_POOL_PLATFORM_ENTRY_PREFIX_SET = new Set<string>(RESOURCE_POOL_PLATFORM_ENTRY_PREFIXES);
+
+/** 角色抽屉「平台入口能力」：入口三类 + 资源控制台原子合并后的展示顺序 */
+export const PLATFORM_ENTRY_DRAWER_MERGED_ORDER: readonly string[] = [
+  ...RESOURCE_POOL_PLATFORM_ENTRY_PREFIXES,
+  ...CLOUDMAP_FEATURE_ORDER,
+];
+
+function platformEntryDrawerMergedOrderIndex(prefix: string): number {
+  const i = PLATFORM_ENTRY_DRAWER_MERGED_ORDER.indexOf(prefix);
+  return i === -1 ? 999 : i;
+}
+
+export function sortMergedPlatformEntryDrawerFeatures<T extends { resourcePrefix: string }>(
+  features: T[],
+): T[] {
+  return [...features].sort(
+    (a, b) =>
+      platformEntryDrawerMergedOrderIndex(a.resourcePrefix) -
+      platformEntryDrawerMergedOrderIndex(b.resourcePrefix),
+  );
+}
+
+/**
+ * 将后端分组「资源控制台」并入抽屉中的「平台入口能力」（仅影响角色授权 UI 结构）
+ */
+export function mergeResourceConsoleIntoPlatformEntryGroup<T extends { resourcePrefix: string }>(
+  groups: { group: string; features: T[] }[],
+): { group: string; features: T[] }[] {
+  const cIdx = groups.findIndex((g) => g.group === '资源控制台');
+  if (cIdx === -1) return groups;
+
+  const consoleFeatures = groups[cIdx].features;
+  const rest = groups.filter((_, i) => i !== cIdx);
+  const eIdx = rest.findIndex((g) => g.group === '平台入口能力');
+  const base = eIdx === -1 ? [] : rest[eIdx].features;
+  const merged = sortMergedPlatformEntryDrawerFeatures([...base, ...consoleFeatures]);
+
+  if (eIdx === -1) {
+    return [{ group: '平台入口能力', features: merged }, ...rest];
+  }
+  const out = [...rest];
+  out[eIdx] = { group: '平台入口能力', features: merged };
+  return out;
+}
+
+/** 按 RESOURCE_CONSOLE_FEATURE_ORDER 排序（用于抽屉内分组卡片顺序） */
+export function sortByResourceConsoleFeatureOrder<T extends { resourcePrefix: string }>(features: T[]): T[] {
+  return [...features].sort(
+    (a, b) => resourceConsoleOrderIndex(a.resourcePrefix) - resourceConsoleOrderIndex(b.resourcePrefix),
+  );
+}
+
 const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = [
   {
     label: '平台入口能力',
-    prefixes: [
-      'clouds',
-      'clouds.dashboard',
-      'clouds.resource-pools',
-    ],
+    prefixes: [...RESOURCE_POOL_PLATFORM_ENTRY_PREFIXES],
   },
   {
     label: '云主机',

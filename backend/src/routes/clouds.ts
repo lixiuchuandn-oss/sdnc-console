@@ -17,6 +17,7 @@ import { licenseService } from '../services/LicenseService';
 import { createApiPermissionMiddleware } from '../permissions';
 import { logger } from '../utils/logger';
 import { attachDatacenterTopologyRoutes } from './clouds/datacenterTopology.routes';
+import { attachRancherClusterResourceRoutes } from './clouds/rancherClusterResources.routes';
 
 const cloudRouteLog = logger.child('Cloud');
 const cloudDebugLog = logger.child('Cloud-Debug');
@@ -39,9 +40,16 @@ const redactCloud = (cloud: any) => ({
   secretKey: cloud.secretKey ? '***' + String(cloud.secretKey).slice(-4) : undefined,
 });
 
+type RancherClusterListItem = {
+  id: string;
+  name: string;
+  state: string;
+  kubernetesVersion?: string;
+};
+
 // 统一的云连接测试入口：
 // 根据 provider 选择对应云厂商 / Harvester / CloudMap 的测试函数，
-// 返回 { ok, message } 结构，供创建/测试接口复用。
+// 返回 { ok, message, data? } 结构，供创建/测试接口复用。
 const testCloudConnectionUnified = async (args: {
   provider?: string;
   accessKey?: string;
@@ -49,7 +57,11 @@ const testCloudConnectionUnified = async (args: {
   region?: string;
   endpoint?: string;
   config?: any;
-}) => {
+}): Promise<{
+  ok: boolean;
+  message: string;
+  data?: { rancherClusters: RancherClusterListItem[] };
+}> => {
   const providerRaw = String(args.provider || args.config?.provider || '').trim();
   const provider = providerRaw.toLowerCase();
   if (provider === 'aliyun') {
@@ -139,7 +151,69 @@ const testCloudConnectionUnified = async (args: {
         validateStatus: () => true,
       });
       if (res.status === 200) {
-        return { ok: true, message: 'Rancher 接口连通' };
+        let rancherClusters: RancherClusterListItem[] = [];
+        try {
+          const listUrl = `${u.origin}/v3/clusters?limit=1000`;
+          const cRes = await axios.get(listUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+            ...(isHttps && agent ? { httpsAgent: agent } : {}),
+            timeout: 30000,
+            validateStatus: () => true,
+          });
+          if (cRes.status === 200) {
+            const body = cRes.data;
+            const items: any[] = Array.isArray(body?.data)
+              ? body.data
+              : Array.isArray(body?.items)
+                ? body.items
+                : [];
+            rancherClusters = items.map((c) => {
+              const cid = String(c?.id || c?.Id || '').trim();
+              const name =
+                String(c?.name || c?.Name || cid || '').trim() || cid || '—';
+              const state = String(c?.state || c?.State || '').trim() || 'unknown';
+              const k8s =
+                c?.version?.gitVersion ||
+                c?.kubernetesVersion ||
+                c?.appliedSpec?.rancherKubernetesEngineConfig?.kubernetesVersion ||
+                '';
+              return {
+                id: cid,
+                name,
+                state,
+                kubernetesVersion: String(k8s || '').trim() || undefined,
+              };
+            });
+            const want = String(args.config?.clusterId || '')
+              .trim();
+            if (want) {
+              const found = rancherClusters.some((c) => c.id === want);
+              if (!found) {
+                return {
+                  ok: false,
+                  message: `未在 Rancher 中找到 id 为「${want}」的集群，请核对 Norman 集群 id（c-xxxxx）`,
+                };
+              }
+            }
+          } else {
+            const want = String(args.config?.clusterId || '').trim();
+            if (want) {
+              return {
+                ok: false,
+                message: `无法拉取 Rancher 集群列表以校验 clusterId（HTTP ${cRes.status}），请检查 API 令牌权限`,
+              };
+            }
+          }
+        } catch (e) {
+          cloudDebugLog.debug('Rancher /v3/clusters in test-connection', (e as any)?.message);
+          if (String(args.config?.clusterId || '').trim()) {
+            return {
+              ok: false,
+              message: `拉取 Rancher 集群列表失败，无法校验 clusterId: ${(e as any)?.message || String(e)}`,
+            };
+          }
+        }
+        return { ok: true, message: 'Rancher 接口连通', data: { rancherClusters } };
       }
       if (res.status === 401) {
         return { ok: false, message: '认证失败：Rancher API 令牌无效或已过期' };
@@ -212,6 +286,11 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
   const fixedConfig = { ...(config || {}), provider: pvRaw };
   if (pvRaw === 'cloudmap.private' || pvRaw === 'cloudmap.edge') {
     fixedConfig.harvesterVersion = '1.6';
+  }
+  if (pvRaw === 'rancher' && !String(fixedConfig.clusterId || '').trim()) {
+    return res.status(400).json({
+      message: 'Rancher 资源池需填写活动集群 ID（一池对应一个下游集群，即 Norman 的 c-xxxxx）',
+    });
   }
   req.body.config = fixedConfig;
   next();
@@ -323,6 +402,7 @@ registerTencentRoutes(router, checkAdminPermission);
 registerCsmRoutes(router, checkAdminPermission);
 registerHarvesterRoutes(router, checkAdminPermission);
 registerHarvesterServiceRoutesProvider(router, checkAdminPermission);
+attachRancherClusterResourceRoutes(router, checkAdminPermission);
 
 // 标准化获取实例列表：
 // - 对不同 provider 的接口调用结果进行统一转换，输出统一结构的实例信息
@@ -978,7 +1058,11 @@ router.post('/test-connection', createApiPermissionMiddleware(), async (req: Aut
       endpoint,
       config,
     });
-    res.json({ ok: !!r.ok, message: r.message || (r.ok ? '连接成功' : '连接失败') });
+    res.json({
+      ok: !!r.ok,
+      message: r.message || (r.ok ? '连接成功' : '连接失败'),
+      ...(r.data ? { data: r.data } : {}),
+    });
   } catch (error: any) {
     res.status(500).json({ ok: false, message: error?.message || '连接测试失败' });
   }
@@ -1127,6 +1211,19 @@ router.put('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res
 
     Object.assign(cloud, updateData);
     cloud.updatedAt = new Date();
+
+    const cfgProv = String((cloud as any).config?.provider || '').toLowerCase();
+    const hasCluster = !!String((cloud as any).config?.clusterId || '').trim();
+    if (
+      cfgProv === 'rancher' &&
+      !hasCluster &&
+      updateData &&
+      Object.prototype.hasOwnProperty.call(updateData, 'config')
+    ) {
+      return res.status(400).json({
+        message: 'Rancher 资源池必须在 config 中配置 clusterId（一池对应一个下游集群）',
+      });
+    }
 
     if (needsConnectionTest) {
       const r = await testCloudConnectionUnified({
@@ -1856,6 +1953,96 @@ router.post(
 );
 
 attachDatacenterTopologyRoutes(router);
+
+// Rancher：列出下游集群（Norman /v3/clusters），供资源池列表展开区懒加载
+router.get(
+  '/:id/rancher/clusters',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cloud = await fetchCloudOr404(req.params.id, res);
+      if (!cloud) return;
+      const provider = String(cloud.config?.provider || '').toLowerCase();
+      if (provider !== 'rancher') {
+        res.status(400).json({ message: '仅 Rancher 资源池支持该接口' });
+        return;
+      }
+      let base = String(
+        (cloud as any).endpoint || (cloud as any).config?.rancherUrl || '',
+      )
+        .trim()
+        .replace(/\/+$/, '');
+      if (base && !/^https?:\/\//i.test(base)) {
+        base = `https://${base}`;
+      }
+      const token = String(
+        cloud.secretKey ||
+          (cloud as any).config?.apiToken ||
+          (cloud as any).config?.token ||
+          '',
+      ).trim();
+      const insecure = !!(cloud.config as any)?.ignoreTls;
+      if (!base || !token) {
+        res.status(400).json({ message: '缺少 Rancher 地址或 API 令牌' });
+        return;
+      }
+      const u = new URL(base);
+      const isHttps = u.protocol === 'https:';
+      const agent = isHttps
+        ? new https.Agent({ keepAlive: true, rejectUnauthorized: !insecure })
+        : undefined;
+      const listUrl = `${u.origin}/v3/clusters?limit=1000`;
+      const axiosRes = await axios.get(listUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        ...(isHttps && agent ? { httpsAgent: agent } : {}),
+        timeout: 30000,
+        validateStatus: () => true,
+      });
+      if (axiosRes.status === 401) {
+        res.status(502).json({ message: 'Rancher 认证失败：令牌无效或已过期' });
+        return;
+      }
+      if (axiosRes.status !== 200) {
+        res.status(502).json({
+          message: `拉取 Rancher 集群失败: HTTP ${axiosRes.status}`,
+        });
+        return;
+      }
+      const body = axiosRes.data;
+      const items: any[] = Array.isArray(body?.data)
+        ? body.data
+        : Array.isArray(body?.items)
+          ? body.items
+          : [];
+      const clusters = items.map((c) => {
+        const cid = String(c?.id || c?.Id || '').trim();
+        const name =
+          String(c?.name || c?.Name || cid || '').trim() || cid || '—';
+        const state = String(c?.state || c?.State || '').trim() || 'unknown';
+        const k8s =
+          c?.version?.gitVersion ||
+          c?.kubernetesVersion ||
+          c?.appliedSpec?.rancherKubernetesEngineConfig?.kubernetesVersion ||
+          '';
+        return {
+          id: cid,
+          name,
+          state,
+          kubernetesVersion: String(k8s || '').trim() || undefined,
+        };
+      });
+      res.json({ data: clusters });
+    } catch (error: any) {
+      cloudRouteLog.error('Rancher clusters list failed', error?.message ?? String(error));
+      res.status(500).json({
+        message:
+          error?.response?.data?.message ||
+          error?.message ||
+          '获取 Rancher 集群列表失败',
+      });
+    }
+  },
+);
 
 // 获取单个云资源详情
 router.get('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {

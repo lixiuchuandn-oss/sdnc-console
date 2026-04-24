@@ -17,6 +17,10 @@ export type HsmLldpPhysicalLink = {
   port: string;
   nodeName: string;
   localIf: string;
+  /**
+   * 来自 `parseInterfaceStatusStdout` 该口行的 Status（如 PHY/Protocol 或 Interface 表状态），供拓扑灰条仅展示网口态。
+   */
+  switchPortStatus?: string;
 };
 
 export function buildHsmLldpPhysicalLinks(
@@ -39,6 +43,7 @@ export function buildHsmLldpPhysicalLinks(
       const hit = findNodeLldpForSwitchPortRecord(nodes, sw, p);
       if (!hit) continue;
       seq += 1;
+      const sps = String(p.status || '').trim();
       out.push({
         id: `lldp-${host.replace(/[^a-zA-Z0-9.-]/g, '_')}-${String(p.name).replace(/[^a-zA-Z0-9/._-]/g, '_')}-${hit.nodeName}-${seq}`,
         switchHost: host,
@@ -46,6 +51,7 @@ export function buildHsmLldpPhysicalLinks(
         port: p.name,
         nodeName: hit.nodeName,
         localIf: hit.localInterface,
+        ...(sps ? { switchPortStatus: sps } : {}),
       });
     }
   }

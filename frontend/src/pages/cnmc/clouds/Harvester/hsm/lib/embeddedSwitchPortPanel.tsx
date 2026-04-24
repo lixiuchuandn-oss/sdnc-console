@@ -10,7 +10,7 @@ import {
   extractInterfacesStdoutFromRecord,
   parseInterfaceStatusStdout,
   parseSwitchPortSlotTriplet,
-  partitionSwitchPortsGigabitVsTenG,
+  sortParsedSwitchPortsBySlot,
   type ParsedSwitchPort,
   type PortStatusKind,
 } from '../../cluster/lib/parseAswCtlInterfaceStdout';
@@ -334,7 +334,7 @@ export function EmbeddedSwitchPortPanelBody({
     return parseInterfaceStatusStdout(extracted.stdout);
   }, [extracted]);
 
-  const panelZones = useMemo(() => partitionSwitchPortsGigabitVsTenG(ports), [ports]);
+  const portsOrdered = useMemo(() => sortParsedSwitchPortsBySlot(ports), [ports]);
 
   const nameFromInfo = useMemo(
     () => (record ? parseSwitchDisplayNameFromInfoLines(record.info?.lines) : ''),
@@ -355,6 +355,8 @@ export function EmbeddedSwitchPortPanelBody({
   const switchDisplayName = useMemo(() => {
     if (nameFromInfo) return nameFromInfo;
     if (!record) return '';
+    const apiName = String((record as { name?: string }).name || '').trim();
+    if (apiName) return apiName;
     const h = switchRecordManagementHost(record);
     if (!h || h === '—') return '';
     try {
@@ -532,29 +534,14 @@ export function EmbeddedSwitchPortPanelBody({
             <div className={chromeSurfaceClass}>{pChromeBar}</div>
             <div className="cloudmap-dc-tp-ports">
               <div className="cloudmap-dc-tp-port-zones">
-                {panelZones.gigabit.length > 0 ? (
-                  <div className="cloudmap-dc-tp-port-zone">
-                    <TwoRowPortBlock
-                      ports={panelZones.gigabit}
-                      keyPrefix="gb"
-                      switchRecord={record}
-                      clusterNodesForLldp={clusterNodesForLldp}
-                    />
-                  </div>
-                ) : null}
-                {panelZones.gigabit.length > 0 && panelZones.tenG.length > 0 ? (
-                  <div aria-hidden className="cloudmap-dc-tp-port-zones-vsep" />
-                ) : null}
-                {panelZones.tenG.length > 0 ? (
-                  <div className="cloudmap-dc-tp-port-zone">
-                    <TwoRowPortBlock
-                      ports={panelZones.tenG}
-                      keyPrefix="10g"
-                      switchRecord={record}
-                      clusterNodesForLldp={clusterNodesForLldp}
-                    />
-                  </div>
-                ) : null}
+                <div className="cloudmap-dc-tp-port-zone">
+                  <TwoRowPortBlock
+                    ports={portsOrdered}
+                    keyPrefix="sw"
+                    switchRecord={record}
+                    clusterNodesForLldp={clusterNodesForLldp}
+                  />
+                </div>
               </div>
             </div>
           </div>

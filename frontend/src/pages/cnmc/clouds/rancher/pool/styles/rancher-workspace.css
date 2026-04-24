@@ -1,0 +1,19 @@
+/**
+ * Rancher 集群工作台：与 Cloudmap 池详情同策略（主区 flex 占满、隐藏一级 Tab 条）。
+ * 与 ../Cloudmap/pool/styles/cloudmap-detail-layout.css 配合使用。
+ */
+.rancher-cluster-workspace {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.rancher-cluster-workspace .cloudmap-detail-outer-tabs.ant-tabs,
+.rancher-cluster-workspace .cloudmap-detail-outer-tabs .ant-tabs-content,
+.rancher-cluster-workspace .cloudmap-detail-outer-tabs .ant-tabs-tabpane {
+  min-height: 0;
+}

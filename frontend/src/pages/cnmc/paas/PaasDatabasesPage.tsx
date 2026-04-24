@@ -1,11 +1,11 @@
 /**
- * 旧路径 `/admin/paas/databases`：云数据库已并入 Cloudmap 资源池详情一级 Tab（`?tab=paas_databases`）。
+ * 旧路径 `/admin/paas/databases`：云数据库已并入 Cloudmap 资源池详情路径 `/admin/clouds/:id/paas_databases`。
  * 保留路由以便书签/外链，进入后重定向到首个 Cloudmap 池（无则回资源池列表）。
  */
 import React, { useEffect } from 'react';
 import { Spin } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { isCloudmapPool } from '../../../layouts/admin/cloudPoolSidebar';
+import { isCloudmapPool } from '../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import type { Cloud } from '../pools/poolProviders';
 import { fetchClouds } from '../../../services/api';
 
@@ -24,7 +24,7 @@ const PaasDatabasesPage: React.FC = () => {
         const id = cm[0]?.id ? String(cm[0].id) : '';
         if (id) {
           navigate(
-            `/admin/clouds/${encodeURIComponent(id)}?tab=paas_databases`,
+            `/admin/clouds/${encodeURIComponent(id)}/paas_databases`,
             { replace: true },
           );
         } else {

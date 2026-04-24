@@ -120,10 +120,6 @@ export class PermissionRegistry {
         else if (secondPart === 'settings') {
           permissionBase = 'system.settings';
         }
-        // system/dify-config -> system.integration
-        else if (secondPart === 'dify-config') {
-          permissionBase = 'system.integration';
-        }
       }
     }
     // 租户相关路径
