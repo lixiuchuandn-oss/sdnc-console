@@ -34,6 +34,7 @@ import {
   deleteHarvesterContainerResource,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import { WorkloadFormModal, WorkloadType } from '../components';
 
 type Props = {
@@ -404,6 +405,8 @@ const WorkloadTable: React.FC<{
       key: 'actions',
       width: 120,
       render: (_: any, record: any) => {
+        const isSystem = isSystemResource(record);
+        const systemHint = getSystemResourceProtectionHint(record);
         const items = [
           {
             key: 'edit',
@@ -432,6 +435,8 @@ const WorkloadTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认删除',

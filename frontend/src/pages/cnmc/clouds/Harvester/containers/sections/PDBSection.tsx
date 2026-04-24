@@ -45,6 +45,7 @@ import {
   deleteHarvesterPDB,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import { PDBForm } from '../components';
 
 type Props = {
@@ -748,6 +749,8 @@ const PDBSection: React.FC<Props> = ({
               key: 'delete',
               label: '删除',
               danger: true,
+              disabled: isSystemResource(record),
+              tooltip: getSystemResourceProtectionHint(record),
               onClick: () => handleDelete(record),
             },
           ]}

@@ -1,9 +1,22 @@
 import React from 'react';
-import { Button, Dropdown, MenuProps } from 'antd';
+import { Button, Dropdown, MenuProps, Tooltip } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
 
+export type ResourceActionItem = {
+  key: string;
+  label?: React.ReactNode;
+  icon?: React.ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  tooltip?: React.ReactNode;
+  onClick?: () => void;
+  show?: boolean;
+  type?: 'divider';
+  [key: string]: any;
+};
+
 type Props = {
-  items?: MenuProps['items'];
+  items?: any[];
   onClick?: (info: { key: string }) => void;
   buttonProps?: any;
   menuProps?: MenuProps;
@@ -25,8 +38,43 @@ const ResourceActionsDropdown: React.FC<Props> = ({
   size,
   children,
 }) => {
+  const processedItems: MenuProps['items'] = React.useMemo(() => {
+    if (!items) return [];
+    return items.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      if (item.type === 'divider') {
+        return { type: 'divider' as const, key: item.key };
+      }
+      
+      const { tooltip, show, onClick: itemOnClick, disabled, danger, ...rest } = item;
+      
+      if (disabled) {
+        return {
+          key: rest.key,
+          icon: rest.icon,
+          label: tooltip ? (
+            <Tooltip title={tooltip} placement="left">
+              <span style={{ color: 'rgba(0, 0, 0, 0.25)' }}>{item.label}</span>
+            </Tooltip>
+          ) : (
+            <span style={{ color: 'rgba(0, 0, 0, 0.25)' }}>{item.label}</span>
+          ),
+          disabled: true,
+        };
+      }
+      
+      return {
+        key: rest.key,
+        icon: rest.icon,
+        label: item.label,
+        danger: danger,
+        onClick: itemOnClick,
+      };
+    });
+  }, [items]);
+
   const finalMenu: MenuProps = menuProps || {
-    items,
+    items: processedItems,
     onClick: ({ key }) => {
       if (onClick) onClick({ key });
     },

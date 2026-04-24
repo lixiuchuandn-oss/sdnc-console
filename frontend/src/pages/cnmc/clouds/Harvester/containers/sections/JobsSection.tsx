@@ -38,6 +38,7 @@ import {
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 import { JobForm, CronJobForm } from '../components';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 
 /**
  * Cron 宏表达式映射
@@ -1253,6 +1254,8 @@ const JobTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
+            disabled: isSystemResource(record),
+            tooltip: getSystemResourceProtectionHint(record),
             onClick: () => {
               modal.confirm({
                 title: '确认删除',
@@ -1761,6 +1764,8 @@ const CronJobTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
+            disabled: isSystemResource(record),
+            tooltip: getSystemResourceProtectionHint(record),
             onClick: () => {
               modal.confirm({
                 title: '确认删除',

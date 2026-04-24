@@ -29,6 +29,7 @@ import {
   evictHarvesterPod,
   batchEvictHarvesterPods,
 } from '../../../../../../services/harvesterApi';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import PodTerminal from '../components/PodTerminal';
 
 type Props = {
@@ -954,6 +955,8 @@ const PodsSection: React.FC<Props> = ({
             key: 'delete',
             label: '删除',
             danger: true,
+            disabled: isSystemResource(record),
+            tooltip: getSystemResourceProtectionHint(record),
             onClick: () => {
               modal.confirm({
                 title: '确认删除',
