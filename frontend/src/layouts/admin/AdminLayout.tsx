@@ -391,12 +391,10 @@ function AdminStandardHeader({
             <Button
               type="default"
               size="small"
-              style={{ width: 32, height: 32 }} 
               className="admin-header-logout-btn"
               icon={<LogoutOutlined />}
               onClick={handleLogout}
-            >
-            </Button>
+            />
           </>
         )}
       </div>
@@ -426,12 +424,16 @@ const AdminLayout: React.FC = () => {
 
   const [summaryClouds, setSummaryClouds] = useState<Cloud[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  /** 顶栏云列表是否已完成至少一次拉取；避免在 GET /clouds 返回前把「无池」判成真并自动弹接入向导 */
+  const [summaryListHydrated, setSummaryListHydrated] = useState(false);
   /** 顶栏可用区（资源池）选择；列表变更时若当前项失效则回到默认池 */
   const [headerSelectedPoolId, setHeaderSelectedPoolId] = useState<string | undefined>(undefined);
   const [poolWizardOpen, setPoolWizardOpen] = useState(false);
   const [poolWizardEditing, setPoolWizardEditing] = useState<Cloud | null>(null);
   const [poolWizardForceRequired, setPoolWizardForceRequired] = useState(false);
   const poolWizardOpenedByAutoRef = useRef(false);
+  /** 顶栏云列表请求世代：新请求开始 +1；仅当完成时 gen 仍等于 ref 才写回 state，避免慢请求覆盖快请求、或登出后旧请求写回 */
+  const summaryLoadGenRef = useRef(0);
 
   const forcePasswordChange = user?.mustChangePassword === true && user?.role !== 'tenant';
 
@@ -524,15 +526,20 @@ const AdminLayout: React.FC = () => {
   }, [user]);
 
   const loadSummaryClouds = useCallback(async () => {
+    const gen = ++summaryLoadGenRef.current;
     setSummaryLoading(true);
     try {
       const raw = await fetchClouds();
+      if (gen !== summaryLoadGenRef.current) return;
       const list = Array.isArray(raw) ? raw : (raw?.data || []);
       setSummaryClouds((Array.isArray(list) ? list : []) as Cloud[]);
     } catch {
+      if (gen !== summaryLoadGenRef.current) return;
       setSummaryClouds([]);
     } finally {
+      if (gen !== summaryLoadGenRef.current) return;
       setSummaryLoading(false);
+      setSummaryListHydrated(true);
     }
   }, []);
 
@@ -845,7 +852,14 @@ const AdminLayout: React.FC = () => {
   const autoBindPoolPromptShownRef = useRef(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      summaryLoadGenRef.current += 1;
+      setSummaryLoading(false);
+      setSummaryClouds([]);
+      setSummaryListHydrated(false);
+      return;
+    }
+    setSummaryListHydrated(false);
     void loadSummaryClouds();
   }, [user?.id, loadSummaryClouds]);
 
@@ -863,8 +877,14 @@ const AdminLayout: React.FC = () => {
 
   useEffect(() => {
     if (!user) return;
+    if (!summaryListHydrated) return;
     if (summaryClouds.filter((c) => !isCsmCloud(c)).length > 0) {
       autoBindPoolPromptShownRef.current = false;
+      if (poolWizardOpenedByAutoRef.current) {
+        setPoolWizardOpen(false);
+        setPoolWizardForceRequired(false);
+        poolWizardOpenedByAutoRef.current = false;
+      }
       return;
     }
     if (summaryLoading) return;
@@ -880,7 +900,7 @@ const AdminLayout: React.FC = () => {
     setPoolWizardForceRequired(true);
     setPoolWizardEditing(null);
     setPoolWizardOpen(true);
-  }, [user, summaryLoading, summaryClouds, canWritePools]);
+  }, [user, summaryLoading, summaryClouds, canWritePools, summaryListHydrated]);
 
   const handlePoolWizardCancel = useCallback(() => {
     setPoolWizardOpen(false);
