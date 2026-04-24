@@ -29,6 +29,7 @@ import {
   deleteHarvesterContainerResource,
   addInsecureRegistry,
   patchHarvesterContainerResource,
+  fetchHarvesterSecretDetail,
 } from '../../../../../../services/harvesterApi';
 import { RegistryCredentialModal, RegistryBrowserDrawer } from '../components';
 
@@ -933,10 +934,27 @@ const RegistriesSection: React.FC<Props> = ({
   }, []);
   
   // 打开编辑凭证弹窗
-  const handleEditCredential = useCallback((secret: any) => {
-    setEditData(secret);
+  const handleEditCredential = useCallback(async (secret: any) => {
+    const ns = secret?.metadata?.namespace;
+    const name = secret?.metadata?.name;
+    
+    if (ns && name) {
+      try {
+        // 调用详情 API 并设置 reveal=true 获取未脱敏数据
+        const result = await fetchHarvesterSecretDetail(cloudId, ns, name, true);
+        const fullSecret = result?.data || result;
+        setEditData(fullSecret);
+      } catch (e: any) {
+        console.error('获取凭证详情失败:', e);
+        // 失败时使用列表中的数据
+        setEditData(secret);
+      }
+    } else {
+      setEditData(secret);
+    }
+    
     setCreateModalVisible(true);
-  }, []);
+  }, [cloudId]);
   
   // 浏览仓库（从凭证）
   const handleBrowseFromSecret = useCallback((secret: any) => {

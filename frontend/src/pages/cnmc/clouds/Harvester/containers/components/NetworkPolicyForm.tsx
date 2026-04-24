@@ -652,7 +652,7 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
     };
     
     return {
-      name: data.metadata?.name,
+      name: data.metadata?.annotations?.['tower.io/alias'] || data.metadata?.name,
       namespace: data.metadata?.namespace,
       labels,
       podSelector,
@@ -796,12 +796,13 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
         apiVersion: 'networking.k8s.io/v1',
         kind: 'NetworkPolicy',
         metadata: {
-          name: generateHarvesterCrMetadataName('networkpolicy'),
+          name: isEdit && initialData ? initialData.metadata?.name : generateHarvesterCrMetadataName('networkpolicy'),
           namespace: values.namespace,
           labels: Object.keys(labels).length > 0 ? labels : undefined,
-          annotations: values.name ? {
+          annotations: {
+            ...(isEdit && initialData ? initialData.metadata?.annotations : {}),
             'tower.io/alias': values.name,
-          } : undefined,
+          },
         },
         spec: {
           podSelector,
@@ -826,7 +827,7 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
       }
 
       if (isEdit && initialData) {
-        await updateNetworkPolicy(cloudId, values.namespace, values.name, npBody);
+        await updateNetworkPolicy(cloudId, values.namespace, initialData.metadata?.name, npBody);
         message.success('网络策略更新成功');
       } else {
         await createNetworkPolicy(cloudId, values.namespace, npBody);
@@ -883,17 +884,39 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
           <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item
-                  name="name"
-                  label="名称"
-                  rules={[
-                    { required: true, message: '请输入名称' },
-                    { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '名称只能包含小写字母、数字和连字符' },
-                    { max: 253, message: '名称最多 253 个字符' },
-                  ]}
-                >
-                  <Input placeholder="my-network-policy" disabled={isEdit} />
-                </Form.Item>
+                {isEdit ? (
+                  <>
+                    <Form.Item label="资源 ID">
+                      <Input 
+                        value={initialData?.metadata?.name || ''} 
+                        disabled 
+                        style={{ color: 'rgba(0,0,0,0.45)' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="name"
+                      label="显示名称"
+                      rules={[
+                        { required: true, message: '请输入显示名称' },
+                        { max: 253, message: '名称最多 253 个字符' },
+                      ]}
+                    >
+                      <Input placeholder="my-network-policy" />
+                    </Form.Item>
+                  </>
+                ) : (
+                  <Form.Item
+                    name="name"
+                    label="名称"
+                    rules={[
+                      { required: true, message: '请输入名称' },
+                      { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '名称只能包含小写字母、数字和连字符' },
+                      { max: 253, message: '名称最多 253 个字符' },
+                    ]}
+                  >
+                    <Input placeholder="my-network-policy" />
+                  </Form.Item>
+                )}
               </Col>
               <Col span={12}>
                 <Form.Item

@@ -154,7 +154,10 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={() => loadTabResource('workloads', true)}
+        onRefresh={() => {
+          loadTabResource('workloads', true);
+          loadTabResource('pods', true);
+        }}
       />
     );
   }
@@ -171,6 +174,9 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onNsChange={(v) => setNsFilter(v || '')}
         onNodeChange={(v) => setNodeFilter(v || '')}
         onRefresh={() => loadTabResource('pods', true)}
+        deployments={harvesterDeployments}
+        statefulSets={harvesterStatefulSets}
+        daemonSets={harvesterDaemonSets}
       />
     );
   }

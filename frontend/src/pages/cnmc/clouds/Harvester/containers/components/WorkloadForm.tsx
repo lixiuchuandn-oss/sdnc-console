@@ -3338,7 +3338,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       // 设置表单值
       form.setFieldsValue({
         workloadType: editData?.kind?.toLowerCase() || defaultType,
-        name: metadata?.name || '',
+        name: metadata?.annotations?.['tower.io/alias'] || metadata?.name || '',
         namespace: metadata?.namespace || 'default',
         labels,
         containers,
@@ -4423,10 +4423,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           kind === 'daemonset' ? 'daemonset' : 'deployment'
         );
         namespace = resource?.metadata?.namespace || 'default';
-        name = resource?.metadata?.name || '';
         
-        // 编辑模式下，确保保留原有元数据
+        // 编辑模式下，使用资源 ID 作为 API 路径参数
         if (isEditMode && editMetadata) {
+          name = editMetadata.name;
           resource.metadata = {
             ...resource.metadata,
             uid: editMetadata.uid,
@@ -4434,6 +4434,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             creationTimestamp: editMetadata.creationTimestamp,
             managedFields: editMetadata.managedFields,
           };
+        } else {
+          name = resource?.metadata?.name || '';
         }
       } else {
         // 表单模式提交 - 显式验证所有字段（分步骤表单需要）
@@ -4462,18 +4464,30 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
         namespace = values.namespace;
-        name = values.name;
         
-        // 编辑模式下，保留原有元数据
+        // 编辑模式下，保留原有元数据，使用资源 ID 作为 API 路径参数
         if (isEditMode && editMetadata) {
+          name = editMetadata.name; // 使用资源 ID
+          resource.metadata.name = editMetadata.name; // 保持资源名称不变
           resource.metadata.uid = editMetadata.uid;
           resource.metadata.resourceVersion = editMetadata.resourceVersion;
           resource.metadata.creationTimestamp = editMetadata.creationTimestamp;
           resource.metadata.managedFields = editMetadata.managedFields;
-          // 保留原有 annotations
-          if (editMetadata.annotations) {
-            resource.metadata.annotations = editMetadata.annotations;
+          // 保留原有 annotations 并更新 alias
+          resource.metadata.annotations = {
+            ...editMetadata.annotations,
+            'tower.io/alias': values.name, // 更新显示名称
+          };
+          // 保留原有的 selector，避免 Pod 不匹配
+          if (editData?.spec?.selector) {
+            resource.spec.selector = editData.spec.selector;
           }
+          // 保留原有的 template.labels，确保与 selector 匹配
+          if (editData?.spec?.template?.metadata?.labels) {
+            resource.spec.template.metadata.labels = editData.spec.template.metadata.labels;
+          }
+        } else {
+          name = values.name; // 创建模式使用表单名称
         }
       }
       
@@ -4599,17 +4613,39 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item
-                  name="name"
-                  label="名称"
-                  rules={[
-                    { required: true, message: '请输入名称' },
-                    { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和中划线' },
-                    { max: 63, message: '名称不能超过63个字符' },
-                  ]}
-                >
-                  <Input placeholder="例如: my-app" disabled={isEditMode} />
-                </Form.Item>
+                {isEditMode ? (
+                  <>
+                    <Form.Item label="资源 ID">
+                      <Input 
+                        value={editMetadata?.name || ''} 
+                        disabled 
+                        style={{ color: 'rgba(0,0,0,0.45)' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="name"
+                      label="显示名称"
+                      rules={[
+                        { required: true, message: '请输入显示名称' },
+                        { max: 63, message: '名称不能超过63个字符' },
+                      ]}
+                    >
+                      <Input placeholder="例如: my-app" />
+                    </Form.Item>
+                  </>
+                ) : (
+                  <Form.Item
+                    name="name"
+                    label="名称"
+                    rules={[
+                      { required: true, message: '请输入名称' },
+                      { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和中划线' },
+                      { max: 63, message: '名称不能超过63个字符' },
+                    ]}
+                  >
+                    <Input placeholder="例如: my-app" />
+                  </Form.Item>
+                )}
               </Col>
               <Col span={12}>
                 <Form.Item

@@ -93,6 +93,7 @@ const RegistryCredentialModal: React.FC<RegistryCredentialModalProps> = ({
           username: values.username,
           password: values.password,
           email: values.email,
+          alias: values.name, // 更新显示名称
         });
         message.success('凭证更新成功');
       } else {

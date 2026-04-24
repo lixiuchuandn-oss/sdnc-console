@@ -211,7 +211,7 @@ const IngressForm: React.FC<IngressFormProps> = ({
       setEnableTls(hasTls);
       
       form.setFieldsValue({
-        name: metadata.name,
+        name: metadata?.annotations?.['tower.io/alias'] || metadata.name,
         namespace: metadata.namespace,
         labels,
         ingressClassName: spec.ingressClassName,
@@ -223,14 +223,15 @@ const IngressForm: React.FC<IngressFormProps> = ({
   }, [editMode, initialData, form]);
 
   // 构建提交数据
-  const buildSubmitData = (values: IngressFormValues): any => {
+  const buildSubmitData = (values: IngressFormValues, isEdit: boolean): any => {
     const ingress: any = {
       apiVersion: 'networking.k8s.io/v1',
       kind: 'Ingress',
       metadata: {
-        name: generateHarvesterCrMetadataName('ingress'),
+        name: isEdit ? initialData?.metadata?.name : generateHarvesterCrMetadataName('ingress'),
         namespace: values.namespace,
         annotations: {
+          ...(isEdit ? initialData?.metadata?.annotations : {}),
           'tower.io/alias': values.name,
         },
         labels: values.labels?.reduce((acc, { key, value }) => {
@@ -306,7 +307,7 @@ const IngressForm: React.FC<IngressFormProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
-      const submitData = buildSubmitData(values);
+      const submitData = buildSubmitData(values, !!editMode);
 
       if (editMode) {
         // 编辑模式：保留必要的元数据
@@ -314,12 +315,8 @@ const IngressForm: React.FC<IngressFormProps> = ({
           submitData.metadata.uid = initialData.metadata.uid;
           submitData.metadata.resourceVersion = initialData.metadata.resourceVersion;
           submitData.metadata.creationTimestamp = initialData.metadata.creationTimestamp;
-          // 保留原有的 annotations（如果有）
-          if (initialData.metadata.annotations) {
-            submitData.metadata.annotations = initialData.metadata.annotations;
-          }
         }
-        await updateHarvesterIngress(cloudId, values.namespace, values.name, submitData);
+        await updateHarvesterIngress(cloudId, values.namespace, initialData?.metadata?.name, submitData);
         message.success('Ingress 更新成功');
       } else {
         // 创建模式
@@ -367,16 +364,35 @@ const IngressForm: React.FC<IngressFormProps> = ({
       <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item
-              name="name"
-              label="名称"
-              rules={[
-                { required: true, message: '请输入名称' },
-                { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
-              ]}
-            >
-              <Input placeholder="如: my-ingress" disabled={editMode} />
-            </Form.Item>
+            {editMode ? (
+              <>
+                <Form.Item label="资源 ID">
+                  <Input 
+                    value={initialData?.metadata?.name || ''} 
+                    disabled 
+                    style={{ color: 'rgba(0,0,0,0.45)' }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="name"
+                  label="显示名称"
+                  rules={[{ required: true, message: '请输入显示名称' }]}
+                >
+                  <Input placeholder="如: my-ingress" />
+                </Form.Item>
+              </>
+            ) : (
+              <Form.Item
+                name="name"
+                label="名称"
+                rules={[
+                  { required: true, message: '请输入名称' },
+                  { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
+                ]}
+              >
+                <Input placeholder="如: my-ingress" />
+              </Form.Item>
+            )}
           </Col>
           <Col span={12}>
             <Form.Item

@@ -241,6 +241,9 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             onNsChange={onNsChange}
             onNodeChange={onNodeChange}
             onRefresh={onRefreshPods}
+            deployments={deployments}
+            statefulSets={statefulsets}
+            daemonSets={daemonsets}
           />
         );
       case 'ctr-jobs':
