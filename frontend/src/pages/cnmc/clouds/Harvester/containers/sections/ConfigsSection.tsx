@@ -733,12 +733,13 @@ const ConfigMapTable: React.FC<{
           {
             key: 'edit',
             label: '编辑',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => onEditClick(record),
           },
           {
             key: 'yaml',
             label: '查看 YAML',
-            icon: <EyeOutlined />,
             onClick: () => handleViewYaml(record),
           },
           {
@@ -1160,12 +1161,13 @@ const SecretTable: React.FC<{
           {
             key: 'edit',
             label: '编辑',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => onEditClick(record),
           },
           {
             key: 'yaml',
             label: '查看 YAML',
-            icon: <EyeOutlined />,
             onClick: () => handleViewYaml(record),
           },
           {

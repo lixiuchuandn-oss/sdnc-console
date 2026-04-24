@@ -782,43 +782,48 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       key: 'actions',
       fixed: 'right' as const,
       width: 80,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown
-          items={[
-            {
-              key: 'detail',
-              label: '查看详情',
-              onClick: () => {
-                setCurrentNetworkPolicy(record);
-                setDetailVisible(true);
+      render: (_: any, record: any) => {
+        const isSystem = isSystemResource(record);
+        const systemHint = getSystemResourceProtectionHint(record);
+        return (
+          <ResourceActionsDropdown
+            items={[
+              {
+                key: 'detail',
+                label: '查看详情',
+                onClick: () => {
+                  setCurrentNetworkPolicy(record);
+                  setDetailVisible(true);
+                },
               },
-            },
-            {
-              key: 'edit',
-              label: '编辑',
-              onClick: () => {
-                setEditingRecord(record);
-                setEditModalVisible(true);
+              {
+                key: 'edit',
+                label: '编辑',
+                disabled: isSystem,
+                tooltip: systemHint,
+                onClick: () => {
+                  setEditingRecord(record);
+                  setEditModalVisible(true);
+                },
               },
-            },
-            {
-              key: 'yaml',
-              label: '查看 YAML',
-              icon: <EyeOutlined />,
-              onClick: () => handleViewYaml(record),
-            },
-            {
-              key: 'delete',
-              label: '删除',
-              danger: true,
-              disabled: isSystemResource(record),
-              tooltip: getSystemResourceProtectionHint(record),
-              onClick: () => handleDelete(record),
-            },
-          ]}
-          buttonProps={{ className: 'row-actions-trigger' }}
-        />
-      ),
+              {
+                key: 'yaml',
+                label: '查看 YAML',
+                onClick: () => handleViewYaml(record),
+              },
+              {
+                key: 'delete',
+                label: '删除',
+                danger: true,
+                disabled: isSystem,
+                tooltip: systemHint,
+                onClick: () => handleDelete(record),
+              },
+            ]}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
+      },
     },
   ], [handleDelete, handleViewYaml]);
 
