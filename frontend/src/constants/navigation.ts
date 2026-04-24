@@ -10,6 +10,17 @@
 export type Platform = 'CNMC' | 'TENANTS' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | '全部';
 
 export type Group = 
+  | '平台入口能力'
+  | '云主机'
+  | '存储与备份'
+  | '基础网络'
+  | '扁平网络'
+  | 'VPC网络'
+  | 'VPC扩展'
+  | '集群与运维'
+  | '监控'
+  | '日志'
+  | '其他资源'
   | '资源池管理' 
   | 'PaaS服务'
   | '资源控制台'
@@ -48,6 +59,17 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
 // 分组排序定义 (Sidebar 使用此顺序渲染分组)
 export const GROUPS: Group[] = [
   '全部',
+  '平台入口能力',
+  '云主机',
+  '存储与备份',
+  '基础网络',
+  '扁平网络',
+  'VPC网络',
+  'VPC扩展',
+  '集群与运维',
+  '监控',
+  '日志',
+  '其他资源',
   '资源池管理',
   'PaaS服务',
   '资源控制台',
@@ -57,9 +79,9 @@ export const GROUPS: Group[] = [
   '通用设置',
   '操作审计',
   '高级集成',
+  '安全管理面',
   '跨域互联',
   '流量编排',
-  '安全管理面',
   '安全运营',
   '安全控制台',
   '威胁数据预处理',

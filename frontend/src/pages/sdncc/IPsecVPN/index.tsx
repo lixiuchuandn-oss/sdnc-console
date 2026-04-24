@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Form, Input, Tag, message, Dropdown, Modal, Switch, Select } from 'antd';
+import { Form, Input, Tag, message, Modal, Switch, Select } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, ExclamationCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import { ExclamationCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchIPsecVPNsMerged, deleteIPsecVPN, apiPost } from '../../../services/api';
 import { getVR2Config, fetchVrCachePageList } from '../../../services/virtualRouterApi';
@@ -242,10 +243,12 @@ const IPsecVPNPage: React.FC = () => {
       fixed: 'right',
       width: 120,
       render: (_: any, row: IPsecVPNRow) => (
-        <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
-          <Button type="text" icon={<EllipsisOutlined />} />
-        </Dropdown>
-      )
+        <ResourceActionsDropdown
+          items={getActionMenu(row)}
+          onClick={handleRowActionClick(row) as any}
+          buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+        />
+      ),
     }
   ];
   const columns = allColumns;
@@ -313,8 +316,8 @@ const IPsecVPNPage: React.FC = () => {
         <Form
           className="toolbar-container"
           form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, all) => {
             setKeyword(all.keyword || '');
             setStatusFilter(all.status);
@@ -323,34 +326,48 @@ const IPsecVPNPage: React.FC = () => {
             setPeerGatewayFilter(all.peerGateway || '');
           }}
         >
-          <Form.Item name="keyword" label="名称">
-            <Input 
-              allowClear 
-              placeholder="搜索名称、ID" 
-              prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="名称 / ID"
               className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             />
           </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select allowClear placeholder="全部" className="toolbar-filter-sm">
+          <Form.Item name="status" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="状态" className="toolbar-filter-sm">
               <Select.Option value="active">活跃</Select.Option>
               <Select.Option value="inactive">未激活</Select.Option>
               <Select.Option value="creating">创建中</Select.Option>
               <Select.Option value="error">错误</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="ikeVersion" label="IKE版本">
-            <Select allowClear placeholder="全部" className="toolbar-filter-sm">
+          <Form.Item name="ikeVersion" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="IKE 版本" className="toolbar-filter-sm">
               <Select.Option value="ikev1">IKEv1</Select.Option>
               <Select.Option value="ikev2">IKEv2</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="localPublicIp" label="本端IP">
-            <Input allowClear placeholder="输入WAN IP或EIP" className="toolbar-filter-sm" />
+          <Form.Item name="localPublicIp" style={{ marginBottom: 0 }}>
+            <Input allowClear placeholder="本端 WAN / EIP" className="toolbar-filter-sm" />
           </Form.Item>
-          <Form.Item name="peerGateway" label="对端IP">
-            <Input allowClear placeholder="输入WAN IP或EIP" className="toolbar-filter-sm" />
+          <Form.Item name="peerGateway" style={{ marginBottom: 0 }}>
+            <Input allowClear placeholder="对端 WAN / EIP" className="toolbar-filter-sm" />
           </Form.Item>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              filterForm.resetFields();
+              setKeyword('');
+              setStatusFilter(undefined);
+              setIkeVersionFilter(undefined);
+              setLocalPublicIpFilter('');
+              setPeerGatewayFilter('');
+            }}
+          >
+            重置
+          </button>
         </Form>
       )}
       tableProps={{

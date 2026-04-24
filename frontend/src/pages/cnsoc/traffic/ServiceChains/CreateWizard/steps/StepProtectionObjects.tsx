@@ -430,7 +430,8 @@ export default function StepProtectionObjects(props: any) {
                 rules={[{ required: true, message: '请至少选择一个防护对象' }]}
              >
                 <Table
-                  bordered
+                  className="vr-table std-table"
+                  bordered={false}
                   size="small"
                   dataSource={filteredAssets}
                   loading={assetsLoading}

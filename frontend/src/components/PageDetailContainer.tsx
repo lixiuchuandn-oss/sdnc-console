@@ -141,7 +141,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
     background: '#fff',
   };
 
-  const rootPad = pagePadding !== undefined ? pagePadding : '24px 36px';
+  const rootPad = pagePadding !== undefined ? pagePadding : '24px';
 
   return (
     <div
@@ -196,9 +196,9 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
           </div>
         </div>
       )}
-      
+
       {overviewContent && (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 10 }}>
            <style>{`.pdc-overview-collapse .ant-collapse-content > .ant-collapse-content-box{padding-top:12px !important;padding-left:0 !important;padding-right:0 !important;padding-bottom:0 !important;background:transparent}.pdc-overview-collapse .ant-collapse-item > .ant-collapse-header{background:transparent !important;padding:0 !important;align-items:center !important}.pdc-overview-collapse .ant-collapse-header-text{flex:none !important}`}</style>
            <Collapse
              className="pdc-overview-collapse"
@@ -222,7 +222,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
       )}
 
       {tabs && tabs.length > 0 ? (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 10 }}>
           <Tabs
             activeKey={activeTabKey}
             defaultActiveKey={defaultActiveTabKey}

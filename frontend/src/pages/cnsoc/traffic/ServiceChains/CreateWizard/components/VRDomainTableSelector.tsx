@@ -5,6 +5,14 @@ import { SearchOutlined } from '@ant-design/icons';
 const VRDomainTableSelector = ({ value, onChange, dataSource, showActions, onAddAsset, tableProps, hideHeader, searchKeyword, existingCidrs, csmAssets }: any) => {
   const [keyword, setKeyword] = useState('');
   const effectiveKeyword = (typeof searchKeyword === 'string') ? searchKeyword : keyword;
+  const {
+    className: tpClassName,
+    pagination: tpPagination,
+    scroll: tpScroll,
+    style: tpStyle,
+    ...restTableProps
+  } = tableProps || {};
+  const mergedTableClassName = ['vr-table', 'std-table', tpClassName].filter(Boolean).join(' ');
 
   const filteredData = useMemo(() => {
     if (!effectiveKeyword) return dataSource;
@@ -61,7 +69,8 @@ const VRDomainTableSelector = ({ value, onChange, dataSource, showActions, onAdd
         </div>
       )}
       <Table
-        bordered
+        bordered={false}
+        className={mergedTableClassName}
         rowSelection={{
           type: 'checkbox',
           selectedRowKeys: selectedKeys,
@@ -119,11 +128,11 @@ const VRDomainTableSelector = ({ value, onChange, dataSource, showActions, onAdd
         pagination={{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          ...(tableProps?.pagination || {}),
+          ...(tpPagination || {}),
         }}
-        scroll={tableProps?.scroll}
-        style={{ ...(tableProps?.style || {}) }}
-        {...tableProps}
+        scroll={tpScroll}
+        style={{ ...(tpStyle || {}) }}
+        {...restTableProps}
       />
     </div>
   );

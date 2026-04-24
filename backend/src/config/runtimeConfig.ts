@@ -1,52 +1,46 @@
 import fs from 'fs';
 import path from 'path';
 
-type DifyConfig = {
-  baseUrl?: string;
-  apiKey?: string;
-  workflowId?: string;
-  logsDir?: string;
-  reportsDir?: string;
-  mode?: 'workflow' | 'chat';
-  fileVarName?: string;
+/**
+ * 运行期路径配置（原 Dify 集成已下线，仅保留安全日志/报告目录等存储路径）。
+ * 兼容：若仍存在 `data/dify-config.cfg`，会读取其中的 logsDir / reportsDir。
+ */
+type StoragePaths = {
+  logsDir: string;
+  reportsDir: string;
 };
 
 const dataDir = path.join(process.cwd(), 'data');
-const cfgPath = path.join(dataDir, 'dify-config.cfg');
+const legacyDifyCfgPath = path.join(dataDir, 'dify-config.cfg');
 
-let dify: DifyConfig = {
-  baseUrl: process.env.DIFY_BASE_URL || 'http://127.0.0.1/v1',
-  apiKey: process.env.DIFY_API_KEY || undefined,
-  workflowId: process.env.DIFY_WORKFLOW_ID || 'security-report',
-  logsDir: process.env.SECURITY_LOGS_DIR || path.join(dataDir, 'security-logs'),
-  reportsDir: process.env.SECURITY_REPORTS_DIR || path.join(dataDir, 'security-reports'),
-  mode: (process.env.DIFY_MODE as any) || 'workflow',
-  fileVarName: process.env.DIFY_FILE_VAR_NAME || 'csv',
-};
-
-try {
-  if (fs.existsSync(cfgPath)) {
-    const raw = fs.readFileSync(cfgPath, 'utf-8');
-    try {
-      const json = JSON.parse(raw);
-      dify = { ...dify, ...json };
-    } catch {}
-  }
-} catch {}
-
-export function getDifyConfig(): DifyConfig {
-  return { ...dify };
+function defaultPaths(): StoragePaths {
+  return {
+    logsDir: process.env.SECURITY_LOGS_DIR || path.join(dataDir, 'security-logs'),
+    reportsDir: process.env.SECURITY_REPORTS_DIR || path.join(dataDir, 'security-reports'),
+  };
 }
 
-export function setDifyConfig(partial: DifyConfig): DifyConfig {
-  dify = { ...dify, ...partial };
-  try {
-    fs.mkdirSync(dataDir, { recursive: true });
-    fs.writeFileSync(cfgPath, JSON.stringify(dify));
-  } catch {}
-  return getDifyConfig();
+let storage: StoragePaths = defaultPaths();
+
+try {
+  if (fs.existsSync(legacyDifyCfgPath)) {
+    const raw = fs.readFileSync(legacyDifyCfgPath, 'utf-8');
+    const json = JSON.parse(raw) as Partial<StoragePaths>;
+    if (json.logsDir && typeof json.logsDir === 'string') storage.logsDir = json.logsDir;
+    if (json.reportsDir && typeof json.reportsDir === 'string') storage.reportsDir = json.reportsDir;
+  }
+} catch {
+  /* ignore */
+}
+
+export function getSecurityLogsDir(): string {
+  return storage.logsDir;
+}
+
+export function getSecurityReportsDir(): string {
+  return storage.reportsDir;
 }
 
 export function getPaths() {
-  return { dataDir, cfgPath };
+  return { dataDir, legacyDifyCfgPath };
 }

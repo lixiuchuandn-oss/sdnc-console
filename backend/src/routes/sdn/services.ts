@@ -103,6 +103,10 @@ router.post('/', async (req, res) => {
         : [];
       entity.instances = JSON.stringify(instancesArr);
     }
+    if ((payload as any).servicePorts !== undefined) {
+      const portsArr = Array.isArray((payload as any).servicePorts) ? (payload as any).servicePorts : [];
+      entity.servicePorts = JSON.stringify(portsArr);
+    }
     const saved = await repo().save(entity);
 
     // Auto-create ACL if requested

@@ -130,49 +130,11 @@ export function parseSwitchPortSlotTriplet(name: string): [number, number, numbe
   return null;
 }
 
-function parseMbpsField(raw?: string): number | null {
-  if (raw == null) return null;
-  const s = String(raw).trim();
-  if (!s || s === '-') return null;
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : null;
-}
-
 /**
- * 万兆及以上：仅依据**接口类型命名**（常见华为/思科/H3C 等），**不用**槽位末段数字猜测。
+ * 嵌入前面板：按 `槽/子槽/口` 排序，**不做** 千兆/万兆分区；口性能以单槽行内数据（`speed`、检测/配置 Mbps 等）展示。
  */
-export function isSwitchPortTenGigabitClassByName(name: string): boolean {
-  const n = String(name || '').trim();
-  if (!n) return false;
-  if (
-    /^(?:XGigabitEthernet|10GigabitEthernet|TenGigabitEthernet|Ten-GigabitEthernet|10GE|25GE|40GE|100GE|400GE|HundredGigabitEthernet|FortyGigabitEthernet|TwentyFiveGigE|TwoHundredGigE|TwoHundredGigabitEthernet)/i.test(
-      n,
-    )
-  ) {
-    return true;
-  }
-  if (/^Te\d+[./]/i.test(n)) return true;
-  if (/^XGE(?:\d|[/.])/i.test(n)) return true;
-  return false;
-}
-
-/**
- * 前面板「千兆区 | 万兆区」：接口名判型；纯 `槽/子槽/口` 且无类型前缀时，用 Broadcom 表解析出的检测/配置速率（≥10000Mbps → 万兆区）。
- */
-export function partitionSwitchPortsGigabitVsTenG(ports: ParsedSwitchPort[]): {
-  gigabit: ParsedSwitchPort[];
-  tenG: ParsedSwitchPort[];
-} {
-  const isTenG = (p: ParsedSwitchPort): boolean => {
-    if (isSwitchPortTenGigabitClassByName(p.name)) return true;
-    const det = parseMbpsField(p.detectedSpeedMbps);
-    if (det != null && det >= 10000) return true;
-    const cfg = parseMbpsField(p.configuredSpeedMbps);
-    if (cfg != null && cfg >= 10000) return true;
-    return false;
-  };
-
-  const sorted = [...ports].sort((a, b) => {
+export function sortParsedSwitchPortsBySlot(ports: ParsedSwitchPort[]): ParsedSwitchPort[] {
+  return [...ports].sort((a, b) => {
     const ka = parseSwitchPortSlotTriplet(a.name) ?? [9999, 9999, 9999];
     const kb = parseSwitchPortSlotTriplet(b.name) ?? [9999, 9999, 9999];
     for (let i = 0; i < 3; i++) {
@@ -180,14 +142,6 @@ export function partitionSwitchPortsGigabitVsTenG(ports: ParsedSwitchPort[]): {
     }
     return 0;
   });
-
-  const gigabit: ParsedSwitchPort[] = [];
-  const tenG: ParsedSwitchPort[] = [];
-  for (const p of sorted) {
-    if (isTenG(p)) tenG.push(p);
-    else gigabit.push(p);
-  }
-  return { gigabit, tenG };
 }
 
 /**

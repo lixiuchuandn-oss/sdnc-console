@@ -133,7 +133,7 @@ const PaasSection: React.FC<Props> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [labelEditOpen, setLabelEditOpen] = useState(false);
   const [labelEditRecord, setLabelEditRecord] = useState<any>(null);
-  const [dbConsoleOpen, setDbConsoleOpen] = useState(false);
+  const [dbConsoleVm, setDbConsoleVm] = useState<any | null>(null);
 
   const resolvedSectionTitle =
     sectionTitle ||
@@ -192,7 +192,7 @@ const PaasSection: React.FC<Props> = ({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setDbConsoleOpen(true);
+                    setDbConsoleVm(r);
                   }}
                 >
                   {text}
@@ -273,7 +273,7 @@ const PaasSection: React.FC<Props> = ({
             {
               key: 'dbConsole',
               label: '数据库管理',
-              onClick: () => setDbConsoleOpen(true),
+              onClick: () => setDbConsoleVm(r),
             },
             {
               key: 'editLabels',
@@ -417,7 +417,11 @@ const PaasSection: React.FC<Props> = ({
         resource={labelEditRecord}
         onSuccess={() => onRefresh(true)}
       />
-      <RdsDatabaseConsoleModal open={dbConsoleOpen} onClose={() => setDbConsoleOpen(false)} />
+      <RdsDatabaseConsoleModal
+        open={!!dbConsoleVm}
+        vm={dbConsoleVm}
+        onClose={() => setDbConsoleVm(null)}
+      />
     </PageDetailSection>
   );
 };

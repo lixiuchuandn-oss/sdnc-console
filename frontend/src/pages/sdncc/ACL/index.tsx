@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Button, Form, Input, Select, Table, Tag, message, Modal, Space, Row, Col, InputNumber, Tooltip, Badge } from 'antd';
-import { PlusOutlined, RocketOutlined, FolderOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Button, Form, Input, Select, Table, Tag, message, Modal, Row, Col, InputNumber, Badge } from 'antd';
+import { FolderOutlined, UnorderedListOutlined, SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
@@ -329,25 +329,23 @@ const ACLPage: React.FC = () => {
     { title: 'ACL ID', dataIndex: 'aclId', key: 'aclId' },
     { title: '描述', dataIndex: 'description', key: 'description' },
     { title: '规则数', key: 'rules', render: (_, r) => <Badge count={r.rules?.length || 0} showZero color="blue" /> },
-    { title: '操作', key: 'ops', render: (_, r) => (
-      <Space>
-        <Tooltip title="添加规则">
-          <Button type="text" icon={<PlusOutlined />} onClick={() => handleOpenCreateRule(r)} />
-        </Tooltip>
-        <Tooltip title="下发配置">
-          <Button type="text" icon={<RocketOutlined />} onClick={() => r.vrId && handleDeploy(r.vrId)} disabled={!r.vrId} />
-        </Tooltip>
-        <ResourceActionsDropdown
-          items={[
-            { key: 'bind', label: '关联其他 VR' },
-            { key: 'delete', label: '删除组', danger: true }
-          ]}
-          onClick={({ key }) => {
-            if (key === 'delete') handleDeleteGroup(r);
-            if (key === 'bind') handleOpenBind(r);
-          }}
-        />
-      </Space>
+    { title: '操作', key: 'ops', fixed: 'right', render: (_, r) => (
+      <ResourceActionsDropdown
+        items={[
+          { key: 'addRule', label: '添加规则' },
+          { key: 'deploy', label: '下发配置', disabled: !r.vrId },
+          { key: 'bind', label: '关联其他 VR' },
+          { type: 'divider' },
+          { key: 'delete', label: '删除组', danger: true },
+        ]}
+        onClick={({ key }) => {
+          if (key === 'addRule') handleOpenCreateRule(r);
+          if (key === 'deploy' && r.vrId) handleDeploy(r.vrId);
+          if (key === 'bind') handleOpenBind(r);
+          if (key === 'delete') handleDeleteGroup(r);
+        }}
+        buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+      />
     )}
   ];
 
@@ -366,12 +364,11 @@ const ACLPage: React.FC = () => {
     { title: '目的端口', dataIndex: 'destinationPort', key: 'destinationPort' },
     { title: '操作', key: 'ops', render: (_, row) => (
       <ResourceActionsDropdown
-        items={[
-          { key: 'delete', label: '删除', danger: true }
-        ]}
+        items={[{ key: 'delete', label: '删除', danger: true }]}
         onClick={({ key }) => {
           if (key === 'delete') handleDeleteRule(row);
         }}
+        buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
       />
     )}
   ];
@@ -408,10 +405,6 @@ const ACLPage: React.FC = () => {
     });
   }, [groups, groupKeyword, groupVrFilter]);
 
-  const renderLabel = (text: string) => (
-    <span style={{ color: '#000000E0', fontSize: 14 }}>{text}</span>
-  );
-
   return (
     <PageContainer
       titleLevel={3}
@@ -431,7 +424,6 @@ const ACLPage: React.FC = () => {
           key: 'groups', 
           tab: (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <FolderOutlined style={{ marginRight: 0 }} />
               ACL 组管理
               <span>({groups.length})</span>
             </span>
@@ -441,7 +433,6 @@ const ACLPage: React.FC = () => {
           key: 'rules', 
           tab: (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <UnorderedListOutlined style={{ marginRight: 0 }} />
               所有规则列表
               <span>({rules.length})</span>
             </span>
@@ -454,39 +445,44 @@ const ACLPage: React.FC = () => {
         <Form
           className="toolbar-container"
           form={groupFilterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, all) => {
             setGroupKeyword(all.keyword || '');
             setGroupVrFilter(all.vrId || undefined);
           }}
         >
-          <Form.Item name="keyword" label={renderLabel("名称")}>
-            <Input allowClear placeholder="搜索组名称" style={{ width: 200 }} />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="组名称"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
           </Form.Item>
-          <Form.Item name="vrId" label={renderLabel("所属VR")}>
-            <Select allowClear placeholder="选择 VR" style={{ width: 180 }}>
-              {vrList.map(v => {
+          <Form.Item name="vrId" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="所属 VR" className="toolbar-filter-sm">
+              {vrList.map((v) => {
                 const id = v.uuid || v.id || v.vm_id;
                 const name = v.name || id;
-                return id ? (<Option key={id} value={id}>{name}</Option>) : null;
+                return id ? (
+                  <Option key={id} value={id}>
+                    {name}
+                  </Option>
+                ) : null;
               })}
             </Select>
           </Form.Item>
-          <Button
-            type="link"
-            onClick={resetGroupFilters}
-            className="toolbar-reset-btn"
-          >
+          <button type="button" className="toolbar-reset-btn" onClick={resetGroupFilters}>
             重置
-          </Button>
+          </button>
         </Form>
       )) || (activeTab === 'rules' && (
         <Form
           className="toolbar-container"
           form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, all) => {
             setKeyword(all.keyword || '');
             setVrFilter(all.vrId || undefined);
@@ -494,33 +490,44 @@ const ACLPage: React.FC = () => {
             setProtocolFilter(all.protocol || undefined);
           }}
         >
-          <Form.Item name="keyword" label={renderLabel("名称")}>
-            <Input allowClear placeholder="搜索名称" style={{ width: 200 }} />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="规则名称"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
           </Form.Item>
-          <Form.Item name="vrId" label={renderLabel("所属VR")}>
-            <Select allowClear placeholder="选择 VR" style={{ width: 180 }}>
-              {vrList.map(v => {
+          <Form.Item name="vrId" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="所属 VR" className="toolbar-filter-sm">
+              {vrList.map((v) => {
                 const id = v.uuid || v.id || v.vm_id;
                 const name = v.name || id;
-                return id ? (<Option key={id} value={id}>{name}</Option>) : null;
+                return id ? (
+                  <Option key={id} value={id}>
+                    {name}
+                  </Option>
+                ) : null;
               })}
             </Select>
           </Form.Item>
-          <Form.Item name="action" label={renderLabel("动作")}>
-            <Select allowClear placeholder="选择动作" style={{ width: 140 }}>
+          <Form.Item name="action" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="动作" className="toolbar-filter-sm">
               <Option value="permit">Permit</Option>
               <Option value="deny">Deny</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="protocol" label={renderLabel("协议")}>
-            <Select allowClear placeholder="选择协议" style={{ width: 140 }}>
+          <Form.Item name="protocol" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="协议" className="toolbar-filter-sm">
               <Option value="any">Any</Option>
               <Option value="tcp">TCP</Option>
               <Option value="udp">UDP</Option>
               <Option value="icmp">ICMP</Option>
             </Select>
           </Form.Item>
-          <Button type="link" onClick={resetFilters} style={{ height: 30, padding: 0, margin: 0, alignSelf: 'flex-end' }}>重置</Button>
+          <button type="button" className="toolbar-reset-btn" onClick={resetFilters}>
+            重置
+          </button>
         </Form>
       ))}
     >

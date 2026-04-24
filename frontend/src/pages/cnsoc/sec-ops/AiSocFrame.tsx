@@ -72,7 +72,10 @@ const AiSocFrame: React.FC<Props> = ({ path }) => {
 
   const cleanBase = baseUrl.replace(/\/$/, '');
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  const fullUrl = `${cleanBase}${cleanPath}?showHeader=false&showSidebar=false&showPadding=false`;
+  const embedUiQuery = 'showTitle=false&showHeader=false&showSidebar=false&showPadding=false';
+  const fullUrl = cleanPath.includes('?')
+    ? `${cleanBase}${cleanPath}&${embedUiQuery}`
+    : `${cleanBase}${cleanPath}?${embedUiQuery}`;
 
   return (
     <PageContainer asCard={false} contentPadding={0} hideDivider>

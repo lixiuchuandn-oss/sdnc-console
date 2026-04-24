@@ -113,6 +113,117 @@ button.admin-header-pool-access-btn:focus-visible {
   outline-offset: 2px;
 }
 
+/* ----- 顶栏右侧：当前用户、租户/组织标签、修改密码、登出（统一字号） ----- */
+.admin-header-actions {
+  --admin-header-action-font-size: 14px;
+}
+
+.admin-header-user-strip .ant-tag {
+  margin-inline-end: 0 !important;
+  font-size: var(--admin-header-action-font-size) !important;
+  line-height: 1.2 !important;
+  padding-block: 1px !important;
+}
+
+.admin-header-login-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--admin-header-action-font-size);
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.admin-header-login-user .anticon {
+  font-size: 1em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.admin-header-login-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+button.admin-header-change-pwd-link.ant-btn.ant-btn-link {
+  color: rgba(255, 255, 255, 0.92) !important;
+  padding: 0;
+  height: auto;
+  font-size: var(--admin-header-action-font-size) !important;
+  line-height: 1.2;
+}
+
+button.admin-header-change-pwd-link.ant-btn.ant-btn-link:hover {
+  color: #fff !important;
+}
+
+/* antd5 Button 的 background 会覆盖 background-clip，用 ::after 画内底 + 透明实底，避免与 antd 内联样式打架 */
+button.admin-header-logout-btn.ant-btn {
+  position: relative;
+  isolation: isolate;
+  color: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.42) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: var(--admin-header-action-font-size) !important;
+  line-height: 1.2;
+  min-height: 30px;
+  height: auto;
+  box-sizing: border-box;
+  padding: 0 12px;
+  min-width: 72px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+button.admin-header-logout-btn.ant-btn::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 3px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
+button.admin-header-logout-btn.ant-btn .anticon,
+button.admin-header-logout-btn.ant-btn > span {
+  position: relative;
+  z-index: 1;
+}
+
+button.admin-header-logout-btn.ant-btn .anticon {
+  font-size: 1em;
+  line-height: 1;
+}
+
+button.admin-header-logout-btn.ant-btn:hover {
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.62) !important;
+  background: transparent !important;
+}
+
+button.admin-header-logout-btn.ant-btn:hover::after {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+button.admin-header-logout-btn.ant-btn:active,
+button.admin-header-logout-btn.ant-btn:focus,
+button.admin-header-logout-btn.ant-btn:focus-visible {
+  background: transparent !important;
+}
+
+button.admin-header-logout-btn.ant-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+
 /* ----- 顶栏「可用区」Select：antd 5.13+ 支持 prefix；深色顶栏配色 ----- */
 .admin-header-zone-select.ant-select .ant-select-prefix {
   margin-inline-end: 4px;
@@ -146,4 +257,52 @@ button.admin-header-pool-access-btn:focus-visible {
 
 .admin-header-zone-select.ant-select .ant-select-arrow {
   color: rgba(255, 255, 255, 0.85);
+}
+
+/* ----- SDN 控制台：表格去边框（含 PageContainer 外的独立 Table、bordered 默认 true 等）
+ * 列表若使用 .std-table（与 VmSection 一致），须保留 global-new.css 里行底 #e5e6eb 分割线；
+ * 勿对 .ant-table-wrapper.std-table 再强制 border-bottom: none，否则会盖掉标准表样式。 ----- */
+.admin-outlet-sdncc .ant-table.ant-table-bordered > .ant-table-container {
+  border: none !important;
+}
+
+.admin-outlet-sdncc .ant-table.ant-table-bordered .ant-table-cell {
+  border-inline-end: none !important;
+  border-bottom: none !important;
+}
+
+.admin-outlet-sdncc .ant-table:not(.ant-table-bordered) .ant-table-cell {
+  border-inline-end: none !important;
+}
+
+.admin-outlet-sdncc .ant-table-wrapper:not(.std-table) .ant-table:not(.ant-table-bordered) .ant-table-thead > tr > th,
+.admin-outlet-sdncc .ant-table-wrapper:not(.std-table) .ant-table:not(.ant-table-bordered) .ant-table-tbody > tr > td,
+.admin-outlet-sdncc .ant-table-wrapper:not(.std-table) .ant-table:not(.ant-table-bordered) tfoot > tr > th,
+.admin-outlet-sdncc .ant-table-wrapper:not(.std-table) .ant-table:not(.ant-table-bordered) tfoot > tr > td {
+  border-bottom: none !important;
+}
+
+/* SDN 表格表头：与 VmSection/std-table 一致，不加粗、不依赖表头内联字体样式 */
+.admin-outlet-sdncc .ant-table-thead > tr > th.ant-table-cell {
+  font-weight: 400 !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+/* SDN：列表/详情工具栏 — 区块之间与换行间距统一 8px（与 VmSection / toolbar-container 一致） */
+.admin-outlet-sdncc .page-container-toolbar,
+.admin-outlet-sdncc .shared-toolbar {
+  gap: 8px;
+  row-gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-outlet-sdncc .page-toolbar {
+  gap: 8px !important;
+}
+
+/* 消除 Form 行内表单项默认水平 margin，间距仅由 gap: 8 控制 */
+.admin-outlet-sdncc .toolbar-container.ant-form-inline .ant-form-item,
+.admin-outlet-sdncc .toolbar-container .ant-form-item {
+  margin-inline-end: 0 !important;
 }

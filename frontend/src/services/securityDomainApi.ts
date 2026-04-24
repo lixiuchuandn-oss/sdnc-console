@@ -2,7 +2,7 @@ import { apiRequest, apiPost, apiPatch, apiDelete } from './api';
 
 export interface SecurityDomainPayload {
   name: string;
-  category?: string; // vpc | flat
+  category?: string; // vpc | flat | container（容器云/Rancher）
   subType?: string; // 公有云VPC网络/私有云VPC网络/虚拟化网络/IDC网络/办公网络 等
   cidr?: string; // 非 VPC 类型的 IPv4 CIDR
   cidr6?: string; // 非 VPC 类型的 IPv6 CIDR（可选，逗号分隔）

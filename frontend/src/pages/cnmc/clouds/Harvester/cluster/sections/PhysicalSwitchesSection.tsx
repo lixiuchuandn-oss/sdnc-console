@@ -6,7 +6,7 @@
  *   南向 SSH 至接入交换机执行只读 CLI。与「集群内能力」同属 Harvester 集群，故 UI 放在 `Harvester/cluster/`。
  *
  * 【Cloudmap 与 Harvester】
- * - Cloudmap「集群 → 物理交换机」Tab 引用本 Section；数据经 Tower `.../harvester/asw-ctl/*`（cloudId 为当前资源池）。
+ * - Cloudmap「集群 → 物理交换机」Tab 引用本 Section；首屏读 Tower 入库缓存（GET switches），工具栏刷新触发 sync（探测并写库）。
  *
  * 【配置】
  * - 访问地址固定为资源池 **API Endpoint**（与控制台连集群相同），路径 `/v1/hms/*`。
@@ -657,9 +657,11 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
                   const ref = switchRecordManagementHost(r);
                   const q =
                     ref && ref !== '—'
-                      ? `?tab=resource_hub&sub=datacenter_topology&switch_ref=${encodeURIComponent(ref)}`
-                      : '?tab=resource_hub&sub=datacenter_topology';
-                  navigate(`/admin/clouds/${encodeURIComponent(cloudId)}${q}`);
+                      ? `?switch_ref=${encodeURIComponent(ref)}`
+                      : '';
+                  navigate(
+                    `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/datacenter_topology${q}`,
+                  );
                 },
               },
             ]}
@@ -826,6 +828,10 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
 
       {summary?.onlyFirstAswCtl && summary?.onlyFirstAswCtlMessage ? (
         <Alert type="warning" showIcon message={summary.onlyFirstAswCtlMessage} />
+      ) : null}
+
+      {summary?.liveError ? (
+        <Alert type="warning" showIcon message={summary.liveError} style={{ marginBottom: 12 }} />
       ) : null}
 
       <Table

@@ -23,14 +23,28 @@ export function switchRecordDeviceProfile(r: any): string {
   return p ? String(p).trim() : '';
 }
 
-/** 从 /v1/switch/info 的 lines[].stdout 抽取交换机展示名（WOS Description、Host/System Name、华为 sysname 等）。 */
+/** 从 /v1/switch/info 的 lines[].stdout 抽取交换机展示名（WOS Name、Host/System Name、华为 sysname 等；威努特不用整段 Description 作名称）。 */
 export function parseSwitchDisplayNameFromInfoLines(lines: any[] | undefined): string {
   if (!Array.isArray(lines)) return '';
   for (const ln of lines) {
     const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
     if (!out.trim()) continue;
+
+    // 威努特 WOS system dump：优先 Name:（如 DRAGON），避免把 Description 整段版本说明当作设备名
+    if (/winicssec|WES\d+/i.test(out)) {
+      const wosName = out.match(/Name:\s*([^\n,]+)/i);
+      if (wosName?.[1]) {
+        const s = wosName[1].replace(/\s+/g, ' ').trim();
+        if (s && !/^Unknown$/i.test(s)) return s.slice(0, 160);
+      }
+    }
+
     const desc = out.match(/(?:^|\n)\s*Description:\s*([^\n\r]+)/i);
     if (desc?.[1]) {
+      if (/winicssec|WES\d+/i.test(out)) {
+        // 有 Name: 时已返回；无 Name: 时设备名交给上层 record.name，不在此用整段/型号冒充名称
+        continue;
+      }
       const s = desc[1].replace(/\s+/g, ' ').trim();
       if (s) return s.slice(0, 160);
     }
@@ -55,13 +69,25 @@ export function parseSwitchDisplayNameFromInfoLines(lines: any[] | undefined): s
 }
 
 /**
- * 从 info 各命令 stdout 抽取硬件型号（如华为 `display version` 中的 `HUAWEI S5720S-28P-LI-AC Routing Switch`）。
+ * 从 info 各命令 stdout 抽取硬件型号（如华为 `display version` 中的 `HUAWEI S5720S-28P-LI-AC`；威努特 WOS 的 `WES6300 V2R01C02`）。
  */
 export function parseSwitchProductModelFromInfoLines(lines: any[] | undefined): string {
   if (!Array.isArray(lines)) return '';
   for (const ln of lines) {
     const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
     if (!out.trim()) continue;
+
+    if (/winicssec|WES\d+/i.test(out)) {
+      const d = out.match(/(?:^|\n)\s*Description:\s*([^\n\r]+)/i);
+      if (d?.[1]) {
+        const m = d[1].match(/(WES[0-9A-Za-z-]+)(?:\s+([A-Z0-9.]+))?(?=::)/i);
+        if (m?.[1]) {
+          return m[2] ? `${m[1]} ${m[2]}`.slice(0, 120) : m[1].slice(0, 120);
+        }
+        const m2 = d[1].match(/(WES[0-9A-Za-z-]+)/i);
+        if (m2?.[1]) return m2[1].slice(0, 120);
+      }
+    }
 
     const huaweiRouting = out.match(
       /(?:^|[\r\n])\s*HUAWEI\s+(\S+)\s+Routing Switch\b/i,

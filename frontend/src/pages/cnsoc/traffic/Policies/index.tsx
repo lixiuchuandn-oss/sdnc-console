@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Button, Space, Tag, Input, Select, message, Modal, Form } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { Tag, Input, message, Modal } from 'antd';
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 
 interface PolicyRow {
   id: string;
@@ -16,25 +17,9 @@ interface PolicyRow {
   port: string;
   status: 'active' | 'inactive';
   description: string;
-  type: 'diversion' | 'blocking';
 }
 
 const mockData: PolicyRow[] = [
-  {
-    id: '1',
-    name: 'Web-Diversion-01',
-    priority: 100,
-    sourceZone: 'Trust',
-    destZone: 'Untrust',
-    sourceIp: '192.168.1.0/24',
-    destIp: 'Any',
-    serviceChain: 'Web Protection Chain',
-    protocol: 'TCP',
-    port: '80,443',
-    status: 'active',
-    description: 'Divert web traffic to WAF',
-    type: 'diversion',
-  },
   {
     id: '2',
     name: 'Block-Malicious',
@@ -48,16 +33,14 @@ const mockData: PolicyRow[] = [
     port: 'Any',
     status: 'active',
     description: 'Block known malicious IP',
-    type: 'blocking',
   },
 ];
 
 const Policies: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('diversion');
   const [searchText, setSearchText] = useState('');
 
-  const filteredData = mockData.filter(
-    (item) => item.type === activeTab && item.name.toLowerCase().includes(searchText.toLowerCase())
+  const filteredData = mockData.filter((item) =>
+    item.name.toLowerCase().includes(searchText.toLowerCase()),
   );
 
   const columns: any = [
@@ -84,39 +67,54 @@ const Policies: React.FC = () => {
     {
       title: '操作',
       key: 'action',
+      fixed: 'right',
       render: (_: any, record: PolicyRow) => (
-        <Space size="middle">
-          <Button type="link" icon={<EditOutlined />} onClick={() => message.info(`编辑策略: ${record.name}`)}>
-            编辑
-          </Button>
-          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => message.info(`删除策略: ${record.name}`)}>
-            删除
-          </Button>
-        </Space>
+        <ResourceActionsDropdown
+          items={[
+            { key: 'edit', label: '编辑' },
+            { type: 'divider' },
+            { key: 'delete', label: '删除', danger: true },
+          ]}
+          onClick={({ key }) => {
+            if (key === 'edit') message.info(`编辑策略: ${record.name}`);
+            if (key === 'delete') {
+              Modal.confirm({
+                title: '删除策略',
+                content: `确定删除「${record.name}」吗？`,
+                okText: '删除',
+                okType: 'danger',
+                cancelText: '取消',
+                onOk: () => message.info('删除流程待接入后端'),
+              });
+            }
+          }}
+          buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+        />
       ),
     },
   ];
 
   return (
     <PageContainer
-      tabList={[
-        { key: 'diversion', tab: '引流策略' },
-        { key: 'blocking', tab: '阻断策略' },
-      ]}
-      tabActiveKey={activeTab}
-      onTabChange={setActiveTab}
+      onRefresh={() => message.info('刷新待接入后端')}
       toolbarLeft={
-        <Form layout="vertical" style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-          <Form.Item label="关键字" style={{ marginBottom: 0 }}>
-            <Input
-              placeholder="搜索策略名称"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              style={{ width: 250 }}
-              allowClear
-            />
-          </Form.Item>
-        </Form>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Input
+            allowClear
+            placeholder="策略名称"
+            className="toolbar-search"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => setSearchText('')}
+          >
+            重置
+          </button>
+        </div>
       }
       primaryAction={{
         text: '新建策略',
@@ -127,7 +125,8 @@ const Policies: React.FC = () => {
         columns,
         dataSource: filteredData,
         rowKey: 'id',
-        pagination: { pageSize: 10 },
+        className: 'vr-table std-table',
+        pagination: { pageSize: 10, showTotal: (total) => `共 ${total} 条` },
       }}
     />
   );

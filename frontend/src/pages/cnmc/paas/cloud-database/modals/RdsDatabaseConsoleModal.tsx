@@ -1,18 +1,40 @@
-import React from 'react';
-import { Modal } from 'antd';
+import React, { useMemo } from 'react';
+import { Alert, Empty, Modal } from 'antd';
 
-/** 数据库管理控制台嵌入地址 */
-export const RDS_DATABASE_CONSOLE_URL = 'http://10.20.17.77:3000/';
+const DEFAULT_CONSOLE_PORT = 3000;
+
+/** 与 RdsManageDrawer readPrimaryIp 一致：Harvester VM / VMI 主网卡 IP */
+export const readRdsVmPrimaryIp = (vm: any): string => {
+  const interfaces = vm?.status?.interfaces || vm?.vmi?.status?.interfaces || [];
+  const first = Array.isArray(interfaces) ? interfaces[0] : null;
+  const raw = first?.ipAddress || first?.ip || '';
+  const s = String(raw).trim();
+  if (!s || s === '-') return '';
+  return s;
+};
+
+export const buildRdsDatabaseConsoleUrl = (vm: any, port: number = DEFAULT_CONSOLE_PORT): string => {
+  const ip = readRdsVmPrimaryIp(vm);
+  if (!ip) return '';
+  return `http://${ip}:${port}/`;
+};
 
 type Props = {
   open: boolean;
   onClose: () => void;
+  /** 当前要打开管理台的虚拟机对象（列表行记录） */
+  vm: any | null;
+  /** 管理台 HTTP 端口，默认 3000 */
+  port?: number;
 };
 
 /**
  * 大模态框内 iframe 嵌套外部数据库管理页（不下钻路由）。
+ * 控制台地址由实例虚拟机主网卡 IP 与端口拼接。
  */
-const RdsDatabaseConsoleModal: React.FC<Props> = ({ open, onClose }) => {
+const RdsDatabaseConsoleModal: React.FC<Props> = ({ open, onClose, vm, port = DEFAULT_CONSOLE_PORT }) => {
+  const src = useMemo(() => (vm ? buildRdsDatabaseConsoleUrl(vm, port) : ''), [vm, port]);
+
   return (
     <Modal
       title={null}
@@ -43,16 +65,39 @@ const RdsDatabaseConsoleModal: React.FC<Props> = ({ open, onClose }) => {
       destroyOnHidden
       maskClosable
     >
-      <iframe
-        title="数据库管理"
-        src={RDS_DATABASE_CONSOLE_URL}
-        style={{
-          width: '100%',
-          height: '100%',
-          border: 'none',
-          display: 'block',
-        }}
-      />
+      {src ? (
+        <iframe
+          title="数据库管理"
+          src={src}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            display: 'block',
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            height: '100%',
+            minHeight: 280,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: 24,
+          }}
+        >
+          <Alert
+            type="warning"
+            showIcon
+            message="暂无法打开管理台"
+            description="当前实例在列表数据中还没有可用的虚拟机 IP（请确认实例已运行且网络已分配）。"
+          />
+          <Empty description="无 IP 时不加载 iframe" />
+        </div>
+      )}
     </Modal>
   );
 };

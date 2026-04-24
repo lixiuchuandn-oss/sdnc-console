@@ -1,0 +1,42 @@
+/**
+ * 集群：侧栏仅一项「集群」；主区为单页多区块纵向滚动，可选 URL 锚点 `/cluster/<seg>`。
+ */
+.cloudmap-cluster-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  gap: 24px;
+  padding-bottom: 24px;
+  box-sizing: border-box;
+}
+
+.cloudmap-cluster-section {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cloudmap-cluster-section-heading {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.cloudmap-cluster-section-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cloudmap-cluster-section-body > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}

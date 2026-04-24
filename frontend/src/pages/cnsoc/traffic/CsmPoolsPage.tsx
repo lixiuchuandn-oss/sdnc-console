@@ -5,12 +5,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Modal, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined } from '@ant-design/icons';
 
 import PageContainer from '../../../components/PageContainer';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { fetchClouds as fetchCloudsApi, apiDelete } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { routeSpecs } from '../../../routes/RouteSpec';
 import CloudWizard from '../../cnmc/pools/CloudWizard';
 import CloudEditModal from '../../cnmc/clouds/Harvester/ecs/modals/CloudEditModal';
 import {
@@ -24,16 +25,18 @@ import {
 
 const { Text } = Typography;
 
+/** 与 `RouteSpec` 中 `traffic-csm-pools` 对齐：路径、文案、权限均单点维护 */
+const trafficCsmPoolsSpec = routeSpecs.find((s) => s.id === 'traffic-csm-pools');
+const csmPoolsListPath = trafficCsmPoolsSpec?.path ?? '/admin/security/traffic/csm-pools';
+const csmPoolsPageAction = trafficCsmPoolsSpec?.requiredActions?.page ?? null;
+const csmPoolsWriteAction = trafficCsmPoolsSpec?.requiredActions?.write ?? null;
+
 const CsmPoolsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
-  const canRead =
-    hasPermissionForAction(perms, 'security.services:read') ||
-    hasPermissionForAction(perms, 'clouds.resource-pools:read');
-  const canWrite =
-    hasPermissionForAction(perms, 'security.services:write') ||
-    hasPermissionForAction(perms, 'clouds.resource-pools:write');
+  const canRead = hasPermissionForAction(perms, csmPoolsPageAction);
+  const canWrite = hasPermissionForAction(perms, csmPoolsWriteAction);
 
   const [clouds, setClouds] = useState<Cloud[]>([]);
   const [loading, setLoading] = useState(false);
@@ -93,7 +96,7 @@ const CsmPoolsPage: React.FC = () => {
           <Button
             type="link"
             style={{ padding: 0 }}
-            onClick={() => navigate(`/admin/security/traffic/csm-pools/${record.id}`)}
+            onClick={() => navigate(`${csmPoolsListPath}/${record.id}`)}
           >
             {text}
           </Button>
@@ -132,59 +135,60 @@ const CsmPoolsPage: React.FC = () => {
       {
         title: '操作',
         key: 'op',
-        width: 180,
+        width: 80,
+        fixed: 'right',
         render: (_: unknown, record) => (
-          <Space>
-            <Button
-              type="link"
-              size="small"
-              disabled={!canWrite}
-              onClick={() => {
+          <ResourceActionsDropdown
+            items={[
+              { key: 'edit', label: '编辑', disabled: !canWrite },
+              { type: 'divider' },
+              { key: 'delete', label: '删除', danger: true, disabled: !canWrite },
+            ]}
+            onClick={({ key }) => {
+              if (key === 'edit') {
                 setEditing(record);
                 setEditOpen(true);
-              }}
-            >
-              编辑
-            </Button>
-            <Button type="link" size="small" danger disabled={!canWrite} onClick={() => handleDelete(record.id)}>
-              删除
-            </Button>
-          </Space>
+              }
+              if (key === 'delete') handleDelete(record.id);
+            }}
+            buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+          />
         ),
       },
     ],
-    [navigate, canWrite, handleDelete],
+    [navigate, canWrite, handleDelete, csmPoolsListPath],
   );
 
   if (!canRead) {
     return (
-      <PageContainer title="CSM 安全资源池" titleLevel={3} asCard={false}>
-        <div style={{ padding: 24 }}>无访问权限（需要安全服务或资源池读权限）。</div>
+      <PageContainer titleLevel={3} asCard={false}>
+        <div style={{ padding: 24 }}>
+          无访问权限。需要安全服务的读权限
+          {csmPoolsPageAction ? `（${csmPoolsPageAction}）` : ''}。
+        </div>
       </PageContainer>
     );
   }
 
   return (
     <PageContainer
-      title="CSM 安全资源池"
       titleLevel={3}
       asCard={false}
-      subtitle="归属 SDN 流量编排；多云资源池管理列表中不再展示 CSM。"
-      toolbarRight={
-        <Space>
-          <Button type="primary" disabled={!canWrite} onClick={() => setWizardVisible(true)}>
-            接入资源池
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()} />
-        </Space>
-      }
+      primaryAction={{
+        text: '接入资源池',
+        onClick: () => setWizardVisible(true),
+        disabled: !canWrite,
+      }}
+      onRefresh={() => void load()}
     >
       <Table
         rowKey="id"
         loading={loading}
         columns={columns}
         dataSource={clouds}
-        pagination={{ showTotal: (t) => `共 ${t} 条` }}
+        className="vr-table std-table"
+        bordered={false}
+        pagination={{ size: 'small', showTotal: (t) => `共 ${t} 条` }}
       />
       <CloudWizard
         visible={wizardVisible}

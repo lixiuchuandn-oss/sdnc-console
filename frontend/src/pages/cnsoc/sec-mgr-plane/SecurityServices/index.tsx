@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Input, Select, Space, Tag, Typography, message, Modal, Table } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { Input, Select, Space, Tag, Typography, message, Modal, Table } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchClouds, fetchCsmElementGroups } from '../../../../services/api';
 import { listSecurityDomains, getSecurityDomain, updateSecurityDomain } from '../../../../services/securityDomainApi';
@@ -461,7 +461,14 @@ const SecurityServices: React.FC = () => {
             });
           }
         };
-        return <ResourceActionsDropdown items={items} onClick={onClick} buttonType="text" />;
+        return (
+          <ResourceActionsDropdown
+            items={items}
+            onClick={onClick}
+            buttonType="text"
+            buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+          />
+        );
       },
     },
   ];
@@ -470,42 +477,36 @@ const SecurityServices: React.FC = () => {
     <>
       <PageContainer
         pagePadding="24px 36px"
+        onRefresh={load}
         toolbarLeft={
-          <Space align="end" size={12}>
-            <div>
-              <div style={{ fontSize: 14, color: '#000000E0', paddingBottom: 8 }}>关键字</div>
-              <Input
-                allowClear
-                style={{ width: 260 }}
-                placeholder="服务名称 / ID / 厂商 / 资源池"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 14, color: '#000000E0', paddingBottom: 8 }}>所属安全资源池</div>
-              <Select
-                allowClear
-                placeholder="全部"
-                style={{ width: 220 }}
-                value={cloudFilter}
-                onChange={(v) => setCloudFilter(v)}
-                options={cloudOptions}
-              />
-            </div>
-            <Typography.Link
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Input
+              allowClear
+              className="toolbar-search"
+              placeholder="服务名称 / ID / 厂商 / 资源池"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+            <Select
+              allowClear
+              placeholder="安全资源池"
+              className="toolbar-filter"
+              value={cloudFilter}
+              onChange={(v) => setCloudFilter(v)}
+              options={cloudOptions}
+            />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
               onClick={() => {
                 setKeyword('');
                 setCloudFilter(undefined);
               }}
-              style={{ padding: 0, margin: 0, height: 30, lineHeight: '30px', display: 'inline-block' }}
             >
               重置
-            </Typography.Link>
-          </Space>
-        }
-        toolbarRight={
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} />
+            </button>
+          </div>
         }
         tableProps={{
           loading,
@@ -516,7 +517,7 @@ const SecurityServices: React.FC = () => {
             size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           },
-          bordered: true,
+          className: 'vr-table std-table',
         }}
       />
       <Modal
@@ -579,7 +580,8 @@ const SecurityServices: React.FC = () => {
         destroyOnHidden
       >
         <Table
-          bordered
+          className="vr-table std-table"
+          bordered={false}
           rowKey="id"
           dataSource={assignedDomainsForService}
           columns={assignedDomainColumns}

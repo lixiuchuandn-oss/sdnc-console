@@ -297,7 +297,7 @@ const SecurityDomainDetail: React.FC = () => {
   // Common toolbar for sections
   const renderToolbar = (placeholder = "搜索...") => ({
     toolbarLeft: (
-      <Space>
+      <Space size={8}>
         {/* PRD: 关键字搜索（不要放大镜） */}
         <Input placeholder={placeholder} style={{ width: 240 }} allowClear />
         {/* PRD: 类型选择下拉框 */}

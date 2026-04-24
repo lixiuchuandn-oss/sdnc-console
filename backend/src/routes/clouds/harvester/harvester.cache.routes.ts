@@ -17,6 +17,7 @@ import { registerHarvesterContainerRoutes } from './harvester.cache.container.ro
 import {
   harvesterAswCtlProbeHandler,
   harvesterAswCtlSwitchesHandler,
+  harvesterAswCtlSyncHandler,
 } from './handlers/asw-ctl.handlers';
 
 /**
@@ -87,6 +88,11 @@ export const registerHarvesterRoutes = (
     '/:id/resources/harvester/asw-ctl/switches',
     checkAdminPermission,
     harvesterAswCtlSwitchesHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/asw-ctl/sync',
+    checkAdminPermission,
+    harvesterAswCtlSyncHandler,
   );
   router.post(
     '/:id/resources/harvester/asw-ctl/probe',

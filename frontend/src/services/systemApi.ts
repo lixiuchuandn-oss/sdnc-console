@@ -26,24 +26,6 @@ export async function getPublicSystemUi(): Promise<Record<string, string> | null
   return d as Record<string, string>;
 }
 
-export type DifyConfig = {
-  baseUrl?: string;
-  apiKey?: string;
-  workflowId?: string;
-  logsDir?: string;
-  reportsDir?: string;
-  mode?: 'workflow' | 'chat';
-  fileVarName?: string;
-};
-
-export async function getDifyConfig(): Promise<{ config: DifyConfig & { apiKey?: string } }> {
-  return await apiRequest(`${API_BASE}/dify-config`);
-}
-
-export async function updateDifyConfig(payload: DifyConfig): Promise<{ config: DifyConfig & { apiKey?: string } }> {
-  return await apiPatch(`${API_BASE}/dify-config`, payload);
-}
-
 export async function uploadSecurityLogs(files: File[]): Promise<{ ok: boolean; count: number; files: { fileName: string }[] }> {
   const form = new FormData();
   files.forEach(f => form.append('files', f, f.name));

@@ -156,10 +156,12 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
   const drawerWidthCss = 'min(1000px, 96vw)';
 
   const host = record ? switchRecordManagementHost(record) : '—';
-  const displayName = useMemo(
-    () => (record ? parseSwitchDisplayNameFromInfoLines(record.info?.lines) : ''),
-    [record],
-  );
+  const displayName = useMemo(() => {
+    if (!record) return '';
+    const fromInfo = parseSwitchDisplayNameFromInfoLines(record.info?.lines);
+    if (fromInfo) return fromInfo;
+    return String((record as { name?: string }).name || '').trim();
+  }, [record]);
   const productModel = useMemo(
     () => (record ? parseSwitchProductModelFromInfoLines(record.info?.lines) : ''),
     [record],

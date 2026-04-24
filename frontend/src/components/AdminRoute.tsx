@@ -55,11 +55,20 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   })();
 
   if (currentSpec?.requiredFeature && !hasFeature(currentSpec.requiredFeature)) {
+    const needPoolMgmtLicense = currentSpec.requiredFeature === 'platform.default';
+    const canOpenPoolList = hasFeature('platform.default');
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
         <div style={{ fontSize:18, color:'#595959' }}>当前授权未包含该功能</div>
-        <div style={{ display:'flex', gap:12 }}>
-          <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/clouds')}>进入资源池管理</button>
+        {needPoolMgmtLicense && !canOpenPoolList && (
+          <div style={{ fontSize:14, color:'#8c8c8c', maxWidth:420, textAlign:'center' }}>
+            未开通资源池管理授权时，请使用页面顶部「可用区」选择或接入资源池；完整列表与运维能力需在授权后开放。
+          </div>
+        )}
+        <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:12 }}>
+          {canOpenPoolList && (
+            <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/clouds')}>进入资源池管理</button>
+          )}
           <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/settings/license')}>查看授权</button>
           <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={logout}>退出登录</button>
         </div>
@@ -73,8 +82,10 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
         <div style={{ fontSize:18, color:'#595959' }}>当前账号没有访问该页面的权限</div>
-        <div style={{ display:'flex', gap:12 }}>
-          <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/clouds')}>返回资源池</button>
+        <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:12 }}>
+          {hasFeature('platform.default') && (
+            <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/clouds')}>返回资源池</button>
+          )}
           <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={logout}>退出登录</button>
         </div>
       </div>

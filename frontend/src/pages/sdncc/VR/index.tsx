@@ -24,9 +24,10 @@ import {
   TreeSelect,
   Typography,
 } from 'antd';
-import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
 import PageContainer from '../../../components/PageContainer';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import StdFormModal from '../../../components/StdFormModal';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
@@ -863,10 +864,12 @@ const VRPage: React.FC = () => {
           width: 80,
           fixed: 'right',
           render: (_: any, row: VRRow) => (
-            <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
-              <Button type="text" icon={<EllipsisOutlined />} />
-            </Dropdown>
-          )
+            <ResourceActionsDropdown
+              items={getActionMenu(row)}
+              onClick={handleRowActionClick(row) as any}
+              buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+            />
+          ),
         }
       ];
 
@@ -1141,8 +1144,8 @@ const VRPage: React.FC = () => {
         <Form
           className="toolbar-container"
           form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, all) => {
             setKeyword(all.keyword || '');
             setStatusFilter(all.status || undefined);
@@ -1150,17 +1153,22 @@ const VRPage: React.FC = () => {
             setTenantFilter(all.tenant || undefined);
           }}
         >
-          <Form.Item name="keyword">
-            <Input allowClear placeholder="搜索名称" className="toolbar-search" />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="名称 / ID"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
           </Form.Item>
-          <Form.Item name="status">
-            <Select allowClear placeholder="选择状态" className="toolbar-filter">
+          <Form.Item name="status" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="状态" className="toolbar-filter">
               <Select.Option value="running">运行中</Select.Option>
               <Select.Option value="stopped">已停止</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="role">
-            <Select allowClear placeholder="选择角色" className="toolbar-filter">
+          <Form.Item name="role" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="角色" className="toolbar-filter">
               <Select.Option value="标准">标准（虚拟路由）</Select.Option>
               <Select.Option value="SASE">SASE（安全网关）</Select.Option>
               <Select.Option value="PE">PE（BGP公网互联）</Select.Option>
@@ -1168,10 +1176,10 @@ const VRPage: React.FC = () => {
               <Select.Option value="未设置">未设置</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="tenant">
+          <Form.Item name="tenant" style={{ marginBottom: 0 }}>
             <Select
               allowClear
-              placeholder="选择租户"
+              placeholder="租户"
               className="toolbar-filter"
               showSearch
               optionFilterProp="label"
@@ -1179,6 +1187,19 @@ const VRPage: React.FC = () => {
               options={tenantOptions}
             />
           </Form.Item>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              filterForm.resetFields();
+              setKeyword('');
+              setStatusFilter(undefined);
+              setRoleFilter(undefined);
+              setTenantFilter(undefined);
+            }}
+          >
+            重置
+          </button>
         </Form>
       )}
       tableProps={{

@@ -14,6 +14,10 @@ import {
   getPlatformFromDefinition,
   splitResourceConsoleFeatures,
   sortCloudmapFeatures,
+  RESOURCE_POOL_PLATFORM_ENTRY_PREFIX_SET,
+  sortByResourceConsoleFeatureOrder,
+  groupResourceConsoleChildFeatures,
+  mergeResourceConsoleIntoPlatformEntryGroup,
 } from '../../../utils/permissionUtils';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
@@ -120,11 +124,15 @@ const AccessRolesPage: React.FC = () => {
         : getFeatureFromDefinition(action, permissionDefinitions);
       const feature = normalizeFeatureName(featureRaw);
       
-      // 如果有关键字筛选，检查功能名称是否匹配
-      if ((kw||'').length > 0) {
-        if (!feature.toLowerCase().includes(kw.toLowerCase()) && 
-            !resource.toLowerCase().includes(kw.toLowerCase())) {
-          return; // 不匹配关键字，跳过
+      // 如果有关键字筛选：匹配展示名、资源前缀、或完整 :read/:write 原子 ID
+      if ((kw || '').length > 0) {
+        const k = kw.toLowerCase();
+        const hitFeature = feature.toLowerCase().includes(k);
+        const hitResource = resource.toLowerCase().includes(k);
+        const hitReadWrite =
+          `${resource}:read`.toLowerCase().includes(k) || `${resource}:write`.toLowerCase().includes(k);
+        if (!hitFeature && !hitResource && !hitReadWrite) {
+          return;
         }
       }
 
@@ -180,7 +188,7 @@ const AccessRolesPage: React.FC = () => {
             if (indexB === -1) return -1;
             return indexA - indexB;
           })
-          .map(([group, featureMap]) => {
+          .flatMap(([group, featureMap]) => {
             type PermissionFeatureItem = {
               feature: string;
               resourcePrefix: string;
@@ -188,6 +196,7 @@ const AccessRolesPage: React.FC = () => {
               write?: string;
               readVisible: boolean;
               writeVisible: boolean;
+              isResourceParent?: boolean;
             };
 
             const rawFeatures: PermissionFeatureItem[] = Array.from(featureMap.entries())
@@ -200,7 +209,7 @@ const AccessRolesPage: React.FC = () => {
                 writeVisible: perms.writeVisible !== false,
               }));
 
-            const features =
+            const features: PermissionFeatureItem[] =
               group === '资源池管理'
                 ? (() => {
                     const { parents, children } = splitResourceConsoleFeatures(rawFeatures);
@@ -212,9 +221,33 @@ const AccessRolesPage: React.FC = () => {
                 : group === '资源控制台'
                   ? sortCloudmapFeatures(rawFeatures)
                   : rawFeatures.sort((a, b) => a.feature.localeCompare(b.feature));
-            return { group, features };
+
+            if (group !== '资源池管理') {
+              return [{ group, features }];
+            }
+
+            const entryFeatures = sortByResourceConsoleFeatureOrder(
+              features.filter((f) => RESOURCE_POOL_PLATFORM_ENTRY_PREFIX_SET.has(f.resourcePrefix)),
+            );
+            const restFeatures = sortByResourceConsoleFeatureOrder(
+              features.filter((f) => !RESOURCE_POOL_PLATFORM_ENTRY_PREFIX_SET.has(f.resourcePrefix)),
+            );
+
+            const out: { group: string; features: PermissionFeatureItem[] }[] = [];
+            if (entryFeatures.length > 0) {
+              out.push({ group: '平台入口能力', features: entryFeatures });
+            }
+            if (restFeatures.length > 0) {
+              const catalogSections = groupResourceConsoleChildFeatures(restFeatures);
+              for (const sec of catalogSections) {
+                out.push({ group: sec.label, features: sec.items });
+              }
+            }
+            return out.length > 0 ? out : [{ group: '资源池管理', features: [] }];
           });
-        return { platform, groups };
+        const mergedGroups =
+          platform === 'CNMC' ? mergeResourceConsoleIntoPlatformEntryGroup(groups) : groups;
+        return { platform, groups: mergedGroups };
       });
 
     return platforms;

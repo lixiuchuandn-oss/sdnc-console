@@ -1,3 +1,5 @@
+import { CLOUDMAP_POOL_NAV_ROWS } from './cloudmapPoolNavRows';
+
 export interface RouteSpec {
   id: string;
   path: string;
@@ -26,7 +28,47 @@ export interface RouteSpec {
    * - 如果未设置，则不会作为首页候选
    */
   homePagePriority?: number;
+  /**
+   * `cloudmap-pool`：仅用于 Cloudmap 资源池侧栏与面包屑元数据；
+   * 不参与管理端顶栏平台菜单；池内路径仍写入路径→权限映射（`clouds.console:read`）。
+   */
+  navScope?: 'default' | 'cloudmap-pool';
+  /** Cloudmap 池侧栏分组标题（中文） */
+  poolNavGroup?: string;
+  /** Cloudmap 池侧栏 Ant Menu 父级 key（非路径） */
+  poolMenuParentKey?: string;
 }
+
+function toCloudmapPoolRouteSpec(
+  r: (typeof CLOUDMAP_POOL_NAV_ROWS)[number],
+): RouteSpec {
+  return {
+    id: r.id,
+    path: `/admin/clouds/:cloudId/${r.pathSuffix}`,
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: 'Cloudmap资源池',
+    hidden: true,
+    navScope: 'cloudmap-pool',
+    poolNavGroup: r.poolNavGroup,
+    poolMenuParentKey: r.poolMenuParentKey || undefined,
+    title: r.title,
+    breadcrumbLabel: r.title,
+    subtitle: `${r.poolNavGroup} · ${r.title}`,
+    icon: r.icon,
+    order: r.order,
+    /** 池内页走控制台读权限；未开通 platform.default 时仍可通过顶栏进入池内（与 /admin/clouds 列表区分） */
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+    requiredFeature: r.requiredFeature,
+  };
+}
+
+const cloudmapPoolRouteSpecs: RouteSpec[] = CLOUDMAP_POOL_NAV_ROWS.map(toCloudmapPoolRouteSpec);
 
 export const routeSpecs: RouteSpec[] = [
   // ============================================================================
@@ -72,6 +114,22 @@ export const routeSpecs: RouteSpec[] = [
     order: 3,
     requiredFeature: 'platform.default',
     homePagePriority: 2
+  },
+  /** 与 App.tsx 中 Route 一致；用于路径权限映射（避免落入 /admin/clouds 列表的 resource-pools 权限） */
+  {
+    id: 'rancher-cluster-workspace',
+    path: '/admin/clouds/:poolId/clusters/:clusterId',
+    element: 'RancherClusterWorkspace',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: 'Cloudmap资源池',
+    hidden: true,
+    title: 'Rancher 集群工作台',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
   },
   {
     id: 'paas-databases',
@@ -322,7 +380,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '安全管理面',
     title: '安全域管理',
-    subtitle: '构建跨多云环境的统一安全边界，通过逻辑隔离与策略编排，实现对 VPC、办公网及扁平网络等异构资产的精细化防护与全生命周期管理。',
+    subtitle: '统一管理多云安全域边界，逻辑隔离 VPC、办公与扁平网络，支撑策略编排与全生命周期运维。',
     icon: 'ClusterOutlined',
     order: 1,
     requiredActions: {
@@ -358,7 +416,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '安全管理面',
     title: '级联通道管理',
-    subtitle: '管理跨地域、跨云环境的安全互联通道（CEN），支持 Mesh 和 Hub-Spoke 两种拓扑模式，实现安全域之间的网络连通与策略编排，提供通道状态监控与性能指标展示。',
+    subtitle: '跨地域与跨云的 CEN 互联通道，支持 Mesh 与 Hub-Spoke，监控通道状态、丢包、时延与 SLA。',
     icon: 'ShareAltOutlined',
     order: 2,
     requiredActions: {
@@ -394,7 +452,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '安全管理面',
     title: '应用管理',
-    subtitle: '基于微隔离技术实现应用与服务的精细化安全管理，支持应用分组、服务发现、访问策略配置，通过零信任网络模型保障应用间的安全隔离与访问控制。',
+    subtitle: '微隔离场景下的应用纳管、服务发现与访问策略配置，落实零信任模型下的隔离与访问控制。',
     icon: 'AppstoreAddOutlined',
     order: 3,
     requiredActions: {
@@ -412,7 +470,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '安全管理面',
     title: '安全服务管理',
-    subtitle: '管理 CSM 安全资源池中的安全服务（安全网元组），包括防火墙、IPS、WAF 等安全组件的统一生命周期管理，支持服务状态监控、配置管理与资源分配。',
+    subtitle: '纳管 CSM 安全网元（防火墙、IPS、WAF 等），覆盖分配、状态监控、配置与资源生命周期。',
     icon: 'SafetyCertificateOutlined',
     order: 4,
     requiredActions: {
@@ -432,7 +490,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨域互联',
     title: 'VR实例管理',
-    subtitle: 'VR（Virtual Router）实例用于在多云与异构网络之间提供路由与互联能力，支持跨区域连通、BGP/静态路由、策略与监控，帮助实现稳定、安全、高效的网络连接。',
+    subtitle: '虚拟路由连接多云与异构网络，提供跨域转发、BGP/静态路由、策略下发与运行监控。',
     icon: 'GatewayOutlined',
     order: 1,
     requiredActions: {
@@ -469,7 +527,7 @@ export const routeSpecs: RouteSpec[] = [
     group: '跨域互联',
     title: '专家模式',
     breadcrumbLabel: '专家模式',
-    subtitle: 'VR 配置的专家模式，用于分步查询、编辑与下发配置；支持标准化预览、模板分段编辑、启用/禁用配置点，以及保存到平台或直接下发到设备，适用于高级网络工程师进行精细化配置管理。',
+    subtitle: '分步查询、编辑与下发 VR 配置，支持预览、分段编辑、配置点启停及保存到平台或直发设备。',
     parentId: 'interconnect-vr',
     icon: 'SettingOutlined',
     hidden: true,
@@ -491,7 +549,7 @@ export const routeSpecs: RouteSpec[] = [
     breadcrumbLabel: '设置角色（PE模式）',
     parentId: 'interconnect-vr',
     icon: 'SettingOutlined',
-    subtitle: '配置 VR 实例的 PE（Provider Edge）模式参数，包括 SRv6 标识（SID）、公网与内网接口绑定、静态路由配置、私网 BGP 邻居设置等，用于构建跨域互联的核心节点。',
+    subtitle: 'PE 模式：SID、公网/内网接口绑定、静态路由与私网 BGP 邻居，作为跨域互联核心节点。',
     hidden: true,
     requiredActions: {
       page: 'networks.vr-config:read',
@@ -511,7 +569,7 @@ export const routeSpecs: RouteSpec[] = [
     breadcrumbLabel: '设置角色（CE模式）',
     parentId: 'interconnect-vr',
     icon: 'SettingOutlined',
-    subtitle: '配置 VR 实例的 CE（Customer Edge）模式参数，包括外网接口与内网接口的基础网络参数设置，用于连接用户侧网络与运营商网络。',
+    subtitle: 'CE 模式：外网/内网接口与基础路由参数，连接用户侧网络与运营商或骨干侧。',
     hidden: true,
     requiredActions: {
       page: 'networks.vr-config:read',
@@ -531,7 +589,7 @@ export const routeSpecs: RouteSpec[] = [
     breadcrumbLabel: '设置角色（标准模式）',
     parentId: 'interconnect-vr',
     icon: 'SettingOutlined',
-    subtitle: '配置 VR 实例的标准模式参数，预置 IPsec VPN 所需的非协商参数（如预共享密钥、加密算法等），用于后续 IPsec 连接建立时的快速预填与自动化配置。',
+    subtitle: '标准模式：预置 IPsec 非协商参数（PSK、算法等），便于后续隧道创建时快速预填。',
     hidden: true,
     requiredActions: {
       page: 'networks.vr-config:read',
@@ -548,7 +606,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨域互联',
     title: '设置角色（SASE模式）',
-    subtitle: '配置 VR 实例的 SASE（Secure Access Service Edge）模式参数，用于构建安全访问服务边缘架构，实现零信任网络访问与统一安全策略管理。',
+    subtitle: 'SASE 模式：安全访问服务边缘参数，支撑零信任接入与统一安全策略编排。',
     breadcrumbLabel: '设置角色（SASE模式）',
     parentId: 'interconnect-vr',
     icon: 'SettingOutlined',
@@ -568,7 +626,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨域互联',
     title: 'SRv6隧道',
-    subtitle: 'SRv6（Segment Routing over IPv6）用于在 IPv6 网络中实现基于段的路由，支持灵活的流量工程与业务编排。',
+    subtitle: '基于 IPv6 的 SRv6 段路由，用于灵活选路、流量工程与业务路径编排。',
     icon: 'NodeIndexOutlined',
     order: 2,
     requiredActions: {
@@ -586,7 +644,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨域互联',
     title: 'IPsecVPN',
-    subtitle: '通过 IKEv1/IKEv2 协议创建加密虚拟专用网络，支持拓扑查看、配置审计和状态监控，保障跨网络数据传输安全。',
+    subtitle: 'IKEv1/v2 加密站点隧道，支持拓扑可视、配置审计与连接状态监控。',
     icon: 'LockOutlined',
     order: 3,
     requiredActions: {
@@ -640,7 +698,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨域互联',
     title: 'ACL 访问控制',
-    subtitle: '配置基于优先级的访问控制规则，支持 TCP/UDP/ICMP 协议过滤和源/目的地址匹配，实现网络流量的精细化管控。',
+    subtitle: '按优先级的 ACL，匹配源/目的地址与端口，支持 TCP、UDP、ICMP 等协议过滤。',
     icon: 'FileTextOutlined',
     order: 4,
     requiredActions: {
@@ -658,7 +716,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨域互联',
     title: 'NAT 网关',
-    subtitle: '创建 SNAT/DNAT/静态 NAT 规则，实现私网地址与公网地址的转换，支持接口绑定和地址段映射，解决内网主机访问公网需求。',
+    subtitle: 'SNAT、DNAT 与静态映射，完成私网与公网地址转换，支持接口与地址段绑定。',
     icon: 'SwapOutlined',
     order: 5,
     requiredActions: {
@@ -677,8 +735,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'SDNCC',
     group: '流量编排',
-    title: 'CSM 安全资源池',
-    subtitle: '接入与管理 CSM 安全控制面资源池；与多云资源池管理解耦，统一在流量编排域维护。',
+    title: '安全资源池',
+    subtitle: '接入与管理 CSM 安全控制面资源池，与多云资源池解耦，在流量编排域统一维护。',
     icon: 'SafetyCertificateOutlined',
     order: 0,
     requiredActions: {
@@ -713,8 +771,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'SDNCC',
     group: '流量编排',
-    title: '防护对象管理（CSM 资产）',
-    subtitle: '对已接入的 CSM 安全资源池中的防护对象（资产）进行统一生命周期管理，包括资产发现、纳管、分组、状态监控与配置管理，支持按安全域、类型等维度进行筛选。',
+    title: '防护对象管理',
+    subtitle: 'CSM 侧防护资产纳管，覆盖发现、分组、监控与配置，支持按安全域与类型筛选。',
     icon: 'SafetyCertificateOutlined',
     order: 1,
     requiredActions: {
@@ -732,7 +790,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '流量编排',
     title: '服务链管理',
-    subtitle: '服务链（Service Chain）通过灵活编排网络流量经过防火墙、IPS、WAF 等安全组件，实现业务流量的按需清洗与防护，支持串行阻断与旁路检测模式。',
+    subtitle: '编排流量串接防火墙、IPS、WAF 等网元，支持串行阻断与旁路检测两种模式。',
     icon: 'NodeIndexOutlined',
     order: 2,
     requiredActions: {
@@ -749,8 +807,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'SDNCC',
     group: '流量编排',
-    title: '引流策略管理',
-    subtitle: '统一配置引流策略与阻断策略，实现对流量的灵活调度、牵引清洗及安全阻断，全方位保障网络安全与业务连续性。',
+    title: '阻断策略',
+    subtitle: '配置流量阻断与访问控制策略，与引流及服务链协同完成安全处置闭环。',
     icon: 'FileTextOutlined',
     order: 3,
     requiredActions: {
@@ -1043,7 +1101,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '高级集成',
     title: '高级集成',
-    subtitle: '管理第三方服务的集成配置参数，包括 AI SOC（安全运营中心）、Dify 工作流等外部系统的 API 地址、认证信息、同步策略等集成参数，实现平台与外部系统的数据互通与功能联动。',
+    subtitle: '管理第三方服务的集成配置参数，包括 AI SOC（安全运营中心）等外部系统的访问地址与相关参数，实现平台与外部系统的数据互通与功能联动。',
     icon: 'ApiOutlined',
     order: 20,
     requiredActions: {
@@ -1052,5 +1110,7 @@ export const routeSpecs: RouteSpec[] = [
       write: 'system.integration:write'
     },
     requiredFeature: 'platform.aisoc'
-  }
+  },
+
+  ...cloudmapPoolRouteSpecs,
 ];

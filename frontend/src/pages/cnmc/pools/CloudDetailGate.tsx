@@ -9,10 +9,9 @@ import { CloudUploadOutlined, HomeOutlined, ReloadOutlined } from '@ant-design/i
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import CloudDetailHw from '../clouds/Hw/CloudDetailHw';
 import CloudDetailAliyun from '../clouds/Aliyun/CloudDetailAliyun';
-import CloudDetailCloudmap from '../clouds/Cloudmap/CloudDetailCloudmap';
-import CloudDetailRancher from '../clouds/rancher/CloudDetailRancher';
+import CloudmapPoolShell from '../clouds/Cloudmap/CloudmapPoolShell';
 import { getProviderName } from './poolProviders';
-import { fetchCloudById } from '../../../services/api';
+import { fetchCloudById, fetchRancherClustersForPool } from '../../../services/api';
 
 type CloudItem = {
   id: string;
@@ -25,6 +24,143 @@ type CloudItem = {
   description?: string;
   createdAt?: string;
   updatedAt?: string;
+};
+
+/** Rancher 池详情 URL 无独立页：拉取下游集群后进入与列表「进入」相同的工作台首页。 */
+const RANCHER_HOME_QUERY = 'tab=cluster&sub=projects' as const;
+
+const RancherPoolHomeRedirect: React.FC<{
+  poolId: string;
+  cloudName: string;
+  providerLabel: string;
+  /** 接入时写入 config，一池一集群；有则直跳，避免误用列表第一项 */
+  boundClusterId?: string;
+}> = ({ poolId, cloudName, providerLabel, boundClusterId }) => {
+  const navigate = useNavigate();
+  const [phase, setPhase] = useState<'loading' | 'error' | 'empty'>('loading');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [target, setTarget] = useState<string | null>(() =>
+    boundClusterId
+      ? `/admin/clouds/${encodeURIComponent(poolId)}/clusters/${encodeURIComponent(boundClusterId)}?${RANCHER_HOME_QUERY}`
+      : null,
+  );
+
+  useEffect(() => {
+    if (boundClusterId) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchRancherClustersForPool(poolId);
+        if (cancelled) return;
+        if (!list.length) {
+          setPhase('empty');
+          return;
+        }
+        const cid = list[0].id;
+        setTarget(
+          `/admin/clouds/${encodeURIComponent(poolId)}/clusters/${encodeURIComponent(cid)}?${RANCHER_HOME_QUERY}`,
+        );
+      } catch (e: any) {
+        if (cancelled) return;
+        setErrorMsg(e?.message || '加载集群列表失败');
+        setPhase('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [poolId, boundClusterId]);
+
+  if (target) {
+    return <Navigate to={target} replace />;
+  }
+
+  const titleText = `${providerLabel} ${cloudName || '-'}`;
+
+  if (phase === 'loading') {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: 320,
+          width: '100%',
+        }}
+      >
+        <Spin size="large" tip="正在进入 Rancher 集群工作台…" />
+      </div>
+    );
+  }
+
+  if (phase === 'error') {
+    return (
+      <PageDetailContainer
+        breadcrumbs={[
+          { title: <HomeOutlined />, href: '/' },
+          { title: '资源池管理' },
+          { title: '资源池管理', href: '/admin/clouds' },
+          { title: titleText },
+        ]}
+        icon={<CloudUploadOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
+        title={titleText}
+        titleLevel={3}
+        onBack={() => navigate('/admin/clouds')}
+        backTooltip="返回列表"
+        moreMenuItems={[{ key: 'refresh', label: '刷新' }]}
+        onMoreMenuClick={() => {}}
+        asCard={false}
+      >
+        <Alert
+          type="warning"
+          message="无法进入集群工作台"
+          description={errorMsg}
+          showIcon
+          action={
+            <Space>
+              <Button onClick={() => navigate('/admin/clouds')}>返回列表</Button>
+              <Button type="primary" icon={<ReloadOutlined />} onClick={() => window.location.reload()}>
+                重试
+              </Button>
+            </Space>
+          }
+        />
+      </PageDetailContainer>
+    );
+  }
+
+  return (
+    <PageDetailContainer
+      breadcrumbs={[
+        { title: <HomeOutlined />, href: '/' },
+        { title: '资源池管理' },
+        { title: '资源池管理', href: '/admin/clouds' },
+        { title: titleText },
+      ]}
+      icon={<CloudUploadOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
+      title={titleText}
+      titleLevel={3}
+      onBack={() => navigate('/admin/clouds')}
+      backTooltip="返回列表"
+      moreMenuItems={[{ key: 'refresh', label: '刷新' }]}
+      onMoreMenuClick={() => {}}
+      asCard={false}
+    >
+      <Alert
+        type="info"
+        message="该 Rancher 资源池下暂无下游集群"
+        description="请在 Rancher 中导入集群或检查 API 令牌权限后，从资源池列表再次进入。"
+        showIcon
+        action={
+          <Button type="primary" onClick={() => navigate('/admin/clouds')}>
+            返回资源池列表
+          </Button>
+        }
+      />
+    </PageDetailContainer>
+  );
 };
 
 const CloudDetailGate: React.FC = () => {
@@ -89,10 +225,18 @@ const CloudDetailGate: React.FC = () => {
     );
   }
   if (provider === 'cloudmap.edge' || provider === 'cloudmap.private') {
-    return <CloudDetailCloudmap cloudId={id} />;
+    return <CloudmapPoolShell cloudId={id} />;
   }
-  if (provider === 'rancher') {
-    return <CloudDetailRancher cloudId={id} />;
+  if (provider === 'rancher' && cloud) {
+    const bound = String(cloud.config?.clusterId || '').trim();
+    return (
+      <RancherPoolHomeRedirect
+        poolId={String(id)}
+        cloudName={cloud.name}
+        providerLabel={providerName}
+        boundClusterId={bound || undefined}
+      />
+    );
   }
   if (provider === 'harvester' && cloud) {
     return (

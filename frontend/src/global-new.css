@@ -51,6 +51,11 @@ html, body, #root {
   padding-top: 10px !important;
 }
 
+/* 级联通道拓扑全屏 Modal：取消全局 body 顶部 10px（wrapClassName 见 cascade-channels/detail/index.tsx） */
+.ant-modal-wrap.cen-cascade-topology-fullscreen-modal .ant-modal-body {
+  padding-top: 0 !important;
+}
+
 /* ==========================================================================
    Harvester / Clouds — 自定义详情抽屉标题主图标外框
    ========================================================================== */
@@ -457,6 +462,39 @@ html, body, #root {
   margin-bottom: 16px;            /* 底部间距：与表格保持距离 */
   flex-wrap: wrap;                /* 允许换行：小屏幕适配 */
   gap: 12px;                      /* 换行后的行间距 */
+}
+
+/* 角色权限抽屉：平台大分组（Collapse）去掉卡片式阴影 */
+.role-perm-drawer-collapse.ant-collapse {
+  box-shadow: none !important;
+}
+.role-perm-drawer-collapse > .ant-collapse-item {
+  box-shadow: none !important;
+}
+.role-perm-drawer-collapse .ant-collapse-content,
+.role-perm-drawer-collapse .ant-collapse-content-box {
+  box-shadow: none !important;
+}
+
+/* 角色权限抽屉：左右栏浅色滚动条（WebKit / Firefox） */
+.role-perm-drawer-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d9d9d9 #f4f4f4;
+}
+.role-perm-drawer-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.role-perm-drawer-scroll::-webkit-scrollbar-track {
+  background: #f4f4f4;
+  border-radius: 4px;
+}
+.role-perm-drawer-scroll::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 4px;
+}
+.role-perm-drawer-scroll::-webkit-scrollbar-thumb:hover {
+  background: #c7c7c7;
 }
 
 /* .toolbar-filter-sm: 小型筛选框宽度 (140px)，适用于选项较短或空间紧凑的场景 */

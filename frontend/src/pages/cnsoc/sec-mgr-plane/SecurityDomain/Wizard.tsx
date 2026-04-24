@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Card, Divider, Form, Input, Radio, Row, Col, Select, Space, Steps, message, Descriptions, Tag, Table } from 'antd';
 import { ArrowLeftOutlined, UserOutlined, ReloadOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchCloudProviderSubnetsByVpc, fetchTenants, fetchOrganizationsByTenant, fetchOrganizationResourcePools } from '../../../../services/api';
+import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchCloudProviderSubnetsByVpc, fetchTenants, fetchOrganizationsByTenant, fetchOrganizationResourcePools, fetchRancherClustersForPool } from '../../../../services/api';
 import { fetchHuaweiPorts } from '../../../../services/huaweiApi';
 import { createSecurityDomain, SecurityDomainPayload } from '../../../../services/securityDomainApi';
+import { isRancherPoolCloud } from '../../../cnmc/pools/poolProviders';
 
 interface VRRowOpt { uuid: string; name: string; }
 
@@ -14,6 +15,8 @@ const SecurityDomainWizardPage: React.FC = () => {
   const navigate = useNavigate();
   const [current, setCurrent] = useState<number>(0);
   const [form] = Form.useForm();
+  const categoryWatch = Form.useWatch('category', form);
+  const poolIdWatch = Form.useWatch('cloudId', form);
 
   const [vrOptions, setVrOptions] = useState<VRRowOpt[]>([]);
   const [vrLoading, setVrLoading] = useState<boolean>(false);
@@ -38,6 +41,9 @@ const SecurityDomainWizardPage: React.FC = () => {
   const [tenants, setTenants] = useState<any[]>([]);
   const [tenantLoading, setTenantLoading] = useState<boolean>(false);
   const [orgOptions, setOrgOptions] = useState<{ value: string; label: string }[]>([]);
+
+  const [rancherClusterOpts, setRancherClusterOpts] = useState<{ value: string; label: string }[]>([]);
+  const [rancherClusterLoading, setRancherClusterLoading] = useState(false);
 
   const stepTitle = useMemo(() => {
     if (current === 0) return '设定基础信息';
@@ -576,6 +582,28 @@ const SecurityDomainWizardPage: React.FC = () => {
   //   }
   // };
 
+  const loadRancherClusters = useCallback(async (poolId: string) => {
+    if (!poolId) {
+      setRancherClusterOpts([]);
+      return;
+    }
+    setRancherClusterLoading(true);
+    try {
+      const list = await fetchRancherClustersForPool(poolId, { skipCache: true });
+      setRancherClusterOpts(
+        (Array.isArray(list) ? list : []).map((c: any) => ({
+          value: String(c.id || '').trim(),
+          label: `${c.name || c.id || '集群'} (${String(c.id || '').slice(0, 12)}…)`,
+        })),
+      );
+    } catch {
+      message.warning('拉取 Rancher 集群列表失败');
+      setRancherClusterOpts([]);
+    } finally {
+      setRancherClusterLoading(false);
+    }
+  }, []);
+
   const loadTenants = async () => {
     setTenantLoading(true);
     try {
@@ -595,16 +623,24 @@ const SecurityDomainWizardPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (current === 1 && categoryWatch === 'container' && poolIdWatch) {
+      void loadRancherClusters(String(poolIdWatch));
+    }
+  }, [current, categoryWatch, poolIdWatch, loadRancherClusters]);
+
   const onPrev = () => setCurrent((c) => Math.max(0, c - 1));
   const onNext = async () => {
     try {
       if (current === 0) {
         await form.validateFields(['name','category','subType']);
       } else if (current === 1) {
-        const isVpc = form.getFieldValue('category') === 'vpc';
-        if (isVpc) {
-          await form.validateFields(['cloudId','vpcId','vrBindingMode']);
+        const cat = form.getFieldValue('category');
+        if (cat === 'vpc') {
+          await form.validateFields(['cloudId', 'vpcId', 'vrBindingMode']);
           if (form.getFieldValue('vrBindingMode') === 'existing') await form.validateFields(['vrUuid']);
+        } else if (cat === 'container') {
+          await form.validateFields(['cloudId', 'rancherClusterId']);
         } else {
           await form.validateFields(['vrUuid']);
         }
@@ -616,7 +652,36 @@ const SecurityDomainWizardPage: React.FC = () => {
   const onCreate = async () => {
     try {
       const values = form.getFieldsValue(true);
-      const isVpc = form.getFieldValue('category') === 'vpc';
+      const cat = form.getFieldValue('category');
+      const isVpc = cat === 'vpc';
+      const isContainer = cat === 'container';
+
+      if (isContainer) {
+        const poolId = String(values.cloudId || '').trim();
+        const clusterId = String(values.rancherClusterId || '').trim();
+        const subRaw = values.subType;
+        const subStr = Array.isArray(subRaw) ? subRaw.join(',') : String(subRaw || 'Rancher容器网络');
+        const vrId = String(values.vrUuid || '').trim();
+        const payload: SecurityDomainPayload = {
+          name: values.name,
+          category: 'container',
+          subType: subStr,
+          cloudId: poolId,
+          resourcePool: clusterId,
+          tags: `rancher,clusterId=${clusterId}${vrId ? `,vrUuid=${vrId}` : ''}`,
+          cidr: values.cidr ? String(values.cidr).trim() : undefined,
+          description: values.description,
+          tenantId: values.tenantId,
+          organizationId: values.organizationId,
+          status: 'active',
+          vrUuid: vrId || undefined,
+          vrName: vrId ? vrOptions.find((v) => v.uuid === vrId)?.name : undefined,
+        };
+        await createSecurityDomain(payload);
+        message.success('安全域已创建');
+        navigate('/admin/sec-mgr-plane/security-domain');
+        return;
+      }
 
       // const subType = form.getFieldValue('subType');
       const associations = Array.isArray(values.vrAssociations) ? values.vrAssociations : [];
@@ -772,10 +837,25 @@ const SecurityDomainWizardPage: React.FC = () => {
               onValuesChange={(changed, all) => {
                 if (changed.cloudId) loadCloudVpcs(changed.cloudId);
                 if (changed.category) {
-                  form.setFieldsValue({ subType: undefined, cloudId: undefined, vpcId: undefined, vrUuid: undefined, vrBindingMode: 'auto' });
+                  form.setFieldsValue({
+                    subType: undefined,
+                    cloudId: undefined,
+                    vpcId: undefined,
+                    vrUuid: undefined,
+                    vrBindingMode: 'auto',
+                    rancherClusterId: undefined,
+                  });
+                  setRancherClusterOpts([]);
+                  if (changed.category === 'container') {
+                    form.setFieldsValue({ subType: ['Rancher容器网络'] });
+                  }
                 }
                 if (changed.subType) {
                   form.setFieldsValue({ cloudId: undefined, vpcId: undefined, vrUuid: undefined, vrBindingMode: 'auto' });
+                }
+                if (changed.cloudId && form.getFieldValue('category') === 'container') {
+                  form.setFieldValue('rancherClusterId', undefined);
+                  void loadRancherClusters(String(changed.cloudId));
                 }
                 if (changed.vpcId || changed.cloudId) {
                   const cid = String(form.getFieldValue('cloudId') || changed.cloudId || '');
@@ -798,8 +878,7 @@ const SecurityDomainWizardPage: React.FC = () => {
                 }
               }}
             >
-              {current === 0 && (
-                <>
+              <div style={{ display: current === 0 ? 'block' : 'none' }} aria-hidden={current !== 0}>
                   <Form.Item name="tenantId" label="所属租户" rules={[{ required: true, message: '请选择所属租户' }]}>
                     <Select
                       placeholder="请选择租户"
@@ -836,9 +915,10 @@ const SecurityDomainWizardPage: React.FC = () => {
                       showSearch
                       optionFilterProp="label"
                       onChange={(orgId: string) => {
-                        form.setFieldsValue({ cloudId: undefined, vpcId: undefined });
+                        form.setFieldsValue({ cloudId: undefined, vpcId: undefined, rancherClusterId: undefined });
                         setClouds([]);
                         setNormalizedVpcs([]);
+                        setRancherClusterOpts([]);
                         if (orgId) {
                           loadClouds();
                         }
@@ -849,7 +929,14 @@ const SecurityDomainWizardPage: React.FC = () => {
                     <Input placeholder="如：华东生产VPC / 总部办公网" addonAfter={<ReloadOutlined style={{ cursor: 'pointer' }} onClick={() => form.setFieldValue('name', generateRandomName())} title="随机生成名称" />} />
                   </Form.Item>
                   <Form.Item name="category" label="安全域大类" rules={[{ required: true, message: '请选择大类' }]}> 
-                    <Select placeholder="请选择大类" options={[{ value: 'vpc', label: 'VPC网络' }, { value: 'flat', label: '扁平网络' }]} />
+                    <Select
+                      placeholder="请选择大类"
+                      options={[
+                        { value: 'vpc', label: 'VPC网络' },
+                        { value: 'flat', label: '扁平网络' },
+                        { value: 'container', label: '容器云（Rancher）' },
+                      ]}
+                    />
                   </Form.Item>
                   <Form.Item shouldUpdate={(prev, cur) => prev.category !== cur.category} noStyle>
                     {() => (
@@ -858,8 +945,10 @@ const SecurityDomainWizardPage: React.FC = () => {
                           const cat = form.getFieldValue('category');
                           const vpcSubs = [{ value: '公有云VPC网络', label: '公有云VPC网络' }, { value: '私有云VPC网络', label: '私有云VPC网络' }];
                           const flatSubs = [{ value: '虚拟化网络', label: '虚拟化网络' }, { value: 'IDC网络', label: 'IDC网络' }, { value: '办公网络', label: '办公网络' }];
+                          const containerSubs = [{ value: 'Rancher容器网络', label: 'Rancher容器网络' }];
                           if (cat === 'vpc') return vpcSubs;
                           if (cat === 'flat') return flatSubs;
+                          if (cat === 'container') return containerSubs;
                           return [];
                         })()} />
                       </Form.Item>
@@ -868,12 +957,10 @@ const SecurityDomainWizardPage: React.FC = () => {
                   <Form.Item name="description" label="用途说明"> 
                     <Input.TextArea rows={3} placeholder="设定安全域用途与说明" />
                   </Form.Item>
-                </>
-              )}
+              </div>
 
-              {current === 1 && (
-                <>
-                  {form.getFieldValue('category') === 'vpc' ? (
+              <div style={{ display: current === 1 ? 'block' : 'none' }} aria-hidden={current !== 1}>
+                  {categoryWatch === 'vpc' && (
                     <>
                       <Form.Item name="cloudId" label="选择已接入的云资源池" rules={[{ required: true, message: '请选择资源池' }]}> 
                         <Select placeholder="请选择资源池（含云厂商与地域）" loading={cloudLoading} options={clouds.map(c => ({ value: c.id || c._id || c.uuid || c.cloudId || c.name, label: cloudLabel(c) }))} />
@@ -1053,7 +1140,88 @@ const SecurityDomainWizardPage: React.FC = () => {
                         </Card>
                       )}
                     </>
-                  ) : (
+                  )}
+                  {categoryWatch === 'container' && (
+                    <>
+                      <Form.Item
+                        name="cloudId"
+                        label="Rancher 资源池"
+                        rules={[{ required: true, message: '请选择已接入的 Rancher 资源池' }]}
+                      >
+                        <Select
+                          showSearch
+                          placeholder="选择已接入的 Rancher 资源池"
+                          loading={cloudLoading}
+                          options={clouds
+                            .filter((c) => isRancherPoolCloud(c))
+                            .map((c) => ({
+                              value: c.id || c._id || c.uuid || c.cloudId || c.name,
+                              label: cloudLabel(c),
+                            }))}
+                          filterOption={(input, option) => {
+                            const text = String(
+                              (option as { label?: string; value?: string })?.label
+                                ?? (option as { label?: string; value?: string })?.value
+                                ?? '',
+                            ).toLowerCase();
+                            return text.includes(String(input).toLowerCase());
+                          }}
+                          onDropdownVisibleChange={(open) => {
+                            if (open) loadClouds();
+                          }}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="rancherClusterId"
+                        label="下游集群"
+                        rules={[{ required: true, message: '请选择集群' }]}
+                      >
+                        <Select
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder={rancherClusterLoading ? '加载中…' : '请选择集群'}
+                          loading={rancherClusterLoading}
+                          notFoundContent={
+                            !form.getFieldValue('cloudId') ? '请先选择资源池' : '暂无集群'
+                          }
+                          options={rancherClusterOpts}
+                        />
+                      </Form.Item>
+                      <Form.Item name="cidr" label="网段备注（可选）">
+                        <Input placeholder="可填写 Pod/Service 网段等，便于与 SDN 侧对照" />
+                      </Form.Item>
+                      <Form.Item
+                        name="vrUuid"
+                        label="关联 VR 实例"
+                        extra="可选。与 Rancher/集群无耦合，用于在 SDN 中挂接虚拟路由、与编排/安全策略对齐。若需为 VR 做云主机+网卡级绑定，请使用「扁平网络」大类。"
+                      >
+                        <Select
+                          allowClear
+                          showSearch
+                          placeholder="不绑定则留空"
+                          options={vrOptions.map((v) => ({
+                            value: v.uuid,
+                            label: `${v.name} (${String(v.uuid).slice(0, 8)})`,
+                          }))}
+                          loading={vrLoading}
+                          notFoundContent={vrLoading ? '加载中…' : '暂无数据'}
+                          filterOption={(input, option) => {
+                            const text = String(
+                              (option as { label?: string; value?: string })?.label
+                                ?? (option as { label?: string; value?: string })?.value
+                                ?? '',
+                            ).toLowerCase();
+                            return text.includes(String(input).toLowerCase());
+                          }}
+                          onDropdownVisibleChange={(open) => {
+                            if (open) void loadVRList();
+                          }}
+                          onFocus={() => void loadVRList()}
+                        />
+                      </Form.Item>
+                    </>
+                  )}
+                  {categoryWatch === 'flat' && (
                     <>
                       <Form.Item name="vrUuid" label="选择 VR 实例" rules={[{ required: true, message: '请选择 VR 实例' }]}> 
                         <Select showSearch optionFilterProp="label" placeholder={vrLoading ? '加载中...' : '选择已部署的 VR 实例'} options={vrOptions.map(v => ({ value: v.uuid, label: `${v.name} (${String(v.uuid).slice(0,8)})` }))} loading={vrLoading} notFoundContent={vrLoading ? '加载中...' : '暂无数据'} filterOption={(input, option) => { const text = String((option as any)?.label ?? (option as any)?.value ?? '').toLowerCase(); return text.includes(String(input).toLowerCase()); }} onDropdownVisibleChange={(open) => { if (open) { loadVRList(); } }} onFocus={() => { loadVRList(); }} allowClear />
@@ -1147,11 +1315,9 @@ const SecurityDomainWizardPage: React.FC = () => {
                       </Form.List>
                     </>
                   )}
-                </>
-              )}
+              </div>
 
-              {current === 2 && (
-                <>
+              <div style={{ display: current === 2 ? 'block' : 'none' }} aria-hidden={current !== 2}>
                   <Descriptions size="small" column={1} bordered>
                     <Descriptions.Item label="安全域名称">{String(form.getFieldValue('name')||'')}</Descriptions.Item>
                     <Descriptions.Item label="大类/标签">
@@ -1168,7 +1334,16 @@ const SecurityDomainWizardPage: React.FC = () => {
                         );
                       })()}
                     </Descriptions.Item>
-                    
+                    {form.getFieldValue('category') === 'container' && (
+                      <Descriptions.Item label="Rancher 集群">
+                        {(() => {
+                          const id = String(form.getFieldValue('rancherClusterId') || '').trim();
+                          if (!id) return '—';
+                          const o = rancherClusterOpts.find((x) => x.value === id);
+                          return o ? o.label : id;
+                        })()}
+                      </Descriptions.Item>
+                    )}
                     <Descriptions.Item label="云主机">
                       {(() => {
                         const arr = Array.isArray(form.getFieldValue('vrAssociations')) ? form.getFieldValue('vrAssociations') : [];
@@ -1257,8 +1432,7 @@ const SecurityDomainWizardPage: React.FC = () => {
                       })()}
                     </Descriptions.Item>
                   </Descriptions>
-                </>
-              )}
+              </div>
 
             </Form>
             <Divider style={{ margin: '12px 0' }} />

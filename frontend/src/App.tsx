@@ -23,6 +23,7 @@ const OverviewDashboard = lazy(() => import('./pages/cnmc/dashboard/OverviewDash
 const Users = lazy(() => import('./pages/cnmc/tenants/Users'));
 const Clouds = lazy(() => import('./pages/cnmc/pools'));
 const CloudDetailGate = lazy(() => import('./pages/cnmc/pools/CloudDetailGate'));
+const RancherClusterWorkspace = lazy(() => import('./pages/cnmc/clouds/rancher'));
 const InstanceDetail = lazy(() => import('./pages/cnmc/pools/InstanceDetail'));
 const Tenants = lazy(() => import('./pages/cnmc/tenants'));
 const GeneralSettings = lazy(() => import('./pages/settings/GeneralSettings'));
@@ -46,8 +47,8 @@ const NATPage = lazy(() => import('./pages/sdncc/NAT/index'));
 const SecurityDomainPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityDomain/index'));
 const SecurityDomainWizardPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityDomain/Wizard'));
 const SecurityDomainDetail = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityDomain/Detail'));
-const CENPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/CascadeChannels/index'));
-const CENDetailPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/CascadeChannels/Detail'));
+const CENPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/cascade-channels/index'));
+const CENDetailPage = lazy(() => import('./pages/cnsoc/sec-mgr-plane/cascade-channels/detail'));
 const ComingSoon = lazy(() => import('./pages/coming-soon'));
 const SecurityApps = lazy(() => import('./pages/cnsoc/sec-mgr-plane/Applications/index'));
 const SecurityServices = lazy(() => import('./pages/cnsoc/sec-mgr-plane/SecurityServices/index'));
@@ -127,7 +128,8 @@ const AppRoutes: React.FC = () => {
           <Route index element={<AdminIndex />} />
           <Route path="dashboard" element={<OverviewDashboard />} />
           <Route path="clouds" element={<Clouds />} />
-          <Route path="clouds/:id" element={<CloudDetailGate />} />
+          <Route path="clouds/:poolId/clusters/:clusterId" element={<RancherClusterWorkspace />} />
+          <Route path="clouds/:id/*" element={<CloudDetailGate />} />
           <Route path="paas/databases" element={<PaasDatabasesPage />} />
           <Route path="paas/security" element={<PaasSecurityHub />} />
 
@@ -255,11 +257,24 @@ const AdminIndex: React.FC = () => {
 
   if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
   if (isAdmin && favoriteCloudId) {
-    const canAccessCloudPools =
-      hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
-      hasPermissionForAction(perms, 'clouds:read');
-    if (canAccessCloudPools) {
-      return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
+    const r = String(role || '');
+    const canPoolWithMgmtLicense =
+      hasFeature('platform.default') &&
+      (r === 'super_admin' ||
+        hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
+        hasPermissionForAction(perms, 'clouds:read'));
+    const canPoolHeaderOnly =
+      !hasFeature('platform.default') &&
+      (r === 'super_admin' ||
+        hasPermissionForAction(perms, 'clouds.console:read') ||
+        hasPermissionForAction(perms, 'clouds.console:write'));
+    if (canPoolWithMgmtLicense || canPoolHeaderOnly) {
+      return (
+        <Navigate
+          to={`/admin/clouds/${encodeURIComponent(favoriteCloudId)}/resource_hub/overview`}
+          replace
+        />
+      );
     }
     if (hasPermissionForAction(perms, 'clouds.console:read')) {
       return <Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />;

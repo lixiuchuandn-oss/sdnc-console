@@ -392,6 +392,12 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
         return;
       }
 
+      if (selectedProvider.id === 'rancher' && !String(values.clusterId || '').trim()) {
+        message.error('请填写活动集群 ID（Norman 的 c-xxxxx，一池对应一个下游集群）');
+        setLoading(false);
+        return;
+      }
+
 
       // 调用API创建云资源
       await apiPost('/api/clouds', cloudData);

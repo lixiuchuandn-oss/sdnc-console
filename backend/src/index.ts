@@ -246,7 +246,6 @@ app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 //    - /api/security/traffic：安全流量编排（服务链）
 //    - /api/services：服务目录与服务实例
 // 5) AISOC 与系统配置：
-//    - /api/leased-lines：租户专线与安全报告生成/下载
 //    - /api/threats：AISOC 威胁事件导入与查询
 //    - /api/system：平台系统配置与运维接口
 app.use('/api/sase/auth', saseAuthRoutes);

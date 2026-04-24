@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Space, Tag, Modal, Form, Input, Select, Card, message, Button } from 'antd';
+import { Space, Tag, Modal, Form, Input, Select, Card, message } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import ReactFlow, {
   Controls,
@@ -203,8 +204,9 @@ const ServiceChains: React.FC = () => {
           items={[
             { key: 'detail', label: '详情' },
             { key: 'edit', label: '编辑' },
-            { key: 'delete', label: <span style={{ color: 'red' }}>删除</span> }
+            { key: 'delete', label: '删除', danger: true },
           ]}
+          buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
           onClick={async ({ key }) => {
             if (key === 'detail') {
               setCurrentChain(record);
@@ -244,32 +246,52 @@ const ServiceChains: React.FC = () => {
       toolbarLeft={
         <Form
           form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          className="toolbar-container"
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, allValues) => setFilters(allValues)}
         >
-          <Form.Item name="keyword" label="关键字" style={{ marginBottom: 0 }}>
-            <Input placeholder="搜索服务链名称" style={{ width: 200 }} allowClear />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="服务链名称"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
           </Form.Item>
-          <Form.Item name="cluster" label="所属集群" style={{ marginBottom: 0 }}>
-            <Select placeholder="所属集群" style={{ width: 150 }} allowClear>
-              {Array.from(new Set((data || []).map((r:any)=> String(r?.clusterName || '').trim()).filter(Boolean))).map((name) => (
-                <Select.Option key={name} value={name}>{name}</Select.Option>
+          <Form.Item name="cluster" style={{ marginBottom: 0 }}>
+            <Select placeholder="所属集群" className="toolbar-filter-sm" allowClear>
+              {Array.from(
+                new Set((data || []).map((r: any) => String(r?.clusterName || '').trim()).filter(Boolean)),
+              ).map((name) => (
+                <Select.Option key={name} value={name}>
+                  {name}
+                </Select.Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="type" label="类型" style={{ marginBottom: 0 }}>
-            <Select placeholder="类型" style={{ width: 120 }} allowClear>
+          <Form.Item name="type" style={{ marginBottom: 0 }}>
+            <Select placeholder="类型" className="toolbar-filter-sm" allowClear>
               <Select.Option value="serial">串行</Select.Option>
               <Select.Option value="bypass">旁路</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="status" label="状态" style={{ marginBottom: 0 }}>
-            <Select placeholder="状态" style={{ width: 120 }} allowClear>
+          <Form.Item name="status" style={{ marginBottom: 0 }}>
+            <Select placeholder="状态" className="toolbar-filter-sm" allowClear>
               <Select.Option value="active">已激活</Select.Option>
               <Select.Option value="inactive">未激活</Select.Option>
             </Select>
           </Form.Item>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              filterForm.resetFields();
+              setFilters({});
+            }}
+          >
+            重置
+          </button>
         </Form>
       }
       primaryAction={{
@@ -277,9 +299,15 @@ const ServiceChains: React.FC = () => {
         onClick: () => navigate('/admin/security/traffic/service-chains/create'),
         type: 'primary',
       }}
+      onRefresh={loadData}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新', onClick: loadData },
-        { key: 'batch-delete', label: <span style={{ color: 'red' }}>批量删除</span>, danger: true, disabled: selectedRowKeys.length === 0, onClick: handleBatchDelete },
+        {
+          key: 'batch-delete',
+          label: '批量删除',
+          danger: true,
+          disabled: selectedRowKeys.length === 0,
+          onClick: handleBatchDelete,
+        },
       ]}
       defaultHiddenColumns={[]}
       tableProps={{
@@ -287,6 +315,7 @@ const ServiceChains: React.FC = () => {
         dataSource: data,
         loading,
         rowKey: "id",
+        className: 'vr-table std-table',
         rowSelection: {
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),

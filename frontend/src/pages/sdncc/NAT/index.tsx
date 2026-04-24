@@ -304,6 +304,7 @@ const NATPage: React.FC = () => {
   });
 
   const resetFilters = () => {
+    filterForm.resetFields();
     setKeyword('');
     setVrFilter(undefined);
     setTypeFilter(undefined);
@@ -321,39 +322,42 @@ const NATPage: React.FC = () => {
         },
         type: 'primary',
       }}
-      moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: () => { void fetchData(true); } },
-        { key: 'reset', label: '重置筛选', onClick: resetFilters }
-      ]}
       onRefresh={() => { void fetchData(true); }}
       defaultHiddenColumns={[]}
       toolbarLeft={(
         <Form
           className="toolbar-container"
           form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, all) => {
             setKeyword(all.keyword || '');
             setVrFilter(all.vrId || undefined);
             setTypeFilter(all.type || undefined);
           }}
         >
-          <Form.Item name="keyword" label="名称">
-            <Input allowClear placeholder="搜索名称" className="toolbar-search" />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input allowClear placeholder="名称" className="toolbar-search" />
           </Form.Item>
-          <Form.Item name="vrId" label="所属VR">
-            <Select allowClear placeholder="选择 VR" className="toolbar-filter">
-              {vrList.map(v => (<Option key={v.uuid} value={v.uuid}>{v.name}</Option>))}
+          <Form.Item name="vrId" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="所属 VR" className="toolbar-filter">
+              {vrList.map((v) => (
+                <Option key={v.uuid} value={v.uuid}>
+                  {v.name}
+                </Option>
+              ))}
             </Select>
           </Form.Item>
-          <Form.Item name="type" label="类型">
-            <Select allowClear placeholder="选择类型" className="toolbar-filter-sm">
+          <Form.Item name="type" style={{ marginBottom: 0 }}>
+            <Select allowClear placeholder="类型" className="toolbar-filter-sm">
               <Option value="snat">SNAT</Option>
               <Option value="dnat">DNAT</Option>
               <Option value="static">STATIC</Option>
             </Select>
           </Form.Item>
+          <button type="button" className="toolbar-reset-btn" onClick={resetFilters}>
+            重置
+          </button>
         </Form>
       )}
       tableProps={{

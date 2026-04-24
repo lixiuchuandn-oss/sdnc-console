@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Dropdown, Steps, Descriptions, Badge } from 'antd';
+import { Button, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import type { ColumnsType } from 'antd/es/table';
 import { apiPost } from '../../../services/api';
 // 复用 VR 页的样式（page-toolbar / toolbar-container / toolbar-actions / vr-table）
@@ -53,7 +54,8 @@ const SRv6Page: React.FC = () => {
     { key: 'topology', label: '查看拓扑' },
     { key: 'update', label: '更新SRv6配置' },
     { key: 'health', label: '健康巡检' },
-    { key: 'delete', label: '删除隧道' },
+    { type: 'divider' },
+    { key: 'delete', label: '删除隧道', danger: true },
   ]);
 
   const handleRowActionClick = (row: Srv6TunnelRow): MenuProps['onClick'] => ({ key }) => {
@@ -121,10 +123,12 @@ const SRv6Page: React.FC = () => {
       fixed: 'right',
       width: 160,
       render: (_: any, row: Srv6TunnelRow) => (
-        <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
-          <Button type="text" icon={<EllipsisOutlined />} />
-        </Dropdown>
-      )
+        <ResourceActionsDropdown
+          items={getActionMenu(row)}
+          onClick={handleRowActionClick(row) as any}
+          buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+        />
+      ),
     }
   ];
 
@@ -221,30 +225,43 @@ const SRv6Page: React.FC = () => {
         type: 'primary',
       }}
       onRefresh={() => { void forceRefresh(); }}
-      moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: () => { void forceRefresh(); } }
-      ]}
       defaultHiddenColumns={[]} // Display all columns by default
       toolbarLeft={(
         <Form
           className="toolbar-container"
           form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, all) => {
             setKeyword(all.keyword || '');
             setStatusFilter(all.status || undefined);
           }}
         >
-          <Form.Item name="keyword" label="名称">
-            <Input allowClear placeholder="搜索名称" className="toolbar-search" />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="名称"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
           </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select mode="multiple" allowClear placeholder="选择状态" className="toolbar-filter">
+          <Form.Item name="status" style={{ marginBottom: 0 }}>
+            <Select mode="multiple" allowClear placeholder="状态" className="toolbar-filter">
               <Select.Option value="creating">创建中</Select.Option>
               <Select.Option value="available">可用</Select.Option>
             </Select>
           </Form.Item>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              filterForm.resetFields();
+              setKeyword('');
+              setStatusFilter(undefined);
+            }}
+          >
+            重置
+          </button>
         </Form>
       )}
       tableProps={{

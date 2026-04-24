@@ -14,7 +14,7 @@
 .cloudmap-dc-rack {
   display: flex;
   flex-direction: column;
-  border-radius: 10px;
+  border-radius: 14px;
   min-height: calc(min(72vh, 900px) - 30px);
   overflow: hidden;
 }
@@ -964,7 +964,7 @@
   flex: 1 1 0%;
   min-width: 0;
   height: 100%;
-  border-radius: 6px;
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -1138,4 +1138,76 @@
 .cloudmap-dc-embedded-node-graph-empty.ant-typography {
   font-size: 11px !important;
   color: rgba(255, 255, 255, 0.38) !important;
+}
+
+/* ========== 集群网络拓扑（Cloudmap 资源总览，HTML 网格，非 React Flow）========== */
+.cn-mesh-scroll {
+  box-sizing: border-box;
+}
+.cn-mesh-lane {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.1fr) 32px minmax(180px, 0.8fr) 32px minmax(220px, 1.1fr);
+  align-items: center;
+  column-gap: 2px;
+  margin-bottom: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.cn-mesh-outer--dark .cn-mesh-lane {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.cn-mesh-lane:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.cn-mesh-lane__card {
+  min-width: 0;
+}
+.cn-mesh-lane__tail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  align-self: center;
+  width: 100%;
+}
+.cn-mesh-lane__nicrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 2px;
+  min-width: 0;
+  width: 100%;
+}
+.cn-mesh-join {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 2rem;
+}
+.cn-mesh-join__line {
+  display: block;
+  width: 100%;
+  max-width: 32px;
+  height: 2px;
+  border-radius: 1px;
+  background: #c5cad3;
+  flex-shrink: 0;
+}
+.cn-mesh-outer--dark .cn-mesh-join__line:not(.cn-mesh-join__line--lldp) {
+  background: #7c8498;
+}
+.cn-mesh-join__line--lldp {
+  background: transparent !important;
+  height: 0 !important;
+  border: none;
+  border-top: 2px dashed #b37feb;
+  max-width: 32px;
+}
+.cn-mesh-outer--dark .cn-mesh-join__line--lldp {
+  border-top-color: #c4a5f8;
 }

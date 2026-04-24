@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Space, Tag, Modal, Form, Input, Select, message } from 'antd';
-import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
 import StdFormModal from '../../../../components/StdFormModal';
 import { fetchClouds, fetchCsmAssets, createCsmAsset, deleteCsmAsset } from '../../../../services/api';
@@ -108,6 +108,7 @@ const ProtectedObjects: React.FC = () => {
             { type: 'divider' as any },
             { key: 'delete', label: '删除', danger: true },
           ]}
+          buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
           onClick={({ key }) => {
             if (key === 'edit') {
               setEditingAsset(record);
@@ -138,7 +139,6 @@ const ProtectedObjects: React.FC = () => {
               });
             }
           }}
-          size="small"
         />
       ),
     },
@@ -173,26 +173,53 @@ const ProtectedObjects: React.FC = () => {
       toolbarLeft={
         <Form
           form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          className="toolbar-container"
+          layout="inline"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           onValuesChange={(_, allValues) => setFilters(allValues)}
         >
-          <Form.Item name="cloudId" label="资源池" style={{ marginBottom: 0 }}>
-            <Select placeholder="全部资源池" style={{ width: 200 }} allowClear value={selectedCloudId} onChange={(v)=> setSelectedCloudId(v)}>
-              {csmClouds.map((c:any)=> (<Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>))}
+          <Form.Item name="cloudId" style={{ marginBottom: 0 }}>
+            <Select
+              placeholder="全部资源池"
+              className="toolbar-filter"
+              allowClear
+              value={selectedCloudId}
+              onChange={(v) => setSelectedCloudId(v)}
+            >
+              {csmClouds.map((c: any) => (
+                <Select.Option key={c.id} value={c.id}>
+                  {c.name}
+                </Select.Option>
+              ))}
             </Select>
           </Form.Item>
-          <Form.Item name="keyword" label="名称" style={{ marginBottom: 0 }}>
-            <Input placeholder="搜索防护对象名称" style={{ width: 200 }} allowClear />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="名称"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
           </Form.Item>
-          <Form.Item name="type" label="类型" style={{ marginBottom: 0 }}>
-            <Select placeholder="类型" style={{ width: 150 }} allowClear>
+          <Form.Item name="type" style={{ marginBottom: 0 }}>
+            <Select placeholder="类型" className="toolbar-filter-sm" allowClear>
               <Select.Option value="ip">IP</Select.Option>
               <Select.Option value="subnet">IP段</Select.Option>
               <Select.Option value="vpc">VPC子网</Select.Option>
               <Select.Option value="line">专线</Select.Option>
             </Select>
           </Form.Item>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              filterForm.resetFields();
+              setSelectedCloudId(undefined);
+              setFilters({});
+            }}
+          >
+            重置
+          </button>
         </Form>
       }
       primaryAction={{
@@ -200,14 +227,13 @@ const ProtectedObjects: React.FC = () => {
         onClick: () => setModalOpen(true),
         type: 'primary',
       }}
-      moreMenuItems={[
-        { key: 'refresh', label: '刷新', onClick: () => loadCsmAggregate(selectedCloudId) },
-      ]}
+      onRefresh={() => loadCsmAggregate(selectedCloudId)}
       tableProps={{
         columns: columnsCsm,
         dataSource: csmData,
         loading,
         rowKey: ((r:any) => `${r.cloudId || 'x'}::${r.network_id || r.id || r.uuid || Math.random().toString(36).slice(2)}`),
+        className: 'vr-table std-table',
       }}
     >
       <StdFormModal

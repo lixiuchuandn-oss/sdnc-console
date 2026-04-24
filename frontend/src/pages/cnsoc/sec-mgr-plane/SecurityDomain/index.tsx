@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Button, Descriptions, Dropdown, Form, Input, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
+import { Button, Descriptions, Form, Input, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
 import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant, apiRequest } from '../../../../services/api';
 import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../../services/securityDomainApi';
@@ -634,9 +635,11 @@ const SecurityDomainPage: React.FC = () => {
             if (key === 'delete') return removeDomain(record);
           };
           return (
-            <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']}>
-              <Button type="text" icon={<EllipsisOutlined />} />
-            </Dropdown>
+            <ResourceActionsDropdown
+              items={items}
+              onClick={onMenuClick as any}
+              buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+            />
           );
         },
       },
@@ -667,8 +670,7 @@ const SecurityDomainPage: React.FC = () => {
         rowKey: 'id',
         dataSource: filteredDomains,
         columns: columns as any,
-        bordered: true,
-        className: 'vr-table',
+        className: 'vr-table std-table',
         rowSelection: {
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),
@@ -681,23 +683,28 @@ const SecurityDomainPage: React.FC = () => {
       toolbarLeft={
         <Form
           className="toolbar-container"
-          layout="vertical"
+          layout="inline"
           form={form}
           initialValues={{}}
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
-          onValuesChange={(changed, all) => {
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+          onValuesChange={(_changed, all) => {
             setKeyword((all.keyword || '').trim());
             setStatusFilter(all.status || undefined);
             setNetClassFilter(all.netClass || undefined);
           }}
         >
-          <Form.Item name="keyword" label="关键字">
-            <Input allowClear placeholder="名称/云厂商/地域/描述" className="toolbar-search" />
+          <Form.Item name="keyword" style={{ marginBottom: 0 }}>
+            <Input
+              allowClear
+              placeholder="名称 / 云厂商 / 地域 / 描述"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
           </Form.Item>
-          <Form.Item name="netClass" label="网络分类">
+          <Form.Item name="netClass" style={{ marginBottom: 0 }}>
             <Select
               allowClear
-              placeholder="全部"
+              placeholder="网络分类"
               className="toolbar-filter"
               options={[
                 { value: 'vpc', label: 'VPC网络' },
@@ -705,10 +712,10 @@ const SecurityDomainPage: React.FC = () => {
               ]}
             />
           </Form.Item>
-          <Form.Item name="status" label="状态">
+          <Form.Item name="status" style={{ marginBottom: 0 }}>
             <Select
               allowClear
-              placeholder="全部"
+              placeholder="状态"
               className="toolbar-filter"
               options={[
                 { value: 'active', label: '启用' },
@@ -716,6 +723,18 @@ const SecurityDomainPage: React.FC = () => {
               ]}
             />
           </Form.Item>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              form.resetFields();
+              setKeyword('');
+              setStatusFilter(undefined);
+              setNetClassFilter(undefined);
+            }}
+          >
+            重置
+          </button>
         </Form>
       }
     >

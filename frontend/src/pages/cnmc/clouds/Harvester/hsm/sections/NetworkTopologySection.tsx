@@ -1,13 +1,13 @@
 /**
- * 网络拓扑：Tower HSM 自研编排视角（服务部署在 Harvester 集群内）；数据经 Kube-OVN API。
- * 由 Cloudmap「资源总览」装配；图组件在 `hsm/lib/networkTopology/`。
+ * 网络拓扑：Cloudmap 资源总览；物理网络（Kube-OVN）与集群网络拓扑。
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ExpandOutlined, ReloadOutlined, ZoomInOutlined, ZoomOutOutlined } from '@ant-design/icons';
-import { Alert, Button, Empty, Select, Spin, message } from 'antd';
+import { Alert, Button, Empty, Segmented, Select, Spin, message } from 'antd';
 import type { ReactFlowInstance } from 'react-flow-renderer';
 import {
   fetchAswCtlSwitchesSummary,
+  fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchKubeOvnProviderNetworks,
   fetchKubeOvnSubnets,
@@ -16,6 +16,9 @@ import {
 import { clearCache } from '../../../../../../utils/requestManager';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
 import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
+import ClusterNetworkTopologyGraph, {
+  clusterNetworkTopologyLabel,
+} from '../lib/networkTopology/ClusterNetworkTopologyGraph';
 import ProviderNetworkTopologyGraph from '../lib/networkTopology/ProviderNetworkTopologyGraph';
 import { parseProviderNetworkOriginNics } from '../../kube-ovn/lib/providerNetworkOriginNics';
 import { buildHsmLldpPhysicalLinks } from '../lib/buildHsmLldpPhysicalLinks';
@@ -80,7 +83,7 @@ function kubeMetaName(item: KubeListItem | undefined): string {
 
 type Props = {
   cloudId: string;
-  /** 与 CloudDetailCloudmap 中 canReadNetworkScope 一致，无则不发请求 */
+  /** 与 Cloudmap PoolDetailPage 中 canReadNetworkScope 一致，无则不发请求 */
   canReadNetworkScope: boolean;
 };
 
@@ -92,15 +95,22 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
   const [flowCtlReady, setFlowCtlReady] = useState(false);
   const [providers, setProviders] = useState<KubeListItem[]>([]);
   const [userSelectedPn, setUserSelectedPn] = useState<string | undefined>();
+  /** 集群网络拓扑在多条集群网络时与物理网络一样用 Select 切换 */
+  const [userSelectedClusterNetwork, setUserSelectedClusterNetwork] = useState<string | undefined>();
   const [vlanItems, setVlanItems] = useState<KubeListItem[]>([]);
   const [vlanLoading, setVlanLoading] = useState(false);
   const [subnetItems, setSubnetItems] = useState<KubeListItem[]>([]);
   const [subnetLoading, setSubnetLoading] = useState(false);
   const [providersLoading, setProvidersLoading] = useState(false);
-  /** 与 ASW-CTL 入库交换机 + 节点 HMS/LLDP 一起算出的 LLDP 物理边 */
+  /** 交换机与节点 LLDP 联合得到的物理边 */
   const [clusterNodes, setClusterNodes] = useState<any[]>([]);
   const [aswSwitchItems, setAswSwitchItems] = useState<any[]>([]);
   const [physicalTopoLoading, setPhysicalTopoLoading] = useState(false);
+  /** 集群网络（含 vlanConfigs 聚合） */
+  const [clusterNetworks, setClusterNetworks] = useState<any[]>([]);
+  const [clusterNetworksLoading, setClusterNetworksLoading] = useState(false);
+  /** 物理网络 / 集群网络 */
+  const [topoView, setTopoView] = useState<'underlay' | 'cluster'>('underlay');
 
   const recalcChartHostHeight = useCallback(() => {
     const panel = panelRef.current;
@@ -176,6 +186,31 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
     }
   }, [cloudId, canReadNetworkScope]);
 
+  const loadClusterNetworks = useCallback(async () => {
+    if (!cloudId || !canReadNetworkScope) return;
+    setClusterNetworksLoading(true);
+    try {
+      const res = (await fetchHarvesterClusterNetworks(cloudId, true)) as {
+        items?: unknown[];
+        data?: { items?: unknown[] };
+      };
+      // 与 NadCreateModal / clusterPathLoads 一致：API 体为 { items }，无 axios 的 .data 包裹
+      const items = Array.isArray(res?.items)
+        ? res.items
+        : Array.isArray(res?.data?.items)
+          ? (res.data?.items as unknown[])
+          : [];
+      setClusterNetworks(items);
+      if (cloudId) {
+        clearCache(`/api/clouds/${cloudId}/resources/cluster-networks`, 'GET');
+      }
+    } catch {
+      setClusterNetworks([]);
+    } finally {
+      setClusterNetworksLoading(false);
+    }
+  }, [cloudId, canReadNetworkScope]);
+
   const physicalLldpLinks = useMemo(
     () => buildHsmLldpPhysicalLinks(clusterNodes, aswSwitchItems),
     [clusterNodes, aswSwitchItems],
@@ -186,7 +221,8 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
     void loadProviders();
     void loadSubnets();
     void loadPhysicalUnderlay();
-  }, [loadPhysicalUnderlay, loadProviders, loadSubnets, loadVlans]);
+    void loadClusterNetworks();
+  }, [loadClusterNetworks, loadPhysicalUnderlay, loadProviders, loadSubnets, loadVlans]);
 
   useEffect(() => {
     if (!cloudId || !canReadNetworkScope) return;
@@ -194,12 +230,23 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
     void loadProviders();
     void loadSubnets();
     void loadPhysicalUnderlay();
-  }, [cloudId, canReadNetworkScope, loadPhysicalUnderlay, loadProviders, loadSubnets, loadVlans]);
+    void loadClusterNetworks();
+  }, [cloudId, canReadNetworkScope, loadClusterNetworks, loadPhysicalUnderlay, loadProviders, loadSubnets, loadVlans]);
 
   useEffect(() => {
     if (providers.length === 0) return;
     setUserSelectedPn((prev) => prev ?? (kubeMetaName(providers[0]) || undefined));
   }, [providers]);
+
+  useEffect(() => {
+    if (clusterNetworks.length === 0) return;
+    setUserSelectedClusterNetwork((prev) => {
+      if (prev && clusterNetworks.some((cn) => kubeMetaName(cn as KubeListItem) === prev)) {
+        return prev;
+      }
+      return kubeMetaName(clusterNetworks[0] as KubeListItem) || undefined;
+    });
+  }, [clusterNetworks]);
 
   const providerOptions = useMemo(() => {
     const options: { label: string; value: string }[] = [];
@@ -216,10 +263,36 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
     return options;
   }, [providers]);
 
+  const clusterNetworkOptions = useMemo(() => {
+    const options: { label: string; value: string }[] = [];
+    (clusterNetworks || []).forEach((raw) => {
+      const name = kubeMetaName(raw as KubeListItem);
+      if (!name) return;
+      const friendly = clusterNetworkTopologyLabel(name);
+      const label = friendly && friendly !== name ? `${friendly} (${name})` : name;
+      options.push({ label, value: name });
+    });
+    return options;
+  }, [clusterNetworks]);
+
   const effectiveProviderName = useMemo(() => {
     const first = kubeMetaName(providers[0]);
     return String(userSelectedPn || first || '').trim();
   }, [userSelectedPn, providers]);
+
+  const effectiveClusterNetworkName = useMemo(() => {
+    const first = clusterNetworks[0] ? kubeMetaName(clusterNetworks[0] as KubeListItem) : '';
+    return String(userSelectedClusterNetwork || first || '').trim();
+  }, [userSelectedClusterNetwork, clusterNetworks]);
+
+  /** 拓扑图一次只画当前选中的集群网络（多选时与物理网络一致用下拉切换） */
+  const displayedClusterNetworks = useMemo(() => {
+    if (!effectiveClusterNetworkName) return [] as KubeListItem[];
+    const found = (clusterNetworks || []).find(
+      (cn) => kubeMetaName(cn as KubeListItem) === effectiveClusterNetworkName,
+    );
+    return found ? [found] : [];
+  }, [clusterNetworks, effectiveClusterNetworkName]);
 
   const effectivePn = useMemo(
     () => providers.find((p) => kubeMetaName(p) === effectiveProviderName),
@@ -340,11 +413,17 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
   const bootstrapping = providersLoading && providers.length === 0;
 
   useEffect(() => {
+    flowInstanceRef.current = null;
+    setFlowCtlReady(false);
+  }, [topoView, effectiveClusterNetworkName]);
+
+  useEffect(() => {
+    if (topoView !== 'underlay') return;
     if (bootstrapping || !effectivePn) {
       flowInstanceRef.current = null;
       setFlowCtlReady(false);
     }
-  }, [bootstrapping, effectivePn]);
+  }, [topoView, bootstrapping, effectivePn]);
 
   const onFlowReady = useCallback((inst: ReactFlowInstance) => {
     flowInstanceRef.current = inst;
@@ -388,18 +467,37 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
   return (
     <div ref={panelRef} style={TAB_PANEL_TOPOLOGY}>
       <div style={FLOAT_TOOLBAR}>
-        {providerOptions.length > 1 ? (
+        <Segmented
+          size="middle"
+          value={topoView}
+          onChange={(v) => setTopoView(v as 'underlay' | 'cluster')}
+          options={[
+            { label: '物理网络', value: 'underlay' },
+            { label: '集群网络', value: 'cluster' },
+          ]}
+        />
+        {topoView === 'underlay' && providerOptions.length > 1 ? (
           <Select
             size="middle"
-            style={{ minWidth: 200 }}
-            prefix="物理网络"
+            style={{ width: 150 }}
             placeholder="选择物理网络"
             value={effectiveProviderName || undefined}
             onChange={(v) => setUserSelectedPn(String(v))}
             options={providerOptions}
           />
         ) : null}
-        {!bootstrapping && effectivePn ? (
+        {topoView === 'cluster' && clusterNetworkOptions.length > 1 ? (
+          <Select
+            size="middle"
+            style={{ width: 150 }}
+            placeholder="选择集群网络"
+            value={effectiveClusterNetworkName || undefined}
+            onChange={(v) => setUserSelectedClusterNetwork(String(v))}
+            options={clusterNetworkOptions}
+          />
+        ) : null}
+        {((topoView === 'underlay' && !bootstrapping && effectivePn) ||
+          (topoView === 'cluster' && !clusterNetworksLoading && clusterNetworks.length > 0)) ? (
           <>
             <Button
               type="default"
@@ -431,27 +529,65 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
           type="default"
           size="middle"
           icon={<ReloadOutlined />}
-          loading={providersLoading || vlanLoading || subnetLoading || physicalTopoLoading}
+          loading={
+            providersLoading ||
+            vlanLoading ||
+            subnetLoading ||
+            physicalTopoLoading ||
+            clusterNetworksLoading
+          }
           onClick={reloadAll}
         />
       </div>
 
-      {bootstrapping ? (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Spin tip="加载中…" />
-        </div>
-      ) : !effectivePn ? (
-        <div style={{ ...NO_PN_EMPTY_WRAP, flex: 1, minHeight: 0 }}>
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无物理网络数据" />
-        </div>
+      {topoView === 'underlay' ? (
+        bootstrapping ? (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Spin tip="加载中…" />
+          </div>
+        ) : !effectivePn ? (
+          <div style={{ ...NO_PN_EMPTY_WRAP, flex: 1, minHeight: 0 }}>
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无物理网络数据" />
+          </div>
+        ) : (
+          <div
+            style={{
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              flex: 1,
+              minHeight: 0,
+              height: chartHostHeight >= CHART_MIN_HEIGHT_PX ? chartHostHeight : undefined,
+            }}
+          >
+            <ProviderNetworkTopologyGraph
+              pnDisplayTitle={headerTitle}
+              pnMetaName={pnDerived.metaName}
+              pnReady={pnDerived.ready}
+              pnNicTopology={pnNicTopology}
+              pnReadyNodes={pnReadyNodes}
+              displayedVlans={displayedVlans}
+              publicSubnetsForPn={publicSubnetsForPn}
+              flatSubnetsForPn={flatSubnetsForPn}
+              vlanLoading={vlanLoading}
+              physicalLldpLinks={physicalLldpLinks}
+              pnOriginNics={pnOriginNics}
+              harvesterNodes={clusterNodes}
+              hideBuiltinFlowControls
+              onFlowReady={onFlowReady}
+              visualTheme="dark"
+            />
+          </div>
+        )
       ) : (
         <div
           style={{
@@ -464,18 +600,11 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
             height: chartHostHeight >= CHART_MIN_HEIGHT_PX ? chartHostHeight : undefined,
           }}
         >
-          <ProviderNetworkTopologyGraph
-            pnDisplayTitle={headerTitle}
-            pnMetaName={pnDerived.metaName}
-            pnReady={pnDerived.ready}
-            pnNicTopology={pnNicTopology}
-            pnReadyNodes={pnReadyNodes}
-            displayedVlans={displayedVlans}
-            publicSubnetsForPn={publicSubnetsForPn}
-            flatSubnetsForPn={flatSubnetsForPn}
-            vlanLoading={vlanLoading}
+          <ClusterNetworkTopologyGraph
+            clusterNetworks={displayedClusterNetworks}
+            nodes={clusterNodes}
             physicalLldpLinks={physicalLldpLinks}
-            pnOriginNics={pnOriginNics}
+            loading={clusterNetworksLoading}
             hideBuiltinFlowControls
             onFlowReady={onFlowReady}
             visualTheme="dark"
