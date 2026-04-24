@@ -171,9 +171,12 @@ const GeneralSettings: React.FC = () => {
         .ant-card .general-settings-form .ant-form-item { 
           margin-bottom: 16px !important; 
         }
+        .general-settings-cards > .ant-card {
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
       `}</style>
-      <div>
-        <Card title={<span><BgColorsOutlined style={{ marginRight: 8 }} />顶部导航栏设置</span>} style={{ marginBottom: 24 }}>
+      <div className="general-settings-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <Card title={<span><BgColorsOutlined style={{ marginRight: 8 }} />顶部导航栏设置</span>}>
           <Form 
             form={themeForm} 
             layout="vertical" 
@@ -281,7 +284,7 @@ const GeneralSettings: React.FC = () => {
           </Form>
         </Card>
 
-        <Card title={<span><BgColorsOutlined style={{ marginRight: 8 }} />Content card 设置</span>} style={{ marginBottom: 24 }}>
+        <Card title={<span><BgColorsOutlined style={{ marginRight: 8 }} />Content card 设置</span>}>
           <Form 
             form={contentCardForm}
             layout="vertical" 
@@ -316,7 +319,10 @@ const GeneralSettings: React.FC = () => {
           </Form>
         </Card>
 
-        <Card title={<span><LoginOutlined style={{ marginRight: 8 }} />登录页个性化设置</span>} style={{ marginBottom: 24 }}>
+        <Card
+          title={<span><LoginOutlined style={{ marginRight: 8 }} />登录页个性化设置</span>}
+          style={{ marginBottom: 24 }}
+        >
           <Form 
             form={loginForm}
             layout="vertical" 

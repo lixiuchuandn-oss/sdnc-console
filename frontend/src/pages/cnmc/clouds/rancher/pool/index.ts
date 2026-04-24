@@ -1,5 +1,5 @@
 /**
- * Rancher 集群内视图层（与 `layouts/admin/rancherClusterSidebar` 侧栏参数一致）
+ * Rancher 集群内视图层（与 `layouts/admin/rancher/rancherClusterSidebar` 侧栏参数一致）
  *
  * - `panels/cluster/` — 集群菜单下：项目、命名空间、节点、成员、事件、工具
  * - `panels/workloads/` — 工作负载 Steve 列表

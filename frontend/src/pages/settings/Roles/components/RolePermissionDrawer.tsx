@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, startTransition, useState } from 'react';
 import {
   Anchor,
   Button,
@@ -7,17 +7,17 @@ import {
   Col,
   Collapse,
   Divider,
+  Drawer,
   Empty,
-  Form,
+  Flex,
   Input,
+  message,
   Row,
-  Select,
+  Segmented,
   Space,
   Typography,
 } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
-import StdSideDrawer from '../../../../components/StdSideDrawer';
-import type { RBACRole } from '../types';
+import type { DrawerProps } from 'antd';
 import { groupResourceConsoleChildFeatures } from '../../../../utils/permissionUtils';
 import { PLATFORM_LABELS } from '../../../../constants/navigation';
 
@@ -25,11 +25,11 @@ const { Text, Title } = Typography;
 
 type Props = {
   open: boolean;
-  target: RBACRole | null;
   kw: string;
   permVerb: '全部' | 'read' | 'write';
   grantSelectedIds: string[];
   permissionStructure: any[];
+  confirmLoading?: boolean;
   onKwChange: (v: string) => void;
   onPermVerbChange: (v: '全部' | 'read' | 'write') => void;
   onClearSelected: () => void;
@@ -47,13 +47,29 @@ function sectionDomId(platform: string, group: string) {
   return `perm-sec-${platform}-${g}`;
 }
 
+/** 抽屉内统一间距（px） */
+const G = 10;
+
+const drawerStyles: DrawerProps['styles'] = {
+  body: {
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    padding: G,
+  },
+  footer: {
+    marginTop: 0,
+    padding: G,
+  },
+};
+
 const RolePermissionDrawer: React.FC<Props> = ({
   open,
-  target,
   kw,
   permVerb,
   grantSelectedIds,
   permissionStructure,
+  confirmLoading = false,
   onKwChange,
   onPermVerbChange,
   onClearSelected,
@@ -72,10 +88,13 @@ const RolePermissionDrawer: React.FC<Props> = ({
 
   const structureSig = panelKeys.join('|');
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!open) return;
-    setOpenCollapseKeys(panelKeys);
-  }, [open, structureSig]);
+    const keys = panelKeys;
+    startTransition(() => {
+      setOpenCollapseKeys(keys);
+    });
+  }, [open, structureSig, panelKeys]);
 
   const anchorItems = useMemo(() => {
     return permissionStructure.map((p) => ({
@@ -110,32 +129,41 @@ const RolePermissionDrawer: React.FC<Props> = ({
     return () => cancelAnimationFrame(id);
   }, [kw, open, permissionStructure]);
 
+  const copyCurrentPermissions = async () => {
+    const sorted = [...grantSelectedIds].sort();
+    const text = JSON.stringify(sorted, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success(sorted.length ? `已复制 ${sorted.length} 条权限` : '已复制（当前未勾选任何权限）');
+    } catch {
+      message.error('复制失败，请检查浏览器剪贴板权限');
+    }
+  };
+
   const renderFeatureCards = (features: any[], opts?: { cardSpan?: number }) => (
-    <Row gutter={[16, 12]}>
+    <Row gutter={[G, G]}>
       {features.map((feature) => (
         <Col span={opts?.cardSpan ?? 8} key={`${feature.resourcePrefix || feature.feature}`}>
           <Card
             size="small"
+            variant="borderless"
+            styles={{ body: { padding: G } }}
+            style={{
+              background: 'var(--ant-color-fill-alter, rgba(0,0,0,.02))',
+              borderRadius: 8,
+            }}
             data-perm-card="1"
             data-perm-prefix={feature.resourcePrefix || ''}
             data-perm-title={feature.feature || ''}
           >
-            <div
-              style={{
-                display: 'flex',
-                width: '100%',
-                gap: 12,
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
+            <Flex gap={G} align="flex-start" justify="space-between" wrap="wrap">
+              <Flex vertical gap={G / 2} style={{ flex: 1, minWidth: 0 }}>
                 <Text ellipsis style={{ display: 'block' }}>
                   {feature.feature}
                 </Text>
                 <Text
                   type="secondary"
-                  style={{ display: 'block', marginTop: 4, fontSize: 12, lineHeight: 1.4, wordBreak: 'break-all' }}
+                  style={{ display: 'block', fontSize: 12, lineHeight: 1.4, wordBreak: 'break-all' }}
                 >
                   {Array.from(
                     new Set(
@@ -145,8 +173,8 @@ const RolePermissionDrawer: React.FC<Props> = ({
                     ),
                   ).join(' / ')}
                 </Text>
-              </div>
-              <Space style={{ flexShrink: 0 }}>
+              </Flex>
+              <Space size={G} style={{ flexShrink: 0 }}>
                 {feature.read && feature.readVisible && (
                   <Checkbox
                     checked={grantSelectedIds.includes(feature.read)}
@@ -164,7 +192,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
                   </Checkbox>
                 )}
               </Space>
-            </div>
+            </Flex>
           </Card>
         </Col>
       ))}
@@ -188,17 +216,17 @@ const RolePermissionDrawer: React.FC<Props> = ({
         {parentFeatures.length > 0 && (
           <>
             {renderFeatureCards(parentFeatures, { cardSpan: 24 })}
-            <Divider style={{ margin: '16px 0' }} />
+            <Divider style={{ margin: `${G}px 0` }} />
           </>
         )}
         {groupResourceConsoleChildFeatures(childFeatures.length > 0 ? childFeatures : group.features).map(
           (childGroup, idx, arr) => (
             <div key={childGroup.label}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: G }}>
                 {childGroup.label}
               </Text>
               {renderFeatureCards(childGroup.items)}
-              {idx < arr.length - 1 && <Divider style={{ margin: '16px 0' }} />}
+              {idx < arr.length - 1 && <Divider style={{ margin: `${G}px 0` }} />}
             </div>
           ),
         )}
@@ -207,133 +235,147 @@ const RolePermissionDrawer: React.FC<Props> = ({
   };
 
   return (
-    <StdSideDrawer
-      title={`配置权限 - ${target?.name}`}
+    <Drawer
+      title="配置权限"
+      placement="right"
+      width={1280}
       open={open}
       onClose={onClose}
-      onOk={onSave}
-      width={1280}
-      styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 24 } }}
+      destroyOnHidden
+      maskClosable
+      styles={drawerStyles}
+      footer={
+        <Flex justify="flex-end" gap={G}>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" onClick={onSave} loading={confirmLoading}>
+            保存
+          </Button>
+        </Flex>
+      }
     >
-      <div className="page-toolbar" style={{ marginBottom: 10 }}>
-        <Form
-          className="toolbar-container"
-          layout="vertical"
-          style={{ display: 'flex', alignItems: 'flex-end', rowGap: 12, columnGap: 12 }}
-        >
-          <Form.Item style={{ width: 160, marginBottom: 0 }}>
-            <Select
+      <Flex vertical gap={G} style={{ flex: 1, minHeight: 0 }}>
+        <Flex wrap="wrap" gap={G} align="center" justify="space-between">
+          <Flex wrap="wrap" gap={G} align="center" flex={1} style={{ minWidth: 280 }}>
+            <Segmented
               value={permVerb}
-              onChange={(v: any) => onPermVerbChange(v)}
+              onChange={(v) => onPermVerbChange(v as '全部' | 'read' | 'write')}
               options={[
-                { value: '全部', label: '全部' },
-                { value: 'read', label: '只读' },
-                { value: 'write', label: '读写' },
+                { label: '全部', value: '全部' },
+                { label: '只读', value: 'read' },
+                { label: '读写', value: 'write' },
               ]}
             />
-          </Form.Item>
-          <Form.Item style={{ flex: 1, marginBottom: 0 }}>
-            <Input
+            <Input.Search
               allowClear
               placeholder="搜索名称或权限 ID（如 clouds.console）"
-              className="toolbar-search"
-              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={kw}
               onChange={(e) => onKwChange(e.target.value)}
+              style={{ flex: 1, minWidth: 200, maxWidth: 560 }}
             />
-          </Form.Item>
-        </Form>
-        <div className="toolbar-actions" style={{ display: 'flex', alignItems: 'center' }}>
-          <Space>
-            <Text>
-              已选择 <Text strong style={{ color: '#1890ff' }}>{grantSelectedIds.length}</Text> 个权限
+          </Flex>
+          <Space size={G}>
+            <Text type="secondary">
+              已选择 <Text strong style={{ color: 'var(--ant-color-primary)' }}>{grantSelectedIds.length}</Text> 项
             </Text>
+            <Button type="link" size="small" onClick={copyCurrentPermissions}>
+              复制权限
+            </Button>
             <Button type="link" size="small" onClick={onClearSelected}>
               清空选择
             </Button>
           </Space>
-        </div>
-      </div>
+        </Flex>
 
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          minHeight: 0,
-          gap: 16,
-        }}
-      >
-        <div
-          ref={scrollRef}
-          className="role-perm-drawer-scroll"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            overflow: 'auto',
-            padding: 12,
-            border: '1px solid var(--ant-color-border, #d9d9d9)',
-            borderRadius: 8,
-            background: 'var(--ant-color-bg-container, #fff)',
-          }}
-        >
-          {permissionStructure.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
-          ) : (
-            permissionStructure.map((platform, platformIdx) => (
-              <div
-                key={platform.platform}
-                style={{ marginBottom: platformIdx < permissionStructure.length - 1 ? 28 : 0 }}
-              >
-                <div id={`perm-plat-${platform.platform}`} style={{ scrollMarginTop: 8 }}>
-                  <Title level={5} style={{ margin: '0 0 12px' }}>
-                    {(PLATFORM_LABELS as Record<string, string>)[platform.platform] || platform.platform}
-                    <Text type="secondary" style={{ marginLeft: 8, fontSize: 13, fontWeight: 'normal' }}>
-                      {platform.platform}
-                    </Text>
-                  </Title>
+        <Flex gap={G} style={{ flex: 1, minHeight: 0 }}>
+          {permissionStructure.length > 0 ? (
+            <Card
+              className="role-perm-drawer-toc"
+              size="small"
+              title="目录"
+              variant="borderless"
+              style={{
+                width: 220,
+                flexShrink: 0,
+                alignSelf: 'stretch',
+                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                borderRadius: 8,
+                boxShadow: 'none',
+              }}
+              styles={{
+                header: { padding: G },
+                body: { padding: G, maxHeight: '100%', overflow: 'auto' },
+              }}
+            >
+              <Anchor
+                affix={false}
+                getContainer={() => scrollRef.current || window}
+                items={anchorItems}
+              />
+            </Card>
+          ) : null}
+
+          <div
+            ref={scrollRef}
+            className="role-perm-drawer-scroll"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'auto',
+              padding: G,
+              border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+              borderRadius: 8,
+              background: 'var(--ant-color-bg-container, #fff)',
+            }}
+          >
+            {permissionStructure.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
+            ) : (
+              permissionStructure.map((platform, platformIdx) => (
+                <div
+                  key={platform.platform}
+                  style={{ marginBottom: platformIdx < permissionStructure.length - 1 ? G : 0 }}
+                >
+                  <div id={`perm-plat-${platform.platform}`} style={{ scrollMarginTop: G }}>
+                    <Title level={5} style={{ margin: `0 0 ${G}px` }}>
+                      {(PLATFORM_LABELS as Record<string, string>)[platform.platform] || platform.platform}
+                      <Text type="secondary" style={{ marginLeft: G / 2, fontSize: 13, fontWeight: 'normal' }}>
+                        {platform.platform}
+                      </Text>
+                    </Title>
+                  </div>
+                  <Collapse
+                    bordered={false}
+                    expandIconPosition="end"
+                    activeKey={openCollapseKeys}
+                    onChange={(keys) => setOpenCollapseKeys(Array.isArray(keys) ? keys : [keys])}
+                    style={{ background: 'transparent' }}
+                    className="role-perm-drawer-collapse"
+                    items={platform.groups.map((group: any, groupIdx: number) => ({
+                      key: panelKey(platform.platform, group.group),
+                      label: (
+                        <span id={sectionDomId(platform.platform, group.group)} style={{ scrollMarginTop: G }}>
+                          <Text strong>{group.group}</Text>
+                        </span>
+                      ),
+                      style: { marginBottom: groupIdx < platform.groups.length - 1 ? G : 0 },
+                      styles: {
+                        header: {
+                          padding: G,
+                          borderRadius: 8,
+                          background: 'var(--ant-color-fill-alter, rgba(0,0,0,.02))',
+                        },
+                        body: { padding: G },
+                      },
+                      children: renderGroupBody(group),
+                    }))}
+                  />
                 </div>
-                <Collapse
-                  bordered={false}
-                  activeKey={openCollapseKeys}
-                  onChange={(keys) => setOpenCollapseKeys(Array.isArray(keys) ? keys : [keys])}
-                  style={{ background: 'transparent', boxShadow: 'none' }}
-                  className="role-perm-drawer-collapse"
-                  items={platform.groups.map((group: any, groupIdx: number) => ({
-                    key: panelKey(platform.platform, group.group),
-                    label: (
-                      <span id={sectionDomId(platform.platform, group.group)} style={{ scrollMarginTop: 48 }}>
-                        <Text strong>{group.group}</Text>
-                      </span>
-                    ),
-                    style: { marginBottom: groupIdx < platform.groups.length - 1 ? 8 : 0 },
-                    children: renderGroupBody(group),
-                  }))}
-                />
-              </div>
-            ))
-          )}
-        </div>
-
-        <div
-          className="role-perm-drawer-scroll"
-          style={{
-            width: 220,
-            flexShrink: 0,
-            padding: 12,
-            alignSelf: 'stretch',
-            overflow: 'auto',
-          }}
-        >
-          {permissionStructure.length === 0 ? null : (
-            <Anchor
-              affix={false}
-              getContainer={() => scrollRef.current || window}
-              items={anchorItems}
-            />
-          )}
-        </div>
-      </div>
-    </StdSideDrawer>
+              ))
+            )}
+          </div>
+        </Flex>
+      </Flex>
+    </Drawer>
   );
 };
 

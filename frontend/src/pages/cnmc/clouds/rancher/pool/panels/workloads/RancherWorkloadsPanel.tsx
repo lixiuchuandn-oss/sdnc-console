@@ -7,7 +7,7 @@ import {
   fetchRancherClusterWorkloads,
   type RancherWorkloadKind,
 } from '../../../../../../../services/rancherClusterApi';
-import type { RancherClusterWorkloadsSubKey } from '../../../../../../../layouts/admin/rancherClusterSidebar';
+import type { RancherClusterWorkloadsSubKey } from '../../../../../../../layouts/admin/rancher/rancherClusterSidebar';
 import RancherWorkloadCreateModal from './RancherWorkloadCreateModal';
 
 type Props = { poolId: string; clusterId: string; kind: RancherClusterWorkloadsSubKey };

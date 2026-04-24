@@ -687,20 +687,20 @@ const PageContainer = <T extends Record<string, any> = any>({
           style={{
             display: 'flex',
             alignItems: 'flex-end',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-start',
             marginBottom: 16,
             // 如果启用 sticky，工具栏将固定在顶部
             ...(toolbarSticky ? { position: 'sticky', top: 0, zIndex: 1, background: '#fff' } : {}),
             ...(toolbarStyle || {}),
           }}
         >
-          {/* 左侧工具栏 */}
-          <Space size={toolbarGapLeft} wrap>
+          {/* 左侧；minWidth:0 与右侧 marginLeft:'auto' 成对，避免无筛选或换行时操作区贴左 */}
+          <Space size={toolbarGapLeft} wrap style={{ minWidth: 0 }}>
             {toolbarLeft}
           </Space>
-          
+
           {/* 右侧操作按钮 */}
-          <Space size={toolbarGapRight} wrap>
+          <Space size={toolbarGapRight} wrap style={{ marginLeft: 'auto' }}>
             {actionsNode}
           </Space>
         </div>

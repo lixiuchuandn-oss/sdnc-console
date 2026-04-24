@@ -1192,14 +1192,30 @@ const CloudConsolePage: React.FC = () => {
     }
   }, [ovnVpcEnabled]);
 
+  /**
+   * VM 列表单独 effect：避免因 namespaces / pvcs / storageClasses 等长度先后就绪
+   * 在 ecs 仍为空时反复触发 loadEcs（连续 GET）。
+   * 「云数据库」侧栏由下方专用 effect 拉 ecs，此处排除 rds。
+   */
+  useEffect(() => {
+    if (!currentCloudId || !isCloudmap) return;
+    if (consoleLeftNavKey === 'container' || consoleLeftNavKey === 'rds') return;
+    if (ecs.length === 0 && !loading) loadEcs(currentCloudId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随云/导航/资源类型与列表是否已加载触发，不随其它资源长度抖动
+  }, [
+    currentCloudId,
+    isCloudmap,
+    consoleLeftNavKey,
+    harvesterResource,
+    ecs.length,
+    loading,
+  ]);
+
   // Cloudmap 资源按需加载：监听 harvesterResource 与 currentCloudId（容器视图走独立 effect）
   useEffect(() => {
     if (!currentCloudId || !isCloudmap) return;
     if (consoleLeftNavKey === 'container') return;
 
-    // 无论哪个 Tab，VM 列表和 Namespace 都是基础数据 (VM 列表可能在其他 Tab 也需要引用，如 Volume 挂载)
-    // 且 VM 列表通常是首页，所以始终检查加载
-    if (ecs.length === 0 && !loading) loadEcs(currentCloudId);
     if (namespaces.length === 0) loadNamespaces(currentCloudId);
 
     switch (harvesterResource) {
@@ -1254,14 +1270,13 @@ const CloudConsolePage: React.FC = () => {
         loadTemplates(currentCloudId);
         break;
     }
-    // 勿加入 loading / images.length：否则 load* 会改 loading 或 images，effect 反复执行，镜像等 Tab 会无限强制刷新
+    // 勿加入 loading / images.length / ecs.length：否则与其它 load* 交织会放大请求；VM 列表由上方独立 effect 处理
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 按导航与列表长度触发；不将 load* 全部列入避免重复请求
   }, [
     currentCloudId,
     isCloudmap,
     consoleLeftNavKey,
     harvesterResource,
-    ecs.length,
     namespaces.length,
     pvcs.length,
     storageClasses.length,
@@ -1309,10 +1324,16 @@ const CloudConsolePage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 按导航 key 触发；loadCtr* 为稳定拉数封装
   }, [currentCloudId, isCloudmap, consoleLeftNavKey, containerResource]);
 
-  /** 云数据库侧栏：实例列表、镜像（合并公共场景镜像）、存储类、子网 */
+  /** 云数据库侧栏：实例列表（单独 effect，避免 loading / 其它列表长度导致重复 GET） */
   useEffect(() => {
     if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds') return;
     if (ecs.length === 0 && !loading) loadEcs(currentCloudId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCloudId, isCloudmap, consoleLeftNavKey, ecs.length, loading]);
+
+  /** 云数据库侧栏：镜像、存储类、子网、命名空间 */
+  useEffect(() => {
+    if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds') return;
     if (namespaces.length === 0) loadNamespaces(currentCloudId);
     if (images.length === 0) loadImages(currentCloudId, false, true);
     if (storageClasses.length === 0) loadStorageClasses(currentCloudId, true, true);
@@ -1323,12 +1344,10 @@ const CloudConsolePage: React.FC = () => {
     isCloudmap,
     consoleLeftNavKey,
     ovnVpcEnabled,
-    ecs.length,
     namespaces.length,
     images.length,
     storageClasses.length,
     subnets.length,
-    loading,
   ]);
 
   const handleDatabaseForceRefresh = useCallback(async () => {

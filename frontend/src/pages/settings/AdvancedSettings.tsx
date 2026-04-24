@@ -48,8 +48,13 @@ const AdvancedSettings: React.FC = () => {
       asCard={false}
       titleLevel={3}
     >
-      <div>
-        <Card title={<span><SafetyCertificateOutlined style={{ marginRight: 8 }} /> AI SOC 配置</span>} style={{ marginBottom: 24 }}>
+      <style>{`
+        .advanced-settings-cards > .ant-card {
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+      `}</style>
+      <div className="advanced-settings-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <Card title={<span><SafetyCertificateOutlined style={{ marginRight: 8 }} /> AI SOC 配置</span>}>
           <Form form={aiSocForm} layout="vertical" style={{ maxWidth: 480 }} onFinish={async (values) => {
             try {
                const p1 = apiUpdateSystemSetting('ai_soc_frontend_url', String(values.frontendUrl || '').trim());
@@ -62,10 +67,10 @@ const AdvancedSettings: React.FC = () => {
                message.error('更新失败');
             }
           }}>
-             <Form.Item label="AI SOC 前端地址 (Frontend URL)" name="frontendUrl" extra="用于iframe嵌入访问，例如 http://192.168.2.22:5173">
+             <Form.Item label="AI SOC 前端地址" name="frontendUrl">
                <Input placeholder="http://192.168.2.22:5173" />
              </Form.Item>
-             <Form.Item label="AI SOC 后端地址 (Backend API URL)" name="backendUrl" extra="用于后端API代理转发，例如 http://192.168.2.22:5000">
+             <Form.Item label="AI SOC 后端地址" name="backendUrl">
                <Input placeholder="http://192.168.2.22:5000" />
              </Form.Item>
              <Form.Item>
@@ -89,9 +94,8 @@ const AdvancedSettings: React.FC = () => {
             }}
           >
             <Form.Item
-              label="CSMCTL 地址 (Base URL)"
+              label="CSMCTL 地址"
               name="address"
-              extra="用于 /api-proxy 反向代理转发。示例：https://127.0.0.1:8016"
               rules={[
                 {
                   validator: async (_rule, value) => {

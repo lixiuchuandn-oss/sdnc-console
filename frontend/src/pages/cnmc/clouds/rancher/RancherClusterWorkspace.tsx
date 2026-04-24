@@ -13,7 +13,7 @@ import {
   type RancherClusterSubKey,
   type RancherClusterTabKey,
   type RancherClusterWorkloadsSubKey,
-} from '../../../../layouts/admin/rancherClusterSidebar';
+} from '../../../../layouts/admin/rancher/rancherClusterSidebar';
 import type { RancherK8sListKind } from '../../../../services/rancherClusterApi';
 import '../Cloudmap/pool/styles/cloudmap-detail-layout.css';
 import './pool/styles/rancher-workspace.css';

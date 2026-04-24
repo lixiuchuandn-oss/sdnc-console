@@ -1,4 +1,4 @@
-import type { RancherClusterWorkloadsSubKey } from '../../../../../../../layouts/admin/rancherClusterSidebar';
+import type { RancherClusterWorkloadsSubKey } from '../../../../../../../layouts/admin/rancher/rancherClusterSidebar';
 
 /** 各工作负载类型的默认可编辑 YAML（用户可按集群情况修改后创建） */
 export function getDefaultWorkloadYaml(kind: RancherClusterWorkloadsSubKey): string {

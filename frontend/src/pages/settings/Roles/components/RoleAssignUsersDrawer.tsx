@@ -2,10 +2,11 @@ import React, { useMemo, useState } from 'react';
 import {
   App,
   Button,
-  Divider,
+  Card,
+  Drawer,
   Empty,
+  Flex,
   Input,
-  Modal,
   Popconfirm,
   Space,
   Spin,
@@ -15,12 +16,29 @@ import {
   Typography,
   message,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
-import StdSideDrawer from '../../../../components/StdSideDrawer';
+import type { DrawerProps } from 'antd';
 import { apiDelete, apiPost, apiRequest } from '../../../../services/api';
 import type { Assignment, RBACRole, SysUser } from '../types';
 
 const { Text } = Typography;
+
+const G = 10;
+
+const drawerStyles: DrawerProps['styles'] = {
+  body: {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+    padding: G,
+  },
+  footer: {
+    marginTop: 0,
+    padding: G,
+    flexShrink: 0,
+  },
+};
 
 type Props = {
   open: boolean;
@@ -41,8 +59,6 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
   const [loadError, setLoadError] = useState('');
   const [memberKw, setMemberKw] = useState('');
   const [addKw, setAddKw] = useState('');
-  const [detailOpen, setDetailOpen] = useState(false);
-
   const loadData = React.useCallback(async (role: RBACRole) => {
     try {
       setLoading(true);
@@ -53,35 +69,38 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
         : Array.isArray(usersJson?.users)
           ? usersJson.users
           : [];
-      setUsers(usersList);
 
-      const rolesJson = await apiRequest('/api/system/rbac/roles', { skipCache: true }).catch(() => []);
+      const activeUserIds = usersList
+        .filter((u) => u.username !== 'admin' && u.status === 'active')
+        .map((u) => String(u.id));
+
+      const [rolesJson, allAssignmentsJson, assignmentsJson] = await Promise.all([
+        apiRequest('/api/system/rbac/roles', { skipCache: true }).catch(() => []),
+        apiRequest(
+          `/api/system/rbac/assignments/by-users?userType=system&userIds=${encodeURIComponent(activeUserIds.join(','))}`,
+          { skipCache: true },
+        ).catch(() => ({ assignments: [] })),
+        apiRequest(
+          `/api/system/rbac/assignments/by-role?roleId=${encodeURIComponent(role.id)}&userType=system`,
+          { skipCache: true },
+        ).catch(() => ({ assignments: [] })),
+      ]);
+
       const rolesList: RBACRole[] = Array.isArray(rolesJson)
         ? rolesJson
         : Array.isArray((rolesJson as any)?.roles)
           ? (rolesJson as any).roles
           : [];
-      setRoles(rolesList);
-
-      const activeUserIds = usersList
-        .filter((u) => u.username !== 'admin' && u.status === 'active')
-        .map((u) => String(u.id));
-      const allAssignmentsJson = await apiRequest(
-        `/api/system/rbac/assignments/by-users?userType=system&userIds=${encodeURIComponent(activeUserIds.join(','))}`,
-        { skipCache: true },
-      ).catch(() => ({ assignments: [] }));
       const allAssignmentsList: Assignment[] = Array.isArray(allAssignmentsJson?.assignments)
         ? allAssignmentsJson.assignments
         : [];
-      setAllAssignments(allAssignmentsList);
-
-      const assignmentsJson = await apiRequest(
-        `/api/system/rbac/assignments/by-role?roleId=${encodeURIComponent(role.id)}&userType=system`,
-        { skipCache: true },
-      ).catch(() => ({ assignments: [] }));
       const roleAssignments: Assignment[] = Array.isArray(assignmentsJson?.assignments)
         ? assignmentsJson.assignments
         : [];
+
+      setUsers(usersList);
+      setRoles(rolesList);
+      setAllAssignments(allAssignmentsList);
       setExisting(roleAssignments);
       setSelected(roleAssignments.map((x) => String(x.userId)));
     } catch {
@@ -101,7 +120,6 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
     loadData(target);
   }, [open, target, loadData]);
 
-  /** 三权/三全角色：不在 mergeSelection 中强制合并内置（与旧逻辑一致） */
   const triPower = Boolean(target && /三权|三全/.test(String(target?.name || '')));
 
   const lockedBuiltInUserIds = useMemo(() => {
@@ -171,7 +189,6 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
     [users],
   );
 
-  /** 本角色成员：内置与普通用户同一列表，用户优先排序 */
   const membersInRole = useMemo(() => {
     const q = memberKw;
     const list = activeUsers.filter((u) => selected.includes(String(u.id)) && matchesKw(u, q));
@@ -183,7 +200,6 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
     });
   }, [activeUsers, selected, memberKw]);
 
-  /** 下区：可添加的候选（未加入、非内置；内置不可在此新增） */
   const candidates = useMemo(() => {
     const q = addKw;
     return activeUsers.filter(
@@ -233,43 +249,36 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
         title: '用户名',
         dataIndex: 'username',
         key: 'username',
-        width: 130,
+        align: 'left' as const,
         render: (v: string) => <Text>{v}</Text>,
       },
       {
         title: '姓名',
         dataIndex: 'fullName',
         key: 'fullName',
-        width: 120,
+        align: 'left' as const,
         render: (v: string, row: SysUser) => <Text>{v || row.username}</Text>,
-      },
-      {
-        title: '邮箱',
-        dataIndex: 'email',
-        key: 'email',
-        ellipsis: true,
       },
       {
         title: '类型',
         key: 'kind',
-        width: 80,
-        align: 'center',
+        align: 'left' as const,
         render: (_: unknown, row: SysUser) =>
           row.builtIn ? <Tag color="default">内置</Tag> : <Tag color="blue">用户</Tag>,
       },
       {
         title: '其他角色',
         key: 'cross',
-        width: 100,
-        align: 'center',
+        align: 'left' as const,
         render: (_: unknown, row: SysUser) => renderOtherRolesCell(row),
       },
     ];
     cols.push({
       title: '操作',
       key: 'op',
-      width: 72,
-      align: 'center',
+      width: 80,
+      align: 'left' as const,
+      fixed: 'right' as const,
       render: (_: unknown, row: SysUser) => {
         const id = String(row.id);
         if (row.builtIn) {
@@ -299,56 +308,43 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
         title: '用户名',
         dataIndex: 'username',
         key: 'username',
-        width: 130,
+        align: 'left' as const,
         render: (v: string) => <Text>{v}</Text>,
       },
       {
         title: '姓名',
         dataIndex: 'fullName',
         key: 'fullName',
-        width: 120,
+        align: 'left' as const,
         render: (v: string, row: SysUser) => <Text>{v || row.username}</Text>,
-      },
-      {
-        title: '邮箱',
-        dataIndex: 'email',
-        key: 'email',
-        ellipsis: true,
       },
       {
         title: '类型',
         key: 'kind',
-        width: 80,
-        align: 'center',
+        align: 'left' as const,
         render: () => <Tag color="blue">用户</Tag>,
       },
       {
         title: '其他角色',
         key: 'cross',
-        width: 100,
-        align: 'center',
+        align: 'left' as const,
         render: (_: unknown, row: SysUser) => renderOtherRolesCell(row),
       },
     ];
     cols.push({
       title: '操作',
       key: 'op',
-      width: 72,
-      align: 'center',
+      width: 80,
+      align: 'left' as const,
+      fixed: 'right' as const,
       render: (_: unknown, row: SysUser) => (
-        <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => handleAdd(String(row.id))}>
+        <Button type="link" size="small" onClick={() => handleAdd(String(row.id))}>
           加入
         </Button>
       ),
     });
     return cols;
   }, [renderOtherRolesCell, handleAdd]);
-
-  const userById = useMemo(() => {
-    const m = new Map<string, SysUser>();
-    users.forEach((u) => m.set(String(u.id), u));
-    return m;
-  }, [users]);
 
   const safeClose = React.useCallback(() => {
     if (!dirty) {
@@ -372,16 +368,18 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
     }
     try {
       setSaving(true);
-      for (const userId of delta.needAdd) {
-        await apiPost('/api/system/rbac/assignments', {
-          roleId: target.id,
-          userType: 'system',
-          userId,
-        });
-      }
-      for (const item of delta.needRemove) {
-        await apiDelete(`/api/system/rbac/assignments/${encodeURIComponent(item.id)}`);
-      }
+      await Promise.all([
+        ...delta.needAdd.map((userId) =>
+          apiPost('/api/system/rbac/assignments', {
+            roleId: target.id,
+            userType: 'system',
+            userId,
+          }),
+        ),
+        ...delta.needRemove.map((item) =>
+          apiDelete(`/api/system/rbac/assignments/${encodeURIComponent(item.id)}`),
+        ),
+      ]);
       message.success(`用户分配已保存（新增 ${delta.needAdd.length}，移除 ${delta.needRemove.length}）`);
       onClose();
       onSaved?.();
@@ -394,146 +392,191 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
 
   const memberInRoleCount = activeUsers.filter((u) => selected.includes(String(u.id))).length;
 
+  /** 左右分栏后单表区域较窄，略大于半宽即可触发横向滚动（固定列） */
+  const tableScrollX: number | string = 'max-content';
+
   return (
-    <StdSideDrawer
-      title={`授予用户 - ${target?.name || ''}`}
+    <Drawer
+      rootClassName="role-assign-users-drawer"
+      title="授予用户"
+      placement="right"
+      width={1280}
       open={open}
       onClose={safeClose}
-      onOk={handleSave}
-      okText={dirty ? `保存变更（+${delta.needAdd.length} / -${delta.needRemove.length}）` : '无变更'}
-      confirmLoading={saving}
-      width={900}
+      destroyOnHidden
+      maskClosable
+      styles={drawerStyles}
+      footer={
+        <Flex justify="flex-end" gap={G}>
+          <Button onClick={safeClose}>取消</Button>
+          <Button
+            type="primary"
+            onClick={handleSave}
+            loading={saving}
+            disabled={!dirty}
+          >
+            {dirty ? `保存（+${delta.needAdd.length} / -${delta.needRemove.length}）` : '无变更'}
+          </Button>
+        </Flex>
+      }
     >
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <Flex vertical gap={G} style={{ flex: 1, minHeight: 0, width: '100%', height: '100%' }}>
         {loadError ? (
-          <Space wrap>
+          <Flex wrap="wrap" gap={G} align="center" style={{ flexShrink: 0 }}>
             <Text type="danger">{loadError}</Text>
             <Button size="small" onClick={() => target && loadData(target)}>
               重试
             </Button>
-          </Space>
+          </Flex>
         ) : null}
 
-        <Spin spinning={loading}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            {/* 上区：本角色成员 — 与「添加成员」相同：首行标题行，次行搜索 */}
-            <div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                  marginBottom: 8,
-                }}
-              >
-                <Space align="center" wrap>
-                  <Typography.Title level={5} style={{ margin: 0 }}>
-                    本角色成员
-                  </Typography.Title>
+        <Spin
+          spinning={loading}
+          wrapperClassName="role-assign-users-drawer-spin"
+          style={{ flex: 1, minHeight: 0, width: '100%', height: '100%' }}
+        >
+          <Flex
+            gap={G}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              width: '100%',
+              height: '100%',
+              alignItems: 'stretch',
+            }}
+          >
+            <Card
+              className="role-assign-users-drawer-card"
+              size="small"
+              variant="borderless"
+              title={
+                <Space size={G} wrap>
+                  <span style={{ fontWeight: 500 }}>本角色成员</span>
                   <Tag>{memberInRoleCount} 人</Tag>
                 </Space>
-                {dirty ? (
-                  <Button type="link" size="small" icon={<UnorderedListOutlined />} onClick={() => setDetailOpen(true)}>
-                    查看待保存明细
-                  </Button>
-                ) : null}
-              </div>
-              <Input
+              }
+              style={{
+                flex: '1 1 0',
+                minWidth: 0,
+                minHeight: 0,
+                height: '100%',
+                maxHeight: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                borderRadius: 8,
+                boxShadow: 'none',
+              }}
+              styles={{
+                header: { padding: G, minHeight: 'auto', flexShrink: 0 },
+                body: {
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: G,
+                },
+              }}
+            >
+              <Input.Search
                 allowClear
-                placeholder="在成员中搜索"
+                placeholder="在成员中搜索（用户名、姓名、邮箱）"
                 value={memberKw}
                 onChange={(e) => setMemberKw(e.target.value)}
-                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-                style={{ width: '100%', marginBottom: 8 }}
+                style={{ width: '100%', marginBottom: G }}
               />
-              {membersInRole.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无成员，请在下方添加" />
-              ) : (
-                <Table
-                  rowKey={(r) => String(r.id)}
-                  size="small"
-                  pagination={{ size: 'small', pageSize: 6, showTotal: (t) => `共 ${t} 条` }}
-                  dataSource={membersInRole}
-                  columns={memberColumns}
-                />
-              )}
-            </div>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                {membersInRole.length === 0 ? (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      memberKw.trim()
+                        ? '未找到匹配成员'
+                        : '暂无成员，请在右侧卡片中添加'
+                    }
+                  />
+                ) : (
+                  <Table
+                    className="std-table"
+                    rowKey={(r) => String(r.id)}
+                    size="small"
+                    pagination={{ size: 'small', pageSize: 6, showTotal: (t) => `共 ${t} 条` }}
+                    dataSource={membersInRole}
+                    columns={memberColumns}
+                    scroll={{ x: tableScrollX }}
+                    bordered={false}
+                  />
+                )}
+              </div>
+            </Card>
 
-            <Divider style={{ margin: '4px 0' }} />
-
-            {/* 下区：添加成员 — 首行标题，次行说明，再次行搜索（与上区搜索同宽对齐） */}
-            <div>
-              <Typography.Title level={5} style={{ margin: '0 0 8px' }}>
-                添加成员
-              </Typography.Title>
-              <Input
+            <Card
+              className="role-assign-users-drawer-card"
+              size="small"
+              variant="borderless"
+              title={<span style={{ fontWeight: 500 }}>添加成员</span>}
+              style={{
+                flex: '1 1 0',
+                minWidth: 0,
+                minHeight: 0,
+                height: '100%',
+                maxHeight: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                borderRadius: 8,
+                boxShadow: 'none',
+              }}
+              styles={{
+                header: { padding: G, minHeight: 'auto', flexShrink: 0 },
+                body: {
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: G,
+                },
+              }}
+            >
+              <Input.Search
                 allowClear
-                placeholder="搜索用户名 / 姓名 / 邮箱"
+                placeholder="搜索用户（用户名、姓名、邮箱）"
                 value={addKw}
                 onChange={(e) => setAddKw(e.target.value)}
-                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-                style={{ width: '100%', marginBottom: 8 }}
+                style={{ width: '100%', marginBottom: G }}
               />
-              <Table
-                rowKey={(r) => String(r.id)}
-                size="small"
-                pagination={{ size: 'small', pageSize: 6, showTotal: (t) => `共 ${t} 条` }}
-                dataSource={candidates}
-                columns={candidateColumns}
-                locale={{ emptyText: '没有可添加的用户（或已全部在本角色中）' }}
-              />
-            </div>
-          </Space>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                {candidates.length === 0 ? (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      addKw.trim()
+                        ? '未找到匹配用户'
+                        : '没有可添加的用户'
+                    }
+                  />
+                ) : (
+                  <Table
+                    className="std-table"
+                    rowKey={(r) => String(r.id)}
+                    size="small"
+                    pagination={{ size: 'small', pageSize: 6, showTotal: (t) => `共 ${t} 条` }}
+                    dataSource={candidates}
+                    columns={candidateColumns}
+                    scroll={{ x: tableScrollX }}
+                    bordered={false}
+                  />
+                )}
+              </div>
+            </Card>
+          </Flex>
         </Spin>
-      </Space>
-
-      <Modal
-        title="待保存变更明细"
-        open={detailOpen}
-        footer={null}
-        onCancel={() => setDetailOpen(false)}
-        width={480}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <div>
-            <Text strong>将新增（{delta.needAdd.length}）</Text>
-            <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-              {delta.needAdd.length === 0 ? (
-                <li>无</li>
-              ) : (
-                delta.needAdd.map((id) => {
-                  const u = userById.get(id);
-                  return (
-                    <li key={id}>
-                      {u ? `${u.username}（${u.fullName || u.username}）` : id}
-                    </li>
-                  );
-                })
-              )}
-            </ul>
-          </div>
-          <div>
-            <Text strong>将移除（{delta.needRemove.length}）</Text>
-            <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-              {delta.needRemove.length === 0 ? (
-                <li>无</li>
-              ) : (
-                delta.needRemove.map((a) => {
-                  const u = userById.get(String(a.userId));
-                  return (
-                    <li key={a.id}>
-                      {u ? `${u.username}（${u.fullName || u.username}）` : a.userId}
-                    </li>
-                  );
-                })
-              )}
-            </ul>
-          </div>
-        </Space>
-      </Modal>
-    </StdSideDrawer>
+      </Flex>
+    </Drawer>
   );
 };
 

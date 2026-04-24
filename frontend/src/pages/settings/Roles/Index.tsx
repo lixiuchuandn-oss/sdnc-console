@@ -36,7 +36,7 @@ import {
   CLOUD_SUBNETS_VPC_WRITE,
 } from '../../../constants/cloudPermissions';
 
-const { Text } = Typography;
+const { Text, Link } = Typography;
 
 const SUBNET_SPLIT_ACTIONS = [
   CLOUD_SUBNETS_VPC_READ,
@@ -53,6 +53,45 @@ const SUBNET_SPLIT_RESOURCE_NAME: Record<string, string> = {
   'clouds.subnets.flat': '扁平子网',
   'clouds.subnets.public': '公共子网',
 };
+
+function getRolePermissionCount(row: RBACRole): number {
+  if (Array.isArray(row.actions) && row.actions.length > 0) {
+    return row.actions.length;
+  }
+  try {
+    const p = JSON.parse(String(row.permissions || '[]'));
+    return Array.isArray(p) ? p.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+const EMPTY_PERMISSION_STRUCTURE: { platform: string; groups: { group: string; features: any[] }[] }[] = [];
+
+function filterPermissionStructureByKeyword(
+  platforms: { platform: string; groups: { group: string; features: any[] }[] }[],
+  kw: string,
+) {
+  const q = kw.trim().toLowerCase();
+  if (!q) return platforms;
+  return platforms
+    .map((platform) => ({
+      ...platform,
+      groups: platform.groups
+        .map((group) => ({
+          ...group,
+          features: group.features.filter((f) => {
+            if (String(f.feature || '').toLowerCase().includes(q)) return true;
+            if (String(f.resourcePrefix || '').toLowerCase().includes(q)) return true;
+            if (f.read && String(f.read).toLowerCase().includes(q)) return true;
+            if (f.write && String(f.write).toLowerCase().includes(q)) return true;
+            return false;
+          }),
+        }))
+        .filter((g) => g.features.length > 0),
+    }))
+    .filter((p) => p.groups.length > 0);
+}
 
 const AccessRolesPage: React.FC = () => {
   // 使用 App.useApp() 获取 modal 实例（支持 destroyOnHidden）
@@ -86,9 +125,13 @@ const AccessRolesPage: React.FC = () => {
   const [grantOpen, setGrantOpen] = useState(false);
   const [grantTarget, setGrantTarget] = useState<RBACRole | null>(null);
   const [grantSelectedIds, setGrantSelectedIds] = useState<string[]>([]);
+  const [grantSaving, setGrantSaving] = useState(false);
   
-  // 构建按平台->分组->功能组织的权限数据
-  const permissionStructure = useMemo(() => {
+  // 构建按平台->分组->功能组织的权限数据（仅抽屉打开时计算；搜索词在下游轻量过滤）
+  const permissionStructureBase = useMemo(() => {
+    if (!grantOpen) {
+      return EMPTY_PERMISSION_STRUCTURE;
+    }
     // 获取所有权限原子（用于构建结构，不进行筛选）
     const withFrontendSubnetSplit =
       !backendSupportsSubnetSplit &&
@@ -96,9 +139,7 @@ const AccessRolesPage: React.FC = () => {
         ? Array.from(new Set([...actionAtoms, ...SUBNET_SPLIT_ACTIONS]))
         : actionAtoms;
     const allActionsForStructure = withFrontendSubnetSplit;
-    
-    // 获取筛选后的权限原子（用于确定哪些权限应该显示复选框）
-    // 注意：这个变量现在主要用于兼容，实际筛选在构建结构时进行
+    const actionSet = new Set(allActionsForStructure);
 
     // 按平台->分组->功能组织（使用所有权限构建结构）
     type PlatformMap = Map<string, Map<string, Map<string, { resourcePrefix?: string; read?: string; write?: string; readVisible?: boolean; writeVisible?: boolean }>>>;
@@ -123,18 +164,6 @@ const AccessRolesPage: React.FC = () => {
         ? (SUBNET_SPLIT_RESOURCE_NAME[resource] || resource)
         : getFeatureFromDefinition(action, permissionDefinitions);
       const feature = normalizeFeatureName(featureRaw);
-      
-      // 如果有关键字筛选：匹配展示名、资源前缀、或完整 :read/:write 原子 ID
-      if ((kw || '').length > 0) {
-        const k = kw.toLowerCase();
-        const hitFeature = feature.toLowerCase().includes(k);
-        const hitResource = resource.toLowerCase().includes(k);
-        const hitReadWrite =
-          `${resource}:read`.toLowerCase().includes(k) || `${resource}:write`.toLowerCase().includes(k);
-        if (!hitFeature && !hitResource && !hitReadWrite) {
-          return;
-        }
-      }
 
       if (!platformMap.has(platform)) {
         platformMap.set(platform, new Map());
@@ -152,9 +181,10 @@ const AccessRolesPage: React.FC = () => {
       const featurePerms = featureMap.get(feature)!;
       featurePerms.resourcePrefix = resource;
 
-      // 查找同一资源的所有权限（read/write）
-      const readAction = allActionsForStructure.find(a => a === `${resource}:read`);
-      const writeAction = allActionsForStructure.find(a => a === `${resource}:write`);
+      const readKey = `${resource}:read`;
+      const writeKey = `${resource}:write`;
+      const readAction = actionSet.has(readKey) ? readKey : undefined;
+      const writeAction = actionSet.has(writeKey) ? writeKey : undefined;
       
       if (readAction) {
         featurePerms.read = readAction;
@@ -251,8 +281,13 @@ const AccessRolesPage: React.FC = () => {
       });
 
     return platforms;
-  }, [actionAtoms, backendSupportsSubnetSplit, permVerb, kw, permissionDefinitions]);
-  
+  }, [grantOpen, actionAtoms, backendSupportsSubnetSplit, permVerb, permissionDefinitions]);
+
+  const permissionStructure = useMemo(
+    () => filterPermissionStructureByKeyword(permissionStructureBase, kw),
+    [permissionStructureBase, kw],
+  );
+
   // 处理权限复选框变化
   const handlePermissionChange = (action: string, checked: boolean) => {
     if (checked) {
@@ -366,6 +401,7 @@ const AccessRolesPage: React.FC = () => {
   // 提交授权
   const handleGrantSave = React.useCallback(async (targetKeys: string[]) => {
     if (!grantTarget) return;
+    setGrantSaving(true);
     try {
       const permissionsToSave = normalizeForBackendSave(targetKeys);
       await apiPatch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, { permissions: permissionsToSave });
@@ -374,6 +410,8 @@ const AccessRolesPage: React.FC = () => {
       fetchRoles();
     } catch (error: any) {
       message.error(error?.message || '保存失败');
+    } finally {
+      setGrantSaving(false);
     }
   }, [grantTarget, normalizeForBackendSave]);
 
@@ -400,13 +438,14 @@ const AccessRolesPage: React.FC = () => {
         title: '角色名称',
         key: 'name',
         dataIndex: 'name',
-        render: (v: React.ReactNode) => <Space>{v}</Space>,
+        align: 'left' as const,
+        render: (_: unknown, row: RBACRole) => <Text>{row.name}</Text>,
       },
       {
         title: '角色类型',
         key: 'type',
         dataIndex: 'type',
-        width: 140,
+        align: 'left' as const,
         render: (_: unknown, row: RBACRole) =>
           row.type === '系统策略' ? (
             <Tag color="blue">内置角色</Tag>
@@ -420,33 +459,70 @@ const AccessRolesPage: React.FC = () => {
         title: '角色范围',
         key: 'scope',
         dataIndex: 'scope',
-        width: 130,
+        align: 'left' as const,
         render: (_: unknown, row: RBACRole) =>
           row.scope === 'system' ? '系统角色' : row.scope === 'tenant' ? '租户角色' : '-',
+      },
+      {
+        title: '权限数量',
+        key: 'permissionCount',
+        align: 'left' as const,
+        render: (_: unknown, row: RBACRole) => {
+          const n = getRolePermissionCount(row);
+          if (!canWrite) return <Text>{n}</Text>;
+          return (
+            <Link
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openAuthorize(row);
+              }}
+            >
+              {n}
+            </Link>
+          );
+        },
       },
       {
         title: '授予用户数',
         key: 'grantedUserCount',
         dataIndex: 'grantedUserCount',
-        width: 110,
-        align: 'right' as const,
-        render: (n: number | undefined) => (
-          <Text>{typeof n === 'number' ? n : 0}</Text>
-        ),
+        align: 'left' as const,
+        render: (_: unknown, row: RBACRole) => {
+          const n = typeof row.grantedUserCount === 'number' ? row.grantedUserCount : 0;
+          if (!canWrite) return <Text>{n}</Text>;
+          return (
+            <Link
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openAssignUser(row);
+              }}
+            >
+              {n}
+            </Link>
+          );
+        },
       },
-      { title: '描述', key: 'description', dataIndex: 'description', ellipsis: true },
+      {
+        title: '描述',
+        key: 'description',
+        dataIndex: 'description',
+        ellipsis: true,
+        align: 'left' as const,
+      },
       {
         title: '创建时间',
         key: 'createdAt',
         dataIndex: 'createdAt',
-        width: 180,
+        align: 'left' as const,
         render: (v: string) => (v ? new Date(v).toLocaleString() : '-'),
       },
       {
         title: '操作',
         key: 'action',
-        width: 72,
-        align: 'center' as const,
+        width: 80,
+        align: 'left' as const,
         fixed: 'right' as const,
         render: (_: unknown, row: RBACRole) => {
           if (!canWrite) return <Text type="secondary">—</Text>;
@@ -491,7 +567,7 @@ const AccessRolesPage: React.FC = () => {
     [canWrite, modal, openAuthorize, openAssignUser, handleDelete],
   );
 
-  const { displayColumns: displayedColumns } = useTableColumnSettings(fullColumns, 'access_roles_table');
+  const { displayColumns: displayedColumns } = useTableColumnSettings(fullColumns, 'access_roles_v2');
 
   return (
     <PageContainer
@@ -565,7 +641,7 @@ const AccessRolesPage: React.FC = () => {
           </Dropdown>
           <TableColumnSettingsButton
             allColumns={fullColumns}
-            settingsKey="access_roles_table"
+            settingsKey="access_roles_v2"
           />
           <Button icon={<ReloadOutlined />} onClick={fetchRoles} />
         </div>
@@ -613,11 +689,11 @@ const AccessRolesPage: React.FC = () => {
 
       <RolePermissionDrawer
         open={grantOpen}
-        target={grantTarget}
         kw={kw}
         permVerb={permVerb}
         grantSelectedIds={grantSelectedIds}
         permissionStructure={permissionStructure}
+        confirmLoading={grantSaving}
         onKwChange={setKw}
         onPermVerbChange={setPermVerb}
         onClearSelected={() => setGrantSelectedIds([])}

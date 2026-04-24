@@ -233,16 +233,21 @@ const LicenseSettingsPage: React.FC = () => {
       subtitle="查看授权状态、配额限制与已开通功能模块"
       asCard={false}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <style>{`
+        .license-settings-cards > .ant-card {
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+      `}</style>
+      <div className="license-settings-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* 状态卡片 */}
         <Card 
           title={<span><CrownOutlined style={{ marginRight: 8 }} />授权状态</span>}
           extra={
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}>刷新</Button>
-              <Button type="primary" icon={<UploadOutlined />} onClick={() => setIsModalOpen(true)}>
+              <Button type="primary" onClick={() => setIsModalOpen(true)}>
                 {license.status === 'valid' ? '更新授权' : '导入授权'}
               </Button>
+              <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}></Button>
             </Space>
           }
         >
@@ -437,7 +442,10 @@ const LicenseSettingsPage: React.FC = () => {
 
 
         {/* 授权模式对比 */}
-        <Card title={<span><SafetyCertificateOutlined style={{ marginRight: 8 }} />授权版本特性对比</span>} style={{ marginBottom: 24 }}>
+        <Card
+          title={<span><SafetyCertificateOutlined style={{ marginRight: 8 }} />授权版本特性对比</span>}
+          style={{ marginBottom: 24 }}
+        >
           <Table 
             columns={compareColumns} 
             dataSource={compareDataSource} 

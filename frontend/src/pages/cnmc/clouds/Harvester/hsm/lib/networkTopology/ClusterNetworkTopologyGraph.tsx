@@ -323,7 +323,8 @@ const ClusterNetworkTopologyGraph: React.FC<ClusterNetworkTopologyGraphProps> = 
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
       });
-      cnsRelevant.forEach((cn, ci) => {
+      for (let ci = 0; ci < cnsRelevant.length; ci++) {
+        const cn = cnsRelevant[ci];
         const mname = cnMetaName(cn);
         const cnetId = safeNodeId('topo_cnetb', `${nm}__${mname}`);
         const { title, detail } = oneClusterNetworkCardContent(cn);
@@ -339,7 +340,7 @@ const ClusterNetworkTopologyGraph: React.FC<ClusterNetworkTopologyGraphProps> = 
           targetPosition: Position.Left,
         });
         edgesOut.push({ id: `e_ns_${eSeq++}`, source: knodeId, target: cnetId, ...edgeDef });
-      });
+      }
 
       const rows = aggs.map((agg, i) => {
         const rowAgg = startIdxAg + i;
@@ -383,7 +384,7 @@ const ClusterNetworkTopologyGraph: React.FC<ClusterNetworkTopologyGraphProps> = 
             targetPosition: Position.Left,
           });
         });
-        rows.forEach((r) => {
+        for (const r of rows) {
           const { agg, y, link } = r;
           const pnicId = safeNodeId('topo_cpnic', `${agg.nodeName}_${agg.dev}`);
           const nObj = nodeByName.get(agg.nodeName);
@@ -495,7 +496,7 @@ const ClusterNetworkTopologyGraph: React.FC<ClusterNetworkTopologyGraphProps> = 
             edgesOut.push({ id: `e_l_p_${eSeq++}`, source: lldpPh, target: pnicId, ...edgeLldpTh });
             edgesOut.push({ id: `e_p_k2_${eSeq++}`, source: pnicId, target: knodeId, ...edgeDef });
           }
-        });
+        }
 
       yCursor = blockTop + blockH + BLOCK_GAP;
     }

@@ -989,7 +989,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '权限管控',
     title: '角色管理',
-    subtitle: '角色用于将权限策略批量授权给用户或租户；在授权配置中可查看并勾选全部权限原子。',
+    subtitle: '按岗位与职责划分可操作范围，支持将同一套权限赋予多名人员，便于统一授权与日常管理。',
     icon: 'SolutionOutlined',
     order: 0,
     requiredActions: {
@@ -1007,7 +1007,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '权限管控',
     title: '用户管理',
-    subtitle: '管理系统级用户账号，包括创建、编辑、删除用户，重置密码，为用户分配 RBAC 角色，实现基于角色的访问控制（RBAC），适用于平台管理员、运维人员等系统级账号管理。',
+    subtitle: '管理平台侧用户账号的开通、变更与登录安全，并为每个人指定其岗位职责对应的系统访问范围。',
     icon: 'UserOutlined',
     order: 3,
     requiredActions: {
@@ -1026,7 +1026,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '权限管控',
     title: '安全管理',
-    subtitle: '配置平台管理员账号的密码复杂度与有效期策略（不含租户用户）。',
+    subtitle: '设定平台管理类账号的登录密码规则与更换周期，降低被盗用风险；租户业务人员的账号不在此处约束。',
     icon: 'SecurityScanOutlined',
     order: 4,
     requiredActions: {
@@ -1045,7 +1045,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '通用设置',
     title: '界面设置',
-    subtitle: '配置系统基础设置，包括界面外观主题、通知偏好、网络连接参数、语言设置等用户个性化选项，以及系统级别的通用配置参数。',
+    subtitle: '自定义工作台导航、登录页外观与主色调等品牌展示，使系统呈现符合本单位视觉与使用习惯。',
     icon: 'SettingOutlined',
     order: 10,
     requiredActions: {
@@ -1062,7 +1062,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '通用设置',
     title: '授权管理',
-    subtitle: '查看系统授权状态、资源配额限制（如资源池数量、用户数量等），导入新的授权文件，管理授权有效期，监控授权使用情况，确保系统在授权范围内正常运行。',
+    subtitle: '了解许可有效期、可用能力与使用边界，在扩容或续约时更新许可文件，保障业务在约定范围内持续、合规运行。',
     icon: 'SafetyCertificateOutlined',
     order: 30,
     requiredActions: {
@@ -1081,7 +1081,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '操作审计',
     title: '操作审计',
-    subtitle: '查看系统操作审计日志，记录并追踪所有用户的操作行为、资源变更历史、API 调用记录等，支持按时间、用户、操作类型等维度进行查询和筛选，满足合规审计与安全追溯需求。',
+    subtitle: '按时间、人员与业务对象追溯关键操作记录，支撑内部检查、责任认定与合规留痕。',
     icon: 'AuditOutlined',
     order: 15,
     requiredActions: {
@@ -1101,7 +1101,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '高级集成',
     title: '高级集成',
-    subtitle: '管理第三方服务的集成配置参数，包括 AI SOC（安全运营中心）等外部系统的访问地址与相关参数，实现平台与外部系统的数据互通与功能联动。',
+    subtitle: '维护与安全分析、安全运营等外部系统对接所需的访问地址，便于在本平台内直接使用关联能力。',
     icon: 'ApiOutlined',
     order: 20,
     requiredActions: {

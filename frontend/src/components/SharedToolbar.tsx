@@ -155,12 +155,18 @@ const SharedToolbar: React.FC<Props> = ({
     <>
       <div
         className="shared-toolbar"
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, ...style }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+          marginBottom: 16,
+          ...style,
+        }}
       >
-        <Space size={leftGap} wrap>
+        <Space size={leftGap} wrap style={{ minWidth: 0 }}>
           {left}
         </Space>
-        <Space size={rightGap} wrap>
+        <Space size={rightGap} wrap style={{ marginLeft: 'auto' }}>
           {rightItems}
           {right}
         </Space>

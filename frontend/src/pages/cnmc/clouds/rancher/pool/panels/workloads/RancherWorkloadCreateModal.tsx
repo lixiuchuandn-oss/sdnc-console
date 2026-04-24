@@ -20,7 +20,7 @@ import {
 import {
   RANCHER_CLUSTER_WORKLOADS_SUB_LABEL,
   type RancherClusterWorkloadsSubKey,
-} from '../../../../../../../layouts/admin/rancherClusterSidebar';
+} from '../../../../../../../layouts/admin/rancher/rancherClusterSidebar';
 import { buildManifestFromForm, defaultFormValues, type WorkloadFormValues } from './buildWorkloadManifest';
 import { getDefaultWorkloadYaml } from './workloadCreateTemplates';
 

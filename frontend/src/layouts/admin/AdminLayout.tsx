@@ -56,6 +56,12 @@ import {
   cloudmapPoolSidebarSelectedKey,
 } from './cloudmap/cloudPoolSidebar';
 import {
+  parseCsmPoolDetailId,
+  buildCsmPoolSidebarCenter,
+  CSM_POOL_SIDEBAR_CENTER_KEY,
+  csmPoolSidebarSelectedKey,
+} from './csm/csmPoolSidebar';
+import {
   parseRancherClusterWorkspacePath,
   buildRancherClusterSidebarCenter,
   RANCHER_CLUSTER_SIDEBAR_CENTER_KEY,
@@ -64,7 +70,7 @@ import {
   normalizeRancherClusterWorkloadsSubParam,
   normalizeRancherResourceSub,
   type RancherClusterWorkloadsSubKey,
-} from './rancherClusterSidebar';
+} from './rancher/rancherClusterSidebar';
 import './admin-shell.css';
 
 const { Header, Content } = Layout;
@@ -665,6 +671,18 @@ const AdminLayout: React.FC = () => {
     [location.pathname],
   );
 
+  const csmPoolId = useMemo(
+    () => parseCsmPoolDetailId(location.pathname),
+    [location.pathname],
+  );
+  const csmPoolCloud = useMemo(
+    () =>
+      csmPoolId
+        ? summaryClouds.find((c) => String(c.id) === String(csmPoolId))
+        : undefined,
+    [summaryClouds, csmPoolId],
+  );
+
   const poolCloudId = useMemo(
     () => parseCloudPoolDetailId(location.pathname),
     [location.pathname],
@@ -757,8 +775,16 @@ const AdminLayout: React.FC = () => {
         : null,
     [poolCloud, poolCloudId, cloudmapPoolSidebarOpts],
   );
-  /** Cloudmap 池详情或 Rancher 集群工作台：侧栏替换为池内 / 集群内 Tab */
-  const contextualPoolSidebar = rancherClusterSidebarCenter || poolSidebarCenter;
+
+  const csmPoolSidebarCenter = useMemo(() => {
+    if (!csmPoolId || !csmPoolCloud) return null;
+    if (summaryClouds.length > 0 && !isCsmCloud(csmPoolCloud)) return null;
+    return buildCsmPoolSidebarCenter(csmPoolCloud, csmPoolId);
+  }, [csmPoolId, csmPoolCloud, summaryClouds.length]);
+
+  /** CSM 安全资源池详情、Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
+  const contextualPoolSidebar =
+    rancherClusterSidebarCenter || csmPoolSidebarCenter || poolSidebarCenter;
   const sidebarCentersForMenu = contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters;
   const poolSelectedMenuKey = useMemo(() => {
     if (rancherClusterSidebarCenter && rancherClusterCtx) {
@@ -786,11 +812,16 @@ const AdminLayout: React.FC = () => {
       }
       return `${base}?tab=${encodeURIComponent(tab)}`;
     }
+    if (csmPoolSidebarCenter && csmPoolId) {
+      return csmPoolSidebarSelectedKey(csmPoolId, location.pathname, location.search);
+    }
     if (!poolSidebarCenter || !poolCloudId) return undefined;
     return cloudmapPoolSidebarSelectedKey(location.pathname, poolSidebarCenter.items);
   }, [
     rancherClusterSidebarCenter,
     rancherClusterCtx,
+    csmPoolSidebarCenter,
+    csmPoolId,
     poolSidebarCenter,
     poolCloudId,
     location.pathname,
@@ -799,10 +830,13 @@ const AdminLayout: React.FC = () => {
   const platformDropdownSelectedKeys = contextualPoolSidebar ? [] : [activeSidebarKey];
 
   useEffect(() => {
-    if (poolSidebarCenter || rancherClusterSidebarCenter) setOpenKeys([]);
+    if (poolSidebarCenter || rancherClusterSidebarCenter || csmPoolSidebarCenter) {
+      setOpenKeys([]);
+    }
   }, [
     poolSidebarCenter,
     rancherClusterSidebarCenter,
+    csmPoolSidebarCenter,
     poolCloudId,
     rancherClusterCtx?.poolId,
     rancherClusterCtx?.clusterId,
@@ -989,12 +1023,16 @@ const AdminLayout: React.FC = () => {
       setActiveSidebarKey(RANCHER_CLUSTER_SIDEBAR_CENTER_KEY);
       return;
     }
+    if (csmPoolSidebarCenter) {
+      setActiveSidebarKey(CSM_POOL_SIDEBAR_CENTER_KEY);
+      return;
+    }
     if (poolSidebarCenter) {
       setActiveSidebarKey(CLOUD_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
     setActiveSidebarKey(sidebarForPath(location.pathname + location.search));
-  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter]);
+  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter, csmPoolSidebarCenter]);
 
   useEffect(() => {
     if (collapsed) {
