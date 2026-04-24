@@ -33,6 +33,7 @@ import {
   fetchHarvesterSecretDetail,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 
 const { Text } = Typography;
 
@@ -726,6 +727,8 @@ const ConfigMapTable: React.FC<{
       key: 'actions',
       width: 150,
       render: (_: any, record: any) => {
+        const isSystem = isSystemResource(record, 'configmap');
+        const systemHint = getSystemResourceProtectionHint(record, 'configmap');
         const items = [
           {
             key: 'edit',
@@ -747,6 +750,8 @@ const ConfigMapTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认删除',
@@ -1149,6 +1154,8 @@ const SecretTable: React.FC<{
       key: 'actions',
       width: 150,
       render: (_: any, record: any) => {
+        const isSystem = isSystemResource(record, 'secret');
+        const systemHint = getSystemResourceProtectionHint(record, 'secret');
         const items = [
           {
             key: 'edit',
@@ -1170,6 +1177,8 @@ const SecretTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认删除',

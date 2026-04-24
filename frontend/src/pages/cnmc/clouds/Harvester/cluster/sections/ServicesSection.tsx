@@ -20,6 +20,7 @@ import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDra
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { deleteHarvesterService, fetchHarvesterServiceDetail, updateHarvesterService, fetchHarvesterPodLog, fetchHarvesterPodEvents, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { ServiceFormModal, YamlEditModal, PodTerminal, PodLogViewer } from '../../containers/components';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 
 /**
  * 格式化时间 - 将 UTC 时间转换为本地时间显示
@@ -464,38 +465,45 @@ const ServicesSection: React.FC<Props> = ({
       width: 100,
       align: 'left' as const,
       fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown 
-          items={[
-            ...(!isTenant ? [
-              { key: 'opsinfo', label: '运维信息', onClick: () => {
-                setSelectedRecord(record);
-                setDrawerActiveTab('detail');
-                setDrawerOpen(true);
-              }},
-              { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
-              { key: 'yaml', label: 'YAML 编辑', onClick: () => handleYamlEdit(record) },
-              { key: 'view_yaml', label: '查看 YAML', icon: <EyeOutlined />, onClick: () => handleViewYaml(record) },
-              { 
-                key: 'delete', 
-                label: '删除', 
-                danger: true,
-                onClick: () => {
-                  Modal.confirm({
-                    title: '确认删除',
-                    content: `确定要删除 Service "${record.name}" 吗？`,
-                    okText: '删除',
-                    okType: 'danger',
-                    cancelText: '取消',
-                    onOk: () => handleDelete(record),
-                  });
+      render: (_: any, record: any) => {
+        const rawResource = record?.raw || record;
+        const isSystem = isSystemResource(rawResource);
+        const systemHint = getSystemResourceProtectionHint(rawResource);
+        return (
+          <ResourceActionsDropdown 
+            items={[
+              ...(!isTenant ? [
+                { key: 'opsinfo', label: '运维信息', onClick: () => {
+                  setSelectedRecord(record);
+                  setDrawerActiveTab('detail');
+                  setDrawerOpen(true);
+                }},
+                { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
+                { key: 'yaml', label: 'YAML 编辑', onClick: () => handleYamlEdit(record) },
+                { key: 'view_yaml', label: '查看 YAML', icon: <EyeOutlined />, onClick: () => handleViewYaml(record) },
+                { 
+                  key: 'delete', 
+                  label: '删除', 
+                  danger: true,
+                  disabled: isSystem,
+                  tooltip: systemHint,
+                  onClick: () => {
+                    Modal.confirm({
+                      title: '确认删除',
+                      content: `确定要删除 Service "${record.name}" 吗？`,
+                      okText: '删除',
+                      okType: 'danger',
+                      cancelText: '取消',
+                      onOk: () => handleDelete(record),
+                    });
+                  }
                 }
-              }
-            ] : [])
-          ]}
-          buttonProps={{ className: 'row-actions-trigger' }}
-        />
-      ),
+              ] : [])
+            ]}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
+      },
     },
   ], [isTenant, isStandardView, handleOpenAliasModal, handleViewYaml]);
 

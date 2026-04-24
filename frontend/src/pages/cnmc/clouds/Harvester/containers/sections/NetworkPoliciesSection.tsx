@@ -44,6 +44,7 @@ import {
   deleteNetworkPolicy,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import NetworkPolicyFormModal from '../components/NetworkPolicyFormModal';
 
 type Props = {
@@ -810,6 +811,8 @@ const NetworkPoliciesSection: React.FC<Props> = ({
               key: 'delete',
               label: '删除',
               danger: true,
+              disabled: isSystemResource(record),
+              tooltip: getSystemResourceProtectionHint(record),
               onClick: () => handleDelete(record),
             },
           ]}
