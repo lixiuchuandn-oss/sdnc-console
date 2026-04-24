@@ -355,7 +355,7 @@ const SecretForm: React.FC<SecretFormProps> = ({
     }
 
     return {
-      name: metadata.name || '',
+      name: metadata.annotations?.['tower.io/alias'] || metadata.name || '',
       namespace: metadata.namespace || '',
       labels,
       type: data.type || 'Opaque',
@@ -417,7 +417,7 @@ const SecretForm: React.FC<SecretFormProps> = ({
   };
 
   // 构建提交数据
-  const buildSubmitData = (values: SecretFormValues): any => {
+  const buildSubmitData = (values: SecretFormValues, isEdit: boolean): any => {
     // 构建 stringData 对象
     const stringData = values.stringData?.reduce((acc, { key, value }) => {
       if (key && value !== undefined) {
@@ -430,13 +430,14 @@ const SecretForm: React.FC<SecretFormProps> = ({
       apiVersion: 'v1',
       kind: 'Secret',
       metadata: {
-        name: generateHarvesterCrMetadataName('secret'),
+        name: isEdit && initialData ? initialData.metadata?.name : generateHarvesterCrMetadataName('secret'),
         namespace: values.namespace,
         labels: values.labels?.reduce((acc, { key, value }) => {
           if (key && value) acc[key] = value;
           return acc;
         }, {} as Record<string, string>),
         annotations: {
+          ...(isEdit && initialData ? initialData.metadata?.annotations : {}),
           'tower.io/alias': values.name,
         },
       },
@@ -451,14 +452,14 @@ const SecretForm: React.FC<SecretFormProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
-      const submitData = buildSubmitData(values);
+      const submitData = buildSubmitData(values, editMode);
 
       if (editMode) {
         // 编辑模式：保留 resourceVersion 以支持更新
         if (initialData?.metadata?.resourceVersion) {
           submitData.metadata.resourceVersion = initialData.metadata.resourceVersion;
         }
-        await updateHarvesterSecret(cloudId, values.namespace, values.name, submitData);
+        await updateHarvesterSecret(cloudId, values.namespace, initialData?.metadata?.name, submitData);
         message.success('Secret 更新成功');
       } else {
         // 创建模式
@@ -490,16 +491,37 @@ initialValues={{
         <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
           <Row gutter={16}>
             <Col span={8}>
-              <Form.Item
-                name="name"
-                label="名称"
-                rules={[
-                  { required: true, message: '请输入名称' },
-                  { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
-                ]}
-              >
-                <Input placeholder="如: my-secret" disabled={editMode} />
-              </Form.Item>
+              {editMode ? (
+                <>
+                  <Form.Item label="资源 ID">
+                    <Input 
+                      value={initialData?.metadata?.name || ''} 
+                      disabled 
+                      style={{ color: 'rgba(0,0,0,0.45)' }}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="name"
+                    label="显示名称"
+                    rules={[
+                      { required: true, message: '请输入显示名称' },
+                    ]}
+                  >
+                    <Input placeholder="如: my-secret" />
+                  </Form.Item>
+                </>
+              ) : (
+                <Form.Item
+                  name="name"
+                  label="名称"
+                  rules={[
+                    { required: true, message: '请输入名称' },
+                    { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
+                  ]}
+                >
+                  <Input placeholder="如: my-secret" />
+                </Form.Item>
+              )}
             </Col>
             <Col span={8}>
               <Form.Item

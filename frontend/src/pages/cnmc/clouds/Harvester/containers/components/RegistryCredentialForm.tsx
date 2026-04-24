@@ -80,15 +80,31 @@ const parseSecretData = (secret: any): Partial<RegistryCredentialFormValues> | n
     const metadata = secret?.metadata || {};
     const data = secret?.data?.['.dockerconfigjson'];
     
-    if (!data) return null;
+    if (!data) {
+      return null;
+    }
     
-    // Base64 解码
-    const decoded = atob(data);
+    // 尝试 Base64 解码，如果失败则可能是已解码的 JSON 字符串
+    let decoded: string;
+    try {
+      // 检查是否已经是 JSON 格式（以 { 开头）
+      if (data.trim().startsWith('{')) {
+        decoded = data;
+      } else {
+        decoded = atob(data);
+      }
+    } catch (base64Error) {
+      // Base64 解码失败，尝试直接作为 JSON 解析
+      decoded = data;
+    }
+    
     const config = JSON.parse(decoded);
     
     // 获取第一个仓库地址
     const servers = Object.keys(config.auths || {});
-    if (servers.length === 0) return null;
+    if (servers.length === 0) {
+      return null;
+    }
     
     const server = servers[0];
     const authData = config.auths[server];
@@ -98,11 +114,17 @@ const parseSecretData = (secret: any): Partial<RegistryCredentialFormValues> | n
     let password = '';
     if (authData?.auth) {
       try {
-        const decodedAuth = atob(authData.auth);
-        const colonIndex = decodedAuth.indexOf(':');
+        // 同样处理：可能已经是明文，也可能是 base64 编码
+        let authDecoded: string;
+        try {
+          authDecoded = atob(authData.auth);
+        } catch {
+          authDecoded = authData.auth;
+        }
+        const colonIndex = authDecoded.indexOf(':');
         if (colonIndex > 0) {
-          username = decodedAuth.substring(0, colonIndex);
-          password = decodedAuth.substring(colonIndex + 1);
+          username = authDecoded.substring(0, colonIndex);
+          password = authDecoded.substring(colonIndex + 1);
         }
       } catch {
         // 忽略解析错误
@@ -110,7 +132,7 @@ const parseSecretData = (secret: any): Partial<RegistryCredentialFormValues> | n
     }
     
     return {
-      name: metadata.name || '',
+      name: metadata.annotations?.['tower.io/alias'] || metadata.name || '',
       namespace: metadata.namespace || 'default',
       server,
       username,
@@ -135,15 +157,8 @@ const RegistryCredentialForm: React.FC<RegistryCredentialFormProps> = ({
 }) => {
   const { message } = App.useApp();
   
-  // 编辑模式：初始化表单数据
-  React.useEffect(() => {
-    if (editData) {
-      const parsed = parseSecretData(editData);
-      if (parsed) {
-        form.setFieldsValue(parsed);
-      }
-    }
-  }, [editData, form]);
+  // 注意：表单数据初始化由父组件 RegistryCredentialModal 的 useEffect 处理
+  // 这里不再重复设置，避免冲突
   
   return (
     <Form
@@ -151,25 +166,48 @@ const RegistryCredentialForm: React.FC<RegistryCredentialFormProps> = ({
       layout="vertical"
       requiredMark="optional"
     >
-      <Form.Item
-        name="name"
-        label="凭证名称"
-        rules={[
-          { required: true, message: '请输入凭证名称' },
-          { 
-            pattern: K8S_NAME_REGEX, 
-            message: '名称只能包含小写字母、数字和连字符，且必须以字母或数字开头结尾' 
-          },
-          { max: 253, message: '名称最长 253 个字符' },
-        ]}
-        tooltip="凭证名称需符合 Kubernetes 资源命名规范：小写字母、数字、连字符"
-      >
-        <Input
-          placeholder="例如: harbor-registry-secret"
-          prefix={<KeyOutlined />}
-          disabled={isEditMode}
-        />
-      </Form.Item>
+      {isEditMode ? (
+        <>
+          <Form.Item label="资源 ID">
+            <Input
+              value={editData?.metadata?.name || ''}
+              disabled
+              style={{ color: 'rgba(0,0,0,0.45)' }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="显示名称"
+            rules={[
+              { required: true, message: '请输入显示名称' },
+            ]}
+          >
+            <Input
+              placeholder="例如: harbor-registry-secret"
+              prefix={<KeyOutlined />}
+            />
+          </Form.Item>
+        </>
+      ) : (
+        <Form.Item
+          name="name"
+          label="凭证名称"
+          rules={[
+            { required: true, message: '请输入凭证名称' },
+            { 
+              pattern: K8S_NAME_REGEX, 
+              message: '名称只能包含小写字母、数字和连字符，且必须以字母或数字开头结尾' 
+            },
+            { max: 253, message: '名称最长 253 个字符' },
+          ]}
+          tooltip="凭证名称需符合 Kubernetes 资源命名规范：小写字母、数字、连字符"
+        >
+          <Input
+            placeholder="例如: harbor-registry-secret"
+            prefix={<KeyOutlined />}
+          />
+        </Form.Item>
+      )}
       
       <Form.Item
         name="namespace"

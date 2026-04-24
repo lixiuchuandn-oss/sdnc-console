@@ -1725,8 +1725,8 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 更新镜像凭证
    * PUT /:id/resources/harvester/containers/imagepullsecrets/:namespace/:name
-   * Body: { server, username, password, email? }
-   * 说明: 更新现有镜像凭证的认证信息
+   * Body: { server, username, password, email?, alias? }
+   * 说明: 更新现有镜像凭证的认证信息，可选更新别名
    */
   router.put(
     '/:id/resources/harvester/containers/imagepullsecrets/:namespace/:name',
@@ -1734,7 +1734,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id, namespace, name } = req.params;
-        const { server, username, password, email } = req.body;
+        const { server, username, password, email, alias } = req.body;
         
         // 参数验证
         if (!server || !username || !password) {
@@ -1765,6 +1765,16 @@ export const registerHarvesterContainerRoutes = (
           data: {
             '.dockerconfigjson': buildDockerConfigJson(server, username, password, email),
           },
+          // 如果提供了 alias，更新注解
+          ...(alias && {
+            metadata: {
+              ...existingSecret.metadata,
+              annotations: {
+                ...(existingSecret.metadata?.annotations || {}),
+                'tower.io/alias': alias,
+              },
+            },
+          }),
         };
         
         // 执行更新

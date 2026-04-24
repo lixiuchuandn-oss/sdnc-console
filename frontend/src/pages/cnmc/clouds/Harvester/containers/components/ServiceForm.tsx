@@ -188,7 +188,7 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
     }));
     
     return {
-      name: metadata.name || '',
+      name: metadata?.annotations?.['tower.io/alias'] || metadata.name || '',
       namespace: metadata.namespace || '',
       labels,
       selector,
@@ -223,18 +223,19 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
   };
 
   // 构建提交数据
-  const buildSubmitData = (values: ServiceFormValues): any => {
+  const buildSubmitData = (values: ServiceFormValues, isEdit: boolean): any => {
     const baseResource = {
       apiVersion: 'v1',
       kind: 'Service',
       metadata: {
-        name: generateHarvesterCrMetadataName('service'),
+        name: isEdit ? initialData?.metadata?.name : generateHarvesterCrMetadataName('service'),
         namespace: values.namespace,
         labels: values.labels?.reduce((acc, { key, value }) => {
           if (key && value) acc[key] = value;
           return acc;
         }, {} as Record<string, string>),
         annotations: {
+          ...(isEdit ? initialData?.metadata?.annotations : {}),
           'tower.io/alias': values.name,
         },
       },
@@ -294,14 +295,14 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
-      const submitData = buildSubmitData(values);
+      const submitData = buildSubmitData(values, editMode);
 
       if (editMode) {
         // 编辑模式：保留 resourceVersion 以支持更新
         if (initialData?.metadata?.resourceVersion) {
           submitData.metadata.resourceVersion = initialData.metadata.resourceVersion;
         }
-        await updateHarvesterService(cloudId, values.namespace, values.name, submitData);
+        await updateHarvesterService(cloudId, values.namespace, initialData?.metadata?.name, submitData);
         message.success('Service 更新成功');
       } else {
         // 创建模式
@@ -334,16 +335,35 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
       <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item
-              name="name"
-              label="名称"
-              rules={[
-                { required: true, message: '请输入名称' },
-                { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
-              ]}
-            >
-              <Input placeholder="如: my-service" disabled={editMode} />
-            </Form.Item>
+            {editMode ? (
+              <>
+                <Form.Item label="资源 ID">
+                  <Input 
+                    value={initialData?.metadata?.name || ''} 
+                    disabled 
+                    style={{ color: 'rgba(0,0,0,0.45)' }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="name"
+                  label="显示名称"
+                  rules={[{ required: true, message: '请输入显示名称' }]}
+                >
+                  <Input placeholder="如: my-service" />
+                </Form.Item>
+              </>
+            ) : (
+              <Form.Item
+                name="name"
+                label="名称"
+                rules={[
+                  { required: true, message: '请输入名称' },
+                  { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
+                ]}
+              >
+                <Input placeholder="如: my-service" />
+              </Form.Item>
+            )}
           </Col>
           <Col span={12}>
             <Form.Item

@@ -42,6 +42,9 @@ type Props = {
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
+  deployments?: any[];
+  statefulSets?: any[];
+  daemonSets?: any[];
 };
 
 /**
@@ -546,6 +549,9 @@ const PodsSection: React.FC<Props> = ({
   onNsChange,
   onNodeChange,
   onRefresh,
+  deployments = [],
+  statefulSets = [],
+  daemonSets = [],
 }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -563,6 +569,42 @@ const PodsSection: React.FC<Props> = ({
   const [terminalPod, setTerminalPod] = useState<any>(null);
   const [terminalContainers, setTerminalContainers] = useState<string[]>([]);
   
+  // 解析 Pod 所属工作负载并获取显示名称
+  const getOwnerWorkload = useCallback((pod: any): { name: string; alias: string; type: string } | null => {
+    const ownerRefs = pod?.metadata?.ownerReferences || [];
+    const podNs = pod?.metadata?.namespace;
+    
+    for (const ref of ownerRefs) {
+      if (ref.kind === 'ReplicaSet') {
+        const rsName = ref.name;
+        const allWorkloads = [...deployments, ...statefulSets, ...daemonSets];
+        for (const wl of allWorkloads) {
+          const wlName = wl?.metadata?.name || '';
+          const wlNs = wl?.metadata?.namespace || '';
+          if (wlNs === podNs && rsName.startsWith(wlName)) {
+            const alias = wl?.metadata?.annotations?.['tower.io/alias'] || wlName;
+            const type = wl?.kind?.toLowerCase() || 'deployment';
+            return { name: wlName, alias, type };
+          }
+        }
+      }
+      if (ref.kind === 'StatefulSet' || ref.kind === 'DaemonSet') {
+        const wlName = ref.name;
+        const workloads = ref.kind === 'StatefulSet' ? statefulSets : daemonSets;
+        const wl = workloads.find((w: any) => 
+          (w?.metadata?.name || '') === wlName && 
+          (w?.metadata?.namespace || '') === podNs
+        );
+        if (wl) {
+          const alias = wl?.metadata?.annotations?.['tower.io/alias'] || wlName;
+          const type = ref.kind.toLowerCase();
+          return { name: wlName, alias, type };
+        }
+      }
+    }
+    return null;
+  }, [deployments, statefulSets, daemonSets]);
+  
   // 过滤数据
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -572,8 +614,18 @@ const PodsSection: React.FC<Props> = ({
       const phase = pod?.status?.phase || '';
       const node = pod?.spec?.nodeName || '';
       
-      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw)) {
-        return false;
+      if (kw) {
+        const owner = getOwnerWorkload(pod);
+        const ownerAlias = owner?.alias?.toLowerCase() || '';
+        const ownerName = owner?.name?.toLowerCase() || '';
+        if (
+          !name.toLowerCase().includes(kw) &&
+          !ns.toLowerCase().includes(kw) &&
+          !ownerAlias.includes(kw) &&
+          !ownerName.includes(kw)
+        ) {
+          return false;
+        }
       }
       if (nsValue && ns !== nsValue) {
         return false;
@@ -586,7 +638,7 @@ const PodsSection: React.FC<Props> = ({
       }
       return true;
     });
-  }, [pods, keyword, nsValue, nodeValue, statusFilter]);
+  }, [pods, keyword, nsValue, nodeValue, statusFilter, getOwnerWorkload]);
   
   // 查看详情
   const handleViewDetail = useCallback((pod: any) => {
@@ -809,6 +861,24 @@ const PodsSection: React.FC<Props> = ({
       ),
     },
     {
+      title: '所属工作负载',
+      key: 'ownerWorkload',
+      width: 150,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const owner = getOwnerWorkload(record);
+        if (!owner) return <span style={{ color: '#999' }}>-</span>;
+        const typeLabel = owner.type === 'deployment' ? 'Deployment' 
+          : owner.type === 'statefulset' ? 'StatefulSet' 
+          : 'DaemonSet';
+        return (
+          <Tooltip title={`${typeLabel}: ${owner.name}`}>
+            <span>{owner.alias}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
@@ -898,7 +968,7 @@ const PodsSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal]);
+  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal, getOwnerWorkload]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -913,7 +983,7 @@ const PodsSection: React.FC<Props> = ({
           <Input
             className="toolbar-search"
             allowClear
-            placeholder="名称/命名空间"
+            placeholder="名称/命名空间/所属工作负载"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}

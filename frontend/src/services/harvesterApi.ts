@@ -2333,6 +2333,7 @@ export const updateHarvesterImagePullSecret = async (
     username: string;
     password: string;
     email?: string;
+    alias?: string;
   }
 ) => {
   return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/imagepullsecrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, payload);

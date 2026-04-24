@@ -297,7 +297,7 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
     }));
     
     return {
-      name: metadata.name || '',
+      name: metadata.annotations?.['tower.io/alias'] || metadata.name || '',
       namespace: metadata.namespace || '',
       labels,
       data: dataEntries,
@@ -318,7 +318,7 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
   }, [defaultNamespace, namespacesOptions, form, editMode, initialData]);
 
   // 构建提交数据
-  const buildSubmitData = (values: ConfigMapFormValues): any => {
+  const buildSubmitData = (values: ConfigMapFormValues, isEdit: boolean): any => {
     // 构建标签对象
     const labels = values.labels?.reduce((acc, { key, value }) => {
       if (key && value) acc[key] = value;
@@ -335,10 +335,11 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
       apiVersion: 'v1',
       kind: 'ConfigMap',
       metadata: {
-        name: generateHarvesterCrMetadataName('configmap'),
+        name: isEdit && initialData ? initialData.metadata?.name : generateHarvesterCrMetadataName('configmap'),
         namespace: values.namespace,
         labels: labels && Object.keys(labels).length > 0 ? labels : undefined,
         annotations: {
+          ...(isEdit && initialData ? initialData.metadata?.annotations : {}),
           'tower.io/alias': values.name,
         },
       },
@@ -352,14 +353,14 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
-      const submitData = buildSubmitData(values);
+      const submitData = buildSubmitData(values, editMode);
 
       if (editMode) {
         // 编辑模式：保留 resourceVersion 以支持更新
         if (initialData?.metadata?.resourceVersion) {
           submitData.metadata.resourceVersion = initialData.metadata.resourceVersion;
         }
-        await updateHarvesterConfigMap(cloudId, values.namespace, values.name, submitData);
+        await updateHarvesterConfigMap(cloudId, values.namespace, initialData?.metadata?.name, submitData);
         message.success('ConfigMap 更新成功');
       } else {
         // 创建模式
@@ -390,16 +391,37 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
       <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item
-              name="name"
-              label="名称"
-              rules={[
-                { required: true, message: '请输入名称' },
-                { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符，且必须以字母数字开头和结尾' },
-              ]}
-            >
-              <Input placeholder="如: my-config" disabled={editMode} />
-            </Form.Item>
+            {editMode ? (
+              <>
+                <Form.Item label="资源 ID">
+                  <Input 
+                    value={initialData?.metadata?.name || ''} 
+                    disabled 
+                    style={{ color: 'rgba(0,0,0,0.45)' }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="name"
+                  label="显示名称"
+                  rules={[
+                    { required: true, message: '请输入显示名称' },
+                  ]}
+                >
+                  <Input placeholder="如: my-config" />
+                </Form.Item>
+              </>
+            ) : (
+              <Form.Item
+                name="name"
+                label="名称"
+                rules={[
+                  { required: true, message: '请输入名称' },
+                  { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符，且必须以字母数字开头和结尾' },
+                ]}
+              >
+                <Input placeholder="如: my-config" />
+              </Form.Item>
+            )}
           </Col>
           <Col span={12}>
             <Form.Item
