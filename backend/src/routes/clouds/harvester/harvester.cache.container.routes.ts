@@ -4618,7 +4618,7 @@ const registryRequest = async (
       });
     });
     
-    req.setTimeout(30000, () => {
+    req.setTimeout(60000, () => {
       req.destroy(new Error('timeout'));
       resolve({ success: false, error: '请求超时' });
     });

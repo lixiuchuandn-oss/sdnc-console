@@ -404,6 +404,7 @@ const WorkloadTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 120,
+      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record);
         const systemHint = getSystemResourceProtectionHint(record);

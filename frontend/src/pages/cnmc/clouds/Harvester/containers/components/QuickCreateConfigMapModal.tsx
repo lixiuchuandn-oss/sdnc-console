@@ -22,6 +22,7 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons';
 import { createHarvesterConfigMap } from '../../../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import CodeEditor, { 
   CodeLanguage, 
   LANGUAGE_OPTIONS, 
@@ -367,7 +368,7 @@ const QuickCreateConfigMapModal: React.FC<QuickCreateConfigMapModalProps> = ({
                 <Select
                   placeholder="选择命名空间"
                   showSearch
-                  options={namespacesOptions.map(ns => ({ label: ns, value: ns }))}
+                  options={namespacesOptions.filter(ns => !isSystemNamespace(ns)).map(ns => ({ label: ns, value: ns }))}
                 />
               </Form.Item>
             </Col>

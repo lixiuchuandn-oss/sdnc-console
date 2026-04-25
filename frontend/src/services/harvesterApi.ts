@@ -2229,9 +2229,12 @@ export const getRegistryCatalog = async (
   params.append('server', server);
   if (username) params.append('username', username);
   if (password) params.append('password', password);
-  if (insecure) params.append('insecure', 'true');
+  // 强制添加 insecure 参数，默认为 true
+  params.append('insecure', insecure === false ? 'false' : 'true');
   if (n) params.append('n', String(n));
   if (last) params.append('last', last);
+  
+  console.log('[harvesterApi] getRegistryCatalog params:', params.toString());
   
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/catalog?${params.toString()}`);
 };
@@ -2264,7 +2267,8 @@ export const getRegistryTags = async (
   params.append('repository', repository);
   if (username) params.append('username', username);
   if (password) params.append('password', password);
-  if (insecure) params.append('insecure', 'true');
+  // 强制添加 insecure 参数，默认为 true
+  params.append('insecure', insecure === false ? 'false' : 'true');
   if (n) params.append('n', String(n));
   if (last) params.append('last', last);
   

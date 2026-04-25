@@ -46,7 +46,7 @@ import {
   CheckOutlined,
 } from '@ant-design/icons';
 import { createNetworkPolicy, updateNetworkPolicy } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 
 // ============================================================
@@ -927,7 +927,7 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
                   <Select
                     showSearch
                     optionFilterProp="label"
-                    options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+                    options={namespacesOptions.filter((ns) => !isSystemNamespace(ns)).map((ns) => ({ label: ns, value: ns }))}
                     disabled={isEdit}
                   />
                 </Form.Item>

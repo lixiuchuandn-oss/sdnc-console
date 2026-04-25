@@ -71,7 +71,7 @@ import {
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -2444,7 +2444,7 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
               mode="multiple"
               placeholder="选择目标命名空间（可选）"
               allowClear
-              options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+              options={namespacesOptions.filter((ns) => !isSystemNamespace(ns)).map((ns) => ({ label: ns, value: ns }))}
             />
           </Form.Item>
         </div>
@@ -4659,7 +4659,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     disabled={isEditMode}
                     optionFilterProp="label"
                     placeholder="选择命名空间"
-                    options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+                    options={namespacesOptions
+                      .filter((ns) => !isSystemNamespace(ns))
+                      .map((ns) => ({ label: ns, value: ns }))}
                   />
                 </Form.Item>
               </Col>
@@ -4831,7 +4833,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       </Form.Item>
                       <Row gutter={16}>
                         <Col span={12}>
-                          <Form.Item name="containerName" label="容器名称" extra="默认与工作负载名称相同">
+                          <Form.Item 
+                            name="containerName" 
+                            label="容器名称" 
+                            extra="默认与工作负载名称相同，仅支持小写字母、数字和连字符"
+                            rules={[
+                              {
+                                pattern: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+                                message: '容器名称只能包含小写字母、数字和连字符，且开头结尾必须是字母或数字',
+                              },
+                            ]}
+                          >
                             <Input placeholder="容器名称 (可选)" />
                           </Form.Item>
                         </Col>
