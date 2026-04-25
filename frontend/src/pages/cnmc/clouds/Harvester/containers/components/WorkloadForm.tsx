@@ -71,7 +71,7 @@ import {
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -327,7 +327,7 @@ export interface WorkloadFormValues {
 export interface WorkloadFormProps {
   cloudId: string;
   namespacesOptions: string[];
-  imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
+  imagePullSecrets: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> } }>;
   secretsWithCredentials?: any[];  // 包含完整凭证信息的 Secret 列表（用于仓库浏览）
   onRefreshImagePullSecrets?: () => void;  // 刷新镜像拉取凭证列表
   onSuccess: () => void;
@@ -336,8 +336,8 @@ export interface WorkloadFormProps {
   defaultType?: WorkloadType;
   editData?: any; // 编辑模式：传入现有的 workload 数据
   // ConfigMap 和 Secret 相关 props（用于环境变量引入和存储卷挂载）
-  configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
-  secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  configMaps?: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
+  secrets?: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
   onRefreshConfigMaps?: () => void;
   onRefreshSecrets?: () => void;
   // PVC 相关 props（用于存储卷挂载）
@@ -555,8 +555,8 @@ interface EnvEditorProps {
   cloudId: string;
   namespacesOptions: string[];
   selectedNamespace: string;
-  configMaps: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
-  secrets: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  configMaps: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
+  secrets: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
   onRefreshConfigMaps: () => void;
   onRefreshSecrets: () => void;
   onOpenQuickCreateConfigMap: () => void;
@@ -683,10 +683,14 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
                 placeholder="选择 ConfigMap"
                 showSearch
                 optionFilterProp="label"
-                options={filteredConfigMaps.map(cm => ({
-                  label: cm.metadata.name,
-                  value: cm.metadata.name,
-                }))}
+                options={filteredConfigMaps.map(cm => {
+                  const alias = cm?.metadata?.annotations?.['tower.io/alias'];
+                  const name = cm.metadata.name;
+                  return {
+                    label: alias ? `${alias} (${name})` : name,
+                    value: name,
+                  };
+                })}
                 dropdownRender={(menu) => (
                   <>
                     {menu}
@@ -766,10 +770,14 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
                 placeholder="选择 Secret"
                 showSearch
                 optionFilterProp="label"
-                options={filteredSecrets.map(s => ({
-                  label: s.metadata.name,
-                  value: s.metadata.name,
-                }))}
+                options={filteredSecrets.map(s => {
+                  const alias = s?.metadata?.annotations?.['tower.io/alias'];
+                  const name = s.metadata.name;
+                  return {
+                    label: alias ? `${alias} (${name})` : name,
+                    value: name,
+                  };
+                })}
                 dropdownRender={(menu) => (
                   <>
                     {menu}
@@ -2444,7 +2452,7 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
               mode="multiple"
               placeholder="选择目标命名空间（可选）"
               allowClear
-              options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+              options={namespacesOptions.filter((ns) => !isSystemNamespace(ns)).map((ns) => ({ label: ns, value: ns }))}
             />
           </Form.Item>
         </div>
@@ -3335,6 +3343,71 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         tolerationSeconds: t.tolerationSeconds,
       }));
       
+      // 提取存储卷定义
+      const rawVolumes = template?.spec?.volumes || [];
+      const volumes: VolumeConfig[] = rawVolumes.map((vol: any) => {
+        const result: VolumeConfig = {
+          name: vol.name,
+          type: 'emptyDir', // 默认类型
+        };
+        
+        if (vol.configMap) {
+          result.type = 'configMap';
+          result.configMapName = vol.configMap.name;
+          result.configMapOptional = vol.configMap.optional;
+        } else if (vol.secret) {
+          result.type = 'secret';
+          result.secretName = vol.secret.secretName;
+          result.secretOptional = vol.secret.optional;
+        } else if (vol.persistentVolumeClaim) {
+          result.type = 'persistentVolumeClaim';
+          result.claimName = vol.persistentVolumeClaim.claimName;
+          result.readOnly = vol.persistentVolumeClaim.readOnly;
+        } else if (vol.emptyDir) {
+          result.type = 'emptyDir';
+          result.emptyDirMedium = vol.emptyDir.medium === 'Memory' ? 'Memory' : 'default';
+          result.emptyDirSizeLimit = vol.emptyDir.sizeLimit;
+        } else if (vol.hostPath) {
+          result.type = 'hostPath';
+          result.hostPath = vol.hostPath.path;
+          result.hostPathType = vol.hostPath.type;
+        }
+        
+        return result;
+      });
+      
+      // 解析网络配置
+      const templateAnnotations = template?.metadata?.annotations || {};
+      const networksAnnotation = templateAnnotations['k8s.v1.cni.cncf.io/networks'];
+      const logicalSwitch = templateAnnotations['ovn.kubernetes.io/logical_switch'];
+      const staticIPAnnotation = templateAnnotations['ovn.kubernetes.io/ip_address'];
+      
+      // 解析网络类型和值
+      let networkType = 'default';
+      let flatSubnet: string | undefined;
+      let vpcSubnet: string | undefined;
+      let customNad: string | undefined;
+      let vpcName: string | undefined;
+      
+      if (networksAnnotation) {
+        // networksAnnotation 格式: namespace/name 或 name
+        if (logicalSwitch) {
+          // 有 logical_switch 注解，说明是 VPC 子网
+          networkType = 'vpc';
+          vpcSubnet = networksAnnotation;
+          // VPC 名称需要等网络数据加载后才能确定
+        } else {
+          // 没有 logical_switch，可能是扁平子网或自定义 NAD
+          // 扁平子网的判断需要查询子网数据，这里先假设为扁平子网
+          // 如果不是扁平子网，用户可以在网络数据加载后手动调整
+          networkType = 'flat_subnet';
+          flatSubnet = networksAnnotation;
+        }
+      }
+      
+      const enableStaticIP = !!staticIPAnnotation;
+      const staticIP = staticIPAnnotation || undefined;
+      
       // 设置表单值
       form.setFieldsValue({
         workloadType: editData?.kind?.toLowerCase() || defaultType,
@@ -3351,6 +3424,15 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         podAffinity: parsePodAffinity(affinity?.podAffinity),
         podAntiAffinity: parsePodAffinity(affinity?.podAntiAffinity),
         tolerations: tolerations.length > 0 ? tolerations : undefined,
+        volumes: volumes.length > 0 ? volumes : undefined,
+        // 网络配置
+        networkType,
+        flatSubnet,
+        vpcSubnet,
+        vpcName,
+        customNad,
+        enableStaticIP,
+        staticIP,
       });
       setActiveContainerIndex(0);
       
@@ -3409,6 +3491,69 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     
     fetchNetworkData();
   }, [cloudId]);
+  
+  // 编辑模式：网络数据加载完成后，根据子网数据正确设置网络类型和 VPC 名称
+  useEffect(() => {
+    if (!editData || loadingNetworkData || kubeSubnets.length === 0) return;
+    
+    const template = editData?.spec?.template || {};
+    const templateAnnotations = template?.metadata?.annotations || {};
+    const networksAnnotation = templateAnnotations['k8s.v1.cni.cncf.io/networks'];
+    const logicalSwitch = templateAnnotations['ovn.kubernetes.io/logical_switch'];
+    
+    if (!networksAnnotation) return;
+    
+    // 解析 networksAnnotation 获取子网名称
+    // 格式: namespace/name 或 name
+    const parts = networksAnnotation.split('/');
+    const subnetName = parts.length === 2 ? parts[1] : parts[0];
+    
+    // 查找子网
+    const subnet = kubeSubnets.find(s => (s.name || s?.metadata?.name) === subnetName);
+    if (!subnet) {
+      // 子网未找到，可能是自定义 NAD
+      form.setFieldsValue({
+        networkType: 'custom_nad',
+        customNad: networksAnnotation,
+        flatSubnet: undefined,
+        vpcSubnet: undefined,
+        vpcName: undefined,
+      });
+      return;
+    }
+    
+    const subnetVpc = subnet?.vpc || subnet?.spec?.vpc;
+    const subnetType = subnet?.metadata?.annotations?.['tower.io/subnet-type'];
+    
+    if (subnetType === 'flat' || subnetVpc === 'ovn-internal') {
+      // 扁平子网
+      form.setFieldsValue({
+        networkType: 'flat_subnet',
+        flatSubnet: networksAnnotation,
+        vpcSubnet: undefined,
+        vpcName: undefined,
+        customNad: undefined,
+      });
+    } else if (logicalSwitch) {
+      // VPC 子网
+      form.setFieldsValue({
+        networkType: 'vpc',
+        vpcSubnet: networksAnnotation,
+        vpcName: subnetVpc,
+        flatSubnet: undefined,
+        customNad: undefined,
+      });
+    } else {
+      // 默认当作扁平子网
+      form.setFieldsValue({
+        networkType: 'flat_subnet',
+        flatSubnet: networksAnnotation,
+        vpcSubnet: undefined,
+        vpcName: undefined,
+        customNad: undefined,
+      });
+    }
+  }, [editData, loadingNetworkData, kubeSubnets, form]);
   
   // 扁平子网识别条件
   const isFlatSubnet = useCallback((subnet: any) => {
@@ -4659,7 +4804,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     disabled={isEditMode}
                     optionFilterProp="label"
                     placeholder="选择命名空间"
-                    options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+                    options={namespacesOptions
+                      .filter((ns) => !isSystemNamespace(ns))
+                      .map((ns) => ({ label: ns, value: ns }))}
                   />
                 </Form.Item>
               </Col>
@@ -4831,7 +4978,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       </Form.Item>
                       <Row gutter={16}>
                         <Col span={12}>
-                          <Form.Item name="containerName" label="容器名称" extra="默认与工作负载名称相同">
+                          <Form.Item 
+                            name="containerName" 
+                            label="容器名称" 
+                            extra="默认与工作负载名称相同，仅支持小写字母、数字和连字符"
+                            rules={[
+                              {
+                                pattern: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+                                message: '容器名称只能包含小写字母、数字和连字符，且开头结尾必须是字母或数字',
+                              },
+                            ]}
+                          >
                             <Input placeholder="容器名称 (可选)" />
                           </Form.Item>
                         </Col>
@@ -4850,10 +5007,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           mode="multiple"
                           placeholder="选择镜像拉取凭证"
                           allowClear
-                          options={(imagePullSecrets || []).map((secret) => ({
-                            label: secret.metadata.name,
-                            value: secret.metadata.name,
-                          }))}
+                          options={(imagePullSecrets || []).map((secret) => {
+                            const alias = secret?.metadata?.annotations?.['tower.io/alias'];
+                            const name = secret?.metadata?.name;
+                            return {
+                              label: alias ? `${alias} (${name})` : name,
+                              value: name,
+                            };
+                          })}
                         />
                       </Form.Item>
                       <Collapse ghost defaultActiveKey={[]} items={[
@@ -5151,29 +5312,33 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 
                 <Divider />
                 
-                <Form.Item
-                  name="enableStaticIP"
-                  label="配置静态IP"
-                  valuePropName="checked"
-                  extra="为 Pod 分配固定的 IP 地址（仅部分网络类型支持）"
-                >
-                  <Checkbox />
-                </Form.Item>
-                
-                {enableStaticIP && (
-                  <Form.Item
-                    name="staticIP"
-                    label="静态IP地址"
-                    rules={[
-                      { required: true, message: '请输入静态IP地址' },
-                      {
-                        pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
-                        message: '请输入有效的IPv4地址'
-                      }
-                    ]}
-                  >
-                    <Input placeholder="例如: 192.168.1.100" />
-                  </Form.Item>
+                {networkType !== 'default' && (
+                  <>
+                    <Form.Item
+                      name="enableStaticIP"
+                      label="配置静态IP"
+                      valuePropName="checked"
+                      extra="为 Pod 分配固定的 IP 地址（扁平子网和 VPC 子网支持）"
+                    >
+                      <Checkbox />
+                    </Form.Item>
+                    
+                    {enableStaticIP && (
+                      <Form.Item
+                        name="staticIP"
+                        label="静态IP地址"
+                        rules={[
+                          { required: true, message: '请输入静态IP地址' },
+                          {
+                            pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                            message: '请输入有效的IPv4地址'
+                          }
+                        ]}
+                      >
+                        <Input placeholder="例如: 192.168.1.100" />
+                      </Form.Item>
+                    )}
+                  </>
                 )}
                 
                 {networkType !== 'default' && (

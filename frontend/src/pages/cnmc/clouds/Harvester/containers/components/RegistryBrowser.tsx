@@ -137,12 +137,16 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
   const loadCatalog = useCallback(async () => {
     setLoading(true);
     try {
+      // 确保 insecure 有默认值
+      const insecureValue = credential.insecure ?? true;
+      console.log('[RegistryBrowser] loadCatalog credential:', credential, 'insecure:', insecureValue);
+      
       const result = await getRegistryCatalog(
         cloudId,
         credential.server,
         credential.username,
         credential.password,
-        credential.insecure ?? true,
+        insecureValue,
       );
       
       if (result?.data?.repositories) {

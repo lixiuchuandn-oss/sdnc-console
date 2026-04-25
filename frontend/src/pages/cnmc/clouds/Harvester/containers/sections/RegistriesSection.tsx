@@ -1,11 +1,11 @@
 /**
  * ==============================================================================
- * 模块名称: Harvester 镜像仓库管理视图 (RegistriesSection)
+ * 模块名称: 镜像仓库管理视图 (RegistriesSection)
  * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/containers/sections/RegistriesSection.tsx
  * ==============================================================================
  * 
  * [功能描述]
- * 该组件负责展示和管理 Harvester/Kubernetes 镜像仓库相关资源，包括：
+ * 该组件负责展示和管理 Kubernetes 镜像仓库相关资源，包括：
  * 1. 镜像凭证 (Secrets) 管理 - dockerconfigjson 类型（支持双轨制命名）
  * 2. 镜像仓库管理 - 添加/删除/浏览仓库（localStorage，本地配置）
  */
@@ -17,7 +17,7 @@ import {
   FolderOutlined, EditOutlined, SearchOutlined, DatabaseOutlined,
   LinkOutlined, TagOutlined,
   CopyOutlined, GlobalOutlined, LockOutlined, UnlockOutlined, ClockCircleOutlined,
-  InfoCircleOutlined, EyeOutlined, EditTwoTone,
+  InfoCircleOutlined, EyeOutlined, EditTwoTone, PlusOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -60,7 +60,12 @@ interface RegistryConfig {
 const loadRegistries = (): RegistryConfig[] => {
   try {
     const data = localStorage.getItem(REGISTRIES_STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    const registries = data ? JSON.parse(data) : [];
+    // 确保 insecure 字段有默认值
+    return registries.map((r: RegistryConfig) => ({
+      ...r,
+      insecure: r.insecure ?? true,
+    }));
   } catch {
     return [];
   }
@@ -403,7 +408,6 @@ const AddRegistryModal: React.FC<{
           }
           
           await addInsecureRegistry(cloudId, server);
-          message.success(`已配置 HTTP 仓库: ${server}`);
         } catch (e: any) {
           // 配置失败但继续保存本地记录
           console.warn('配置 containerd-registry 失败:', e);
@@ -475,7 +479,7 @@ const AddRegistryModal: React.FC<{
           type="info"
           showIcon
           style={{ marginTop: 8 }}
-          message="勾选 HTTP 后会自动配置 Harvester containerd 允许从此仓库拉取镜像"
+          message="勾选 HTTP 后会自动配置 containerd 允许从此仓库拉取镜像"
         />
       </Form>
     </Modal>
@@ -499,6 +503,7 @@ const CredentialTable: React.FC<{
   onDelete: (secret: any) => void;
   onBrowse: (secret: any) => void;
   onRefresh: (force?: boolean) => void;
+  onCreateCredential: () => void;
 }> = ({
   secrets,
   loading,
@@ -513,6 +518,7 @@ const CredentialTable: React.FC<{
   onDelete,
   onBrowse,
   onRefresh,
+  onCreateCredential,
 }) => {
   const { modal, message } = App.useApp();
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
@@ -772,10 +778,20 @@ const CredentialTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
+          <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCredential}>
+            创建凭证
+          </Button>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-registries-credentials"
           />
+          <Tooltip title="刷新">
+            <Button
+              type="default"
+              icon={<ReloadOutlined />}
+              onClick={() => onRefresh(true)}
+            />
+          </Tooltip>
         </div>
       </div>
 
@@ -896,6 +912,7 @@ const RegistriesSection: React.FC<Props> = ({
   const [registries, setRegistries] = useState<RegistryConfig[]>([]);
   const [addRegistryVisible, setAddRegistryVisible] = useState(false);
   const [editingRegistry, setEditingRegistry] = useState<RegistryConfig | null>(null);
+  const [registryKeyword, setRegistryKeyword] = useState('');
   
   // 仓库详情抽屉状态
   const [registryInfoVisible, setRegistryInfoVisible] = useState(false);
@@ -969,11 +986,23 @@ const RegistriesSection: React.FC<Props> = ({
   
   // 浏览仓库（从仓库列表）
   const handleBrowseRegistry = useCallback((registry: RegistryConfig) => {
+    // 智能推断 insecure：如果用户没有明确勾选过，根据端口推断
+    // 注意：registry.insecure 可能是 false（明确设置为 HTTPS），需要区分
+    // 对于非标准 HTTPS 端口，默认当作 HTTP 仓库处理
+    const port = registry.server.split(':')[1];
+    const httpPorts = ['30500', '5000', '8080', '80', '5001', '5002'];
+    const isHttpPort = httpPorts.includes(port || '');
+    
+    // 如果是 HTTP 端口，强制使用 insecure=true
+    const insecure = isHttpPort ? true : (registry.insecure ?? true);
+    
+    console.log('[handleBrowseRegistry] registry:', registry, 'port:', port, 'isHttpPort:', isHttpPort, 'insecure:', insecure);
+    
     setBrowserCredential({
       server: registry.server,
       username: registry.username,
       password: registry.password,
-      insecure: registry.insecure,
+      insecure,
     });
     setBrowserVisible(true);
   }, []);
@@ -1125,6 +1154,12 @@ const RegistriesSection: React.FC<Props> = ({
     },
   ], [handleViewRegistry, handleBrowseRegistry, handleDeleteRegistry, modal]);
   
+  // 使用列设置 Hook（镜像仓库）
+  const { displayColumns: registryDisplayColumns } = useTableColumnSettings(
+    registryColumns,
+    'harvester-containers-registries',
+  );
+  
   return (
     <>
       <PageDetailSection asCard={false}>
@@ -1138,50 +1173,62 @@ const RegistriesSection: React.FC<Props> = ({
           ]}
         />
         {activeTab === 'credentials' ? (
-          <PageDetailSection
-            key="credentials"
-            asCard={false}
-            primaryAction={{
-              label: '创建凭证',
-              onClick: handleCreateCredential,
-            }}
+          <CredentialTable
+            secrets={secrets}
+            loading={loading}
+            cloudId={cloudId}
+            keyword={keyword}
+            onKeywordChange={setKeyword}
+            nsValue={nsValue}
+            onNsChange={onNsChange}
+            namespacesOptions={namespacesOptions}
+            onViewDetail={handleViewDetail}
+            onEdit={handleEditCredential}
+            onDelete={handleDeleteSecret}
+            onBrowse={handleBrowseFromSecret}
             onRefresh={onRefresh}
-          >
-            <CredentialTable
-              secrets={secrets}
-              loading={loading}
-              cloudId={cloudId}
-              keyword={keyword}
-              onKeywordChange={setKeyword}
-              nsValue={nsValue}
-              onNsChange={onNsChange}
-              namespacesOptions={namespacesOptions}
-              onViewDetail={handleViewDetail}
-              onEdit={handleEditCredential}
-              onDelete={handleDeleteSecret}
-              onBrowse={handleBrowseFromSecret}
-              onRefresh={onRefresh}
-            />
-          </PageDetailSection>
+            onCreateCredential={handleCreateCredential}
+          />
         ) : (
-          <PageDetailSection
-            key="registries"
-            asCard={false}
-            primaryAction={{
-              label: '添加仓库',
-              onClick: () => {
-                setEditingRegistry(null);
-                setAddRegistryVisible(true);
-              },
-            }}
-            onRefresh={() => setRegistries(loadRegistries())}
-          >
+          <div key="registries">
+            <div className="page-toolbar">
+              <div className="toolbar-container">
+                <Input
+                  className="toolbar-search"
+                  allowClear
+                  placeholder="搜索仓库名称/地址"
+                  suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                  value={registryKeyword}
+                  onChange={(e) => setRegistryKeyword(e.target.value)}
+                />
+              </div>
+              <div className="toolbar-actions">
+                <Button type="primary" icon={<DatabaseOutlined />} onClick={() => { setEditingRegistry(null); setAddRegistryVisible(true); }}>
+                  添加仓库
+                </Button>
+                <TableColumnSettingsButton
+                  allColumns={registryColumns}
+                  settingsKey="harvester-containers-registries"
+                />
+                <Tooltip title="刷新">
+                  <Button
+                    type="default"
+                    icon={<ReloadOutlined />}
+                    onClick={() => setRegistries(loadRegistries())}
+                  />
+                </Tooltip>
+              </div>
+            </div>
             <Table
               className="std-table"
               bordered={false}
               rowKey="id"
-              columns={registryColumns}
-              dataSource={registries}
+              columns={registryDisplayColumns}
+              dataSource={registries.filter(r => {
+                if (!registryKeyword.trim()) return true;
+                const kw = registryKeyword.toLowerCase();
+                return r.name.toLowerCase().includes(kw) || r.server.toLowerCase().includes(kw);
+              })}
               scroll={{ x: 'max-content' }}
               pagination={{
                 size: 'small',
@@ -1196,7 +1243,7 @@ const RegistriesSection: React.FC<Props> = ({
                 ),
               }}
             />
-          </PageDetailSection>
+          </div>
         )}
       </PageDetailSection>
       

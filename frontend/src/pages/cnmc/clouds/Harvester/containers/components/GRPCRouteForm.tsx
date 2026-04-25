@@ -36,6 +36,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons';
 import { createGrpcRoute } from '../../../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -246,7 +247,7 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
               <Select
                 placeholder="选择命名空间"
                 showSearch
-                options={namespacesOptions.map(ns => ({ label: ns, value: ns }))}
+                options={namespacesOptions.filter(ns => !isSystemNamespace(ns)).map(ns => ({ label: ns, value: ns }))}
               />
             </Form.Item>
           </Col>

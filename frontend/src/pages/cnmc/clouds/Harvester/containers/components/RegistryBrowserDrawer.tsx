@@ -216,7 +216,10 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
 
       <RegistryBrowser
         cloudId={cloudId}
-        credential={credential}
+        credential={{
+          ...credential,
+          insecure: credential?.insecure ?? true,
+        }}
         onSelectImage={handleSelectImage}
         currentImage={currentImage}
       />
