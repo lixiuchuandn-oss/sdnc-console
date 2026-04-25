@@ -505,8 +505,8 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
                         <Form.Item
                           {...restField}
                           name={[index, 'targetPort']}
-                          label="目标端口"
-                          rules={[{ required: true, message: '请输入目标端口' }]}
+                          label="容器内部端口"
+                          rules={[{ required: true, message: '请输入容器内部端口' }]}
                         >
                           <Input placeholder="80 或 http" />
                         </Form.Item>
