@@ -701,7 +701,6 @@ const CredentialTable: React.FC<{
           {
             key: 'yaml',
             label: '查看 YAML',
-            icon: <EyeOutlined />,
             onClick: () => handleViewYaml(record),
           },
           {
