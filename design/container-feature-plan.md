@@ -47,10 +47,10 @@
 - 🟢 工作负载多容器支持
 - 🟢 Pod 详情术语优化
 - 🟢 工作负载表单交互优化
+- 🟢 Job Pod 清理策略
+- 🟢 资源命名与标签规范 (双轨制)
 - 🟢 容器网络配置 (扁平子网/VPC子网/NAD)
 - 🟢 容器模块体验优化 (2026-04-25)
-- 🔴 Job Pod 清理策略
-- 🔴 资源命名与标签规范 (双轨制)
 - 🔴 应用向导部署
 - 🔴 租户视角 (工作台/配额管理)
 - 🔴 Gateway API 编辑功能 (当前环境未安装 Gateway API)
@@ -409,8 +409,8 @@
 | **工作负载多容器支持** (3.7) | 工作负载支持多容器配置 | 中 | 🟢 已完成 |
 | **Pod 详情术语优化** (3.8) | 状态条件名称优化、Tooltip说明 | 低 | 🟢 已完成 |
 | **工作负载表单交互优化** (3.9) | Deployment翻译、副本数移动、容器Card布局、配置项折叠 | 高 | 🟢 已完成 |
-| **Job Pod 清理策略** (3.10) | Job 完成后自动清理 Pod | 高 | 🔴 待开始 |
-| **资源命名与标签规范** (3.11) | 双轨制命名（ID + 别名） | 高 | 🔴 待开始 |
+| **Job Pod 清理策略** (3.10) | Job 完成后自动清理 Pod | 高 | 🟢 已完成 |
+| **资源命名与标签规范** (3.11) | 双轨制命名（ID + 别名） | 高 | 🟢 已完成 |
 | **容器网络配置** (3.12) | 扁平子网/VPC子网/自定义NAD支持 | 高 | 🟢 已完成 |
 | **容器模块体验优化** (3.13) | 系统资源保护、命名空间过滤、UI布局、表单验证等 | 高 | 🟢 已完成 |
 
@@ -891,8 +891,8 @@ WorkloadForm - 容器配置步骤
 
 | 任务ID | 任务描述 | 状态 | 进度 |
 |--------|----------|------|------|
-| F4-90 | PodsSection 条件 Tab 改名为"状态条件" | 🟡 | 开发完成 |
-| F4-91 | 类型字段添加 Tooltip 说明 | 🟡 | 开发完成 |
+| F4-90 | PodsSection 条件 Tab 改名为"状态条件" | 🟢 | 已验证 |
+| F4-91 | 类型字段添加 Tooltip 说明 | 🟢 | 已验证 |
 
 ### 3.9 工作负载表单交互优化
 
@@ -918,9 +918,9 @@ WorkloadForm - 容器配置步骤
 | F4-101 | Deployment翻译改为"无状态副本集" | 🟢 | 已验证 |
 | F4-102 | 副本数从高级配置移至基本信息步骤 | 🟢 | 已验证 |
 | F4-103 | 容器配置改为独立Card布局（垂直排列） | 🟢 | 已验证 |
-| F4-104 | 镜像拉取凭证移至每个容器镜像地址后 | 🟡 | 开发完成待验证 |
+| F4-104 | 镜像拉取凭证移至每个容器镜像地址后 | 🟢 | 已验证 |
 | F4-105 | 环境变量/资源限制/启动命令/健康检查折叠 | 🟢 | 已验证 |
-| F4-106 | PVC下拉框显示"名称(ID)"格式 | 🟡 | 开发完成待验证 |
+| F4-106 | PVC下拉框显示"名称(ID)"格式 | 🟢 | 已验证 |
 | F4-107 | 亲和性配置/污点容忍折叠 | 🟢 | 已验证 |
 
 #### 修复记录
@@ -1027,15 +1027,15 @@ const tolerationCount = tolerations.length;
 
 | 任务ID | 任务描述 | 状态 | 进度 |
 |--------|----------|------|------|
-| F5-01 | JobForm 添加 ttlSecondsAfterFinished 表单字段 | 🔴 | 待开始 |
-| F5-02 | 默认值设置为 3600 秒 | 🔴 | 待开始 |
-| F5-03 | Job 详情页展示该配置值 | 🔴 | 待开始 |
+| F5-01 | JobForm 添加 ttlSecondsAfterFinished 表单字段 | 🟢 | 已验证 |
+| F5-02 | 默认值设置为 3600 秒 | 🟢 | 已验证 |
+| F5-03 | Job 详情页展示该配置值 | 🟢 | 已验证 |
 
 #### 验收标准
 
-- [ ] Job 创建表单包含 `ttlSecondsAfterFinished` 字段
-- [ ] 默认值为 3600 秒
-- [ ] Job 详情页展示该配置值
+- [x] Job 创建表单包含 `ttlSecondsAfterFinished` 字段
+- [x] 默认值为 3600 秒
+- [x] Job 详情页展示该配置值
 
 ---
 
@@ -1070,26 +1070,26 @@ const tolerationCount = tolerations.length;
 
 | 任务ID | 任务描述 | 状态 | 进度 |
 |--------|----------|------|------|
-| F5-10 | 扩展 harvesterUtils.ts 缩写映射 | 🔴 | 待开始 |
-| F5-11 | WorkloadForm 双轨制命名（先做验证） | 🔴 | 待开始 |
-| F5-12 | WorkloadsSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
-| F5-13 | JobForm 双轨制命名 | 🔴 | 待开始 |
-| F5-14 | CronJobForm 双轨制命名 | 🔴 | 待开始 |
-| F5-15 | JobsSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
-| F5-16 | ServiceForm 双轨制命名 | 🔴 | 待开始 |
-| F5-17 | ServicesSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
-| F5-18 | IngressForm 双轨制命名 | 🔴 | 待开始 |
-| F5-19 | IngressesSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
-| F5-20 | ConfigMapForm 双轨制命名 | 🔴 | 待开始 |
-| F5-21 | SecretForm 双轨制命名 | 🔴 | 待开始 |
-| F5-22 | ConfigsSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
-| F5-23 | PDBForm 双轨制命名 | 🔴 | 待开始 |
-| F5-24 | PDBSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
-| F5-25 | NetworkPolicyForm 双轨制命名 | 🔴 | 待开始 |
-| F5-26 | NetworkPoliciesSection 名称列显示别名+编辑按钮，新增ID列 | 🔴 | 待开始 |
-| F5-27 | RegistryCredentialForm 双轨制命名 | 🔴 | 待开始 |
-| F5-28 | harvesterApi.ts 添加各资源 PATCH 方法 | 🔴 | 待开始 |
-| F5-29 | 后端添加 PATCH 路由支持 | 🔴 | 待开始 |
+| F5-10 | 扩展 harvesterUtils.ts 缩写映射 | 🟢 | 已验证 |
+| F5-11 | WorkloadForm 双轨制命名（先做验证） | 🟢 | 已验证 |
+| F5-12 | WorkloadsSection 名称列显示别名+编辑按钮，新增ID列 | 🟢 | 已验证 |
+| F5-13 | JobForm 双轨制命名 | 🟢 | 已验证 |
+| F5-14 | CronJobForm 双轨制命名 | 🟢 | 已验证 |
+| F5-15 | JobsSection 名称列显示别名+编辑按钮，新增ID列 | 🟢 | 已验证 |
+| F5-16 | ServiceForm 双轨制命名 | 🟢 | 已验证 |
+| F5-17 | ServicesSection 名称列显示别名+编辑按钮，新增ID列 | 🟢 | 已验证 |
+| F5-18 | IngressForm 双轨制命名 | 🟢 | 已验证 |
+| F5-19 | IngressesSection 名称列显示别名+编辑按钮，新增ID列 | 🟢 | 已验证 |
+| F5-20 | ConfigMapForm 双轨制命名 | 🟢 | 已验证 |
+| F5-21 | SecretForm 双轨制命名 | 🟢 | 已验证 |
+| F5-22 | ConfigsSection 名称列显示别名+编辑按钮，新增ID列 | 🟢 | 已验证 |
+| F5-23 | PDBForm 双轨制命名 | 🟢 | 已验证 |
+| F5-24 | PDBSection 名称列显示别名+编辑按钮，新增ID列 | 🟢 | 已验证 |
+| F5-25 | NetworkPolicyForm 双轨制命名 | 🟢 | 已验证 |
+| F5-26 | NetworkPoliciesSection 名称列显示别名+编辑按钮，新增ID列 | 🟢 | 已验证 |
+| F5-27 | RegistryCredentialForm 双轨制命名 | 🟢 | 已验证 |
+| F5-28 | harvesterApi.ts 添加各资源 PATCH 方法 | 🟢 | 已验证 |
+| F5-29 | 后端添加 PATCH 路由支持 | 🟢 | 已验证 |
 
 #### 实施策略
 
@@ -1099,12 +1099,199 @@ const tolerationCount = tolerations.length;
 
 #### 验收标准
 
-- [ ] 创建资源时自动生成 ID 作为 `metadata.name`
-- [ ] 用户输入存为 `tower.io/alias`
-- [ ] 列表页名称列显示别名
-- [ ] 列表页新增 ID 列
-- [ ] 支持通过编辑按钮修改别名
-- [ ] 编辑现有资源时正确回显别名
+- [x] 创建资源时自动生成 ID 作为 `metadata.name`
+- [x] 用户输入存为 `tower.io/alias`
+- [x] 列表页名称列显示别名
+- [x] 列表页新增 ID 列
+- [x] 支持通过编辑按钮修改别名
+- [x] 编辑现有资源时正确回显别名
+
+## 3.12 容器网络配置（扁平子网支持）
+
+> **优先级**: 高 | **预计工作量**: 3-4天 | **创建日期**: 2026-04-22
+
+### 功能说明
+
+为容器工作负载（Deployment/StatefulSet/DaemonSet）添加网络配置能力，支持使用资源池中的扁平子网、VPC子网和自定义NAD。
+
+### 设计文档
+
+详见 `container-feature-design.md` 第21章「容器网络配置设计（扁平子网支持）」。
+
+### 任务清单
+
+#### Phase1 - 核心功能（当前阶段）
+
+| 任务ID | 任务描述 | 状态 | 进度 |
+|--------|----------|------|------|
+| F6-01 | WorkloadForm 新增网络配置步骤（步骤3，原高级配置移为步骤4） | 🟢 | 已验证 |
+| F6-02 | 数据获取：加载扁平子网列表（kubeSubnets） | 🟢 | 已验证 |
+| F6-03 | 数据获取：加载VPC列表（kubeVpcs） | 🟢 | 已验证 |
+| F6-04 | 数据获取：加载NAD列表（nads） | 🟢 | 已验证 |
+| F6-05 | 实现网络类型选择器（默认网络/扁平子网/VPC子网/自定义NAD） | 🟢 | 已验证 |
+| F6-06 | 实现扁平子网选择器（复用VM向导逻辑，过滤VPC=ovn-internal） | 🟢 | 已验证 |
+| F6-07 | 实现VPC子网选择器（VPC+Subnet级联选择） | 🟢 | 已验证 |
+| F6-08 | 实现自定义NAD输入框 | 🟢 | 已验证 |
+| F6-09 | 实现静态IP配置（可选） | 🟢 | 已验证 |
+| F6-10 | 实现buildNetworkAnnotations函数 | 🟢 | 已验证 |
+| F6-11 | 在buildK8sResource中集成网络注解 | 🟢 | 已验证 |
+| F6-12 | 添加NetworkConfig类型定义 | 🟢 | 已验证 |
+| F6-13 | 配置预览面板展示网络配置信息 | 🟢 | 已验证 |
+| F6-14 | 后端API验证：扁平子网/VPC/NAD API可用性 | 🟢 | 已验证 |
+| F6-15 | 选项显示格式优化：别名(id)@cidr | 🟢 | 已验证 |
+| F6-16 | Harvester资源池隐藏扁平子网选项 | 🟢 | 已验证 |
+| F6-17 | 创建表单自动填写名称和命名空间 | 🟢 | 已验证 |
+
+#### Phase2 - 扩展功能（预留）
+
+| 任务ID | 任务描述 | 状态 | 进度 |
+|--------|----------|------|------|
+| F6-20 | SR-IOV直通网卡支持 | 🔴 | 待开始 |
+| F6-21 | Macvtap直通网卡支持 | 🔴 | 待开始 |
+| F6-22 | 多网卡（辅助网卡）配置支持 | 🔴 | 待开始 |
+
+### 验收标准
+
+- [x] 工作负载创建表单新增"网络配置"步骤
+- [x] 网络类型支持：默认网络、扁平子网、VPC子网、自定义NAD
+- [x] 扁平子网选择器正确过滤和展示
+- [x] VPC子网选择器支持级联选择
+- [x] 生成的YAML包含正确的网络注解
+- [x] 使用扁平子网的Pod能正常获取IP
+- [x] 创建表单自动填写名称和默认命名空间
+
+### 关键文件
+
+| 文件 | 修改内容 |
+|------|---------|
+| `containers/components/WorkloadForm.tsx` | 新增网络配置步骤，集成buildNetworkAnnotations |
+| `types/harvester.ts` | 新增NetworkConfig类型定义 |
+| `services/harvesterApi.ts` | 确保kubeSubnets/kubeVpcs/nads API可用 |
+| `kube-ovn/lib/kubeOvnSubnetConstants.ts` | 扁平子网识别常量（复用） |
+
+### 并行任务分析
+
+以下任务可并行执行：
+1. **F6-02/F6-03/F6-04** - 数据获取任务（可同时开发）
+2. **F6-05/F6-06/F6-07/F6-08** - UI选择器组件（可并行开发，最后集成）
+3. **F6-12** - 类型定义（可独立进行）
+
+
+
+---
+
+## 3.13 容器模块体验优化（2026-04-25）
+
+> **优先级**: 高 | **预计工作量**: 2天 | **创建日期**: 2026-04-25
+
+### 功能说明
+
+修复容器模块多项体验问题，包括系统资源保护、命名空间过滤、UI布局优化、表单验证增强等。
+
+### 任务清单
+
+| 任务ID | 任务描述 | 状态 | 进度 |
+|--------|----------|------|------|
+| F7-01 | Ingress 路由添加系统资源保护（禁止删除/编辑内置路由） | 🟢 | 已验证 |
+| F7-02 | 系统命名空间过滤补充遗漏前缀（rancher/calico/tigera 等） | 🟢 | 已验证 |
+| F7-03 | 镜像仓库按钮布局统一（创建/刷新/列设置同行） | 🟢 | 已验证 |
+| F7-04 | 镜像仓库浏览添加 insecure 参数智能推断 | 🟢 | 已验证 |
+| F7-05 | 容器名称添加 RFC 1123 格式验证 | 🟢 | 已验证 |
+| F7-06 | 工作负载表格操作列固定（横向滚动优化） | 🟢 | 已验证 |
+| F7-07 | 容器面板添加 overflow:auto 解决页面无法滚动 | 🟢 | 已验证 |
+| F7-08 | Pod 状态显示修复（CrashLoopBackOff 显示崩溃重启中） | 🟢 | 已验证 |
+| F7-09 | Pod 详情容器状态列宽度调整避免重叠 | 🟢 | 已验证 |
+| F7-10 | 工作负载编辑时存储卷定义回填 PVC 信息 | 🟢 | 已验证 |
+| F7-11 | Secret/ConfigMap 被容器使用后禁止删除 | 🟢 | 已验证 |
+| F7-12 | 镜像拉取凭证下拉显示名称（ID）格式 | 🟢 | 已验证 |
+| F7-13 | 环境变量引入 ConfigMap/Secret 显示名称（ID）格式 | 🟢 | 已验证 |
+| F7-14 | 工作负载按钮「扩缩容」改为「热扩缩容」 | 🟢 | 已验证 |
+| F7-15 | 默认网络时隐藏静态IP配置字段 | 🟢 | 已验证 |
+
+### 详细设计
+
+#### 1. Ingress 系统资源保护
+
+- 文件: `IngressesSection.tsx`
+- 导入: `isSystemResource`, `getSystemResourceProtectionHint`
+- 操作列: 添加 `disabled` 和 `tooltip` 属性
+- 系统资源: kube-system 命名空间下的 Ingress 禁止编辑和删除
+
+#### 2. 系统命名空间过滤
+
+- 文件: `harvesterUtils.ts`
+- 补充前缀: `rancher`, `calico`, `tigera`, `cert-manager`, `velero`, `openebs`, `rook`, `istio`, `knative`, `cilium`, `linkerd`, `keda`, `argocd`, `vault`, `sealed-secrets`, `monitoring`, `logging`, `tracing`
+- 影响表单: WorkloadForm, ServiceForm, SecretForm, NetworkPolicyForm, IngressForm, ConfigMapForm, PDBForm, JobForm, CronJobForm, HTTPRouteForm, GatewayForm, GRPCRouteForm, QuickCreateConfigMapModal, QuickCreateSecretModal, QuickCreateRegistrySecretModal
+
+#### 3. 镜像仓库按钮布局
+
+- 文件: `RegistriesSection.tsx`
+- 凭证Tab: 左侧搜索框+筛选，右侧创建/列设置/刷新按钮
+- 仓库Tab: 左侧搜索框，右侧添加/列设置/刷新按钮
+- 添加仓库搜索功能 `registryKeyword` state
+
+#### 4. 镜像仓库 insecure 参数
+
+- 文件: `harvesterApi.ts`, `RegistriesSection.tsx`
+- 根据端口智能推断 HTTP 仓库
+- 常见 HTTP 端口: `['30500', '5000', '8080', '80', '5001', '5002']`
+
+#### 5. 容器名称验证
+
+- 文件: `WorkloadForm.tsx`
+- 规则: RFC 1123 格式 `/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/`
+- 错误提示: "容器名称只能包含小写字母、数字和连字符，且必须以字母或数字开头和结尾"
+
+#### 6. 工作负载表格操作列固定
+
+- 文件: `WorkloadsSection.tsx`
+- 操作列添加 `fixed: 'right' as const`
+- 横向滚动时操作列固定
+
+#### 7. 容器面板滚动
+
+- 文件: `Cloudmap/pool/panels/containers/index.tsx`
+- 所有 Tab 内容统一用 `overflow: 'auto'` 的 div 包裹
+- 解决父容器 `.cloudmap-detail-main` 的 `overflow: hidden` 问题
+
+#### 8. Pod 状态显示
+
+- 文件: `PodsSection.tsx`
+- CrashLoopBackOff 显示「崩溃重启中」
+- ImagePullBackOff 显示「镜像拉取失败」
+- ErrImagePull 显示「镜像拉取错误」
+
+#### 9. Secret/ConfigMap 使用检查
+
+- 文件: `ConfigsSection.tsx`
+- 添加 `isResourceInUse` 函数
+- 被工作负载引用时禁止删除，显示提示
+
+#### 10. 工作负载编辑存储卷回填
+
+- 文件: `WorkloadForm.tsx`
+- 编辑模式解析 `spec.template.spec.volumes`
+- 正确回填 PVC、HostPath、EmptyDir、ConfigMap、Secret 等卷类型
+
+### Git 提交
+
+```
+bf2695d fix: 容器模块多项优化
+057cae4 fix: 容器模块多项问题修复
+f5a8bbe fix: 移除镜像凭证查看YAML图标
+```
+
+### 验收标准
+
+- [x] Ingress 内置路由禁止删除和编辑
+- [x] 命名空间选择器不显示系统命名空间
+- [x] 镜像仓库按钮布局统一
+- [x] 容器名称验证生效
+- [x] 工作负载表格横向滚动正常
+- [x] 容器面板可以滚动
+- [x] Pod 状态显示正确
+- [x] Secret/ConfigMap 被使用时禁止删除
+- [x] 工作负载编辑时存储卷正确回填
 
 ---
 
@@ -1492,195 +1679,6 @@ const namespacesOptions = useMemo(() => {
 | 9 | 日志聚合平台对接 | 对接 ELK/Loki 或内部日审平台 |
 | 10 | 成本管理/计费 | 当前暂不考虑 |
 
-
----
-
-## 3.12 容器网络配置（扁平子网支持）
-
-> **优先级**: 高 | **预计工作量**: 3-4天 | **创建日期**: 2026-04-22
-
-### 功能说明
-
-为容器工作负载（Deployment/StatefulSet/DaemonSet）添加网络配置能力，支持使用资源池中的扁平子网、VPC子网和自定义NAD。
-
-### 设计文档
-
-详见 `container-feature-design.md` 第21章「容器网络配置设计（扁平子网支持）」。
-
-### 任务清单
-
-#### Phase1 - 核心功能（当前阶段）
-
-| 任务ID | 任务描述 | 状态 | 进度 |
-|--------|----------|------|------|
-| F6-01 | WorkloadForm 新增网络配置步骤（步骤3，原高级配置移为步骤4） | 🟢 | 已验证 |
-| F6-02 | 数据获取：加载扁平子网列表（kubeSubnets） | 🟢 | 已验证 |
-| F6-03 | 数据获取：加载VPC列表（kubeVpcs） | 🟢 | 已验证 |
-| F6-04 | 数据获取：加载NAD列表（nads） | 🟢 | 已验证 |
-| F6-05 | 实现网络类型选择器（默认网络/扁平子网/VPC子网/自定义NAD） | 🟢 | 已验证 |
-| F6-06 | 实现扁平子网选择器（复用VM向导逻辑，过滤VPC=ovn-internal） | 🟢 | 已验证 |
-| F6-07 | 实现VPC子网选择器（VPC+Subnet级联选择） | 🟢 | 已验证 |
-| F6-08 | 实现自定义NAD输入框 | 🟢 | 已验证 |
-| F6-09 | 实现静态IP配置（可选） | 🟢 | 已验证 |
-| F6-10 | 实现buildNetworkAnnotations函数 | 🟢 | 已验证 |
-| F6-11 | 在buildK8sResource中集成网络注解 | 🟢 | 已验证 |
-| F6-12 | 添加NetworkConfig类型定义 | 🟢 | 已验证 |
-| F6-13 | 配置预览面板展示网络配置信息 | 🟢 | 已验证 |
-| F6-14 | 后端API验证：扁平子网/VPC/NAD API可用性 | 🟢 | 已验证 |
-| F6-15 | 选项显示格式优化：别名(id)@cidr | 🟢 | 已验证 |
-| F6-16 | Harvester资源池隐藏扁平子网选项 | 🟢 | 已验证 |
-| F6-17 | 创建表单自动填写名称和命名空间 | 🟢 | 已验证 |
-
-#### Phase2 - 扩展功能（预留）
-
-| 任务ID | 任务描述 | 状态 | 进度 |
-|--------|----------|------|------|
-| F6-20 | SR-IOV直通网卡支持 | 🔴 | 待开始 |
-| F6-21 | Macvtap直通网卡支持 | 🔴 | 待开始 |
-| F6-22 | 多网卡（辅助网卡）配置支持 | 🔴 | 待开始 |
-
-### 验收标准
-
-- [x] 工作负载创建表单新增"网络配置"步骤
-- [x] 网络类型支持：默认网络、扁平子网、VPC子网、自定义NAD
-- [x] 扁平子网选择器正确过滤和展示
-- [x] VPC子网选择器支持级联选择
-- [x] 生成的YAML包含正确的网络注解
-- [x] 使用扁平子网的Pod能正常获取IP
-- [x] 创建表单自动填写名称和默认命名空间
-
-### 关键文件
-
-| 文件 | 修改内容 |
-|------|---------|
-| `containers/components/WorkloadForm.tsx` | 新增网络配置步骤，集成buildNetworkAnnotations |
-| `types/harvester.ts` | 新增NetworkConfig类型定义 |
-| `services/harvesterApi.ts` | 确保kubeSubnets/kubeVpcs/nads API可用 |
-| `kube-ovn/lib/kubeOvnSubnetConstants.ts` | 扁平子网识别常量（复用） |
-
-### 并行任务分析
-
-以下任务可并行执行：
-1. **F6-02/F6-03/F6-04** - 数据获取任务（可同时开发）
-2. **F6-05/F6-06/F6-07/F6-08** - UI选择器组件（可并行开发，最后集成）
-3. **F6-12** - 类型定义（可独立进行）
-
-
-
----
-
-## 3.13 容器模块体验优化（2026-04-25）
-
-> **优先级**: 高 | **预计工作量**: 2天 | **创建日期**: 2026-04-25
-
-### 功能说明
-
-修复容器模块多项体验问题，包括系统资源保护、命名空间过滤、UI布局优化、表单验证增强等。
-
-### 任务清单
-
-| 任务ID | 任务描述 | 状态 | 进度 |
-|--------|----------|------|------|
-| F7-01 | Ingress 路由添加系统资源保护（禁止删除/编辑内置路由） | 🟢 | 已验证 |
-| F7-02 | 系统命名空间过滤补充遗漏前缀（rancher/calico/tigera 等） | 🟢 | 已验证 |
-| F7-03 | 镜像仓库按钮布局统一（创建/刷新/列设置同行） | 🟢 | 已验证 |
-| F7-04 | 镜像仓库浏览添加 insecure 参数智能推断 | 🟢 | 已验证 |
-| F7-05 | 容器名称添加 RFC 1123 格式验证 | 🟢 | 已验证 |
-| F7-06 | 工作负载表格操作列固定（横向滚动优化） | 🟢 | 已验证 |
-| F7-07 | 容器面板添加 overflow:auto 解决页面无法滚动 | 🟢 | 已验证 |
-| F7-08 | Pod 状态显示修复（CrashLoopBackOff 显示崩溃重启中） | 🟢 | 已验证 |
-| F7-09 | Pod 详情容器状态列宽度调整避免重叠 | 🟢 | 已验证 |
-| F7-10 | 工作负载编辑时存储卷定义回填 PVC 信息 | 🟢 | 已验证 |
-| F7-11 | Secret/ConfigMap 被容器使用后禁止删除 | 🟢 | 已验证 |
-| F7-12 | 镜像拉取凭证下拉显示名称（ID）格式 | 🟢 | 已验证 |
-| F7-13 | 环境变量引入 ConfigMap/Secret 显示名称（ID）格式 | 🟢 | 已验证 |
-| F7-14 | 工作负载按钮「扩缩容」改为「热扩缩容」 | 🟢 | 已验证 |
-| F7-15 | 默认网络时隐藏静态IP配置字段 | 🟢 | 已验证 |
-
-### 详细设计
-
-#### 1. Ingress 系统资源保护
-
-- 文件: `IngressesSection.tsx`
-- 导入: `isSystemResource`, `getSystemResourceProtectionHint`
-- 操作列: 添加 `disabled` 和 `tooltip` 属性
-- 系统资源: kube-system 命名空间下的 Ingress 禁止编辑和删除
-
-#### 2. 系统命名空间过滤
-
-- 文件: `harvesterUtils.ts`
-- 补充前缀: `rancher`, `calico`, `tigera`, `cert-manager`, `velero`, `openebs`, `rook`, `istio`, `knative`, `cilium`, `linkerd`, `keda`, `argocd`, `vault`, `sealed-secrets`, `monitoring`, `logging`, `tracing`
-- 影响表单: WorkloadForm, ServiceForm, SecretForm, NetworkPolicyForm, IngressForm, ConfigMapForm, PDBForm, JobForm, CronJobForm, HTTPRouteForm, GatewayForm, GRPCRouteForm, QuickCreateConfigMapModal, QuickCreateSecretModal, QuickCreateRegistrySecretModal
-
-#### 3. 镜像仓库按钮布局
-
-- 文件: `RegistriesSection.tsx`
-- 凭证Tab: 左侧搜索框+筛选，右侧创建/列设置/刷新按钮
-- 仓库Tab: 左侧搜索框，右侧添加/列设置/刷新按钮
-- 添加仓库搜索功能 `registryKeyword` state
-
-#### 4. 镜像仓库 insecure 参数
-
-- 文件: `harvesterApi.ts`, `RegistriesSection.tsx`
-- 根据端口智能推断 HTTP 仓库
-- 常见 HTTP 端口: `['30500', '5000', '8080', '80', '5001', '5002']`
-
-#### 5. 容器名称验证
-
-- 文件: `WorkloadForm.tsx`
-- 规则: RFC 1123 格式 `/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/`
-- 错误提示: "容器名称只能包含小写字母、数字和连字符，且必须以字母或数字开头和结尾"
-
-#### 6. 工作负载表格操作列固定
-
-- 文件: `WorkloadsSection.tsx`
-- 操作列添加 `fixed: 'right' as const`
-- 横向滚动时操作列固定
-
-#### 7. 容器面板滚动
-
-- 文件: `Cloudmap/pool/panels/containers/index.tsx`
-- 所有 Tab 内容统一用 `overflow: 'auto'` 的 div 包裹
-- 解决父容器 `.cloudmap-detail-main` 的 `overflow: hidden` 问题
-
-#### 8. Pod 状态显示
-
-- 文件: `PodsSection.tsx`
-- CrashLoopBackOff 显示「崩溃重启中」
-- ImagePullBackOff 显示「镜像拉取失败」
-- ErrImagePull 显示「镜像拉取错误」
-
-#### 9. Secret/ConfigMap 使用检查
-
-- 文件: `ConfigsSection.tsx`
-- 添加 `isResourceInUse` 函数
-- 被工作负载引用时禁止删除，显示提示
-
-#### 10. 工作负载编辑存储卷回填
-
-- 文件: `WorkloadForm.tsx`
-- 编辑模式解析 `spec.template.spec.volumes`
-- 正确回填 PVC、HostPath、EmptyDir、ConfigMap、Secret 等卷类型
-
-### Git 提交
-
-```
-bf2695d fix: 容器模块多项优化
-057cae4 fix: 容器模块多项问题修复
-f5a8bbe fix: 移除镜像凭证查看YAML图标
-```
-
-### 验收标准
-
-- [x] Ingress 内置路由禁止删除和编辑
-- [x] 命名空间选择器不显示系统命名空间
-- [x] 镜像仓库按钮布局统一
-- [x] 容器名称验证生效
-- [x] 工作负载表格横向滚动正常
-- [x] 容器面板可以滚动
-- [x] Pod 状态显示正确
-- [x] Secret/ConfigMap 被使用时禁止删除
-- [x] 工作负载编辑时存储卷正确回填
 
 ---
 
