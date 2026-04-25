@@ -303,6 +303,9 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         onRefresh={(force) => loadTabResource('configs', force)}
+        deployments={harvesterDeployments}
+        statefulsets={harvesterStatefulSets}
+        daemonsets={harvesterDaemonSets}
       />
     );
   } else if (innerActiveKey === 'registries') {

@@ -423,7 +423,7 @@ const WorkloadTable: React.FC<{
           },
           {
             key: 'scale',
-            label: '扩缩容',
+            label: '热扩缩容',
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => handleScale(record),
