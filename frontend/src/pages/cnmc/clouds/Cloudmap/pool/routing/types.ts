@@ -1,11 +1,10 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { CloudmapResourceSubKey, CloudmapPoolTabKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import type { CloudmapPoolTabKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 
-/** 池主内容区面板所需 props（由 `useCloudmapPoolDetailEngine` 组装的 Context 注入子路由） */
+/** 池主内容区面板 props（由 `useCloudmapPoolDetailEngine` 组装，经 Context 注入子路由） */
 export type CloudmapPoolPanelProps = {
   cloudId: string;
   cloudConfig: any | null;
-  mode: 'standard' | 'ops';
   isTenant: boolean;
   showLog: boolean;
   checkPerm: (act: string) => boolean;

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, type ReactNode } from 'react';
-import type { CloudmapPoolPanelProps } from './cloudmapPoolDetailTypes';
+import type { CloudmapPoolPanelProps } from './types';
 
-/** 主内容区路由子树共用数据（由 `useCloudmapPoolDetailEngine` / `PoolDetailPage` 注入） */
+/** 与面板 props 相同，由 PoolDetailPage / useCloudmapPoolDetailEngine 注入。 */
 export type CloudmapPoolDetailContextValue = CloudmapPoolPanelProps;
 
 const CloudmapPoolDetailContext = createContext<CloudmapPoolDetailContextValue | null>(null);

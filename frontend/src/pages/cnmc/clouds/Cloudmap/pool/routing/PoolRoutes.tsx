@@ -1,5 +1,6 @@
 /**
- * Cloudmap 池主内容区路由：`admin/clouds/:id/*` 下相对路径的 `<Routes>` + Context 注入面板数据。
+ * 池主内容区路由（`routing/PoolRoutes.tsx`）
+ * `admin/clouds/:id/*` 相对路径 `<Routes>`；数据来自 `useCloudmapPoolDetail`。
  */
 import React from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
@@ -26,7 +27,7 @@ import {
   fetchHarvesterStorageClasses,
   fetchKubeOvnSubnets,
 } from '../api';
-import { useCloudmapPoolDetail } from './cloudmapPoolDetailContext';
+import { useCloudmapPoolDetail } from './PoolDetailContext';
 
 const RESOURCE_SUB_SET = new Set<string>(CLOUDMAP_RESOURCE_SUB_KEYS);
 
@@ -80,7 +81,6 @@ const ClusterRoute: React.FC = () => {
   return (
     <CloudmapClusterTabs
       cloudId={p.cloudId}
-      mode={p.mode}
       isTenant={p.isTenant}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
@@ -142,7 +142,6 @@ const ComputeRoute: React.FC = () => {
   return (
     <CloudmapComputeGroupTabs
       cloudId={p.cloudId}
-      mode={p.mode}
       isTenant={p.isTenant}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
@@ -228,7 +227,7 @@ const PaasDatabasesRoute: React.FC = () => {
               p.loadResource(
                 'images',
                 () => fetchHarvesterImages(p.cloudId, true),
-                (json) => p.setHarvesterImages((json as any)?.data?.items || []),
+                (json: any) => p.setHarvesterImages((json as any)?.data?.items || []),
                 true,
               )
           : undefined
@@ -252,7 +251,7 @@ const PaasDatabasesRoute: React.FC = () => {
               p.loadResource(
                 'nads',
                 () => fetchHarvesterNads(p.cloudId, true),
-                (json) => p.setHarvesterNads((json as any)?.data?.items || []),
+                (json: any) => p.setHarvesterNads((json as any)?.data?.items || []),
                 true,
               )
           : undefined
@@ -263,13 +262,12 @@ const PaasDatabasesRoute: React.FC = () => {
               p.loadResource(
                 'storageClasses',
                 () => fetchHarvesterStorageClasses(p.cloudId, true),
-                (json) => p.setHarvesterStorageClasses((json as any)?.data?.items || []),
+                (json: any) => p.setHarvesterStorageClasses((json as any)?.data?.items || []),
                 true,
               )
           : undefined
       }
       isTenant={p.isTenant}
-      mode={p.mode}
       namespacesOptions={p.namespacesOptions}
     />
   );
@@ -283,7 +281,6 @@ const ContainersRoute: React.FC = () => {
   return (
     <CloudmapContainersTabs
       cloudId={p.cloudId}
-      mode={p.mode}
       isTenant={p.isTenant}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('containers')}
@@ -326,7 +323,6 @@ const StorageRoute: React.FC = () => {
   return (
     <CloudmapStorageGroupTabs
       cloudId={p.cloudId}
-      mode={p.mode}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('storage')}
@@ -355,7 +351,6 @@ const BackupsRoute: React.FC = () => {
   return (
     <CloudmapBackupsGroupTabs
       cloudId={p.cloudId}
-      mode={p.mode}
       isTenant={p.isTenant}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
@@ -383,7 +378,6 @@ const FlatNetworkRoute: React.FC = () => {
   return (
     <CloudmapFlatNetworkGroupTabs
       cloudId={p.cloudId}
-      mode={p.mode}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       canReadFlatSubnets={p.canReadFlatSubnets}
@@ -414,7 +408,6 @@ const KubeOvnRoute: React.FC = () => {
   return (
     <CloudmapKubeOvnGroupTabs
       cloudId={p.cloudId}
-      mode={p.mode}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       canReadVpcSubnets={p.canReadVpcSubnets}
@@ -462,7 +455,7 @@ const LogsConfigRoute: React.FC = () => {
 /**
  * 须在 `CloudmapPoolDetailProvider` 内渲染；路由路径相对于资源池根 `/admin/clouds/:id/`。
  */
-const PoolRoutes: React.FC = () => {
+const CloudmapPoolRoutes: React.FC = () => {
   return (
     <div className="cloudmap-detail-main">
       <Routes>
@@ -484,4 +477,4 @@ const PoolRoutes: React.FC = () => {
   );
 };
 
-export default PoolRoutes;
+export default CloudmapPoolRoutes;
