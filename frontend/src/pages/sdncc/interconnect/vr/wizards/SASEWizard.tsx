@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole } from '../../../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../../../services/api';
+import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 
 const SASEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -18,6 +19,11 @@ const SASEWizard: React.FC = () => {
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+
+  const watchWanIf = Form.useWatch('wanInterface', form);
+  const watchLanIf = Form.useWatch('lanInterface', form);
+  const wanIfTrim = watchWanIf ? String(watchWanIf).trim() : '';
+  const lanIfTrim = watchLanIf ? String(watchLanIf).trim() : '';
 
   useEffect(() => {
     if (!deviceCfg) return;
@@ -466,11 +472,20 @@ const SASEWizard: React.FC = () => {
               tooltip="用于建立隧道的接口（通常连接公网）"
               rules={[{ required: true, message: '请选择外网接口' }]}
             >
-              <Select placeholder="请选择接口" showSearch allowClear>
-                {ifaceOptions.map((n) => (
-                  <Select.Option key={n} value={n}>{n}</Select.Option>
-                ))}
-              </Select>
+              <Select
+                placeholder="请选择接口"
+                showSearch
+                allowClear
+                options={ifaceOptions.map((n) => ({
+                  value: n,
+                  label: renderIfaceWizardSelectLabel(n, lanIfTrim && n === lanIfTrim ? '内网接口 (LAN)' : undefined),
+                }))}
+                filterOption={(input: string, option?: { value?: string }) =>
+                  String(option?.value || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item
               name="wanIpv4"
@@ -515,11 +530,20 @@ const SASEWizard: React.FC = () => {
               tooltip="用于连接内部网络的接口"
               rules={[{ required: true, message: '请选择内网接口' }]}
             >
-              <Select placeholder="请选择接口" showSearch allowClear>
-                {ifaceOptions.map((n) => (
-                  <Select.Option key={n} value={n}>{n}</Select.Option>
-                ))}
-              </Select>
+              <Select
+                placeholder="请选择接口"
+                showSearch
+                allowClear
+                options={ifaceOptions.map((n) => ({
+                  value: n,
+                  label: renderIfaceWizardSelectLabel(n, wanIfTrim && n === wanIfTrim ? '外网接口 (WAN)' : undefined),
+                }))}
+                filterOption={(input: string, option?: { value?: string }) =>
+                  String(option?.value || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item
               name="lanIpv4"

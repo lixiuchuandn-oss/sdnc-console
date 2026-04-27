@@ -5,6 +5,27 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, getVR2Config } from '../../../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../../../services/api';
+import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
+
+/** VR3 list 响应体中按接口名查找一行（仅用于网卡 IP 回填） */
+function findIfaceInVr3List(dev: any, ifaceName: string): any | null {
+  if (!dev || !ifaceName) return null;
+  const n = String(ifaceName).trim();
+  if (!n) return null;
+  const pick = (arr?: any[]) => {
+    if (!Array.isArray(arr)) return null;
+    return arr.find((item: any) => item && String(item.name) === n) ?? null;
+  };
+  const h = pick((dev as any).interfaces);
+  if (h) return h;
+  for (const key of Object.keys(dev)) {
+    if ((key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) && Array.isArray((dev as any)[key])) {
+      const x = pick((dev as any)[key]);
+      if (x) return x;
+    }
+  }
+  return null;
+}
 
 const StandardWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -15,16 +36,44 @@ const StandardWizard: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [existingCfg, setExistingCfg] = useState<any>({});
   const [deviceCfg, setDeviceCfg] = useState<any>(null);
+  /** VR3 `/VRConfig/list` 原始数据：网卡 IPv4/IPv6 仅允许从此回填编辑表单 */
+  const [vr3ListCfg, setVr3ListCfg] = useState<any>(null);
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
-  // ... (keep existing code)
+  const watchWanIf = Form.useWatch('wanInterface', form);
+  const watchLanIf = Form.useWatch('lanInterface', form);
+  const wanIfTrim = watchWanIf ? String(watchWanIf).trim() : '';
+  const lanIfTrim = watchLanIf ? String(watchLanIf).trim() : '';
+
+  /** 网卡 IPv4/IPv6 仅从 VR3 list 回填，无则置空 */
+  useEffect(() => {
+    if (!vr3ListCfg) {
+      form.setFieldsValue({
+        wanIpv4: undefined,
+        wanIpv6: undefined,
+        lanIpv4: undefined,
+        lanIpv6: undefined,
+      });
+      return;
+    }
+    const wi = watchWanIf ? String(watchWanIf).trim() : '';
+    const li = watchLanIf ? String(watchLanIf).trim() : '';
+    const wo = wi ? findIfaceInVr3List(vr3ListCfg, wi) : null;
+    const lo = li ? findIfaceInVr3List(vr3ListCfg, li) : null;
+    form.setFieldsValue({
+      wanIpv4: wo?.ipv4_static,
+      wanIpv6: wo?.ipv6_static,
+      lanIpv4: lo?.ipv4_static,
+      lanIpv6: lo?.ipv6_static,
+    });
+  }, [watchWanIf, watchLanIf, vr3ListCfg, form]);
 
   useEffect(() => {
-    if (!deviceCfg) return;
-    
+    if (!deviceCfg && !vr3ListCfg) return;
+
     // 辅助函数：在 deviceCfg 中查找接口信息
     const findInterfaceInDevice = (dev: any, ifaceName: string) => {
       if (!dev || !ifaceName) return null;
@@ -47,23 +96,24 @@ const StandardWizard: React.FC = () => {
 
     const wanIfName = existingCfg?.ipsec_preset?.wan_interface;
     const lanIfName = existingCfg?.ipsec_preset?.lan_interface;
-    const wanIfObj = findInterfaceInDevice(deviceCfg, wanIfName);
-    const lanIfObj = findInterfaceInDevice(deviceCfg, lanIfName);
-    const gateway = findDefaultGateway(deviceCfg);
-    const wanNat = wanIfObj?.nat;
+    const wanIfVr3 = wanIfName && vr3ListCfg ? findIfaceInVr3List(vr3ListCfg, String(wanIfName)) : null;
+    const lanIfVr3 = lanIfName && vr3ListCfg ? findIfaceInVr3List(vr3ListCfg, String(lanIfName)) : null;
+    const wanIfDev = wanIfName && deviceCfg ? findInterfaceInDevice(deviceCfg, wanIfName) : null;
+    const gateway = deviceCfg ? findDefaultGateway(deviceCfg) : undefined;
+    const wanNat = wanIfDev?.nat;
     const isNatEnabled = !!(wanNat && wanNat.type && wanNat.type !== '');
 
     mirrorForm.setFieldsValue({
       wanInterface: wanIfName,
-      wanIpv4: wanIfObj?.ipv4_static,
-      wanIpv6: wanIfObj?.ipv6_static,
+      wanIpv4: wanIfVr3?.ipv4_static,
+      wanIpv6: wanIfVr3?.ipv6_static,
       ipsecPublicIp: gateway,
       enableNat: isNatEnabled,
       lanInterface: lanIfName,
-      lanIpv4: lanIfObj?.ipv4_static,
-      lanIpv6: lanIfObj?.ipv6_static,
+      lanIpv4: lanIfVr3?.ipv4_static,
+      lanIpv6: lanIfVr3?.ipv6_static,
     });
-  }, [existingCfg, deviceCfg, mirrorForm]);
+  }, [existingCfg, deviceCfg, vr3ListCfg, mirrorForm]);
 
   const fetchInterfaces = useCallback(async (silent = false) => {
     if (!uuid) return;
@@ -80,7 +130,8 @@ const StandardWizard: React.FC = () => {
         return cur;
       };
       const data = unwrapData(raw);
-      
+      setVr3ListCfg(data && typeof data === 'object' ? data : null);
+
       const names: string[] = [];
       const collectFromArray = (arr?: any[]) => { (arr || []).forEach((it) => { if (it && typeof it === 'object' && it.name) names.push(String(it.name)); }); };
       if (data && typeof data === 'object') {
@@ -99,6 +150,7 @@ const StandardWizard: React.FC = () => {
       if (!silent) message.success('设备数据已刷新');
     } catch (err) {
       console.error(err);
+      setVr3ListCfg(null);
       if (!silent) message.error('刷新失败');
     } finally {
       setIfaceLoading(false);
@@ -123,16 +175,12 @@ const StandardWizard: React.FC = () => {
         const isV2 = (preset?.version || 0) >= 2;
         
         form.setFieldsValue({
-          ipsecLocalSubnet: preset?.local_subnet, // 兼容旧字段，实际对应 lanIpv4
+          ipsecLocalSubnet: preset?.local_subnet, // 兼容旧字段（非网卡列表 IP 回填）
           // 如果是新版，仅读取 gateway；如果是旧版，优先读取 gateway，否则回退到 public_ip
           ipsecPublicIp: isV2 ? preset?.gateway : (preset?.gateway || preset?.public_ip),
           wanInterface: preset?.wan_interface,
-          wanIpv4: preset?.wan_ipv4,
-          wanIpv6: preset?.wan_ipv6,
           enableNat: preset?.enable_nat,          // 加载 NAT 开关状态
           lanInterface: preset?.lan_interface,
-          lanIpv4: preset?.lan_ipv4 || preset?.local_subnet, // 优先取新字段
-          lanIpv6: preset?.lan_ipv6,
         });
         // 初始加载设备数据
         refreshDeviceData(true);
@@ -435,11 +483,20 @@ const StandardWizard: React.FC = () => {
               tooltip="用于建立隧道的接口（通常连接公网）"
               rules={[{ required: true, message: '请选择外网接口' }]}
             >
-              <Select placeholder="请选择接口" showSearch allowClear>
-                {ifaceOptions.map((n) => (
-                  <Select.Option key={n} value={n}>{n}</Select.Option>
-                ))}
-              </Select>
+              <Select
+                placeholder="请选择接口"
+                showSearch
+                allowClear
+                options={ifaceOptions.map((n) => ({
+                  value: n,
+                  label: renderIfaceWizardSelectLabel(n, lanIfTrim && n === lanIfTrim ? '内网接口 (LAN)' : undefined),
+                }))}
+                filterOption={(input: string, option?: { value?: string }) =>
+                  String(option?.value || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item
               name="wanIpv4"
@@ -484,11 +541,20 @@ const StandardWizard: React.FC = () => {
               tooltip="用于连接内部网络的接口"
               rules={[{ required: true, message: '请选择内网接口' }]}
             >
-              <Select placeholder="请选择接口" showSearch allowClear>
-                {ifaceOptions.map((n) => (
-                  <Select.Option key={n} value={n}>{n}</Select.Option>
-                ))}
-              </Select>
+              <Select
+                placeholder="请选择接口"
+                showSearch
+                allowClear
+                options={ifaceOptions.map((n) => ({
+                  value: n,
+                  label: renderIfaceWizardSelectLabel(n, wanIfTrim && n === wanIfTrim ? '外网接口 (WAN)' : undefined),
+                }))}
+                filterOption={(input: string, option?: { value?: string }) =>
+                  String(option?.value || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item
               name="lanIpv4"

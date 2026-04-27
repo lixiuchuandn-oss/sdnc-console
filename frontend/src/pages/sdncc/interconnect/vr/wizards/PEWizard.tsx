@@ -6,6 +6,7 @@ import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../../../services/api';
 import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
+import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 
 /** 平台已存 pe：公网侧元数据（新：pe.publicConfig；旧：扁平字段） */
 function getPePublicConfig(pe: any): Record<string, any> {
@@ -111,6 +112,40 @@ const PEWizard: React.FC = () => {
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
+  const watchWanDev = Form.useWatch('wanDev', form);
+  const watchLanConfigs = Form.useWatch('lanConfigs', form);
+
+  const peWanIfaceSelectOptions = useMemo(() => {
+    const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
+    return ifaceOptions.map((n) => {
+      const hits: string[] = [];
+      rows.forEach((row: any, i: number) => {
+        const ifn = String(row?.ifName || '').trim();
+        if (ifn && ifn === n) hits.push(`内网组#${i + 1}`);
+      });
+      return {
+        value: n,
+        label: renderIfaceWizardSelectLabel(n, hits.length ? hits.join('、') : undefined),
+      };
+    });
+  }, [ifaceOptions, watchLanConfigs]);
+
+  const peLanIfaceSelectLabel = useCallback(
+    (iface: string, rowIndex: number) => {
+      const wan = String(watchWanDev || '').trim();
+      if (wan && iface === wan) return renderIfaceWizardSelectLabel(iface, '公网口');
+      const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
+      const hits: string[] = [];
+      rows.forEach((row: any, i: number) => {
+        if (i === rowIndex) return;
+        const ifn = String(row?.ifName || '').trim();
+        if (ifn && ifn === iface) hits.push(`内网组#${i + 1}`);
+      });
+      return renderIfaceWizardSelectLabel(iface, hits.length ? hits.join('、') : undefined);
+    },
+    [watchWanDev, watchLanConfigs],
+  );
+
   const normalizeIfaceName = (s: string) =>
     String(s || '')
       .trim()
@@ -169,21 +204,14 @@ const PEWizard: React.FC = () => {
     iface?.ipv6Address ??
     '';
 
-  /**
-   * 右翼默认跟 vr2；仅 dataSource==='vr3' 时跟 vr3（用户主动改公网口 Select）。
-   * force：换网卡或设备初到时应为 true，否则 isFieldTouched 会挡住 IP 更新。
-   */
-  const autoFillWanFromIface = (
-    ifaceName: string,
-    opts?: { force?: boolean; dataSource?: 'vr2' | 'vr3' },
-  ) => {
+  /** 公网口 IPv4/IPv6 仅允许用 VR3 回填；无则置空。 */
+  const autoFillWanFromIface = (ifaceName: string, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
-    const dataSource = opts?.dataSource ?? 'vr2';
-    const obj =
-      dataSource === 'vr3'
-        ? findInterfaceInDevice(vr3Info, ifaceName)
-        : findInterfaceInDevice(csmctlCfg, ifaceName);
-    if (!obj) return;
+    const obj = findInterfaceInDevice(vr3Info, ifaceName);
+    if (!obj) {
+      if (force) form.setFieldsValue({ wanIpv4: undefined, wanIpv6: undefined });
+      return;
+    }
     const v4 = String(pickIfaceIpv4(obj) || '').trim();
     const v6 = String(pickIfaceIpv6(obj) || '').trim();
     const touchedV4 = form.isFieldTouched('wanIpv4');
@@ -195,15 +223,14 @@ const PEWizard: React.FC = () => {
   };
 
   const prevWanDevRef = useRef<string | undefined>(undefined);
-  /** 仅 vr2：首次拉到 csmctlCfg 时要 force 跟公网 IP（与 vr3 晚到无关） */
-  const hadVr2LookupRef = useRef(false);
+  const hadVr3InfoRef = useRef(false);
 
   useEffect(() => {
-    hadVr2LookupRef.current = false;
+    hadVr3InfoRef.current = false;
     prevWanDevRef.current = undefined;
   }, [uuid]);
 
-  /** 聚合 /api/vr-instances/:uuid → vr1/2/3；左翼 mirror 与右翼默认推断用 vr2，公网口选项与手动改口跟 vr3 */
+  /** 聚合 /api/vr-instances/:uuid；公网口网卡 IP 仅 VR3 回填 */
   const fetchInterfaces = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
@@ -245,13 +272,14 @@ const PEWizard: React.FC = () => {
       const pcfg = getPePublicConfig(pe);
       let lanConfigs = readLanListFromPe(pe).map((x: any) => normalizeLanRowFromPeMeta(x));
       if (!lanConfigs.length) lanConfigs = [{}];
+      lanConfigs = lanConfigs.map((r: any) => ({ ...r, ipv4: undefined, ipv6: undefined }));
       const pbg = readPublicBgpMetaFromPe(pe);
       form.setFieldsValue({
         locatorName: pcfg.locatorName,
         sidPrefix: pcfg.sidPrefix,
         wanDev: pcfg.wanName || pcfg.wanDev,
-        wanIpv4: pcfg.wanIpv4,
-        wanIpv6: pcfg.wanIpv6,
+        wanIpv4: undefined,
+        wanIpv6: undefined,
         wanRouteDest: pcfg.wanRouteDest,
         wanRoutePriority: pcfg.wanRoutePriority,
         ipv6Dest: pcfg.ipv6Dest,
@@ -288,9 +316,10 @@ const PEWizard: React.FC = () => {
     const wanIfaceResolved = wanDevCandidate
       ? findInterfaceInDevice(dev, String(wanDevCandidate))
       : undefined;
-    const ifaceForWanIp = wanIfaceResolved || anyIface;
-    const v4Wan = String(pickIfaceIpv4(ifaceForWanIp) || '').trim();
-    const v6Wan = String(pickIfaceIpv6(ifaceForWanIp) || '').trim();
+    const wanDevStr = wanDevCandidate ? String(wanDevCandidate) : '';
+    const wanIfVr3 = wanDevStr && vr3Info ? findInterfaceInDevice(vr3Info, wanDevStr) : null;
+    const v4Wan = wanIfVr3 ? String(pickIfaceIpv4(wanIfVr3) || '').trim() : '';
+    const v6Wan = wanIfVr3 ? String(pickIfaceIpv6(wanIfVr3) || '').trim() : '';
     const bgpTop = Array.isArray((dev as any)?.bgp) ? (dev as any).bgp[0] : undefined;
     const fam = Array.isArray(bgpTop?.address_family) ? bgpTop.address_family : [];
     const af4 = fam.find((f: any) => f?.address_family === 'ipv4');
@@ -348,6 +377,15 @@ const PEWizard: React.FC = () => {
     };
 
     const ifaceItems: Array<{ name?: string; ipv4_static?: string; ipv6_static?: string; vrf?: any }> = [];
+    const lanIpFromVr3 = (ifName?: string) => {
+      const n = String(ifName || '').trim();
+      if (!n || !vr3Info) return { ipv4: undefined as string | undefined, ipv6: undefined as string | undefined };
+      const o = findInterfaceInDevice(vr3Info, n);
+      if (!o) return { ipv4: undefined, ipv6: undefined };
+      const ipv4 = String(pickIfaceIpv4(o) || '').trim() || undefined;
+      const ipv6 = String(pickIfaceIpv6(o) || '').trim() || undefined;
+      return { ipv4, ipv6 };
+    };
     const collectFromArr = (arr?: any[]) => {
       (arr || []).forEach((it) => {
         if (it && typeof it === 'object') {
@@ -382,22 +420,26 @@ const PEWizard: React.FC = () => {
       Array.from(vrfCandidates).forEach((vrfVal) => {
         const ifaceMatch = ifaceItems.find((it) => it.vrf === vrfVal);
         const bgpMatch = bgpByVrf.get(vrfVal);
+        const ifn = ifaceMatch?.name;
+        const ipVr3 = lanIpFromVr3(ifn);
         groups.push({
           vrf: vrfVal,
-          ifName: ifaceMatch?.name,
-          ipv4: ifaceMatch?.ipv4_static,
-          ipv6: ifaceMatch?.ipv6_static,
+          ifName: ifn,
+          ipv4: ipVr3.ipv4,
+          ipv6: ipVr3.ipv6,
           asn: bgpMatch?.asn,
           routerId: bgpMatch?.routerId,
         });
       });
     } else if (ifaceItems.length) {
       const first = ifaceItems[0];
+      const ifn = first?.name;
+      const ipVr3 = lanIpFromVr3(ifn);
       groups.push({
         vrf: first?.vrf,
-        ifName: first?.name,
-        ipv4: first?.ipv4_static,
-        ipv6: first?.ipv6_static,
+        ifName: ifn,
+        ipv4: ipVr3.ipv4,
+        ipv6: ipVr3.ipv6,
         asn: bgpTop?.asn,
         routerId: bgpTop?.router_id,
       });
@@ -420,20 +462,30 @@ const PEWizard: React.FC = () => {
       }
       const pbg = readPublicBgpMetaFromPe(pe);
       const { publicConfig: _pc, lanConfig: _lnc, LanConfig: _LncLegacy, lanConfigs: _lc, publicBgp: _pb, ...peRest } = pe;
+      const wanDevMapped = pcfg.wanName || pcfg.wanDev || peRest.wanDev;
+      const wanVr3ForMap =
+        wanDevMapped && vr3Info ? findInterfaceInDevice(vr3Info, String(wanDevMapped)) : null;
+      const wanIpv4Mapped = wanVr3ForMap ? String(pickIfaceIpv4(wanVr3ForMap) || '').trim() || undefined : undefined;
+      const wanIpv6Mapped = wanVr3ForMap ? String(pickIfaceIpv6(wanVr3ForMap) || '').trim() || undefined : undefined;
+      const lanConfigsVr3 = (lanConfigs || []).map((row: any) => {
+        const ifn = row?.ifName;
+        const ip = lanIpFromVr3(ifn);
+        return { ...row, ipv4: ip.ipv4, ipv6: ip.ipv6 };
+      });
       const mapped = {
         ...peRest,
         locatorName: pcfg.locatorName ?? peRest.locatorName,
         sidPrefix: pcfg.sidPrefix ?? peRest.sidPrefix,
-        wanDev: pcfg.wanName || pcfg.wanDev || peRest.wanDev,
-        wanIpv4: pcfg.wanIpv4 ?? peRest.wanIpv4,
-        wanIpv6: pcfg.wanIpv6 ?? peRest.wanIpv6,
+        wanDev: wanDevMapped,
+        wanIpv4: wanIpv4Mapped,
+        wanIpv6: wanIpv6Mapped,
         wanRouteDest: pcfg.wanRouteDest ?? peRest.wanRouteDest,
         wanRoutePriority: pcfg.wanRoutePriority ?? peRest.wanRoutePriority,
         ipv6Dest: pcfg.ipv6Dest ?? peRest.ipv6Dest,
         ipv6Via: pcfg.ipv6Via ?? peRest.ipv6Via,
         bgpNetworkIpv4: pcfg.bgpNetworkIpv4 ?? inferredTop.bgpNetworkIpv4,
         bgpNetworkIpv6: pcfg.bgpNetworkIpv6 ?? inferredTop.bgpNetworkIpv6,
-        lanConfigs,
+        lanConfigs: lanConfigsVr3,
         bgpAsn: pbg.asn ?? inferredTop.bgpAsn,
         bgpRouterId: pbg.routerId ?? inferredTop.bgpRouterId,
       };
@@ -441,23 +493,24 @@ const PEWizard: React.FC = () => {
     } else {
       form.setFieldsValue(fullInferredForForm);
     }
-  }, [csmctlCfg, existingCfg, mirrorForm, form]);
+  }, [csmctlCfg, existingCfg, vr3Info, mirrorForm, form]);
 
   const watchedWanDev = Form.useWatch('wanDev', form);
   useEffect(() => {
-    const vr2JustArrived = !!csmctlCfg && !hadVr2LookupRef.current;
-    if (csmctlCfg) hadVr2LookupRef.current = true;
+    const vr3JustArrived = !!vr3Info && !hadVr3InfoRef.current;
+    if (vr3Info) hadVr3InfoRef.current = true;
 
     const wan = watchedWanDev ? String(watchedWanDev) : '';
     if (wan) {
       const nicChanged = prevWanDevRef.current !== wan;
       prevWanDevRef.current = wan || undefined;
-      autoFillWanFromIface(wan, { force: nicChanged || vr2JustArrived, dataSource: 'vr2' });
+      autoFillWanFromIface(wan, { force: nicChanged || vr3JustArrived });
     } else {
       prevWanDevRef.current = undefined;
+      autoFillWanFromIface('', { force: true });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 右翼公网 IP 默认仅随 vr2 与当前公网口变化
-  }, [watchedWanDev, csmctlCfg]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedWanDev, vr3Info]);
 
   const sortJsonKeys = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
@@ -521,7 +574,8 @@ const PEWizard: React.FC = () => {
       const item: any = { name: String(v.wanDev).trim(), status: 'up' };
       const ipv4Wan = normalizeIPv4Cidr(v.wanIpv4);
       if (ipv4Wan) item.ipv4_static = ipv4Wan;
-      if (v?.wanIpv6) item.ipv6_static = String(v.wanIpv6).trim();
+      const wan6 = normalizeIPv6Cidr(v?.wanIpv6);
+      if (wan6) item.ipv6_static = wan6;
       ifaceObjs.push(item);
     }
     const groups: any[] = Array.isArray(v?.lanConfigs) ? v.lanConfigs : [];
@@ -795,18 +849,29 @@ const PEWizard: React.FC = () => {
               placeholder="请选择网卡"
               showSearch
               loading={ifaceLoading}
-              options={ifaceOptions.map(n => ({ label: n, value: n }))}
-              filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
+              options={peWanIfaceSelectOptions}
+              filterOption={(input: string, option?: { value?: string }) =>
+                String(option?.value || '')
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
+              }
               onChange={(val) =>
-                autoFillWanFromIface(String(val || ''), { force: true, dataSource: 'vr3' })
+                autoFillWanFromIface(String(val || ''), { force: true })
               }
             />
           </Form.Item>
           <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>公网口 IPv4 地址</span>}>
             <Input placeholder="例如：200.1.1.2/24（可选）" />
           </Form.Item>
-          <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>公网口 IPv6 地址</span>}>
-            <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
+          <Form.Item
+            name="wanIpv6"
+            label={<span style={{ fontSize: 13, color: '#595959' }}>公网口 IPv6 地址</span>}
+            rules={[
+              { required: true, message: '请输入公网口 IPv6 地址（必须带掩码）' },
+              { pattern: /^[0-9a-fA-F:]+\/([0-9]|[1-9]\d|1[01]\d|12[0-8])$/, message: '格式示例：2408:3333:1002::1/64（必须是 IPv6 且带掩码）' },
+            ]}
+          >
+            <Input placeholder="例如：2408:3333:1002::1/64（必填）" />
           </Form.Item>
           <div style={{ height: 12 }} />
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>公网 BGP（PE to PE）</div>
@@ -857,8 +922,12 @@ const PEWizard: React.FC = () => {
                         placeholder="请选择网卡"
                         showSearch
                         loading={ifaceLoading}
-                        options={ifaceOptions.map(n => ({ label: n, value: n }))}
-                        filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
+                        options={ifaceOptions.map((n) => ({ value: n, label: peLanIfaceSelectLabel(n, idx) }))}
+                        filterOption={(input: string, option?: { value?: string }) =>
+                          String(option?.value || '')
+                            .toLowerCase()
+                            .includes(input.toLowerCase())
+                        }
                       />
                     </Form.Item>
                     <Form.Item {...field} name={[field.name, 'ipv4']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>}>

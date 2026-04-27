@@ -6,6 +6,7 @@ import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../../../services/api';
 import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
+import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 
 /** 平台已存 ce：外网侧元数据（新：ce.publicConfig；旧：顶层扁平） */
 function getCePublicConfig(ce: any): Record<string, any> {
@@ -138,29 +139,22 @@ const CEWizard: React.FC = () => {
     '';
 
   /**
-   * WAN：ifaceDataSource vr2=右翼默认（仅 csmctlCfg）；vr3=用户主动改外网口 Select。
-   * LAN：仍为 vr3∪vr2（未单独约定内网口权威来源）。
-   * force：换网卡或设备初到时应为 true，否则 isFieldTouched 会挡住 IP 更新。
+   * 网卡 IPv4/IPv6 仅允许用 VR3（vr3_info）回填；VR3 无该口或无地址则置空。
+   * force：换网卡或 VR3 首次到达时应为 true，否则 isFieldTouched 会挡住 IP 更新。
    */
-  const autoFillFromIface = (
-    kind: 'wan' | 'lan',
-    ifaceName: string,
-    opts?: { force?: boolean; ifaceDataSource?: 'vr2' | 'vr3' },
-  ) => {
+  const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
-    const src = opts?.ifaceDataSource;
-    let obj: any = null;
-    if (kind === 'wan') {
-      obj =
-        src === 'vr3'
-          ? findInterfaceInDevice(vr3Info, ifaceName)
-          : findInterfaceInDevice(csmctlCfg, ifaceName);
-    } else {
-      const fromVr3 = findInterfaceInDevice(vr3Info, ifaceName);
-      const fromVr2 = findInterfaceInDevice(csmctlCfg, ifaceName);
-      obj = fromVr3 || fromVr2;
+    const obj = findInterfaceInDevice(vr3Info, ifaceName);
+    if (!obj) {
+      if (force) {
+        if (kind === 'wan') {
+          form.setFieldsValue({ wanIpv4: undefined, wanIpv6: undefined });
+        } else {
+          form.setFieldsValue({ lanIpv4: undefined, lanIpv6: undefined });
+        }
+      }
+      return;
     }
-    if (!obj) return;
     const v4 = String(pickIfaceIpv4(obj) || '').trim();
     const v6 = String(pickIfaceIpv6(obj) || '').trim();
 
@@ -183,45 +177,43 @@ const CEWizard: React.FC = () => {
 
   const prevWanNameRef = useRef<string | undefined>(undefined);
   const prevLanNameRef = useRef<string | undefined>(undefined);
-  const hadDeviceLookupRef = useRef(false);
-  const hadVr2LookupRef = useRef(false);
+  const hadVr3InfoRef = useRef(false);
 
   useEffect(() => {
-    hadDeviceLookupRef.current = false;
-    hadVr2LookupRef.current = false;
+    hadVr3InfoRef.current = false;
     prevWanNameRef.current = undefined;
     prevLanNameRef.current = undefined;
   }, [uuid]);
 
   const watchedWanName = Form.useWatch('wanName', form);
   const watchedLanName = Form.useWatch('lanName', form);
+  const wanIfaceTrim = watchedWanName ? String(watchedWanName).trim() : '';
+  const lanIfaceTrim = watchedLanName ? String(watchedLanName).trim() : '';
   useEffect(() => {
-    const vr2JustArrived = !!csmctlCfg && !hadVr2LookupRef.current;
-    if (csmctlCfg) hadVr2LookupRef.current = true;
-
-    const hasLookup = !!(vr3Info || csmctlCfg);
-    const dataJustArrived = hasLookup && !hadDeviceLookupRef.current;
-    if (hasLookup) hadDeviceLookupRef.current = true;
+    const vr3JustArrived = !!vr3Info && !hadVr3InfoRef.current;
+    if (vr3Info) hadVr3InfoRef.current = true;
 
     const wan = watchedWanName ? String(watchedWanName) : '';
     if (wan) {
       const nicChanged = prevWanNameRef.current !== wan;
       prevWanNameRef.current = wan || undefined;
-      autoFillFromIface('wan', wan, { force: nicChanged || vr2JustArrived, ifaceDataSource: 'vr2' });
+      autoFillFromIface('wan', wan, { force: nicChanged || vr3JustArrived });
     } else {
       prevWanNameRef.current = undefined;
+      autoFillFromIface('wan', '', { force: true });
     }
 
     const lan = watchedLanName ? String(watchedLanName) : '';
     if (lan) {
       const nicChanged = prevLanNameRef.current !== lan;
       prevLanNameRef.current = lan || undefined;
-      autoFillFromIface('lan', lan, { force: nicChanged || dataJustArrived });
+      autoFillFromIface('lan', lan, { force: nicChanged || vr3JustArrived });
     } else {
       prevLanNameRef.current = undefined;
+      autoFillFromIface('lan', '', { force: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedWanName, watchedLanName, csmctlCfg, vr3Info]);
+  }, [watchedWanName, watchedLanName, vr3Info]);
 
   useEffect(() => {
     if (!uuid) return;
@@ -246,11 +238,7 @@ const CEWizard: React.FC = () => {
         const pbg = readCePublicBgpMeta(cfg?.ce);
         form.setFieldsValue({
           lanName: firstLan.lanName,
-          lanIpv4: firstLan.lanIpv4,
-          lanIpv6: firstLan.lanIpv6,
           wanName: pcfg.wanName || pcfg.wanDev || (cfg?.ce as any)?.wanDev,
-          wanIpv4: pcfg.wanIpv4,
-          wanIpv6: pcfg.wanIpv6,
           bgpAsn: pbg.asn ?? bgpTop?.asn,
           bgpRouterId: pbg.routerId ?? bgpTop?.router_id,
         });
@@ -258,7 +246,7 @@ const CEWizard: React.FC = () => {
     })();
   }, [uuid, form]);
 
-  /** 聚合 /api/vr-instances/:uuid → vr1/2/3；左翼 mirror 与右翼默认跟 vr2；改外网口 Select 时 WAN IP 跟 vr3 */
+  /** 聚合 /api/vr-instances/:uuid → vr1/2/3；网卡 IP 仅 VR3 回填（见 autoFillFromIface / mirror） */
   const refreshDeviceData = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
@@ -288,33 +276,32 @@ const CEWizard: React.FC = () => {
   }, [refreshDeviceData]);
 
   useEffect(() => {
-    if (!csmctlCfg) return;
-    
     const pce = existingCfg?.ce;
+    if (!pce || typeof pce !== 'object') return;
+
     const pub = getCePublicConfig(pce);
     const wanDevName = pub.wanName || pub.wanDev || pce?.wanDev;
     const lanRows = readLanListFromCe(pce).map((x) => normalizeCeLanRowForForm(x));
     const firstLan = lanRows[0] || {};
     const lanDevName = firstLan.lanName;
-    
-    const wanObj = findInterfaceInDevice(csmctlCfg, wanDevName);
-    const lanObj = findInterfaceInDevice(csmctlCfg, lanDevName);
-    
+
+    const wanObjVr3 = wanDevName && vr3Info ? findInterfaceInDevice(vr3Info, String(wanDevName)) : null;
+    const lanObjVr3 = lanDevName && vr3Info ? findInterfaceInDevice(vr3Info, String(lanDevName)) : null;
+
     const bgpTop = Array.isArray(csmctlCfg?.bgp) ? csmctlCfg.bgp[0] : undefined;
 
     mirrorForm.setFieldsValue({
       wanName: wanDevName,
-      wanIpv4: wanObj?.ipv4_static,
-      wanIpv6: wanObj?.ipv6_static,
+      wanIpv4: wanObjVr3?.ipv4_static,
+      wanIpv6: wanObjVr3?.ipv6_static,
       bgpAsn: bgpTop?.asn,
       bgpRouterId: bgpTop?.router_id,
       lanName: lanDevName,
-      lanIpv4: lanObj?.ipv4_static,
-      lanIpv6: lanObj?.ipv6_static,
+      lanIpv4: lanObjVr3?.ipv4_static,
+      lanIpv6: lanObjVr3?.ipv6_static,
     });
-    // findInterfaceInDevice 随组件每次渲染更新；仅依赖 existingCfg / csmctlCfg / mirrorForm 已足够
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingCfg, csmctlCfg, mirrorForm]);
+  }, [existingCfg, csmctlCfg, vr3Info, mirrorForm]);
 
   /** 由 host IPv4 CIDR 推导网段（如 130.1.1.9/24 → 130.1.1.0/24） */
   const ipv4NetworkFromCidr = (cidr: string): string | undefined => {
@@ -420,11 +407,13 @@ const CEWizard: React.FC = () => {
     }
 
     cfg.role = 'CE';
+    const wanIpv6Out = String(v?.wanIpv6 || '').trim() || undefined;
+    const lanIpv6Out = String(v?.lanIpv6 || '').trim() || undefined;
     cfg.ce = {
       publicConfig: {
         wanName: v.wanName,
         wanIpv4: v.wanIpv4,
-        wanIpv6: v.wanIpv6,
+        ...(wanIpv6Out !== undefined ? { wanIpv6: wanIpv6Out } : {}),
         publicBgp: {
           asn: v.bgpAsn,
           routerId: v.bgpRouterId,
@@ -432,7 +421,13 @@ const CEWizard: React.FC = () => {
       },
       lanConfig:
         v?.lanName && String(v.lanName).trim()
-          ? [{ lanName: v.lanName, lanIpv4: v.lanIpv4, lanIpv6: v.lanIpv6 }]
+          ? [
+              {
+                lanName: v.lanName,
+                lanIpv4: v.lanIpv4,
+                ...(lanIpv6Out !== undefined ? { lanIpv6: lanIpv6Out } : {}),
+              },
+            ]
           : [],
     };
 
@@ -553,30 +548,35 @@ const CEWizard: React.FC = () => {
       return (
         <Form form={form} layout="vertical">
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定外网口</div>
-          <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口设备</span>} rules={[{ required: true, message: '请选择外网口设备' }]}> 
+          <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口设备</span>} rules={[{ required: true, message: '请选择外网口设备' }]} preserve> 
             <Select
               placeholder="请选择网卡"
               showSearch
               loading={ifaceLoading}
-              options={ifaceOptions.map(n => ({ label: n, value: n }))}
-              filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
-              onChange={(val) =>
-                autoFillFromIface('wan', String(val || ''), { force: true, ifaceDataSource: 'vr3' })
+              options={ifaceOptions.map((n) => ({
+                value: n,
+                label: renderIfaceWizardSelectLabel(n, lanIfaceTrim && n === lanIfaceTrim ? '内网口' : undefined),
+              }))}
+              filterOption={(input: string, option?: { value?: string }) =>
+                String(option?.value || '')
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
               }
+              onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
             />
           </Form.Item>
-          <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>}>
+          <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>} preserve>
             <Input placeholder="例如：200.1.1.2/24（可选）" />
           </Form.Item>
-          <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv6 地址</span>} rules={[{ message: '请输入外网口 IPv6 地址/掩码' }]}>
-            <Input placeholder="例如：2408:3333:1002::1/64（必填）" />
+          <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv6 地址</span>} preserve>
+            <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
           </Form.Item>
           <div style={{ height: 12 }} />
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定BGP路由(CE to PE)</div>
-          <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}> 
+          <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]} preserve> 
             <InputNumber style={{ width: '100%' }} placeholder="例如：100" min={1} max={4294967295} />
           </Form.Item>
-          <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={[{ required: true, message: '请输入 Router-ID' }, { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入合法的 IPv4 地址' }]}> 
+          <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={[{ required: true, message: '请输入 Router-ID' }, { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入合法的 IPv4 地址' }]} preserve> 
             <Input placeholder="例如：200.1.1.2" />
           </Form.Item>
         </Form>
@@ -586,21 +586,28 @@ const CEWizard: React.FC = () => {
       return (
         <Form form={form} layout="vertical">
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定内网口</div>
-          <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>接口名称</span>} rules={[{ required: true, message: '请选择接口名称' }]}> 
+          <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>接口名称</span>} rules={[{ required: true, message: '请选择接口名称' }]} preserve> 
             <Select
               placeholder="请选择网卡"
               showSearch
               loading={ifaceLoading}
-              options={ifaceOptions.map(n => ({ label: n, value: n }))}
-              filterOption={(input: string, option?: { label?: string; value?: string }) => ((option?.label || '').toLowerCase().includes(input.toLowerCase()))}
+              options={ifaceOptions.map((n) => ({
+                value: n,
+                label: renderIfaceWizardSelectLabel(n, wanIfaceTrim && n === wanIfaceTrim ? '外网口' : undefined),
+              }))}
+              filterOption={(input: string, option?: { value?: string }) =>
+                String(option?.value || '')
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
+              }
               onChange={(val) => autoFillFromIface('lan', String(val || ''), { force: true })}
             />
           </Form.Item>
-          <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>}>
+          <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>} preserve>
             <Input placeholder="例如：130.1.1.1/24（可选）" />
           </Form.Item>
-          <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>}>
-            <Input placeholder="例如：2408:3333:1002::1/64" />
+          <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>} preserve>
+            <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
           </Form.Item>
         </Form>
       );

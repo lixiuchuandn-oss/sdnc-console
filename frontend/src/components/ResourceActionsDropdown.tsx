@@ -17,7 +17,8 @@ export type ResourceActionItem = {
 
 type Props = {
   items?: any[];
-  onClick?: (info: { key: string }) => void;
+  /** 与 antd Dropdown `menu.onClick` 一致，含 `domEvent`；勿只传 `{ key }` 以免调用方 `stopPropagation` 报错 */
+  onClick?: MenuProps['onClick'];
   buttonProps?: any;
   menuProps?: MenuProps;
   dropdownProps?: any;
@@ -75,8 +76,8 @@ const ResourceActionsDropdown: React.FC<Props> = ({
 
   const finalMenu: MenuProps = menuProps || {
     items: processedItems,
-    onClick: ({ key }) => {
-      if (onClick) onClick({ key });
+    onClick: (info) => {
+      if (onClick) onClick(info);
     },
   };
   return (
