@@ -36,6 +36,7 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import { WorkloadFormModal, WorkloadType } from '../components';
+import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
 
 type Props = {
   deployments: any[];
@@ -148,6 +149,7 @@ const WorkloadTable: React.FC<{
   onNsChange: (v?: string) => void;
   onCreateClick: () => void;
 }> = ({ type, data, loading, cloudId, onRefresh, onEdit, namespacesOptions, nsValue, onNsChange, onCreateClick }) => {
+  const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -404,10 +406,11 @@ const WorkloadTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 120,
+      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record);
         const systemHint = getSystemResourceProtectionHint(record);
-        const items = [
+        const itemsAll = [
           {
             key: 'edit',
             label: '编辑',
@@ -422,7 +425,7 @@ const WorkloadTable: React.FC<{
           },
           {
             key: 'scale',
-            label: '扩缩容',
+            label: '热扩缩容',
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => handleScale(record),
@@ -451,12 +454,18 @@ const WorkloadTable: React.FC<{
               });
             },
           },
-        ].filter((item) => !item.show || item.show === true).map(({ show, ...rest }) => rest);
-        
+        ];
+        const items = (operationsReadOnly
+          ? itemsAll.filter((i) => i.key === 'yaml')
+          : itemsAll
+        )
+          .filter((item: any) => !item.show || item.show === true)
+          .map(({ show, ...rest }: any) => rest);
+
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, onEdit, modal, typeLabel]);
+  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, onEdit, modal, typeLabel, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -498,9 +507,11 @@ const WorkloadTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
-          <Button type="primary" onClick={onCreateClick}>
-            创建工作负载
-          </Button>
+          {!operationsReadOnly ? (
+            <Button type="primary" onClick={onCreateClick}>
+              创建工作负载
+            </Button>
+          ) : null}
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey={`harvester-containers-${type}`}
@@ -527,10 +538,14 @@ const WorkloadTable: React.FC<{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          operationsReadOnly
+            ? undefined
+            : {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+        }
       />
 
       <Modal

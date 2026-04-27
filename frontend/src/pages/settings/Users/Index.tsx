@@ -47,9 +47,51 @@ const AccessUsersPage: React.FC = () => {
   const pendingEditValsRef = React.useRef<Record<string, unknown> | null>(null);
   const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
   const [securityDrawerOpen, setSecurityDrawerOpen] = useState(false);
+  const [systemRoles, setSystemRoles] = useState<RBACRole[]>([]);
 
   useEffect(() => {
     getPublicAdminPasswordPolicy().then(setAdminPwdPolicy);
+  }, []);
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const rolesJson = await apiRequest('/api/system/rbac/roles');
+        const roles = Array.isArray(rolesJson)
+          ? rolesJson
+          : Array.isArray(rolesJson?.roles)
+            ? rolesJson.roles
+            : [];
+        setSystemRoles(
+          roles.filter(
+            (r: RBACRole) =>
+              r.scope === 'system' && (r.status === 'active' || r.status == null || r.status === undefined),
+          ),
+        );
+      } catch {
+        setSystemRoles([]);
+      }
+    };
+    void run();
+  }, []);
+
+  const syncSystemUserRbac = React.useCallback(async (userId: string, nextRoleIds: string[]) => {
+    const json = await apiRequest(
+      `/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(userId)}`,
+    );
+    const list: Assignment[] = Array.isArray(json?.assignments) ? json.assignments : [];
+    const next = new Set((nextRoleIds || []).filter(Boolean));
+    const currentByRole = new Map(list.map((it) => [it.roleId, it]));
+    for (const it of list) {
+      if (!next.has(it.roleId)) {
+        await apiDelete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`);
+      }
+    }
+    for (const rid of next) {
+      if (!currentByRole.has(rid)) {
+        await apiPost('/api/system/rbac/assignments', { roleId: rid, userType: 'system', userId });
+      }
+    }
   }, []);
 
   const passwordRules = (usernameGetter: () => string | undefined) => {
@@ -132,10 +174,40 @@ const AccessUsersPage: React.FC = () => {
     { title:'操作', key:'actions', width:80, fixed:'right' as const, render: (_:any, row: SysUser) => {
       const itemsRaw = row.builtIn
         ? [
-            { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(true); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
+            { key:'edit', label:'编辑', onClick: () => {
+                setEditingUser(row);
+                setIsEditingAdmin(true);
+                const roleIds =
+                  !row.builtIn && row.role !== 'super_admin'
+                    ? (rolesByUser[row.id] || []).map((r) => r.id)
+                    : undefined;
+                editForm.setFieldsValue({
+                  fullName: row.fullName,
+                  username: row.username,
+                  email: row.email,
+                  status: row.status,
+                  ...(roleIds !== undefined ? { roleIds } : {}),
+                });
+                setEditOpen(true);
+              } },
           ]
         : [
-            { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(true); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
+            { key:'edit', label:'编辑', onClick: () => {
+                setEditingUser(row);
+                setIsEditingAdmin(true);
+                const roleIds =
+                  !row.builtIn && row.role !== 'super_admin'
+                    ? (rolesByUser[row.id] || []).map((r) => r.id)
+                    : undefined;
+                editForm.setFieldsValue({
+                  fullName: row.fullName,
+                  username: row.username,
+                  email: row.email,
+                  status: row.status,
+                  ...(roleIds !== undefined ? { roleIds } : {}),
+                });
+                setEditOpen(true);
+              } },
             { type:'divider' },
             { key:'del', label:'删除用户', danger: true, onClick: async () => {
                 try {
@@ -198,6 +270,9 @@ const AccessUsersPage: React.FC = () => {
       ? { email: vals.email, status: vals.status, password: vals.password }
       : { fullName: vals.fullName, username: vals.username, email: vals.email, status: vals.status, password: vals.password };
     await apiPatch(`/api/users/${editingUser.id}`, body);
+    if (!editingUser.builtIn && editingUser.role !== 'super_admin' && Array.isArray(vals.roleIds)) {
+      await syncSystemUserRbac(editingUser.id, vals.roleIds);
+    }
     message.success('用户更新成功');
     setEditOpen(false);
     setEditingUser(null);
@@ -236,22 +311,34 @@ const AccessUsersPage: React.FC = () => {
       .filter(u => (u.username||'').toLowerCase().includes(lower) || (u.fullName||'').toLowerCase().includes(lower) || (u.email||'').toLowerCase().includes(lower));
   }, [users, kw, statusFilter]);
 
-  const handleCreate = React.useCallback(async (values: any) => {
-    try {
-      await apiPost('/api/users', {
-        username: values.username,
-        email: values.email,
-        password: values.password,
-        fullName: values.fullName,
-      });
-      message.success('系统用户创建成功');
-      setCreateOpen(false);
-      createForm.resetFields();
-      fetchUsers(true);
-    } catch (error: any) {
-      message.error(error?.message || '创建失败');
-    }
-  }, [createForm]);
+  const handleCreate = React.useCallback(
+    async (values: any) => {
+      try {
+        const created: any = await apiPost('/api/users', {
+          username: values.username,
+          email: values.email,
+          password: values.password,
+          fullName: values.fullName,
+        });
+        const newId = String(created?.id ?? '').trim();
+        const roleIds: string[] = Array.isArray(values.roleIds) ? values.roleIds.filter(Boolean) : [];
+        if (newId && roleIds.length) {
+          await Promise.all(
+            roleIds.map((roleId) =>
+              apiPost('/api/system/rbac/assignments', { roleId, userType: 'system', userId: newId }),
+            ),
+          );
+        }
+        message.success('系统用户创建成功');
+        setCreateOpen(false);
+        createForm.resetFields();
+        fetchUsers(true);
+      } catch (error: any) {
+        message.error(error?.message || '创建失败');
+      }
+    },
+    [createForm],
+  );
 
   return (
     <PageContainer titleLevel={3} asCard={false}>
@@ -298,6 +385,15 @@ const AccessUsersPage: React.FC = () => {
         <Form.Item name="password" label="密码" dependencies={['username']} rules={passwordRules(() => createForm.getFieldValue('username'))}>
           <Input.Password placeholder="符合当前管理员密码策略" />
         </Form.Item>
+        <Form.Item name="roleIds" label="RBAC 角色" tooltip="可选；对应系统设置中的权限角色">
+          <Select
+            mode="multiple"
+            allowClear
+            placeholder="选择角色（可选）"
+            options={systemRoles.map((r) => ({ value: r.id, label: r.name }))}
+            optionFilterProp="label"
+          />
+        </Form.Item>
       </StdFormModal>
 
       <StdFormModal title="编辑用户" open={editOpen} onCancel={()=> { setEditOpen(false); setEditingUser(null); setIsEditingAdmin(false); }} okText="保存" width={600} form={editForm} onFinish={async (vals)=> {
@@ -324,6 +420,17 @@ const AccessUsersPage: React.FC = () => {
             <Form.Item name="password" label="重置密码（留空则不修改）" dependencies={['username']} rules={passwordRulesOptional(() => editForm.getFieldValue('username') || editingUser?.username)}>
               <Input.Password placeholder="可选，输入则更新密码" />
             </Form.Item>
+            {editingUser && !editingUser.builtIn && editingUser.role !== 'super_admin' ? (
+              <Form.Item name="roleIds" label="RBAC 角色" tooltip="与权限管理中的系统角色分配一致">
+                <Select
+                  mode="multiple"
+                  allowClear
+                  placeholder="选择角色"
+                  options={systemRoles.map((r) => ({ value: r.id, label: r.name }))}
+                  optionFilterProp="label"
+                />
+              </Form.Item>
+            ) : null}
           </>
         ) : (
           <>
@@ -334,6 +441,17 @@ const AccessUsersPage: React.FC = () => {
             <Form.Item name="password" label="重置密码（留空则不修改）" dependencies={['username']} rules={passwordRulesOptional(() => editForm.getFieldValue('username') || editingUser?.username)}>
               <Input.Password placeholder="可选，输入则更新密码" />
             </Form.Item>
+            {editingUser && !editingUser.builtIn && editingUser.role !== 'super_admin' ? (
+              <Form.Item name="roleIds" label="RBAC 角色" tooltip="与权限管理中的系统角色分配一致">
+                <Select
+                  mode="multiple"
+                  allowClear
+                  placeholder="选择角色"
+                  options={systemRoles.map((r) => ({ value: r.id, label: r.name }))}
+                  optionFilterProp="label"
+                />
+              </Form.Item>
+            ) : null}
           </>
         )}
       </StdFormModal>

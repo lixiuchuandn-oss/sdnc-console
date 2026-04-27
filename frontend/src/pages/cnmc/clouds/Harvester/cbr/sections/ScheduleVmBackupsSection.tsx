@@ -40,6 +40,7 @@ import ScheduleVmBackupCreateModal from '../../cbr/modals/ScheduleVmBackupCreate
 import ScheduleVmBackupEditModal from '../../cbr/modals/ScheduleVmBackupEditModal';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * [组件参数定义]
@@ -87,7 +88,6 @@ interface Props {
    * 租户模式：隐藏运维信息入口
    */
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
 }
 
 /**
@@ -120,9 +120,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   targetVmPredicate,
   defaultHiddenColumns, 
   isTenant,
-  mode = 'ops',
   bordered = true
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasBackupsWrite = useMemo(
@@ -503,7 +503,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
          const items: any[] = [];
          
          // [租户适配] 只有管理员才显示“查看详情”
-         if (!isTenant && mode === 'ops') {
+         if (!isTenant && hasOpsView) {
            items.push({
              key: 'opsinfo',
              label: '查看YAML',
@@ -546,7 +546,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       );
       }
     }
-  ], [handleDelete, handleSuspend, isTenant, mode, hasBackupsWrite]);
+  ], [handleDelete, handleSuspend, isTenant, hasOpsView, hasBackupsWrite]);
 
   // 用户自定义的列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_schedule_backups_list', defaultHiddenColumns);
@@ -567,7 +567,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
               onChange={e => setKeyword(e.target.value)}
               allowClear
             />
-            {mode === 'ops' && (
+            {hasOpsView && (
               <Select
                 key="schedule-namespace-filter"
                 className="toolbar-filter-sm"

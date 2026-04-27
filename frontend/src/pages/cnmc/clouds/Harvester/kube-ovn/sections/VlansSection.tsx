@@ -15,6 +15,7 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import { clearCache } from '../../../../../../utils/requestManager';
 import ProviderNetworkDetailDrawer from '../drawers/provider-network-detail-drawer';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 const { Option } = Select;
 
@@ -26,13 +27,13 @@ type Props = {
   providerNetworks?: any[];
   loading?: boolean;
   onRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
-  mode?: 'standard' | 'ops';
 };
 
-const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loading: loadingProp, onRefresh, mode = 'ops' }) => {
+const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loading: loadingProp, onRefresh }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
-  const isStandardView = mode === 'standard';
+  const isStandardView = !hasOpsView;
   const isControlled = typeof onRefresh === 'function';
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);

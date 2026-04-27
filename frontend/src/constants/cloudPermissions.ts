@@ -12,7 +12,10 @@ export const CLOUD_RESOURCE_POOLS_CREATE_WRITE = 'clouds.resource-pools.create:w
 /** 虚拟机创建向导：入口按钮与 /instances/create 路由页门控 */
 export const CLOUD_VM_CREATE_WIZARD_WRITE = 'clouds.vm-create-wizard:write';
 
-/** Cloudmap：标准/运维视图切换（需具备该权限方可选「运维」） */
+/** 云主机列表「快速创建」入口；与创建向导一致，仅门控 UI，具体操作由后端/API 校验 */
+export const CLOUD_VM_QUICK_CREATE_WRITE = 'clouds.vm-quick-create:write';
+
+/** Cloudmap：运维视图列/入口（YAML、命名空间筛选等）；已无 UI 开关，仅 RBAC */
 export const CLOUD_CLOUDMAP_OPS_VIEW_WRITE = 'clouds.cloudmap.ops-view:write';
 
 /**
@@ -26,6 +29,10 @@ export const CLOUD_SUBNETS_FLAT_READ = 'clouds.subnets.flat:read';
 export const CLOUD_SUBNETS_FLAT_WRITE = 'clouds.subnets.flat:write';
 export const CLOUD_SUBNETS_PUBLIC_READ = 'clouds.subnets.public:read';
 export const CLOUD_SUBNETS_PUBLIC_WRITE = 'clouds.subnets.public:write';
+
+/** Harvester 容器服务（工作负载、Pod、Service、Ingress、Gateway、配置、仓库等） */
+export const CLOUD_CONTAINERS_READ = 'clouds.containers:read';
+export const CLOUD_CONTAINERS_WRITE = 'clouds.containers:write';
 
 /** Kube-OVN Provider Network（物理网络）列表与详情抽屉（读） */
 export const CLOUD_PROVIDER_NETWORKS_READ = 'clouds.provider-networks:read';

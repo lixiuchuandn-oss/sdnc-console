@@ -35,6 +35,24 @@ export const isSystemNamespace = (name: string): boolean => {
     'cluster',
     'local',
     'ingress',
+    'rancher',
+    'calico',
+    'tigera',
+    'cert-manager',
+    'velero',
+    'openebs',
+    'rook',
+    'istio',
+    'knative',
+    'cilium',
+    'linkerd',
+    'keda',
+    'argocd',
+    'vault',
+    'sealed-secrets',
+    'monitoring',
+    'logging',
+    'tracing',
   ];
   return prefixes.some((p) => n.startsWith(p));
 };
@@ -543,4 +561,50 @@ export function getSystemResourceProtectionHint(resource: any, resourceType?: st
   }
 
   return '系统内置资源，禁止删除';
+}
+
+/**
+ * 查找仍引用指定 Harvester VirtualMachineImage（命名空间 + metadata.name）的虚拟机，供删除镜像前提示。
+ * 以 dataVolumeTemplates[].spec.source.image 为主；不同 Harvester 版本如有遗漏可再扩展。
+ */
+export function findVmsReferencingHarvesterImage(
+  imageNamespace: string,
+  imageMetadataName: string,
+  vms: any[],
+): Array<{ ns: string; name: string; label: string }> {
+  const imgNs = String(imageNamespace || '').trim();
+  const imgName = String(imageMetadataName || '').trim();
+  const out: Array<{ ns: string; name: string; label: string }> = [];
+  if (!imgNs || !imgName || !Array.isArray(vms)) return out;
+  const seen = new Set<string>();
+
+  const pushVm = (vm: any) => {
+    const vmNs = String(vm?.metadata?.namespace || vm?.namespace || '').trim();
+    const vmName = String(vm?.metadata?.name || vm?.name || '').trim();
+    if (!vmName) return;
+    const k = `${vmNs}/${vmName}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    const alias = String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+    const label = alias ? `${alias}（${vmNs}/${vmName}）` : `${vmNs}/${vmName}`;
+    out.push({ ns: vmNs, name: vmName, label });
+  };
+
+  for (const vm of vms) {
+    const templates = vm?.spec?.dataVolumeTemplates;
+    if (Array.isArray(templates)) {
+      for (const t of templates) {
+        const srcImg = t?.spec?.source?.image;
+        if (srcImg && typeof srcImg === 'object') {
+          const iname = String(srcImg.name || '').trim();
+          const ins = String(srcImg.namespace || '').trim();
+          if (iname === imgName && (!ins || ins === imgNs)) {
+            pushVm(vm);
+            break;
+          }
+        }
+      }
+    }
+  }
+  return out;
 }

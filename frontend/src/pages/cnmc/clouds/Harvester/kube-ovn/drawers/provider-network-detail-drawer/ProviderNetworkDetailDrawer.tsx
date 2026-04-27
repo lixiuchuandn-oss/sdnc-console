@@ -40,6 +40,7 @@ import CreateFlatSubnetModal from '../../modals/CreateFlatSubnetModal';
 import CreatePublicSubnetModal from '../../modals/CreatePublicSubnetModal';
 import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../../lib/kubeOvnSubnetConstants';
 import UnderlaySubnetFormFields from '../../lib/UnderlaySubnetFormFields';
+import { getFlatSubnetDeleteBlockedByNatMessage } from '../../lib/flatSubnetNatDeleteGuard';
 import { formatOriginNicsDetailLines, parseProviderNetworkOriginNics } from '../../lib/providerNetworkOriginNics';
 import { ViewLinkTab } from '../../../shared/components/ViewLinkTab';
 
@@ -430,31 +431,38 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
   );
 
   const handleDeleteFlatSubnet = useCallback(
-    (resourceName: string, displayLabel: string) => {
+    (resourceName: string, displayLabel: string, cidrForNatGuard: string) => {
       if (!canWriteFlatSubnet) {
         message.error('当前账号没有扁平子网操作权限');
         return;
       }
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定删除扁平子网「${displayLabel}」吗？若仍有资源引用，集群可能拒绝删除。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
-          setDeletingFlatSubnetName(resourceName);
-          try {
-            await deleteKubeOvnSubnet(cloudId, resourceName);
-            message.success('已删除');
-            await loadSubnets();
-            await onSuccess?.();
-          } catch (e: any) {
-            message.error(e?.message || '删除失败');
-          } finally {
-            setDeletingFlatSubnetName(null);
-          }
-        },
-      });
+      void (async () => {
+        const block = await getFlatSubnetDeleteBlockedByNatMessage(cloudId, resourceName, cidrForNatGuard);
+        if (block) {
+          message.warning(block);
+          return;
+        }
+        Modal.confirm({
+          title: '确认删除',
+          content: `确定删除扁平子网「${displayLabel}」吗？若仍有资源引用，集群可能拒绝删除。`,
+          okText: '删除',
+          okType: 'danger',
+          cancelText: '取消',
+          onOk: async () => {
+            setDeletingFlatSubnetName(resourceName);
+            try {
+              await deleteKubeOvnSubnet(cloudId, resourceName);
+              message.success('已删除');
+              await loadSubnets();
+              await onSuccess?.();
+            } catch (e: any) {
+              message.error(e?.message || '删除失败');
+            } finally {
+              setDeletingFlatSubnetName(null);
+            }
+          },
+        });
+      })();
     },
     [canWriteFlatSubnet, cloudId, loadSubnets, onSuccess],
   );
@@ -588,6 +596,24 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
       const idNum = Number(vlanTag);
       if (Number.isNaN(idNum)) {
         message.error('VLAN ID 无效');
+        return;
+      }
+
+      const vlansSameProvider = vlanItems.filter(
+        (v) => String(v?.spec?.provider || '').trim() === String(providerName).trim(),
+      );
+      const dupName = vlansSameProvider.some((v) => {
+        const ann = v?.metadata?.annotations || {};
+        const al = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+        return al === towerAlies;
+      });
+      if (dupName) {
+        message.warning('当前物理网络下已存在相同名称的 VLAN，请修改名称');
+        return;
+      }
+      const dupId = vlansSameProvider.some((v) => Number(v?.spec?.id) === idNum);
+      if (dupId) {
+        message.warning('当前物理网络下已存在相同的 VLAN ID，请修改');
         return;
       }
 
@@ -1280,7 +1306,13 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
                                   size="small"
                                   loading={busy}
                                   disabled={!!deletingFlatSubnetName && !busy}
-                                  onClick={() => handleDeleteFlatSubnet(name, alias || name)}
+                                  onClick={() =>
+                                    handleDeleteFlatSubnet(
+                                      name,
+                                      alias || name,
+                                      cidr === '-' ? '' : cidr,
+                                    )
+                                  }
                                 >
                                   删除
                                 </Button>,
@@ -1334,7 +1366,9 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
             isFlatMode={editingSubnet?.type === 'flat'}
             vlans={vlanItems}
             providers={providers}
-            aliasDupCheckItems={subnetItems}
+            aliasDupCheckItems={
+              editingSubnet?.type === 'flat' ? flatSubnetRecordsForForm : publicSubnetRecordsForForm
+            }
             editingSubnetResourceName={editingSubnet?.name}
             publicEditNameOnly={String(editingSubnet?.type || '').trim().toLowerCase() === 'public'}
           />
@@ -1345,9 +1379,9 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
         open={flatSubnetModalOpen}
         onClose={() => setFlatSubnetModalOpen(false)}
         cloudId={cloudId}
-        displayMode="ops"
         vlans={displayedVlans}
         providers={providers}
+        hideNamespace
         aliasDupCheckItems={flatSubnetRecordsForForm}
         onSuccess={async () => {
           await loadSubnets();

@@ -13,6 +13,7 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { IngressFormModal, YamlEditModal } from '../components';
 import { deleteHarvesterIngress, fetchHarvesterIngressDetail, updateHarvesterIngress, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
+import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 
 /**
  * 格式化时间 - 将 UTC 时间转换为本地时间显示
@@ -299,39 +300,46 @@ const IngressesSection: React.FC<Props> = ({
       width: 120,
       align: 'left' as const,
       fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown
-          buttonProps={{ className: 'row-actions-trigger' }}
-          items={[
-            {
-              key: 'edit',
-              label: '编辑',
-              onClick: () => handleEdit(record),
-            },
-            {
-              key: 'yaml',
-              label: '查看 YAML',
-              icon: <EyeOutlined />,
-              onClick: () => handleViewYaml(record.raw),
-            },
-            {
-              key: 'delete',
-              label: '删除',
-              danger: true,
-              onClick: () => {
-                Modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除 Ingress "${record.name}" 吗？`,
-                  okText: '删除',
-                  okType: 'danger',
-                  cancelText: '取消',
-                  onOk: () => handleDelete(record),
-                });
+      render: (_: any, record: any) => {
+        const isSystem = isSystemResource(record.raw);
+        const systemHint = getSystemResourceProtectionHint(record.raw);
+        return (
+          <ResourceActionsDropdown
+            buttonProps={{ className: 'row-actions-trigger' }}
+            items={[
+              {
+                key: 'edit',
+                label: '编辑',
+                disabled: isSystem,
+                tooltip: systemHint,
+                onClick: () => handleEdit(record),
+              },
+              {
+                key: 'yaml',
+                label: '查看 YAML',
+                onClick: () => handleViewYaml(record.raw),
+              },
+              {
+                key: 'delete',
+                label: '删除',
+                danger: true,
+                disabled: isSystem,
+                tooltip: systemHint,
+                onClick: () => {
+                  Modal.confirm({
+                    title: '确认删除',
+                    content: `确定要删除 Ingress "${record.name}" 吗？`,
+                    okText: '删除',
+                    okType: 'danger',
+                    cancelText: '取消',
+                    onOk: () => handleDelete(record),
+                  });
+                }
               }
-            }
-          ]}
-        />
-      ),
+            ]}
+          />
+        );
+      },
     },
   ];
 

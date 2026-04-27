@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Empty } from 'antd';
 import {
   WorkloadsSection,
@@ -11,12 +11,13 @@ import {
   NetworkPoliciesSection,
   ServiceTopologySection,
   IngressesSection,
+  ContainerOperationsGate,
 } from '../../../../Harvester/containers';
+import { canReadContainerTab, canWriteContainerTab } from '../../../../../../../utils/permissionUtils';
 import ServicesSection from '../../../../Harvester/cluster/sections/ServicesSection';
 
 export type CloudmapContainersTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   isTenant: boolean;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
@@ -61,43 +62,11 @@ export type CloudmapContainersTabsProps = {
   harvesterVolumes: any[];
 };
 
-function canViewContainersInner(
-  key: string,
-  checkPerm: (a: string) => boolean,
-): boolean {
-  if (key === 'services')
-    return (
-      checkPerm('clouds.services:read') || checkPerm('clouds:read')
-    );
-  if (key === 'ingresses')
-    return (
-      checkPerm('clouds.ingresses:read') || checkPerm('clouds:read')
-    );
-  if (key === 'gateway_api')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  if (key === 'pdbs')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  if (key === 'configs')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  if (key === 'registries')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  return checkPerm('clouds.containers:read') || checkPerm('clouds:read');
-}
-
 const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   props,
 ) => {
   const {
     cloudId,
-    mode,
     isTenant,
     checkPerm,
     innerActiveKey,
@@ -130,12 +99,23 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     harvesterVolumes,
   } = props;
 
-  if (!canViewContainersInner(innerActiveKey, checkPerm)) {
-    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  const operationsReadOnly = useMemo(
+    () => !canWriteContainerTab(checkPerm, innerActiveKey),
+    [checkPerm, innerActiveKey],
+  );
+
+  if (!canReadContainerTab(checkPerm, innerActiveKey)) {
+    return (
+      <div style={{ height: '100%', overflow: 'auto' }}>
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
+      </div>
+    );
   }
 
+  let content: React.ReactNode;
+
   if (innerActiveKey === 'workloads') {
-    return (
+    content = (
       <WorkloadsSection
         deployments={harvesterDeployments}
         statefulsets={harvesterStatefulSets}
@@ -160,9 +140,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         }}
       />
     );
-  }
-  if (innerActiveKey === 'pods') {
-    return (
+  } else if (innerActiveKey === 'pods') {
+    content = (
       <PodsSection
         pods={harvesterPods}
         loading={resourceLoading.pods}
@@ -179,9 +158,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         daemonSets={harvesterDaemonSets}
       />
     );
-  }
-  if (innerActiveKey === 'jobs') {
-    return (
+  } else if (innerActiveKey === 'jobs') {
+    content = (
       <JobsSection
         jobs={harvesterJobs}
         cronjobs={harvesterCronJobs}
@@ -195,9 +173,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         secretsWithCredentials={harvesterSecrets}
       />
     );
-  }
-  if (innerActiveKey === 'services') {
-    return (
+  } else if (innerActiveKey === 'services') {
+    content = (
       <ServicesSection
         cloudId={cloudId}
         services={harvesterServices}
@@ -208,12 +185,10 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         pods={harvesterPods}
-        mode={mode}
       />
     );
-  }
-  if (innerActiveKey === 'ingresses') {
-    return (
+  } else if (innerActiveKey === 'ingresses') {
+    content = (
       <IngressesSection
         cloudId={cloudId}
         ingresses={harvesterIngresses}
@@ -225,9 +200,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         secrets={harvesterSecrets}
       />
     );
-  }
-  if (innerActiveKey === 'gateway_api') {
-    return (
+  } else if (innerActiveKey === 'gateway_api') {
+    content = (
       <GatewayApiSection
         cloudId={cloudId}
         gatewayApiStatus={gatewayApiStatus}
@@ -245,9 +219,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={() => loadTabResource('gateway_api', true)}
       />
     );
-  }
-  if (innerActiveKey === 'service_topology') {
-    return (
+  } else if (innerActiveKey === 'service_topology') {
+    content = (
       <ServiceTopologySection
         cloudId={cloudId}
         ingresses={harvesterIngresses}
@@ -268,9 +241,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onNsChange={(v) => setNsFilter(v || '')}
       />
     );
-  }
-  if (innerActiveKey === 'pdbs') {
-    return (
+  } else if (innerActiveKey === 'pdbs') {
+    content = (
       <PDBSection
         pdbs={harvesterPDBs}
         loading={resourceLoading.pdbs}
@@ -281,9 +253,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={(force) => loadTabResource('containers', force ?? true)}
       />
     );
-  }
-  if (innerActiveKey === 'networkpolicies') {
-    return (
+  } else if (innerActiveKey === 'networkpolicies') {
+    content = (
       <NetworkPoliciesSection
         networkPolicies={harvesterNetworkPolicies}
         loading={resourceLoading.networkpolicies}
@@ -294,9 +265,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={(force) => loadTabResource('containers', force ?? true)}
       />
     );
-  }
-  if (innerActiveKey === 'configs') {
-    return (
+  } else if (innerActiveKey === 'configs') {
+    content = (
       <ConfigsSection
         configmaps={harvesterConfigMaps}
         secrets={harvesterSecrets}
@@ -306,11 +276,13 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         onRefresh={(force) => loadTabResource('configs', force)}
+        deployments={harvesterDeployments}
+        statefulsets={harvesterStatefulSets}
+        daemonsets={harvesterDaemonSets}
       />
     );
-  }
-  if (innerActiveKey === 'registries') {
-    return (
+  } else if (innerActiveKey === 'registries') {
+    content = (
       <RegistriesSection
         secrets={harvesterImagePullSecrets}
         secretsWithCredentials={harvesterSecrets}
@@ -322,8 +294,15 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={() => loadTabResource('registries', true)}
       />
     );
+  } else {
+    content = <Empty description="未知页面" style={{ marginTop: 48 }} />;
   }
-  return <Empty description="未知页面" style={{ marginTop: 48 }} />;
+
+  return (
+    <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
+      <div style={{ height: '100%', overflow: 'auto' }}>{content}</div>
+    </ContainerOperationsGate>
+  );
 };
 
 export default CloudmapContainersTabs;

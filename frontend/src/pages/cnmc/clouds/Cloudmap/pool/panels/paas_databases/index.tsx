@@ -24,7 +24,6 @@ export type CloudmapCloudDatabaseTabsProps = {
   onReloadStorageClasses?: () => void | Promise<void>;
 
   isTenant: boolean;
-  mode: 'standard' | 'ops';
   namespacesOptions?: string[];
 };
 
@@ -44,7 +43,6 @@ const CloudmapCloudDatabaseTabs: React.FC<CloudmapCloudDatabaseTabsProps> = ({
   onReloadNads,
   onReloadStorageClasses,
   isTenant,
-  mode,
   namespacesOptions = [],
 }) => {
   if (innerActiveKey === 'rds') {
@@ -64,7 +62,6 @@ const CloudmapCloudDatabaseTabs: React.FC<CloudmapCloudDatabaseTabsProps> = ({
         onReloadNads={onReloadNads}
         onReloadStorageClasses={onReloadStorageClasses}
         isTenant={isTenant}
-        mode={mode}
         namespacesOptions={namespacesOptions}
       />
     );

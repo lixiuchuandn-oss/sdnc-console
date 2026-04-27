@@ -56,6 +56,7 @@ const drawerStyles: DrawerProps['styles'] = {
     flexDirection: 'column',
     overflow: 'hidden',
     padding: G,
+    fontSize: 14,
   },
   footer: {
     marginTop: 0,
@@ -147,7 +148,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
           <Card
             size="small"
             variant="borderless"
-            styles={{ body: { padding: G } }}
+            styles={{ body: { padding: G, fontSize: 14 } }}
             style={{
               background: 'var(--ant-color-fill-alter, rgba(0,0,0,.02))',
               borderRadius: 8,
@@ -163,7 +164,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
                 </Text>
                 <Text
                   type="secondary"
-                  style={{ display: 'block', fontSize: 12, lineHeight: 1.4, wordBreak: 'break-all' }}
+                  style={{ display: 'block', fontSize: 14, lineHeight: 1.4, wordBreak: 'break-all' }}
                 >
                   {Array.from(
                     new Set(
@@ -277,10 +278,10 @@ const RolePermissionDrawer: React.FC<Props> = ({
             <Text type="secondary">
               已选择 <Text strong style={{ color: 'var(--ant-color-primary)' }}>{grantSelectedIds.length}</Text> 项
             </Text>
-            <Button type="link" size="small" onClick={copyCurrentPermissions}>
+            <Button type="link" onClick={copyCurrentPermissions} style={{ fontSize: 14 }}>
               复制权限
             </Button>
-            <Button type="link" size="small" onClick={onClearSelected}>
+            <Button type="link" onClick={onClearSelected} style={{ fontSize: 14 }}>
               清空选择
             </Button>
           </Space>
@@ -302,8 +303,8 @@ const RolePermissionDrawer: React.FC<Props> = ({
                 boxShadow: 'none',
               }}
               styles={{
-                header: { padding: G },
-                body: { padding: G, maxHeight: '100%', overflow: 'auto' },
+                header: { padding: G, fontSize: 14 },
+                body: { padding: G, maxHeight: '100%', overflow: 'auto', fontSize: 14 },
               }}
             >
               <Anchor
@@ -325,6 +326,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
               border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
               borderRadius: 8,
               background: 'var(--ant-color-bg-container, #fff)',
+              fontSize: 14,
             }}
           >
             {permissionStructure.length === 0 ? (
@@ -336,9 +338,9 @@ const RolePermissionDrawer: React.FC<Props> = ({
                   style={{ marginBottom: platformIdx < permissionStructure.length - 1 ? G : 0 }}
                 >
                   <div id={`perm-plat-${platform.platform}`} style={{ scrollMarginTop: G }}>
-                    <Title level={5} style={{ margin: `0 0 ${G}px` }}>
+                    <Title level={5} style={{ margin: `0 0 ${G}px`, fontSize: 14 }}>
                       {(PLATFORM_LABELS as Record<string, string>)[platform.platform] || platform.platform}
-                      <Text type="secondary" style={{ marginLeft: G / 2, fontSize: 13, fontWeight: 'normal' }}>
+                      <Text type="secondary" style={{ marginLeft: G / 2, fontSize: 14, fontWeight: 'normal' }}>
                         {platform.platform}
                       </Text>
                     </Title>
@@ -363,8 +365,9 @@ const RolePermissionDrawer: React.FC<Props> = ({
                           padding: G,
                           borderRadius: 8,
                           background: 'var(--ant-color-fill-alter, rgba(0,0,0,.02))',
+                          fontSize: 14,
                         },
-                        body: { padding: G },
+                        body: { padding: G, fontSize: 14 },
                       },
                       children: renderGroupBody(group),
                     }))}

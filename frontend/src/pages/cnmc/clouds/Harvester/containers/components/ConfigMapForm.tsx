@@ -39,7 +39,7 @@ import {
   createHarvesterConfigMap,
   updateHarvesterConfigMap,
 } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import CodeEditor, { 
   CodeLanguage, 
   LANGUAGE_OPTIONS, 
@@ -433,7 +433,7 @@ const ConfigMapForm: React.FC<ConfigMapFormProps> = ({
                 placeholder="选择命名空间"
                 showSearch
                 disabled={editMode}
-                options={namespacesOptions.map(ns => ({ label: ns, value: ns }))}
+                options={namespacesOptions.filter(ns => !isSystemNamespace(ns)).map(ns => ({ label: ns, value: ns }))}
               />
             </Form.Item>
           </Col>

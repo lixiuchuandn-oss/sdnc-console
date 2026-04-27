@@ -1,38 +1,26 @@
 /**
- * VR 详情抽屉：右侧滑出，顶部标题区 → 主 Tab（概览 | 设备数据）→ 各 Tab 内容。
- * 下文「页面」均指该 Drawer 内的 UI。
- *
- * 代码顺序：类型 → Typography 解构与样式常量 → 纯函数与 healthStatusLabel → useOverviewModel →
- * DeviceJsonViewer → VrDetailDrawer（state → vrUuid → loadMetadata → handleRefresh → effect →
- * overview → statusTag → deviceJsonText → 渲染）。
+ * VR 详情抽屉：对齐 Cloudmap 物理节点详情（PhysicalNodeDetailDrawer）— Ant Design Drawer
+ * + Tabs：详情（含设备标识）/ 网卡信息（仅接口）+ 各 JSON 源。
  */
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
-  Card,
   Descriptions,
   Drawer,
-  Progress,
-  Segmented,
+  Empty,
+  Space,
   Spin,
   Table,
-  Tag,
-  Tooltip,
+  Tabs,
   Typography,
 } from 'antd';
-import {
-  ApiOutlined,
-  CloseOutlined,
-  DatabaseOutlined,
-  ProfileOutlined,
-  SyncOutlined,
-} from '@ant-design/icons';
+import { SyncOutlined } from '@ant-design/icons';
 import {
   fetchVrCacheMerged,
   fetchVrTowerLocalConfigCache,
 } from '../../../../../services/virtualRouterApi';
 
-// ---------- 类型：列表行、抽屉 props、元数据、设备子 Tab、Tower 本地缓存 ----------
+// ---------- 类型：列表行、抽屉 props、元数据、JSON 源 Tab、Tower 本地缓存 ----------
 export interface VrDetailRow {
   id?: string;
   vm_id?: string;
@@ -73,7 +61,10 @@ type MetadataState = {
   mergedFull?: any | null;
 } | null;
 
-type DeviceSubTab = 'csmctl' | 'vr2' | 'vr3' | 'towerConfig' | 'saseConfig';
+type DeviceJsonSource = 'csmctl' | 'vr2' | 'vr3' | 'towerConfig' | 'saseConfig';
+
+/** 顶层 Tab：详情（实例/业务 + 设备标识）+ 网卡信息（接口列表）+ 各 JSON 源 */
+type VrDrawerTab = 'detail' | 'nics' | DeviceJsonSource;
 
 type TowerLocalConfigCache = {
   config: any;
@@ -82,11 +73,79 @@ type TowerLocalConfigCache = {
 
 const { Text } = Typography;
 
-// ---------- 样式常量：等宽字体、概览卡片标题 / 小标题 ----------
-const VR_JSON_CODE_FONT =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+const TAB_PANEL_PADDING: React.CSSProperties = { padding: '8px 0 16px' };
+const TAB_PANEL_DEVICE: React.CSSProperties = {
+  padding: '8px 0 16px',
+  minHeight: 360,
+  display: 'flex',
+  flexDirection: 'column',
+};
+const TAB_BAR_STYLE: React.CSSProperties = { marginBottom: 8 };
 
-// ---------- 纯函数：健康状态归一化、字段格式化（供概览 Descriptions / 表格 使用）----------
+/** 与 PhysicalNodeDetailDrawer 一致：Descriptions 标签列宽 */
+const descLabelNarrow: React.CSSProperties = { width: 200 };
+
+/** 无数据时不展示「-」「—」等占位符（与物理节点详情抽屉一致） */
+function displayCell(v: unknown): string {
+  if (v === undefined || v === null) return '';
+  const s = String(v).trim();
+  if (!s || s === 'undefined' || s === 'null') return '';
+  return s;
+}
+
+/** 网卡表状态列：Typography 语义色（非 Tag） */
+function nicStatusColored(raw: string): React.ReactNode {
+  const t = displayCell(raw);
+  if (!t) return null;
+  const low = t.toLowerCase();
+  if (['up', 'active', 'running', 'ok', 'online'].includes(low)) {
+    return <Typography.Text type="success">{t}</Typography.Text>;
+  }
+  if (['down', 'inactive', 'error', 'failed', 'offline'].includes(low)) {
+    return <Typography.Text type="danger">{t}</Typography.Text>;
+  }
+  if (['warn', 'warning', 'degraded'].includes(low) || low.includes('warn')) {
+    return <Typography.Text type="warning">{t}</Typography.Text>;
+  }
+  return <Typography.Text type="secondary">{t}</Typography.Text>;
+}
+
+/** 网卡信息 Tab：与 Harvester 列表一致使用 std-table + bordered */
+const VR_NIC_TABLE_COLUMNS = [
+  {
+    title: '网卡',
+    dataIndex: 'name',
+    key: 'name',
+    width: 200,
+    ellipsis: true,
+  },
+  {
+    title: '状态',
+    dataIndex: 'status',
+    key: 'status',
+    width: 100,
+    render: (s: string) => nicStatusColored(s),
+  },
+  {
+    title: 'IPv4',
+    dataIndex: 'ipv4',
+    key: 'ipv4',
+    ellipsis: true,
+    render: (v: string) => displayCell(v) || null,
+  },
+  {
+    title: 'IPv6',
+    dataIndex: 'ipv6',
+    key: 'ipv6',
+    ellipsis: true,
+    render: (v: string) =>
+      v ? (
+        <span className="vr-nic-ipv6-cell">{String(v)}</span>
+      ) : null,
+  },
+];
+
+// ---------- 纯函数：健康状态归一化、字段格式化（供 Descriptions / JSON Tab 使用）----------
 function normalizeHealth(
   raw: string,
 ): 'online' | 'offline' | 'warn' | 'unknown' {
@@ -101,11 +160,6 @@ function normalizeHealth(
   return 'unknown';
 }
 
-function fmt(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '—';
-  return String(v);
-}
-
 function fmtDate(v: unknown): string {
   if (v == null || v === '') return '—';
   const d = new Date(String(v));
@@ -113,7 +167,7 @@ function fmtDate(v: unknown): string {
   return d.toLocaleString();
 }
 
-/** 顶栏健康 Tag 的文案（由原始 health/status 字符串推导） */
+/** 健康状态展示文案（由原始 health/status 推导） */
 function healthStatusLabel(healthRaw: string): string {
   if (!healthRaw || healthRaw === '—') return '未知';
   if (healthRaw === 'ONLINE') return '在线';
@@ -121,20 +175,7 @@ function healthStatusLabel(healthRaw: string): string {
   return healthRaw;
 }
 
-/** 卡片区块标题：对齐 PhysicalNodeDetailDrawer（物理节点详情抽屉） */
-const VR_DRAWER_SECTION_TITLE: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 500,
-  marginBottom: 12,
-};
-/** 卡片内分栏小标题（如 CPU / 内存） */
-const VR_DRAWER_SUBSECTION_TITLE: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 500,
-  marginBottom: 8,
-};
-
-/** 概览 Tab 的数据模型：驱动「CPU/内存卡片」「基本信息」「时间」「接口表」等整块概览内容 */
+/** 详情 / 网卡：聚合行 + mergedFull，供 Descriptions 与各 JSON Tab */
 function useOverviewModel(
   row: VrDetailRow | null,
   mergedFull: any | null | undefined,
@@ -189,91 +230,32 @@ function useOverviewModel(
   }, [row, mergedFull, vrUuid, rolesMap, orgNameMap]);
 }
 
-/**
- * 设备数据 Tab → 下方 JSON 展示区：左侧行号 + 右侧等宽文本，占满「设备数据」主内容区剩余高度并内部滚动。
- */
+/** JSON 源 Tab：左侧行号 + 右侧等宽文本，区域内纵向滚动。 */
 const DeviceJsonViewer: React.FC<{ loading?: boolean; text: string }> = memo(
   ({ loading, text }) => {
     const lines = useMemo(() => text.split('\n'), [text]);
-    const lineHeightPx = 20;
     if (loading) {
       return (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 120,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
+        <div className="vr-detail-json-loading">
           <Spin />
         </div>
       );
     }
     return (
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          background: '#fff',
-        }}
-      >
-        <div
-          className="minimal-scroll"
-          style={{ flex: 1, minHeight: 0, overflowY: 'auto', borderRadius: 4 }}
-        >
-          <div style={{ background: '#fff' }}>
-            <div
-              style={{ display: 'flex', alignItems: 'stretch', minHeight: 80 }}
-            >
-              <div
-                aria-hidden
-                style={{
-                  flexShrink: 0,
-                  width: 46,
-                  padding: '12px 0',
-                  background: '#f6f8fa',
-                  borderRight: '1px solid #e8ecf0',
-                  textAlign: 'right',
-                  userSelect: 'none',
-                }}
-              >
+      <div className="vr-detail-json-viewport">
+        <div className="vr-detail-json-scroll">
+          <div className="vr-detail-json-inner">
+            <div className="vr-detail-json-rows">
+              <div aria-hidden className="vr-detail-json-linewrap">
                 {lines.map((_, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      paddingRight: 10,
-                      color: '#656d76',
-                      fontSize: 12,
-                      lineHeight: `${lineHeightPx}px`,
-                      fontFamily: VR_JSON_CODE_FONT,
-                      height: lineHeightPx,
-                    }}
-                  >
+                  <div key={i} className="vr-detail-json-linenum">
                     {i + 1}
                   </div>
                 ))}
               </div>
-              <div
-                style={{ flex: 1, minWidth: 0, padding: '12px 12px 12px 0' }}
-              >
+              <div className="vr-detail-json-codecol">
                 {lines.map((line, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      fontFamily: VR_JSON_CODE_FONT,
-                      fontSize: 12,
-                      lineHeight: `${lineHeightPx}px`,
-                      color: '#1f2328',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      minHeight: lineHeightPx,
-                    }}
-                  >
+                  <div key={i} className="vr-detail-json-codeline">
                     {line.length === 0 ? '\u00a0' : line}
                   </div>
                 ))}
@@ -287,7 +269,7 @@ const DeviceJsonViewer: React.FC<{ loading?: boolean; text: string }> = memo(
 );
 DeviceJsonViewer.displayName = 'DeviceJsonViewer';
 
-// ---------- 主组件：整页抽屉 = 顶栏 + 主 Tab + 概览或设备数据 ----------
+// ---------- 主组件：Drawer + 多顶层 Tab（详情 / 网卡信息 / 各 JSON 源）----------
 const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
   open,
   onClose,
@@ -295,8 +277,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
   rolesMap = {},
   orgNameMap = {},
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'device'>('overview');
-  const [deviceSubTab, setDeviceSubTab] = useState<DeviceSubTab>('csmctl');
+  const [activeTab, setActiveTab] = useState<VrDrawerTab>('detail');
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentMetadata, setCurrentMetadata] = useState<MetadataState>(null);
@@ -311,7 +292,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     [row],
   );
 
-  /** 拉取聚合缓存 + Tower 本地 vr_config，供概览与设备数据 Tab 展示 */
+  /** 拉取聚合缓存 + Tower 本地 vr_config，供 Descriptions 与各 JSON Tab 展示 */
   const loadMetadata = useCallback(async () => {
     if (!row || !vrUuid) {
       setCurrentMetadata(null);
@@ -373,13 +354,23 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     }
   }, [loadMetadata]);
 
-  // 打开抽屉且可选中行时拉数据；关闭时回到「概览」与设备子 Tab 默认项
+  // 关闭抽屉时回到默认 Tab
   useEffect(() => {
     if (!open) {
-      setActiveTab('overview');
-      setDeviceSubTab('csmctl');
-      return;
+      setActiveTab('detail');
     }
+  }, [open]);
+
+  // 打开且切换实例（uuid）时回到详情
+  useEffect(() => {
+    if (open && vrUuid) {
+      setActiveTab('detail');
+    }
+  }, [open, vrUuid]);
+
+  // 打开抽屉且可选中行时拉数据
+  useEffect(() => {
+    if (!open) return;
     if (row && vrUuid) {
       void loadMetadata();
     }
@@ -393,608 +384,274 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     orgNameMap,
   );
 
-  /** 顶栏标题行：健康状态 Tag（在名称右侧） */
-  const statusTag = useMemo(() => {
-    if (!overview) return <Tag>未知</Tag>;
+  /** 详情「状态」项：Typography 语义色，不用 Tag */
+  const statusCell = useMemo(() => {
+    if (!overview) return <Typography.Text type="secondary">未知</Typography.Text>;
     const { health, healthRaw } = overview;
     const label = healthStatusLabel(healthRaw);
-    if (health === 'online') return <Tag color="success">{label}</Tag>;
-    if (health === 'offline') return <Tag color="error">{label}</Tag>;
-    if (health === 'warn') return <Tag color="warning">{label}</Tag>;
-    return <Tag>{label}</Tag>;
+    if (health === 'online') return <Typography.Text type="success">{label}</Typography.Text>;
+    if (health === 'offline') return <Typography.Text type="danger">{label}</Typography.Text>;
+    if (health === 'warn') return <Typography.Text type="warning">{label}</Typography.Text>;
+    return <Typography.Text>{label}</Typography.Text>;
   }, [overview]);
 
-  /** 设备数据 Tab 当前子项对应的 JSON / 提示文案 → 交给 DeviceJsonViewer */
-  const deviceJsonText = useMemo(() => {
-    const m = currentMetadata;
-    if (deviceSubTab === 'csmctl')
-      return JSON.stringify(m?.csmctl ?? {}, null, 2);
-    if (deviceSubTab === 'towerConfig') {
-      if (towerLocalConfigCacheError)
-        return `加载 Tower 本地配置缓存失败：${towerLocalConfigCacheError}`;
-      if (!towerLocalConfigCache) {
-        return 'Tower 本地尚未保存该 VR 的配置（数据库无 vr_config 缓存记录）';
+  const getDeviceJsonText = useCallback(
+    (sub: DeviceJsonSource): string => {
+      const m = currentMetadata;
+      if (sub === 'csmctl') return JSON.stringify(m?.csmctl ?? {}, null, 2);
+      if (sub === 'towerConfig') {
+        if (towerLocalConfigCacheError)
+          return `加载 Tower 本地配置缓存失败：${towerLocalConfigCacheError}`;
+        if (!towerLocalConfigCache) {
+          return 'Tower 本地尚未保存该 VR 的配置（数据库无 vr_config 缓存记录）';
+        }
+        return JSON.stringify(
+          {
+            _towerLocalMeta: towerLocalConfigCache.meta ?? null,
+            config: towerLocalConfigCache.config,
+          },
+          null,
+          2,
+        );
       }
-      return JSON.stringify(
-        {
-          _towerLocalMeta: towerLocalConfigCache.meta ?? null,
-          config: towerLocalConfigCache.config,
-        },
-        null,
-        2,
+      if (sub === 'saseConfig') {
+        const vrctl = m?.mergedFull?.vr_tower_vrctl;
+        if (vrctl && typeof vrctl === 'object') {
+          return JSON.stringify(vrctl, null, 2);
+        }
+        return '暂无租户侧 vrctl 数据（Tower 未同步 vr_cache_device，或该 VR 无本地 vr_config / 绑定记录）。可尝试刷新列表缓存或完成租户绑定后再查看。';
+      }
+      if (sub === 'vr2') {
+        return m?.vr2
+          ? JSON.stringify(m.vr2, null, 2)
+          : '暂无 VR2 实时数据（聚合接口未返回或 CSMCTL 不可用）';
+      }
+      return m?.vr3 ? JSON.stringify(m.vr3, null, 2) : '暂无扩展信息或获取失败';
+    },
+    [currentMetadata, towerLocalConfigCache, towerLocalConfigCacheError],
+  );
+
+  const drawerTitle = overview?.name || row?.name || 'VR 实例详情';
+
+  const tabItems = useMemo(() => {
+    if (!row) return [];
+    if (!overview) return [];
+
+    const jsonPane = (key: DeviceJsonSource, label: string) => ({
+      key,
+      label,
+      children: (
+        <div style={TAB_PANEL_DEVICE}>
+          <DeviceJsonViewer
+            loading={metadataLoading && key !== 'csmctl'}
+            text={getDeviceJsonText(key)}
+          />
+        </div>
+      ),
+    });
+
+    type KvRow = { key: string; field: string; value: React.ReactNode };
+    const detailRows: KvRow[] = [];
+    const push = (bucket: KvRow[], key: string, field: string, value: React.ReactNode) => {
+      if (value === null || value === undefined || value === '') return;
+      bucket.push({ key, field, value });
+    };
+
+    push(detailRows, 'name', '名称', overview.name);
+    push(detailRows, 'status', '状态', statusCell);
+
+    const ri = overview.resourceIndicators;
+    if (ri && typeof ri === 'object') {
+      push(
+        detailRows,
+        'cpu',
+        'CPU 使用',
+        `${Number(ri.cpuUsed ?? 0).toFixed(1)}% · ${ri.cpuTotal ?? '—'} 核`,
+      );
+      push(
+        detailRows,
+        'mem',
+        '内存使用',
+        `${Number(ri.memoryUsed ?? 0).toFixed(1)}% · ${ri.memoryTotal ?? '—'} GiB`,
       );
     }
-    if (deviceSubTab === 'saseConfig') {
-      const vrctl = m?.mergedFull?.vr_tower_vrctl;
-      if (vrctl && typeof vrctl === 'object') {
-        return JSON.stringify(vrctl, null, 2);
-      }
-      return '暂无租户侧 vrctl 数据（Tower 未同步 vr_cache_device，或该 VR 无本地 vr_config / 绑定记录）。可尝试刷新列表缓存或完成租户绑定后再查看。';
-    }
-    if (deviceSubTab === 'vr2') {
-      return m?.vr2
-        ? JSON.stringify(m.vr2, null, 2)
-        : '暂无 VR2 实时数据（聚合接口未返回或 CSMCTL 不可用）';
-    }
-    return m?.vr3 ? JSON.stringify(m.vr3, null, 2) : '暂无扩展信息或获取失败';
-  }, [
-    currentMetadata,
-    deviceSubTab,
-    towerLocalConfigCache,
-    towerLocalConfigCacheError,
-  ]);
 
-  // 注册信息(VR1) 在请求过程中仍有列表占位数据，故不显示 loading；其余子 Tab 请求中显示 Spin
-  const deviceJsonLoading = metadataLoading && deviceSubTab !== 'csmctl';
+    if (displayCell(overview.type)) push(detailRows, 'type', '类型', displayCell(overview.type));
+    if (displayCell(overview.uuid)) {
+      push(detailRows, 'uuid', 'UUID', displayCell(overview.uuid));
+    }
+    if (displayCell(overview.version)) {
+      push(detailRows, 'ver', '版本', displayCell(overview.version));
+    }
+
+    if (displayCell(overview.id)) {
+      push(detailRows, 'id', '设备 ID', displayCell(overview.id));
+    }
+    if (displayCell(overview.vm_id)) {
+      push(detailRows, 'vm', '虚拟机 ID', displayCell(overview.vm_id));
+    }
+    if (displayCell(overview.mac)) {
+      push(detailRows, 'mac', 'MAC', displayCell(overview.mac));
+    }
+    if (displayCell(overview.vr_unique_id)) {
+      push(detailRows, 'vruid', 'VR 唯一标识', displayCell(overview.vr_unique_id));
+    }
+
+    if (displayCell(overview.healthRaw)) {
+      push(detailRows, 'health', '健康状态（原始）', displayCell(overview.healthRaw));
+    }
+    if (
+      displayCell(overview.role) &&
+      overview.role !== '—' &&
+      String(overview.role).trim()
+    ) {
+      push(detailRows, 'role', '角色', String(overview.role).trim());
+    }
+
+    const poolText =
+      overview.pool_name || overview.pool_id !== undefined
+        ? `${overview.pool_name || ''}${
+            overview.pool_id !== undefined &&
+            overview.pool_id !== '' &&
+            String(overview.pool_id) !== String(overview.pool_name)
+              ? ` (${overview.pool_id})`
+              : ''
+          }`.trim()
+        : '';
+    if (poolText) push(detailRows, 'pool', '资源池', poolText);
+
+    if (displayCell(overview.gateway)) {
+      push(detailRows, 'gw', '默认网关', displayCell(overview.gateway));
+    }
+    if (displayCell(overview.tenant_id)) {
+      push(detailRows, 'tenant', '租户 ID', displayCell(overview.tenant_id));
+    }
+    if (overview.org_id && overview.orgNameMap[String(overview.org_id)]) {
+      push(
+        detailRows,
+        'org',
+        '组织',
+        <Space size="small" wrap>
+          <span>{overview.orgNameMap[String(overview.org_id)]}</span>
+          <Text type="secondary">({overview.org_id})</Text>
+        </Space>,
+      );
+    } else if (displayCell(overview.org_id)) {
+      push(detailRows, 'org', '组织', displayCell(overview.org_id));
+    }
+    if (displayCell(overview.bind_status)) {
+      push(detailRows, 'bind', '绑定状态', displayCell(overview.bind_status));
+    }
+    if (displayCell(overview.region)) {
+      push(detailRows, 'region', '区域', displayCell(overview.region));
+    }
+    if (displayCell(overview.cloud)) {
+      push(detailRows, 'cloud', '云名称', displayCell(overview.cloud));
+    }
+    if (overview.createDate) {
+      push(detailRows, 'cd', '创建时间', fmtDate(overview.createDate));
+    }
+    if (overview.updateDate) {
+      push(detailRows, 'ud', '更新时间', fmtDate(overview.updateDate));
+    }
+
+    const nicDataSource = overview.interfaces.map((it: any, idx: number) => ({
+      key: `if-${idx}`,
+      name: displayCell(it?.name) || `网卡 ${idx + 1}`,
+      status: String(it?.status ?? '').trim(),
+      ipv4: displayCell(it?.ipv4_static),
+      ipv6: it?.ipv6_static ? String(it.ipv6_static).trim() : '',
+    }));
+
+    const mergeHint =
+      metadataLoading && !overview.fromMerged ? (
+        <div className="vr-detail-merge-hint">
+          <Space>
+            <Spin size="small" />
+            <Typography.Text type="secondary">正在拉取聚合详情…</Typography.Text>
+          </Space>
+        </div>
+      ) : null;
+
+    const kvDescriptions = (rows: KvRow[], emptyDesc: string) =>
+      rows.length ? (
+        <Descriptions bordered size="small" column={1} labelStyle={descLabelNarrow}>
+          {rows.map((r) => (
+            <Descriptions.Item key={r.key} label={r.field}>
+              {r.value}
+            </Descriptions.Item>
+          ))}
+        </Descriptions>
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDesc} />
+      );
+
+    return [
+      {
+        key: 'detail',
+        label: '详情',
+        children: (
+          <div style={TAB_PANEL_PADDING}>
+            {kvDescriptions(detailRows, '暂无数据')}
+            {mergeHint}
+          </div>
+        ),
+      },
+      {
+        key: 'nics',
+        label: '网卡信息',
+        children: (
+          <div style={TAB_PANEL_PADDING}>
+            <Table
+              className="std-table"
+              size="small"
+              bordered
+              rowKey="key"
+              pagination={false}
+              scroll={nicDataSource.length > 0 ? ({ x: true } as const) : undefined}
+              locale={{ emptyText: '暂无网卡数据' }}
+              dataSource={nicDataSource}
+              columns={VR_NIC_TABLE_COLUMNS as any}
+            />
+          </div>
+        ),
+      },
+      jsonPane('csmctl', '注册信息 (VR1)'),
+      jsonPane('vr2', '实时配置 (VR2)'),
+      jsonPane('vr3', '设备信息 (VR3)'),
+      jsonPane('towerConfig', '本地配置 (Cache)'),
+      jsonPane('saseConfig', '租户配置 (Sase)'),
+    ];
+  }, [row, overview, statusCell, getDeviceJsonText, metadataLoading]);
 
   return (
     <Drawer
+      title={drawerTitle}
+      extra={
+        <Button
+          size="small"
+          icon={<SyncOutlined spin={refreshing || metadataLoading} />}
+          onClick={() => void handleRefresh()}
+        >
+          刷新
+        </Button>
+      }
       open={open}
       onClose={onClose}
-      width={900}
+      width="min(1000px, 96vw)"
       placement="right"
-      closable={false}
-      styles={{
-        body: {
-          padding: 0,
-          background: '#f5f7fa',
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: 0,
-          height: '100%',
-          overflow: 'hidden',
-        },
-      }}
+      destroyOnHidden
     >
-      {/* 布局对齐 HarvesterVmDetailDrawer：顶栏 → 主 Tab → 样式 → 主内容区（flex:1 内滚动） */}
-      {/* 页面顶栏：左侧图标 + 名称/UUID + 状态 Tag + 角色 Tag；右侧刷新 + 关闭 */}
-      <div
-        style={{
-          background: '#f5f7fa',
-          padding: '16px 24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            minWidth: 0,
-          }}
-        >
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#1890ff',
-              fontSize: 28,
-            }}
-          >
-            <ApiOutlined />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>
-              {overview?.name || row?.name || '虚拟路由器'}
-            </div>
-            <Tooltip title={overview?.uuid || vrUuid || undefined}>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: '#999',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: 520,
-                }}
-              >
-                UUID: {overview?.uuid || vrUuid || '—'}
-              </div>
-            </Tooltip>
-          </div>
-          {statusTag}
-          {overview?.role && overview.role !== '—' ? (
-            <Tag color="blue" style={{ margin: 0 }}>
-              {overview.role}
-            </Tag>
-          ) : null}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Button
-            type="text"
-            icon={<SyncOutlined spin={refreshing || metadataLoading} />}
-            onClick={() => void handleRefresh()}
-            style={{
-              width: 32,
-              height: 32,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 4,
-              padding: 0,
-              color: '#666',
-            }}
-          />
-          <Button
-            type="text"
-            onClick={onClose}
-            style={{
-              width: 32,
-              height: 32,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 4,
-              fontSize: 16,
-              padding: 0,
-              color: '#666',
-            }}
-          >
-            <CloseOutlined />
-          </Button>
-        </div>
-      </div>
-
-      {/* 主 Tab 切换条：「概览」与「设备数据」（对齐 HarvesterVmDetailDrawer） */}
-      <div style={{ background: '#f5f7fa', padding: '0 24px', flexShrink: 0 }}>
-        <div style={{ padding: '0 0 24px 0' }}>
-          <div
-            style={{
-              padding: 4,
-              background: '#fff',
-              borderRadius: 8,
-              border: '1px solid #e0e0e0',
-            }}
-          >
-            <Segmented
-              size="small"
-              value={activeTab}
-              onChange={(v) => setActiveTab(String(v) as 'overview' | 'device')}
-              options={[
-                {
-                  label: '概览',
-                  value: 'overview',
-                  icon: <ProfileOutlined />,
-                },
-                {
-                  label: '设备数据',
-                  value: 'device',
-                  icon: <DatabaseOutlined />,
-                },
-              ]}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 与 HarvesterVmDetailDrawer 相同的 minimal-scroll 细滚动条 */}
-      <style>{`
-          .minimal-scroll::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-          }
-          .minimal-scroll::-webkit-scrollbar-track {
-            background: transparent;
-          }
-          .minimal-scroll::-webkit-scrollbar-thumb {
-            background: #e0e0e0;
-            border-radius: 3px;
-          }
-          .minimal-scroll::-webkit-scrollbar-thumb:hover {
-            background: #ccc;
-          }
-          .minimal-scroll::-webkit-scrollbar-button {
-            display: none;
-          }
-        `}</style>
-
-      {/* 主内容区：占满剩余高度；概览与 HarvesterVmDetailDrawer 一致，padding 与 overflow 在同一滚动层 */}
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        {/* ———— 概览 Tab：资源卡片 → 基本信息 → 时间信息 → 接口表 ———— */}
-        {activeTab === 'overview' && (
-          <div
-            className="minimal-scroll"
-            style={{
-              flex: 1,
-              minHeight: 0,
-              overflowY: 'auto',
-              padding: '0 24px 24px',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-              {!row && !overview ? (
-                <div style={{ color: '#999' }}>未选择实例</div>
-              ) : overview ? (
-                <>
-                  {/* 概览 · 首块卡片：CPU / 内存使用率与进度条 */}
-                  {overview.resourceIndicators &&
-                    typeof overview.resourceIndicators === 'object' && (
-                      <Card
-                        variant="borderless"
-                        styles={{ body: { padding: 16 } }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: 48,
-                            flexWrap: 'wrap',
-                          }}
-                        >
-                          <div style={{ flex: 1, minWidth: 280 }}>
-                            <div style={VR_DRAWER_SUBSECTION_TITLE}>CPU</div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                fontSize: 12,
-                                color: '#666',
-                              }}
-                            >
-                              <span>使用率</span>
-                              <span>
-                                {Number(
-                                  overview.resourceIndicators.cpuUsed ?? 0,
-                                ).toFixed(1)}
-                                % ·{' '}
-                                {overview.resourceIndicators.cpuTotal ?? '—'} 核
-                              </span>
-                            </div>
-                            <div style={{ marginTop: 6 }}>
-                              <Progress
-                                percent={Math.min(
-                                  100,
-                                  Math.max(
-                                    0,
-                                    Number(
-                                      overview.resourceIndicators.cpuUsed,
-                                    ) || 0,
-                                  ),
-                                )}
-                                showInfo={false}
-                                strokeColor="#1890ff"
-                                trailColor="#f0f0f0"
-                                size="small"
-                              />
-                            </div>
-                          </div>
-                          <div style={{ flex: 1, minWidth: 280 }}>
-                            <div style={VR_DRAWER_SUBSECTION_TITLE}>内存</div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                fontSize: 12,
-                                color: '#666',
-                              }}
-                            >
-                              <span>使用率</span>
-                              <span>
-                                {Number(
-                                  overview.resourceIndicators.memoryUsed ?? 0,
-                                ).toFixed(1)}
-                                % ·{' '}
-                                {overview.resourceIndicators.memoryTotal ?? '—'}{' '}
-                                GiB
-                              </span>
-                            </div>
-                            <div style={{ marginTop: 6 }}>
-                              <Progress
-                                percent={Math.min(
-                                  100,
-                                  Math.max(
-                                    0,
-                                    Number(
-                                      overview.resourceIndicators.memoryUsed,
-                                    ) || 0,
-                                  ),
-                                )}
-                                showInfo={false}
-                                strokeColor="#52c41a"
-                                trailColor="#f0f0f0"
-                                size="small"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </Card>
-                    )}
-
-                  {/* 概览 · 基本信息：Descriptions 两列 */}
-                  <Card variant="borderless" styles={{ body: { padding: 16 } }}>
-                    <div style={VR_DRAWER_SECTION_TITLE}>基本信息</div>
-                    <Descriptions
-                      column={2}
-                      size="small"
-                      styles={{ label: { width: 132, color: '#999' } }}
-                    >
-                      <Descriptions.Item label="名称">
-                        {overview.name}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="类型">
-                        {fmt(overview.type)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="UUID">
-                        <span style={{ wordBreak: 'break-all' }}>
-                          {overview.uuid}
-                        </span>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="版本">
-                        {fmt(overview.version)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="设备 ID">
-                        <span style={{ wordBreak: 'break-all' }}>
-                          {fmt(overview.id)}
-                        </span>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="虚拟机 ID">
-                        <span style={{ wordBreak: 'break-all' }}>
-                          {fmt(overview.vm_id)}
-                        </span>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="MAC">
-                        {fmt(overview.mac)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="VR 唯一标识">
-                        {fmt(overview.vr_unique_id)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="健康状态">
-                        {overview.healthRaw}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="角色">
-                        {overview.role}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="资源池">
-                        {overview.pool_name || overview.pool_id
-                          ? `${overview.pool_name || ''}${
-                              overview.pool_id !== undefined &&
-                              overview.pool_id !== '' &&
-                              String(overview.pool_id) !==
-                                String(overview.pool_name)
-                                ? ` (${overview.pool_id})`
-                                : ''
-                            }`
-                          : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="默认网关">
-                        {fmt(overview.gateway)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="租户 ID">
-                        {fmt(overview.tenant_id)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="组织">
-                        {overview.org_id &&
-                        overview.orgNameMap[String(overview.org_id)] ? (
-                          <span>
-                            {overview.orgNameMap[String(overview.org_id)]}
-                            <Text
-                              type="secondary"
-                              style={{ fontSize: 12, marginLeft: 8 }}
-                            >
-                              ({overview.org_id})
-                            </Text>
-                          </span>
-                        ) : (
-                          fmt(overview.org_id)
-                        )}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="绑定状态">
-                        {fmt(overview.bind_status)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="区域">
-                        {fmt(overview.region)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="云名称">
-                        {fmt(overview.cloud)}
-                      </Descriptions.Item>
-                    </Descriptions>
-                  </Card>
-
-                  {/* 概览 · 时间信息（有创建/更新字段时才显示） */}
-                  {(overview.createDate || overview.updateDate) && (
-                    <Card
-                      variant="borderless"
-                      styles={{ body: { padding: 16 } }}
-                    >
-                      <div style={VR_DRAWER_SECTION_TITLE}>时间信息</div>
-                      <Descriptions
-                        column={2}
-                        size="small"
-                        styles={{ label: { width: 132, color: '#999' } }}
-                      >
-                        <Descriptions.Item label="创建时间">
-                          {fmtDate(overview.createDate)}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="更新时间">
-                          {fmtDate(overview.updateDate)}
-                        </Descriptions.Item>
-                      </Descriptions>
-                    </Card>
-                  )}
-
-                  {/* 概览 · 接口列表表格 */}
-                  <Card variant="borderless" styles={{ body: { padding: 16 } }}>
-                    <div style={VR_DRAWER_SECTION_TITLE}>
-                      接口列表（{overview.interfaces.length}）
-                    </div>
-                    <Table
-                      className="std-table"
-                      size="small"
-                      bordered={false}
-                      pagination={false}
-                      scroll={{ x: 'max-content' }}
-                      locale={{ emptyText: '暂无接口数据' }}
-                      dataSource={overview.interfaces.map(
-                        (it: any, idx: number) => ({
-                          key: `${it.name}-${idx}`,
-                          name: it.name,
-                          status: it.status,
-                          ipv4: it.ipv4_static,
-                          ipv6: it.ipv6_static,
-                        }),
-                      )}
-                      columns={[
-                        {
-                          title: '接口名',
-                          dataIndex: 'name',
-                          key: 'name',
-                          width: 200,
-                          ellipsis: true,
-                        },
-                        {
-                          title: '状态',
-                          dataIndex: 'status',
-                          key: 'status',
-                          width: 88,
-                          render: (s: string) => (
-                            <Tag
-                              color={
-                                String(s).toLowerCase() === 'up'
-                                  ? 'success'
-                                  : 'default'
-                              }
-                            >
-                              {s || '—'}
-                            </Tag>
-                          ),
-                        },
-                        {
-                          title: 'IPv4',
-                          dataIndex: 'ipv4',
-                          key: 'ipv4',
-                          ellipsis: true,
-                          render: (v: any) => fmt(v),
-                        },
-                        {
-                          title: 'IPv6',
-                          dataIndex: 'ipv6',
-                          key: 'ipv6',
-                          ellipsis: true,
-                          render: (v: any) => (
-                            <span
-                              style={{
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-all',
-                              }}
-                            >
-                              {v ? String(v) : '—'}
-                            </span>
-                          ),
-                        },
-                      ]}
-                    />
-                  </Card>
-
-                  {/* 概览 · 底部：聚合详情拉取中的提示（仅列表占位时尚未合并完成） */}
-                  {metadataLoading && !overview.fromMerged ? (
-                    <div
-                      style={{
-                        textAlign: 'center',
-                        color: '#999',
-                        fontSize: 12,
-                      }}
-                    >
-                      <Spin size="small" style={{ marginRight: 8 }} />
-                      正在拉取聚合详情…
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <div style={{ color: '#999' }}>未选择实例</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ———— 设备数据 Tab：子 Segmented + 下方 JSON 查看器 ———— */}
-        {activeTab === 'device' && (
-          <div
-            style={{
-              flex: 1,
-              minHeight: 0,
-              margin: '0 24px 24px',
-              display: 'flex',
-              flexDirection: 'column',
-              background: '#fff',
-              borderRadius: 8,
-              overflow: 'hidden',
-            }}
-          >
-            {/* 设备数据 · 子 Tab：VR1 / VR2 / VR3 / Tower 本地配置缓存 */}
-            <div
-              style={{
-                flexShrink: 0,
-                padding: '2px',
-                marginBottom: '0px',
-                background: '#fff',
-              }}
-            >
-              <Segmented
-                size="middle"
-                value={deviceSubTab}
-                onChange={(v) => setDeviceSubTab(v as DeviceSubTab)}
-                options={[
-                  { label: '注册信息 (VR1)', value: 'csmctl' },
-                  { label: '实时配置 (VR2)', value: 'vr2' },
-                  { label: '设备信息 (VR3)', value: 'vr3' },
-                  { label: '本地配置 (Cache)', value: 'towerConfig' },
-                  { label: '租户配置 (Sase)', value: 'saseConfig' },
-                ]}
-              />
-            </div>
-            {/* 设备数据 · 当前子 Tab 对应的 JSON 或说明文字 */}
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                padding: '0 4px 4px 4px',
-              }}
-            >
-              <DeviceJsonViewer
-                loading={deviceJsonLoading}
-                text={deviceJsonText}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      {!row ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未选择实例" />
+      ) : (
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as VrDrawerTab)}
+          tabBarStyle={TAB_BAR_STYLE}
+          items={tabItems}
+        />
+      )}
     </Drawer>
   );
 };

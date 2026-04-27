@@ -294,8 +294,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         }
       }
       
-      // VPC筛选
-      if (vpcFilter && vpc !== vpcFilter) {
+      if (vpcFilter && networkScope !== 'flat' && vpc !== vpcFilter) {
         return false;
       }
       
@@ -306,7 +305,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       
       return true;
     });
-  }, [dnatRules, keyword, vpcFilter, protocolFilter, eipIpv4ByName]);
+  }, [dnatRules, keyword, vpcFilter, protocolFilter, eipIpv4ByName, networkScope]);
 
   // 筛选选项
   const vpcOptions = useMemo(() => {
@@ -334,6 +333,23 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
     }
     try {
       const values = await form.validateFields();
+      const eipName = String(values.ovnEip ?? '').trim();
+      const proto = String(values.protocol || 'tcp').trim().toLowerCase();
+      const extPort = String(values.externalPort ?? '').trim();
+      const dupTriple = (Array.isArray(dnatRules) ? dnatRules : []).some((r: any) => {
+        const re = String(r?.spec?.ovnEip ?? r?.status?.ovnEip ?? '').trim();
+        const rp = String(r?.spec?.protocol ?? r?.status?.protocol ?? '')
+          .trim()
+          .toLowerCase();
+        const rex = String(r?.spec?.externalPort ?? r?.status?.externalPort ?? '').trim();
+        return re === eipName && rp === proto && rex === extPort;
+      });
+      if (dupTriple) {
+        message.error(
+          '已存在公网 IP、协议、公网端口相同的 DNAT 规则；同一组条件下仅允许一条内部端口映射，请修改规则。',
+        );
+        return;
+      }
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
       const displayName = String(values.displayName ?? '').trim();
       const subnetName = String(values.subnetName || '').trim();
@@ -559,17 +575,19 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               onChange={(e) => setKeyword(e.target.value)} 
               className="toolbar-search"
             />
-            <Select 
-              allowClear 
-              placeholder="VPC" 
-              value={vpcFilter || undefined} 
-              onChange={(v) => setVpcFilter(v || '')} 
-              className="toolbar-filter-sm"
-              options={[
-                { value: '', label: '全部' },
-                ...vpcOptions.map((v) => ({ value: v, label: vpcDisplayById.get(v) || v }))
-              ]} 
-            />
+            {networkScope !== 'flat' ? (
+              <Select
+                allowClear
+                placeholder="VPC"
+                value={vpcFilter || undefined}
+                onChange={(v) => setVpcFilter(v || '')}
+                className="toolbar-filter-sm"
+                options={[
+                  { value: '', label: '全部' },
+                  ...vpcOptions.map((v) => ({ value: v, label: vpcDisplayById.get(v) || v })),
+                ]}
+              />
+            ) : null}
             <Select 
               allowClear 
               placeholder="协议" 
@@ -669,12 +687,33 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           <Row gutter={12}>
             <Col span={9}>
               <Form.Item name="ovnEip" label="公网IP" rules={[{ required: true, message: '请选择公网IP' }]}>
-                <Select placeholder="请选择公网IP" allowClear>
-                  {eipsForCreate.map((e) => (
-                    <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
-                      {ovnDisplayName(e)} ({e.spec?.v4Ip})
-                    </Select.Option>
-                  ))}
+                <Select placeholder="请选择公网IP" allowClear optionLabelProp="label">
+                  {eipsForCreate.map((e) => {
+                    const nm = String(e?.metadata?.name ?? '').trim();
+                    const alias = String(e?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+                    const v4 = String(
+                      e?.status?.v4Eip ??
+                        e?.spec?.v4Ip ??
+                        e?.status?.v4Ip ??
+                        e?.metadata?.labels?.['ovn.kubernetes.io/eip_v4_ip'] ??
+                        '',
+                    ).trim();
+                    const extSub = String(e?.spec?.externalSubnet ?? '').trim();
+                    const label = `${ovnDisplayName(e)}${v4 ? ` (${v4})` : ''}`;
+                    const tip = [
+                      alias && `展示名: ${alias}`,
+                      nm && `资源名: ${nm}`,
+                      v4 && `公网 IPv4: ${v4}`,
+                      extSub && `公共子网: ${extSub}`,
+                    ]
+                      .filter(Boolean)
+                      .join('\n');
+                    return (
+                      <Select.Option key={nm || alias} value={nm} label={label} title={tip}>
+                        <span title={tip}>{label}</span>
+                      </Select.Option>
+                    );
+                  })}
                 </Select>
               </Form.Item>
             </Col>

@@ -24,6 +24,8 @@ import { CLOUD_SUBNETS_VPC_WRITE } from '../../../../../../../constants/cloudPer
 import { hasPermissionForAction } from '../../../../../../../utils/accessMapping';
 import SubnetAclFormItems, { normalizeAclRowForForm, validateAclsFormRowsForSubmit } from '../../lib/SubnetAclFormItems';
 import SubnetVmTopologyGraph from '../../lib/topology/SubnetVmTopologyGraph';
+import { KUBE_OVN_FLAT_VPC } from '../../lib/kubeOvnSubnetConstants';
+import { vlanDetailDisplayParts } from '../../lib/UnderlaySubnetFormFields';
 
 export type SubnetDetailDrawerTabKey = 'detail' | 'topology' | 'acl';
 
@@ -42,6 +44,9 @@ type Props = {
   defaultActiveTab?: SubnetDetailDrawerTabKey;
   /** ACL 保存成功或从集群刷新子网后回调（刷新列表 / kubeSubnets） */
   onSubnetAclSaved?: () => void;
+  /** 扁平/公共子网详情：用于将 spec.vlan 解析为与表单一致的 VLAN 展示文案（VLAN 标签 · 物理网络） */
+  vlans?: any[];
+  providers?: any[];
 };
 
 type VmNode = {
@@ -97,6 +102,8 @@ const SubnetDetailDrawer: React.FC<Props> = ({
   onTabChange: propOnTabChange,
   defaultActiveTab = 'detail',
   onSubnetAclSaved,
+  vlans,
+  providers,
 }) => {
   const initialTab = defaultActiveTab;
   const { user } = useAuth();
@@ -350,9 +357,31 @@ const SubnetDetailDrawer: React.FC<Props> = ({
   const uid = String(effectiveSubnet?.metadata?.uid ?? '').trim();
   const createdAt = String(effectiveSubnet?.metadata?.creationTimestamp ?? '').trim();
 
-  /** 与 Underlay 列表一致：无 VLAN 引用时展示 overlay；VPC 子网无 VLAN 时展示 — */
-  const vlanDisplay = vlanRef || (vpcDisplay ? '—' : 'overlay');
-  const vlanTitle = !vlanRef && !vpcDisplay ? '未绑定 VLAN，纯 OVN overlay' : undefined;
+  /** 扁平子网详情：独立展示策略（隐藏无信息的 VPC/命名空间、简化区块标题、VLAN 展示别名） */
+  const isFlatSubnetDetail = useMemo(() => {
+    if (kindLabel === '扁平子网') return true;
+    const t = String(effectiveSubnet?.metadata?.annotations?.['tower.io/subnet-type'] ?? '')
+      .trim()
+      .toLowerCase();
+    return t === 'flat';
+  }, [kindLabel, effectiveSubnet?.metadata?.annotations]);
+
+  const showVpcInBasicInfo = useMemo(() => {
+    if (!vpcDisplay) return false;
+    if (isFlatSubnetDetail && vpcDisplay === KUBE_OVN_FLAT_VPC) return false;
+    return true;
+  }, [vpcDisplay, isFlatSubnetDetail]);
+
+  const showNamespaceInBasicInfo = !isFlatSubnetDetail;
+
+  const addressSectionTitle = isFlatSubnetDetail ? '地址' : '地址与 DHCP / NAT';
+
+  /** VLAN 行：展示名（注解）+ 标签号；物理网络：注解或 VLAN 关联的 ProviderNetwork（非 Subnet.spec.provider） */
+  const { vlanText: vlanDisplay, vlanTitle, physicalText: vlanPhysicalDisplay, physicalTitle: vlanPhysicalTitle } =
+    useMemo(
+      () => vlanDetailDisplayParts(vlanRef, vlans, providers, providerHint, vpcDisplay),
+      [vlanRef, vlans, providers, providerHint, vpcDisplay],
+    );
 
   /** 与 ProviderNetworkDetailDrawer「网络信息」一致：label 宽度与颜色 */
   const descLabelStyle = { label: { width: 96, color: '#888' } };
@@ -372,7 +401,9 @@ const SubnetDetailDrawer: React.FC<Props> = ({
         <Row gutter={[24, 16]}>
           <Col xs={24} lg={12}>
             <Descriptions column={1} size="small" styles={descLabelStyle}>
-              {vpcDisplay ? <Descriptions.Item label="所属 VPC">{vpcDisplay}</Descriptions.Item> : null}
+              {showVpcInBasicInfo ? (
+                <Descriptions.Item label="所属 VPC">{vpcDisplay}</Descriptions.Item>
+              ) : null}
               <Descriptions.Item label="名称">{subnetDisplay}</Descriptions.Item>
               <Descriptions.Item label="资源名">{subnetName || '—'}</Descriptions.Item>
               <Descriptions.Item label="子网类型">{kindLabel}</Descriptions.Item>
@@ -381,9 +412,11 @@ const SubnetDetailDrawer: React.FC<Props> = ({
           <Col xs={24} lg={12}>
             <Descriptions column={1} size="small" styles={descLabelStyle}>
               <Descriptions.Item label="协议版本">{String(effectiveSubnet?.spec?.protocol ?? 'IPv4')}</Descriptions.Item>
-              <Descriptions.Item label="命名空间">
-                {String(effectiveSubnet?.metadata?.namespace ?? '—')}
-              </Descriptions.Item>
+              {showNamespaceInBasicInfo ? (
+                <Descriptions.Item label="命名空间">
+                  {String(effectiveSubnet?.metadata?.namespace ?? '—')}
+                </Descriptions.Item>
+              ) : null}
               <Descriptions.Item label="UID">{uid || '—'}</Descriptions.Item>
               <Descriptions.Item label="创建时间">{formatK8sTime(createdAt)}</Descriptions.Item>
             </Descriptions>
@@ -392,7 +425,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
       </Card>
 
       <Card variant="borderless" styles={{ body: { padding: 16 } }}>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>地址与 DHCP / NAT</div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>{addressSectionTitle}</div>
         <Row gutter={[24, 16]}>
           <Col xs={24} lg={12}>
             <Descriptions column={1} size="small" styles={descLabelStyle}>
@@ -450,7 +483,13 @@ const SubnetDetailDrawer: React.FC<Props> = ({
             </Col>
             <Col xs={24} lg={12}>
               <Descriptions column={1} size="small" styles={descLabelStyle}>
-                <Descriptions.Item label="物理网络">{providerHint || <span style={{ color: '#ccc' }}>—</span>}</Descriptions.Item>
+                <Descriptions.Item label="物理网络">
+                  {vlanPhysicalDisplay && vlanPhysicalDisplay !== '—' ? (
+                    <span title={vlanPhysicalTitle}>{vlanPhysicalDisplay}</span>
+                  ) : (
+                    <span style={{ color: '#ccc' }}>—</span>
+                  )}
+                </Descriptions.Item>
               </Descriptions>
             </Col>
           </Row>

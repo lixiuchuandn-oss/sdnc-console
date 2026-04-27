@@ -4,6 +4,7 @@
  */
 
 import type { PermissionDefinition } from '../hooks/usePermissionDefinitions';
+import { hasPermissionForAction } from './accessMapping';
 
 /**
  * 从权限定义中获取分组
@@ -72,6 +73,18 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.sshkeys',
   'clouds.recycle-bin',
   'clouds.migrations',
+  // 容器服务（K8s 子域，与池内 Tab 一致）
+  'clouds.containers',
+  'clouds.containers.workloads',
+  'clouds.containers.pods',
+  'clouds.containers.jobs',
+  'clouds.containers.services',
+  'clouds.containers.ingresses',
+  'clouds.containers.gateway',
+  'clouds.containers.configs',
+  'clouds.containers.registries',
+  'clouds.containers.pdbs',
+  'clouds.containers.networkpolicies',
   // 存储与备份
   'clouds.disks',
   'clouds.snapshots',
@@ -249,6 +262,23 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
       'clouds.migrations',
     ],
   },
+  /** K8s 容器子域单独成组（与池内 Tab、Harvester API 子路径对齐） */
+  {
+    label: '容器服务',
+    prefixes: [
+      'clouds.containers',
+      'clouds.containers.workloads',
+      'clouds.containers.pods',
+      'clouds.containers.jobs',
+      'clouds.containers.services',
+      'clouds.containers.ingresses',
+      'clouds.containers.gateway',
+      'clouds.containers.configs',
+      'clouds.containers.registries',
+      'clouds.containers.pdbs',
+      'clouds.containers.networkpolicies',
+    ],
+  },
   {
     label: '存储与备份',
     prefixes: [
@@ -368,4 +398,108 @@ export function groupResourceConsoleChildFeatures<T extends { resourcePrefix: st
   }
 
   return grouped;
+}
+
+// =============================================================================
+// 容器服务：池内 Tab / 控制台 ctr-* ↔ clouds.containers.* 原子（与后端 registry 对齐）
+// =============================================================================
+
+/** 池内 Tab / 控制台 innerActiveKey（service_topology 走 services） */
+export type ContainerTabPermissionKey =
+  | 'workloads'
+  | 'pods'
+  | 'jobs'
+  | 'services'
+  | 'ingresses'
+  | 'gateway_api'
+  | 'configs'
+  | 'registries'
+  | 'pdbs'
+  | 'networkpolicies';
+
+export const CLOUD_CONTAINER_TAB_READ: Record<ContainerTabPermissionKey, string> = {
+  workloads: 'clouds.containers.workloads:read',
+  pods: 'clouds.containers.pods:read',
+  jobs: 'clouds.containers.jobs:read',
+  services: 'clouds.containers.services:read',
+  ingresses: 'clouds.containers.ingresses:read',
+  gateway_api: 'clouds.containers.gateway:read',
+  configs: 'clouds.containers.configs:read',
+  registries: 'clouds.containers.registries:read',
+  pdbs: 'clouds.containers.pdbs:read',
+  networkpolicies: 'clouds.containers.networkpolicies:read',
+};
+
+export const CLOUD_CONTAINER_TAB_WRITE: Record<ContainerTabPermissionKey, string> = {
+  workloads: 'clouds.containers.workloads:write',
+  pods: 'clouds.containers.pods:write',
+  jobs: 'clouds.containers.jobs:write',
+  services: 'clouds.containers.services:write',
+  ingresses: 'clouds.containers.ingresses:write',
+  gateway_api: 'clouds.containers.gateway:write',
+  configs: 'clouds.containers.configs:write',
+  registries: 'clouds.containers.registries:write',
+  pdbs: 'clouds.containers.pdbs:write',
+  networkpolicies: 'clouds.containers.networkpolicies:write',
+};
+
+export const ALL_CLOUD_CONTAINER_SUB_READ: string[] = Object.values(CLOUD_CONTAINER_TAB_READ);
+
+/** 租户控制台资源 key → 容器子域 */
+export const CLOUD_CONSOLE_CONTAINER_RESOURCE_TO_TAB: Record<string, ContainerTabPermissionKey> = {
+  'ctr-workloads': 'workloads',
+  'ctr-pods': 'pods',
+  'ctr-jobs': 'jobs',
+  'ctr-services': 'services',
+  'ctr-ingresses': 'ingresses',
+  'ctr-gateway': 'gateway_api',
+  'ctr-configs': 'configs',
+  'ctr-registries': 'registries',
+  'ctr-pdbs': 'pdbs',
+  'ctr-netpol': 'networkpolicies',
+};
+
+export function isContainerTabPermissionKey(k: string): k is ContainerTabPermissionKey {
+  return k in CLOUD_CONTAINER_TAB_READ;
+}
+
+export function canReadContainerTab(
+  checkPerm: (act: string) => boolean,
+  tab: string,
+): boolean {
+  if (tab === 'service_topology') {
+    return canReadContainerTab(checkPerm, 'services');
+  }
+  if (!isContainerTabPermissionKey(tab)) {
+    return checkPerm('clouds.containers:read') || checkPerm('clouds:read');
+  }
+  const atom = CLOUD_CONTAINER_TAB_READ[tab];
+  return checkPerm(atom) || checkPerm('clouds.containers:read') || checkPerm('clouds:read');
+}
+
+export function canWriteContainerTab(
+  checkPerm: (act: string) => boolean,
+  tab: string,
+): boolean {
+  if (tab === 'service_topology') {
+    return canWriteContainerTab(checkPerm, 'services');
+  }
+  if (!isContainerTabPermissionKey(tab)) {
+    return checkPerm('clouds.containers:write') || checkPerm('clouds:write');
+  }
+  const atom = CLOUD_CONTAINER_TAB_WRITE[tab];
+  return checkPerm(atom) || checkPerm('clouds.containers:write') || checkPerm('clouds:write');
+}
+
+export function canViewAnyContainerSubPage(checkPerm: (act: string) => boolean): boolean {
+  if (checkPerm('clouds.containers:read') || checkPerm('clouds.containers:write')) return true;
+  if (checkPerm('clouds:read') || checkPerm('clouds:write')) return true;
+  return ALL_CLOUD_CONTAINER_SUB_READ.some((a) => checkPerm(a));
+}
+
+export function canViewAnyContainerSubPageFromPerms(
+  permissions: string[] | undefined,
+): boolean {
+  const perms = permissions ?? [];
+  return canViewAnyContainerSubPage((a) => hasPermissionForAction(perms, a));
 }

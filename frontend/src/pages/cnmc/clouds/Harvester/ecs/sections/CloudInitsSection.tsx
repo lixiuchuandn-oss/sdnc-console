@@ -14,6 +14,7 @@ import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -28,7 +29,6 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
 }
 
 const CloudInitsSection: React.FC<Props> = ({ 
@@ -37,8 +37,8 @@ const CloudInitsSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   isTenant = false,
-  mode = 'ops'
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -122,7 +122,7 @@ const CloudInitsSection: React.FC<Props> = ({
         </span>
       ),
     },
-    ...(mode === 'ops' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 }] : []),
+    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 }] : []),
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180, className: 'std-time' },
     {
@@ -134,7 +134,7 @@ const CloudInitsSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 非租户模式显示运维信息入口
-        if (!isTenant && mode === 'ops') {
+        if (!isTenant && hasOpsView) {
           items.push({ 
             key: 'opsinfo', 
             label: '查看YAML', 
@@ -165,7 +165,7 @@ const CloudInitsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, hasCloudInitsWrite, mode]);
+  ], [isTenant, hasCloudInitsWrite, hasOpsView]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_cloudinits_table');
@@ -184,7 +184,7 @@ const CloudInitsSection: React.FC<Props> = ({
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
         />
-          {!isTenant && mode === 'ops' && (
+          {!isTenant && hasOpsView && (
             <Select
               allowClear
               showSearch

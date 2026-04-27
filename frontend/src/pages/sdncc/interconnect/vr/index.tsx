@@ -339,7 +339,7 @@ const VRPage: React.FC = () => {
   };
 
   const handleRowActionClick = (row: VRRow): MenuProps['onClick'] => ({ key, domEvent }) => {
-    domEvent.stopPropagation();
+    domEvent?.stopPropagation?.();
     // CSMCTL/VRConfig 相关接口使用的是 VR 的 uuid（而不是数据库自增 id）
     const vrUuid = String(row.uuid || row.vr_unique_id || row.vm_id || '').trim();
     if (key === 'metadata') {
@@ -587,21 +587,19 @@ const VRPage: React.FC = () => {
           dataIndex: 'status', 
           render: (_: any, row: VRRow) => renderStatus(row.health_status ?? row.healthStatus ?? row.status) 
         },
-        { 
-          title: '角色', 
-          key: 'role', 
-          dataIndex: 'role', 
+        {
+          title: '角色',
+          key: 'role',
+          dataIndex: 'role',
           render: (_: any, row: VRRow) => {
             const id = row.uuid || row.id || row.vm_id;
             const m = rolesMapRef.current;
-            const role = (id && m[id]) ? m[id] : '未设置';
-            let color = 'default';
-            if (role === 'PE') color = 'volcano';
-            else if (role === 'CE') color = 'cyan';
-            else if (role === '标准') color = 'blue';
-            else if (role === 'SASE') color = 'geekblue';
-            return <Tag color={color} style={commonTagStyles.base}>{role}</Tag>;
-          }
+            const role = id && m[id] ? m[id] : '未设置';
+            if (role === '未设置') {
+              return <Typography.Text type="secondary">{role}</Typography.Text>;
+            }
+            return <Typography.Text>{role}</Typography.Text>;
+          },
         },
         {
             title: '归属信息',
@@ -1162,17 +1160,17 @@ const VRPage: React.FC = () => {
             />
           </Form.Item>
           <Form.Item name="status" style={{ marginBottom: 0 }}>
-            <Select allowClear placeholder="状态" className="toolbar-filter">
+            <Select allowClear placeholder="状态" className="toolbar-filter-sm">
               <Select.Option value="running">运行中</Select.Option>
               <Select.Option value="stopped">已停止</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item name="role" style={{ marginBottom: 0 }}>
-            <Select allowClear placeholder="角色" className="toolbar-filter">
-              <Select.Option value="标准">标准（虚拟路由）</Select.Option>
-              <Select.Option value="SASE">SASE（安全网关）</Select.Option>
-              <Select.Option value="PE">PE（BGP公网互联）</Select.Option>
-              <Select.Option value="CE">CE（私网接入）</Select.Option>
+            <Select allowClear placeholder="角色" className="toolbar-filter-sm">
+              <Select.Option value="标准">标准</Select.Option>
+              <Select.Option value="SASE">SASE</Select.Option>
+              <Select.Option value="PE">PE</Select.Option>
+              <Select.Option value="CE">CE</Select.Option>
               <Select.Option value="未设置">未设置</Select.Option>
             </Select>
           </Form.Item>

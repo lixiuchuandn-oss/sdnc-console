@@ -18,6 +18,7 @@ import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/clo
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
+import { canReadContainerTab } from '../../../../../../../utils/permissionUtils';
 
 /** ????`panels/cluster`????????????????VLAN/????? */
 export async function tryLoadClusterTab(
@@ -66,13 +67,7 @@ export async function tryLoadClusterTab(
       ) {
         setResourceLoading((prev) => ({ ...prev, namespaces: true }));
         try {
-          const skipSyncParam = skipSync || !force;
-          const json = await fetchHarvesterNamespaces(
-            cloudId,
-            true,
-            false,
-            skipSyncParam,
-          );
+          const json = await fetchHarvesterNamespaces(cloudId, true, false, false);
           const list: any[] = Array.isArray((json as any)?.data?.items)
             ? (json as any).data.items
             : Array.isArray((json as any)?.items)
@@ -171,7 +166,7 @@ export async function tryLoadClusterTab(
       if (
         checkPerm('clouds.cluster-services:read') ||
         checkPerm('clouds.services:read') ||
-        checkPerm('clouds.containers:read') ||
+        canReadContainerTab(checkPerm, 'services') ||
         checkPerm('clouds:read')
       ) {
         loadResource(

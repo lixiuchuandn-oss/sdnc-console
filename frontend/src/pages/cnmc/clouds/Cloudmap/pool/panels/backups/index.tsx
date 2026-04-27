@@ -26,7 +26,6 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
 
 export type CloudmapBackupsGroupTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   isTenant: boolean;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
@@ -69,7 +68,6 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
 ) => {
   const {
     cloudId,
-    mode,
     isTenant,
     showLog,
     checkPerm,
@@ -102,7 +100,6 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
           namespaces={harvesterNamespaces}
           vms={ecs}
           type="backup"
-          mode={mode}
         />
         <DebugJSON data={rawBackups} show={showLog} />
       </>
@@ -119,7 +116,6 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
           namespaces={harvesterNamespaces}
           vms={ecs}
           type="snapshot"
-          mode={mode}
         />
         <DebugJSON data={rawBackups} show={showLog} />
       </>
@@ -167,7 +163,6 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
             }
           }}
           vms={ecs}
-          mode={mode}
         />
         <DebugJSON data={rawScheduleVmBackups} show={showLog} />
       </>
@@ -175,7 +170,7 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
   }
   if (innerActiveKey === 'vm_restores') {
     return (
-      <VmRestoreTasksSection cloudId={cloudId} isTenant={isTenant} mode={mode} />
+      <VmRestoreTasksSection cloudId={cloudId} isTenant={isTenant} />
     );
   }
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;

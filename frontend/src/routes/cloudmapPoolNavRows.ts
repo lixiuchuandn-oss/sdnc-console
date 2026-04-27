@@ -11,6 +11,8 @@ export type CloudmapPoolNavRow = {
   poolNavGroup: string;
   poolMenuParentKey: string;
   requiredFeature?: string;
+  /** 池内页 `requiredActions.page`；缺省为 `clouds.console:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
+  poolPageAction?: string;
 };
 
 const RH = 'cloudmap_menu_resource_hub';
@@ -58,17 +60,17 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   { id: 'cloudmap-pool-compute-bin', pathSuffix: 'compute/recycle_bin', title: '回收站', order: 45, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-compute-mig', pathSuffix: 'compute/migrations', title: '迁移记录', order: 46, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-paas-rds', pathSuffix: 'paas_databases/rds', title: '云数据库', order: 50, icon: 'ConsoleSqlOutlined', poolNavGroup: '云数据库', poolMenuParentKey: PAAS },
-  { id: 'cloudmap-pool-cntr-wl', pathSuffix: 'containers/workloads', title: '工作负载', order: 60, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-pods', pathSuffix: 'containers/pods', title: '容器实例', order: 61, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-jobs', pathSuffix: 'containers/jobs', title: '任务', order: 62, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-svc', pathSuffix: 'containers/services', title: '服务', order: 63, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-ing', pathSuffix: 'containers/ingresses', title: 'Ingress 路由', order: 64, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-gw', pathSuffix: 'containers/gateway_api', title: '网关路由', order: 65, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-topo', pathSuffix: 'containers/service_topology', title: '服务拓扑', order: 66, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-pdb', pathSuffix: 'containers/pdbs', title: 'Pod中断保护', order: 67, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-np', pathSuffix: 'containers/networkpolicies', title: '网络策略', order: 68, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-cfg', pathSuffix: 'containers/configs', title: '配置管理', order: 69, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
-  { id: 'cloudmap-pool-cntr-reg', pathSuffix: 'containers/registries', title: '镜像仓库', order: 70, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT },
+  { id: 'cloudmap-pool-cntr-wl', pathSuffix: 'containers/workloads', title: '工作负载', order: 60, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.workloads:read' },
+  { id: 'cloudmap-pool-cntr-pods', pathSuffix: 'containers/pods', title: '容器实例', order: 61, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.pods:read' },
+  { id: 'cloudmap-pool-cntr-jobs', pathSuffix: 'containers/jobs', title: '任务', order: 62, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.jobs:read' },
+  { id: 'cloudmap-pool-cntr-svc', pathSuffix: 'containers/services', title: '服务', order: 63, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.services:read' },
+  { id: 'cloudmap-pool-cntr-ing', pathSuffix: 'containers/ingresses', title: 'Ingress 路由', order: 64, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.ingresses:read' },
+  { id: 'cloudmap-pool-cntr-gw', pathSuffix: 'containers/gateway_api', title: '网关路由', order: 65, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.gateway:read' },
+  { id: 'cloudmap-pool-cntr-topo', pathSuffix: 'containers/service_topology', title: '服务拓扑', order: 66, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.services:read' },
+  { id: 'cloudmap-pool-cntr-pdb', pathSuffix: 'containers/pdbs', title: 'Pod中断保护', order: 67, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.pdbs:read' },
+  { id: 'cloudmap-pool-cntr-np', pathSuffix: 'containers/networkpolicies', title: '网络策略', order: 68, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.networkpolicies:read' },
+  { id: 'cloudmap-pool-cntr-cfg', pathSuffix: 'containers/configs', title: '配置管理', order: 69, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.configs:read' },
+  { id: 'cloudmap-pool-cntr-reg', pathSuffix: 'containers/registries', title: '镜像仓库', order: 70, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.registries:read' },
   { id: 'cloudmap-pool-stor-vol', pathSuffix: 'storage/volumes', title: '虚拟云盘', order: 80, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
   { id: 'cloudmap-pool-stor-snap', pathSuffix: 'storage/snapshots', title: '云盘快照', order: 81, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
   { id: 'cloudmap-pool-bak-backups', pathSuffix: 'backups/backups', title: '云主机备份', order: 90, icon: 'CloudDownloadOutlined', poolNavGroup: '云备份', poolMenuParentKey: BAK },

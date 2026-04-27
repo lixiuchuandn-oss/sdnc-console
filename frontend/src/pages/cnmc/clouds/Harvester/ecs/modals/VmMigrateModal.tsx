@@ -1,7 +1,8 @@
 /**
- * Harvester - 虚拟机热迁移弹窗
+ * 虚拟机热迁移弹窗（Harvester / KubeVirt）
+ * frontend/src/pages/cnmc/clouds/Harvester/ecs/modals/VmMigrateModal.tsx
  *
- * 负责发起 Harvester VM 的实时迁移：
+ * 负责发起 VM 的实时迁移：
  * - 自动探测当前 VM 所在节点（优先使用 VM.status.nodeName，必要时回查 VMI）；
  * - 展示当前节点与目标节点的资源对比：CPU / 内存（含 metrics 占用率）；
  * - 支持选择“最佳节点（自动调度）”或指定目标节点；
@@ -20,7 +21,7 @@ import {
 
 const { Text } = Typography;
 
-interface HarvesterMigrateModalProps {
+interface VmMigrateModalProps {
   open: boolean;
   onClose: () => void;
   onOk: () => void;
@@ -94,7 +95,7 @@ const cellMetricRender = (text: string, pct?: number) => (
   </div>
 );
 
-const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
+const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
   open,
   onClose,
   onOk,
@@ -482,14 +483,14 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
         columns={combinedColumns as any}
         dataSource={displayRows as any}
         rowKey="key"
-        className="std-table harvester-migrate-compare-table"
+        className="std-table vm-migrate-compare-table"
         scroll={{ x: 520 }}
       />
       <style>{`
-        .harvester-migrate-compare-table .ant-table-cell { vertical-align: top; }
+        .vm-migrate-compare-table .ant-table-cell { vertical-align: top; }
       `}</style>
     </StdFormModal>
   );
 };
 
-export default HarvesterMigrateModal;
+export default VmMigrateModal;

@@ -262,7 +262,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     if (!cloudId) return;
     setSubnetsLoading(true);
     try {
-      const res = await fetchKubeOvnSubnets(cloudId, false, true);
+      const res = await fetchKubeOvnSubnets(cloudId, true);
       const items = Array.isArray(res?.data?.items) ? res.data.items : [];
       const flat = items.filter((item: any) => {
         const t = String(item?.metadata?.annotations?.[SUBNET_TYPE_KEY] || '').trim().toLowerCase();

@@ -7,6 +7,7 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { claimHarvesterUsbDevice, unclaimHarvesterUsbDevice } from '../../../../../../services/harvesterApi';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 interface Props {
   cloudId: string;
@@ -16,12 +17,11 @@ interface Props {
   raw?: any;
   showLog?: boolean;
   bordered?: boolean;
-  /** 标准视图下隐藏「查看YAML」等运维向入口 */
-  mode?: 'standard' | 'ops';
 }
 
-const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRefresh, raw, showLog, bordered = true, mode = 'ops' }) => {
-  const isStandardView = mode === 'standard';
+const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRefresh, raw, showLog, bordered = true }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const isStandardView = !hasOpsView;
   const [keyword, setKeyword] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');

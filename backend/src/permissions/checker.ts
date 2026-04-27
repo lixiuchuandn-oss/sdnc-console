@@ -10,6 +10,11 @@
 import { PermissionRegistry } from './registry';
 import { InheritanceEngine } from './inheritance';
 
+/** `clouds.console:*` 的宽松继承不包含容器子域（与预置「云计算用户」等仅算网/存角色对齐；容器须显式 atoms 或 `clouds:read` / `clouds.containers:read`） */
+function isCloudsContainersResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
+}
+
 export class PermissionChecker {
   private registry: PermissionRegistry;
   private inheritanceEngine: InheritanceEngine;
@@ -54,6 +59,22 @@ export class PermissionChecker {
           return true;
         }
       }
+      if (
+        base.startsWith('clouds.containers.') &&
+        base !== 'clouds.containers' &&
+        (verb === 'read' || verb === 'write')
+      ) {
+        if (verb === 'read') {
+          if (
+            permissions.includes('clouds.containers:read') ||
+            permissions.includes('clouds.containers:write')
+          ) {
+            return true;
+          }
+        } else if (permissions.includes('clouds.containers:write')) {
+          return true;
+        }
+      }
       // 检查 domain:* 或 domain.feature:*
       const segments = base.split('.');
       
@@ -73,15 +94,21 @@ export class PermissionChecker {
       }
     }
 
-    // 4. 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（多云资源相关功能）
-    if (base && base.startsWith('clouds.') && verb === 'read' && base !== 'clouds') {
+    // 4. 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，见 isCloudsContainersResourceBase）
+    if (
+      base &&
+      base.startsWith('clouds.') &&
+      verb === 'read' &&
+      base !== 'clouds' &&
+      !isCloudsContainersResourceBase(base)
+    ) {
       if (permissions.includes('clouds.console:read') || permissions.includes('clouds.console:write')) {
         return true;
       }
     }
 
-    // 4b. 特殊规则：clouds.console:write 包含所有 clouds.*:write（与 4 对称）
-    if (base && base.startsWith('clouds.') && verb === 'write') {
+    // 4b. 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，与 4 对称）
+    if (base && base.startsWith('clouds.') && verb === 'write' && !isCloudsContainersResourceBase(base)) {
       if (permissions.includes('clouds.console:write')) {
         return true;
       }

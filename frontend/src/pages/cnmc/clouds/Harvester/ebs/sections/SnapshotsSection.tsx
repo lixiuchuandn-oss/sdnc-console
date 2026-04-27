@@ -58,6 +58,7 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 // -----------------------------------------------------------------------------
 // Props（云详情「卷快照」Tab 注入）
@@ -80,7 +81,6 @@ interface Props {
   isTenant?: boolean;
   namespaces?: any[];
   bordered?: boolean;
-  mode?: 'standard' | 'ops';
 }
 
 const SnapshotsSection: React.FC<Props> = ({ 
@@ -91,9 +91,9 @@ const SnapshotsSection: React.FC<Props> = ({
   isTenant = false,
   namespaces = [],
   bordered = true,
-  mode = 'ops'
 }) => {
-  const isStandardView = mode === 'standard';
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const isStandardView = !hasOpsView;
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -175,7 +175,7 @@ const SnapshotsSection: React.FC<Props> = ({
         (x.alias && x.alias.toLowerCase().includes(k))
       );
     }
-    if (mode === 'ops' && namespaceFilter) {
+    if (hasOpsView && namespaceFilter) {
       d = d.filter((x: any) => x.namespace === namespaceFilter);
     }
     if (statusFilter) {
@@ -186,7 +186,7 @@ const SnapshotsSection: React.FC<Props> = ({
       }
     }
     return d;
-  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter, mode, isPublicNamespace]);
+  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter, hasOpsView, isPublicNamespace]);
 
   // ==============================================================================
   // 3. 交互处理 (Action Handlers)
@@ -344,9 +344,9 @@ const SnapshotsSection: React.FC<Props> = ({
         </span>
       ),
     },
-    ...(mode === 'ops' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
+    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
     { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc'  },
-    ...(mode === 'ops' ? [{ title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName' }] : []),
+    ...(hasOpsView ? [{ title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName' }] : []),
     { 
       title: '状态', 
       dataIndex: 'readyToUse', 
@@ -393,7 +393,7 @@ const SnapshotsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, isStandardView, mode, handleOpenDrawer, handleRestore, handleDelete, hasSnapshotsWrite]);
+  ], [isTenant, isStandardView, hasOpsView, handleOpenDrawer, handleRestore, handleDelete, hasSnapshotsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_volume_snapshots_list');
@@ -415,7 +415,7 @@ const SnapshotsSection: React.FC<Props> = ({
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
           />
-          {!isTenant && mode === 'ops' && (
+          {!isTenant && hasOpsView && (
             <Select
               allowClear
               showSearch

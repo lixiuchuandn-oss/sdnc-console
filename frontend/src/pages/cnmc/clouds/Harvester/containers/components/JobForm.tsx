@@ -45,7 +45,7 @@ import {
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer } from './index';
 
 // ============================================================
@@ -616,7 +616,7 @@ const JobForm: React.FC<JobFormProps> = ({
                   <Select
                     showSearch
                     optionFilterProp="label"
-                    options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+                    options={namespacesOptions.filter((ns) => !isSystemNamespace(ns)).map((ns) => ({ label: ns, value: ns }))}
                   />
                 </Form.Item>
               </Col>

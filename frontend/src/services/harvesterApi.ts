@@ -67,6 +67,7 @@ export const updateHarvesterVpc = async (cloudId: string, name: string, payload:
  * 获取 Harvester 快照列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterSnapshots = async (
@@ -77,7 +78,7 @@ export const fetchHarvesterSnapshots = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
@@ -113,7 +114,7 @@ export const deleteHarvesterPVC = async (cloudId: string, namespace: string, nam
  * 获取 Harvester 计划虚拟机备份列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
- * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterScheduleVmBackups = async (
@@ -124,7 +125,7 @@ export const fetchHarvesterScheduleVmBackups = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   const url = `/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`;
@@ -169,6 +170,7 @@ export const updateHarvesterScheduleVmBackup = async (cloudId: string, namespace
  * 获取 Harvester 备份列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterBackups = async (
@@ -179,7 +181,7 @@ export const fetchHarvesterBackups = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
@@ -258,6 +260,7 @@ export const abortHarvesterMigration = async (cloudId: string, instanceId: strin
  * 获取 Harvester SSH 密钥列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterSshKeys = async (
@@ -268,7 +271,7 @@ export const fetchHarvesterSshKeys = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/sshkeys${queryString ? `?${queryString}` : ''}`);
@@ -318,13 +321,13 @@ export const fetchHarvesterIngresses = async (cloudId: string, force = false) =>
  * 获取 Harvester 负载均衡器列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
- * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false, skipSync = false) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   const queryString = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester-loadbalancers${queryString ? `?${queryString}` : ''}`);
 };
@@ -333,7 +336,7 @@ export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false
  * 获取 Harvester 模板列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
- * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterTemplates = async (
@@ -344,7 +347,7 @@ export const fetchHarvesterTemplates = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/templates${queryString ? `?${queryString}` : ''}`);
@@ -368,13 +371,13 @@ export const createHarvesterVmFromTemplate = async (
  * 获取 Harvester IP 池列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
- * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterIPPools = async (cloudId: string, force = false, skipSync = false) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   const queryString = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/ippools${queryString ? `?${queryString}` : ''}`);
 };
@@ -383,13 +386,13 @@ export const fetchHarvesterIPPools = async (cloudId: string, force = false, skip
  * 获取 Harvester NAD（网络附加定义）列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
- * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterNads = (cloudId: string, force = false, skipSync = false) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   const queryString = params.toString();
   return apiRequest(`/api/clouds/${cloudId}/resources/harvester/nads${queryString ? `?${queryString}` : ''}`);
 };
@@ -656,6 +659,7 @@ export const fetchCloudProviderOvnFips = async (
 
 /**
  * 获取云提供商 OVN SNAT 规则列表
+ * @param skipSync 兼容旧调用，不再发往服务端
  */
 export const fetchCloudProviderOvnSnatRules = async (
   cloudId: string,
@@ -664,7 +668,8 @@ export const fetchCloudProviderOvnSnatRules = async (
   scope: CloudOvnNetworkScope = 'legacy',
   mergePublicScenarioNamespaces?: boolean,
 ) => {
-  const extra: Record<string, string | boolean | undefined> = { force, skipSync };
+  void skipSync;
+  const extra: Record<string, string | boolean | undefined> = { force };
   if (mergePublicScenarioNamespaces !== undefined) {
     extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
   }
@@ -673,6 +678,7 @@ export const fetchCloudProviderOvnSnatRules = async (
 
 /**
  * 获取云提供商 OVN DNAT 规则列表
+ * @param skipSync 兼容旧调用，不再发往服务端
  */
 export const fetchCloudProviderOvnDnatRules = async (
   cloudId: string,
@@ -681,7 +687,8 @@ export const fetchCloudProviderOvnDnatRules = async (
   scope: CloudOvnNetworkScope = 'legacy',
   mergePublicScenarioNamespaces?: boolean,
 ) => {
-  const extra: Record<string, string | boolean | undefined> = { force, skipSync };
+  void skipSync;
+  const extra: Record<string, string | boolean | undefined> = { force };
   if (mergePublicScenarioNamespaces !== undefined) {
     extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
   }
@@ -837,6 +844,7 @@ export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
  * @param excludeSystem 是否排除系统命名空间，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterNamespaces = async (
@@ -849,7 +857,7 @@ export const fetchHarvesterNamespaces = async (
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (excludeSystem) params.append('excludeSystem', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   // 当 force=true 时，URL 中包含 force=true，requestManager 会自动跳过缓存
@@ -891,6 +899,7 @@ export const deleteHarvesterNamespace = async (cloudId: string, name: string) =>
  * 获取 Harvester 卷列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterVolumes = async (
@@ -901,7 +910,7 @@ export const fetchHarvesterVolumes = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
@@ -925,6 +934,7 @@ export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?
  * 获取 Harvester 存储类列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterStorageClasses = async (
@@ -935,10 +945,10 @@ export const fetchHarvesterStorageClasses = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
-  const mustBypassCache = !!(force || skipSync);
+  const mustBypassCache = !!force;
   return await apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/storage-classes${query ? `?${query}` : ''}`,
     { skipCache: mustBypassCache }
@@ -959,6 +969,7 @@ export const fetchHarvesterStorageClassDetail = async (cloudId: string, name: st
  * 获取 Harvester 镜像列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchHarvesterImages = async (
@@ -969,7 +980,7 @@ export const fetchHarvesterImages = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(
@@ -1211,12 +1222,13 @@ export const deleteHarvesterImage = async (cloudId: string, namespace: string, n
 /**
  * 获取 KubeOVN 提供商网络列表
  * @param cloudId 云环境 ID
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchKubeOvnProviderNetworks = async (cloudId: string, force = false, skipSync = false) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   const query = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/provider-networks${query ? `?${query}` : ''}`);
 };
@@ -1244,12 +1256,13 @@ export const deleteKubeOvnProviderNetwork = async (cloudId: string, name: string
 /**
  * 获取 KubeOVN VLAN 列表
  * @param cloudId 云环境 ID
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
  */
 export const fetchKubeOvnVlans = async (cloudId: string, force = false, skipSync = false) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   const query = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/vlans${query ? `?${query}` : ''}`);
 };
@@ -1365,13 +1378,11 @@ export const saveHarvesterVmAsTemplate = async (
 };
 
 /**
- * 获取 KubeOVN VPC 列表
+ * 获取 KubeOVN VPC 列表（须 `ovnNetworkScope`：vpc=业务 VPC；all=含内置；underlay=仅 underlay 注解）
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 兼容旧调用，不再发往服务端
  * @returns Promise<any>
- */
-/**
- * 获取 KubeOVN VPC 列表（须 `ovnNetworkScope`：vpc=业务 VPC；all=含内置；underlay=仅 underlay 注解）
  */
 export const fetchKubeOvnVpcs = async (
   cloudId: string,
@@ -1383,7 +1394,7 @@ export const fetchKubeOvnVpcs = async (
   const params = new URLSearchParams();
   params.set('ovnNetworkScope', ovnNetworkScope);
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs?${query}`);
@@ -1391,6 +1402,7 @@ export const fetchKubeOvnVpcs = async (
 
 /**
  * 获取 KubeOVN 子网列表（须 `ovnNetworkScope`）
+ * @param skipSync 兼容旧调用，不再发往服务端
  */
 export const fetchKubeOvnSubnets = async (
   cloudId: string,
@@ -1402,10 +1414,10 @@ export const fetchKubeOvnSubnets = async (
   const params = new URLSearchParams();
   params.set('ovnNetworkScope', ovnNetworkScope);
   if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
+  void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
-  const mustBypassCache = !!(force || skipSync);
+  const mustBypassCache = !!force;
   return await apiRequest(`/api/clouds/${cloudId}/resources/subnets?${query}`, {
     skipCache: mustBypassCache,
   });
@@ -2229,9 +2241,12 @@ export const getRegistryCatalog = async (
   params.append('server', server);
   if (username) params.append('username', username);
   if (password) params.append('password', password);
-  if (insecure) params.append('insecure', 'true');
+  // 强制添加 insecure 参数，默认为 true
+  params.append('insecure', insecure === false ? 'false' : 'true');
   if (n) params.append('n', String(n));
   if (last) params.append('last', last);
+  
+  console.log('[harvesterApi] getRegistryCatalog params:', params.toString());
   
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/catalog?${params.toString()}`);
 };
@@ -2264,7 +2279,8 @@ export const getRegistryTags = async (
   params.append('repository', repository);
   if (username) params.append('username', username);
   if (password) params.append('password', password);
-  if (insecure) params.append('insecure', 'true');
+  // 强制添加 insecure 参数，默认为 true
+  params.append('insecure', insecure === false ? 'false' : 'true');
   if (n) params.append('n', String(n));
   if (last) params.append('last', last);
   

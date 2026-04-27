@@ -21,6 +21,7 @@ import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNames
 import { deleteHarvesterService, fetchHarvesterServiceDetail, updateHarvesterService, fetchHarvesterPodLog, fetchHarvesterPodEvents, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { ServiceFormModal, YamlEditModal, PodTerminal, PodLogViewer } from '../../containers/components';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 格式化时间 - 将 UTC 时间转换为本地时间显示
@@ -100,7 +101,6 @@ interface Props {
   nsValue?: string;
   onNsChange?: (v?: string) => void;
   pods?: any[];
-  mode?: 'standard' | 'ops';
   createDefaultNamespace?: string;
 }
 
@@ -114,13 +114,13 @@ const ServicesSection: React.FC<Props> = ({
   nsValue,
   onNsChange,
   pods,
-  mode = 'ops',
   createDefaultNamespace,
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const formDefaultNs = createDefaultNamespace ?? nsValue;
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { message } = App.useApp();
-  const isStandardView = mode === 'standard';
+  const isStandardView = !hasOpsView;
   // 工具栏过滤及详情抽屉状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');

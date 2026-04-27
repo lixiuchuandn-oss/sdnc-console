@@ -15,7 +15,7 @@ import {
   type RancherClusterWorkloadsSubKey,
 } from '../../../../layouts/admin/rancher/rancherClusterSidebar';
 import type { RancherK8sListKind } from '../../../../services/rancherClusterApi';
-import '../Cloudmap/pool/styles/cloudmap-detail-layout.css';
+import '../Cloudmap/pool/styles/layout.css';
 import './pool/styles/rancher-workspace.css';
 import ClusterProjectsPanel from './pool/panels/cluster/ClusterProjectsPanel';
 import ClusterNamespacesPanel from './pool/panels/cluster/ClusterNamespacesPanel';

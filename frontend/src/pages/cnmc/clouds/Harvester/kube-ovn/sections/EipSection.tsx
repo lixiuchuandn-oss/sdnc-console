@@ -244,9 +244,20 @@ export const EipSection: React.FC<EipSectionProps> = ({
     }
     try {
       const values = await form.validateFields();
+      const v4 = String(values.v4Ip ?? '').trim();
+      if (v4) {
+        const owner = (Array.isArray(eips) ? eips : []).find((ex: any) => {
+          const ip = String(ex?.spec?.v4Ip ?? ex?.status?.v4Ip ?? '').trim();
+          return ip && ip === v4;
+        });
+        if (owner) {
+          const disp = ovnDisplayName(owner);
+          message.error(`该公网 IP 已被 「${disp}」占用，请更换其它地址或留空由系统分配`);
+          return;
+        }
+      }
       setCreateLoading(true);
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
-      const v4 = String(values.v4Ip ?? '').trim();
       const displayName = String(values.displayName ?? '').trim();
       const vpc = String(values.vpc ?? '').trim();
       const routeScope = values.routeScope as string | undefined;
@@ -267,7 +278,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
         type: 'nat',
       };
       await createCloudProviderOvnEip(cloudId, payload, scope);
-      message.success('EIP 创建成功');
+      message.success(networkScope === 'flat' ? '公网 IP 创建成功' : 'EIP 创建成功');
       setIsCreateVisible(false);
       form.resetFields();
       onRefresh(true);
@@ -282,6 +293,16 @@ export const EipSection: React.FC<EipSectionProps> = ({
       } catch (parseError) {
         // ignore
       }
+      const rd = e?.responseData;
+      if (rd?.details != null) {
+        const ds = typeof rd.details === 'string' ? rd.details : JSON.stringify(rd.details);
+        if (ds && !errMsg.includes(ds.slice(0, 40))) {
+          errMsg = `${errMsg} | ${ds.length > 400 ? `${ds.slice(0, 400)}…` : ds}`;
+        }
+      }
+      errMsg = errMsg
+        .replace(/该公网 IP 已被\s*EIP「/g, '该公网 IP 已被 「')
+        .replace(/已被\s*EIP「/g, '已被 「');
       message.error(errMsg);
     } finally {
       setCreateLoading(false);
@@ -552,6 +573,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
             name="displayName"
             label="名称"
             rules={[
+              { required: true, message: '请输入名称' },
               {
                 validator: async (_, value) => {
                   const s = String(value ?? '').trim();
@@ -567,7 +589,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
               },
             ]}
           >
-            <Input placeholder="可选" />
+            <Input placeholder="展示名称，必填" />
           </Form.Item>
 
           {networkScope === 'vpc' && (

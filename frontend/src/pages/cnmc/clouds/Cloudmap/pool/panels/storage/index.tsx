@@ -25,7 +25,6 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
 
 export type CloudmapStorageGroupTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   showLog: boolean;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
@@ -64,7 +63,6 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
 ) => {
   const {
     cloudId,
-    mode,
     showLog,
     checkPerm,
     innerActiveKey,
@@ -96,7 +94,6 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
           loading={resourceLoading.volumes}
           vms={ecs}
           storageClasses={harvesterStorageClasses}
-          mode={mode}
           onRefresh={() => {
             loadResource(
               'volumes',
@@ -134,7 +131,6 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
           namespaces={harvesterNamespaces}
           loading={resourceLoading.snapshots}
           onRefresh={() => loadTabResource('snapshots', true)}
-          mode={mode}
         />
         <DebugJSON data={rawSnapshots} show={showLog} />
       </>

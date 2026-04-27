@@ -3,7 +3,7 @@
 > **适用范围**：`backend/src/`。  
 > **本文件是后端源码目录划分与文件放置规则的唯一权威说明**；Code Review 与新增代码以本文为准。  
 > **技术栈、环境变量、对外 API 路径总览、WebSocket 路径** 与运行方式见仓库根目录 **`AGENTS.md`**（与本文互补，不重复维护两套「API 清单」）。  
-> **产品/平台心智**（CNMC / SDNCC / CNSOC / SETTINGS）与前端路由归属对齐，见 **`frontend/src/STRUCTURE.md`** —— 后端以 **HTTP 路径与业务域** 映射到这些平台，不要求目录名与前端 `pages/` 逐段同构。
+> **产品/平台心智**（CNMC / **TENANTS** / SDNCC / CNSOC / SETTINGS）与前端路由归属对齐，见 **`frontend/src/STRUCTURE.md`** —— 后端以 **HTTP 路径与业务域** 映射到这些平台，不要求目录名与前端 `pages/` 逐段同构。
 
 ---
 
@@ -21,8 +21,8 @@
 
 | 术语 | 含义 |
 |------|------|
-| **平台** | `CNMC` / `SDNCC` / `CNSOC` / `SETTINGS`，与前端 `RouteSpec.platform` 及 `frontend/src/STRUCTURE.md` 一致。 |
-| **业务域** | 平台内可独立讲解的一块能力（如多云下的 Harvester、阿里云 SDN、租户树）。 |
+| **平台** | `CNMC` / **`TENANTS`（租户管理）** / `SDNCC` / `CNSOC` / `SETTINGS`，与前端 `RouteSpec.platform` 及 `frontend/src/STRUCTURE.md` 一致。 |
+| **业务域** | 平台内可独立讲解的一块能力（如多云下的 Harvester、阿里云 SDN；租户/组织树属 **TENANTS**）。 |
 | **路由模块** | `routes/` 下挂载到 Express 的 Router 或子应用，负责 HTTP 契约、参数校验入口、调用 service。 |
 | **服务模块** | `services/` 下封装对外部系统（云 API、K8s、VR 等）与复杂业务规则，**可被多个路由复用**。 |
 | **实体（Entity）** | TypeORM `entities/` 下与表结构对应的定义；可按域分子目录。 |
@@ -64,7 +64,8 @@
 
 | 平台 | 主要能力 | 典型后端落点 |
 |------|----------|----------------|
-| **CNMC** | 资源池、多云实例、Harvester/各云 API、仪表盘入口、租户（若业务属 CNMC） | `routes/clouds.ts`、`routes/clouds/**`、`routes/dashboard.ts`、`routes/tenants/` |
+| **CNMC** | 资源池、多云实例、Harvester/各云 API、仪表盘入口等（**不含**租户管理产品线） | `routes/clouds.ts`、`routes/clouds/**`、`routes/dashboard.ts` |
+| **TENANTS** | 租户、组织、租户用户等；与 CNMC **平级** | `routes/tenants/`、`/api/tenants` 等（以 `index.ts` 挂载为准） |
 | **SDNCC** | SRv6、IPsec、ACL、NAT、VR配置、云企业网等 | `routes/sdn/**`、`routes/clouds.ts` 中与网络编排相关部分（若有） |
 | **CNSOC** | 安全域、服务目录、流量编排、威胁事件等 | `routes/sdn/securityDomains.ts`、`routes/sdn/services.ts`、`routes/sdn/trafficOrchestration.ts`、`routes/aisoc/**` |
 | **SETTINGS** | 系统用户、系统配置、审计日志、授权 | `routes/sysuser/`、`routes/system.ts`、`routes/auditLogs.ts`、`routes/tools/license.ts` |
@@ -222,3 +223,4 @@ npm test
 | 2026-04-13 | 初版：对齐 `frontend/src/STRUCTURE.md` 体裁，定义 `backend/src` 权威结构与平台映射 |
 | 2026-04-13 | 删除已废弃的 `routes/clouds/harvester/old/`（逻辑已由 `handlers/` + provider 承接；此前未纳入 `tsc` 编译） |
 | 2026-04-13 | 新增「待统一事项」：`entities/vRouter` 与 `services/vrouter` 目录大小写备案，延后统一 |
+| 2026-04-27 | 租户管理为独立平台 **TENANTS**：§2/§5 与前端一致；`routes/tenants/` 归入 TENANTS 而非 CNMC |

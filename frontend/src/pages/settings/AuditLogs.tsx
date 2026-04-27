@@ -50,7 +50,12 @@ const AuditLogs: React.FC = () => {
     })();
   }, []);
 
-  const fetchLogs = async (page: number, limit: number, search?: string) => {
+  const fetchLogs = async (
+    page: number,
+    limit: number,
+    search?: string,
+    range?: [Dayjs | null, Dayjs | null] | null,
+  ) => {
     setLoading(true);
     try {
       const queryParams = new URLSearchParams({
@@ -59,6 +64,10 @@ const AuditLogs: React.FC = () => {
       });
       if (search) {
         queryParams.append('search', search);
+      }
+      if (range && range[0] && range[1]) {
+        queryParams.append('dateFrom', range[0].format('YYYY-MM-DD'));
+        queryParams.append('dateTo', range[1].format('YYYY-MM-DD'));
       }
       const endpoint = `/api/audit-logs?${queryParams.toString()}`;
       const res = await apiRequest(endpoint);
@@ -73,8 +82,8 @@ const AuditLogs: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchLogs(currentPage, pageSize, searchText);
-  }, [currentPage, pageSize, searchText]);
+    fetchLogs(currentPage, pageSize, searchText, dateRange);
+  }, [currentPage, pageSize, searchText, dateRange]);
 
   // 动作英文到中文的映射
   const actionMap = useMemo<Record<string, string>>(() => ({
@@ -805,28 +814,17 @@ const AuditLogs: React.FC = () => {
 
   // 过滤后的数据
   const filteredData = useMemo(() => {
-    return data.filter(record => {
-      // 动作筛选
+    return data.filter((record) => {
       if (actionFilter) {
         const recordAction = formatAction(record.action, record.details);
         if (recordAction !== actionFilter) return false;
       }
-      
-      // 时间筛选
-      if (dateRange && dateRange[0] && dateRange[1]) {
-        const recordDate = dayjs(record.createdAt);
-        if (recordDate.isBefore(dateRange[0], 'day') || recordDate.isAfter(dateRange[1], 'day')) {
-          return false;
-        }
-      }
-      
       return true;
     });
-  }, [data, actionFilter, dateRange]);
+  }, [data, actionFilter]);
 
-  // 动作/时间筛选为前端筛选，仅作用于当前页数据；启用时 total 以当前筛选结果为准，避免分页显示错误
-  const hasClientSideFilter = Boolean(actionFilter || (dateRange && dateRange[0] && dateRange[1]));
-  const paginationTotal = hasClientSideFilter ? filteredData.length : total;
+  /** 日期与关键字已由服务端过滤；动作下拉仍依赖当前页样本，仅过滤当前页 */
+  const paginationTotal = total;
 
   const columns: ColumnsType<AuditLog> = [
     {
@@ -998,7 +996,7 @@ const AuditLogs: React.FC = () => {
           </Button>
         </Space>
       }
-      onRefresh={() => fetchLogs(currentPage, pageSize, searchText)}
+      onRefresh={() => fetchLogs(currentPage, pageSize, searchText, dateRange)}
     >
       <Table
         className="std-table"

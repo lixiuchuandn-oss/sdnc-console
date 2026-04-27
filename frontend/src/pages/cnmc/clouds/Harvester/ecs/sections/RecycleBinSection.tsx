@@ -79,6 +79,7 @@ import RecycleBinTaskConfigModal from '../../ecs/modals/RecycleBinTaskConfigModa
 import RecycleBinRecordsSection from './RecycleBinRecordsSection';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -101,7 +102,6 @@ interface Props {
   volumes?: any[];
   images?: any[];
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
 }
 
 const RecycleBinSection: React.FC<Props> = ({ 
@@ -113,8 +113,8 @@ const RecycleBinSection: React.FC<Props> = ({
   volumes = [],
   images = [],
   isTenant = false,
-  mode = 'ops'
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
   // ==========================================
@@ -805,7 +805,7 @@ const RecycleBinSection: React.FC<Props> = ({
         return <Badge status={status as any} text={cnVmStatus(s)} />;
       },
     },
-    ...(mode === 'ops' ? [
+    ...(hasOpsView ? [
       {
         title: '命名空间',
         key: 'namespace',
@@ -973,7 +973,7 @@ const RecycleBinSection: React.FC<Props> = ({
             label: '恢复',
             onClick: () => handleRestore(r),
           },
-          ...(!isTenant && mode === 'ops' ? [
+          ...(!isTenant && hasOpsView ? [
             { type: 'divider' },
             {
               key: 'opsinfo',
@@ -1000,7 +1000,7 @@ const RecycleBinSection: React.FC<Props> = ({
     },
     ];
     return cols;
-  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasRecycleBinWrite, isTenant, mode]);
+  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasRecycleBinWrite, isTenant, hasOpsView]);
 
   /**
    * 使用 useTableColumnSettings hook 管理列显示/隐藏
@@ -1047,7 +1047,7 @@ const RecycleBinSection: React.FC<Props> = ({
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
-          {!isTenant && mode === 'ops' && namespaceOptions.length > 0 && (
+          {!isTenant && hasOpsView && namespaceOptions.length > 0 && (
             <Select
               allowClear
               showSearch

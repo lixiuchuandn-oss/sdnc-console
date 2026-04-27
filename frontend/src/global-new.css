@@ -193,6 +193,13 @@ html, body, #root {
   width: 100%;
 }
 
+/* PhysicalNodeDetailDrawer：HMS 主板/处理器 Descriptions 行高略收紧（表格走标准 .std-table，与 VmSection 一致） */
+.hms-hw-same-row-height.ant-descriptions-bordered .ant-descriptions-item-label,
+.hms-hw-same-row-height.ant-descriptions-bordered .ant-descriptions-item-content {
+  padding: 8px 16px !important;
+  line-height: 22px !important;
+}
+
 .std-table .ant-table {
   font-size: 14px;
   width: 100%;
@@ -869,4 +876,93 @@ html, body, #root {
 
   font-size: 12px;
 
+}
+
+/* VR 详情抽屉 · JSON 查看器（布局与等宽字体集中在样式表，避免组件内联 font） */
+.vr-detail-json-loading {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vr-detail-json-viewport {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+.vr-detail-json-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+.vr-detail-json-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.vr-detail-json-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.vr-detail-json-scroll::-webkit-scrollbar-thumb {
+  background: #e0e0e0;
+  border-radius: 3px;
+}
+.vr-detail-json-scroll::-webkit-scrollbar-thumb:hover {
+  background: #ccc;
+}
+.vr-detail-json-scroll::-webkit-scrollbar-button {
+  display: none;
+}
+.vr-detail-json-inner {
+  background: #fff;
+}
+.vr-detail-json-rows {
+  display: flex;
+  align-items: stretch;
+  min-height: 80px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-size: 12px;
+}
+.vr-detail-json-linewrap {
+  flex-shrink: 0;
+  width: 46px;
+  padding: 12px 0;
+  background: var(--ant-color-fill-alter, #f6f8fa);
+  border-right: 1px solid var(--ant-color-border-secondary, #e8ecf0);
+  text-align: right;
+  user-select: none;
+}
+.vr-detail-json-linenum {
+  padding-right: 10px;
+  line-height: 20px;
+  height: 20px;
+  color: var(--ant-color-text-secondary, #656d76);
+}
+.vr-detail-json-codecol {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 12px 12px 0;
+}
+.vr-detail-json-codeline {
+  line-height: 20px;
+  min-height: 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ant-color-text, #1f2328);
+}
+
+.vr-detail-merge-hint {
+  text-align: center;
+  margin-top: 16px;
+}
+
+/* VR 详情抽屉 · 网卡表 IPv6 单元格换行 */
+.vr-nic-ipv6-cell {
+  white-space: pre-wrap;
+  word-break: break-all;
 }

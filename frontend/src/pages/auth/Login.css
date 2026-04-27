@@ -126,3 +126,123 @@
     font-size: 28px;
   }
 }
+
+/* ==========================================================================
+   登录页共用：/login 与 /admin/login
+   全屏背景图（左主图右留白）+ 右侧白卡；图：public/images/11111.png
+   ========================================================================== */
+.login-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  /* 右侧留白：整块登录区略向左（离右边缘更远一些） */
+  padding-right: clamp(48px, 7vw, 112px);
+}
+
+.login-page__panel {
+  flex: 0 0 clamp(320px, 44vw, 580px);
+  max-width: min(100%, 580px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 12px 32px 20px;
+  box-sizing: border-box;
+}
+
+.login-page__content {
+  width: 100%;
+  max-width: 400px;
+  text-align: left;
+}
+
+.login-page .login-page__header {
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.login-page .login-page__card .login-header {
+  margin-bottom: 24px;
+}
+
+.login-page .login-page__title {
+  color: #141414;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.5px;
+}
+
+.login-page .login-page__subtitle {
+  color: #595959;
+  font-size: 15px;
+  margin: 0;
+  font-weight: 400;
+}
+
+.login-page .login-page__card {
+  background: #ffffff !important;
+  backdrop-filter: none;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.08);
+  /* 白卡加高、内边距略增 */
+  min-height: min(540px, 82vh);
+  padding: 48px 40px 44px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.login-page .login-page__card .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 !important;
+}
+
+.login-page .login-page__footer {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  color: #8c8c8c;
+  font-size: 13px;
+  text-align: center;
+}
+
+.login-page .login-page__footer p {
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .login-page {
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 100dvh;
+    background-position: top center !important;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .login-page__panel {
+    flex: 0 1 auto;
+    max-width: 100%;
+    width: 100%;
+    padding: 20px 0 28px;
+  }
+
+  .login-page .login-page__card {
+    min-height: min(520px, 70vh);
+    padding: 36px 24px 32px;
+  }
+
+  .login-page .login-page__title {
+    font-size: 24px;
+  }
+}

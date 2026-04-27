@@ -32,7 +32,6 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
 
 export type CloudmapFlatNetworkGroupTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   showLog: boolean;
   checkPerm: (act: string) => boolean;
   canReadFlatSubnets: boolean;
@@ -91,7 +90,6 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
 ) => {
   const {
     cloudId,
-    mode,
     showLog,
     checkPerm,
     canReadFlatSubnets,
@@ -122,7 +120,6 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
         <UnderlaySubnetsSection
           cloudId={cloudId}
           mode="flat"
-          displayMode={mode}
           onSubnetsChanged={() =>
             loadResource(
               'subnets',

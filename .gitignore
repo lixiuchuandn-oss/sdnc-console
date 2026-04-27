@@ -52,6 +52,7 @@ docs/
 # Documentation and Bugs
 /docs/
 /bug/
+/design/
 
 # Temporary Upload Directories
 /backend/temp_uploads/

@@ -31,6 +31,7 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import PodTerminal from '../components/PodTerminal';
+import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
 
 type Props = {
   pods: any[];
@@ -72,9 +73,35 @@ const renderPodStatus = (pod: any) => {
   
   // 检查容器状态
   const containerStatuses = pod?.status?.containerStatuses || [];
+  
+  // 优先检查 terminated 状态（如 CrashLoopBackOff、Error 等）
+  const terminated = containerStatuses.find((c: any) => c?.state?.terminated);
+  if (terminated) {
+    const reason = terminated.state.terminated.reason;
+    if (reason === 'Error' || reason === 'ContainerCannotRun') {
+      return <Tag color="red">错误</Tag>;
+    }
+    return <Tag color="red">{reason || '已终止'}</Tag>;
+  }
+  
+  // 检查 waiting 状态
   const waiting = containerStatuses.find((c: any) => c?.state?.waiting);
-  if (waiting && phase === 'Pending') {
-    return <Tag color="orange">{waiting.state.waiting.reason || '等待中'}</Tag>;
+  if (waiting) {
+    const reason = waiting.state.waiting.reason;
+    // CrashLoopBackOff 表示容器反复崩溃
+    if (reason === 'CrashLoopBackOff') {
+      return <Tag color="red">崩溃重启中</Tag>;
+    }
+    return <Tag color="orange">{reason || '等待中'}</Tag>;
+  }
+  
+  // 检查是否有容器未就绪（Running 阶段但有容器未启动）
+  const ready = conditions.find((c: any) => c?.type === 'Ready');
+  if (phase === 'Running' && ready?.status !== 'True') {
+    const containersReady = conditions.find((c: any) => c?.type === 'ContainersReady');
+    if (containersReady?.status !== 'True') {
+      return <Tag color="orange">启动中</Tag>;
+    }
   }
   
   const status = statusMap[phase] || statusMap.Unknown;
@@ -410,13 +437,25 @@ const PodDetailDrawer: React.FC<{
                   {
                     title: '状态',
                     key: 'status',
-                    width: 100,
+                    width: 140,
                     render: (_: any, record: any) => {
                       const s = record.status;
                       if (!s) return '-';
                       if (s.state?.running) return <Tag color="green">运行中</Tag>;
-                      if (s.state?.waiting) return <Tag color="orange">{s.state.waiting.reason}</Tag>;
-                      if (s.state?.terminated) return <Tag color="red">已终止</Tag>;
+                      if (s.state?.waiting) {
+                        const reason = s.state.waiting.reason;
+                        if (reason === 'CrashLoopBackOff') {
+                          return <Tag color="red">崩溃重启中</Tag>;
+                        }
+                        return <Tag color="orange">{reason}</Tag>;
+                      }
+                      if (s.state?.terminated) {
+                        const reason = s.state.terminated.reason;
+                        if (reason === 'Error' || reason === 'ContainerCannotRun') {
+                          return <Tag color="red">错误</Tag>;
+                        }
+                        return <Tag color="red">{reason || '已终止'}</Tag>;
+                      }
                       return '-';
                     },
                   },
@@ -554,6 +593,7 @@ const PodsSection: React.FC<Props> = ({
   statefulSets = [],
   daemonSets = [],
 }) => {
+  const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
@@ -928,7 +968,7 @@ const PodsSection: React.FC<Props> = ({
       width: 120,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
-        const items = [
+        const itemsAll = [
           {
             key: 'detail',
             label: '详情',
@@ -967,11 +1007,14 @@ const PodsSection: React.FC<Props> = ({
             },
           },
         ];
-        
+        const items = operationsReadOnly
+          ? itemsAll.filter((i) => i.key === 'detail' || i.key === 'log')
+          : itemsAll;
+
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal, getOwnerWorkload]);
+  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal, getOwnerWorkload, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -1038,25 +1081,27 @@ const PodsSection: React.FC<Props> = ({
           </button>
         </div>
         <div className="toolbar-actions">
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'batchDelete',
-                  label: selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
-                  danger: true,
-                  disabled: selectedKeys.length === 0,
+          {!operationsReadOnly ? (
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'batchDelete',
+                    label: selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
+                    danger: true,
+                    disabled: selectedKeys.length === 0,
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'batchDelete') handleBatchDelete();
                 },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'batchDelete') handleBatchDelete();
-              },
-            }}
-            trigger={['click']}
-            disabled={selectedKeys.length === 0}
-          >
-            <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
-          </Dropdown>
+              }}
+              trigger={['click']}
+              disabled={selectedKeys.length === 0}
+            >
+              <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
+            </Dropdown>
+          ) : null}
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-pods"
@@ -1083,10 +1128,14 @@ const PodsSection: React.FC<Props> = ({
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          operationsReadOnly
+            ? undefined
+            : {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+        }
       />
       
       {/* Pod 详情抽屉 */}

@@ -17,6 +17,7 @@ import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参
@@ -42,7 +43,6 @@ interface Props {
   /** 恢复弹窗用的 VM 列表；不传则与 vms 相同（创建弹窗始终用 vms） */
   restoreVms?: any[];
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
   bordered?: boolean;
 }
 
@@ -58,9 +58,9 @@ const BackupsSection: React.FC<Props> = ({
   targetVmPredicate,
   restoreVms,
   isTenant,
-  mode = 'ops',
   bordered = true,
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const vmsForRestore = restoreVms ?? vms;
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -277,7 +277,7 @@ const BackupsSection: React.FC<Props> = ({
       render: (_: any, record: any) => {
         const items: any[] = [];
         
-        if (!isTenant && mode === 'ops') {
+        if (!isTenant && hasOpsView) {
           items.push({
             key: 'opsinfo',
             label: '查看YAML',
@@ -331,7 +331,7 @@ const BackupsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [handleDelete, isTenant, mode, hasBackupsWrite]);
+  ], [handleDelete, isTenant, hasOpsView, hasBackupsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, `harvester_${type}_list`);
@@ -350,7 +350,7 @@ const BackupsSection: React.FC<Props> = ({
             onChange={e => setKeyword(e.target.value)}
             allowClear
           />
-          {mode === 'ops' && (
+          {hasOpsView && (
             <Select
               key="namespace-filter"
               allowClear
@@ -426,9 +426,8 @@ const BackupsSection: React.FC<Props> = ({
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={() => {
           setCreateModalVisible(false);
-          // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
-          // 静默刷新，不显示提示信息
-          onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
+          onRefresh?.(true, true);
+          window.setTimeout(() => onRefresh?.(true, true), 2500);
         }}
         cloudId={cloudId}
         namespaces={namespaces}

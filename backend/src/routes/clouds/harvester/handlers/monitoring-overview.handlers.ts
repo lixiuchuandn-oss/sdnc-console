@@ -14,6 +14,22 @@ import {
   getTenantAccessForMonitoring,
 } from './monitoring-helpers';
 
+function parseLonghornDefaultReplicaCount(settingsPayload: any): number | null {
+  const items = Array.isArray(settingsPayload?.data)
+    ? settingsPayload.data
+    : Array.isArray(settingsPayload?.items)
+      ? settingsPayload.items
+      : [];
+  const hit = items.find((x: any) => {
+    const id = String(x?.id ?? x?.metadata?.name ?? '').trim();
+    return id === 'default-replica-count';
+  });
+  if (!hit) return null;
+  const raw = hit?.value ?? hit?.spec?.value ?? hit?.status?.value;
+  const n = parseInt(String(raw ?? ''), 10);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
 // 监控概览 Handlers
 export async function harvesterMonitoringStorageNodesHandler(req: Request, res: Response) {
   try {
@@ -25,7 +41,20 @@ export async function harvesterMonitoringStorageNodesHandler(req: Request, res: 
     const origin = normalizeOrigin(cloud.endpoint || '');
     const url = `${origin}/v1/harvester/longhorn.io.nodes?${PAGESIZE}&${EXCLUDE}`;
     const data = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
-    res.json(data);
+    let defaultLonghornReplicaCount = 3;
+    try {
+      const sUrl = `${origin}/v1/harvester/longhorn.io.settings?${PAGESIZE}&${EXCLUDE}`;
+      const sData = await getJsonOnce(sUrl, cloud.secretKey || '', insecure, true);
+      const parsed = parseLonghornDefaultReplicaCount(sData);
+      if (parsed != null) defaultLonghornReplicaCount = parsed;
+    } catch {
+      /* 忽略：无权限或集群未暴露该 Steve 资源时沿用默认 3 */
+    }
+    const out =
+      data && typeof data === 'object' && !Array.isArray(data)
+        ? { ...data, _tower: { ...(data as any)._tower, defaultLonghornReplicaCount } }
+        : data;
+    res.json(out);
   } catch (e: any) {
     if (isUnreachableError(e)) return res.status(200).json({ data: [] });
     if (res.headersSent) return;

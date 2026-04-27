@@ -13,6 +13,8 @@ export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
   'ui.language': 'zh',
   'ui.headerIcon': '',
   'ui.headerTitle': 'Compute Tower',
+  /** 浏览器标签页标题；为空则回退为 ui.headerTitle */
+  'ui.browserTitle': '',
   'ui.headerColor': '#0A4CC0',
   'ui.headerColorEnd': '#1B64ED',
   'ui.searchBackgroundColor': '#1062fe',
@@ -25,6 +27,8 @@ export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
   'ui.loginEnableParticleBackground': 'true',
   'ui.loginButtonColor': '#1890ff',
   'ui.loginButtonHoverColor': '#40a9ff',
+  /** 授权页「颁发者」展示文案（仅界面展示；JWT 内 iss 仍以授权文件为准）。空则使用 License payload.iss */
+  'license.issuer_display': '',
   /** 操作审计日志默认保留天数 */
   'audit.logs.retention_days': '180',
   /** 管理员密码策略 JSON（仅平台 User，不含租户） */

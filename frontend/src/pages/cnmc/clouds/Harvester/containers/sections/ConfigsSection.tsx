@@ -47,6 +47,9 @@ type Props = {
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
   createDefaultNamespace?: string;
+  deployments?: any[];
+  statefulsets?: any[];
+  daemonsets?: any[];
 };
 
 /**
@@ -529,7 +532,8 @@ const ConfigMapTable: React.FC<{
   onCreateClick: () => void;
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick }) => {
+  checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -729,6 +733,9 @@ const ConfigMapTable: React.FC<{
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record, 'configmap');
         const systemHint = getSystemResourceProtectionHint(record, 'configmap');
+        const { inUse, usedBy } = checkResourceInUse('configmap', record?.metadata?.name, record?.metadata?.namespace);
+        const deleteDisabled = isSystem || inUse;
+        const deleteTooltip = isSystem ? systemHint : inUse ? `被工作负载使用: ${usedBy.slice(0, 3).join(', ')}${usedBy.length > 3 ? '...' : ''}` : undefined;
         const items = [
           {
             key: 'edit',
@@ -751,8 +758,8 @@ const ConfigMapTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
-            disabled: isSystem,
-            tooltip: systemHint,
+            disabled: deleteDisabled,
+            tooltip: deleteTooltip,
             onClick: () => {
               modal.confirm({
                 title: '确认删除',
@@ -928,7 +935,8 @@ const SecretTable: React.FC<{
   onCreateClick: () => void;
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick }) => {
+  checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -1157,6 +1165,9 @@ const SecretTable: React.FC<{
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record, 'secret');
         const systemHint = getSystemResourceProtectionHint(record, 'secret');
+        const { inUse, usedBy } = checkResourceInUse('secret', record?.metadata?.name, record?.metadata?.namespace);
+        const deleteDisabled = isSystem || inUse;
+        const deleteTooltip = isSystem ? systemHint : inUse ? `被工作负载使用: ${usedBy.slice(0, 3).join(', ')}${usedBy.length > 3 ? '...' : ''}` : undefined;
         const items = [
           {
             key: 'edit',
@@ -1179,8 +1190,8 @@ const SecretTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
-            disabled: isSystem,
-            tooltip: systemHint,
+            disabled: deleteDisabled,
+            tooltip: deleteTooltip,
             onClick: () => {
               modal.confirm({
                 title: '确认删除',
@@ -1366,6 +1377,9 @@ const ConfigsSection: React.FC<Props> = ({
   onNsChange,
   onRefresh,
   createDefaultNamespace,
+  deployments = [],
+  statefulsets = [],
+  daemonsets = [],
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
@@ -1414,6 +1428,46 @@ const ConfigsSection: React.FC<Props> = ({
       }
     }
   }, [secrets, currentSecret, secretEditMode]);
+
+  const allWorkloads = useMemo(() => [...deployments, ...statefulsets, ...daemonsets], [deployments, statefulsets, daemonsets]);
+
+  const checkResourceInUse = useCallback((resourceType: 'configmap' | 'secret', resourceName: string, namespace: string): { inUse: boolean; usedBy: string[] } => {
+    const usedBy: string[] = [];
+    
+    allWorkloads.forEach((workload: any) => {
+      const workloadNs = workload?.metadata?.namespace;
+      const workloadName = workload?.metadata?.name;
+      const template = workload?.spec?.template || {};
+      const volumes = template?.spec?.volumes || [];
+      const containers = template?.spec?.containers || [];
+      const initContainers = template?.spec?.initContainers || [];
+      
+      if (workloadNs !== namespace) return;
+      
+      if (resourceType === 'configmap') {
+        const usedInVolumes = volumes.some((v: any) => v.configMap?.name === resourceName);
+        const usedInEnv = [...containers, ...initContainers].some((c: any) => 
+          (c.env || []).some((e: any) => e.valueFrom?.configMapKeyRef?.name === resourceName) ||
+          (c.envFrom || []).some((ef: any) => ef.configMapRef?.name === resourceName)
+        );
+        if (usedInVolumes || usedInEnv) {
+          usedBy.push(`${workloadName} (${workload.kind || 'Deployment'})`);
+        }
+      } else {
+        const usedInVolumes = volumes.some((v: any) => v.secret?.secretName === resourceName);
+        const usedInEnv = [...containers, ...initContainers].some((c: any) => 
+          (c.env || []).some((e: any) => e.valueFrom?.secretKeyRef?.name === resourceName) ||
+          (c.envFrom || []).some((ef: any) => ef.secretRef?.name === resourceName)
+        );
+        const usedInImagePullSecrets = (template?.spec?.imagePullSecrets || []).some((s: any) => s.name === resourceName);
+        if (usedInVolumes || usedInEnv || usedInImagePullSecrets) {
+          usedBy.push(`${workloadName} (${workload.kind || 'Deployment'})`);
+        }
+      }
+    });
+    
+    return { inUse: usedBy.length > 0, usedBy };
+  }, [allWorkloads]);
 
   // ConfigMap 操作
   const handleCreateConfigMap = () => {
@@ -1506,6 +1560,7 @@ const ConfigsSection: React.FC<Props> = ({
             onCreateClick={handleCreateConfigMap}
             onRefresh={onRefresh}
             onEditClick={handleEditConfigMap}
+            checkResourceInUse={checkResourceInUse}
           />
         ) : (
           <SecretTable
@@ -1521,6 +1576,7 @@ const ConfigsSection: React.FC<Props> = ({
             onCreateClick={handleCreateSecret}
             onRefresh={onRefresh}
             onEditClick={handleEditSecret}
+            checkResourceInUse={checkResourceInUse}
           />
         )}
       </PageDetailSection>

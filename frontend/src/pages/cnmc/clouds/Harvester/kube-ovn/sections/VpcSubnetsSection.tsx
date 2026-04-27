@@ -24,6 +24,7 @@ import {
 } from '../lib/kubeOvnSubnetConstants';
 import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
 import { ovnDisplayName } from '../lib/ovnResourceDisplay';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * =============================================================================
@@ -50,7 +51,7 @@ type Props = {
   onRefresh?: (force?: boolean) => void;
   onRefreshNads?: (force?: boolean, silent?: boolean) => void;
   showYaml?: boolean;
-  /** 与 UnderlaySubnetsSection 一致：标准视图隐藏 ACL 列与「编辑 ACL」入口 */
+  /** 显式指定标准/运维列；不传则按 clouds.cloudmap.ops-view:write */
   displayMode?: 'standard' | 'ops';
 };
 
@@ -88,8 +89,11 @@ const VpcSubnetsSection: React.FC<Props> = ({
   onRefresh,
   onRefreshNads,
   showYaml = true,
-  displayMode = 'ops',
+  displayMode: displayModeProp,
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const resolvedDisplayMode = displayModeProp ?? (hasOpsView ? 'ops' : 'standard');
+  const effectiveShowYaml = showYaml !== false && hasOpsView;
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasVpcsWrite = useMemo(
@@ -101,7 +105,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
     [perms],
   );
   const { id: cloudId } = useParams<{ id: string }>();
-  const isStandardView = displayMode === 'standard';
+  const isStandardView = resolvedDisplayMode === 'standard';
 
   const [keyword, setKeyword] = useState('');
   const [vpc, setVpc] = useState<string | undefined>(undefined);
@@ -494,7 +498,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
           return (
             <ResourceActionsDropdown
               items={[
-                ...(showYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r) }] : []),
+                ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r) }] : []),
                 {
                   key: 'edit',
                   label: '编辑',
@@ -527,7 +531,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       },
     ],
     [
-      showYaml,
+      effectiveShowYaml,
       hasVpcsWrite,
       isStandardView,
       vpcDisplayMap,

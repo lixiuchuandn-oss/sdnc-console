@@ -132,14 +132,13 @@ export function buildInnerMenuByTab(): Partial<
   return frozen;
 }
 
-export function filterVisibleCloudmapPoolSpecs(
-  opts?: { hasFeature?: (feature: string) => boolean; ovnVpcEnabled?: boolean },
-): RouteSpec[] {
+export function filterVisibleCloudmapPoolSpecs(opts?: CloudmapPoolSidebarBuildOpts): RouteSpec[] {
   return getCloudmapPoolRouteSpecs().filter((spec) => {
     if (opts?.ovnVpcEnabled === false && spec.path.includes('/kube_ovn/')) return false;
     if (spec.requiredFeature && opts?.hasFeature && !opts.hasFeature(spec.requiredFeature)) {
       return false;
     }
+    if (opts?.poolRouteAccess && !opts.poolRouteAccess(spec)) return false;
     return true;
   });
 }
@@ -246,6 +245,8 @@ export type CloudmapPoolSidebarBuildOpts = {
   ovnVpcEnabled?: boolean;
   /** 与 `RouteSpec.requiredFeature` 对齐（侧栏过滤 OVN 等） */
   hasFeature?: (feature: string) => boolean;
+  /** 池内路由是否展示（与 `RouteSpec.requiredActions.page` 对齐；缺省展示全部） */
+  poolRouteAccess?: (spec: RouteSpec) => boolean;
 };
 
 function poolProviderRaw(cloud: Cloud): string {

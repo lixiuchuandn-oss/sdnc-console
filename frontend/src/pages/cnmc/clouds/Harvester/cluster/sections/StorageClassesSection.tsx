@@ -26,6 +26,7 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { fetchHarvesterStorageClassDetail } from '../../../../../../services/harvesterApi';
 import { isSystemStorageClass } from '../../../../../../utils/harvesterUtils';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * Props 定义
@@ -41,7 +42,6 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
 };
 
 /**
@@ -57,8 +57,9 @@ type Props = {
  * - 不直接请求后端，只消费上层注入的数据和回调
  * - 工具栏和表格区域均遵循 PageDetailSection / global-new.css 的 UI 规范
  */
-const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh, isTenant, mode = 'ops' }) => {
-  const isStandardView = mode === 'standard';
+const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh, isTenant }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const isStandardView = !hasOpsView;
   /**
    * 关键字搜索（受控 Input）
    * - 用户在顶部输入框中输入的文本

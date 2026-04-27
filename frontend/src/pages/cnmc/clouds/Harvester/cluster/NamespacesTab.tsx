@@ -14,6 +14,7 @@ import { isSystemNamespace, namespaceSectionType } from '../../../../../utils/ha
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { clearGetCacheForPath } from '../../../../../utils/requestManager';
+import { useCloudmapOpsViewWrite } from '../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件属性定义
@@ -32,7 +33,6 @@ type Props = {
   showLog?: boolean;
   raw?: any;
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
 };
 
 /**
@@ -78,14 +78,15 @@ const phaseBadge = (phase?: string) => {
  * Harvester 命名空间管理页签组件
  * 展示命名空间列表，提供创建、编辑、删除及详情查看功能
  */
-const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw, isTenant, mode = 'ops' }) => {
+const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw, isTenant }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasNamespacesWrite = useMemo(
     () => hasPermissionForAction(perms, 'clouds.namespaces:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
-  const isStandardView = mode === 'standard';
+  const isStandardView = !hasOpsView;
 
   // === 状态管理 ===
   // 搜索关键字

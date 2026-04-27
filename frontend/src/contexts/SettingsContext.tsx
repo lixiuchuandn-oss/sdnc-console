@@ -10,6 +10,8 @@ interface Settings {
   language: LanguageType;
   headerIcon?: string; // URL or base64
   headerTitle?: string;
+  /** 浏览器标签页标题；为空则使用 headerTitle */
+  browserTitle?: string;
   headerColor?: string; // 顶部导航栏渐变起始颜色
   headerColorEnd?: string; // 顶部导航栏渐变结束颜色
   searchBackgroundColor?: string; // 搜索框背景颜色
@@ -48,6 +50,7 @@ function mergeSystemUiIntoSettings(values: Record<string, string>, prev: Setting
     headerIcon:
       values['ui.headerIcon'] !== undefined ? String(values['ui.headerIcon']) : prev.headerIcon,
     headerTitle: values['ui.headerTitle'] ?? prev.headerTitle,
+    browserTitle: values['ui.browserTitle'] ?? prev.browserTitle,
     headerColor: getColor('ui.headerColor') || prev.headerColor,
     headerColorEnd: getColor('ui.headerColorEnd') || prev.headerColorEnd,
     searchBackgroundColor: getColor('ui.searchBackgroundColor') || prev.searchBackgroundColor,
@@ -88,6 +91,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // 界面相关项仅从后端 system-settings 加载，不在此硬编码默认值
     headerIcon: undefined,
     headerTitle: '',
+    browserTitle: '',
     headerColor: '',
     headerColorEnd: '',
     searchBackgroundColor: '',
@@ -188,6 +192,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, [token]);
 
+  useEffect(() => {
+    const tab = String(settings.browserTitle ?? '').trim();
+    const header = String(settings.headerTitle ?? '').trim();
+    document.title = tab || header || 'Compute Tower';
+  }, [settings.browserTitle, settings.headerTitle]);
+
   const updateSetting = async (key: keyof Settings, value: any) => {
     // Map setting keys to backend keys
     const settingKeyMap: Record<string, string> = {
@@ -195,6 +205,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       language: 'ui.language',
       headerIcon: 'ui.headerIcon',
       headerTitle: 'ui.headerTitle',
+      browserTitle: 'ui.browserTitle',
       headerColor: 'ui.headerColor',
       headerColorEnd: 'ui.headerColorEnd',
       searchBackgroundColor: 'ui.searchBackgroundColor',

@@ -7,10 +7,11 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 ### 核心能力
 
 - **多云管理 (CNMC)**: 支持阿里云、华为云、腾讯云、Harvester(KubeVirt) 等多云资源的统一管理
+- **租户管理 (TENANTS)**: 租户、组织、租户用户等与 CNMC **平级**的独立产品线（前端导航与 `RouteSpec.platform` 已单独切分）
 - **容器管理**: 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略等容器资源管理
 - **SDN管理 (SDNCC)**: SRv6隧道、IPsec VPN、ACL、NAT、虚拟路由器等网络编排能力
 - **AI SOC中心 (CNSOC)**: 安全运营、威胁分析、报告管理等安全能力
-- **系统设置**: 用户管理、租户管理、RBAC权限控制、审计日志
+- **系统设置 (SETTINGS)**: 系统用户、RBAC 角色与权限、审计日志、系统配置与授权等（与租户管理产品线区分）
 
 ## 技术栈
 
@@ -37,7 +38,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 文档 | 职责 |
 |------|------|
 | **`AGENTS.md`**（本文件） | 项目总览、技术栈、环境与运行、**对外 HTTP API / WebSocket 路径**、Harvester 容器能力表、开发与质量约定 |
-| **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
+| **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
 | **`deployment/docs/specs/...`** | Harvester 前端子树、权限、API 规格等专题文档 |
 
@@ -124,7 +125,7 @@ Compute.Tower/
 │   │   ├── pages/             # 按平台与业务域组织（细则见 frontend/src/STRUCTURE.md）
 │   │   │   ├── auth/          # 登录
 │   │   │   ├── coming-soon/   # 占位页等（可选）
-│   │   │   ├── cnmc/          # CNMC：资源总览、资源池、多云、控制台、PaaS、租户等
+│   │   │   ├── cnmc/          # CNMC：资源总览、资源池、多云、控制台、PaaS 等（租户管理产品线见 TENANTS）
 │   │   │   │   ├── dashboard/ # 资源总览
 │   │   │   │   ├── pools/     # 资源池列表、选云闸门、实例详情入口等
 │   │   │   │   ├── clouds/    # 各云厂商与 Cloudmap
@@ -144,7 +145,7 @@ Compute.Tower/
 │   │   │   │   │       ├── shared/components/  # 跨域详情抽屉与 Tab
 │   │   │   │   │       └── monitoring/    # 监控与日志
 │   │   │   │   ├── console/
-│   │   │   │   ├── tenants/
+│   │   │   │   ├── tenants/   # 租户管理：平台 TENANTS（与 CNMC 平级）；源码暂放 cnmc 下（过渡期）
 │   │   │   │   └── paas/      # PaaS 归属 CNMC（如 cloud-database/）
 │   │   │   ├── sdncc/         # SDN 管理
 │   │   │   ├── cnsoc/         # 安全运营等
@@ -497,6 +498,7 @@ const columns = [
 | 平台 | 代码 | 说明 |
 |------|------|------|
 | 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**PaaS**（源码在 `pages/cnmc/paas/`，与平台子能力一致） |
+| 租户管理 | TENANTS | 租户、组织、租户用户等；与 CNMC **平级**的独立平台（`RouteSpec.platform` / 顶栏导航）；页面源码过渡期在 `pages/cnmc/tenants/` |
 | 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略 |
 | SDN管理 | SDNCC | SRv6、IPsec、ACL、NAT、VR |
 | AI SOC中心 | CNSOC | 安全运营、威胁分析、报告 |

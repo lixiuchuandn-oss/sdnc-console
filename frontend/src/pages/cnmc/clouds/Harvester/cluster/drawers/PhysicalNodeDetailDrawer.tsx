@@ -21,6 +21,14 @@ import {
 } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
 import { ViewLinkTab } from '../../shared/components/ViewLinkTab';
+import {
+  pickLldpChassisId,
+  pickLldpLocalInterface,
+  pickLldpManagementIpv4,
+  pickLldpPeerPort,
+  pickLldpSystemDescription,
+  pickLldpSystemName,
+} from '../../hsm/lib/lldpHmsRowFields';
 
 type HmsNic = {
   device: string;
@@ -55,13 +63,20 @@ const displayCell = (v: unknown): string => {
   return s;
 };
 
+/** 与 `VmSection` 列表表一致：仅 `className="std-table"`；有数据时 `scroll.x` 由 rc-Table 在容器内处理总宽度与横向滚动。 */
+const HARVESTER_STD_TABLE = { className: 'std-table' } as const;
+
+function tableScrollXWhenHasData(len: number): { x: true } | undefined {
+  return len > 0 ? { x: true } : undefined;
+}
+
 const HMS_DISK_COLS = [
-  { title: '设备', dataIndex: 'name', key: 'name', ellipsis: true },
-  { title: '类型', dataIndex: 'type', key: 'type', ellipsis: true },
-  { title: '容量', dataIndex: 'size', key: 'size', ellipsis: true },
-  { title: '型号', dataIndex: 'model', key: 'model', ellipsis: true, render: (v: any) => displayCell(v) },
-  { title: '序列号', dataIndex: 'serial', key: 'serial', ellipsis: true, render: (v: any) => displayCell(v) },
-  { title: '挂载', dataIndex: 'mountpoint', key: 'mountpoint', ellipsis: true, render: (v: any) => displayCell(v) },
+  { title: '设备', dataIndex: 'name', key: 'name' },
+  { title: '类型', dataIndex: 'type', key: 'type' },
+  { title: '容量', dataIndex: 'size', key: 'size' },
+  { title: '型号', dataIndex: 'model', key: 'model', render: (v: any) => displayCell(v) },
+  { title: '序列号', dataIndex: 'serial', key: 'serial', render: (v: any) => displayCell(v) },
+  { title: '挂载', dataIndex: 'mountpoint', key: 'mountpoint', render: (v: any) => displayCell(v) },
 ];
 
 const HMS_MEM_COLS = [
@@ -71,27 +86,147 @@ const HMS_MEM_COLS = [
   { title: '类型', dataIndex: 'Type', key: 'type', ellipsis: true },
   { title: '速率', dataIndex: 'Speed', key: 'speed', ellipsis: true },
   { title: '厂商', dataIndex: 'Manufacturer', key: 'mfg', ellipsis: true },
-  { title: '料号', dataIndex: 'Part Number', key: 'pn', ellipsis: true },
   { title: '序列号', dataIndex: 'Serial Number', key: 'sn', ellipsis: true },
 ];
 
-/** LLDP 动态列：不设 width + tableLayout=fixed，由表格均分抽屉宽度，避免横向滚动条 */
-function buildHmsSwitchTableColumns(swList: any[]) {
-  const switchKeySet = new Set<string>();
-  for (const row of swList) {
-    if (row && typeof row === 'object') Object.keys(row).forEach((k) => switchKeySet.add(k));
-  }
-  const switchKeys = Array.from(switchKeySet).sort();
-  if (!switchKeys.length) return [];
-  return switchKeys.map((k) => ({
-    title: k,
-    dataIndex: k,
-    key: k,
-    ellipsis: { showTitle: true },
-  }));
+/** HMS LLDP：仅展示关键 TLV，列名中文（与 lldpHmsRowFields 抽键规则一致） */
+const HMS_LLDP_TABLE_COLUMNS = [
+  { title: '本机接口', dataIndex: 'localIf', key: 'localIf', ellipsis: { showTitle: true } },
+  { title: '对端系统名', dataIndex: 'sysName', key: 'sysName', ellipsis: { showTitle: true } },
+  { title: '对端系统描述', dataIndex: 'sysDesc', key: 'sysDesc', ellipsis: { showTitle: true } },
+  { title: '对端端口', dataIndex: 'peerPort', key: 'peerPort', ellipsis: { showTitle: true } },
+  { title: '对端管理 IPv4', dataIndex: 'mgmtIp', key: 'mgmtIp', ellipsis: { showTitle: true } },
+  { title: '邻居 Chassis ID', dataIndex: 'chassis', key: 'chassis', ellipsis: { showTitle: true } },
+];
+
+function mapHmsLldpRowToKeyFields(row: Record<string, any>, index: number) {
+  const rec = row && typeof row === 'object' ? (row as Record<string, string>) : {};
+  const local =
+    pickLldpLocalInterface(rec) || String((row as any)?.Interface ?? (row as any)?.interface ?? '').trim();
+  return {
+    key: `lldp-${index}`,
+    localIf: local,
+    sysName: pickLldpSystemName(rec),
+    sysDesc: pickLldpSystemDescription(rec),
+    peerPort: pickLldpPeerPort(rec),
+    mgmtIp: pickLldpManagementIpv4(rec),
+    chassis: pickLldpChassisId(rec),
+  };
 }
 
-const TABLE_FLUID = { style: { width: '100%' } as const, tableLayout: 'fixed' as const };
+/** HMS / lscpu 风格 CPU 信息字段名 → 中文（左侧标签） */
+const HMS_CPU_FIELD_LABEL_ZH: Record<string, string> = {
+  'Address sizes': '地址位宽',
+  Architecture: '架构',
+  BogoMIPS: 'BogoMIPS',
+  'Byte Order': '字节序',
+  'CPU family': 'CPU 系列',
+  'CPU max MHz': 'CPU 最高频率 (MHz)',
+  'CPU min MHz': 'CPU 最低频率 (MHz)',
+  'CPU op-mode(s)': 'CPU 运行模式',
+  'CPU(s)': '逻辑 CPU 数量',
+  'CPU(s) scaling MHz': 'CPU 调频（当前比例）',
+  'Core(s) per socket': '每插槽物理核心数',
+  Flags: '特性标志位',
+  'L1d cache': 'L1 数据缓存',
+  'L1i cache': 'L1 指令缓存',
+  'L2 cache': 'L2 缓存',
+  'L3 cache': 'L3 缓存',
+  Model: '型号（编号）',
+  'Model name': '型号名称',
+  'NUMA node(s)': 'NUMA 节点数',
+  'On-line CPU(s) list': '在线 CPU 列表',
+  'Socket(s)': '物理 CPU 插槽数',
+  Stepping: '步进',
+  'Thread(s) per core': '每核硬件线程数',
+  'Vendor ID': '厂商 ID',
+  Virtualization: '虚拟化',
+};
+
+const HMS_CPU_VULNERABILITY_LABEL_ZH: Record<string, string> = {
+  'Gather data sampling': 'Gather Data Sampling',
+  'Itlb multihit': 'iTLB 多重命中',
+  L1tf: 'L1 终端故障 (L1TF)',
+  Mds: '微架构数据采样 (MDS)',
+  Meltdown: '熔断 (Meltdown)',
+  'Mmio stale data': 'MMIO 陈旧数据',
+  'Reg file data sampling': '寄存器文件数据采样',
+  Retbleed: 'Retbleed',
+  'Spec rstack overflow': '推测执行返回栈溢出',
+  'Spec store bypass': '推测性存储旁路',
+  'Spectre v1': '幽灵 v1 (Spectre v1)',
+  'Spectre v2': '幽灵 v2 (Spectre v2)',
+  Srbds: '特殊寄存器缓冲区采样 (SRBDS)',
+  Tsa: 'TSA',
+  'Tsx async abort': 'TSX 异步中止',
+};
+
+function hmsCpuInfoLabelZh(key: string): string {
+  const k = String(key || '').trim();
+  const direct = HMS_CPU_FIELD_LABEL_ZH[k];
+  if (direct) return direct;
+  const numa = k.match(/^NUMA node(\d+) CPU\(s\)$/i);
+  if (numa) return `NUMA 节点 ${numa[1]} 上的 CPU`;
+  if (k.startsWith('Vulnerability ')) {
+    const rest = k.slice('Vulnerability '.length).trim();
+    const sub = HMS_CPU_VULNERABILITY_LABEL_ZH[rest] || rest;
+    return `安全漏洞：${sub}`;
+  }
+  return k;
+}
+
+/** HMS hardware.system / SMBIOS DMI 风格字段名 → 中文（主板/系统信息左侧标签） */
+const HMS_SYSTEM_FIELD_LABEL_ZH: Record<string, string> = {
+  // Type 1 System Information
+  Manufacturer: '制造商',
+  'Product Name': '产品名称',
+  Version: '版本',
+  'Serial Number': '序列号',
+  UUID: 'UUID',
+  'SKU Number': 'SKU 编号',
+  Family: '产品系列',
+  'Wake-up Type': '唤醒类型',
+  'Product Id': '产品 ID',
+  'System SKUNumber': '系统 SKU 编号',
+  'System Sku Number': '系统 SKU 编号',
+  // Type 2 Baseboard
+  'Board Name': '主板名称',
+  'Board Product': '主板型号',
+  'Board Manufacturer': '主板制造商',
+  'Board Version': '主板版本',
+  'Board Serial Number': '主板序列号',
+  'Board Asset Tag': '主板资产标签',
+  'Asset Tag': '资产标签',
+  'Location in Chassis': '机箱内位置',
+  'Location In Chassis': '机箱内位置',
+  'Chassis Handle': '机箱句柄',
+  // Type 3 Chassis
+  'Chassis Manufacturer': '机箱制造商',
+  'Chassis Type': '机箱类型',
+  'Chassis Version': '机箱版本',
+  'Chassis Serial Number': '机箱序列号',
+  'Chassis Asset Tag': '机箱资产标签',
+  'Chassis Part Number': '机箱料号',
+  // Type 0 BIOS
+  'BIOS Vendor': 'BIOS 厂商',
+  'BIOS Version': 'BIOS 版本',
+  'BIOS Release Date': 'BIOS 发布日期',
+  'BIOS Date': 'BIOS 日期',
+  // 常见同义/工具差异
+  'System Type': '系统类型',
+  'OEM String': 'OEM 字符串',
+  'Enclosure type': '机箱类型',
+  'Enclosure Type': '机箱类型',
+  Name: '名称',
+  'Part Number': '料号',
+  'OEM String 1': 'OEM 字符串 1',
+  'OEM String 2': 'OEM 字符串 2',
+};
+
+function hmsSystemInfoLabelZh(key: string): string {
+  const k = String(key || '').trim();
+  return HMS_SYSTEM_FIELD_LABEL_ZH[k] || k;
+}
 
 const HMS_SYNC_HINT =
   '节点列表「刷新」或 API `?force=true` 时，Tower 会拉取 HMS 并与 Harvester 节点写入同一批库存；若仍为空，请检查集群是否暴露对应 HMS 路径。';
@@ -270,7 +405,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     return String(hit || '').trim();
   }, [record]);
 
-  /** HMS 网卡表：样式走 global-new.css 的 .std-table；不设列宽、不用 ellipsis（避免表头内联样式） */
+  /** HMS 网卡列：与 VmSection 一致由 `std-table` + `scroll.x` 管总宽 */
   const nicColumns = useMemo(
     () => [
       {
@@ -430,16 +565,9 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
       return 0;
     });
     const swList: any[] = hw && Array.isArray(hw.switch) ? hw.switch : [];
+    const lldpTableRows = swList.map((row, i) => mapHmsLldpRowToKeyFields(row, i));
     const systemObj = hw?.system && typeof hw.system === 'object' ? hw.system : null;
     const cpuObj = hw?.cpu && typeof hw.cpu === 'object' ? hw.cpu : null;
-    const cpuRows = cpuObj
-      ? Object.entries(cpuObj).map(([attr, val]) => ({
-          key: attr,
-          attr,
-          val: displayCell(val),
-        }))
-      : [];
-    const switchCols = buildHmsSwitchTableColumns(swList);
 
     const capCpu = record?.status?.capacity?.cpu ?? record?.cpu;
     const capMem = record?.status?.capacity?.memory ?? record?.memory;
@@ -612,35 +740,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
           </div>
         ),
       },
-      {
-        key: 'hms-nics',
-        label: 'HMS 网卡',
-        children: (
-          <div style={TAB_PANEL_PADDING_WIDE}>
-            {nics.length ? (
-              <Table
-                className="std-table"
-                size="small"
-                bordered
-                rowKey={(r: any) => `${r?.device || ''}-${r?.mac || ''}-${r?.master || ''}`}
-                columns={nicColumns as any}
-                dataSource={nics}
-                pagination={{ size: 'small', showTotal: (t) => `共 ${t} 条` }}
-              />
-            ) : (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="暂无 nics 数据"
-                children={
-                  <Typography.Paragraph type="secondary" style={{ textAlign: 'center' }}>
-                    {HMS_SYNC_HINT}
-                  </Typography.Paragraph>
-                }
-              />
-            )}
-          </div>
-        ),
-      },
+    
       {
         key: 'hms-board',
         label: 'HMS 主板',
@@ -651,9 +751,15 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
             ) : (
               <>
                 {systemObj ? (
-                  <Descriptions bordered size="small" column={1} labelStyle={descLabelNarrow}>
+                  <Descriptions
+                    className="hms-hw-same-row-height"
+                    bordered
+                    size="small"
+                    column={1}
+                    labelStyle={descLabelNarrow}
+                  >
                     {Object.entries(systemObj).map(([k, v]) => (
-                      <Descriptions.Item key={k} label={k}>
+                      <Descriptions.Item key={k} label={hmsSystemInfoLabelZh(k)}>
                         {displayCell(v)}
                       </Descriptions.Item>
                     ))}
@@ -675,19 +781,20 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
               hmsHwMissing
             ) : (
               <>
-                {cpuRows.length ? (
-                  <Table
-                    size="small"
+                {cpuObj && Object.keys(cpuObj).length > 0 ? (
+                  <Descriptions
+                    className="hms-hw-same-row-height"
                     bordered
-                    {...TABLE_FLUID}
-                    rowKey="key"
-                    pagination={{ pageSize: 25, showTotal: (t) => `共 ${t} 条` }}
-                    columns={[
-                      { title: '属性', dataIndex: 'attr', ellipsis: { showTitle: true } },
-                      { title: '值', dataIndex: 'val', ellipsis: { showTitle: true } },
-                    ]}
-                    dataSource={cpuRows}
-                  />
+                    size="small"
+                    column={1}
+                    labelStyle={descLabelNarrow}
+                  >
+                    {Object.entries(cpuObj).map(([k, v]) => (
+                      <Descriptions.Item key={k} label={hmsCpuInfoLabelZh(k)}>
+                        {displayCell(v)}
+                      </Descriptions.Item>
+                    ))}
+                  </Descriptions>
                 ) : (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未返回 cpu" />
                 )}
@@ -709,7 +816,8 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                   <Table
                     size="small"
                     bordered
-                    {...TABLE_FLUID}
+                    {...HARVESTER_STD_TABLE}
+                    scroll={tableScrollXWhenHasData(memListSorted.length)}
                     rowKey={(r: any, i?: number) => `${String(r?.Locator ?? '')}-${i ?? 0}`}
                     columns={HMS_MEM_COLS as any}
                     dataSource={memListSorted}
@@ -736,7 +844,8 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                   <Table
                     size="small"
                     bordered
-                    {...TABLE_FLUID}
+                    {...HARVESTER_STD_TABLE}
+                    scroll={tableScrollXWhenHasData(diskList.length)}
                     rowKey={(r: any, i?: number) => `${r?.name || ''}-${r?.type || ''}-${i ?? 0}`}
                     columns={HMS_DISK_COLS as any}
                     dataSource={diskList}
@@ -747,7 +856,8 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                           <Table
                             size="small"
                             bordered
-                            {...TABLE_FLUID}
+                            {...HARVESTER_STD_TABLE}
+                            scroll={tableScrollXWhenHasData(r.children.length)}
                             rowKey={(c: any, j?: number) => `${c?.name}-${j ?? 0}`}
                             columns={HMS_DISK_COLS as any}
                             dataSource={r.children}
@@ -768,6 +878,36 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
         ),
       },
       {
+        key: 'hms-nics',
+        label: 'HMS 网卡',
+        children: (
+          <div style={TAB_PANEL_PADDING_WIDE}>
+            {nics.length ? (
+              <Table
+                {...HARVESTER_STD_TABLE}
+                size="small"
+                bordered
+                scroll={tableScrollXWhenHasData(nics.length)}
+                rowKey={(r: any) => `${r?.device || ''}-${r?.mac || ''}-${r?.master || ''}`}
+                columns={nicColumns as any}
+                dataSource={nics}
+                pagination={{ size: 'small', showTotal: (t) => `共 ${t} 条` }}
+              />
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="暂无 nics 数据"
+                children={
+                  <Typography.Paragraph type="secondary" style={{ textAlign: 'center' }}>
+                    {HMS_SYNC_HINT}
+                  </Typography.Paragraph>
+                }
+              />
+            )}
+          </div>
+        ),
+      },
+      {
         key: 'hms-lldp',
         label: 'HMS LLDP',
         children: (
@@ -776,14 +916,15 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
               hmsHwMissing
             ) : (
               <>
-                {swList.length && switchCols.length ? (
+                {swList.length ? (
                   <Table
                     size="small"
                     bordered
-                    {...TABLE_FLUID}
-                    rowKey={(_: any, i?: number) => `sw-${i ?? 0}`}
-                    columns={switchCols as any}
-                    dataSource={swList}
+                    {...HARVESTER_STD_TABLE}
+                    scroll={tableScrollXWhenHasData(lldpTableRows.length)}
+                    rowKey="key"
+                    columns={HMS_LLDP_TABLE_COLUMNS as any}
+                    dataSource={lldpTableRows}
                     pagination={{ pageSize: 8, showTotal: (t) => `共 ${t} 条` }}
                   />
                 ) : (

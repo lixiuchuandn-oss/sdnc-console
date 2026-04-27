@@ -15,6 +15,7 @@ const GeneralSettings: React.FC = () => {
   useEffect(() => {
     themeForm.setFieldsValue({
       headerTitle: settings.headerTitle,
+      browserTitle: settings.browserTitle,
       headerIcon: settings.headerIcon,
       headerColor: settings.headerColor,
       headerColorEnd: settings.headerColorEnd,
@@ -52,6 +53,7 @@ const GeneralSettings: React.FC = () => {
     };
     
     if (values.headerTitle !== undefined) await updateSetting('headerTitle', values.headerTitle);
+    if (values.browserTitle !== undefined) await updateSetting('browserTitle', values.browserTitle);
     if (values.headerIcon !== undefined) await updateSetting('headerIcon', values.headerIcon);
     if (values.headerColor !== undefined) {
       const hexColor = getHexString(values.headerColor, settings.headerColor ?? '');
@@ -186,6 +188,13 @@ const GeneralSettings: React.FC = () => {
           >
             <Form.Item label="系统标题 (Header Title)" name="headerTitle">
               <Input placeholder="请输入系统标题" style={{ width: 260 }} />
+            </Form.Item>
+            <Form.Item
+              label="浏览器标签页标题"
+              name="browserTitle"
+              tooltip="留空则与上方系统标题一致"
+            >
+              <Input placeholder="例如：Compute Tower 运维台" style={{ width: 260 }} />
             </Form.Item>
             <Form.Item label="系统图标 (Header Icon)" name="headerIcon">
               <div>

@@ -28,10 +28,9 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
-  mode?: 'standard' | 'ops';
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mode: _mode = 'ops' }) => {
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) => {
   // 过滤条件：关键字、角色、就绪状态
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
