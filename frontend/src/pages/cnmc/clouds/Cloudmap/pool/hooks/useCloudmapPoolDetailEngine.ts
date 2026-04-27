@@ -44,7 +44,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const {
     checkPerm,
     isTenant,
-    canToggleOpsView,
     canReadVpcSubnets,
     canReadFlatSubnets,
     canReadPublicSubnets,
@@ -158,7 +157,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [nsFilter, setNsFilter] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [showLog] = useState<boolean>(false);
-  const [mode, setMode] = useState<'standard' | 'ops'>('standard');
   const [, setActiveTabKey] = useState<string>(() => {
     if (typeof window === 'undefined') return 'resource_hub';
     const p = parseCloudmapPoolPath(window.location.pathname, cloudId);
@@ -529,14 +527,9 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterImagePullSecrets,
   ]);
 
-  useEffect(() => {
-    if (!canToggleOpsView && mode === 'ops') setMode('standard');
-  }, [canToggleOpsView, mode]);
-
   const cloudmapPoolDetailValue: CloudmapPoolDetailContextValue = {
     cloudId,
     cloudConfig: cloud?.config ?? null,
-    mode,
     isTenant,
     showLog,
     checkPerm,

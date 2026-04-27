@@ -19,6 +19,7 @@ import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -34,12 +35,12 @@ interface Props {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean;
   bordered?: boolean;
-  mode?: 'standard' | 'ops';
 }
 
-const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true, mode = 'ops' }) => {
+const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
-  const isStandardView = mode === 'standard';
+  const isStandardView = !hasOpsView;
   const { user } = useAuth();
   const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.nads:write');
   const [keyword, setKeyword] = useState<string>('');

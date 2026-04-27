@@ -17,6 +17,7 @@ import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDra
 import { deleteHarvesterService } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -34,12 +35,12 @@ interface Props {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean;
   bordered?: boolean;
-  mode?: 'standard' | 'ops';
 }
 
-const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant, bordered = true, mode = 'ops' }) => {
+const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant, bordered = true }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
-  const isStandardView = mode === 'standard';
+  const isStandardView = !hasOpsView;
   // 工具栏与弹窗状态
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');

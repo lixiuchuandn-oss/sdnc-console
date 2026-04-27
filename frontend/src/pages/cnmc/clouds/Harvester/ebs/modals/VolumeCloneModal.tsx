@@ -9,6 +9,7 @@ import { App, Checkbox, Form, Input } from 'antd';
 import StdFormModal from '../../../../../../components/StdFormModal';
 import { cloneHarvesterVolume } from '../../../../../../services/harvesterApi';
 import type { VolumeCreateSeed } from './VolumeCreateModal';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 export type VolumeCloneSource = {
   namespace: string;
@@ -24,7 +25,6 @@ export type VolumeCloneModalProps = {
   openNonce: number;
   onCancel: () => void;
   cloudId: string;
-  mode: 'standard' | 'ops';
   source: VolumeCloneSource | null;
   storageClasses: any[];
   nsOptions: { value: string; label: string }[];
@@ -38,13 +38,13 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
   openNonce,
   onCancel,
   cloudId,
-  mode,
   source,
   storageClasses,
   nsOptions,
   onCloneSuccess,
   onBranchToCreateVolume,
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
@@ -80,8 +80,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
             scNames.find((n) => n.toLowerCase() === 'longhorn') ||
             scNames.find((n) => n.toLowerCase().includes('longhorn')) ||
             scNames[0];
-          const defaultNs =
-            mode === 'ops'
+          const defaultNs = hasOpsView
               ? (nsOptions.length > 0 ? nsOptions[0].value : source.namespace)
               : 'default';
           onCancel();
@@ -103,7 +102,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
     [
       cloudId,
       message,
-      mode,
+      hasOpsView,
       nsOptions,
       onBranchToCreateVolume,
       onCancel,

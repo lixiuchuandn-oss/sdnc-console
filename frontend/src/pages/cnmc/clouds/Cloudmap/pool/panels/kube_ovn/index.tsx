@@ -33,7 +33,6 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
 
 export type CloudmapKubeOvnGroupTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   showLog: boolean;
   checkPerm: (act: string) => boolean;
   canReadVpcSubnets: boolean;
@@ -105,7 +104,6 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
 ) => {
   const {
     cloudId,
-    mode,
     showLog,
     checkPerm,
     canReadVpcSubnets,
@@ -145,7 +143,6 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           vpcs={kubeOvnVpcs}
           subnets={kubeOvnSubnets}
           loading={resourceLoading.vpcs || resourceLoading.subnets}
-          showYaml={mode === 'ops'}
           onRefresh={async (force = false, silent = false, opts) => {
             const skipSync = silent;
             const vpcsAll = opts?.vpcsAll === true;
@@ -193,8 +190,6 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           )}
           vpcList={kubeOvnVpcs}
           loading={resourceLoading.subnets}
-          showYaml={mode === 'ops'}
-          displayMode={mode === 'ops' ? 'ops' : 'standard'}
           onRefresh={() =>
             loadResource(
               'subnets',

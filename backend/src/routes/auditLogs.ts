@@ -16,17 +16,37 @@ const checkAuditPermission = requirePermission('system.audit:read', {
 
 router.get('/', authMiddleware, checkAuditPermission, async (req, res) => {
   try {
-    const { page = 1, limit = 20, search } = req.query;
+    const { page = 1, limit = 20, search, dateFrom, dateTo } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
     const take = Number(limit);
 
     const repo = AppDataSource.getRepository(AuditLog);
     const query = repo.createQueryBuilder('audit_log');
 
-    if (search) {
-      query.where('audit_log.action LIKE :search OR audit_log.username LIKE :search OR audit_log.details LIKE :search', {
-        search: `%${search}%`,
-      });
+    const clauses: string[] = [];
+    const qp: Record<string, any> = {};
+    const searchTrim = search != null ? String(search).trim() : '';
+    if (searchTrim) {
+      clauses.push(
+        '(audit_log.action LIKE :search OR audit_log.username LIKE :search OR audit_log.details LIKE :search OR audit_log.resourceType LIKE :search OR audit_log.resourceId LIKE :search OR audit_log.ipAddress LIKE :search)',
+      );
+      qp.search = `%${searchTrim}%`;
+    }
+
+    const df = dateFrom != null && String(dateFrom).trim() ? String(dateFrom).trim() : '';
+    const dt = dateTo != null && String(dateTo).trim() ? String(dateTo).trim() : '';
+    if (df) {
+      clauses.push('audit_log.createdAt >= :dateFrom');
+      qp.dateFrom = new Date(df);
+    }
+    if (dt) {
+      const end = new Date(dt);
+      end.setHours(23, 59, 59, 999);
+      clauses.push('audit_log.createdAt <= :dateTo');
+      qp.dateTo = end;
+    }
+    if (clauses.length > 0) {
+      query.where(clauses.join(' AND '), qp);
     }
 
     query.orderBy('audit_log.createdAt', 'DESC');

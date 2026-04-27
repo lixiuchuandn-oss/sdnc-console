@@ -44,7 +44,6 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
 
 export type CloudmapComputeGroupTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   isTenant: boolean;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
@@ -123,7 +122,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
 ) => {
   const {
     cloudId,
-    mode,
     isTenant,
     showLog,
     checkPerm,
@@ -178,7 +176,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
         <VmSection
                 vms={ecs}
                 loading={resourceLoading.ecs}
-                mode={mode}
                 namespacesOptions={namespacesOptions}
                 nodesOptions={nodesOptions}
                 cloudId={cloudId}
@@ -481,6 +478,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           cloudId={cloudId}
           images={harvesterImages}
           loading={resourceLoading.images}
+          vms={ecs}
           onRefresh={() =>
             loadResource(
               'images',
@@ -489,7 +487,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
               true,
             )
           }
-          mode={mode}
           isTenant={isTenant}
         />
         <DebugJSON data={rawImages} show={showLog} />
@@ -505,7 +502,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           templates={harvesterTemplates}
           loading={resourceLoading.templates}
           onRefresh={() => loadTabResource('templates', true)}
-          mode={mode}
         />
         <DebugJSON data={rawTemplates} show={showLog} />
       </>
@@ -520,7 +516,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           sshKeys={harvesterSshKeys}
           loading={resourceLoading.sshKeys}
           onRefresh={() => loadTabResource('ssh_keys', true)}
-          mode={mode}
         />
         <DebugJSON data={rawSshKeys} show={showLog} />
       </>
@@ -535,7 +530,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           cloudInits={harvesterCloudInits}
           loading={resourceLoading.cloudInits}
           onRefresh={() => loadTabResource('cloud_inits', true)}
-          mode={mode}
         />
         <DebugJSON data={rawCloudInits} show={showLog} />
       </>
@@ -549,7 +543,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           vms={ecs}
           loading={resourceLoading.ecs}
           cloudId={cloudId}
-          mode={mode}
           onRefresh={() => {
             apiPost(`/api/clouds/${cloudId}/sync`)
               .catch(console.warn)
@@ -590,7 +583,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
   }
 
   if (innerActiveKey === 'migrations') {
-    return <MigrationsSection cloudId={cloudId} mode={mode} />;
+    return <MigrationsSection cloudId={cloudId} />;
   }
 
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;

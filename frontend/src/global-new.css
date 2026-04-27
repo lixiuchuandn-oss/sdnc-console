@@ -193,6 +193,13 @@ html, body, #root {
   width: 100%;
 }
 
+/* PhysicalNodeDetailDrawer：HMS 主板/处理器 Descriptions 行高略收紧（表格走标准 .std-table，与 VmSection 一致） */
+.hms-hw-same-row-height.ant-descriptions-bordered .ant-descriptions-item-label,
+.hms-hw-same-row-height.ant-descriptions-bordered .ant-descriptions-item-content {
+  padding: 8px 16px !important;
+  line-height: 22px !important;
+}
+
 .std-table .ant-table {
   font-size: 14px;
   width: 100%;

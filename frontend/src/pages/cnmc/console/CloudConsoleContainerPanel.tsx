@@ -68,8 +68,6 @@ const CONTAINER_TAB_CONFIG: NavCategory[] = [
 
 export interface CloudConsoleContainerPanelProps {
   cloudId: string;
-  /** 标准/运维：与云主机控制台 Segmented 对齐时可扩展；当前固定 standard */
-  mode?: 'standard' | 'ops';
 
   activeCategory: string;
   setActiveCategory: (k: string) => void;
@@ -129,7 +127,6 @@ export interface CloudConsoleContainerPanelProps {
 
 const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   cloudId,
-  mode = 'standard',
   activeCategory,
   setActiveCategory,
   activeResource,
@@ -274,7 +271,6 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             pods={pods}
-            mode={mode}
             createDefaultNamespace={createDefaultNamespace}
           />
         );
@@ -374,7 +370,6 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   }, [
     activeResource,
     cloudId,
-    mode,
     deployments,
     statefulsets,
     daemonsets,

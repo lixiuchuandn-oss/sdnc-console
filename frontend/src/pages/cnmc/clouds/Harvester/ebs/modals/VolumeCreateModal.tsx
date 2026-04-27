@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Form, Input, Select, InputNumber, App } from 'antd';
 import StdFormModal from '../../../../../../components/StdFormModal';
 import { createHarvesterVolume, fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 // -----------------------------------------------------------------------------
 // 类型：预填字段（例如从「克隆」跳转创建时传入）
@@ -43,7 +44,6 @@ export type VolumeCreateModalProps = {
   openNonce: number;
   onCancel: () => void;
   cloudId: string;
-  mode: 'standard' | 'ops';
   nsOptions: { value: string; label: string }[];
   storageClassOptions: { value: string; label: string }[];
   defaultStorageClassName?: string;
@@ -72,7 +72,6 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
   openNonce,
   onCancel,
   cloudId,
-  mode,
   nsOptions,
   storageClassOptions,
   defaultStorageClassName,
@@ -80,6 +79,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
   onSuccess,
   seed,
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   // --- Ant Design App 上下文（message 等）---
   const { message } = App.useApp();
 
@@ -114,7 +114,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
     form.resetFields();
     const s = seedRef.current;
     const firstNs = nsOptions[0]?.value;
-    const ns = mode === 'ops' ? (s?.namespace ?? firstNs ?? undefined) : 'default';
+    const ns = hasOpsView ? (s?.namespace ?? firstNs ?? undefined) : 'default';
     form.setFieldsValue({
       alias: s?.alias ?? '',
       namespace: ns,
@@ -124,16 +124,16 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
       storageClassName: s?.storageClassName ?? defaultStorageClassName,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：避免 nsOptions 异步补丁触发整表重置
-  }, [open, openNonce, mode, defaultStorageClassName, form, refreshNamespaces]);
+  }, [open, openNonce, hasOpsView, defaultStorageClassName, form, refreshNamespaces]);
 
-  // --- 运维模式：首轮父级 nsOptions 仍为空时，待 options 到达后补默认 namespace ---
+  // --- 具备运维视图权限：首轮父级 nsOptions 仍为空时，待 options 到达后补默认 namespace ---
   useEffect(() => {
-    if (!open || mode !== 'ops') return;
+    if (!open || !hasOpsView) return;
     const cur = form.getFieldValue('namespace');
     if (cur) return;
     const first = nsOptions[0]?.value;
     if (first) form.setFieldValue('namespace', first);
-  }, [open, mode, nsOptions, form]);
+  }, [open, hasOpsView, nsOptions, form]);
 
   // --- 默认存储类：若当前未选且集群有推荐值，则填入 ---
   useEffect(() => {
@@ -144,7 +144,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
     }
   }, [open, openNonce, form, defaultStorageClassName]);
 
-  // --- 提交：组装 API payload（标准模式强制 default 命名空间）---
+  // --- 提交：组装 API payload（无运维视图权限时强制 default 命名空间）---
   const handleFinish = useCallback(
     async (v: any) => {
       try {
@@ -156,7 +156,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
             : ['ReadWriteMany'];
 
         const payload = {
-          namespace: mode === 'ops' ? String(v.namespace || '') : 'default',
+          namespace: hasOpsView ? String(v.namespace || '') : 'default',
           name: generateVolumePvcName(),
           sizeGi: Number(v.sizeGi || 0),
           accessModes: modes,
@@ -176,7 +176,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
         setCreating(false);
       }
     },
-    [cloudId, mode, message, onCancel, onSuccess],
+    [cloudId, hasOpsView, message, onCancel, onSuccess],
   );
 
   // --- 渲染：StdFormModal 包裹表单项（对应云详情弹层）---
@@ -195,9 +195,9 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
         <Input placeholder="例如: 测试pvc" />
       </Form.Item>
 
-      {/* 区块：命名空间 — 运维可选；标准模式只读 default */}
+      {/* 区块：命名空间 — 有运维视图权限可选；否则只读 default */}
       <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
-        {mode === 'ops' ? (
+        {hasOpsView ? (
           <Select
             showSearch
             options={nsOptions}

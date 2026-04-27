@@ -7,24 +7,29 @@ import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDra
 import { deleteHarvesterBackup, deleteHarvesterVirtualMachineRestore, fetchHarvesterBackups, fetchHarvesterVirtualMachineRestores } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 type Props = {
   cloudId: string;
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
   vms?: any[]; // 虚拟机列表，用于查找别名
 };
 
 const isFailedByConditions = (raw: any) => {
+  const phase = String(raw?.status?.phase || '').toLowerCase();
+  if (phase === 'failed' || phase === 'error') return true;
   const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
   return conds.some((c: any) => {
     const type = String(c?.type || '').toLowerCase();
     const reason = String(c?.reason || '').toLowerCase();
     const status = String(c?.status || '').toLowerCase();
     const msg = String(c?.message || '').toLowerCase();
-    if (type.includes('error')) return true;
-    if (reason.includes('error')) return true;
-    if (status === 'false' && (reason.includes('fail') || msg.includes('fail') || msg.includes('denied'))) return true;
+    const blob = `${reason} ${msg}`;
+    if (status === 'true' && (type === 'failed' || type === 'error')) return true;
+    if (type === 'ready' && status === 'false') {
+      if (/waiting|progressing|pending|stopping|terminating|stopped/i.test(blob)) return false;
+      if (/fail|error|denied|unable|invalid|conflict/i.test(blob)) return true;
+    }
     return false;
   });
 };
@@ -51,7 +56,8 @@ const getBackupStatus = (raw: any) => {
   return { phase: 'pending', text: '未就绪' as const };
 };
 
-const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops', vms = [] }) => {
+const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -113,10 +119,15 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops
       const restoreMode = r?.metadata?.annotations?.['tower.io/restoreMode'] || (r?.spec?.newVM ? 'new' : 'replace');
       const resourceType = backup?.spec?.type || 'backup';
       const restoreStatus = getRestoreStatus(r);
+      const ann = (r?.metadata?.annotations || {}) as Record<string, string>;
+      const annSourceAlias = String(ann['tower.io/restoreSourceVmAlias'] || '').trim();
+      const annTargetDisp = String(ann['tower.io/restoreTargetDisplayName'] || '').trim();
 
       // 获取源虚拟机别名
       let sourceVmAlias = '-';
-      if (sourceVm && sourceVm !== '-') {
+      if (annSourceAlias) {
+        sourceVmAlias = annSourceAlias;
+      } else if (sourceVm && sourceVm !== '-') {
         try {
           const vm = (vms || []).find((vm: any) => {
             const vmNs = vm?.metadata?.namespace || vm?.namespace;
@@ -133,7 +144,9 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops
 
       // 获取目标虚拟机别名
       let targetVmAlias = '-';
-      if (target && target !== '-') {
+      if (annTargetDisp) {
+        targetVmAlias = annTargetDisp;
+      } else if (target && target !== '-') {
         try {
           const vm = (vms || []).find((vm: any) => {
             const vmNs = vm?.metadata?.namespace || vm?.namespace;
@@ -469,7 +482,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'ops
             onChange={(e) => setKeyword(e.target.value)}
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           />
-          {mode === 'ops' && (
+          {hasOpsView && (
             <Select
               allowClear
               showSearch

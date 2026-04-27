@@ -1,0 +1,134 @@
+/* =============================================================================
+ * 资源池详情布局（`pool/styles/layout.css`）
+ * -----------------------------------------------------------------------------
+ * 1. 详情外层 Tabs + 主内容根节点（占满 AdminLayout Content）
+ * 2. 资源总览二级 Tabs（flex 铺满，勿再用 100vh）
+ * 3. 集群单页：主区多区块纵向滚动
+ * ============================================================================= */
+
+/**
+ * 详情：占满 AdminLayout Content（calc(100vh - 顶栏)），避免长内容撑出主内容区竖条。
+ * 一级 Tabs（侧栏驱动）内容区 flex 承接，资源总览二级 Tabs 再嵌套 flex。
+ */
+.cloudmap-detail-outer-tabs.ant-tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cloudmap-detail-outer-tabs .ant-tabs-nav {
+  flex: 0 0 auto;
+}
+
+.cloudmap-detail-outer-tabs .ant-tabs-content-holder {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.cloudmap-detail-outer-tabs .ant-tabs-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.cloudmap-detail-outer-tabs .ant-tabs-tabpane {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 侧栏驱动主内容区（替代隐藏 Tab 栏的 Ant Tabs 根节点） */
+.cloudmap-detail-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/**
+ * 资源总览二级 Tabs：由外层 cloudmap-detail-outer-tabs 限定高度，此处仅用 flex 铺满，勿再用 100vh
+ *（否则会超过 AdminLayout Content = 100vh - 顶栏，触发主内容区竖条）。
+ *
+ * 横向允许外扩以减轻机框阴影裁切；纵向 hidden，滚动在子面板（如机柜 rack-body）内。
+ */
+.cloudmap-resource-hub-inner-tabs.ant-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-nav {
+  flex: 0 0 auto;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-content-holder {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: visible !important;
+  overflow-y: hidden !important;
+  display: flex;
+  flex-direction: column;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cloudmap-resource-hub-inner-tabs .ant-tabs-tabpane {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/**
+ * 集群：侧栏仅一项「集群」；主区为单页多区块纵向滚动，可选 URL 锚点 `/cluster/<seg>`。
+ */
+.cloudmap-cluster-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  gap: 24px;
+  padding-bottom: 24px;
+  box-sizing: border-box;
+}
+
+.cloudmap-cluster-section {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cloudmap-cluster-section-heading {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.cloudmap-cluster-section-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cloudmap-cluster-section-body > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}

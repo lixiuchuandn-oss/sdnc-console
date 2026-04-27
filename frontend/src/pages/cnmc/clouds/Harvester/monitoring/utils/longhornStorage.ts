@@ -9,6 +9,8 @@ export interface LonghornStorageSummary {
   storageReserved: number;
   storageScheduled: number;
   nodeCount: number;
+  /** Longhorn 全局默认副本数（默认存储池），来自集群 Setting default-replica-count */
+  defaultReplicaCount: number;
 }
 
 const BYTES_PER_GIB = 1024 ** 3;
@@ -27,6 +29,12 @@ export function parseLonghornStorage(nodesResponse: any): LonghornStorageSummary
     list = nodesResponse;
   } else if (nodesResponse && Array.isArray(nodesResponse.data)) {
     list = nodesResponse.data;
+  }
+  let defaultReplicaCount = 3;
+  const rawRep = nodesResponse?._tower?.defaultLonghornReplicaCount;
+  if (rawRep != null) {
+    const n = Number(rawRep);
+    if (Number.isFinite(n) && n >= 1) defaultReplicaCount = Math.floor(n);
   }
 
   let totalMaximum = 0;
@@ -67,5 +75,6 @@ export function parseLonghornStorage(nodesResponse: any): LonghornStorageSummary
     storageReserved: totalReserved,
     storageScheduled: totalScheduled,
     nodeCount: list.length,
+    defaultReplicaCount,
   };
 }

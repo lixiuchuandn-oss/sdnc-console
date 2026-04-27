@@ -1506,7 +1506,6 @@ const CloudConsolePage: React.FC = () => {
               {consoleLeftNavKey === 'container' && currentCloudId && (
                 <CloudConsoleContainerPanel
                   cloudId={currentCloudId}
-                  mode="standard"
                   activeCategory={containerCategory}
                   setActiveCategory={setContainerCategory}
                   activeResource={containerResource}

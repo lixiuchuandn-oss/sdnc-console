@@ -18,7 +18,7 @@ import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/Phys
 import { fetchKubeOvnSubnets } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isValidCloudmapPoolInnerSeg } from '../../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
-import '../../styles/cloudmap-cluster-inner-tabs.css';
+import '../../styles/layout.css';
 
 type ClusterSectionVisibleCtx = {
   checkPerm: (act: string) => boolean;
@@ -108,7 +108,6 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
 
 export type CloudmapClusterTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   isTenant: boolean;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
@@ -173,7 +172,6 @@ export type CloudmapClusterTabsProps = {
 const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
   const {
     cloudId,
-    mode,
     isTenant,
     showLog,
     checkPerm,
@@ -251,7 +249,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               loading={resourceLoading.nodes || nodesLoading}
               onRefresh={refreshNodes}
               cloudId={cloudId}
-              mode={mode}
             />
             <DebugJSON data={rawNodes} show={showLog} />
           </>
@@ -276,7 +273,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
           <>
             <ProviderNetworksSection
               cloudId={cloudId}
-              mode={mode}
               parentNetworks={harvesterKubeOvnProviderNetworks}
               parentVlans={harvesterVlans}
               parentLoading={!!resourceLoading.providerNetworksTab}
@@ -302,7 +298,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             showLog={showLog}
             raw={rawNamespaces}
             isTenant={isTenant}
-            mode={mode}
           />
         );
       case 'kubeovn_public_subnets':
@@ -311,7 +306,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             <UnderlaySubnetsSection
               cloudId={cloudId}
               mode="public"
-              displayMode={mode}
               onSubnetsChanged={() =>
                 loadResource(
                   'subnets',
@@ -337,7 +331,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               providerNetworks={harvesterKubeOvnProviderNetworks}
               loading={resourceLoading.vlans}
               onRefresh={refreshVlans}
-              mode={mode}
             />
             <DebugJSON data={rawVlans} show={showLog} />
           </>
@@ -372,7 +365,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               clusterNetworks={harvesterClusterNetworks}
               loading={resourceLoading.clusterNetworks}
               onRefresh={() => loadTabResource('clusterNetworks', true)}
-              mode={mode}
               isTenant={isTenant}
             />
             <DebugJSON data={rawClusterNetworks} show={showLog} />
@@ -390,7 +382,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               nsValue={nsFilter || undefined}
               onNsChange={(v) => setNsFilter(v || '')}
               pods={harvesterPods}
-              mode={mode}
             />
             <DebugJSON data={rawServices} show={showLog} />
           </>
@@ -403,7 +394,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               storageClasses={harvesterStorageClasses}
               loading={resourceLoading.storageClasses}
               onRefresh={() => loadTabResource('storage_classes', true)}
-              mode={mode}
             />
             <DebugJSON data={harvesterStorageClasses} show={showLog} />
           </>
@@ -416,7 +406,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               loading={resourceLoading.nads || nadsLoading}
               onRefresh={refreshNads}
               cloudId={cloudId}
-              mode={mode}
             />
             <DebugJSON data={rawNads} show={showLog} />
           </>
@@ -429,7 +418,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               loadBalancers={harvesterLoadBalancers}
               loading={resourceLoading.loadBalancers}
               onRefresh={() => loadTabResource('load_balancers', true)}
-              mode={mode}
             />
             <DebugJSON data={rawLoadBalancers} show={showLog} />
           </>
@@ -442,7 +430,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               ippools={harvesterIPPools}
               loading={resourceLoading.ippools}
               onRefresh={() => loadTabResource('ippools', true)}
-              mode={mode}
             />
             <DebugJSON data={rawIPPools} show={showLog} />
           </>

@@ -31,6 +31,25 @@ import {
   removeOvnInternalForPublicSubnet,
   upsertOvnInternalForPublicSubnet,
 } from './ovnInternalPublicSubnetSync';
+import { findVmIpv4OnFlatSubnet } from '../../../../services/clouds/harvester/kubeOvnSecurityGroupAclPush';
+import {
+  ipv4ToUint32,
+  ipv4CidrToUint32Range,
+  ipv4Uint32RangesOverlap,
+} from '../../../../utils/ipv4Cidr';
+
+const TOWER_EIP_ALIAS_ANNOTATION = 'tower.io/alias';
+
+function kubeOvnEipPublicDisplayLabels(blocking: any[]): string[] {
+  return blocking
+    .map((e) => {
+      const ann = (e?.metadata?.annotations || {}) as Record<string, string>;
+      const alias = String(ann[TOWER_EIP_ALIAS_ANNOTATION] ?? '').trim();
+      const name = String(e?.metadata?.name ?? e?.name ?? '').trim();
+      return alias || name;
+    })
+    .filter(Boolean);
+}
 
 /**
  * =============================================================================
@@ -61,6 +80,7 @@ import {
  *
  * 4) 同 VPC 网段冲突预检（可选失败）
  *    - 拉取集群现有 kubeovn.io/v1 Subnet 列表，在同一 targetVpc 下用 CIDR 区间判断是否重叠；重叠则 422，不继续创建。
+ *    - IPv4 CIDR 解析与区间重叠：`src/utils/ipv4Cidr.ts`（ipv4CidrToUint32Range / ipv4Uint32RangesOverlap）。
  *
  * 5) 合并 Tower 注解（mergedAnnotations）
  *    - 拷贝请求体 annotations 中非空键值。
@@ -107,26 +127,181 @@ import {
  * =============================================================================
  */
 
-const ipToLong = (ip: string): number =>
-  ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+// =============================================================================
+// 本子网直连专用：Harvester VirtualMachine 列表、扁平子网排除 IP 校验（复用 utils/ipv4Cidr）
+// =============================================================================
 
-const cidrToRange = (cidr: string): [number, number] | null => {
-  try {
-    const [ip, mask] = cidr.split('/');
-    const maskNum = parseInt(mask, 10);
-    if (isNaN(maskNum) || maskNum < 0 || maskNum > 32) return null;
-    const ipNum = ipToLong(ip);
-    const hostBits = 32 - maskNum;
-    const start = (ipNum >>> hostBits) << hostBits;
-    const end = start + Math.pow(2, hostBits) - 1;
-    return [start >>> 0, end >>> 0];
-  } catch {
-    return null;
+/** Steve 聚合路径，与同仓库其它 Harvester 直连一致 */
+const HARVEST_KUBEVIRT_VM_LIST_PATH = '/v1/harvester/kubevirt.io.virtualmachines';
+
+/**
+ * 拉取 VirtualMachine 列表（响应字段为 `items` 或 `data`）。
+ * @param silent 传入 getJsonOnce，降低失败时的日志噪声
+ */
+async function listHarvestKubevirtVirtualMachines(
+  apiBase: string,
+  token: string,
+  insecure: boolean,
+  silent = false,
+): Promise<any[]> {
+  const json = await getJsonOnce(
+    `${apiBase}${HARVEST_KUBEVIRT_VM_LIST_PATH}`,
+    token,
+    insecure,
+    silent,
+  );
+  if (Array.isArray(json?.items)) return json.items;
+  if (Array.isArray(json?.data)) return json.data;
+  return [];
+}
+
+/** multus.networkName 常用 `default/<subnetName>` 小写，与 findVmDisplayNamesUsingMultusNetwork 约定一致 */
+function multusDefaultSubnetRefLower(subnetName: string): string {
+  return `default/${String(subnetName).trim()}`.toLowerCase();
+}
+
+/** 该 VM 是否通过 multus 挂载与 Subnet CR 同名的 NAD */
+function vmUsesMultusSubnet(vm: any, subnetName: string): boolean {
+  const name = String(subnetName ?? '').trim();
+  if (!name) return false;
+  const ref = multusDefaultSubnetRefLower(name);
+  return findVmDisplayNamesUsingMultusNetwork([vm], ref, name.toLowerCase()).length > 0;
+}
+
+type FlatExcludeFailBody = Record<string, unknown>;
+
+/**
+ * 扁平子网更新：校验 excludeIps（数组类型、去重、单行 IPv4 与 CIDR；含 `..` 的区间写法交集群）。
+ */
+function validateFlatSubnetExcludeIpsPayload(
+  rawExclude: unknown,
+  currentSubnet: any,
+  body: Record<string, unknown>,
+):
+  | { ok: true; excludeList: string[]; effectiveCidr: string }
+  | { ok: false; status: number; body: FlatExcludeFailBody } {
+  if (!Array.isArray(rawExclude)) {
+    return {
+      ok: false,
+      status: 400,
+      body: { message: 'excludeIps 须为字符串数组', code: 'EXCLUDE_IPS_INVALID_TYPE' },
+    };
   }
-};
+  const excludeList = rawExclude
+    .map((x: unknown) => String(x ?? '').trim())
+    .filter((s: string) => s.length > 0);
+  const seenLower = new Set<string>();
+  const dupSamples: string[] = [];
+  for (const ip of excludeList) {
+    const k = ip.toLowerCase();
+    if (seenLower.has(k)) dupSamples.push(ip);
+    seenLower.add(k);
+  }
+  if (dupSamples.length > 0) {
+    const uniq = [...new Set(dupSamples)];
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        message: `排除 IP 存在重复：${uniq.join('、')}`,
+        code: 'EXCLUDE_IP_DUPLICATE',
+      },
+    };
+  }
+  const curCidr = String(
+    currentSubnet?.spec?.cidrBlock ?? currentSubnet?.spec?.cidr ?? '',
+  ).trim();
+  const nextCidr = Object.prototype.hasOwnProperty.call(body, 'cidrBlock')
+    ? String((body as any).cidrBlock ?? '').trim()
+    : Object.prototype.hasOwnProperty.call(body, 'cidr')
+      ? String((body as any).cidr ?? '').trim()
+      : curCidr;
+  const effectiveCidr = nextCidr || curCidr;
+  if (!effectiveCidr) {
+    return {
+      ok: false,
+      status: 400,
+      body: { message: '无法校验排除 IP：子网 CIDR 为空', code: 'SUBNET_CIDR_EMPTY' },
+    };
+  }
+  const cidrRange = ipv4CidrToUint32Range(effectiveCidr);
+  if (!cidrRange) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        message: `无法校验排除 IP：子网 CIDR「${effectiveCidr}」无效`,
+        code: 'SUBNET_CIDR_INVALID',
+      },
+    };
+  }
+  const ipv4Re = /^\d{1,3}(\.\d{1,3}){3}$/;
+  for (const item of excludeList) {
+    if (item.includes('..')) continue;
+    if (!ipv4Re.test(item)) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          message: `排除 IP「${item}」不是合法的 IPv4 地址（若使用区间写法请包含 .. 并由集群校验）`,
+          code: 'EXCLUDE_IP_INVALID',
+        },
+      };
+    }
+    const n = ipv4ToUint32(item);
+    if (n < cidrRange[0] || n > cidrRange[1]) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          message: `排除 IP「${item}」不在子网 CIDR「${effectiveCidr}」范围内`,
+          code: 'EXCLUDE_IP_OUT_OF_CIDR',
+        },
+      };
+    }
+  }
+  return { ok: true, excludeList, effectiveCidr };
+}
 
-const rangesOverlap = (r1: [number, number], r2: [number, number]): boolean =>
-  Math.max(r1[0], r2[0]) <= Math.min(r1[1], r2[1]);
+/**
+ * 排除列表与「已挂该子网且已有运行 IP」的虚拟机是否冲突（需已持有 VM 列表）。
+ */
+async function findExcludeIpConflictWithRunningVmOnSubnet(
+  apiBase: string,
+  token: string,
+  insecure: boolean,
+  subnetName: string,
+  excludeList: string[],
+  vms: any[],
+): Promise<{ ip: string; vmAlias: string } | null> {
+  const enc = encodeURIComponent;
+  const sn = String(subnetName).trim();
+  const excludeLower = new Set(excludeList.map((x) => x.toLowerCase()));
+  for (const vm of vms) {
+    if (!vmUsesMultusSubnet(vm, sn)) continue;
+    const vn = String(vm?.metadata?.name ?? '').trim();
+    const ns = String(vm?.metadata?.namespace ?? 'default').trim() || 'default';
+    if (!vn) continue;
+    let vmi: any = null;
+    try {
+      vmi = await getJsonOnce(
+        `${apiBase}/apis/kubevirt.io/v1/namespaces/${enc(ns)}/virtualmachineinstances/${enc(vn)}`,
+        token,
+        insecure,
+        true,
+      );
+    } catch {
+      vmi = null;
+    }
+    const ipOnNet = findVmIpv4OnFlatSubnet(vm, sn, vmi);
+    if (!ipOnNet || !excludeLower.has(ipOnNet.toLowerCase())) continue;
+    const alias = String(
+      vm?.metadata?.annotations?.['tower.io/alias'] ?? vm?.metadata?.name ?? vn,
+    ).trim();
+    return { ip: ipOnNet, vmAlias: alias };
+  }
+  return null;
+}
 
 /** Kubernetes metadata.name / DNS1123 子域名（小写），与 apiserver 校验一致 */
 const K8S_METADATA_NAME_MAX = 253;
@@ -169,6 +344,10 @@ async function removeTowerManagedFinalizerFromResourceUrl(
     console.warn(`${logPrefix} 移除 tower.io/managed 失败（仍将尝试 DELETE）:`, resourceUrl, e?.message || e);
   }
 }
+
+// =============================================================================
+// HTTP 处理器：子网列表（GET）、创建（POST）
+// =============================================================================
 
 export async function harvesterSubnetDirectListHandler(
   req: any,
@@ -339,14 +518,14 @@ export async function harvesterSubnetDirectCreateHandler(
         : Array.isArray(existing?.data)
         ? existing.data
         : [];
-      const reqRange = cidrToRange(String(cidrBlock || '').trim());
+      const reqRange = ipv4CidrToUint32Range(String(cidrBlock || '').trim());
       if (reqRange) {
         for (const s of items) {
           const currentVpc = s?.spec?.vpc || KUBE_OVN_PUBLIC_VPC;
           if (currentVpc !== targetVpc) continue;
           const c = String(s?.spec?.cidrBlock || s?.spec?.cidr || '').trim();
-          const r = cidrToRange(c);
-          if (r && rangesOverlap(reqRange, r)) {
+          const r = ipv4CidrToUint32Range(c);
+          if (r && ipv4Uint32RangesOverlap(reqRange, r)) {
             const conflictName = s?.metadata?.name || s?.name;
             if (conflictName) {
               const conflictAlias = String(s?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
@@ -427,7 +606,7 @@ export async function harvesterSubnetDirectCreateHandler(
     }
     if (subnetTypeAnn === 'public' && targetVpc === KUBE_OVN_PUBLIC_VPC) {
       const cidrStr = String(cidrBlock || '').trim();
-      if (!cidrToRange(cidrStr)) {
+      if (!ipv4CidrToUint32Range(cidrStr)) {
         if (!res.headersSent) {
           res.status(400).json({ message: '公共子网 CIDR 无效，无法同步 ovn-internal', code: 'INVALID_SUBNET_CIDR' });
         }
@@ -435,7 +614,7 @@ export async function harvesterSubnetDirectCreateHandler(
       }
       const routeAnnRaw = String(mergedAnnotations[OVN_INTERNAL_ROUTE_CIDR_ANNOTATION] ?? '').trim();
       const routeCidr = routeAnnRaw || '0.0.0.0/0';
-      if (!cidrToRange(routeCidr)) {
+      if (!ipv4CidrToUint32Range(routeCidr)) {
         if (!res.headersSent) {
           res.status(400).json({
             message: '可访问范围（ovn-internal 路由目的网段）CIDR 无效',
@@ -803,6 +982,49 @@ export async function harvesterSubnetDirectCreateHandler(
   }
 }
 
+// =============================================================================
+// 子网更新：VLAN 规范化与「是否改动 CIDR/网关/VLAN」判断（仅 harvesterSubnetDirectUpdateHandler）
+// =============================================================================
+
+/** 与 VLAN 等字段比较时统一为字符串，避免 100 与 "100" 被误判为变更 */
+function normalizeVlanForSubnetCompare(v: unknown): string {
+  if (v === undefined || v === null) return '';
+  if (v === '') return '';
+  return String(v).trim();
+}
+
+/**
+ * 判断更新请求在合并到当前 spec 后，是否改变扁平子网的 CIDR、网关或 VLAN（仅对请求体中存在的键与当前值比较）。
+ */
+function wouldChangeFlatSubnetCidrGatewayVlan(
+  current: any,
+  body: Record<string, unknown>,
+): boolean {
+  const curCidr = String(
+    current?.spec?.cidrBlock ?? current?.spec?.cidr ?? '',
+  ).trim();
+  const curGw = String(current?.spec?.gateway ?? '').trim();
+  const curVlan = normalizeVlanForSubnetCompare(current?.spec?.vlan);
+
+  const nextCidr = Object.prototype.hasOwnProperty.call(body, 'cidrBlock')
+    ? String((body as any).cidrBlock ?? '').trim()
+    : Object.prototype.hasOwnProperty.call(body, 'cidr')
+    ? String((body as any).cidr ?? '').trim()
+    : curCidr;
+  const nextGw = Object.prototype.hasOwnProperty.call(body, 'gateway')
+    ? String((body as any).gateway ?? '').trim()
+    : curGw;
+  const nextVlan = Object.prototype.hasOwnProperty.call(body, 'vlan')
+    ? normalizeVlanForSubnetCompare((body as any).vlan)
+    : curVlan;
+
+  return nextCidr !== curCidr || nextGw !== curGw || nextVlan !== curVlan;
+}
+
+// =============================================================================
+// HTTP 处理器：子网更新（PUT/PATCH）、删除（DELETE）
+// =============================================================================
+
 export async function harvesterSubnetDirectUpdateHandler(
   req: any,
   res: Response,
@@ -842,8 +1064,9 @@ export async function harvesterSubnetDirectUpdateHandler(
       const blocking = eipsReferencingSubnetExcludingLrp(eips, subnetName);
       if (blocking.length > 0) {
         const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
+        const labels = kubeOvnEipPublicDisplayLabels(blocking);
         return res.status(409).json({
-          message: `子网正在被以下 EIP（非 lrp）使用，无法修改或清空其网段信息：${names.join('、')}`,
+          message: `子网正被公网 IP ${labels.join('、')} 使用，无法修改或清空其网段信息。`,
           code: 'SUBNET_IN_USE_BY_EIPS',
           eips: names,
         });
@@ -874,6 +1097,88 @@ export async function harvesterSubnetDirectUpdateHandler(
             code: 'PUBLIC_SUBNET_SPEC_READONLY',
           });
         }
+      }
+    }
+
+    // 扁平子网：同一轮更新内最多拉取一次 VM 列表，供「改 CIDR/网关/VLAN」与「排除 IP」两道校验共用
+    const flatChangingCidrGwVlan =
+      typeBefore === 'flat' && wouldChangeFlatSubnetCidrGatewayVlan(currentSubnet, body);
+    const flatUpdatingExclude =
+      typeBefore === 'flat' && Object.prototype.hasOwnProperty.call(body, 'excludeIps');
+
+    let updateHandlerVmsCache: any[] | null = null;
+    const loadVmsForFlatSubnetUpdate = async (): Promise<any[]> => {
+      if (updateHandlerVmsCache) return updateHandlerVmsCache;
+      try {
+        updateHandlerVmsCache = await listHarvestKubevirtVirtualMachines(
+          apiBase,
+          cloud.secretKey || '',
+          insecure,
+          true,
+        );
+      } catch (e) {
+        console.warn('[UpdateSubnet] 拉取 VirtualMachine 列表失败:', e);
+        updateHandlerVmsCache = [];
+      }
+      return updateHandlerVmsCache;
+    };
+
+    // 扁平子网：仍有虚拟机引用 multus 该子网时，禁止修改 CIDR、网关、VLAN
+    if (flatChangingCidrGwVlan) {
+      try {
+        const vms = await loadVmsForFlatSubnetUpdate();
+        const multusRef = multusDefaultSubnetRefLower(subnetName);
+        const usingVms = findVmDisplayNamesUsingMultusNetwork(
+          vms,
+          multusRef,
+          subnetName.toLowerCase(),
+        );
+        if (usingVms.length > 0) {
+          const list = usingVms.slice(0, 20).join('、');
+          const more = usingVms.length > 20 ? ' 等' : '';
+          return res.status(409).json({
+            message: `该子网被虚拟机（${list}${more}）使用，无法修改CIDR、网关或 VLAN。`,
+            code: 'FLAT_SUBNET_IN_USE_BY_VM',
+            vms: usingVms,
+          });
+        }
+      } catch (e) {
+        console.warn('[UpdateSubnet] Flat subnet VM usage check failed:', e);
+      }
+    }
+
+    // 扁平子网：排除 IP 校验（结构/重复/CIDR）及与运行中虚拟机地址冲突
+    if (flatUpdatingExclude) {
+      const exVal = validateFlatSubnetExcludeIpsPayload(
+        (body as any).excludeIps,
+        currentSubnet,
+        body,
+      );
+      if (!exVal.ok) {
+        res.status(exVal.status).json(exVal.body);
+        return;
+      }
+      const { excludeList } = exVal;
+      try {
+        const vms = await loadVmsForFlatSubnetUpdate();
+        const conflict = await findExcludeIpConflictWithRunningVmOnSubnet(
+          apiBase,
+          cloud.secretKey || '',
+          insecure,
+          subnetName,
+          excludeList,
+          vms,
+        );
+        if (conflict) {
+          return res.status(409).json({
+            message: `排除 IP「${conflict.ip}」正被虚拟机（${conflict.vmAlias}）使用，无法将其加入排除列表。`,
+            code: 'EXCLUDE_IP_IN_USE_BY_VM',
+            ip: conflict.ip,
+            vm: conflict.vmAlias,
+          });
+        }
+      } catch (e) {
+        console.warn('[UpdateSubnet] Flat subnet excludeIPs VM check failed:', e);
       }
     }
 
@@ -963,21 +1268,16 @@ export async function harvesterSubnetDirectDeleteHandler(
     }
 
     try {
-      const ecsList = await getJsonOnce(
-        `${apiBase}/v1/harvester/kubevirt.io.virtualmachines`,
+      const vms = await listHarvestKubevirtVirtualMachines(
+        apiBase,
         cloud.secretKey || '',
         insecure,
       );
-      const vms: any[] = Array.isArray(ecsList?.items)
-        ? ecsList.items
-        : Array.isArray(ecsList?.data)
-        ? ecsList.data
-        : [];
-      const targetRef = `default/${name}`.toLowerCase();
+      const targetRef = multusDefaultSubnetRefLower(String(name));
       const usingVms = findVmDisplayNamesUsingMultusNetwork(
         vms,
         targetRef,
-        name.toLowerCase(),
+        String(name).toLowerCase(),
       );
 
       if (usingVms.length > 0) {
@@ -1000,8 +1300,9 @@ export async function harvesterSubnetDirectDeleteHandler(
       const blocking = eipsReferencingSubnetExcludingLrp(eips, name);
       if (blocking.length > 0) {
         const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
+        const labels = kubeOvnEipPublicDisplayLabels(blocking);
         return res.status(409).json({
-          message: `子网正在被以下 EIP（非 lrp）使用，无法删除：${names.join('、')}`,
+          message: `子网正被公网 IP ${labels.join('、')} 使用，无法删除。`,
           code: 'SUBNET_IN_USE_BY_EIPS',
           eips: names,
         });

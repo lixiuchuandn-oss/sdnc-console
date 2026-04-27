@@ -28,7 +28,6 @@ type Props = {
   onReloadStorageClasses?: () => void | Promise<void>;
   onForceRefresh?: () => void | Promise<void>;
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
   /** 与镜像 `tower.io/paas-type` 一致；不传则展示全部带 tower.io/rds 的实例 */
   paasType?: string;
   /** 列表区标题，默认随 paasType 或「云数据库」 */
@@ -110,7 +109,6 @@ const PaasSection: React.FC<Props> = ({
   onReloadStorageClasses,
   onForceRefresh,
   isTenant = false,
-  mode = 'standard',
   paasType,
   sectionTitle,
   namespacesOptions = [],

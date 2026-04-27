@@ -123,14 +123,13 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         }
       }
       
-      // VPC筛选
-      if (vpcFilter && vpc !== vpcFilter) {
+      if (vpcFilter && networkScope !== 'flat' && vpc !== vpcFilter) {
         return false;
       }
       
       return true;
     });
-  }, [snatRules, keyword, vpcFilter, eipIpv4ByName]);
+  }, [snatRules, keyword, vpcFilter, eipIpv4ByName, networkScope]);
 
   // 筛选选项
   const vpcOptions = useMemo(() => {
@@ -321,10 +320,28 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         );
       },
     },
-    { 
-      title: 'CIDR', 
-      key: 'cidr', 
-      render: (_: any, r: any) => <span>{String(r?.status?.v4IpCidr || r?.spec?.vpcSubnet || '').trim() || '-'}</span> 
+    {
+      title: networkScope === 'flat' ? '扁平子网/CIDR' : 'CIDR',
+      key: 'cidr',
+      render: (_: any, r: any) => {
+        if (networkScope !== 'flat') {
+          return (
+            <span>{String(r?.status?.v4IpCidr || r?.spec?.vpcSubnet || '').trim() || '-'}</span>
+          );
+        }
+        const snName = String(r?.spec?.vpcSubnet ?? '').trim();
+        const sn = snName
+          ? subnets.find((s: any) => String(s?.metadata?.name || s?.name || '') === snName)
+          : null;
+        const alias = String(sn?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+        const crName = String(sn?.metadata?.name ?? snName ?? '').trim();
+        const label = alias || crName;
+        const cidr = sn ? subnetCidrOf(sn) : String(r?.status?.v4IpCidr ?? '').trim();
+        if (!label && !cidr) return '-';
+        if (!cidr) return label;
+        if (!label) return cidr;
+        return `${label}/${cidr}`;
+      },
     },
     ...(networkScope === 'flat'
       ? []
@@ -373,7 +390,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       }
     },
     ],
-    [hasNatWrite, handleMenuClick, networkScope, eipIpv4ByName, vpcDisplayById],
+    [hasNatWrite, handleMenuClick, networkScope, eipIpv4ByName, vpcDisplayById, subnets],
   );
 
   const snatTableSettingsKey = `harvester_ovn_snat_${networkScope ?? 'legacy'}`;
@@ -393,17 +410,19 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
               onChange={(e) => setKeyword(e.target.value)} 
               className="toolbar-search"
             />
-            <Select 
-              allowClear 
-              placeholder="VPC" 
-              value={vpcFilter || undefined} 
-              onChange={(v) => setVpcFilter(v || '')} 
-              className="toolbar-filter-sm"
-              options={[
-                { value: '', label: '全部' },
-                ...vpcOptions.map((v) => ({ value: v, label: vpcDisplayById.get(v) || v }))
-              ]} 
-            />
+            {networkScope !== 'flat' ? (
+              <Select
+                allowClear
+                placeholder="VPC"
+                value={vpcFilter || undefined}
+                onChange={(v) => setVpcFilter(v || '')}
+                className="toolbar-filter-sm"
+                options={[
+                  { value: '', label: '全部' },
+                  ...vpcOptions.map((v) => ({ value: v, label: vpcDisplayById.get(v) || v })),
+                ]}
+              />
+            ) : null}
             <button
               type="button"
               className="toolbar-reset-btn"

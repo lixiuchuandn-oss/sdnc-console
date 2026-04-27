@@ -21,6 +21,7 @@ import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNames
 import { deleteHarvesterSshKey } from '../../../../../../services/harvesterApi';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -36,7 +37,6 @@ interface Props {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
 
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
   bordered?: boolean;
 }
 
@@ -46,9 +46,9 @@ const SshKeysSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   isTenant,
-  mode = 'ops',
   bordered = true
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -220,7 +220,7 @@ const SshKeysSection: React.FC<Props> = ({
       copyable: true,
       render: (text: string) => <span className="std-code">{text}</span>
     },
-    ...(mode === 'ops' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
+    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', className: 'std-time' },
     {
       title: '操作',
@@ -231,7 +231,7 @@ const SshKeysSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 仅在非租户模式下添加详情入口
-        if (!isTenant && mode === 'ops') {
+        if (!isTenant && hasOpsView) {
           items.push({ 
             key: 'opsinfo', 
             label: '查看YAML', 
@@ -277,7 +277,7 @@ const SshKeysSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, hasSshKeysWrite, mode]);
+  ], [isTenant, hasSshKeysWrite, hasOpsView]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_ssh_keys_table');
@@ -296,7 +296,7 @@ const SshKeysSection: React.FC<Props> = ({
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
           />
-          {!isTenant && mode === 'ops' && (
+          {!isTenant && hasOpsView && (
             <Select
               placeholder="命名空间"
               className="toolbar-filter-sm" 

@@ -14,6 +14,10 @@ import {
   OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
 } from '../lib/kubeOvnSubnetConstants';
 import { defaultVlanCrNameByMinVlanId } from '../lib/vlanUtils';
+import {
+  friendlyMessageIfKubeOvnGatewayNotInCidr,
+  isIpv4GatewayInCidr,
+} from '../lib/flatSubnetExcludeIpValidation';
 
 function isValidIpv4Cidr(s: string): boolean {
   const t = String(s ?? '').trim();
@@ -106,6 +110,14 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
               .filter((s: string) => s)
           : [];
 
+        const cidrTrim = String(rest.cidrBlock ?? '').trim();
+        const gwTrim = String(rest.gateway ?? '').trim();
+        const gwInCidr = isIpv4GatewayInCidr(gwTrim, cidrTrim);
+        if (gwInCidr === false) {
+          message.error('创建公共子网失败：网关不在CIDR 范围内');
+          return;
+        }
+
         const vlanTrim = String(rest.vlan ?? '').trim();
         const vlanHit = vlanTrim
           ? vlans.find((v: any) => String(v?.metadata?.name ?? '').trim() === vlanTrim)
@@ -139,6 +151,12 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
         onClose();
         await onSuccess?.();
       } catch (error: any) {
+        pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
+        const friendlyGw = friendlyMessageIfKubeOvnGatewayNotInCidr(error, 'public');
+        if (friendlyGw) {
+          message.error(friendlyGw);
+          return;
+        }
         const rd = error?.responseData;
         let detail = String(error?.message || '').trim() || '未知错误';
         if (rd?.details != null) {
@@ -149,7 +167,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
             detail = `${detail} | ${more}`;
           }
         }
-        message.error(`创建公共子网失败: ${detail}`);
+        message.error(`创建公共子网失败：${detail}`);
       }
     },
     [canSubmit, cloudId, form, onClose, onSuccess, vlans],

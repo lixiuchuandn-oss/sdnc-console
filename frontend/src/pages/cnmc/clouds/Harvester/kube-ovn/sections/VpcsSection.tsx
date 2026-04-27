@@ -18,6 +18,7 @@ import {
   isBuiltInKubeOvnVpc,
   isVpcOvnSubnetTableRow,
 } from '../lib/kubeOvnSubnetConstants';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 接口定义
@@ -108,12 +109,14 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   bordered = true,
   showYaml = true,
 }) => {
-  /** 运维模式下：是否请求 all=true（含内置/无注解 VPC） */
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const effectiveShowYaml = showYaml !== false && hasOpsView;
+  /** 具备运维视图权限时：是否请求 all=true（含内置/无注解 VPC） */
   const [vpcsQueryAll, setVpcsQueryAll] = useState(false);
 
   useEffect(() => {
-    if (!showYaml) setVpcsQueryAll(false);
-  }, [showYaml]);
+    if (!effectiveShowYaml) setVpcsQueryAll(false);
+  }, [effectiveShowYaml]);
 
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -609,7 +612,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       render: (_: any, r: any) => {
         const items = [
           { key: 'edit', label: '编辑子网', disabled: !hasVpcsWrite, onClick: () => handleEditSubnet(r) },
-          ...(showYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Subnet') }] : []),
+          ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Subnet') }] : []),
           { type: 'divider' as const },
           { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite, onClick: () => handleDeleteSubnet(r) },
         ];
@@ -698,7 +701,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         const items = [
           { key: 'edit', label: '编辑VPC', disabled: !hasVpcsWrite, onClick: () => handleEditVpc(r) },
           { key: 'createSubnet', label: '添加 VPC 子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },
-          ...(showYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Vpc') }] : []),
+          ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Vpc') }] : []),
           ...(!isSystem ? [
             { type: 'divider' as const },
             { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite, onClick: () => handleDelete(r) }
@@ -707,7 +710,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }} />;
       },
     },
-  ], [cloudId, onRefresh, hasVpcsWrite, showYaml]);
+  ], [cloudId, onRefresh, hasVpcsWrite, effectiveShowYaml]);
 
   // --- Render Helpers ---
 
@@ -781,7 +784,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       )}
       toolbarRight={(
         <div className="toolbar-actions">
-          {showYaml && (
+          {effectiveShowYaml && (
             <Switch
               checkedChildren="全部"
               unCheckedChildren="默认"

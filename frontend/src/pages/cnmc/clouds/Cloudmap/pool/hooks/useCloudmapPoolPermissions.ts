@@ -6,7 +6,6 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { useLicense } from '../../../../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import {
-  CLOUD_CLOUDMAP_OPS_VIEW_WRITE,
   CLOUD_PROVIDER_NETWORKS_READ,
   CLOUD_SUBNETS_FLAT_READ,
   CLOUD_SUBNETS_PUBLIC_READ,
@@ -16,7 +15,6 @@ import {
 export type CloudmapPoolPermissions = {
   checkPerm: (act: string) => boolean;
   isTenant: boolean;
-  canToggleOpsView: boolean;
   canReadVpcSubnets: boolean;
   canReadFlatSubnets: boolean;
   canReadPublicSubnets: boolean;
@@ -43,11 +41,6 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
   const checkPerm = useCallback(
     (act: string) => hasPermissionForAction(permissions || [], act),
     [permissions],
-  );
-
-  const canToggleOpsView = useMemo(
-    () => checkPerm(CLOUD_CLOUDMAP_OPS_VIEW_WRITE),
-    [checkPerm],
   );
 
   const canReadVpcSubnets =
@@ -160,7 +153,6 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
   return {
     checkPerm,
     isTenant,
-    canToggleOpsView,
     canReadVpcSubnets,
     canReadFlatSubnets,
     canReadPublicSubnets,

@@ -7,6 +7,7 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import dayjs from 'dayjs';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 type Props = {
   clusterNetworks: any[];
@@ -14,12 +15,11 @@ type Props = {
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
   isTenant?: boolean;
-  /** 标准视图下隐藏「查看YAML」等运维向入口 */
-  mode?: 'standard' | 'ops';
 };
 
-const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onRefresh, cloudId, isTenant, mode = 'ops' }) => {
-  const isStandardView = mode === 'standard';
+const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onRefresh, cloudId, isTenant }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const isStandardView = !hasOpsView;
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
 

@@ -66,13 +66,7 @@ export async function tryLoadClusterTab(
       ) {
         setResourceLoading((prev) => ({ ...prev, namespaces: true }));
         try {
-          const skipSyncParam = skipSync || !force;
-          const json = await fetchHarvesterNamespaces(
-            cloudId,
-            true,
-            false,
-            skipSyncParam,
-          );
+          const json = await fetchHarvesterNamespaces(cloudId, true, false, false);
           const list: any[] = Array.isArray((json as any)?.data?.items)
             ? (json as any).data.items
             : Array.isArray((json as any)?.items)

@@ -13,9 +13,24 @@ export function translateKnownApiErrorMessage(raw: string): string {
 
   const lower = msg.toLowerCase();
 
-  // --- 集群准入校验 Webhook 超时（API Server 调用校验服务超时；匹配条件依赖上游返回的域名/服务名原文）---
+  // --- Harvester：未配置备份目标（需在集群设置中配置 Backup Target）---
+  if (lower.includes('backup target is not set')) {
+    return '未配置备份服务器，请先配置备份服务器后再做备份。';
+  }
+
+  // --- 集群准入校验 Webhook 超时（须排在具体 admission 文案之后，避免误把「拒绝原因」整段当成超时）---
   if (
-    lower.includes('validator.harvesterhci.io') ||
+    lower.includes('validator.harvesterhci.io') &&
+    (lower.includes('deadline exceeded') ||
+      lower.includes('context deadline exceeded') ||
+      lower.includes('failed calling webhook') ||
+      lower.includes('failed to call webhook'))
+  ) {
+    return '集群准入校验 Webhook 响应超时（常见于 Webhook 服务繁忙或控制面网络延迟）。请稍后重试；若持续出现请在集群侧检查 Webhook 相关服务与节点负载。';
+  }
+
+  // --- 集群准入校验 Webhook 超时（其它 harvester webhook 路径）---
+  if (
     (lower.includes('harvester-webhook') && lower.includes('deadline exceeded')) ||
     (lower.includes('failed calling webhook') && lower.includes('context deadline exceeded')) ||
     (lower.includes('failed to call webhook') && lower.includes('deadline exceeded'))

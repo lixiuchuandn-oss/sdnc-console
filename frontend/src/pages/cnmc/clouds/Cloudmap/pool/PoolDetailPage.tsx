@@ -1,17 +1,16 @@
 // 页面门控分三层：
 // 1) License/Feature：能力是否启用
 // 2) RBAC：用户是否有读写权限
-// 3) 标准/运维（mode）：仅影响各 Section 内交互/展示细节；Tab 显隐仅由授权 + RBAC 决定
+// 3) 运维向列表列/入口：由 clouds.cloudmap.ops-view:write（与各 Section 内 hook 一致）；Tab 显隐仍由授权 + RBAC 决定
 //
 // 资源状态与加载编排见 `hooks/useCloudmapPoolDetailEngine.ts`（便于后续按路由拆 Context）。
 
 import React from 'react';
 import { Alert } from 'antd';
 
-import PoolRoutes, { CloudmapPoolDetailProvider } from './routing';
+import { CloudmapPoolDetailProvider, CloudmapPoolRoutes } from './routing';
 import PageDetailContainer from '../../../../../components/PageDetailContainer';
-import './styles/cloudmap-detail-layout.css';
-import './styles/cloudmap-resource-hub-inner-tabs.css';
+import './styles/layout.css';
 import { HarvesterPublicNamespacesProvider } from '../../Harvester/context/HarvesterPublicNamespacesContext';
 import { useCloudmapPoolDetailEngine } from './hooks/useCloudmapPoolDetailEngine';
 
@@ -50,7 +49,7 @@ const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           />
         )}
         <CloudmapPoolDetailProvider value={cloudmapPoolDetailValue}>
-          <PoolRoutes />
+          <CloudmapPoolRoutes />
         </CloudmapPoolDetailProvider>
       </PageDetailContainer>
     </HarvesterPublicNamespacesProvider>

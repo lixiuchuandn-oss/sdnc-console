@@ -14,43 +14,46 @@
  *    - 将后端状态 (Imported, Downloading, Failed 等) 映射为中文描述和 Antd Badge 颜色。
  *    - 特别处理下载进度展示 (Progress)，实时反馈导入状态。
  * 2. [创建流程]:
- *    - 标准模式：三个 Tab — 浏览器上传、Windows 桌面工具（下载 ImageUploader.exe）、URL 导入（集群拉取）。
- *    - 简易模式：新增镜像仅提供浏览器上传（与标准模式第一项表单一致）。
+ *    - 具体表单与 Tab 由 `ImageCreateModal` 承担。
+ *    - 无 clouds.cloudmap.ops-view:write：弹窗仅「浏览器上传」。
+ *    - 具备该权限：弹窗含浏览器上传、URL 导入、Windows 桌面工具下载。
  * 3. [详情抽屉]:
  *    - 点击行支持打开 `HarvesterResourceDrawer`，展示镜像的 YAML 和 Events。
  *    - 在打开抽屉前，自动补全 `kind: VirtualMachineImage` 以适配通用抽屉逻辑。
  *
  * === 交互依赖 ===
  * - 上游: 由资源池详情（如 Cloudmap）传入 `images` 列表。
- * - 下游: 调用 `createHarvesterImage`, `deleteHarvesterImage` 等 API。
- * - 外部: 依赖镜像与上传任务相关 API。
+ * - 下游: 列表侧调用 `deleteHarvesterImage` 等；新建镜像由 `ImageCreateModal` 内聚 API。
+ * - 外部: 镜像列表与上传任务轮询相关 API；`uploadControllersRef` 与弹窗共用以便取消直传。
  */
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Modal, Row, Col, Tabs, Typography, Tooltip, Upload, Drawer, Progress } from 'antd';
-import StdFormModal from '../../../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined, SearchOutlined, PaperClipOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Table, Input, Select, Tag, Button, message, Dropdown, Modal, Tooltip, Typography, Drawer, Progress } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { API_BASE_URL } from '../../../../../../services/api';
-import { getToken } from '../../../../../../utils/tokenStorage';
 import {
   deleteHarvesterImage,
-  createHarvesterImage,
-  createHarvesterImageUploadTask,
   fetchHarvesterImageUploadTask,
   fetchHarvesterImageUploadTasks,
   deleteHarvesterImageUploadTask,
   cancelHarvesterImageUploadTask,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace, isImagePublicByScenario, resolveVmImageKind } from '../../../../../../utils/harvesterUtils';
+import {
+  isSystemNamespace,
+  isImagePublicByScenario,
+  resolveVmImageKind,
+  findVmsReferencingHarvesterImage,
+} from '../../../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../../../components/OsIcon';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import ImageLabelEditModal from '../modals/ImageLabelEditModal';
+import ImageCreateModal from '../modals/ImageCreateModal';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -64,9 +67,10 @@ type Props = {
   images: any[];
   loading: boolean;
   onRefresh?: (force?: boolean, silent?: boolean) => void;
+  /** 用于删除镜像前判断是否仍被虚拟机引用 */
+  vms?: any[];
 
   isTenant?: boolean;
-  mode?: 'standard' | 'ops';
   bordered?: boolean;
 };
 
@@ -129,7 +133,16 @@ function resolveImageListStateKey(r: any): string {
   return 'unknown';
 }
 
-const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false, mode = 'ops', bordered = true }) => {
+const ImagesSection: React.FC<Props> = ({
+  cloudId,
+  images,
+  loading,
+  onRefresh,
+  vms = [],
+  isTenant = false,
+  bordered = true,
+}) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasImagesWrite = useMemo(
@@ -151,24 +164,19 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [creating, setCreating] = useState<boolean>(false);
   // 批量选择的行 key
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-  // 创建表单实例
-  const [form] = Form.useForm();
-  /** 标准模式：browser | desktop | url；简易模式弹窗不使用 Tab，仅浏览器上传 */
-  const [createTab, setCreateTab] = useState<'browser' | 'desktop' | 'url'>('browser');
-  
+
   // 抽屉状态，用于展示镜像的 Harvester 详情与事件等
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<any>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
-  const [uploadingTask, setUploadingTask] = useState(false);
-  const [toolFile, setToolFile] = useState<File | null>(null);
   const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
-  
+
   // 标签编辑状态
   const [labelEditModalOpen, setLabelEditModalOpen] = useState(false);
   const [labelEditRecord, setLabelEditRecord] = useState<any>(null);
+  /** 浏览器直传 fetch 的 AbortController；与 ImageCreateModal 共用，取消任务时可中止上传 */
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const toolTaskListRef = useRef<HarvesterImageUploadTask[]>([]);
   const onRefreshRef = useRef(onRefresh);
@@ -321,7 +329,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const filtered = useMemo(() => {
     const base = Array.isArray(images) ? images : [];
     // 如果没有过滤条件，直接返回所有镜像
-    const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || (mode === 'ops' ? scopeFilter : '');
+    const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || (hasOpsView ? scopeFilter : '');
     let list: any[];
     if (!hasFilters && !isTenant) {
       list = base;
@@ -339,8 +347,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         }
 
         // Scope Filter - 只有用户主动选择时才过滤
-        if (mode === 'ops' && scopeFilter === 'public' && !isImagePublicByScenario(r)) return false;
-        if (mode === 'ops' && scopeFilter === 'private') {
+        if (hasOpsView && scopeFilter === 'public' && !isImagePublicByScenario(r)) return false;
+        if (hasOpsView && scopeFilter === 'private') {
           // Private: 非公共且非系统
           if (isImagePublicByScenario(r) || isSystemNamespace(ns)) return false;
         }
@@ -384,7 +392,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     }
     // 默认按创建时间降序（最新在前）；清除列排序时仍保持该顺序
     return [...list].sort((a, b) => getImageCreatedMs(b) - getImageCreatedMs(a));
-  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, mode, expandOsKeywords, getImageCreatedMs]);
+  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, hasOpsView, expandOsKeywords, getImageCreatedMs]);
 
   /** 与 resolveImageListStateKey 返回值一致（去掉易与 ready 混淆的 imported/pending） */
   const statusOptions = ['ready', 'failed', 'downloading', 'unknown'];
@@ -443,7 +451,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
           const ok = results.filter(x => x.ok).length;
           const fail = results.filter(x => !x.ok);
           if (ok > 0) message.success(`删除成功 ${ok} 条`);
-          if (fail.length > 0) message.error(`删除失败 ${fail.length} 条：${fail.map(f=>f.name).join(', ')}`);
+          if (fail.length > 0) {
+            message.error(
+              `删除失败 ${fail.length} 条：${fail.map((f: any) => (f.err ? `${f.name}（${f.err}）` : f.name)).join('；')}`,
+            );
+          }
           setSelectedKeys([]);
           onRefresh?.(true);
         } catch (e: any) {
@@ -471,7 +483,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         );
     } },
     { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
-    ...(mode === 'ops'
+    ...(hasOpsView
       ? [
           { title: '命名空间', key: 'namespace', render: (_: any, r: any) => getNs(r) },
           { title: '作用域', key: 'scope', render: (_: any, r: any) => (isImagePublicByScenario(r) ? '公共镜像' : '私有镜像') },
@@ -499,7 +511,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         }
         return '-';
       } },
-    ...(mode === 'ops'
+    ...(hasOpsView
       ? [
           {
             title: '存储类',
@@ -530,22 +542,26 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       const handleDownload = () => { if (download) window.open(download, '_blank'); };
       const handleDelete = async () => { 
           if (!ensureImagesWrite()) return;
-          if (name) { 
-              try {
-                  await deleteHarvesterImage(cloudId, ns, name); 
-                  message.success('删除成功'); 
-                  onRefresh?.(); 
-              } catch (e: any) {
-                  message.error(e?.message || '删除失败');
-              }
-          } 
+          if (!name) return;
+          const used = findVmsReferencingHarvesterImage(ns, name, vms);
+          if (used.length > 0) {
+            message.warning(`镜像仍被以下虚拟机使用，无法删除：${used.map((u) => u.label).join('、')}`);
+            return;
+          }
+          try {
+            await deleteHarvesterImage(cloudId, ns, name);
+            message.success('删除成功');
+            onRefresh?.();
+          } catch (e: any) {
+            message.error(e?.message || '删除失败');
+          }
       };
 
       return (
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
           items={[
-            ...(!isTenant && mode === 'ops' ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
+            ...(!isTenant && hasOpsView ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
             { key: 'editLabels', label: '编辑标签', disabled: !hasImagesWrite, onClick: () => { setLabelEditRecord(r); setLabelEditModalOpen(true); } },
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
@@ -554,46 +570,12 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         />
       );
     } },
-  ], [cloudId, onRefresh, isTenant, hasImagesWrite, mode, ensureImagesWrite, statusBadge, getImageCreatedMs]);
+  ], [cloudId, onRefresh, vms, isTenant, hasImagesWrite, hasOpsView, ensureImagesWrite, statusBadge, getImageCreatedMs]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
 
-  /**
-   * 处理 URL 导入镜像的创建逻辑
-   * - 使用 StdFormModal 自带的校验流程
-   * - 创建成功后刷新列表并关闭弹窗
-   */
-  const handleCreate = async () => {
-    if (!ensureImagesWrite()) return;
-    try {
-      const v = await form.validateFields();
-      // 根据镜像类型设置 diskFormat
-      let diskFormat: string | undefined;
-      if (v.imageType) {
-        if (v.imageType === 'iso') {
-          diskFormat = 'iso';
-        } else if (v.imageType === 'disk') {
-          diskFormat = 'qcow2'; // 默认使用 qcow2 格式
-        }
-      }
-      await createHarvesterImage(cloudId, {
-        namespace: v.namespace || 'default',
-        displayName: v.displayName || undefined,
-        sourceType: 'download',
-        url: v.url || undefined,
-        diskFormat: diskFormat,
-      });
-      message.success('创建成功');
-      setCreating(false);
-      // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
-      // 静默刷新，不显示提示信息
-      onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
-    } catch (e: any) {
-      message.error(e?.message || '创建失败');
-    }
-  };
-
+  /** 合并上传任务列表（新增镜像弹窗创建任务及轮询更新时调用） */
   const upsertTask = (task: HarvesterImageUploadTask) => {
     setToolTaskList((prev) => {
       const map = new Map(prev.map((x) => [x.id, x]));
@@ -602,77 +584,6 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         (a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime(),
       );
     });
-  };
-
-  const handleStartTaskUpload = async () => {
-    if (!ensureImagesWrite()) return;
-    if (!toolFile) {
-      message.warning('请先选择镜像文件');
-      return;
-    }
-
-    const namespace = String(form.getFieldValue('toolNamespace') || 'default');
-    const displayName =
-      String(form.getFieldValue('toolDisplayName') || '').trim() ||
-      toolFile.name.replace(/\.[^.]+$/, '');
-    const imageType = String(form.getFieldValue('toolImageType') || '').trim() || undefined;
-    const file = toolFile;
-
-    setUploadingTask(true);
-    try {
-      const created: any = await createHarvesterImageUploadTask(cloudId, {
-        namespace,
-        displayName,
-        imageType,
-      });
-      const task = (created?.data || created) as HarvesterImageUploadTask;
-      if (!task?.id) throw new Error('创建任务失败：未返回 taskId');
-
-      upsertTask(task);
-      setCreating(false);
-      setToolFile(null);
-      form.setFieldValue('toolDisplayName', '');
-      message.success('任务已创建，开始上传，可在「上传任务」查看/取消');
-
-      const controller = new AbortController();
-      uploadControllersRef.current.set(task.id, controller);
-
-      const taskFileUrl = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`;
-
-      void (async () => {
-        try {
-          const token = getToken();
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/octet-stream',
-            'X-File-Name': encodeURIComponent(file.name),
-            'X-File-Size': String(file.size),
-          };
-          if (token) headers.Authorization = `Bearer ${token}`;
-
-          const uploadResp = await fetch(taskFileUrl, {
-            method: 'POST',
-            headers,
-            body: file,
-            signal: controller.signal,
-          });
-          if (!uploadResp.ok) {
-            const text = await uploadResp.text();
-            throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);
-          }
-          const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
-          upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
-        } catch (e: any) {
-          if (controller.signal.aborted) return;
-          message.error(e?.message || '文件上传失败');
-        } finally {
-          uploadControllersRef.current.delete(task.id);
-        }
-      })();
-    } catch (e: any) {
-      message.error(e?.message || '提交上传任务失败');
-    } finally {
-      setUploadingTask(false);
-    }
   };
 
   const handleCancelUploadTask = async (task: HarvesterImageUploadTask) => {
@@ -692,125 +603,6 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     }
   };
 
-  const renderUrlImportPanel = () => (
-    <>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item label="镜像仓" name="namespace" initialValue="default" rules={[{ required: true }]}>
-            <Select options={[{ label:'公共镜像仓（默认）', value:'default' }]} style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item label="镜像类型" name="imageType" tooltip="可选，不选择时后端会自动推断">
-            <Select
-              placeholder="选择镜像类型（可选）"
-              allowClear
-              options={[
-                { value: 'disk', label: 'Qcow2（磁盘镜像）' },
-                { value: 'iso', label: 'ISO（光盘镜像）' },
-              ]}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Form.Item label="镜像显示名" name="displayName" rules={[{ required: true }]}>
-        <Input placeholder="如：ubuntu_20.04_200G.qcow2" />
-      </Form.Item>
-      <Form.Item
-        label="下载地址"
-        name="url"
-        rules={[{
-          validator: async (_, v)=> {
-            if (!v || !/^https?:\/\//i.test(String(v))) return Promise.reject('请输入合法的 http(s) 链接');
-            return Promise.resolve();
-          }
-        }]}
-      >
-        <Input placeholder="http(s)://..." />
-      </Form.Item>
-
-    </>
-  );
-
-  const openImageUploaderDownload = () => {
-    const url = `${API_BASE_URL}/api/tools/imageuploader.exe`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  /** 方式 1：浏览器内提交上传任务（简易模式仅展示此块） */
-  const renderBrowserUploadPanel = () => (
-    <div>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item label="镜像仓" name="toolNamespace" initialValue="default">
-            <Select
-              options={[{ label: '公共镜像仓（默认）', value: 'default' }]}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item label="镜像类型" name="toolImageType" tooltip="可选">
-            <Select
-              allowClear
-              options={[
-                { value: 'disk', label: 'Qcow2（磁盘镜像）' },
-                { value: 'iso', label: 'ISO（光盘镜像）' },
-              ]}
-              placeholder="按需选择"
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Form.Item label="镜像显示名" name="toolDisplayName" rules={[{ required: true, message: '请输入镜像显示名' }]}>
-        <Input placeholder="例如 ubuntu-22.04" />
-      </Form.Item>
-      <Form.Item label="本地文件" required>
-        <div
-          style={{
-            border: '1px dashed #d9d9d9',
-            borderRadius: 6,
-            padding: '8px 12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <Upload
-            beforeUpload={(file) => {
-              setToolFile(file as File);
-              return false;
-            }}
-            maxCount={1}
-            onRemove={() => setToolFile(null)}
-            showUploadList={false}
-          >
-            <Button>选择镜像文件</Button>
-          </Upload>
-          <Typography.Text style={{ flex: 1, textAlign: 'left' }} ellipsis>
-            <PaperClipOutlined style={{ marginRight: 6, color: '#1677ff' }} />
-            {toolFile?.name || '-'}
-          </Typography.Text>
-        </div>
-      </Form.Item>
-    </div>
-  );
-
-  /** 方式 2：下载 Windows 桌面直传工具 */
-  const renderDesktopToolPanel = () => (
-    <div style={{ padding: '0 8px' }}>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        适用于大文件或浏览器上传不稳定的环境。下载 Windows 桌面工具后本地运行，按向导登录 Tower、选择 Cloudmap 资源池与命名空间，将镜像直传至集群。
-      </Typography.Paragraph>
-      <Button type="primary" icon={<DownloadOutlined />} onClick={openImageUploaderDownload}>
-        下载 ImageUploader.exe
-      </Button>
-    </div>
-  );
-
   const uploadStatusText = (t: HarvesterImageUploadTask) => {
     const s = String(t?.status || '').toLowerCase();
     const map: Record<string, string> = {
@@ -824,15 +616,13 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     return map[s] || s || '-';
   };
 
-  const isUrlCreateTab = createTab === 'url';
-
   return (
     <PageDetailSection
       asCard={false}
       toolbarLeft={(
         <>
           <Input allowClear placeholder="名称/命名空间" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
-          {mode === 'ops' && (
+          {hasOpsView && (
             <Select
               allowClear
               placeholder="作用域"
@@ -892,7 +682,16 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       )}
       toolbarRight={(
         <>
-          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); form.setFieldsValue({ toolNamespace: 'default', namespace: 'default' }); setCreateTab('browser'); setCreating(true); }}>新增镜像</Button>
+          <Button
+            type="primary"
+            disabled={!hasImagesWrite}
+            onClick={() => {
+              if (!ensureImagesWrite()) return;
+              setCreating(true);
+            }}
+          >
+            新增镜像
+          </Button>
           <Button
             onClick={() => {
               setTaskDrawerOpen(true);
@@ -942,47 +741,16 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         </>
       )}
     >
-      <StdFormModal
+      <ImageCreateModal
         open={creating}
-        title="新增镜像"
-        onCancel={() => setCreating(false)}
-        onFinish={isUrlCreateTab ? handleCreate : handleStartTaskUpload}
-        form={form}
-        okText={isUrlCreateTab ? '创建' : '提交任务'}
-        confirmLoading={uploadingTask}
-        okButtonProps={createTab === 'desktop' ? { style: { display: 'none' } } : undefined}
-        width={600}
-      >
-        {mode === 'standard' ? (
-          renderBrowserUploadPanel()
-        ) : (
-          <Tabs
-            activeKey={createTab}
-            destroyInactiveTabPane
-            onChange={(k)=> {
-              const key = k as 'browser' | 'desktop' | 'url';
-              setCreateTab(key);
-            }}
-            items={[
-              {
-                key: 'browser',
-                label: '浏览器上传',
-                children: renderBrowserUploadPanel(),
-              },
-              {
-                key: 'url',
-                label: 'URL 导入',
-                children: renderUrlImportPanel(),
-              },
-              {
-                key: 'desktop',
-                label: 'Windows 桌面工具',
-                children: renderDesktopToolPanel(),
-              },
-            ]}
-          />
-        )}
-      </StdFormModal>
+        onClose={() => setCreating(false)}
+        cloudId={cloudId}
+        variant={hasOpsView ? 'full' : 'standard'}
+        ensureWrite={ensureImagesWrite}
+        onUrlImportSuccess={() => onRefresh?.(true, true)}
+        onUploadTaskUpsert={upsertTask}
+        uploadControllersRef={uploadControllersRef}
+      />
       <Table
         className="std-table"
         bordered={false}

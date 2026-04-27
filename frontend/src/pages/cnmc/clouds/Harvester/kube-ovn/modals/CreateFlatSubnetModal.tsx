@@ -17,6 +17,11 @@ import {
   KUBE_OVN_PUBLIC_VPC,
   buildFlatUnderlayOverlayAnnotations,
 } from '../lib/kubeOvnSubnetConstants';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import {
+  friendlyMessageIfKubeOvnGatewayNotInCidr,
+  isIpv4GatewayInCidr,
+} from '../lib/flatSubnetExcludeIpValidation';
 
 export type CreateFlatSubnetModalProps = {
   open: boolean;
@@ -30,8 +35,8 @@ export type CreateFlatSubnetModalProps = {
   /** 打开时预填 VLAN（CR metadata.name） */
   initialVlanCrName?: string | null;
   title?: string;
-  /** 运维模式：可在公共命名空间中选择 NAD 所在命名空间；标准模式固定 default、不展示命名空间 */
-  displayMode?: 'standard' | 'ops';
+  /** 物理网络详情等场景：不展示命名空间，固定使用 default */
+  hideNamespace?: boolean;
 };
 
 const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
@@ -44,8 +49,10 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   onSuccess,
   initialVlanCrName,
   title = '创建扁平子网',
-  displayMode = 'ops',
+  hideNamespace = false,
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const showNamespaceField = hasOpsView && !hideNamespace;
   const [form] = Form.useForm();
   const [nsOptions, setNsOptions] = useState<{ value: string; label: string }[]>([]);
   /** 打开弹窗时预生成，与 CreateVpcSubnetModal / CreatePublicSubnetModal 一致，避免多次提交产生不同 CR 名 */
@@ -63,7 +70,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   }, [perms, isTenantUser]);
 
   const refreshNamespaces = useCallback(async () => {
-    if (displayMode !== 'ops') {
+    if (!showNamespaceField) {
       setNsOptions([]);
       return;
     }
@@ -90,7 +97,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         { value: 'harvester-public', label: 'harvester-public' },
       ]);
     }
-  }, [cloudId, displayMode]);
+  }, [cloudId, showNamespaceField]);
 
   useEffect(() => {
     if (!open) return;
@@ -100,16 +107,16 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
     form.setFieldsValue({
       ...(initialVlanCrName ? { vlan: initialVlanCrName } : {}),
     });
-  }, [open, initialVlanCrName, form, displayMode, refreshNamespaces]);
+  }, [open, initialVlanCrName, form, refreshNamespaces]);
 
-  /** 运维模式：公共命名空间列表异步返回后补默认选中（优先 default） */
+  /** 具备运维视图权限：公共命名空间列表异步返回后补默认选中（优先 default） */
   useEffect(() => {
-    if (!open || displayMode !== 'ops') return;
+    if (!open || !showNamespaceField) return;
     const cur = form.getFieldValue('namespace');
     if (cur) return;
     const prefer = nsOptions.find((o) => o.value === 'default')?.value ?? nsOptions[0]?.value;
     if (prefer) form.setFieldValue('namespace', prefer);
-  }, [open, displayMode, nsOptions, form]);
+  }, [open, showNamespaceField, nsOptions, form]);
 
   const handleSubmit = useCallback(
     async (values: any) => {
@@ -119,12 +126,11 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
       }
       try {
         const { alias, namespace: nsField, ...rest } = values;
-        const namespace =
-          displayMode === 'ops'
+        const namespace = showNamespaceField
             ? String(nsField ?? '').trim() || 'default'
             : 'default';
         if (
-          displayMode === 'ops' &&
+          showNamespaceField &&
           nsOptions.length > 0 &&
           !nsOptions.some((o) => o.value === namespace)
         ) {
@@ -141,6 +147,13 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
               .map((s: string) => s.trim())
               .filter((s: string) => s)
           : [];
+        const cidrTrim = String(rest.cidrBlock ?? '').trim();
+        const gwTrim = String(rest.gateway ?? '').trim();
+        const gwInCidr = isIpv4GatewayInCidr(gwTrim, cidrTrim);
+        if (gwInCidr === false) {
+          message.error('创建扁平子网失败：网关不在CIDR 范围内');
+          return;
+        }
         const vlanTrim = String(rest.vlan ?? '').trim();
         const vlanHit = vlanTrim
           ? vlans.find((v: any) => String(v?.metadata?.name ?? '').trim() === vlanTrim)
@@ -182,6 +195,12 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         onClose();
         await onSuccess?.();
       } catch (error: any) {
+        pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
+        const friendlyGw = friendlyMessageIfKubeOvnGatewayNotInCidr(error, 'flat');
+        if (friendlyGw) {
+          message.error(friendlyGw);
+          return;
+        }
         const rd = error?.responseData;
         let detail = String(error?.message || '').trim() || '未知错误';
         if (rd?.details != null) {
@@ -192,10 +211,10 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
             detail = `${detail} | ${more}`;
           }
         }
-        message.error(`创建扁平子网失败: ${detail}`);
+        message.error(`创建扁平子网失败：${detail}`);
       }
     },
-    [canSubmit, cloudId, displayMode, form, nsOptions, onClose, onSuccess, vlans],
+    [canSubmit, cloudId, showNamespaceField, form, nsOptions, onClose, onSuccess, vlans],
   );
 
   return (
@@ -221,7 +240,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           aliasDupCheckItems={aliasDupCheckItems}
           aliasFieldTooltip="展示名称，支持中文。集群内资源 ID（metadata.name）为系统自动生成，格式 id-sn- 加 11 位随机字符。"
         />
-        {displayMode === 'ops' ? (
+        {showNamespaceField ? (
           <Form.Item
             label="命名空间"
             name="namespace"

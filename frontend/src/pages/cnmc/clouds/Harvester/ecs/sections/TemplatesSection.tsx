@@ -29,6 +29,7 @@ import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNames
 import { createHarvesterVmFromTemplate, deleteHarvesterResourceByLink } from '../../../../../../services/harvesterApi';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * Props 定义
@@ -44,7 +45,6 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式
-  mode?: 'standard' | 'ops';
   bordered?: boolean;
 }
 
@@ -123,9 +123,9 @@ const TemplatesSection: React.FC<Props> = ({
   loading, 
   onRefresh, 
   isTenant = false,
-  mode = 'ops',
   bordered = true,
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { modal } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -362,7 +362,7 @@ const TemplatesSection: React.FC<Props> = ({
         );
       }
     },
-    ...(mode === 'ops' ? [{
+    ...(hasOpsView ? [{
       title: '作用域',
       key: 'scope',
       render: (_: any, r: any) => {
@@ -371,7 +371,7 @@ const TemplatesSection: React.FC<Props> = ({
           return <Tag color={isPublic ? 'orange' : 'cyan'}>{scope}</Tag>;
       }
     }] : []),
-    ...(mode === 'ops'
+    ...(hasOpsView
       ? [{
           title: '命名空间',
           key: 'namespace',
@@ -416,7 +416,7 @@ const TemplatesSection: React.FC<Props> = ({
         ];
 
         // 仅在非租户模式下显示运维信息
-        if (!isTenant && mode === 'ops') {
+        if (!isTenant && hasOpsView) {
           items.push({
             key: 'ops_info',
             label: '查看YAML',
@@ -454,7 +454,7 @@ const TemplatesSection: React.FC<Props> = ({
       },
     }
   ],
-    [isTenant, hasTemplatesWrite, mode, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete, isPublicNamespace],
+    [isTenant, hasTemplatesWrite, hasOpsView, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete, isPublicNamespace],
   );
 
   /**
@@ -502,8 +502,8 @@ const TemplatesSection: React.FC<Props> = ({
       const ns = getTemplateNamespace(t);
       if (selectedNamespace && ns !== selectedNamespace) return false;
       // 1.1 作用域筛选
-      if (mode === 'ops' && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
-      if (mode === 'ops' && selectedScope === 'private' && isPublicNamespace(ns)) return false;
+      if (hasOpsView && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
+      if (hasOpsView && selectedScope === 'private' && isPublicNamespace(ns)) return false;
 
       // 2. 关键字搜索
       if (searchText) {
@@ -513,7 +513,7 @@ const TemplatesSection: React.FC<Props> = ({
       
       return true;
     });
-  }, [baseData, searchText, selectedNamespace, selectedScope, mode, isPublicNamespace]);
+  }, [baseData, searchText, selectedNamespace, selectedScope, hasOpsView, isPublicNamespace]);
 
   return (
       <PageDetailSection
@@ -527,7 +527,7 @@ const TemplatesSection: React.FC<Props> = ({
               className="toolbar-search"
               allowClear
             />
-            {!isTenant && mode === 'ops' && (
+            {!isTenant && hasOpsView && (
               <Select
                 allowClear
                 showSearch
@@ -538,7 +538,7 @@ const TemplatesSection: React.FC<Props> = ({
                 className="toolbar-filter-sm"
               />
             )}
-            {mode === 'ops' && (
+            {hasOpsView && (
               <Select
                 allowClear
                 placeholder="作用域"

@@ -18,11 +18,16 @@ export function providerDisplayName(providerName: string, providers: any[]): str
   return alias || pn;
 }
 
-/** 下拉框仅展示：VLAN 标签 · 物理网络(别名优先) */
+/** 下拉框展示：VLAN 展示名（注解 tower.io/alies）· 标签号 · 物理网络（别名优先） */
 export function vlanRecordLabelForSelect(v: any, providers: any[]): string {
+  const ann = v?.metadata?.annotations || {};
+  const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] ?? '').trim();
   const tag = v?.spec?.id;
   const tagStr = tag !== undefined && tag !== null ? String(tag) : '—';
   const prov = providerDisplayName(String(v?.spec?.provider ?? '').trim(), providers);
+  if (alias) {
+    return `${alias} · VLAN ${tagStr} · ${prov}`;
+  }
   return `VLAN ${tagStr} - ${prov}`;
 }
 
@@ -35,6 +40,78 @@ export function vlanRecordSearchBlob(v: any, providers: any[]): string {
   return [metaName, tag !== undefined && tag !== null ? String(tag) : '', providerName, providerAlias]
     .filter(Boolean)
     .join(' ');
+}
+
+/**
+ * 根据子网 `spec.vlan`（VLAN CR 的 metadata.name，或少数场景下的 VLAN 数字 ID）在列表中解析对象。
+ * 兼容 `namespace/name`、资源名大小写差异。
+ */
+export function findVlanRecordBySubnetRef(vlanRef: string, vlans: any[]): any | undefined {
+  const raw = String(vlanRef ?? '').trim();
+  if (!raw || !Array.isArray(vlans)) return undefined;
+  const r = raw.includes('/') ? String(raw.split('/').pop() ?? '').trim() : raw;
+  if (!r) return undefined;
+  const rLower = r.toLowerCase();
+  return vlans.find((v) => {
+    const mn = String(v?.metadata?.name ?? '').trim();
+    if (mn === r || mn.toLowerCase() === rLower) return true;
+    const id = v?.spec?.id;
+    if (id !== undefined && id !== null) {
+      const idStr = String(id).trim();
+      if (idStr === r || idStr.toLowerCase() === rLower) return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * 子网详情「VLAN信息」：VLAN 行用展示名/标签；物理网络优先注解，否则从 VLAN.spec.provider 解析（Subnet.spec.provider 为 OVN 逻辑名，不能当物理网络用）。
+ */
+export function vlanDetailDisplayParts(
+  vlanRef: string,
+  vlans: any[] | undefined,
+  providers: any[] | undefined,
+  providerHint: string,
+  vpcDisplay: string,
+): {
+  vlanText: string;
+  vlanTitle: string | undefined;
+  physicalText: string;
+  physicalTitle: string | undefined;
+} {
+  const list = vlans ?? [];
+  const provs = providers ?? [];
+  const hint = String(providerHint ?? '').trim();
+  const vpc = String(vpcDisplay ?? '').trim();
+  const r = String(vlanRef ?? '').trim();
+  if (!r) {
+    const plain = vpc ? '—' : 'overlay';
+    const title = !vpc ? '未绑定 VLAN，纯 OVN overlay' : undefined;
+    return { vlanText: plain, vlanTitle: title, physicalText: '—', physicalTitle: undefined };
+  }
+  const hit = findVlanRecordBySubnetRef(r, list);
+  const physicalRaw = hint || String(hit?.spec?.provider ?? '').trim();
+  const physicalText = physicalRaw ? providerDisplayName(physicalRaw, provs) : '—';
+  const physicalTitle =
+    physicalRaw && physicalText !== physicalRaw ? `物理网络资源名：${physicalRaw}` : undefined;
+
+  if (hit) {
+    const ann = hit?.metadata?.annotations || {};
+    const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] ?? '').trim();
+    const tag = hit?.spec?.id;
+    const tagStr = tag !== undefined && tag !== null ? String(tag) : '—';
+    const crName = String(hit?.metadata?.name ?? '').trim();
+    const vlanText = alias ? `${alias}（VLAN ${tagStr}）` : `VLAN ${tagStr}`;
+    const vlanTitle = crName ? `VLAN 资源名：${crName}` : undefined;
+    return { vlanText, vlanTitle, physicalText, physicalTitle };
+  }
+
+  return {
+    vlanText: r,
+    vlanTitle: '未在已加载的 VLAN 列表中匹配，可刷新页面后重试；上为子网中的 VLAN 引用',
+    physicalText: hint ? providerDisplayName(hint, provs) : '—',
+    physicalTitle: hint && providerDisplayName(hint, provs) !== hint ? `物理网络资源名：${hint}` : undefined,
+  };
 }
 
 export type UnderlaySubnetFormFieldsProps = {

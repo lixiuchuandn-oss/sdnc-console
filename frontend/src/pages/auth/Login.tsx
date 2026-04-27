@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getDefaultAdminPath } from '../../utils/accessMapping';
 import { useSettings } from '../../contexts/SettingsContext';
 import { renderMarkdownBold } from '../../utils/markdown';
+import { useLoginPageHeroStyle } from './loginPageHeroStyle';
 import './Login.css';
 
 const Login: React.FC = () => {
@@ -18,16 +19,21 @@ const Login: React.FC = () => {
   const backgroundColor = settings.loginBackgroundColor;
   const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
   const gradientEnd = settings.loginBackgroundGradientEnd || backgroundColor;
-  const useGradient = Boolean(gradientStart && gradientEnd && gradientStart !== gradientEnd);
 
   const buttonColor = settings.loginButtonColor;
   const buttonHoverColor = settings.loginButtonHoverColor;
+
+  const heroStyle = useLoginPageHeroStyle({
+    backgroundColor,
+    gradientStart,
+    gradientEnd,
+  });
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
       const loggedInUser = await login(values.username, values.password);
-      if(loggedInUser.role !== 'tenant'){
+      if (loggedInUser.role !== 'tenant') {
         message.error('请使用管理员登录地址');
         navigate('/admin/login');
       } else {
@@ -43,85 +49,80 @@ const Login: React.FC = () => {
     }
   };
 
-  const onFinishFailed = (errorInfo: any) => {
-    // 表单验证失败，由 Ant Design Form 自动处理错误提示
+  const onFinishFailed = (_errorInfo: unknown) => {
+    /* Form 校验由 antd 处理 */
   };
 
-  const containerStyle: React.CSSProperties =
-    (!backgroundColor && !useGradient)
-      ? {}
-      : {
-          background: useGradient
-            ? `linear-gradient(135deg, ${gradientStart} 0%, ${gradientEnd} 100%)`
-            : backgroundColor,
-        };
-
   return (
-    <div className="login-container" style={containerStyle}>
-      <div className="login-content">
-        <div className="login-header">
-          <h1 className="login-title">{renderMarkdownBold(settings.loginTitle ?? '')}</h1>
-          <p className="login-subtitle">{settings.loginSubtitle ?? ''}</p>
+    <div className="login-page" style={heroStyle}>
+      <section className="login-page__panel" aria-labelledby="tenant-login-heading">
+        <div className="login-page__content">
+          <Card className="login-card login-page__card" variant="borderless">
+            <div className="login-header login-page__header">
+              <h1 id="tenant-login-heading" className="login-title login-page__title">
+                {renderMarkdownBold(settings.loginTitle ?? '')}
+              </h1>
+              <p className="login-subtitle login-page__subtitle">{settings.loginSubtitle ?? ''}</p>
+            </div>
+            <Form
+              form={form}
+              name="tenant-login"
+              onFinish={onFinish}
+              onFinishFailed={onFinishFailed}
+              autoComplete="off"
+              size="large"
+            >
+              <Form.Item name="username" rules={[{ required: true, message: '请输入用户名!' }]}>
+                <Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username" />
+              </Form.Item>
+              <Form.Item name="password" rules={[{ required: true, message: '请输入密码!' }]}>
+                <Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password" />
+              </Form.Item>
+              <Form.Item>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={loading}
+                  block
+                  size="large"
+                  style={
+                    buttonColor
+                      ? {
+                          background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
+                          border: 'none !important',
+                          boxShadow: `0 4px 12px ${buttonColor}40 !important`,
+                        }
+                      : undefined
+                  }
+                  onMouseEnter={(e) => {
+                    if (!buttonColor || !buttonHoverColor) return;
+                    e.currentTarget.style.setProperty(
+                      'background',
+                      `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`,
+                      'important',
+                    );
+                    e.currentTarget.style.setProperty('box-shadow', `0 6px 16px ${buttonHoverColor}60`, 'important');
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!buttonColor) return;
+                    e.currentTarget.style.setProperty(
+                      'background',
+                      `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`,
+                      'important',
+                    );
+                    e.currentTarget.style.setProperty('box-shadow', `0 4px 12px ${buttonColor}40`, 'important');
+                  }}
+                >
+                  登录
+                </Button>
+              </Form.Item>
+            </Form>
+            <div className="login-footer login-page__footer">
+              <p>© 2024 多云管理平台. All rights reserved.</p>
+            </div>
+          </Card>
         </div>
-        
-        <Card className="login-card" variant="borderless">
-          <Form
-            form={form}
-            name="login"
-            onFinish={onFinish}
-            onFinishFailed={onFinishFailed}
-            autoComplete="off"
-            size="large"
-          >
-            <Form.Item name="username" rules={[{ required: true, message: '请输入用户名!' }]}><Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username"/></Form.Item>
-
-            <Form.Item name="password" rules={[{ required: true, message: '请输入密码!' }]}><Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password"/></Form.Item>
-
-            <Form.Item>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={loading}
-                block
-                size="large"
-                style={
-                  buttonColor
-                    ? {
-                        background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
-                        border: 'none !important',
-                        boxShadow: `0 4px 12px ${buttonColor}40 !important`,
-                      }
-                    : undefined
-                }
-                onMouseEnter={(e) => {
-                  if (!buttonColor || !buttonHoverColor) return;
-                  e.currentTarget.style.setProperty(
-                    'background',
-                    `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`,
-                    'important'
-                  );
-                  e.currentTarget.style.setProperty('box-shadow', `0 6px 16px ${buttonHoverColor}60`, 'important');
-                }}
-                onMouseLeave={(e) => {
-                  if (!buttonColor) return;
-                  e.currentTarget.style.setProperty(
-                    'background',
-                    `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`,
-                    'important'
-                  );
-                  e.currentTarget.style.setProperty('box-shadow', `0 4px 12px ${buttonColor}40`, 'important');
-                }}
-              >
-                登录
-              </Button>
-            </Form.Item>
-          </Form>
-        </Card>
-        
-        <div className="login-footer">
-          <p>© 2024 多云管理平台. All rights reserved.</p>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };

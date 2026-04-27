@@ -16,7 +16,6 @@ import ServicesSection from '../../../../Harvester/cluster/sections/ServicesSect
 
 export type CloudmapContainersTabsProps = {
   cloudId: string;
-  mode: 'standard' | 'ops';
   isTenant: boolean;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
@@ -97,7 +96,6 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
 ) => {
   const {
     cloudId,
-    mode,
     isTenant,
     checkPerm,
     innerActiveKey,
@@ -208,7 +206,6 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         pods={harvesterPods}
-        mode={mode}
       />
     );
   }

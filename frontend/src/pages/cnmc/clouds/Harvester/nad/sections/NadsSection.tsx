@@ -57,6 +57,7 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
 } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /** 从 NAD 解析可能对应的 Kube-OVN Subnet 名称候选（同名 + provider 首段） */
 function collectKubeOvnSubnetNameCandidates(record: { _name?: string; _config?: any }): string[] {
@@ -155,10 +156,10 @@ type Props = {
    * 默认 false：展示全部（含公共/扁平/VPC 子网关联创建的 kube-ovn NAD），便于与 Kube-OVN 子网对照排障。
    */
   onlyBridge?: boolean;
-  mode?: 'standard' | 'ops';
 };
 
-const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false, mode = 'ops' }) => {
+const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -171,7 +172,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     message.error('当前账号没有附加网络操作权限（需要 clouds.nads:write 或 clouds:write 权限）');
     return false;
   }, [hasNadsWrite]);
-  const isStandardView = mode === 'standard';
+  const isStandardView = !hasOpsView;
 
   /** Kube-OVN Subnet 列表：用于表格「OVN 子网」关联列（与删除校验同源：通常 Subnet 名与 NAD 名一致） */
   const [ovnSubnets, setOvnSubnets] = useState<any[]>([]);

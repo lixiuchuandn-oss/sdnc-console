@@ -434,6 +434,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshImages}
             cloudId={cloudId}
+            vms={vms}
             isTenant={isTenantUser}
             bordered={bordered}
           />

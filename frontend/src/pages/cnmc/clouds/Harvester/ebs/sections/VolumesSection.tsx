@@ -106,6 +106,7 @@ import HarvesterVolumeDetailDrawer from '../../shared/components/HarvesterVolume
 import VolumeCreateModal, { type VolumeCreateSeed } from '../modals/VolumeCreateModal';
 import VolumeAttachModal from '../modals/VolumeAttachModal';
 import VolumeCloneModal from '../modals/VolumeCloneModal';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 // -----------------------------------------------------------------------------
 // Props（云详情「虚拟云盘」Tab 注入）
@@ -137,7 +138,6 @@ type Props = {
   onRefreshImages?: (force?: boolean, silent?: boolean) => void; // 刷新镜像列表的回调
   isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷)
   bordered?: boolean;
-  mode?: 'standard' | 'ops';
 };
 
 // ==============================================================================
@@ -308,12 +308,12 @@ const VolumesSection: React.FC<Props> = ({
   onRefreshStorageClasses,
   onRefreshImages,
   isTenant,
-  mode = 'ops'
 }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
   const { message, modal } = App.useApp();
   const { user } = useAuth();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
-  const isStandardView = mode === 'standard';
+  const isStandardView = !hasOpsView;
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasDisksWrite = useMemo(
     () => hasPermissionForAction(perms, 'clouds.disks:write') || hasPermissionForAction(perms, 'clouds:write'),
@@ -605,13 +605,13 @@ const VolumesSection: React.FC<Props> = ({
       }
 
       // 命名空间筛选（仅运维模式展示下拉，标准模式忽略 nsFilter 避免残留条件）
-      if (mode === 'ops' && nsFilter && item.namespace !== nsFilter) return false;
+      if (hasOpsView && nsFilter && item.namespace !== nsFilter) return false;
       // 存储类筛选
       if (scFilter && item.storageClass !== scFilter) return false;
 
       return true;
     });
-  }, [dataSource, keyword, statusFilter, nsFilter, scFilter, isTenant, mode, isPublicNamespace]);
+  }, [dataSource, keyword, statusFilter, nsFilter, scFilter, isTenant, hasOpsView, isPublicNamespace]);
 
   // 生成命名空间下拉选项
   const [fetchedNsOptions, setFetchedNsOptions] = useState<string[]>([]);
@@ -894,7 +894,7 @@ const VolumesSection: React.FC<Props> = ({
       key: 'id', 
       render: (v: string) => <span className="text-secondary">{v}</span> 
     },
-    ...(mode === 'ops'
+    ...(hasOpsView
       ? [
           {
             title: 'PV 名称',
@@ -915,7 +915,7 @@ const VolumesSection: React.FC<Props> = ({
       dataIndex: 'namespace',
       key: 'namespace' 
     }]),
-    ...(mode === 'ops'
+    ...(hasOpsView
       ? [
           {
             title: '存储类',
@@ -1112,7 +1112,7 @@ const VolumesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasDisksWrite }} />;
       } 
     },
-  ], [cloudId, storageClasses, defaultStorageClassName, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, editForm, message, modal, isTenant, isStandardView, mode, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
+  ], [cloudId, storageClasses, defaultStorageClassName, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, editForm, message, modal, isTenant, isStandardView, hasOpsView, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_volumes_table', ['namespace', 'volumeMode']);
@@ -1134,7 +1134,7 @@ const VolumesSection: React.FC<Props> = ({
             onChange={(e) => setKeyword(e.target.value)} 
             className="toolbar-search" 
           />
-          {!isTenant && mode === 'ops' && (
+          {!isTenant && hasOpsView && (
             <Select
               allowClear showSearch placeholder="命名空间"
               value={nsFilter || undefined} onChange={(v) => setNsFilter(v || '')}
@@ -1255,7 +1255,6 @@ const VolumesSection: React.FC<Props> = ({
           setVolumeCreateSeed(null);
         }}
         cloudId={cloudId}
-        mode={mode}
         nsOptions={nsOptions}
         storageClassOptions={createVolumeStorageClassOptions}
         defaultStorageClassName={defaultStorageClassName}
@@ -1352,7 +1351,6 @@ const VolumesSection: React.FC<Props> = ({
         openNonce={cloneModalNonce}
         onCancel={() => setCloneOpen(false)}
         cloudId={cloudId}
-        mode={mode}
         source={
           currentRecord
             ? {

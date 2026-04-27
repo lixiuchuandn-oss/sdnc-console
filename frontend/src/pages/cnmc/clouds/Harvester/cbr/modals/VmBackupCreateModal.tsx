@@ -14,6 +14,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
 import { createHarvesterVirtualMachineBackup } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
 /**
  * 组件入参
@@ -104,7 +105,13 @@ const VmBackupCreateModal: React.FC<Props> = ({
       message.success(`${type === 'backup' ? '备份' : '快照'}创建成功`);
       onSuccess({ namespace: values.namespace, name: values.name });
     } catch (e: any) {
-      message.error(`创建失败: ${e.message}`);
+      const raw =
+        e?.message ||
+        e?.responseData?.message ||
+        (typeof e?.responseData === 'string' ? e.responseData : '') ||
+        '';
+      const friendly = translateKnownApiErrorMessage(String(raw || '请检查表单与集群配置'));
+      message.error(`创建失败: ${friendly}`);
     } finally {
       setLoading(false);
     }

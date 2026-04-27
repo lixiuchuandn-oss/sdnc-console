@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import axios from 'axios';
 import { API_BASE_URL } from '../../services/api';
+import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -71,6 +72,7 @@ const LicenseSettingsPage: React.FC = () => {
   const [inputKey, setInputKey] = useState('');
   const [activating, setActivating] = useState(false);
   const [nodeId, setNodeId] = useState<string | null>(null);
+  const [issuerDisplay, setIssuerDisplay] = useState('');
   
   const copyText = async (text: string) => {
     try {
@@ -112,6 +114,26 @@ const LicenseSettingsPage: React.FC = () => {
       .then(res => setNodeId(res?.data?.nodeId || null))
       .catch(() => setNodeId(null));
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await getSystemSetting('license.issuer_display');
+        setIssuerDisplay(String((r as any)?.value ?? '').trim());
+      } catch {
+        setIssuerDisplay('');
+      }
+    })();
+  }, []);
+
+  const saveIssuerDisplay = async () => {
+    try {
+      await updateSystemSetting('license.issuer_display', issuerDisplay.trim());
+      message.success('颁发者展示名称已保存');
+    } catch {
+      message.error('保存失败');
+    }
+  };
 
   // 计算过期时间显示颜色
   const getExpireColor = (days?: number) => {
@@ -280,7 +302,20 @@ const LicenseSettingsPage: React.FC = () => {
 
             <Descriptions bordered column={{ xxl: 4, xl: 3, lg: 3, md: 2, sm: 1, xs: 1 }}>
               <Descriptions.Item label="授权客户 (Subject)">{payload?.sub || '-'}</Descriptions.Item>
-              <Descriptions.Item label="颁发者 (Issuer)">{payload?.iss || '-'}</Descriptions.Item>
+              <Descriptions.Item label="颁发者 (Issuer)" span={2}>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Input
+                    placeholder={payload?.iss ? String(payload.iss) : '自定义颁发者展示名称'}
+                    value={issuerDisplay}
+                    onChange={(e) => setIssuerDisplay(e.target.value)}
+                    onBlur={saveIssuerDisplay}
+                    style={{ maxWidth: 400 }}
+                  />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    仅影响本页展示；留空则显示授权文件中的 iss。导入授权后 JWT 内颁发者仍以文件为准。
+                  </Text>
+                </Space>
+              </Descriptions.Item>
               <Descriptions.Item label="授权类型">
                 {payload?.type ? <Tag color="blue">{TYPE_MAP[payload.type] || payload.type}</Tag> : '-'}
               </Descriptions.Item>

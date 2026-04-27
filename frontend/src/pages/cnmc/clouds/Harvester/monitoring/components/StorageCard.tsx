@@ -17,7 +17,8 @@ export const StorageCard: React.FC = () => {
   const totalFormatted = formatBytesWithUnit(summary.storageMaximum);
   const usedFormatted = formatBytesWithUnit(summary.storageUsed);
   const remainingFormatted = formatBytesWithUnit(summary.storageAvailable);
-  const distributedFormatted = formatBytesWithUnit(summary.storageAvailable / 3);
+  const replica = summary.defaultReplicaCount >= 1 ? summary.defaultReplicaCount : 3;
+  const distributedFormatted = formatBytesWithUnit(summary.storageAvailable / replica);
 
   if (loading) {
     return (
@@ -134,7 +135,7 @@ export const StorageCard: React.FC = () => {
               <Typography.Text type="secondary" style={{ fontSize: 14 }}>{distributedFormatted.unit}</Typography.Text>
             </span>
             <span style={{ fontSize: 14, color: '#fff', background: '#1677ff', padding: '6px 14px', borderRadius: 6 }}>
-              3 副本
+              {replica} 副本
             </span>
           </div>
         </div>

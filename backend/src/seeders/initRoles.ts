@@ -192,12 +192,13 @@ export async function initializeRoles() {
     const cloudComputePerms = CURATED_PERMISSIONS.filter(
       (p) =>
         cloudComputePrefixes.some((prefix) => p.startsWith(`${prefix}:`)) &&
-        !p.startsWith('clouds.vm-create-wizard:'),
+        !p.startsWith('clouds.vm-create-wizard:') &&
+        !p.startsWith('clouds.vm-quick-create:'),
     );
     cloudComputePerms.push('clouds.resource-pools:read');
     await ensureRole({
       name: cloudComputeRoleName,
-      description: '拥有云主机、云存储、云备份、扁平网络使用权限（不含网络附加定义 NAD、不含云主机创建向导）。',
+      description: '拥有云主机、云存储、云备份、扁平网络使用权限（不含网络附加定义 NAD、不含云主机创建向导与快速创建）。',
       scope: 'system',
       permissions: cloudComputePerms,
       status: 'active',
@@ -216,12 +217,13 @@ export async function initializeRoles() {
     const cloudOpsPerms = CURATED_PERMISSIONS.filter(
       (p) =>
         cloudOpsPrefixes.some((prefix) => p.startsWith(`${prefix}:`)) &&
-        !p.startsWith('clouds.vm-create-wizard:'),
+        !p.startsWith('clouds.vm-create-wizard:') &&
+        !p.startsWith('clouds.vm-quick-create:'),
     );
     cloudOpsPerms.push('clouds.resource-pools:read');
     await ensureRole({
       name: cloudOpsRoleName,
-      description: '拥有云主机、云存储、云备份、物理网络、扁平网络等使用权限（不含网络附加定义 NAD、不含云主机创建向导）。',
+      description: '拥有云主机、云存储、云备份、物理网络、扁平网络等使用权限（不含网络附加定义 NAD、不含云主机创建向导与快速创建）。',
       scope: 'system',
       permissions: cloudOpsPerms,
       status: 'active',

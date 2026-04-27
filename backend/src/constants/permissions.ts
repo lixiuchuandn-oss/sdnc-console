@@ -87,6 +87,8 @@ export const ALL_PERMISSIONS = [
   'clouds.ecs:write',          // 云主机管理 - 创建/启动/停止/删除
   /** 虚拟机创建向导（分步 /instances/create），与 clouds.ecs:write 解耦，便于单独门控 */
   'clouds.vm-create-wizard:write',
+  /** 云主机列表「快速创建」弹窗（SimpleVmCreate），与 clouds.ecs:write 解耦，便于单独门控 */
+  'clouds.vm-quick-create:write',
   /** Cloudmap 资源池：标准/运维视图切换（运维含命名空间、ACL、运维抽屉等） */
   'clouds.cloudmap.ops-view:write',
   // 扁平网络（新命名）
@@ -429,6 +431,7 @@ export const PERMISSION_GROUPS = {
       'clouds.resource-pools',
       'clouds.ecs',
       'clouds.vm-create-wizard',
+      'clouds.vm-quick-create',
       'clouds.images',
       'clouds.templates',
       'clouds.cloudinits',

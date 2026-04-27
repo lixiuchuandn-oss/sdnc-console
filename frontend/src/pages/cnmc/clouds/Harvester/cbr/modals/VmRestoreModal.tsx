@@ -13,6 +13,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Modal, Form, Input, message, Alert, Switch, Tooltip, Radio, Select } from 'antd';
 import { stopCloudProviderEcs } from '../../../../../../services/api';
 import { createHarvesterVirtualMachineRestore, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../../../services/harvesterApi';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
 /**
  * 组件入参
@@ -149,6 +150,11 @@ const VmRestoreModal: React.FC<Props> = ({
         }
       }
       
+      const targetDisplayLabel =
+        values.newVM === true
+          ? String(values.displayName ?? '').trim() || String(values.newVmName ?? '').trim() || targetName
+          : sourceVmDisplay;
+
       const payload: any = {
         apiVersion: 'harvesterhci.io/v1beta1',
         kind: 'VirtualMachineRestore',
@@ -160,7 +166,13 @@ const VmRestoreModal: React.FC<Props> = ({
             'tower.io/restoreTask': 'true',
             'tower.io/restoreMode': values.newVM ? 'new' : 'replace',
             'tower.io/restoreSource': `${namespace}/${sourceName}`,
-            'tower.io/restoreTarget': `${namespace}/${targetName}`
+            'tower.io/restoreTarget': `${namespace}/${targetName}`,
+            ...(sourceVmDisplay && sourceVmDisplay !== '-'
+              ? { 'tower.io/restoreSourceVmAlias': sourceVmDisplay }
+              : {}),
+            ...(targetDisplayLabel && targetDisplayLabel !== '-'
+              ? { 'tower.io/restoreTargetDisplayName': targetDisplayLabel }
+              : {}),
           }
         },
         spec: {
@@ -246,7 +258,12 @@ const VmRestoreModal: React.FC<Props> = ({
       window.dispatchEvent(new CustomEvent('harvester:restore-created'));
       onSuccess();
     } catch (e: any) {
-      message.error(`创建失败: ${e.message}`);
+      const raw =
+        e?.message ||
+        e?.responseData?.message ||
+        (typeof e?.responseData === 'string' ? e.responseData : '') ||
+        '';
+      message.error(`创建失败: ${translateKnownApiErrorMessage(String(raw || '请检查表单与集群状态'))}`);
     } finally {
       setLoading(false);
     }
@@ -344,6 +361,23 @@ const VmRestoreModal: React.FC<Props> = ({
               name="displayName"
               label="显示名称（别名）"
               tooltip="用于显示的友好名称，支持中文。如果不填写，将使用K8s资源名称"
+              rules={[
+                {
+                  validator: async (_, value) => {
+                    const s = String(value ?? '').trim();
+                    if (!s) return Promise.resolve();
+                    const dup = (vms || []).some((vm: any) => {
+                      const vmNs = vm?.metadata?.namespace || vm?.namespace || '';
+                      const a = String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+                      return String(vmNs) === String(namespace) && a === s;
+                    });
+                    if (dup) {
+                      return Promise.reject(new Error('云主机名称和已有云主机名称重复，请修改'));
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
             >
               <Input placeholder="例如：测试虚拟机-恢复" />
             </Form.Item>
@@ -356,8 +390,8 @@ const VmRestoreModal: React.FC<Props> = ({
           </Form.Item>
         )}
 
-        {/* [修复] MAC地址保留字段：新建虚拟机时也需要显示 */}
-        {resourceType === 'backup' && (
+        {/* 备份 + 新建虚拟机：可选保留 MAC；替换模式不适用 */}
+        {resourceType === 'backup' && newVM === true && (
           <Form.Item 
             name="keepMacAddress" 
             label="MAC 地址保留"
