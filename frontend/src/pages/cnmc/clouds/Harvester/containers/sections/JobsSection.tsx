@@ -39,6 +39,7 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { JobForm, CronJobForm } from '../components';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
+import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
 
 /**
  * Cron 宏表达式映射
@@ -978,6 +979,7 @@ const JobTable: React.FC<{
   createModalVisible: boolean;
   onCreateModalChange: (visible: boolean) => void;
 }> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange }) => {
+  const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -1227,7 +1229,7 @@ const JobTable: React.FC<{
         const failedCondition = conditions.find((c: any) => c.type === 'Failed' && c.status === 'True');
         const isFailed = !!failedCondition || (record?.status?.failed > 0);
         
-        const items = [
+        const itemsAll = [
           {
             key: 'detail',
             label: '详情',
@@ -1267,11 +1269,14 @@ const JobTable: React.FC<{
             },
           },
         ];
-        
+        const items = operationsReadOnly
+          ? itemsAll.filter((i) => i.key === 'detail' || i.key === 'yaml')
+          : itemsAll;
+
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleViewYaml, handleOpenAliasModal, handleDelete, modal]);
+  ], [handleViewDetail, handleViewYaml, handleOpenAliasModal, handleDelete, handleRetry, modal, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -1313,9 +1318,11 @@ const JobTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => onCreateModalChange(true)}>
-            创建 Job
-          </Button>
+          {!operationsReadOnly ? (
+            <Button type="primary" onClick={() => onCreateModalChange(true)}>
+              创建 Job
+            </Button>
+          ) : null}
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-jobs"
@@ -1338,10 +1345,14 @@ const JobTable: React.FC<{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          operationsReadOnly
+            ? undefined
+            : {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+        }
       />
       
       {/* Job 详情抽屉 */}
@@ -1460,6 +1471,7 @@ const CronJobTable: React.FC<{
   createModalVisible: boolean;
   onCreateModalChange: (visible: boolean) => void;
 }> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange }) => {
+  const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -1719,7 +1731,7 @@ const CronJobTable: React.FC<{
         const isSystem = isSystemResource(record);
         const systemHint = getSystemResourceProtectionHint(record);
         const isSuspended = record?.spec?.suspend;
-        const items = [
+        const itemsAll = [
           {
             key: 'detail',
             label: '详情',
@@ -1784,11 +1796,14 @@ const CronJobTable: React.FC<{
             },
           },
         ];
-        
+        const items = operationsReadOnly
+          ? itemsAll.filter((i) => i.key === 'detail' || i.key === 'yaml')
+          : itemsAll;
+
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleViewYaml, handleOpenAliasModal, handleDelete, handleSuspend, handleResume, handleTrigger, modal]);
+  ], [handleViewDetail, handleViewYaml, handleOpenAliasModal, handleDelete, handleSuspend, handleResume, handleTrigger, modal, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -1830,9 +1845,11 @@ const CronJobTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => onCreateModalChange(true)}>
-            创建 CronJob
-          </Button>
+          {!operationsReadOnly ? (
+            <Button type="primary" onClick={() => onCreateModalChange(true)}>
+              创建 CronJob
+            </Button>
+          ) : null}
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-cronjobs"
@@ -1855,10 +1872,14 @@ const CronJobTable: React.FC<{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          operationsReadOnly
+            ? undefined
+            : {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+        }
       />
       
       {/* CronJob 详情抽屉 */}

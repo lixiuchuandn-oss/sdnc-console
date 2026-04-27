@@ -10,7 +10,7 @@
 ## 1. 目的与读者
 
 - 统一「文件该放哪」的判定规则，降低认知成本与评审成本。
-- 对齐平台心智：**CNMC / SDNCC / CNSOC / SETTINGS**（与 `constants/navigation.ts`、`routes/RouteSpec.ts` 的 `platform` 一致）。
+- 对齐平台心智：**CNMC / TENANTS / SDNCC / CNSOC / SETTINGS**（与 `constants/navigation.ts`、`routes/RouteSpec.ts` 的 `platform` 一致）。
 - 明确 **产品层级 ≠ 文件夹必须逐层同构**：目录可为懒加载与团队边界服务；**产品归属**以路由与本文 **§3、§5** 为准。
 
 **读者**：前端开发、Code Review、架构与交付负责人。
@@ -21,7 +21,7 @@
 
 | 术语 | 含义 |
 |------|------|
-| **平台** | `CNMC` / `SDNCC` / `CNSOC` / `SETTINGS`，见 `constants/navigation.ts`。 |
+| **平台** | `CNMC` / **`TENANTS`（租户管理，独立平台）** / `SDNCC` / `CNSOC` / `SETTINGS`，见 `constants/navigation.ts`。 |
 | **业务域** | 平台内可独立讲解的一块能力（如 Harvester 下的 `ecs`、`ebs`、`containers`、`kube-ovn`）。 |
 | **前端角色** | 同一域内按 UI 职责划分：`sections`、`drawers`、`modals`、`lib`、`components` 等。 |
 | **横切** | 与具体页面弱相关、多模块复用的代码，放在 `src/components`、`hooks`、`utils` 等根级目录。 |
@@ -30,7 +30,7 @@
 
 ## 3. 设计原则
 
-1. **平台第一刀**：`pages/` 顶层按 **平台** 划分（`cnmc/`、`sdncc/`、`cnsoc/`、`settings/` 等），与 `RouteSpec.platform` 一致，或经团队登记的例外。
+1. **平台第一刀**：`pages/` 顶层按 **平台** 划分（`cnmc/`、`sdncc/`、`cnsoc/`、`settings/` 等），与 `RouteSpec.platform` 一致，或经团队登记的例外。**租户管理**在产品与路由上为独立平台 **`TENANTS`**（与 CNMC 平级）；源码当前仍落在 **`pages/cnmc/tenants/`** 属整改过渡期路径，**不以文件夹名否定 `platform: 'TENANTS'`**（未来可选物理迁至 `pages/tenants/` 等，以团队登记为准）。
 2. **业务域第二刀**：平台内再按 **业务域** 分（云厂商、功能子系统、PaaS 子模块等）。
 3. **域内按前端角色第三刀**：在业务域内使用 `sections/`、`drawers/`、`modals/`、`lib/`（大域必选；小域可先扁平，膨胀后再拆）。
 4. **跨域复用进 shared**：仅当 **≥2 个业务域** 明确依赖时，再上浮到该云类型下的 `shared/`（Harvester 见上述修改纪要）；**跨平台**复用进 `src/components` 等根级。
@@ -56,9 +56,10 @@
 
 ## 5. 平台与 `pages/` 顶层映射
 
-| 平台 | 说明 | `pages/` 顶层目录 |
+| 平台 | 说明 | `pages/` 典型目录 |
 |------|------|-------------------|
-| **CNMC** | 资源池、云详情、控制台、租户（若路由属 CNMC）、**PaaS** | `pages/cnmc/` |
+| **CNMC** | 资源总览、资源池、云详情、控制台、**PaaS** 等（**不含**租户管理产品线） | `pages/cnmc/`（租户页源码过渡期见下 **`TENANTS`**） |
+| **TENANTS** | **租户管理**（租户列表、组织、租户用户等）；与 CNMC **平级**的独立平台 | 路由与导航见 `RouteSpec.platform: 'TENANTS'`；**源码当前**：`pages/cnmc/tenants/`（与 CNMC 物理目录并存，属已切分平台后的过渡落位） |
 | **SDNCC** | 见下表「`pages/sdncc/` 与导航分组」；与 `RouteSpec.platform: 'SDNCC'` 一致 | `pages/sdncc/` |
 | **CNSOC** | AI SOC、态势、SecOps 等（不含已归 SDNCC 的安全管理面与流量编排） | `pages/cnsoc/` |
 | **SETTINGS** | 通用设置、审计、授权、访问控制 | `pages/settings/` |
@@ -162,7 +163,7 @@ frontend/src/pages/
 │   │   ├── Harvester/     # 云详情：域 + sections/modals/shared（细则见 Harvester 修改纪要）
 │   │   ├── Aliyun/、Hw/、Cloudmap/ 等（与仓库目录名一致；CSM 详情在 sdncc/traffic/CsmPools/：CloudDetailCsm、sections/、modals/）
 │   ├── console/           # WebSSH、控制台等
-│   ├── tenants/           # 租户相关（路由属 CNMC 者）
+│   ├── tenants/           # 租户管理：产品平台为 TENANTS（独立）；源码暂放此路径（过渡期）
 │   └── paas/
 │       ├── cloud-database/  # sections / modals / drawers、index 聚合导出
 │       └── …                # 未来其他托管子模块
@@ -205,7 +206,7 @@ frontend/src/pages/
 
 | 情况 | 放置位置 |
 |------|----------|
-| 新页面路由归属某平台 | `pages/<平台>/...`，且与 `RouteSpec.platform` 一致 |
+| 新页面路由归属某平台 | `pages/<平台>/...`，且与 `RouteSpec.platform` 一致；**租户管理**须 **`platform: 'TENANTS'`**，源码过渡期可继续落在 `pages/cnmc/tenants/`（见 §5） |
 | 仅某云类型使用 | `pages/cnmc/clouds/<vendor>/...` 下对应域 |
 | 仅 Harvester 某域使用 | `Harvester/<域>/sections|drawers|modals|lib|components/` |
 | Harvester 多域共用 | `Harvester/shared/...`（见修改纪要） |
@@ -240,7 +241,7 @@ frontend/src/pages/
 
 **收敛完成度自检（持续维护）**：
 
-- [ ] `RouteSpec.platform` 与页面归属一致，或本文档登记例外。
+- [ ] `RouteSpec.platform` 与产品归属一致，或本文档登记例外（租户相关须为 **`TENANTS`**，勿标为 CNMC）。
 - [ ] PaaS 源码在 `pages/cnmc/paas/`，语义上属 CNMC 子能力。
 - [ ] Harvester 符合修改纪要（域 / `shared` / `monitoring` 小写等）。
 - [ ] `npx tsc --noEmit` 通过；发版前生产构建通过。
@@ -252,7 +253,7 @@ frontend/src/pages/
 1. **空目录清理**：历史 `domains/`、`src/shared/`、`catalogs/` 等已删除或迁移（`navCatalog` 等已归 `constants/`）。
 2. **样式**：`global.css` 已弃用，统一 `global-new.css`。
 3. **未引用代码**：持续用 `npx knip` 等辅助；`setupProxy.js`、`setupTests.ts`、`*.test.ts(x)` 常被静态分析标为未引用，**属正常，勿删**。
-4. **`pages/` 顶层**：已按平台收敛为 **`cnmc/`、`sdncc/`、`cnsoc/`、`settings/`** 等与 §5 一致的方向（其下各业务仍在演进）。
+4. **`pages/` 顶层**：已按平台收敛为 **`cnmc/`、`sdncc/`、`cnsoc/`、`settings/`** 等与 §5 一致的方向；**租户管理**在产品侧已切为独立平台 **`TENANTS`**（导航与 `RouteSpec`），源码过渡期仍在 **`cnmc/tenants/`**（其下各业务仍在演进）。
 
 ---
 
@@ -277,3 +278,4 @@ npx tsc --noEmit
 | 2026-04-11 | 原 `deployment/docs/specs/前端目录结构规范.md` 全文并入本文；本文成为唯一权威 |
 | 2026-04-11 | 对齐当前 `pages/` 平台顶层与 `cnmc` 子目录；补充与 `README`、Harvester 纪要的分工 |
 | 2026-04-13 | 与 `frontend/README.md` 合并职责：`README` 仅入口；规范与命令统一以本文为准 |
+| 2026-04-27 | 租户管理为独立平台 **`TENANTS`**（与 CNMC 平级）；更正 §5/§7 与 CNMC 混写；注明 `pages/cnmc/tenants/` 为过渡期源码路径 |

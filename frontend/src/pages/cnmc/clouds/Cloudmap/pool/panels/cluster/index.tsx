@@ -18,6 +18,7 @@ import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/Phys
 import { fetchKubeOvnSubnets } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isValidCloudmapPoolInnerSeg } from '../../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import { canReadContainerTab } from '../../../../../../../utils/permissionUtils';
 import '../../styles/layout.css';
 
 type ClusterSectionVisibleCtx = {
@@ -67,7 +68,7 @@ function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): bo
       return (
         checkPerm('clouds.cluster-services:read') ||
         checkPerm('clouds.services:read') ||
-        checkPerm('clouds.containers:read') ||
+        canReadContainerTab(checkPerm, 'services') ||
         checkPerm('clouds:read')
       );
     case 'storage_classes':

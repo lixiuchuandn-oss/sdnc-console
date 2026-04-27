@@ -19,6 +19,10 @@ import {
   fetchGrpcRoutes,
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
+import {
+  canReadContainerTab,
+  canViewAnyContainerSubPage,
+} from '../../../../../../../utils/permissionUtils';
 
 /** 容器域（`panels/containers`）：工作负载、服务发现、Gateway API、拓扑等 */
 export async function tryLoadContainerTab(
@@ -57,7 +61,7 @@ export async function tryLoadContainerTab(
 
   switch (key) {
     case 'containers':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canViewAnyContainerSubPage(checkPerm)) {
         loadResource(
           'deployments',
           () => fetchHarvesterDeployments(cloudId, undefined, force),
@@ -185,7 +189,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'workloads':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'workloads')) {
         loadResource(
           'deployments',
           () => fetchHarvesterDeployments(cloudId, undefined, force),
@@ -235,7 +239,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'pods':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'pods')) {
         loadResource(
           'pods',
           () => fetchHarvesterPods(cloudId, undefined, force),
@@ -248,7 +252,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'jobs':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'jobs')) {
         loadResource(
           'jobs',
           () => fetchHarvesterJobs(cloudId, undefined, force),
@@ -292,7 +296,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'configs':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'configs')) {
         loadResource(
           'configmaps',
           () => fetchHarvesterConfigMaps(cloudId, undefined, force),
@@ -315,7 +319,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'ingresses':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'ingresses')) {
         loadResource(
           'ingresses',
           () => fetchHarvesterIngresses(cloudId, force),
@@ -334,8 +338,7 @@ export async function tryLoadContainerTab(
       if (
         checkPerm('clouds.cluster-services:read') ||
         checkPerm('clouds.services:read') ||
-        checkPerm('clouds.containers:read') ||
-        checkPerm('clouds:read')
+        canReadContainerTab(checkPerm, 'services')
       ) {
         loadResource(
           'services',
@@ -352,7 +355,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'registries':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'registries')) {
         if (harvesterSecrets.length > 0 && !force) {
           const dockerSecrets = harvesterSecrets.filter(
             (item: any) =>
@@ -383,7 +386,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'gateway_api':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'gateway_api')) {
         loadResource(
           'gatewayApiStatus',
           () => checkGatewayApiStatus(cloudId),
@@ -431,7 +434,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'pdbs':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'pdbs')) {
         loadResource(
           'pdbs',
           () => fetchHarvesterPDBs(cloudId, undefined, force),
@@ -444,7 +447,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'networkpolicies':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (canReadContainerTab(checkPerm, 'networkpolicies')) {
         loadResource(
           'networkpolicies',
           () => fetchNetworkPolicies(cloudId, undefined, force),
@@ -457,7 +460,11 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'service_topology':
-      if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+      if (
+        canReadContainerTab(checkPerm, 'services') &&
+        canReadContainerTab(checkPerm, 'ingresses') &&
+        canReadContainerTab(checkPerm, 'pods')
+      ) {
         loadResource(
           'ingresses',
           () => fetchHarvesterIngresses(cloudId, force),

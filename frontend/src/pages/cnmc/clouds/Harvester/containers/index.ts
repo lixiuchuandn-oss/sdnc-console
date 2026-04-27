@@ -12,6 +12,8 @@ export type {
 } from './types';
 export { NETWORK_MODE_OPTIONS } from './types';
 
+export { ContainerOperationsGate, useContainerOperationsReadOnly } from './ContainerOperationsContext';
+
 // Section 组件导出
 export { default as WorkloadsSection } from './sections/WorkloadsSection';
 export { default as PodsSection } from './sections/PodsSection';

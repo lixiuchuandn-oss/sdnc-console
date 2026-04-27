@@ -10,6 +10,12 @@
  * 说明：服务拓扑、Service 与多资源联动视图放在资源池详情页更合适；控制台以列表与常用操作为主。
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
+import {
+  canWriteContainerTab,
+  CLOUD_CONSOLE_CONTAINER_RESOURCE_TO_TAB,
+} from '../../../utils/permissionUtils';
+import { ContainerOperationsGate } from '../clouds/Harvester/containers/ContainerOperationsContext';
 import { pickFirstNamespaceRecordByScenario } from '../../../utils/harvesterUtils';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
@@ -170,6 +176,13 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   onRefreshNetpol,
 }) => {
   const { user } = useAuth();
+  const permissions = user?.permissions ?? [];
+  const checkPerm = useCallback((a: string) => hasPermissionForAction(permissions, a), [permissions]);
+  const operationsReadOnly = useMemo(() => {
+    const tabKey = CLOUD_CONSOLE_CONTAINER_RESOURCE_TO_TAB[activeResource];
+    if (!tabKey) return !checkPerm('clouds.containers:write');
+    return !canWriteContainerTab(checkPerm, tabKey);
+  }, [activeResource, checkPerm]);
   const isTenantUser = useMemo(
     () => user?.role === 'tenant' || !!user?.tenantId,
     [user],
@@ -462,17 +475,19 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   ]);
 
   return (
-    <div className="cloud-console-panel-root">
-      <Tabs
-        type="card"
-        activeKey={activeCategory}
-        onChange={(key) => {
-          setActiveCategory(key);
-          setActiveResource(getDefaultResource(key));
-        }}
-        items={tabItems}
-      />
-    </div>
+    <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
+      <div className="cloud-console-panel-root">
+        <Tabs
+          type="card"
+          activeKey={activeCategory}
+          onChange={(key) => {
+            setActiveCategory(key);
+            setActiveResource(getDefaultResource(key));
+          }}
+          items={tabItems}
+        />
+      </div>
+    </ContainerOperationsGate>
   );
 };
 

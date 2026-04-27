@@ -10,6 +10,42 @@
 
 import { PermissionDefinition, ApiPattern } from './types';
 
+/** `/api/clouds/:id/resources/harvester/containers/{sub}/...` 的 sub 段 → 权限基 */
+export function mapHarvesterContainerSubPathToPermissionBase(sub: string): string {
+  switch (String(sub || '').toLowerCase()) {
+    case 'deployments':
+    case 'statefulsets':
+    case 'daemonsets':
+      return 'clouds.containers.workloads';
+    case 'pods':
+      return 'clouds.containers.pods';
+    case 'jobs':
+    case 'cronjobs':
+      return 'clouds.containers.jobs';
+    case 'configmaps':
+    case 'secrets':
+      return 'clouds.containers.configs';
+    case 'imagepullsecrets':
+      return 'clouds.containers.registries';
+    case 'services':
+      return 'clouds.containers.services';
+    case 'ingresses':
+      return 'clouds.containers.ingresses';
+    case 'gateway-api':
+    case 'gatewayclasses':
+    case 'gateways':
+    case 'httproutes':
+    case 'grpcroutes':
+      return 'clouds.containers.gateway';
+    case 'networkpolicies':
+      return 'clouds.containers.networkpolicies';
+    case 'poddisruptionbudgets':
+      return 'clouds.containers.pdbs';
+    default:
+      return 'clouds.containers';
+  }
+}
+
 export class PermissionRegistry {
   private definitions: Map<string, PermissionDefinition>;
   private apiMapping: Map<string, string> = new Map(); // method:pathPattern -> permissionId
@@ -219,6 +255,12 @@ export class PermissionRegistry {
                 permissionBase = 'clouds.images';
               } else if (actualResourceType === 'namespaces') {
                 permissionBase = 'clouds.namespaces';
+              } else if (actualResourceType === 'containers') {
+                const sub =
+                  harvesterIndex + 2 < parts.length
+                    ? String(parts[harvesterIndex + 2] || '').toLowerCase()
+                    : '';
+                permissionBase = mapHarvesterContainerSubPathToPermissionBase(sub);
               } else if (actualResourceType === 'nads') {
                 permissionBase = 'clouds.nads';
               } else if (actualResourceType === 'sshkeys') {

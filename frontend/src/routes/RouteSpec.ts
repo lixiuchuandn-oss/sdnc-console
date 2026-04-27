@@ -42,6 +42,13 @@ export interface RouteSpec {
 function toCloudmapPoolRouteSpec(
   r: (typeof CLOUDMAP_POOL_NAV_ROWS)[number],
 ): RouteSpec {
+  const page = r.poolPageAction ?? 'clouds.console:read';
+  const write =
+    page === 'clouds.console:read'
+      ? 'clouds.console:write'
+      : page.endsWith(':read')
+        ? `${page.slice(0, -(':read'.length))}:write`
+        : 'clouds.console:write';
   return {
     id: r.id,
     path: `/admin/clouds/:cloudId/${r.pathSuffix}`,
@@ -58,11 +65,11 @@ function toCloudmapPoolRouteSpec(
     subtitle: `${r.poolNavGroup} · ${r.title}`,
     icon: r.icon,
     order: r.order,
-    /** 池内页走控制台读权限；未开通 platform.default 时仍可通过顶栏进入池内（与 /admin/clouds 列表区分） */
+    /** 池内页：默认控制台读；容器分组等可单独绑定 clouds.containers:read（与后端路径推断一致） */
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page,
+      read: page,
+      write,
     },
     requiredFeature: r.requiredFeature,
   };

@@ -92,6 +92,11 @@ export const getRequiredActionForPath = (path: string): string | null => {
   return null;
 };
 
+/** `clouds.console:*` 的宽松继承不包含容器子域；容器须显式 atoms 或 `clouds:read` / `clouds.containers:read` */
+function isCloudsContainersResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
+}
+
 export const hasPermissionForAction = (perms: string[], act: string | null): boolean => {
   if (!act) return false; // 未映射的路径默认拒绝访问
   const permsArray = perms || [];
@@ -113,16 +118,26 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
   
-  // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（多云资源相关功能）
-  // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read
-  if (base.startsWith('clouds.') && act.endsWith(':read') && !isDashboardOrPools) {
+  // 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，见 isCloudsContainersResourceBase）
+  // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read（含容器）
+  if (
+    base.startsWith('clouds.') &&
+    act.endsWith(':read') &&
+    !isDashboardOrPools &&
+    !isCloudsContainersResourceBase(base)
+  ) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
       return true;
     }
   }
 
-  // 特殊规则：clouds.console:write 包含所有 clouds.*:write（与只读继承对称）
-  if (base.startsWith('clouds.') && act.endsWith(':write') && !isDashboardOrPools) {
+  // 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，与上对称）
+  if (
+    base.startsWith('clouds.') &&
+    act.endsWith(':write') &&
+    !isDashboardOrPools &&
+    !isCloudsContainersResourceBase(base)
+  ) {
     if (permsArray.includes('clouds.console:write')) {
       return true;
     }
@@ -142,7 +157,30 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
       return true;
     }
   }
-  
+
+  // 容器总权覆盖各子域（与后端 PermissionChecker / registry 语义一致）
+  if (
+    base.startsWith('clouds.containers.') &&
+    base !== 'clouds.containers' &&
+    act.endsWith(':read')
+  ) {
+    if (
+      permsArray.includes('clouds.containers:read') ||
+      permsArray.includes('clouds.containers:write')
+    ) {
+      return true;
+    }
+  }
+  if (
+    base.startsWith('clouds.containers.') &&
+    base !== 'clouds.containers' &&
+    act.endsWith(':write')
+  ) {
+    if (permsArray.includes('clouds.containers:write')) {
+      return true;
+    }
+  }
+
   return false;
 };
 

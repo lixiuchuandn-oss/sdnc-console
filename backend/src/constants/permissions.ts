@@ -170,6 +170,30 @@ export const ALL_PERMISSIONS = [
   'clouds.namespaces:read',    // 命名空间列表 - 查看
   'clouds.namespaces:write',   // 命名空间管理 - 创建/编辑/删除
 
+  // 容器服务（Harvester/K8s：工作负载、Pod、Job、Service、Ingress、Gateway、配置与仓库等）
+  'clouds.containers:read',   // 容器总权·查看（含各子域；细粒度角色可只授子域）
+  'clouds.containers:write',  // 容器总权·管理
+  'clouds.containers.workloads:read',
+  'clouds.containers.workloads:write',
+  'clouds.containers.pods:read',
+  'clouds.containers.pods:write',
+  'clouds.containers.jobs:read',
+  'clouds.containers.jobs:write',
+  'clouds.containers.services:read',
+  'clouds.containers.services:write',
+  'clouds.containers.ingresses:read',
+  'clouds.containers.ingresses:write',
+  'clouds.containers.gateway:read',
+  'clouds.containers.gateway:write',
+  'clouds.containers.configs:read',
+  'clouds.containers.configs:write',
+  'clouds.containers.registries:read',
+  'clouds.containers.registries:write',
+  'clouds.containers.pdbs:read',
+  'clouds.containers.pdbs:write',
+  'clouds.containers.networkpolicies:read',
+  'clouds.containers.networkpolicies:write',
+
   // 集群物理节点
   'clouds.cluster-nodes:read',  // 物理节点列表 - 查看
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
@@ -438,6 +462,17 @@ export const PERMISSION_GROUPS = {
       'clouds.sshkeys',
       'clouds.recycle-bin',
       'clouds.migrations',
+      'clouds.containers',
+      'clouds.containers.workloads',
+      'clouds.containers.pods',
+      'clouds.containers.jobs',
+      'clouds.containers.services',
+      'clouds.containers.ingresses',
+      'clouds.containers.gateway',
+      'clouds.containers.configs',
+      'clouds.containers.registries',
+      'clouds.containers.pdbs',
+      'clouds.containers.networkpolicies',
       'clouds.disks',
       'clouds.snapshots',
       'clouds.backups',

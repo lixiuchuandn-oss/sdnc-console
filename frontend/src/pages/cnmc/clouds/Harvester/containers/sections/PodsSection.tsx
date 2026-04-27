@@ -31,6 +31,7 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import PodTerminal from '../components/PodTerminal';
+import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
 
 type Props = {
   pods: any[];
@@ -592,6 +593,7 @@ const PodsSection: React.FC<Props> = ({
   statefulSets = [],
   daemonSets = [],
 }) => {
+  const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
@@ -966,7 +968,7 @@ const PodsSection: React.FC<Props> = ({
       width: 120,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
-        const items = [
+        const itemsAll = [
           {
             key: 'detail',
             label: '详情',
@@ -1005,11 +1007,14 @@ const PodsSection: React.FC<Props> = ({
             },
           },
         ];
-        
+        const items = operationsReadOnly
+          ? itemsAll.filter((i) => i.key === 'detail' || i.key === 'log')
+          : itemsAll;
+
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal, getOwnerWorkload]);
+  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal, getOwnerWorkload, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -1076,25 +1081,27 @@ const PodsSection: React.FC<Props> = ({
           </button>
         </div>
         <div className="toolbar-actions">
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'batchDelete',
-                  label: selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
-                  danger: true,
-                  disabled: selectedKeys.length === 0,
+          {!operationsReadOnly ? (
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'batchDelete',
+                    label: selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
+                    danger: true,
+                    disabled: selectedKeys.length === 0,
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'batchDelete') handleBatchDelete();
                 },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'batchDelete') handleBatchDelete();
-              },
-            }}
-            trigger={['click']}
-            disabled={selectedKeys.length === 0}
-          >
-            <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
-          </Dropdown>
+              }}
+              trigger={['click']}
+              disabled={selectedKeys.length === 0}
+            >
+              <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
+            </Dropdown>
+          ) : null}
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-pods"
@@ -1121,10 +1128,14 @@ const PodsSection: React.FC<Props> = ({
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          operationsReadOnly
+            ? undefined
+            : {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+        }
       />
       
       {/* Pod 详情抽屉 */}

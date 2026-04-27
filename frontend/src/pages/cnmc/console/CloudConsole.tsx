@@ -74,6 +74,8 @@ import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
 import { useTenantConsoleHeaderSlot } from '../../../contexts/TenantConsoleHeaderSlotContext';
 import { useTenantConsoleSider } from '../../../layouts/tenant';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { canViewAnyContainerSubPageFromPerms } from '../../../utils/permissionUtils';
 
 const { Content } = Layout;
 
@@ -135,7 +137,13 @@ const CloudConsolePage: React.FC = () => {
     (merge: boolean): boolean | undefined => (isTenantConsole ? merge : undefined),
     [isTenantConsole],
   );
-  
+
+  const permissions = user?.permissions ?? [];
+  const canViewContainersNav = useMemo(
+    () => canViewAnyContainerSubPageFromPerms(permissions),
+    [permissions],
+  );
+
   // ==================== State Definitions (状态定义) ====================
   
   // 资源池列表
@@ -219,17 +227,23 @@ const CloudConsolePage: React.FC = () => {
   const [harvesterCapabilities, setHarvesterCapabilities] = useState<any>(null);
 
   const vmStatusBuffer = useRef(new Map<string, any>());
+  /** 避免「列表为空 + loading 结束」时 VM 拉取 effect 反复触发导致无限 GET */
+  const ecsBootstrapTicketRef = useRef('');
+  const ecsRdsBootstrapTicketRef = useRef('');
 
-  const leftNavMenuItems: MenuProps['items'] = useMemo(
-    () => [
+  const leftNavMenuItems: MenuProps['items'] = useMemo(() => {
+    const all: MenuProps['items'] = [
       { key: 'host', icon: <CloudServerOutlined />, label: '云主机' },
       { key: 'container', icon: <AppstoreOutlined />, label: '容器服务' },
       { key: 'flat', icon: <NodeIndexOutlined />, label: '扁平网络' },
       { key: 'vpc', icon: <ApartmentOutlined />, label: 'VPC网络' },
       { key: 'rds', icon: <DatabaseOutlined />, label: '云数据库' },
-    ],
-    [],
-  );
+    ];
+    if (!canViewContainersNav) {
+      return (all || []).filter((it) => it && 'key' in it && it.key !== 'container');
+    }
+    return all;
+  }, [canViewContainersNav]);
 
   const handleLeftNavClick = useCallback<NonNullable<MenuProps['onClick']>>((e) => {
     const key = e.key as ConsoleLeftNavKey;
@@ -248,6 +262,14 @@ const CloudConsolePage: React.FC = () => {
       setHarvesterResource('vpc-subnet');
     }
   }, []);
+
+  useEffect(() => {
+    if (consoleLeftNavKey === 'container' && !canViewContainersNav) {
+      setConsoleLeftNavKey('host');
+      setHarvesterCategory('compute');
+      setHarvesterResource('vm');
+    }
+  }, [consoleLeftNavKey, canViewContainersNav]);
 
   /** 当前选中资源池是否为 Cloudmap（列表已过滤为仅 Cloudmap，此处用于行为分支） */
   const isCloudmap = useMemo(() => {
@@ -1195,12 +1217,21 @@ const CloudConsolePage: React.FC = () => {
   /**
    * VM 列表单独 effect：避免因 namespaces / pvcs / storageClasses 等长度先后就绪
    * 在 ecs 仍为空时反复触发 loadEcs（连续 GET）。
+   * 列表合法为空时（租户无云主机）也必须只拉一次：用 ticket ref 防止 loading 回落后再次满足条件形成死循环。
    * 「云数据库」侧栏由下方专用 effect 拉 ecs，此处排除 rds。
    */
   useEffect(() => {
     if (!currentCloudId || !isCloudmap) return;
     if (consoleLeftNavKey === 'container' || consoleLeftNavKey === 'rds') return;
-    if (ecs.length === 0 && !loading) loadEcs(currentCloudId);
+    const ticket = `${currentCloudId}|${consoleLeftNavKey}|${harvesterResource}`;
+    if (ecs.length > 0) {
+      ecsBootstrapTicketRef.current = ticket;
+      return;
+    }
+    if (!loading && ecsBootstrapTicketRef.current !== ticket) {
+      ecsBootstrapTicketRef.current = ticket;
+      void loadEcs(currentCloudId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随云/导航/资源类型与列表是否已加载触发，不随其它资源长度抖动
   }, [
     currentCloudId,
@@ -1324,10 +1355,18 @@ const CloudConsolePage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 按导航 key 触发；loadCtr* 为稳定拉数封装
   }, [currentCloudId, isCloudmap, consoleLeftNavKey, containerResource]);
 
-  /** 云数据库侧栏：实例列表（单独 effect，避免 loading / 其它列表长度导致重复 GET） */
+  /** 云数据库侧栏：实例列表（单独 effect，避免 loading / 其它列表长度导致重复 GET；空列表同主面板防死循环） */
   useEffect(() => {
     if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds') return;
-    if (ecs.length === 0 && !loading) loadEcs(currentCloudId);
+    const ticket = `${currentCloudId}|rds`;
+    if (ecs.length > 0) {
+      ecsRdsBootstrapTicketRef.current = ticket;
+      return;
+    }
+    if (!loading && ecsRdsBootstrapTicketRef.current !== ticket) {
+      ecsRdsBootstrapTicketRef.current = ticket;
+      void loadEcs(currentCloudId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCloudId, isCloudmap, consoleLeftNavKey, ecs.length, loading]);
 

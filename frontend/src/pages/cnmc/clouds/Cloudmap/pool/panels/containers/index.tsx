@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Empty } from 'antd';
 import {
   WorkloadsSection,
@@ -11,7 +11,9 @@ import {
   NetworkPoliciesSection,
   ServiceTopologySection,
   IngressesSection,
+  ContainerOperationsGate,
 } from '../../../../Harvester/containers';
+import { canReadContainerTab, canWriteContainerTab } from '../../../../../../../utils/permissionUtils';
 import ServicesSection from '../../../../Harvester/cluster/sections/ServicesSection';
 
 export type CloudmapContainersTabsProps = {
@@ -60,37 +62,6 @@ export type CloudmapContainersTabsProps = {
   harvesterVolumes: any[];
 };
 
-function canViewContainersInner(
-  key: string,
-  checkPerm: (a: string) => boolean,
-): boolean {
-  if (key === 'services')
-    return (
-      checkPerm('clouds.services:read') || checkPerm('clouds:read')
-    );
-  if (key === 'ingresses')
-    return (
-      checkPerm('clouds.ingresses:read') || checkPerm('clouds:read')
-    );
-  if (key === 'gateway_api')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  if (key === 'pdbs')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  if (key === 'configs')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  if (key === 'registries')
-    return (
-      checkPerm('clouds.containers:read') || checkPerm('clouds:read')
-    );
-  return checkPerm('clouds.containers:read') || checkPerm('clouds:read');
-}
-
 const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   props,
 ) => {
@@ -128,7 +99,12 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     harvesterVolumes,
   } = props;
 
-  if (!canViewContainersInner(innerActiveKey, checkPerm)) {
+  const operationsReadOnly = useMemo(
+    () => !canWriteContainerTab(checkPerm, innerActiveKey),
+    [checkPerm, innerActiveKey],
+  );
+
+  if (!canReadContainerTab(checkPerm, innerActiveKey)) {
     return (
       <div style={{ height: '100%', overflow: 'auto' }}>
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
@@ -323,9 +299,9 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   }
 
   return (
-    <div style={{ height: '100%', overflow: 'auto' }}>
-      {content}
-    </div>
+    <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
+      <div style={{ height: '100%', overflow: 'auto' }}>{content}</div>
+    </ContainerOperationsGate>
   );
 };
 

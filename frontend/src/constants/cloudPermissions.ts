@@ -30,6 +30,10 @@ export const CLOUD_SUBNETS_FLAT_WRITE = 'clouds.subnets.flat:write';
 export const CLOUD_SUBNETS_PUBLIC_READ = 'clouds.subnets.public:read';
 export const CLOUD_SUBNETS_PUBLIC_WRITE = 'clouds.subnets.public:write';
 
+/** Harvester 容器服务（工作负载、Pod、Service、Ingress、Gateway、配置、仓库等） */
+export const CLOUD_CONTAINERS_READ = 'clouds.containers:read';
+export const CLOUD_CONTAINERS_WRITE = 'clouds.containers:write';
+
 /** Kube-OVN Provider Network（物理网络）列表与详情抽屉（读） */
 export const CLOUD_PROVIDER_NETWORKS_READ = 'clouds.provider-networks:read';
 /** 物理网络创建、删除等写操作 */

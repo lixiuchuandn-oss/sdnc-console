@@ -33,6 +33,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLicense } from '../../contexts/LicenseContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../../utils/accessMapping';
+import type { RouteSpec } from '../../routes/RouteSpec';
 import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
@@ -406,6 +407,7 @@ const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, refreshUser } = useAuth();
+  const userPermissions = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
   const { hasFeature } = useLicense();
   const { settings, loading: settingsLoading } = useSettings();
   const { message } = App.useApp();
@@ -771,8 +773,13 @@ const AdminLayout: React.FC = () => {
     () => ({
       ovnVpcEnabled: hasFeature('network.ovn.vpc'),
       hasFeature,
+      poolRouteAccess: (spec: RouteSpec) => {
+        const page = spec.requiredActions?.page;
+        if (!page) return true;
+        return hasPermissionForAction(userPermissions, page);
+      },
     }),
-    [hasFeature],
+    [hasFeature, userPermissions],
   );
 
   const poolSidebarCenter = useMemo(

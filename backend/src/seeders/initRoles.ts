@@ -162,7 +162,7 @@ export async function initializeRoles() {
     });
 
     // 5. 云计算用户（系统角色）
-    // 权限范围：云主机、云存储、云备份、扁平网络；不含 NAD、不含云主机创建向导（NAD 列表仍可由 clouds.ecs:read 在后端兜底读取以支持创建 VM）
+    // 权限范围：云主机、云存储、云备份、扁平网络；不含容器服务、不含 NAD、不含云主机创建向导（NAD 列表仍可由 clouds.ecs:read 在后端兜底读取以支持创建 VM）
     const cloudComputeRoleName = '云计算用户';
     const cloudComputePrefixes = [
       // 云主机
@@ -192,20 +192,22 @@ export async function initializeRoles() {
     const cloudComputePerms = CURATED_PERMISSIONS.filter(
       (p) =>
         cloudComputePrefixes.some((prefix) => p.startsWith(`${prefix}:`)) &&
+        !p.startsWith('clouds.containers') &&
         !p.startsWith('clouds.vm-create-wizard:') &&
         !p.startsWith('clouds.vm-quick-create:'),
     );
     cloudComputePerms.push('clouds.resource-pools:read');
     await ensureRole({
       name: cloudComputeRoleName,
-      description: '拥有云主机、云存储、云备份、扁平网络使用权限（不含网络附加定义 NAD、不含云主机创建向导与快速创建）。',
+      description:
+        '拥有云主机、云存储、云备份、扁平网络使用权限（不含容器服务、不含网络附加定义 NAD、不含云主机创建向导与快速创建）。',
       scope: 'system',
       permissions: cloudComputePerms,
       status: 'active',
     });
 
     // 6. 云管理用户（系统角色）
-    // 权限范围：云主机、云存储、云备份、物理网络、VLAN、扁平网络等；不含 NAD、不含云主机创建向导
+    // 权限范围：云主机、云存储、云备份、物理网络、VLAN、扁平网络等；不含容器服务、不含 NAD、不含云主机创建向导
     const cloudOpsRoleName = '云管理用户';
     const cloudOpsPrefixes = [
       ...cloudComputePrefixes,
@@ -217,13 +219,15 @@ export async function initializeRoles() {
     const cloudOpsPerms = CURATED_PERMISSIONS.filter(
       (p) =>
         cloudOpsPrefixes.some((prefix) => p.startsWith(`${prefix}:`)) &&
+        !p.startsWith('clouds.containers') &&
         !p.startsWith('clouds.vm-create-wizard:') &&
         !p.startsWith('clouds.vm-quick-create:'),
     );
     cloudOpsPerms.push('clouds.resource-pools:read');
     await ensureRole({
       name: cloudOpsRoleName,
-      description: '拥有云主机、云存储、云备份、物理网络、扁平网络等使用权限（不含网络附加定义 NAD、不含云主机创建向导与快速创建）。',
+      description:
+        '拥有云主机、云存储、云备份、物理网络、扁平网络等使用权限（不含容器服务、不含网络附加定义 NAD、不含云主机创建向导与快速创建）。',
       scope: 'system',
       permissions: cloudOpsPerms,
       status: 'active',

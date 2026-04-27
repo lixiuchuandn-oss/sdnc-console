@@ -18,6 +18,8 @@ import {
   sortByResourceConsoleFeatureOrder,
   groupResourceConsoleChildFeatures,
   mergeResourceConsoleIntoPlatformEntryGroup,
+  ALL_CLOUD_CONTAINER_SUB_READ,
+  CLOUD_CONTAINER_TAB_WRITE,
 } from '../../../utils/permissionUtils';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
@@ -28,6 +30,8 @@ import type { RBACRole } from './types';
 import RoleAssignUsersDrawer from './components/RoleAssignUsersDrawer';
 import RolePermissionDrawer from './components/RolePermissionDrawer';
 import {
+  CLOUD_CONTAINERS_READ,
+  CLOUD_CONTAINERS_WRITE,
   CLOUD_SUBNETS_FLAT_READ,
   CLOUD_SUBNETS_FLAT_WRITE,
   CLOUD_SUBNETS_PUBLIC_READ,
@@ -35,6 +39,13 @@ import {
   CLOUD_SUBNETS_VPC_READ,
   CLOUD_SUBNETS_VPC_WRITE,
 } from '../../../constants/cloudPermissions';
+
+const CONTAINER_ACTIONS_INJECT: string[] = [
+  CLOUD_CONTAINERS_READ,
+  CLOUD_CONTAINERS_WRITE,
+  ...ALL_CLOUD_CONTAINER_SUB_READ,
+  ...Object.values(CLOUD_CONTAINER_TAB_WRITE),
+];
 
 const { Text, Link } = Typography;
 
@@ -138,7 +149,13 @@ const AccessRolesPage: React.FC = () => {
       (actionAtoms.includes('clouds.subnets:read') || actionAtoms.includes('clouds.subnets:write'))
         ? Array.from(new Set([...actionAtoms, ...SUBNET_SPLIT_ACTIONS]))
         : actionAtoms;
-    const allActionsForStructure = withFrontendSubnetSplit;
+    /** 与原子子网拆分同理：保证容器总权与子域 atoms 在抽屉内可勾选（旧后端 /actions 未带齐时仍展示） */
+    const needsContainerActionsInject = CONTAINER_ACTIONS_INJECT.some(
+      (id) => !withFrontendSubnetSplit.includes(id),
+    );
+    const allActionsForStructure = needsContainerActionsInject
+      ? Array.from(new Set([...withFrontendSubnetSplit, ...CONTAINER_ACTIONS_INJECT]))
+      : withFrontendSubnetSplit;
     const actionSet = new Set(allActionsForStructure);
 
     // 按平台->分组->功能组织（使用所有权限构建结构）
@@ -157,12 +174,17 @@ const AccessRolesPage: React.FC = () => {
       const platform = isFrontendSubnetSplit
         ? 'CNMC'
         : getPlatformFromDefinition(action, permissionDefinitions);
-      const group = isFrontendSubnetSplit
+      let group = isFrontendSubnetSplit
         ? '资源池管理'
         : getGroupFromDefinition(action, permissionDefinitions);
+      if (!group && resource === 'clouds.containers') {
+        group = '资源池管理';
+      }
       const featureRaw = isFrontendSubnetSplit
         ? (SUBNET_SPLIT_RESOURCE_NAME[resource] || resource)
-        : getFeatureFromDefinition(action, permissionDefinitions);
+        : resource === 'clouds.containers'
+          ? '容器服务（K8s）'
+          : getFeatureFromDefinition(action, permissionDefinitions);
       const feature = normalizeFeatureName(featureRaw);
 
       if (!platformMap.has(platform)) {
