@@ -478,9 +478,9 @@ const ServicesSection: React.FC<Props> = ({
                   setDrawerActiveTab('detail');
                   setDrawerOpen(true);
                 }},
-                { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
-                { key: 'yaml', label: 'YAML 编辑', onClick: () => handleYamlEdit(record) },
-                { key: 'view_yaml', label: '查看 YAML', icon: <EyeOutlined />, onClick: () => handleViewYaml(record) },
+                { key: 'edit', label: '编辑', disabled: isSystem, tooltip: systemHint, onClick: () => handleEdit(record) },
+                { key: 'yaml', label: 'YAML 编辑', disabled: isSystem, tooltip: systemHint, onClick: () => handleYamlEdit(record) },
+                { key: 'view_yaml', label: '查看 YAML', onClick: () => handleViewYaml(record) },
                 { 
                   key: 'delete', 
                   label: '删除', 

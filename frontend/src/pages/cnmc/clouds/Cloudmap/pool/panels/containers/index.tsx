@@ -129,11 +129,17 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   } = props;
 
   if (!canViewContainersInner(innerActiveKey, checkPerm)) {
-    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+    return (
+      <div style={{ height: '100%', overflow: 'auto' }}>
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
+      </div>
+    );
   }
 
+  let content: React.ReactNode;
+
   if (innerActiveKey === 'workloads') {
-    return (
+    content = (
       <WorkloadsSection
         deployments={harvesterDeployments}
         statefulsets={harvesterStatefulSets}
@@ -158,9 +164,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         }}
       />
     );
-  }
-  if (innerActiveKey === 'pods') {
-    return (
+  } else if (innerActiveKey === 'pods') {
+    content = (
       <PodsSection
         pods={harvesterPods}
         loading={resourceLoading.pods}
@@ -177,9 +182,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         daemonSets={harvesterDaemonSets}
       />
     );
-  }
-  if (innerActiveKey === 'jobs') {
-    return (
+  } else if (innerActiveKey === 'jobs') {
+    content = (
       <JobsSection
         jobs={harvesterJobs}
         cronjobs={harvesterCronJobs}
@@ -193,9 +197,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         secretsWithCredentials={harvesterSecrets}
       />
     );
-  }
-  if (innerActiveKey === 'services') {
-    return (
+  } else if (innerActiveKey === 'services') {
+    content = (
       <ServicesSection
         cloudId={cloudId}
         services={harvesterServices}
@@ -208,9 +211,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         pods={harvesterPods}
       />
     );
-  }
-  if (innerActiveKey === 'ingresses') {
-    return (
+  } else if (innerActiveKey === 'ingresses') {
+    content = (
       <IngressesSection
         cloudId={cloudId}
         ingresses={harvesterIngresses}
@@ -222,9 +224,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         secrets={harvesterSecrets}
       />
     );
-  }
-  if (innerActiveKey === 'gateway_api') {
-    return (
+  } else if (innerActiveKey === 'gateway_api') {
+    content = (
       <GatewayApiSection
         cloudId={cloudId}
         gatewayApiStatus={gatewayApiStatus}
@@ -242,9 +243,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={() => loadTabResource('gateway_api', true)}
       />
     );
-  }
-  if (innerActiveKey === 'service_topology') {
-    return (
+  } else if (innerActiveKey === 'service_topology') {
+    content = (
       <ServiceTopologySection
         cloudId={cloudId}
         ingresses={harvesterIngresses}
@@ -265,9 +265,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onNsChange={(v) => setNsFilter(v || '')}
       />
     );
-  }
-  if (innerActiveKey === 'pdbs') {
-    return (
+  } else if (innerActiveKey === 'pdbs') {
+    content = (
       <PDBSection
         pdbs={harvesterPDBs}
         loading={resourceLoading.pdbs}
@@ -278,9 +277,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={(force) => loadTabResource('containers', force ?? true)}
       />
     );
-  }
-  if (innerActiveKey === 'networkpolicies') {
-    return (
+  } else if (innerActiveKey === 'networkpolicies') {
+    content = (
       <NetworkPoliciesSection
         networkPolicies={harvesterNetworkPolicies}
         loading={resourceLoading.networkpolicies}
@@ -291,9 +289,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={(force) => loadTabResource('containers', force ?? true)}
       />
     );
-  }
-  if (innerActiveKey === 'configs') {
-    return (
+  } else if (innerActiveKey === 'configs') {
+    content = (
       <ConfigsSection
         configmaps={harvesterConfigMaps}
         secrets={harvesterSecrets}
@@ -303,11 +300,13 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         onRefresh={(force) => loadTabResource('configs', force)}
+        deployments={harvesterDeployments}
+        statefulsets={harvesterStatefulSets}
+        daemonsets={harvesterDaemonSets}
       />
     );
-  }
-  if (innerActiveKey === 'registries') {
-    return (
+  } else if (innerActiveKey === 'registries') {
+    content = (
       <RegistriesSection
         secrets={harvesterImagePullSecrets}
         secretsWithCredentials={harvesterSecrets}
@@ -319,8 +318,15 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onRefresh={() => loadTabResource('registries', true)}
       />
     );
+  } else {
+    content = <Empty description="未知页面" style={{ marginTop: 48 }} />;
   }
-  return <Empty description="未知页面" style={{ marginTop: 48 }} />;
+
+  return (
+    <div style={{ height: '100%', overflow: 'auto' }}>
+      {content}
+    </div>
+  );
 };
 
 export default CloudmapContainersTabs;

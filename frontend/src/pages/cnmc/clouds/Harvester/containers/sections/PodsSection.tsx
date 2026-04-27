@@ -72,9 +72,35 @@ const renderPodStatus = (pod: any) => {
   
   // 检查容器状态
   const containerStatuses = pod?.status?.containerStatuses || [];
+  
+  // 优先检查 terminated 状态（如 CrashLoopBackOff、Error 等）
+  const terminated = containerStatuses.find((c: any) => c?.state?.terminated);
+  if (terminated) {
+    const reason = terminated.state.terminated.reason;
+    if (reason === 'Error' || reason === 'ContainerCannotRun') {
+      return <Tag color="red">错误</Tag>;
+    }
+    return <Tag color="red">{reason || '已终止'}</Tag>;
+  }
+  
+  // 检查 waiting 状态
   const waiting = containerStatuses.find((c: any) => c?.state?.waiting);
-  if (waiting && phase === 'Pending') {
-    return <Tag color="orange">{waiting.state.waiting.reason || '等待中'}</Tag>;
+  if (waiting) {
+    const reason = waiting.state.waiting.reason;
+    // CrashLoopBackOff 表示容器反复崩溃
+    if (reason === 'CrashLoopBackOff') {
+      return <Tag color="red">崩溃重启中</Tag>;
+    }
+    return <Tag color="orange">{reason || '等待中'}</Tag>;
+  }
+  
+  // 检查是否有容器未就绪（Running 阶段但有容器未启动）
+  const ready = conditions.find((c: any) => c?.type === 'Ready');
+  if (phase === 'Running' && ready?.status !== 'True') {
+    const containersReady = conditions.find((c: any) => c?.type === 'ContainersReady');
+    if (containersReady?.status !== 'True') {
+      return <Tag color="orange">启动中</Tag>;
+    }
   }
   
   const status = statusMap[phase] || statusMap.Unknown;
@@ -410,13 +436,25 @@ const PodDetailDrawer: React.FC<{
                   {
                     title: '状态',
                     key: 'status',
-                    width: 100,
+                    width: 140,
                     render: (_: any, record: any) => {
                       const s = record.status;
                       if (!s) return '-';
                       if (s.state?.running) return <Tag color="green">运行中</Tag>;
-                      if (s.state?.waiting) return <Tag color="orange">{s.state.waiting.reason}</Tag>;
-                      if (s.state?.terminated) return <Tag color="red">已终止</Tag>;
+                      if (s.state?.waiting) {
+                        const reason = s.state.waiting.reason;
+                        if (reason === 'CrashLoopBackOff') {
+                          return <Tag color="red">崩溃重启中</Tag>;
+                        }
+                        return <Tag color="orange">{reason}</Tag>;
+                      }
+                      if (s.state?.terminated) {
+                        const reason = s.state.terminated.reason;
+                        if (reason === 'Error' || reason === 'ContainerCannotRun') {
+                          return <Tag color="red">错误</Tag>;
+                        }
+                        return <Tag color="red">{reason || '已终止'}</Tag>;
+                      }
                       return '-';
                     },
                   },

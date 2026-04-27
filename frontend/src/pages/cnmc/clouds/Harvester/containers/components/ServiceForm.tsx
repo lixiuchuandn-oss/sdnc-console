@@ -40,7 +40,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons';
 import { createHarvesterService, updateHarvesterService } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -375,7 +375,7 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
                 placeholder="选择命名空间"
                 showSearch
                 disabled={editMode}
-                options={namespacesOptions.map(ns => ({ label: ns, value: ns }))}
+                options={namespacesOptions.filter(ns => !isSystemNamespace(ns)).map(ns => ({ label: ns, value: ns }))}
               />
             </Form.Item>
           </Col>
@@ -505,8 +505,8 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
                         <Form.Item
                           {...restField}
                           name={[index, 'targetPort']}
-                          label="目标端口"
-                          rules={[{ required: true, message: '请输入目标端口' }]}
+                          label="容器内部端口"
+                          rules={[{ required: true, message: '请输入容器内部端口' }]}
                         >
                           <Input placeholder="80 或 http" />
                         </Form.Item>

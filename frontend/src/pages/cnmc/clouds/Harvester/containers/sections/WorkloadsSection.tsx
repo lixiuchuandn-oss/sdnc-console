@@ -18,7 +18,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Segmented, Select, Tag, Modal, Input, InputNumber, App, Button, Tooltip, Form } from 'antd';
-import { ReloadOutlined, SearchOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -404,6 +404,7 @@ const WorkloadTable: React.FC<{
       title: '操作',
       key: 'actions',
       width: 120,
+      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record);
         const systemHint = getSystemResourceProtectionHint(record);
@@ -411,23 +412,28 @@ const WorkloadTable: React.FC<{
           {
             key: 'edit',
             label: '编辑',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => onEdit?.(record),
           },
           {
             key: 'yaml',
             label: '查看 YAML',
-            icon: <EyeOutlined />,
             onClick: () => handleViewYaml(record),
           },
           {
             key: 'scale',
-            label: '扩缩容',
+            label: '热扩缩容',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => handleScale(record),
             show: type === 'deployment' || type === 'statefulset',
           },
           {
             key: 'restart',
             label: '重启',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => handleRestart(record),
             show: type === 'deployment' || type === 'statefulset',
           },

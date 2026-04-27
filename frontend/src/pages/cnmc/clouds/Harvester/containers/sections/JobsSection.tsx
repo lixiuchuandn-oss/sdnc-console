@@ -1221,7 +1221,8 @@ const JobTable: React.FC<{
       key: 'actions',
       width: 120,
       render: (_: any, record: any) => {
-        // 检查 Job 是否失败
+        const isSystem = isSystemResource(record);
+        const systemHint = getSystemResourceProtectionHint(record);
         const conditions = record?.status?.conditions || [];
         const failedCondition = conditions.find((c: any) => c.type === 'Failed' && c.status === 'True');
         const isFailed = !!failedCondition || (record?.status?.failed > 0);
@@ -1235,13 +1236,13 @@ const JobTable: React.FC<{
           {
             key: 'yaml',
             label: '查看 YAML',
-            icon: <EyeOutlined />,
             onClick: () => handleViewYaml(record),
           },
-          // 失败状态显示重试按钮
           ...(isFailed ? [{
             key: 'retry',
             label: '重试',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认重试',
@@ -1254,8 +1255,8 @@ const JobTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
-            disabled: isSystemResource(record),
-            tooltip: getSystemResourceProtectionHint(record),
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认删除',
@@ -1715,6 +1716,8 @@ const CronJobTable: React.FC<{
       key: 'actions',
       width: 160,
       render: (_: any, record: any) => {
+        const isSystem = isSystemResource(record);
+        const systemHint = getSystemResourceProtectionHint(record);
         const isSuspended = record?.spec?.suspend;
         const items = [
           {
@@ -1725,12 +1728,13 @@ const CronJobTable: React.FC<{
           {
             key: 'yaml',
             label: '查看 YAML',
-            icon: <EyeOutlined />,
             onClick: () => handleViewYaml(record),
           },
           {
             key: 'trigger',
             label: '立即执行',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认执行',
@@ -1742,6 +1746,8 @@ const CronJobTable: React.FC<{
           isSuspended ? {
             key: 'resume',
             label: '恢复',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认恢复',
@@ -1752,6 +1758,8 @@ const CronJobTable: React.FC<{
           } : {
             key: 'suspend',
             label: '暂停',
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认暂停',
@@ -1764,8 +1772,8 @@ const CronJobTable: React.FC<{
             key: 'delete',
             label: '删除',
             danger: true,
-            disabled: isSystemResource(record),
-            tooltip: getSystemResourceProtectionHint(record),
+            disabled: isSystem,
+            tooltip: systemHint,
             onClick: () => {
               modal.confirm({
                 title: '确认删除',

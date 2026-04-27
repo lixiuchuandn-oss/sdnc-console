@@ -36,6 +36,7 @@ import {
   GatewayOutlined,
 } from '@ant-design/icons';
 import { createGateway } from '../../../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -218,7 +219,7 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
               <Select
                 placeholder="选择命名空间"
                 showSearch
-                options={namespacesOptions.map(ns => ({ label: ns, value: ns }))}
+                options={namespacesOptions.filter(ns => !isSystemNamespace(ns)).map(ns => ({ label: ns, value: ns }))}
               />
             </Form.Item>
           </Col>
