@@ -416,6 +416,8 @@ const AdminLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(true);
   const [activeSidebarKey, setActiveSidebarKey] = useState('/admin/cen_compute');
   const [openKeys, setOpenKeys] = useState<string[]>([]);
+  /** 仅当选中页/池内菜单签名变化时自动展开分组；避免每次 effect 把用户已折叠的分组强行撑开 */
+  const lastSidebarAutoExpandSigRef = useRef<string>('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchActiveIndex, setSearchActiveIndex] = useState(0);
@@ -846,6 +848,7 @@ const AdminLayout: React.FC = () => {
   useEffect(() => {
     if (poolSidebarCenter || rancherClusterSidebarCenter || csmPoolSidebarCenter) {
       setOpenKeys([]);
+      lastSidebarAutoExpandSigRef.current = '';
     }
   }, [
     poolSidebarCenter,
@@ -1063,41 +1066,39 @@ const AdminLayout: React.FC = () => {
 
   useEffect(() => {
     if (collapsed) {
-      // 折叠状态下不展开任何分组
+      lastSidebarAutoExpandSigRef.current = '';
       return;
     }
 
-    if (activeSidebarKey === RANCHER_CLUSTER_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
+    const expandPoolGroupByMenuKey = (sigPrefix: string, menuKey: string) => {
       const center =
         sidebarCentersForMenu.find((c) => c.key === activeSidebarKey) ||
         sidebarCentersForMenu[0];
       if (!center) return;
       const activeGroup = (center.items || []).find((item: any) =>
-        item?.children?.some(
-          (child: any) => String(child?.key || '') === poolSelectedMenuKey,
-        ),
+        item?.children?.some((child: any) => String(child?.key || '') === menuKey),
       );
       if (activeGroup && activeGroup.key != null) {
+        const sig = `${sigPrefix}|${menuKey}`;
+        if (lastSidebarAutoExpandSigRef.current === sig) return;
+        lastSidebarAutoExpandSigRef.current = sig;
         const gk = String(activeGroup.key);
         setOpenKeys((prev) => (prev.includes(gk) ? prev : [...prev, gk]));
       }
+    };
+
+    if (activeSidebarKey === RANCHER_CLUSTER_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
+      expandPoolGroupByMenuKey('rancher', poolSelectedMenuKey);
       return;
     }
 
     if (activeSidebarKey === CLOUD_POOL_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
-      const center =
-        sidebarCentersForMenu.find((c) => c.key === activeSidebarKey) ||
-        sidebarCentersForMenu[0];
-      if (!center) return;
-      const activeGroup = (center.items || []).find((item: any) =>
-        item?.children?.some(
-          (child: any) => String(child?.key || '') === poolSelectedMenuKey,
-        ),
-      );
-      if (activeGroup && activeGroup.key != null) {
-        const gk = String(activeGroup.key);
-        setOpenKeys((prev) => (prev.includes(gk) ? prev : [...prev, gk]));
-      }
+      expandPoolGroupByMenuKey('cloudmap-pool', poolSelectedMenuKey);
+      return;
+    }
+
+    if (activeSidebarKey === CSM_POOL_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
+      expandPoolGroupByMenuKey('csm-pool', poolSelectedMenuKey);
       return;
     }
 
@@ -1121,16 +1122,19 @@ const AdminLayout: React.FC = () => {
       const itemPath = String(item.key || '').split('?')[0];
       return itemPath === currentPath;
     });
-    
+
     // 如果找到分组，展开它；否则保持当前展开状态
     if (activeGroup && activeGroup.children) {
       const groupKey = activeGroup.key;
-      setOpenKeys(prev => {
+      const sig = `path|${activeSidebarKey}|${currentPath}`;
+      if (lastSidebarAutoExpandSigRef.current === sig) return;
+      lastSidebarAutoExpandSigRef.current = sig;
+      setOpenKeys((prev) => {
         if (prev.includes(groupKey)) return prev;
 
         // 只保留当前平台的展开状态，避免切平台后残留其它平台的 openKeys
         const pfPrefix = String(groupKey).split('_')[0];
-        const nextBase = prev.filter(k => String(k).startsWith(pfPrefix + '_'));
+        const nextBase = prev.filter((k) => String(k).startsWith(pfPrefix + '_'));
 
         // 保留其它已展开分组，只新增当前分组到 openKeys，避免“点第一个分组导致其它折叠”
         return [...nextBase, groupKey];
