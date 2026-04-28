@@ -1786,6 +1786,25 @@ export const fetchHarvesterPods = async (cloudId: string, namespace?: string, fo
 };
 
 /**
+ * 根据 label selector 查询 Pod（用于 Service 端口匹配）
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param labelSelector 标签选择器，如 "app=nginx"
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPodsBySelector = async (cloudId: string, namespace: string, labelSelector: string) => {
+  const params = [
+    `namespace=${encodeURIComponent(namespace)}`,
+    `labelSelector=${encodeURIComponent(labelSelector)}`,
+  ];
+  const query = `?${params.join('&')}`;
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/containers/pods${query}`,
+    { skipCache: true }
+  );
+};
+
+/**
  * 获取 Pod 详情
  * @param cloudId 云环境 ID
  * @param namespace 命名空间

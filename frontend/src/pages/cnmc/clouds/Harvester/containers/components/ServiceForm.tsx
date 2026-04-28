@@ -17,7 +17,7 @@
  * - ExternalName: 映射到外部 DNS 名称
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Form,
   Input,
@@ -32,14 +32,18 @@ import {
   Card,
   Alert,
   Tooltip,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
   MinusCircleOutlined,
   InfoCircleOutlined,
   ApiOutlined,
+  SearchOutlined,
+  ImportOutlined,
 } from '@ant-design/icons';
-import { createHarvesterService, updateHarvesterService } from '../../../../../../services/harvesterApi';
+import { createHarvesterService, updateHarvesterService, fetchHarvesterPodsBySelector } from '../../../../../../services/harvesterApi';
+import WorkloadSelectModal, { WorkloadInfo } from './WorkloadSelectModal';
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
@@ -158,6 +162,13 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [serviceType, setServiceType] = useState<string>('ClusterIP');
+  
+  // 端口发现相关状态
+  const [discoveredPorts, setDiscoveredPorts] = useState<Array<{ name: string; port: number; protocol?: string }>>([]);
+  const [discoveringPorts, setDiscoveringPorts] = useState(false);
+  
+  // 工作负载导入弹窗
+  const [workloadModalVisible, setWorkloadModalVisible] = useState(false);
 
   // 从初始数据提取表单值（编辑模式）
   const extractFormValues = (data: any): Partial<ServiceFormValues> => {
@@ -220,6 +231,106 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
     if (value === 'ExternalName') {
       form.setFieldValue('ports', []);
     }
+  };
+  
+  // 查询匹配 Pod 的可用端口
+  const handleDiscoverPorts = useCallback(async () => {
+    const namespace = form.getFieldValue('namespace');
+    const selector = form.getFieldValue('selector') as Array<{ key: string; value: string }>;
+    
+    if (!namespace) {
+      message.warning('请先选择命名空间');
+      return;
+    }
+    
+    if (!selector || selector.length === 0 || !selector.some(s => s.key && s.value)) {
+      message.warning('请先配置选择器');
+      return;
+    }
+    
+    // 构建 label selector 字符串
+    const labelSelector = selector
+      .filter(s => s.key && s.value)
+      .map(s => `${s.key}=${s.value}`)
+      .join(',');
+    
+    if (!labelSelector) {
+      message.warning('请先配置选择器');
+      return;
+    }
+    
+    setDiscoveringPorts(true);
+    try {
+      const result = await fetchHarvesterPodsBySelector(cloudId, namespace, labelSelector);
+      const pods = result?.data?.items || result?.items || [];
+      
+      if (!Array.isArray(pods)) {
+        message.error('Pod 数据格式错误');
+        console.error('Invalid pods response:', result);
+        return;
+      }
+      
+      // 从所有 Pod 的容器中提取端口
+      const portsMap = new Map<string, { name: string; port: number; protocol?: string }>();
+      
+      pods.forEach((pod: any) => {
+        const containers = pod?.spec?.containers || [];
+        containers.forEach((container: any) => {
+          const containerPorts = container.ports || [];
+          containerPorts.forEach((p: any) => {
+            const key = p.name ? `${p.name}:${p.containerPort}` : `port:${p.containerPort}`;
+            if (!portsMap.has(key)) {
+              portsMap.set(key, {
+                name: p.name || '',
+                port: p.containerPort,
+                protocol: p.protocol,
+              });
+            }
+          });
+        });
+      });
+      
+      const ports = Array.from(portsMap.values());
+      setDiscoveredPorts(ports);
+      
+      if (ports.length === 0) {
+        message.info('未找到匹配 Pod 的端口定义，请手动输入');
+      } else {
+        message.success(`发现 ${ports.length} 个可用端口`);
+      }
+    } catch (error: any) {
+      console.error('查询 Pod 端口失败:', error);
+      message.error(error.message || '查询失败');
+    } finally {
+      setDiscoveringPorts(false);
+    }
+  }, [cloudId, form, message]);
+
+  // 从工作负载导入
+  const handleImportFromWorkload = (workload: WorkloadInfo) => {
+    // 设置命名空间
+    form.setFieldValue('namespace', workload.namespace);
+    
+    // 设置 selector
+    const selector = Object.entries(workload.selector).map(([key, value]) => ({ key, value }));
+    form.setFieldValue('selector', selector);
+    
+    // 设置发现的端口
+    setDiscoveredPorts(workload.ports);
+    
+    // 自动添加端口配置
+    if (workload.ports.length > 0) {
+      const ports = workload.ports.map(p => ({
+        name: p.name || '',
+        protocol: p.protocol || 'TCP',
+        port: p.port,
+        targetPort: p.name || p.port,
+      }));
+      form.setFieldValue('ports', ports);
+    }
+    
+    setWorkloadModalVisible(false);
+    message.success(`已从 ${workload.type}/${workload.displayName} 导入配置`);
   };
 
   // 构建提交数据
@@ -320,17 +431,18 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
   };
 
   return (
-    <Form
-      form={form}
-      layout="vertical"
-      initialValues={{
-        name: generateVmWizardStyleDisplayName('svc'),
-        type: 'ClusterIP',
-        labels: [],
-        selector: [],
-        ports: [{ protocol: 'TCP' }],
-      }}
-    >
+    <>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          name: generateVmWizardStyleDisplayName('svc'),
+          type: 'ClusterIP',
+          labels: [],
+          selector: [],
+          ports: [{ protocol: 'TCP' }],
+        }}
+      >
       {/* 基本信息 */}
       <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
@@ -380,6 +492,21 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
             </Form.Item>
           </Col>
         </Row>
+        {!editMode && serviceType !== 'ExternalName' && (
+          <div style={{ marginBottom: 16 }}>
+            <Button
+              type="primary"
+              ghost
+              icon={<ImportOutlined />}
+              onClick={() => setWorkloadModalVisible(true)}
+            >
+              从工作负载导入
+            </Button>
+            <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>
+              自动填充选择器和端口配置
+            </span>
+          </div>
+        )}
         <KeyValueEditor
           name="labels"
           label="标签"
@@ -439,11 +566,29 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
 
         {/* 选择器配置 */}
         {serviceType !== 'ExternalName' && (
-          <KeyValueEditor
-            name="selector"
-            label="选择器"
-            tooltip="用于选择后端 Pod，必须与 Pod 的标签匹配"
-          />
+          <>
+            <KeyValueEditor
+              name="selector"
+              label="选择器"
+              tooltip="用于选择后端 Pod，必须与 Pod 的标签匹配"
+            />
+            <div style={{ marginTop: 8, marginBottom: 16 }}>
+              <Button
+                type="dashed"
+                size="small"
+                icon={<SearchOutlined />}
+                onClick={handleDiscoverPorts}
+                loading={discoveringPorts}
+              >
+                查询可用端口
+              </Button>
+              {discoveredPorts.length > 0 && (
+                <span style={{ marginLeft: 8, color: '#52c41a' }}>
+                  已发现 {discoveredPorts.length} 个端口
+                </span>
+              )}
+            </div>
+          </>
         )}
       </Card>
 
@@ -505,10 +650,31 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
                         <Form.Item
                           {...restField}
                           name={[index, 'targetPort']}
-                          label="容器内部端口"
+                          label={
+                            <span>
+                              容器内部端口
+                              <Tooltip title="可选择发现的端口或手动输入端口号/名称">
+                                <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                              </Tooltip>
+                            </span>
+                          }
                           rules={[{ required: true, message: '请输入容器内部端口' }]}
                         >
-                          <Input placeholder="80 或 http" />
+                          <Select
+                            placeholder="选择或输入端口"
+                            showSearch
+                            allowClear
+                            mode="tags"
+                            maxTagCount={1}
+                            options={discoveredPorts.map(p => ({
+                              label: p.name ? `${p.name} (${p.port})` : `${p.port}`,
+                              value: p.name || p.port,
+                            }))}
+                            filterOption={(input, option) =>
+                              (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase()) ||
+                              (option?.value ?? '').toString().toLowerCase().includes(input.toLowerCase())
+                            }
+                          />
                         </Form.Item>
                       </Col>
                     </Row>
@@ -558,6 +724,16 @@ const ServiceForm: React.FC<ServiceFormProps> = ({
         </Space>
       </div>
     </Form>
+    
+    {/* 工作负载选择弹窗 */}
+    <WorkloadSelectModal
+      open={workloadModalVisible}
+      cloudId={cloudId}
+      namespace={form.getFieldValue('namespace')}
+      onCancel={() => setWorkloadModalVisible(false)}
+      onOk={handleImportFromWorkload}
+    />
+    </>
   );
 };
 

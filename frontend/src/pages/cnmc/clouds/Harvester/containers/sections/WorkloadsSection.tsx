@@ -79,43 +79,101 @@ const renderWorkloadStatus = (workload: any, type: 'deployment' | 'statefulset' 
     const readyReplicas = status?.readyReplicas || 0;
     const updatedReplicas = status?.updatedReplicas || 0;
     const availableReplicas = status?.availableReplicas || 0;
+    const unavailableReplicas = status?.unavailableReplicas || 0;
     
-    if (readyReplicas === replicas && availableReplicas === replicas) {
-      return <Tag color="green">运行中</Tag>;
-    } else if (readyReplicas < replicas) {
-      return <Tag color="orange">更新中 ({readyReplicas}/{replicas})</Tag>;
-    } else if (replicas === 0) {
+    if (replicas === 0) {
       return <Tag color="default">已停止</Tag>;
     }
-    return <Tag color="blue">{readyReplicas}/{replicas}</Tag>;
+    if (readyReplicas === replicas && availableReplicas === replicas) {
+      return <Tag color="green">运行中</Tag>;
+    }
+    
+    const tooltipContent = (
+      <div>
+        <div>期望副本: {replicas}</div>
+        <div>就绪副本: {readyReplicas}</div>
+        <div>可用副本: {availableReplicas}</div>
+        {unavailableReplicas > 0 && <div style={{ color: '#ff4d4f' }}>不可用副本: {unavailableReplicas}</div>}
+        {updatedReplicas !== readyReplicas && <div>已更新副本: {updatedReplicas}</div>}
+      </div>
+    );
+    
+    if (unavailableReplicas > 0) {
+      return (
+        <Tooltip title={tooltipContent}>
+          <Tag color="orange">异常 (就绪 {readyReplicas}/{replicas})</Tag>
+        </Tooltip>
+      );
+    }
+    
+    return (
+      <Tooltip title={tooltipContent}>
+        <Tag color="blue">更新中 (就绪 {readyReplicas}/{replicas})</Tag>
+      </Tooltip>
+    );
   }
   
   if (type === 'statefulset') {
     const replicas = workload?.spec?.replicas || 0;
     const readyReplicas = status?.readyReplicas || 0;
     const currentReplicas = status?.currentReplicas || 0;
+    const updatedReplicas = status?.updatedReplicas || 0;
     
-    if (readyReplicas === replicas && readyReplicas === currentReplicas) {
-      return <Tag color="green">运行中</Tag>;
-    } else if (readyReplicas < replicas) {
-      return <Tag color="orange">更新中 ({readyReplicas}/{replicas})</Tag>;
-    } else if (replicas === 0) {
+    if (replicas === 0) {
       return <Tag color="default">已停止</Tag>;
     }
-    return <Tag color="blue">{readyReplicas}/{replicas}</Tag>;
+    if (readyReplicas === replicas && readyReplicas === currentReplicas) {
+      return <Tag color="green">运行中</Tag>;
+    }
+    
+    const tooltipContent = (
+      <div>
+        <div>期望副本: {replicas}</div>
+        <div>就绪副本: {readyReplicas}</div>
+        <div>当前副本: {currentReplicas}</div>
+        {updatedReplicas !== readyReplicas && <div>已更新副本: {updatedReplicas}</div>}
+      </div>
+    );
+    
+    return (
+      <Tooltip title={tooltipContent}>
+        <Tag color="orange">异常 (就绪 {readyReplicas}/{replicas})</Tag>
+      </Tooltip>
+    );
   }
   
   if (type === 'daemonset') {
     const desiredNumberScheduled = status?.desiredNumberScheduled || 0;
     const numberReady = status?.numberReady || 0;
     const numberAvailable = status?.numberAvailable || 0;
+    const numberUnavailable = status?.numberUnavailable || 0;
     
     if (numberReady === desiredNumberScheduled && numberAvailable === desiredNumberScheduled) {
       return <Tag color="green">运行中</Tag>;
-    } else if (numberReady < desiredNumberScheduled) {
-      return <Tag color="orange">更新中 ({numberReady}/{desiredNumberScheduled})</Tag>;
     }
-    return <Tag color="blue">{numberReady}/{desiredNumberScheduled}</Tag>;
+    
+    const tooltipContent = (
+      <div>
+        <div>期望节点数: {desiredNumberScheduled}</div>
+        <div>就绪节点数: {numberReady}</div>
+        <div>可用节点数: {numberAvailable}</div>
+        {numberUnavailable > 0 && <div style={{ color: '#ff4d4f' }}>不可用节点数: {numberUnavailable}</div>}
+      </div>
+    );
+    
+    if (numberUnavailable > 0) {
+      return (
+        <Tooltip title={tooltipContent}>
+          <Tag color="orange">异常 (就绪 {numberReady}/{desiredNumberScheduled})</Tag>
+        </Tooltip>
+      );
+    }
+    
+    return (
+      <Tooltip title={tooltipContent}>
+        <Tag color="blue">更新中 (就绪 {numberReady}/{desiredNumberScheduled})</Tag>
+      </Tooltip>
+    );
   }
   
   return <Tag>未知</Tag>;
@@ -362,9 +420,9 @@ const WorkloadTable: React.FC<{
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
     {
-      title: '状态',
+      title: 'Pod状态',
       key: 'status',
-      width: 120,
+      width: 140,
       render: (_: any, record: any) => renderWorkloadStatus(record, type),
     },
     {

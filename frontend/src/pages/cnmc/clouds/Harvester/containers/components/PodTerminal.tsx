@@ -15,6 +15,7 @@ export interface PodTerminalProps {
   podName: string;
   containers: string[];
   defaultContainer?: string;
+  containerStatuses?: Array<{ name: string; state: any }>;
   onClose: () => void;
 }
 
@@ -25,6 +26,7 @@ const PodTerminal: React.FC<PodTerminalProps> = ({
   podName,
   containers,
   defaultContainer,
+  containerStatuses,
   onClose,
 }) => {
   const [selectedContainer, setSelectedContainer] = useState<string>('');
@@ -32,6 +34,12 @@ const PodTerminal: React.FC<PodTerminalProps> = ({
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const isContainerRunning = (name: string): boolean => {
+    if (!containerStatuses) return true;
+    const status = containerStatuses.find((s) => s.name === name);
+    return !!status?.state?.running;
+  };
 
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -331,16 +339,19 @@ const PodTerminal: React.FC<PodTerminalProps> = ({
             value={selectedContainer}
             onChange={(val) => {
               setSelectedContainer(val);
-              // 切换容器后重新连接
               setTimeout(() => connect(), 100);
             }}
             style={{ width: 200 }}
-            options={containers.map((c) => ({ label: c, value: c }))}
+            options={containers.map((c) => ({
+              label: isContainerRunning(c) ? c : `${c} (非运行中)`,
+              value: c,
+              disabled: !isContainerRunning(c),
+            }))}
             disabled={connecting}
           />
           {connected && <Tag color="green">已连接</Tag>}
           {connecting && <Tag color="blue">连接中...</Tag>}
-          {error && <Tag color="red">{error}</Tag>}
+          {!connected && !connecting && error && <Tag color="red">{error}</Tag>}
         </Space>
         <Space>
           <Button size="small" icon={<ReloadOutlined />} onClick={handleReconnect} disabled={connecting}>
