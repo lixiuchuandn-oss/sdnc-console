@@ -61,6 +61,19 @@ import {
 } from '../../../../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../../../../services/api';
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
+import { translateKnownApiErrorMessage } from '../../../../../../../utils/k8sErrorMessages';
+import { getVmRootImageIdFromVm } from '../../lib/vmImageStatus';
+
+/** POST 创建卷响应中解析 PVC metadata.name（兼容 axios 包装与 { message, data: pvc }） */
+function harvesterCreatedPvcNameFromResponse(res: any, fallback: string): string {
+  let cur: any = res;
+  for (let i = 0; i < 4 && cur; i++) {
+    const n = String(cur?.metadata?.name || '').trim();
+    if (n) return n;
+    cur = cur?.data ?? cur?.body?.data;
+  }
+  return fallback;
+}
 
 /** 将 Kubernetes 资源量字符串（如 `1Gi`、`500Mi`、`1000`）解析为字节数。 */
 const parseQuantity = (s: string | number | undefined): number => {
@@ -902,6 +915,11 @@ export const useVmReconfigure = (props: any) => {
       case 'change_os': {
         if (!images || images.length === 0) reloadImages();
         if (!scs || scs.length === 0) reloadScs();
+        const r = activeRecord || record;
+        const imgId = getVmRootImageIdFromVm(r);
+        if (imgId) {
+          form.setFieldsValue({ newOsImage: imgId });
+        }
         break;
       }
       case 'add_disk': {
@@ -1146,7 +1164,7 @@ export const useVmReconfigure = (props: any) => {
           await rebootCloudProviderEcs(cloudId, `${namespace}/${vmName}`, force);
           message.success('重启指令已下发');
         } catch (e: any) {
-          message.error(e?.message || '重启失败');
+          message.error(translateKnownApiErrorMessage(String(e?.message || e || '重启失败')));
         }
       },
       onCancel: () => {}
@@ -1739,7 +1757,7 @@ export const useVmReconfigure = (props: any) => {
                                    accessMode === 'ReadOnlyMany' ? 'ROX (ReadOnlyMany)' :
                                    'RWX (ReadWriteMany)';
             
-            await createHarvesterVolume(cloudId, {
+            const createRes: any = await createHarvesterVolume(cloudId, {
               namespace,
               name: volName,
               size: values.newDiskSize,
@@ -1747,7 +1765,8 @@ export const useVmReconfigure = (props: any) => {
               accessModes: [accessMode],
               volumeMode: 'Block',
             });
-            form.setFieldsValue({ newDiskCreated: true });
+            const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
+            form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
             message.success(`数据盘创建成功（访问类型: ${accessModeText}），请再次点击【提交】进行挂载（需重启生效）`);
             return; // 不关闭弹窗
           }
@@ -2565,7 +2584,7 @@ export const useVmReconfigure = (props: any) => {
                              accessMode === 'ReadOnlyMany' ? 'ROX (ReadOnlyMany)' :
                              'RWX (ReadWriteMany)';
       
-      await createHarvesterVolume(cloudId, {
+      const createRes: any = await createHarvesterVolume(cloudId, {
         namespace,
         name: volName,
         size: values.newDiskSize,
@@ -2574,7 +2593,8 @@ export const useVmReconfigure = (props: any) => {
         volumeMode: 'Block',
       });
 
-      form.setFieldsValue({ newDiskCreated: true });
+      const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
+      form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
       message.success(`数据盘创建成功（访问类型: ${accessModeText}），请点击【挂载磁盘】继续`);
     } catch (e: any) {
       // 表单校验错误交给 antd

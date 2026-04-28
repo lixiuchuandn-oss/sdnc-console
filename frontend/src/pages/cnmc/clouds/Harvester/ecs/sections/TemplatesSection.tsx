@@ -45,6 +45,8 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式
+  /** 租户控制台当前命名空间：从模板快速创建 VM 时写入 metadata.namespace，避免落到 default */
+  workspaceVmNamespace?: string;
   bordered?: boolean;
 }
 
@@ -123,6 +125,7 @@ const TemplatesSection: React.FC<Props> = ({
   loading, 
   onRefresh, 
   isTenant = false,
+  workspaceVmNamespace,
   bordered = true,
 }) => {
   const hasOpsView = useCloudmapOpsViewWrite();
@@ -261,9 +264,13 @@ const TemplatesSection: React.FC<Props> = ({
     }
     try {
       setQuickCreating(true);
+      const vmNs =
+        isTenant && String(workspaceVmNamespace || '').trim()
+          ? String(workspaceVmNamespace).trim()
+          : tplNs;
       await createHarvesterVmFromTemplate(cloudId, tplNs, tplName, {
         name: vmName,
-        namespace: tplNs,
+        namespace: vmNs,
         autoStart: quickCreateAutoStart,
       });
       message.success('创建成功');
@@ -497,7 +504,7 @@ const TemplatesSection: React.FC<Props> = ({
    * - 应用名称关键字搜索
    */
   const filteredData = useMemo(() => {
-    return baseData.filter((t: any) => {
+    const rows = baseData.filter((t: any) => {
       // 1. 命名空间筛选
       const ns = getTemplateNamespace(t);
       if (selectedNamespace && ns !== selectedNamespace) return false;
@@ -512,6 +519,11 @@ const TemplatesSection: React.FC<Props> = ({
       }
       
       return true;
+    });
+    return [...rows].sort((a: any, b: any) => {
+      const ta = new Date(a?.metadata?.creationTimestamp || 0).getTime();
+      const tb = new Date(b?.metadata?.creationTimestamp || 0).getTime();
+      return tb - ta;
     });
   }, [baseData, searchText, selectedNamespace, selectedScope, hasOpsView, isPublicNamespace]);
 

@@ -502,6 +502,8 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           templates={harvesterTemplates}
           loading={resourceLoading.templates}
           onRefresh={() => loadTabResource('templates', true)}
+          isTenant={isTenant}
+          workspaceVmNamespace={isTenant ? (nsFilter || undefined) : undefined}
         />
         <DebugJSON data={rawTemplates} show={showLog} />
       </>

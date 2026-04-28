@@ -1166,6 +1166,8 @@ const CloudConsolePage: React.FC = () => {
       setHarvesterCategory('compute');
       setHarvesterResource('vm');
       setConsoleLeftNavKey('host');
+      setNsValue(undefined);
+      setNodeValue(undefined);
 
       if (ovnVpcEnabled) {
         loadVpcsAndSubnets(currentCloudId);
@@ -1457,6 +1459,15 @@ const CloudConsolePage: React.FC = () => {
     ctrSecrets,
     ctrImagePullSecrets,
   ]);
+
+  /** 租户控制台：未选择命名空间时，在命名空间列表就绪后默认选中第一个非系统命名空间，避免快速创建落到 default 被拒 */
+  useEffect(() => {
+    if (!isTenantUser || !currentCloudId) return;
+    const cur = String(nsValue ?? '').trim();
+    if (cur) return;
+    if (!namespacesOptions.length) return;
+    setNsValue(namespacesOptions[0]);
+  }, [isTenantUser, currentCloudId, nsValue, namespacesOptions]);
 
   const nodesOptions = useMemo(() => {
     return Array.from(new Set(ecs.map(r => r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.nodeName || r?.Extra?.NodeName).filter(Boolean))) as string[];

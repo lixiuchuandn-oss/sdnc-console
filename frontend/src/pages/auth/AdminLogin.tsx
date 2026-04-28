@@ -3,12 +3,9 @@ import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { useLicense } from '../../contexts/LicenseContext';
-import { getDefaultAdminPath, hasPermissionForAction } from '../../utils/accessMapping';
-import { getSystemSetting } from '../../services/systemApi';
+import { ADMIN_HOME_BASE, fetchAdminDefaultHomeFromApi } from '../../utils/adminHome';
 import { useSettings } from '../../contexts/SettingsContext';
 import { renderMarkdownBold } from '../../utils/markdown';
-import { TENANT_CLOUD_CONSOLE_PATH } from '../cnmc/console/tenantConsolePaths';
 import { useLoginPageHeroStyle } from './loginPageHeroStyle';
 import './Login.css';
 
@@ -18,8 +15,6 @@ const AdminLogin: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { settings } = useSettings();
-  const { hasFeature } = useLicense();
-
   const backgroundColor = settings.loginBackgroundColor;
   const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
   const gradientEnd = settings.loginBackgroundGradientEnd || backgroundColor;
@@ -39,32 +34,15 @@ const AdminLogin: React.FC = () => {
       const loggedInUser = await login(values.username, values.password);
       message.success('登录成功');
       const role = String((loggedInUser as any)?.role || '').toLowerCase();
-      const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];
 
+      // 系统管理员：先进 `/admin`，由 `AdminHomeGate` 请求 `GET /api/auth/admin-default-home` 落地
       if (role === 'super_admin' || role === 'admin') {
-        try {
-          const fav = await getSystemSetting('favorite.cloudId');
-          const cloudId = String(fav?.value || '').trim();
-          if (cloudId) {
-            const canAccessCloudPools =
-              hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
-              hasPermissionForAction(perms, 'clouds:read');
-            if (canAccessCloudPools) {
-              navigate(`/admin/clouds/${cloudId}`);
-              return;
-            }
-            if (hasPermissionForAction(perms, 'clouds.console:read')) {
-              navigate(TENANT_CLOUD_CONSOLE_PATH);
-              return;
-            }
-          }
-        } catch {
-          /* ignore */
-        }
+        navigate(ADMIN_HOME_BASE);
+        return;
       }
 
-      const target = getDefaultAdminPath(perms, hasFeature);
-      navigate(target);
+      const home = await fetchAdminDefaultHomeFromApi();
+      navigate(String(home?.defaultPath || '/admin/coming-soon').trim() || '/admin/coming-soon');
     } catch (error) {
       message.error('登录失败，请检查用户名和密码');
     } finally {

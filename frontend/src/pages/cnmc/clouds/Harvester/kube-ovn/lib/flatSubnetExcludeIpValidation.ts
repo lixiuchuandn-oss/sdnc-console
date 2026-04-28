@@ -136,7 +136,7 @@ export function validateFlatSubnetExcludeIpsLocal(
     if (!IPV4_HOST.test(item)) {
       return {
         ok: false,
-        message: `排除 IP「${item}」不是合法的 IPv4 地址（区间写法请使用 ..）`,
+        message: `排除 IP「${item}」不是有效的地址（若使用区间写法请用 ..）`,
       };
     }
     const n = ipv4ToLong(item);

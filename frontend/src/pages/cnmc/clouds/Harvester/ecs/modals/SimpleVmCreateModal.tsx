@@ -38,6 +38,7 @@ import {
 } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 import {
   isHarvesterVmImageReady,
+  isSystemNamespace,
   isSystemStorageClass,
   pickDefaultStorageClassName,
   pickFirstNamespaceRecordByScenario,
@@ -58,6 +59,8 @@ export type SimpleVmCreateModalProps = {
   onCreated: () => void | Promise<void>;
   /** 命名空间库存对象（metadata.labels.tower.io/scenario） */
   namespaceRecords?: any[];
+  /** 租户控制台页头当前命名空间；优先于按 scenario 推断，避免落到 default 导致无权创建 */
+  workspaceNamespace?: string;
   /** 租户创建时仅选 tenant 场景；管理员选 admin；无匹配时回退 default */
   isTenant?: boolean;
 };
@@ -234,6 +237,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   existingVms = [],
   onCreated,
   namespaceRecords = [],
+  workspaceNamespace,
   isTenant = false,
 }) => {
   const [form] = Form.useForm();
@@ -347,12 +351,21 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   }, [selectedFlatSubnet, subnetIpSegmentByName]);
 
   const targetNamespace = useMemo(() => {
+    const ws = String(workspaceNamespace || '').trim();
+    if (isTenant && ws) return ws;
     const picked = pickFirstNamespaceRecordByScenario(
       namespaceRecords,
       isTenant ? 'tenant' : 'admin',
     );
-    return picked || 'default';
-  }, [namespaceRecords, isTenant]);
+    if (picked) return picked;
+    if (isTenant) {
+      for (const r of namespaceRecords || []) {
+        const name = String(r?.metadata?.name || r?.name || '').trim();
+        if (name && !isSystemNamespace(name)) return name;
+      }
+    }
+    return 'default';
+  }, [namespaceRecords, isTenant, workspaceNamespace]);
 
   const diskImages = useMemo(
     () =>

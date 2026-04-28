@@ -37,6 +37,7 @@ import {
   resolveTowerUnderlaySubnetCategory,
 } from '../lib/kubeOvnSubnetConstants';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
+import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
 import UnderlaySubnetFormFields, {
   findVlanRecordBySubnetRef,
   providerDisplayName,
@@ -353,7 +354,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       ).trim();
       const excludeLocal = validateFlatSubnetExcludeIpsLocal(cidrForExcludeCheck, excludeIps);
       if (!excludeLocal.ok) {
-        message.error(excludeLocal.message);
+        message.error(`更新失败：${excludeLocal.message}`);
         setEditSubmitting(false);
         return;
       }
@@ -413,7 +414,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         error?.message ??
         '未知错误';
       const detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
-      message.error(`更新${subnetKindLabel}失败: ${detail}`);
+      message.error(`更新${subnetKindLabel}失败：${formatKubeOvnFriendlyError(detail)}`);
     } finally {
       setEditSubmitting(false);
     }
@@ -506,7 +507,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           error?.message ??
           '未知错误';
         const detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
-        message.error(`删除失败: ${detail}`);
+        message.error(`删除失败：${formatKubeOvnFriendlyError(detail)}`);
       }
     },
     [cloudId, ensureUnderlayWrite, fetchData, notifySubnetsChanged],

@@ -197,7 +197,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const data = await response.json();
       saveToken(data.token);
       setToken(data.token);
-      
+
       // 优先使用后端返回的计算好的权限
       if (Array.isArray(data.user.permissions) && data.user.permissions.length > 0) {
         setUser(data.user);

@@ -470,6 +470,15 @@ export const deleteHarvesterLonghornVolume = async (
  * @param payload 创建参数（包含注解 annotations）
  * @returns Promise<any> 创建结果
  */
+/** K8s DNS-1123 label：PVC metadata.name 须满足；否则生成技术名并把用户输入写入 tower.io/alias */
+function isKubernetesDnsLabel(name: string): boolean {
+  return !!name && name.length <= 63 && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name);
+}
+
+function generatePvcTechnicalName(): string {
+  return `pvc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`.slice(0, 63);
+}
+
 export const createHarvesterPVCVolume = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   payload: {
@@ -512,14 +521,24 @@ export const createHarvesterPVCVolume = async (
   const labels: Record<string, string> = {
     'tower.io/creator': 'compute-tower',
   };
+
+  const rawDisplayName = String(payload.name || '').trim();
+  let pvcMetaName = rawDisplayName;
+  const mergedAnnotations: Record<string, string> = { ...(payload.annotations || {}) };
+  if (!isKubernetesDnsLabel(pvcMetaName)) {
+    pvcMetaName = generatePvcTechnicalName();
+    if (!mergedAnnotations['tower.io/alias']) {
+      mergedAnnotations['tower.io/alias'] = (rawDisplayName || 'volume').slice(0, 512);
+    }
+  }
   
   const body = {
     apiVersion: 'v1',
     kind: 'PersistentVolumeClaim',
     metadata: {
-      name: String(payload.name || ''),
+      name: pvcMetaName,
       namespace: ns,
-      annotations: payload.annotations,
+      annotations: Object.keys(mergedAnnotations).length ? mergedAnnotations : undefined,
       finalizers,
       labels,
     },
@@ -843,6 +862,13 @@ export const clonePVC = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const ns = String(opts?.targetNamespace || namespace);
+  const rawNewName = String(opts?.newName || '').trim();
+  let pvcCloneName = rawNewName;
+  const cloneAnnotations: Record<string, string> = {};
+  if (!isKubernetesDnsLabel(pvcCloneName)) {
+    pvcCloneName = generatePvcTechnicalName();
+    cloneAnnotations['tower.io/alias'] = (rawNewName || 'volume').slice(0, 512);
+  }
   const sizeStr = (function () {
     const raw =
       typeof (opts as any)?.size === 'number'
@@ -860,7 +886,11 @@ export const clonePVC = async (
   const body: any = {
     apiVersion: 'v1',
     kind: 'PersistentVolumeClaim',
-    metadata: { name: String(opts?.newName || ''), namespace: ns },
+    metadata: {
+      name: pvcCloneName,
+      namespace: ns,
+      ...(Object.keys(cloneAnnotations).length ? { annotations: cloneAnnotations } : {}),
+    },
     spec: {
       accessModes:
         Array.isArray(opts?.accessModes) && opts?.accessModes?.length > 0

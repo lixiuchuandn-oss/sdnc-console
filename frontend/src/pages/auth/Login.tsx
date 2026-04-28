@@ -3,8 +3,8 @@ import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDefaultAdminPath } from '../../utils/accessMapping';
 import { useSettings } from '../../contexts/SettingsContext';
+import { fetchAdminDefaultHomeFromApi } from '../../utils/adminHome';
 import { renderMarkdownBold } from '../../utils/markdown';
 import { useLoginPageHeroStyle } from './loginPageHeroStyle';
 import './Login.css';
@@ -37,10 +37,8 @@ const Login: React.FC = () => {
         message.error('请使用管理员登录地址');
         navigate('/admin/login');
       } else {
-        message.success('登录成功');
-        const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];
-        const target = getDefaultAdminPath(perms);
-        navigate(target);
+        const home = await fetchAdminDefaultHomeFromApi();
+        navigate(String(home?.defaultPath || '/admin/coming-soon').trim() || '/admin/coming-soon');
       }
     } catch (error) {
       message.error('登录失败，请检查用户名和密码');

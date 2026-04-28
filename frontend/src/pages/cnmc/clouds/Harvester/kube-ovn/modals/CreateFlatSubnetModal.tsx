@@ -22,6 +22,7 @@ import {
   friendlyMessageIfKubeOvnGatewayNotInCidr,
   isIpv4GatewayInCidr,
 } from '../lib/flatSubnetExcludeIpValidation';
+import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
 
 export type CreateFlatSubnetModalProps = {
   open: boolean;
@@ -211,7 +212,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
             detail = `${detail} | ${more}`;
           }
         }
-        message.error(`创建扁平子网失败：${detail}`);
+        message.error(`创建扁平子网失败：${formatKubeOvnFriendlyError(detail)}`);
       }
     },
     [canSubmit, cloudId, showNamespaceField, form, nsOptions, onClose, onSuccess, vlans],

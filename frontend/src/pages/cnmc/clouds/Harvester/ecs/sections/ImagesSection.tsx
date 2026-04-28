@@ -54,6 +54,7 @@ import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import ImageLabelEditModal from '../modals/ImageLabelEditModal';
 import ImageCreateModal from '../modals/ImageCreateModal';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { resolveImageListStateKey } from '../lib/vmImageStatus';
 
 /**
  * 组件入参说明
@@ -73,65 +74,6 @@ type Props = {
   isTenant?: boolean;
   bordered?: boolean;
 };
-
-/** 列表/筛选共用：与 harvesterImageListHandler 的 state 语义对齐（UI 用小写 key） */
-function mapBackendVmImageState(raw: string): string {
-  const k = String(raw || '').trim().toLowerCase();
-  if (k === 'active') return 'ready';
-  // 旧版 list 曾把 status 写成 condition.type 字符串
-  if (k === 'imported') return 'ready';
-  if (k === 'failed') return 'failed';
-  if (k === 'downloading') return 'downloading';
-  if (k === 'unknown') return 'unknown';
-  return k || 'unknown';
-}
-
-function conditionStatusIsTrue(v: unknown): boolean {
-  return v === true || v === 'True' || v === 'true';
-}
-
-function conditionStatusIsFalse(v: unknown): boolean {
-  return v === false || v === 'False' || v === 'false';
-}
-
-/** status.conditions 与列表接口顶层的 conditions 二选一（缓存可能只带其一） */
-function getVmImageConditions(r: any): any[] {
-  const fromStatus = r?.status?.conditions;
-  const top = r?.conditions;
-  if (Array.isArray(fromStatus) && fromStatus.length > 0) return fromStatus;
-  if (Array.isArray(top) && top.length > 0) return top;
-  if (Array.isArray(fromStatus)) return fromStatus;
-  if (Array.isArray(top)) return top;
-  return [];
-}
-
-/**
- * 优先使用接口下发的 state；否则仅用 Imported + 有效进度推断。
- * 注意：progress 为 0 不表示「下载中」，避免缓存缺 conditions 时全员误判。
- */
-function resolveImageListStateKey(r: any): string {
-  // 仅当后端给出确定枚举时才短路；Unknown 继续用 conditions/progress 推断（修复后 rawData 会带全量 status）
-  if (typeof r?.state === 'string' && r.state.trim() !== '') {
-    const mapped = mapBackendVmImageState(r.state);
-    if (mapped !== 'unknown') return mapped;
-  }
-  const conditions = getVmImageConditions(r);
-  const imported = conditions.find((c: any) => c?.type === 'Imported');
-  if (conditionStatusIsTrue(imported?.status)) return 'ready';
-  if (conditionStatusIsFalse(imported?.status)) return 'failed';
-
-  const progress = Number(r?.status?.progress ?? r?.progress);
-  if (Number.isFinite(progress)) {
-    if (progress >= 100) return 'ready';
-    if (progress > 0 && progress < 100) return 'downloading';
-  }
-
-  if (typeof r?.status === 'string' && r.status.trim() !== '') return mapBackendVmImageState(r.status);
-  const phase = r?.status?.phase ?? r?.status?.status;
-  if (phase != null && String(phase).trim() !== '') return mapBackendVmImageState(String(phase));
-
-  return 'unknown';
-}
 
 const ImagesSection: React.FC<Props> = ({
   cloudId,

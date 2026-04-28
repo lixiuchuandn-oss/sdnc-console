@@ -72,5 +72,13 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return 'Harvester 准入校验未通过：模板标识（templateId）为空，无法写入 spec.templateId。常见于从虚拟机生成模板时集群未正确注入该字段，或与当前 Harvester 版本/实例状态不兼容。请稍后重试或升级/核对 Harvester；若仍失败请在集群侧查看 mutator.harvesterhci.io 相关日志。';
   }
 
+  // --- Kube-OVN：子网网关不在 CIDR 内（租户/管理端创建子网常见）---
+  if (
+    lower.includes('pod-ip-validating.kube-ovn.io') ||
+    lower.includes('gateway') && (lower.includes('not in cidr') || lower.includes('not in the cidr'))
+  ) {
+    return '子网网关地址不在所选 CIDR 网段内，或不符合集群对该子网的校验规则。请核对网关与 CIDR（例如网关须落在网段内且未被排除 IP 占用），修改后重试。';
+  }
+
   return msg;
 }

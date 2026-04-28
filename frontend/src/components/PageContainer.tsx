@@ -41,7 +41,7 @@ import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider, 
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
 import { isSdnccPagePath } from '../routes/adminRouteMatch';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined, ReloadOutlined, AuditOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined, ReloadOutlined, AuditOutlined, RocketOutlined } from '@ant-design/icons';
 
 /**
  * 图标映射函数
@@ -56,6 +56,7 @@ import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutl
  */
 export const iconOf = (key?: string) => {
   const m: Record<string, React.ReactNode> = {
+    RocketOutlined: <RocketOutlined />,
     AppstoreOutlined: <AppstoreOutlined />,
     DashboardOutlined: <DashboardOutlined />,
     DeploymentUnitOutlined: <DeploymentUnitOutlined />,

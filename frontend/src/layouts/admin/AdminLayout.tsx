@@ -20,6 +20,7 @@ import {
   Typography,
 } from 'antd';
 import { Outlet, useNavigate, useLocation, type NavigateFunction } from 'react-router-dom';
+import type { AdminLayoutOutletContext } from './adminLayoutOutletContext';
 import {
   CodeOutlined,
   HomeFilled,
@@ -199,7 +200,7 @@ type AdminStandardHeaderProps = {
   navigateToAdminContent: (path: string) => void;
   headerSelectedPoolId: string | undefined;
   setHeaderSelectedPoolId: React.Dispatch<React.SetStateAction<string | undefined>>;
-  /** 顶栏切换池后是否可进入池内总览（未授权资源池管理时仅依赖控制台读权限） */
+  /** 顶栏切换池后是否可进入池内总览（未授权多云管理时仅依赖控制台读权限） */
   headerPoolOverviewEnabled: boolean;
   canWritePools: boolean;
   navigate: NavigateFunction;
@@ -418,6 +419,8 @@ const AdminLayout: React.FC = () => {
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   /** 仅当选中页/池内菜单签名变化时自动展开分组；避免每次 effect 把用户已折叠的分组强行撑开 */
   const lastSidebarAutoExpandSigRef = useRef<string>('');
+  /** 池详情 URL 已有 cloudId 但顶栏列表尚未含该池时，触发一次列表刷新（避免侧栏空白直至手动刷新） */
+  const poolNavMissingListRefetchKeyRef = useRef('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchActiveIndex, setSearchActiveIndex] = useState(0);
@@ -499,11 +502,11 @@ const AdminLayout: React.FC = () => {
     );
   }, [user]);
 
-  /** 含「资源池管理」授权（侧栏资源池列表等）；未激活授权时视为 false */
-  const hasPoolManagementLicense = hasFeature('platform.default');
+  /** 含「多云管理」授权（资源池列表、侧栏完整池能力等）；默认授权不含此项 */
+  const hasPoolManagementLicense = hasFeature('platform.multi-cloud');
 
   /**
-   * 顶栏进入池内总览：有资源池管理授权时沿用原 pools 读权限；否则仅要求控制台读权限（与未授权场景一致）。
+   * 顶栏进入池内总览：有多云管理授权时沿用原 pools 读权限；否则仅要求控制台读权限（与未授权场景一致）。
    */
   const headerPoolOverviewEnabled = useMemo(() => {
     if (!user) return false;
@@ -801,7 +804,10 @@ const AdminLayout: React.FC = () => {
   /** CSM 安全资源池详情、Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
   const contextualPoolSidebar =
     rancherClusterSidebarCenter || csmPoolSidebarCenter || poolSidebarCenter;
-  const sidebarCentersForMenu = contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters;
+  const sidebarCentersForMenu = useMemo(
+    () => (contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters),
+    [contextualPoolSidebar, visibleCenters],
+  );
   const poolSelectedMenuKey = useMemo(() => {
     if (rancherClusterSidebarCenter && rancherClusterCtx) {
       const sp = new URLSearchParams(location.search);
@@ -845,19 +851,28 @@ const AdminLayout: React.FC = () => {
   ]);
   const platformDropdownSelectedKeys = contextualPoolSidebar ? [] : [activeSidebarKey];
 
+  // 仅在「进入另一资源池 / 另一集群上下文」时重置侧栏展开态；勿依赖 poolSidebarCenter 引用（其随权限等重算会变，误清 openKeys 会导致无法折叠分组）
   useEffect(() => {
-    if (poolSidebarCenter || rancherClusterSidebarCenter || csmPoolSidebarCenter) {
-      setOpenKeys([]);
-      lastSidebarAutoExpandSigRef.current = '';
+    setOpenKeys([]);
+    lastSidebarAutoExpandSigRef.current = '';
+  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId]);
+
+  useEffect(() => {
+    if (!user || summaryLoading) return;
+    const poolId = parseCloudPoolDetailId(location.pathname);
+    if (!poolId) {
+      poolNavMissingListRefetchKeyRef.current = '';
+      return;
     }
-  }, [
-    poolSidebarCenter,
-    rancherClusterSidebarCenter,
-    csmPoolSidebarCenter,
-    poolCloudId,
-    rancherClusterCtx?.poolId,
-    rancherClusterCtx?.clusterId,
-  ]);
+    if (summaryClouds.some((c) => String(c.id) === String(poolId))) {
+      poolNavMissingListRefetchKeyRef.current = '';
+      return;
+    }
+    const key = location.pathname;
+    if (poolNavMissingListRefetchKeyRef.current === key) return;
+    poolNavMissingListRefetchKeyRef.current = key;
+    void loadSummaryClouds();
+  }, [user, location.pathname, summaryLoading, summaryClouds, loadSummaryClouds]);
 
   const autoBindPoolPromptShownRef = useRef(false);
 
@@ -1347,7 +1362,7 @@ const AdminLayout: React.FC = () => {
             overflow: 'auto',
           }}
         >
-          <Outlet />
+          <Outlet context={{ reloadSummaryClouds: loadSummaryClouds } satisfies AdminLayoutOutletContext} />
         </Content>
       </Layout>
     </Layout>

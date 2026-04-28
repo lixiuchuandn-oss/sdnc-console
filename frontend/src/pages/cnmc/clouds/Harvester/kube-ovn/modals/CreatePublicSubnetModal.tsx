@@ -18,6 +18,7 @@ import {
   friendlyMessageIfKubeOvnGatewayNotInCidr,
   isIpv4GatewayInCidr,
 } from '../lib/flatSubnetExcludeIpValidation';
+import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
 
 function isValidIpv4Cidr(s: string): boolean {
   const t = String(s ?? '').trim();
@@ -167,7 +168,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
             detail = `${detail} | ${more}`;
           }
         }
-        message.error(`创建公共子网失败：${detail}`);
+        message.error(`创建公共子网失败：${formatKubeOvnFriendlyError(detail)}`);
       }
     },
     [canSubmit, cloudId, form, onClose, onSuccess, vlans],

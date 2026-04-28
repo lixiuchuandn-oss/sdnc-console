@@ -1092,9 +1092,22 @@ const VolumesSection: React.FC<Props> = ({
             disabled: !hasDisksWrite,
             onClick: () => {
               if (!ensureDisksWrite()) return;
+              const vm = SafeRead.attachedVm(r);
+              const vmAlias = vm?.metadata?.annotations?.['tower.io/alias'];
+              const vmTech = vm?.metadata?.name || vm?.name || '';
+              const vmLabel = vm ? (vmAlias ? `${vmAlias}（${vmTech}）` : vmTech || '未知实例') : '';
+              const diskLabel = r.alias ? `${r.alias}（${r.name}）` : r.name;
               modal.confirm({ 
-                title: `确认删除卷 ${r.name}？`, 
-                content: '删除后无法恢复。', 
+                title: `确认删除云盘`, 
+                content: (
+                  <div>
+                    <div style={{ marginBottom: 8 }}>云盘：{diskLabel}</div>
+                    {vm ? (
+                      <div style={{ color: '#d48806' }}>该卷仍挂载在云主机：{vmLabel}。删除可能失败，请先卸载。</div>
+                    ) : null}
+                    <div>删除后无法恢复。</div>
+                  </div>
+                ),
                 okText: '确认', cancelText: '取消', okButtonProps: { danger: true },
                 onOk: async () => { 
                   try { 
@@ -1102,7 +1115,17 @@ const VolumesSection: React.FC<Props> = ({
                     message.success('删除成功'); 
                     onRefresh?.(); 
                   } catch (e: any) { 
-                    message.error(e.message || '删除失败'); 
+                    const raw = String(e?.message || '');
+                    const useVmHint =
+                      !!vm &&
+                      (raw.includes('删除失败') ||
+                        raw.includes('Forbidden') ||
+                        /in use|using|attached|bound|mounted|被使用|引用/i.test(raw));
+                    message.error(
+                      useVmHint
+                        ? `删除失败，当前云盘被云主机实例 ${vmLabel} 使用`
+                        : raw || '删除失败',
+                    );
                   } 
                 } 
               });
