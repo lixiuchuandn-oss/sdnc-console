@@ -75,7 +75,7 @@
 // -----------------------------------------------------------------------------
 // 依赖（顺序：React → antd → icons → 远程 API → 通用组件 → hooks → Harvester 域内）
 // -----------------------------------------------------------------------------
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App, Badge, Button, Dropdown, Form, Input, InputNumber, Select, Table, Tag, Tooltip } from 'antd';
 import { EllipsisOutlined, ExclamationCircleOutlined, HddTwoTone, ReloadOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
 import { rebootCloudProviderEcs } from '../../../../../../services/api';
@@ -292,6 +292,25 @@ const statusBadge = (phase: string) => {
 
     return <Badge status={status as any} text={icon ? <span style={{display:'inline-flex', alignItems:'center', gap:6}}>{text}{icon}</span> : text} />;
   };
+
+/** 列表轮询：与中间态展示一致（创建中/删除中/扩容中等），避免依赖用户手动点「刷新」 */
+const VOLUME_LIST_POLL_MS = 3500;
+/** 不设上限：PVC 长期处于 Pending/Longhorn 中间态时需持续跳过缓存刷新，否则会回到「只能靠手动刷新」的体验 */
+const TRANSITION_VOLUME_PHASES = new Set([
+  'pending',
+  'creating',
+  'deleting',
+  'resizing',
+  'filesystemresizepending',
+  'terminating',
+  'attaching',
+  'detaching',
+]);
+
+function isVolumePhaseTransitional(phase: string): boolean {
+  const p = String(phase || '').trim().toLowerCase();
+  return TRANSITION_VOLUME_PHASES.has(p);
+}
 
 // ==============================================================================
 // [3] 主组件 (Component)
@@ -571,6 +590,47 @@ const VolumesSection: React.FC<Props> = ({
     return Array.from(uniqueMap.values());
   }, [volumes]);
 
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  const shouldPollVolumes = useMemo(
+    () => dataSource.some((v) => isVolumePhaseTransitional(v.phase)),
+    [dataSource],
+  );
+
+  const burstSeqRef = useRef(0);
+  const burstRefreshVolumes = useCallback(() => {
+    onRefresh?.(true);
+    const seq = ++burstSeqRef.current;
+    const delays = [700, 2000, 4500];
+    delays.forEach((ms) => {
+      window.setTimeout(() => {
+        if (burstSeqRef.current !== seq) return;
+        onRefresh?.(true);
+      }, ms);
+    });
+  }, [onRefresh]);
+
+  useEffect(() => {
+    return () => {
+      burstSeqRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!shouldPollVolumes || !cloudId) return;
+    const tick = () => {
+      try {
+        onRefreshRef.current?.(true);
+      } catch {
+        /* ignore */
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, VOLUME_LIST_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [shouldPollVolumes, cloudId]);
+
   // ----------------------------------------------------------------
   // [数据过滤] 列表筛选逻辑
   // [标签] #数据过滤 #筛选 #useMemo
@@ -703,10 +763,15 @@ const VolumesSection: React.FC<Props> = ({
     if (!ensureDisksWrite()) return;
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(v => selectedRowKeys.includes(v.key));
-    
+    /** 与列表「云盘名称」列一致：优先展示别名 tower.io/alias，无别名则回退 PVC 名称 */
+    const displayLabel = (t: VolumeView) => {
+      const alias = String(t.alias ?? '').trim();
+      return alias || t.name;
+    };
+
     modal.confirm({
       title: '批量删除确认',
-      content: `即将删除 ${targets.length} 个卷：${targets.map(t => t.name).join(', ')}`,
+      content: `即将删除 ${targets.length} 个卷：${targets.map(displayLabel).join(', ')}`,
       okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
       onOk: async () => {
         try {
@@ -721,7 +786,7 @@ const VolumesSection: React.FC<Props> = ({
           if (ok > 0) message.success(`成功删除 ${ok} 个卷`);
           if (fail > 0) message.error(`${fail} 个卷删除失败`);
           setSelectedRowKeys([]);
-          onRefresh?.(true);
+          burstRefreshVolumes();
         } catch (e: any) {
           message.error(e.message || '批量删除失败');
         }
@@ -779,7 +844,7 @@ const VolumesSection: React.FC<Props> = ({
     if (!ensureDisksWrite()) return;
     // 1. 数据检查
     if (!vms || vms.length === 0) {
-      onRefresh?.();
+      onRefresh?.(true);
       message.loading('正在同步云主机数据，请稍后重试...', 1);
       return;
     }
@@ -1113,7 +1178,7 @@ const VolumesSection: React.FC<Props> = ({
                   try { 
                     await deleteHarvesterVolume(cloudId, r.namespace, r.name); 
                     message.success('删除成功'); 
-                    onRefresh?.(); 
+                    burstRefreshVolumes(); 
                   } catch (e: any) { 
                     const raw = String(e?.message || '');
                     const useVmHint =
@@ -1135,7 +1200,7 @@ const VolumesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasDisksWrite }} />;
       } 
     },
-  ], [cloudId, storageClasses, defaultStorageClassName, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, editForm, message, modal, isTenant, isStandardView, hasOpsView, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
+  ], [cloudId, storageClasses, defaultStorageClassName, burstRefreshVolumes, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, editForm, message, modal, isTenant, isStandardView, hasOpsView, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_volumes_table', ['namespace', 'volumeMode']);
@@ -1388,7 +1453,7 @@ const VolumesSection: React.FC<Props> = ({
         }
         storageClasses={storageClasses}
         nsOptions={nsOptions}
-        onCloneSuccess={() => onRefresh?.()}
+        onCloneSuccess={() => onRefresh?.(true)}
         onBranchToCreateVolume={handleBranchCloneToCreateVolume}
       />
 

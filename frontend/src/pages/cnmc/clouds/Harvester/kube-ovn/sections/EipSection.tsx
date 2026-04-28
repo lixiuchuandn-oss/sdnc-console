@@ -320,7 +320,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
         }
         Modal.confirm({
           title: '确认删除',
-          content: `确定要删除 EIP「${ovnDisplayName(record)}」吗？`,
+          content: `确定要删除 公网ip [ ${ovnDisplayName(record)} ]吗？`,
           okText: '删除',
           okType: 'danger',
           cancelText: '取消',

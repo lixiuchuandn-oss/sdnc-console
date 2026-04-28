@@ -45,7 +45,7 @@ import UnderlaySubnetFormFields, {
   vlanRecordSearchBlob,
 } from '../lib/UnderlaySubnetFormFields';
 import {
-  findFlatExcludeIpConflictWithVms,
+  findExcludeIpUsedByAnyVm,
   validateFlatSubnetExcludeIpsLocal,
 } from '../lib/flatSubnetExcludeIpValidation';
 import { getFlatSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
@@ -365,10 +365,10 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           : Array.isArray(ecsRes)
             ? ecsRes
             : [];
-        const conflict = findFlatExcludeIpConflictWithVms(name, excludeIps, vmList);
+        const conflict = findExcludeIpUsedByAnyVm(excludeIps, vmList);
         if (conflict) {
           message.error(
-            `排除 IP「${conflict.ip}」正被虚拟机（${conflict.vmLabel}）使用，无法将其加入排除列表。`,
+            `更新失败：排除 IP「${conflict.ip}」已被虚拟机「${conflict.vmLabel}」占用，无法加入排除列表。`,
           );
           setEditSubmitting(false);
           return;

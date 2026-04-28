@@ -64,7 +64,7 @@
  * ==============================================================================
  */
 
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Space, message, Modal, Tooltip, App, Badge, Input, Select, Button, Typography, Checkbox, Drawer } from 'antd';
 import { DeleteOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined, SettingOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from '../../../../../../services/harvesterApi';
@@ -133,7 +133,12 @@ const RecycleBinSection: React.FC<Props> = ({
   // [筛选状态] 用户输入的筛选条件
   const [keyword, setKeyword] = useState<string>(''); // 关键字搜索（名称/ID/命名空间）
   const [namespaceFilter, setNamespaceFilter] = useState<string>(''); // 命名空间筛选
-  const [statusFilter, setStatusFilter] = useState<string>(''); // 状态筛选
+  const [statusFilter, setStatusFilter] = useState<string>(''); // 状态筛选（回收站仅允许按「已停止」筛，与展示一致）
+
+  // 历史上曾按真实 printableStatus 枚举；现统一为已停止，避免残留 running 等条件导致列表为空
+  useEffect(() => {
+    if (statusFilter && statusFilter !== 'stopped') setStatusFilter('');
+  }, [statusFilter]);
 
   // [运维信息抽屉状态] 控制资源详情抽屉的显示
   const [drawerVisible, setDrawerVisible] = useState(false); // 抽屉是否可见
@@ -291,10 +296,10 @@ const RecycleBinSection: React.FC<Props> = ({
       return '';
     },
     creationTimestamp: (r: any) => r?.createdAt || r?.metadata?.creationTimestamp,
-    status: (r: any) => {
-      if (typeof r?.status === 'string') return r.status;
-      return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
-    },
+    /**
+     * 回收站视图：无论从删除前是何状态，列表与筛选均一律展示为「已停止」（与产品设计一致）。
+     */
+    status: (_r: any) => 'Stopped',
     node: (r: any) => r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || '',
     cpu: (r: any) => {
       const cpu = r?.spec?.template?.spec?.domain?.cpu;
@@ -518,36 +523,9 @@ const RecycleBinSection: React.FC<Props> = ({
   }, [recycledVms]);
 
   /**
-   * 生成状态筛选选项
-   * 
-   * 从回收站中的 VM 提取所有唯一的状态值，并映射为中文标签
-   * 状态映射表包含: running(运行中), starting(启动中), stopped(已停止) 等
+   * 状态筛选选项：回收站在界面上统一为「已停止」，不再罗列删除前的运行中等状态。
    */
-  const statusOptions = useMemo(() => {
-    const uniqueStatuses = Array.from(new Set(recycledVms.map((vm: any) => {
-      let s = '';
-      if (typeof vm?.status === 'string') {
-        s = vm.status;
-      } else {
-        s = vm?.status?.printableStatus || vm?.status?.phase || vm?.Status || 'Unknown';
-      }
-      return String(s).toLowerCase();
-    }).filter(Boolean)));
-    const statusMap: Record<string, string> = {
-      'running': '运行中',
-      'starting': '启动中',
-      'stopping': '停止中',
-      'stopped': '已停止',
-      'terminating': '终止中',
-      'error': '错误',
-      'errorunschedulable': '调度错误',
-      'migrating': '迁移中',
-    };
-    return uniqueStatuses.map((s: string) => ({ 
-      value: s, 
-      label: statusMap[s] || s 
-    }));
-  }, [recycledVms]);
+  const statusOptions = useMemo(() => [{ value: 'stopped', label: '已停止' }], []);
 
   /**
    * 应用所有筛选条件后的虚拟机列表

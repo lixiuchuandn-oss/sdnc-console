@@ -102,8 +102,15 @@
   box-sizing: border-box;
   height: 100%;
   min-height: 0;
+  /* 与 Tabs 同层 flex 链上允许收缩，宽表交由 Table.scroll.x 在容器内横向滚动 */
+  min-width: 0;
   background: var(--ant-color-bg-container, #fff);
   padding: 8px;
+}
+
+.cloud-console-panel-root .ant-tabs-content-holder,
+.cloud-console-panel-root .ant-tabs-tabpane {
+  min-width: 0;
 }
 
 .cloud-console-content-placeholder {

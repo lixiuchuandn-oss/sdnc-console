@@ -125,15 +125,15 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
 
       <Form.Item
         name="newName"
-        label="名称"
+        label="新云盘名称"
         rules={[
           {
             required: true,
-            message: '请输入新卷名称',
+            message: '请输入新云盘名称',
             validator: (_, value) => {
               const cloneData = form.getFieldValue('cloneData');
               if (cloneData && !value) {
-                return Promise.reject(new Error('请输入新卷名称'));
+                return Promise.reject(new Error('请输入新云盘名称'));
               }
               if (cloneData && String(value || '').length > 128) {
                 return Promise.reject(new Error('名称过长（最多 128 字符）'));
@@ -143,7 +143,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
           },
         ]}
       >
-        <Input placeholder="请输入新卷名称" />
+        <Input placeholder="请输入新云盘名称" />
       </Form.Item>
       <Form.Item name="cloneData" valuePropName="checked">
         <Checkbox>克隆虚拟卷数据</Checkbox>

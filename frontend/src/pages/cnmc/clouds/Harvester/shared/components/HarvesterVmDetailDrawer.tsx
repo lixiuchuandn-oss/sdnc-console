@@ -1526,6 +1526,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const isHotPlugInProgress = isHotPlugConfigured && hasHotPlugChangeInProgress;
   const isStopped = ["stopped", "shutoff", "down", "offline"].includes(status);
   const isRunning = ["running"].includes(status);
+  /** 可调度的变配入口：停机/在线/调度失败待修正/开机过程中（与运行中类似，均需改模板或亲和等） */
+  const isReconfigureAllowed =
+    isStopped ||
+    isRunning ||
+    status === "starting" ||
+    status === "errorunschedulable";
   const isPaused = ["paused"].includes(status);
   const isMigrating =
     status === "Migrating" || status.toLowerCase() === "migrating";
@@ -1697,9 +1703,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       key: "reconfigure",
       label: "资源变配",
       icon: <HddOutlined />,
-      disabled: !hasEcsWrite || (!isStopped && !isRunning),
+      disabled: !hasEcsWrite || !isReconfigureAllowed,
       title:
-        !isStopped && !isRunning ? "仅在运行中或停止状态下支持变配" : undefined,
+        !hasEcsWrite || isReconfigureAllowed
+          ? undefined
+          : "当前状态不支持资源变配（已停止、运行中、启动中、调度失败可调）",
       onClick: () => {
         if (!hasEcsWrite) {
           message.error(

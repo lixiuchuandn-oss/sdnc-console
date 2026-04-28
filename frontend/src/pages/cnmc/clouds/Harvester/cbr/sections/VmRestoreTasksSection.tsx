@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App, Badge, Button, Dropdown, Input, Progress, Select, Table, Tag } from 'antd';
+import { App, Badge, Button, Dropdown, Input, Progress, Select, Table, Tag, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import { CloudServerOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -15,21 +15,55 @@ type Props = {
   vms?: any[]; // 虚拟机列表，用于查找别名
 };
 
+/** 列表展示：别名中已含技术名/ID 时不再重复追加括注 */
+function vmLineDisplay(alias: string | undefined, technical: string): string {
+  const id = String(technical || '').trim();
+  const a = String(alias || '').trim();
+  if (!id || id === '-') return a || '-';
+  if (!a || a === '-') return id;
+  if (a === id) return id;
+  if (a.includes(id)) return a;
+  return `${a} (${id})`;
+}
+
+const EllipsisTooltip: React.FC<{
+  text: string;
+  mono?: boolean;
+  icon?: React.ReactNode;
+}> = ({ text, mono, icon }) => (
+  <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, width: '100%' }}>
+    {icon ? <span style={{ flexShrink: 0 }}>{icon}</span> : null}
+    <Tooltip placement="topLeft" title={text}>
+      <span
+        className={mono ? 'table-mono-uuid' : undefined}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {text}
+      </span>
+    </Tooltip>
+  </span>
+);
+
+/**
+ * 是否已终态失败。恢复/替换 VM 过程中源机关机、磁盘替换、目标机再启动等阶段
+ * Ready 经常为 false，消息里也可能出现 error 子串（如 “no error”），不能据此判失败。
+ * 仅在 phase 明确失败，或存在 type=Failed/Error 且 status=True 的条件时判失败。
+ */
 const isFailedByConditions = (raw: any) => {
   const phase = String(raw?.status?.phase || '').toLowerCase();
   if (phase === 'failed' || phase === 'error') return true;
   const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
   return conds.some((c: any) => {
     const type = String(c?.type || '').toLowerCase();
-    const reason = String(c?.reason || '').toLowerCase();
     const status = String(c?.status || '').toLowerCase();
-    const msg = String(c?.message || '').toLowerCase();
-    const blob = `${reason} ${msg}`;
     if (status === 'true' && (type === 'failed' || type === 'error')) return true;
-    if (type === 'ready' && status === 'false') {
-      if (/waiting|progressing|pending|stopping|terminating|stopped/i.test(blob)) return false;
-      if (/fail|error|denied|unable|invalid|conflict/i.test(blob)) return true;
-    }
+    // Ready=false 仅表示尚未完成，不等价于失败（与列表“进行中”语义一致）
     return false;
   });
 };
@@ -332,58 +366,66 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '任务名称',
       dataIndex: 'restoreName',
       key: 'restoreName',
-      ellipsis: true,
+      width: 220,
       render: (_: any, r: any) => {
         const n = String(r?.restoreName || r?.restoreRaw?.metadata?.name || '').trim() || '—';
         return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <UndoOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
-            <span className="std-time" style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={n}>
-              {n}
-            </span>
-          </span>
+          <EllipsisTooltip
+            text={n}
+            icon={<UndoOutlined style={{ color: '#1677ff', fontSize: 16 }} />}
+          />
         );
       },
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', ellipsis: true },
-    { 
-      title: '源虚拟机', 
-      key: 'sourceVm', 
-      ellipsis: true,
-      render: (_: any, r: any) => {
-        const line =
-          r.sourceVmAlias && r.sourceVmAlias !== r.sourceVm && r.sourceVmAlias !== '-'
-            ? `${r.sourceVmAlias} (${r.sourceVm})`
-            : r.sourceVm || '-';
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <CloudServerOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{line}</span>
-          </span>
-        );
-      }
+    {
+      title: '命名空间',
+      dataIndex: 'namespace',
+      key: 'namespace',
+      width: 220,
+      render: (ns: string) => (
+        <EllipsisTooltip mono text={String(ns || '') || '—'} />
+      ),
     },
-    { 
-      title: '目标虚拟机', 
-      key: 'targetVm', 
-      ellipsis: true,
+    {
+      title: '源虚拟机',
+      key: 'sourceVm',
+      width: 260,
       render: (_: any, r: any) => {
-        const line =
-          r.targetVmAlias && r.targetVmAlias !== r.targetVm && r.targetVmAlias !== '-'
-            ? `${r.targetVmAlias} (${r.targetVm})`
-            : r.targetVm || '-';
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <CloudServerOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{line}</span>
-          </span>
+        const line = vmLineDisplay(
+          r.sourceVmAlias !== '-' ? r.sourceVmAlias : undefined,
+          r.sourceVm !== '-' ? r.sourceVm : '-',
         );
-      }
+        return (
+          <EllipsisTooltip
+            text={line}
+            icon={<CloudServerOutlined style={{ color: '#1677ff', fontSize: 16 }} />}
+          />
+        );
+      },
+    },
+    {
+      title: '目标虚拟机',
+      key: 'targetVm',
+      width: 260,
+      render: (_: any, r: any) => {
+        const line = vmLineDisplay(
+          r.targetVmAlias !== '-' ? r.targetVmAlias : undefined,
+          r.targetVm !== '-' ? r.targetVm : '-',
+        );
+        return (
+          <EllipsisTooltip
+            text={line}
+            icon={<CloudServerOutlined style={{ color: '#1677ff', fontSize: 16 }} />}
+          />
+        );
+      },
     },
     { 
       title: '恢复模式', 
       dataIndex: 'restoreMode', 
       key: 'restoreMode',
+      width: 104,
+      align: 'center' as const,
       render: (mode: string) => {
         return <Tag color={mode === '新建' ? 'blue' : 'orange'}>{mode}</Tag>;
       }
@@ -392,6 +434,8 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '资源类型', 
       dataIndex: 'resourceType', 
       key: 'resourceType',
+      width: 104,
+      align: 'center' as const,
       render: (type: string) => {
         return <Tag color={type === '快照' ? 'purple' : 'cyan'}>{type}</Tag>;
       }
@@ -399,12 +443,17 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     {
       title: '状态',
       key: 'restoreStatus',
+      width: 112,
+      align: 'center' as const,
       render: (_: any, r: any) => {
-        if (!r.restoreRaw) return <Badge status="default" text="-" />;
-        const st = r.restoreStatus || getRestoreStatus(r.restoreRaw);
-        if (st.phase === 'ready') return <Badge status="success" text={st.text} />;
-        if (st.phase === 'failed') return <Badge status="error" text={st.text} />;
-        return <Badge status="processing" text={st.text} />;
+        const inner = (() => {
+          if (!r.restoreRaw) return <Badge status="default" text="-" />;
+          const st = r.restoreStatus || getRestoreStatus(r.restoreRaw);
+          if (st.phase === 'ready') return <Badge status="success" text={st.text} />;
+          if (st.phase === 'failed') return <Badge status="error" text={st.text} />;
+          return <Badge status="processing" text={st.text} />;
+        })();
+        return <span style={{ whiteSpace: 'nowrap' }}>{inner}</span>;
       },
     },
     {
@@ -429,9 +478,12 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '创建时间',
       dataIndex: 'creationTimestamp',
       key: 'creationTimestamp',
+      width: 176,
       render: (t: any) => {
         const n = Date.parse(String(t || ''));
-        return Number.isFinite(n) ? new Date(n).toLocaleString() : '-';
+        const show = Number.isFinite(n) ? new Date(n).toLocaleString() : '-';
+        if (show === '-') return show;
+        return <EllipsisTooltip text={show} />;
       },
     },
     {
@@ -531,6 +583,8 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
         columns={columns}
         dataSource={filtered}
         loading={loading}
+        scroll={{ x: 1320 }}
+        tableLayout="fixed"
         pagination={{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,

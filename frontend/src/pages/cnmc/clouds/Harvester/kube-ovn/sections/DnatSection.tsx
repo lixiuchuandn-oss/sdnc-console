@@ -380,7 +380,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
               vmKey,
           );
-          const opts = vm ? buildVmNicIpOptions(vm) : [];
+          const opts = vm ? buildVmNicIpOptions(vm, subnet) : [];
           if (opts.length > 0) {
             nic = JSON.parse(String(opts[0]?.value || '')) as { v4Ip?: string };
           }
@@ -797,7 +797,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                           const ns = String(vm.namespace || vm.metadata?.namespace || 'default');
                           const n = String(vm.name || vm.metadata?.name || '');
                           const key = `${ns}/${n}`;
-                          const nicOpts = buildVmNicIpOptions(vm);
+                          const nicOpts = buildVmNicIpOptions(vm, selectedSubnet);
                           const ips = nicOpts
                             .map((opt: any) => {
                               try {
@@ -838,7 +838,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                   `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
                   String(vmKey || ''),
               );
-              const opts = vm ? buildVmNicIpOptions(vm) : [];
+              const opts = vm ? buildVmNicIpOptions(vm, selectedSubnet) : [];
               if (!vmKey) return null;
               if (!opts.length) {
                 return (

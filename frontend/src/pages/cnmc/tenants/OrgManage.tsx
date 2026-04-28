@@ -2,7 +2,7 @@
 // 组织管理页（租户上下文），提供以下能力：
 // 1）左侧组织树：支持搜索、重命名、添加子组织、删除组织等操作；
 // 2）右侧标签页：
-//    - 用户管理：支持检索、创建用户、为用户分配角色、批量删除；
+//    - 用户管理：支持检索、创建用户、编辑用户信息、为用户分配角色、批量删除；
 //    - 计算/存储/安全资源分配：按组织维度分配资源池，支持筛选与移除分配；
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
@@ -52,7 +52,7 @@ import PageDetailContainer from '../../../components/PageDetailContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
-import { apiDelete, apiPatch, apiPost, apiRequest } from '../../../services/api';
+import { apiDelete, apiPatch, apiPost, apiPut, apiRequest } from '../../../services/api';
 import { fetchProtectionObjects, fetchServiceChains } from '../../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import {
@@ -196,11 +196,15 @@ const OrgManagePage: React.FC = () => {
 
   // --- 页面状态（表单与抽屉）---
   const [userForm] = Form.useForm();
+  const [editUserForm] = Form.useForm();
   const [resourcePoolForm] = Form.useForm();
   // 两个独立表单：
   // - userForm：用于用户创建抽屉
+  // - editUserForm：用于用户编辑弹窗
   // - resourcePoolForm：用于资源池分配抽屉
   const [userDrawerOpen, setUserDrawerOpen] = useState(false);
+  const [editUserModalOpen, setEditUserModalOpen] = useState(false);
+  const [editTargetUserId, setEditTargetUserId] = useState<string | null>(null);
   const [resourcePoolDrawerOpen, setResourcePoolDrawerOpen] = useState(false);
   // 资源分配类型（计算/存储/安全），用于抽屉内文案切换
   const [assignType, setAssignType] = useState<'compute'|'storage'|'security'>('compute');
@@ -514,6 +518,51 @@ const OrgManagePage: React.FC = () => {
   // 删除用户：
   // - 依赖当前选中组织上下文；成功后刷新用户列表
 
+  const openEditUser = useCallback(
+    (user: TenantUser) => {
+      if (!tenantId || !selectedOrg?.id) {
+        messageApi.error('缺少租户或组织上下文，无法编辑');
+        return;
+      }
+      setEditTargetUserId(user.id);
+      editUserForm.setFieldsValue({
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+        status: user.status,
+        password: '',
+      });
+      setEditUserModalOpen(true);
+    },
+    [tenantId, selectedOrg?.id, editUserForm, messageApi],
+  );
+
+  const handleEditUserSave = async () => {
+    if (!tenantId || !selectedOrg?.id || !editTargetUserId) {
+      messageApi.error('无法保存：缺少租户、组织或用户');
+      throw new Error('abort');
+    }
+    try {
+      const values = await editUserForm.validateFields();
+      const payload: { email: string; fullName: string; status: string; password?: string } = {
+        email: values.email,
+        fullName: values.fullName,
+        status: values.status,
+      };
+      const pwd = String(values.password || '').trim();
+      if (pwd) payload.password = pwd;
+      await apiPut(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${editTargetUserId}`, payload);
+      messageApi.success('保存成功');
+      setEditUserModalOpen(false);
+      setEditTargetUserId(null);
+      editUserForm.resetFields();
+      fetchUsers(tenantId, selectedOrg.id, true);
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      messageApi.error(e?.response?.data?.message || e?.message || '保存失败');
+      throw e;
+    }
+  };
   const handleResourcePoolAssign = async (values: any) => {
     if (!selectedOrg) return;
     try {
@@ -960,11 +1009,14 @@ const OrgManagePage: React.FC = () => {
         <Dropdown
           menu={{
             items: [
+              { key: 'edit', label: '编辑' },
               { key: 'assign', label: '配置角色' },
               { key: 'delete', label: '删除', danger: true }
             ],
             onClick: ({ key }) => {
-              if (key === 'assign') {
+              if (key === 'edit') {
+                openEditUser(record);
+              } else if (key === 'assign') {
                 openRoleAssign(record);
               } else if (key === 'delete') {
                 modal.confirm({
@@ -982,7 +1034,7 @@ const OrgManagePage: React.FC = () => {
         </Dropdown>
       ),
     }
-  ], [rolesByUser, openRoleAssign, handleDeleteUser, modal]);
+  ], [rolesByUser, openRoleAssign, openEditUser, handleDeleteUser, modal]);
 
   const { displayColumns: userDisplayColumns } = useTableColumnSettings(userColumns, 'org_manage_users');
 
@@ -1618,6 +1670,48 @@ const OrgManagePage: React.FC = () => {
           </Form.Item>
         </Form>
       </StdSideDrawer>
+
+      <Modal
+        title="编辑用户"
+        open={editUserModalOpen}
+        width={520}
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose
+        onCancel={() => {
+          setEditUserModalOpen(false);
+          setEditTargetUserId(null);
+          editUserForm.resetFields();
+        }}
+        onOk={handleEditUserSave}
+      >
+        <Form form={editUserForm} layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item name="username" label="用户名">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="fullName" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
+            <Input placeholder="请输入姓名" />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="邮箱"
+            rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱地址' }]}
+          >
+            <Input placeholder="请输入邮箱" />
+          </Form.Item>
+          <Form.Item name="password" label="新密码" extra="留空则不修改密码">
+            <Input.Password placeholder="留空则不修改" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
+            <Select
+              options={[
+                { value: 'active', label: '活跃' },
+                { value: 'inactive', label: '非活跃' },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <StdSideDrawer
         title={assignType === 'security' ? '分配安全资源池' : '分配计算资源池'}

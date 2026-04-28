@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Form, Modal, Select, message } from 'antd';
-import { createKubeOvnSubnet, fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
-import {
-  generateHarvesterCrMetadataName,
-  namespaceSectionType,
-} from '../../../../../../utils/harvesterUtils';
+import { Form, Modal, message } from 'antd';
+import { createKubeOvnSubnet } from '../../../../../../services/harvesterApi';
+import { fetchCloudProviderEcs } from '../../../../../../services/api';
+import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_SUBNETS_FLAT_WRITE } from '../../../../../../constants/cloudPermissions';
@@ -17,10 +15,11 @@ import {
   KUBE_OVN_PUBLIC_VPC,
   buildFlatUnderlayOverlayAnnotations,
 } from '../lib/kubeOvnSubnetConstants';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import {
+  findExcludeIpUsedByAnyVm,
   friendlyMessageIfKubeOvnGatewayNotInCidr,
   isIpv4GatewayInCidr,
+  validateFlatSubnetExcludeIpsLocal,
 } from '../lib/flatSubnetExcludeIpValidation';
 import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
 
@@ -36,9 +35,10 @@ export type CreateFlatSubnetModalProps = {
   /** 打开时预填 VLAN（CR metadata.name） */
   initialVlanCrName?: string | null;
   title?: string;
-  /** 物理网络详情等场景：不展示命名空间，固定使用 default */
-  hideNamespace?: boolean;
 };
+
+/** 扁平子网 Subnet/NAD CR 固定在 default 命名空间，不再展示选择器 */
+const FLAT_SUBNET_NAMESPACE = 'default';
 
 const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   open,
@@ -50,12 +50,8 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   onSuccess,
   initialVlanCrName,
   title = '创建扁平子网',
-  hideNamespace = false,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const showNamespaceField = hasOpsView && !hideNamespace;
   const [form] = Form.useForm();
-  const [nsOptions, setNsOptions] = useState<{ value: string; label: string }[]>([]);
   /** 打开弹窗时预生成，与 CreateVpcSubnetModal / CreatePublicSubnetModal 一致，避免多次提交产生不同 CR 名 */
   const pendingUnderlaySubnetCrNameRef = useRef<string>('');
   const { user } = useAuth();
@@ -70,54 +66,14 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
     return hasWrite && !isTenantUser;
   }, [perms, isTenantUser]);
 
-  const refreshNamespaces = useCallback(async () => {
-    if (!showNamespaceField) {
-      setNsOptions([]);
-      return;
-    }
-    try {
-      const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
-      const items: any[] = res?.data?.items || res?.items || [];
-      const publicItems = items.filter((x: any) => namespaceSectionType(x) === 'public');
-      const list = publicItems
-        .map((x: any) => String(x?.metadata?.name || x?.name || '').trim())
-        .filter(Boolean);
-      const names =
-        list.length > 0
-          ? [...new Set(list)].sort((a, b) => {
-              if (a === 'default') return -1;
-              if (b === 'default') return 1;
-              return a.localeCompare(b);
-            })
-          : ['default', 'cloud-public', 'harvester-public'];
-      setNsOptions(names.map((n: string) => ({ value: n, label: n })));
-    } catch {
-      setNsOptions([
-        { value: 'default', label: 'default' },
-        { value: 'cloud-public', label: 'cloud-public' },
-        { value: 'harvester-public', label: 'harvester-public' },
-      ]);
-    }
-  }, [cloudId, showNamespaceField]);
-
   useEffect(() => {
     if (!open) return;
     pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
-    void refreshNamespaces();
     form.resetFields();
     form.setFieldsValue({
       ...(initialVlanCrName ? { vlan: initialVlanCrName } : {}),
     });
-  }, [open, initialVlanCrName, form, refreshNamespaces]);
-
-  /** 具备运维视图权限：公共命名空间列表异步返回后补默认选中（优先 default） */
-  useEffect(() => {
-    if (!open || !showNamespaceField) return;
-    const cur = form.getFieldValue('namespace');
-    if (cur) return;
-    const prefer = nsOptions.find((o) => o.value === 'default')?.value ?? nsOptions[0]?.value;
-    if (prefer) form.setFieldValue('namespace', prefer);
-  }, [open, showNamespaceField, nsOptions, form]);
+  }, [open, initialVlanCrName, form]);
 
   const handleSubmit = useCallback(
     async (values: any) => {
@@ -126,23 +82,12 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         return;
       }
       try {
-        const { alias, namespace: nsField, ...rest } = values;
-        const namespace = showNamespaceField
-            ? String(nsField ?? '').trim() || 'default'
-            : 'default';
-        if (
-          showNamespaceField &&
-          nsOptions.length > 0 &&
-          !nsOptions.some((o) => o.value === namespace)
-        ) {
-          message.error('请选择有效的公共命名空间');
-          return;
-        }
+        const { alias, ...rest } = values;
         const aliasTrim = String(alias ?? '').trim();
         const subnetId =
           String(pendingUnderlaySubnetCrNameRef.current || '').trim() ||
           generateHarvesterCrMetadataName('subnetUnderlay');
-        const excludeIps = rest.excludeIps
+        const excludeIpsParsed = rest.excludeIps
           ? String(rest.excludeIps)
               .split('\n')
               .map((s: string) => s.trim())
@@ -150,6 +95,31 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           : [];
         const cidrTrim = String(rest.cidrBlock ?? '').trim();
         const gwTrim = String(rest.gateway ?? '').trim();
+
+        const excludeLocal = validateFlatSubnetExcludeIpsLocal(cidrTrim, excludeIpsParsed);
+        if (!excludeLocal.ok) {
+          message.error(excludeLocal.message);
+          return;
+        }
+
+        try {
+          const ecsRes: any = await fetchCloudProviderEcs(cloudId, true);
+          const vmList: any[] = Array.isArray(ecsRes?.data)
+            ? ecsRes.data
+            : Array.isArray(ecsRes)
+              ? ecsRes
+              : [];
+          const busy = findExcludeIpUsedByAnyVm(excludeIpsParsed, vmList);
+          if (busy) {
+            message.error(
+              `创建失败：排除 IP「${busy.ip}」已被虚拟机「${busy.vmLabel}」占用，无法加入排除列表。`,
+            );
+            return;
+          }
+        } catch {
+          /* 列表拉取失败时仍允许提交，由集群校验 */
+        }
+
         const gwInCidr = isIpv4GatewayInCidr(gwTrim, cidrTrim);
         if (gwInCidr === false) {
           message.error('创建扁平子网失败：网关不在CIDR 范围内');
@@ -172,9 +142,9 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
 
         const payload: Record<string, unknown> = {
           ...rest,
-          namespace,
+          namespace: FLAT_SUBNET_NAMESPACE,
           name: subnetId,
-          excludeIps,
+          excludeIps: excludeIpsParsed,
           ...(providerFromVlan ? { provider: providerFromVlan } : {}),
           protocol: 'IPv4',
           allowEWTraffic: false,
@@ -215,7 +185,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         message.error(`创建扁平子网失败：${formatKubeOvnFriendlyError(detail)}`);
       }
     },
-    [canSubmit, cloudId, showNamespaceField, form, nsOptions, onClose, onSuccess, vlans],
+    [canSubmit, cloudId, form, onClose, onSuccess, vlans],
   );
 
   return (
@@ -241,24 +211,6 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           aliasDupCheckItems={aliasDupCheckItems}
           aliasFieldTooltip="展示名称，支持中文。集群内资源 ID（metadata.name）为系统自动生成，格式 id-sn- 加 11 位随机字符。"
         />
-        {showNamespaceField ? (
-          <Form.Item
-            label="命名空间"
-            name="namespace"
-            rules={[{ required: true, message: '请选择公共命名空间' }]}
-            tooltip="仅公共命名空间可选。NetworkAttachmentDefinition（NAD）将创建在所选命名空间，供该命名空间内工作负载挂载此网络。"
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={nsOptions}
-              placeholder="选择公共命名空间"
-              onOpenChange={(dropdownOpen) => {
-                if (dropdownOpen) void refreshNamespaces();
-              }}
-            />
-          </Form.Item>
-        ) : null}
       </Form>
     </Modal>
   );

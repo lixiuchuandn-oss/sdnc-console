@@ -1140,7 +1140,7 @@ export const createHarvesterVolumeSnapshot = async (cloudId: string, namespace: 
  * @param payload 恢复配置，包含卷名称、存储类名称、大小、访问模式和卷模式
  * @returns Promise<any>
  */
-export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string }) => {
+export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string; alias?: string }) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/snapshots/${encodeURIComponent(namespace)}/${encodeURIComponent(snapshotName)}/restore`, payload || {});
 };
 

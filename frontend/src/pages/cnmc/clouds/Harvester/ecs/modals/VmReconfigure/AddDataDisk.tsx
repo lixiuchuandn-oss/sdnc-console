@@ -35,7 +35,14 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
 
   useEffect(() => {
     if (diskMode === 'spec') {
-      form.setFieldsValue({ newDiskBus: 'virtio' });
+      const cur = form.getFieldValue('newDiskBus');
+      // 配置添加不提供 SCSI；若从历史状态带入 scsi（如刚从热插拔切回），回退到 virtio
+      if (cur === 'scsi') {
+        form.setFieldsValue({ newDiskBus: 'virtio' });
+      }
+      if (cur == null || cur === '') {
+        form.setFieldsValue({ newDiskBus: 'virtio' });
+      }
     }
   }, [diskMode, form]);
 
@@ -279,7 +286,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
           <div style={{ marginBottom: 24, color: '#999', fontSize: 12 }}>
             {diskMode === 'hotplug'
               ? '在线热插拔：仅支持运行中的虚拟机，总线类型固定为 SCSI。'
-              : '配置添加：修改虚拟机规格模板，数据盘使用 VirtIO 总线，保存后需重启生效。'}
+              : '配置添加：修改虚拟机规格模板挂载数据盘，可自选总线类型，保存后需重启生效。'}
           </div>
         </Col>
       </Row>
@@ -307,14 +314,18 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
         </Row>
       )}
 
-      {diskMode === 'hotplug' && (
+      {(diskMode === 'spec' || diskMode === 'hotplug') && (
         <Row gutter={12} style={{ marginBottom: 0 }}>
           <Col span={6}>
             <div style={{ lineHeight: '32px', display: 'flex', alignItems: 'center', gap: 4 }}>
               总线类型
               <span
                 style={{ fontSize: 12, color: '#999' }}
-                title="在线热插拔时总线固定为 SCSI。配置添加（需重启）时由平台使用 VirtIO，不再展示总线选项。"
+                title={
+                  diskMode === 'hotplug'
+                    ? '在线热插拔时总线固定为 SCSI。'
+                    : '配置添加至规格模板时可选择 VirtIO / SATA（不含 SCSI），与后端 patch 磁盘总线一致。'
+                }
               >
                 <InfoCircleOutlined />
               </span>
@@ -327,11 +338,18 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
               rules={[{ required: true, message: '请选择总线类型' }]}
               noStyle
             >
-              <Select style={{ width: '100%' }} disabled>
-                <Select.Option value="virtio">VirtIO</Select.Option>
-                <Select.Option value="scsi">SCSI</Select.Option>
-                <Select.Option value="sata">SATA</Select.Option>
-              </Select>
+              <Select
+                style={{ width: '100%' }}
+                disabled={diskMode === 'hotplug'}
+                options={
+                  diskMode === 'hotplug'
+                    ? [{ label: 'SCSI（固定）', value: 'scsi' }]
+                    : [
+                        { label: 'VirtIO', value: 'virtio' },
+                        { label: 'SATA', value: 'sata' },
+                      ]
+                }
+              />
             </Form.Item>
             <div style={{ marginBottom: 24 }} />
           </Col>

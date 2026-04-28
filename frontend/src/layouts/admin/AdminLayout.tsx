@@ -414,7 +414,7 @@ const AdminLayout: React.FC = () => {
   const { message } = App.useApp();
   const [changePasswordForm] = Form.useForm();
 
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
   const [activeSidebarKey, setActiveSidebarKey] = useState('/admin/cen_compute');
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   /** 仅当选中页/池内菜单签名变化时自动展开分组；避免每次 effect 把用户已折叠的分组强行撑开 */

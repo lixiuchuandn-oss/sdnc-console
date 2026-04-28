@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Alert, Button, Card, Col, Empty, Form, Input, Popconfirm, Row, Space, Typography } from 'antd';
+import { Button, Card, Col, Empty, Form, Input, Modal, Row, Typography } from 'antd';
 import { MinusCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 
 const formatAccessMode = (m: string) => {
@@ -128,17 +128,14 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
   }, [record, volumes]);
 
   const handleDetach = async (diskName: string) => {
-    // 不在这里显示消息，由 onDetach 回调统一处理消息提示
     try {
       await onDetach(diskName);
-      // 解绑成功后，如果提供了刷新回调，则调用刷新
       if (onRefresh) {
         await onRefresh();
       }
     } catch (error: any) {
-      // 错误已经由 onDetach 处理并显示消息，这里只需要防止错误冒泡
-      // 不再次显示错误消息，避免重复提示
       console.error('解绑操作失败:', error);
+      throw error;
     }
   };
 
@@ -156,31 +153,46 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
     }
   };
 
+  const openDetachConfirm = (item: any) => {
+    if (!item?.name) return;
+    Modal.confirm({
+      title: '确认解绑',
+      centered: true,
+      width: 480,
+      zIndex: 1100,
+      content: (
+        <div>
+          <div style={{ marginBottom: 8 }}>
+            确定要解绑数据盘 <strong>&quot;{item.name}&quot;</strong> 吗？
+          </div>
+          <div style={{ color: '#999', fontSize: 12 }}>
+            解绑后虚拟机将无法访问该卷的数据，但卷本身不会被删除。
+          </div>
+        </div>
+      ),
+      okText: '确定',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => handleDetach(item.name),
+    });
+  };
+
   const renderDiskCard = (item: any) => {
     const bus = String(item?.bus || '-');
-  const fileType = String(item?.fileType || '-');
+    const fileType = String(item?.fileType || '-');
     return (
       <Card
         size="small"
         title={item?.name || '-'}
         extra={
-          <Popconfirm
-            title="确认解绑"
-            description={
-              <div>
-                <div style={{ marginBottom: 8 }}>
-                  确定要解绑数据盘 <strong>"{item?.name}"</strong> 吗？
-                </div>
-                <div style={{ color: '#999', fontSize: 12 }}>解绑后虚拟机将无法访问该卷的数据，但卷本身不会被删除。</div>
-              </div>
-            }
-            onConfirm={() => (item?.name ? handleDetach(item.name) : undefined)}
-            okText="确定"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button type="text" danger icon={<MinusCircleOutlined />} loading={loading} />
-          </Popconfirm>
+          <Button
+            type="text"
+            danger
+            icon={<MinusCircleOutlined />}
+            loading={loading}
+            onClick={() => openDetachConfirm(item)}
+            aria-label="解绑该数据盘"
+          />
         }
         style={{ marginBottom: 12, border: '1px solid #d9d9d9' }}
       >

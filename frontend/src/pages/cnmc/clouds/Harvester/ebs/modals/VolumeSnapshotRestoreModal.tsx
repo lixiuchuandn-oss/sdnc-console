@@ -1,10 +1,10 @@
 /**
  * Harvester - 卷快照恢复弹窗
  *
- * 负责基于 VolumeSnapshot 创建新的 PVC：
- * - 默认用 `restore-{snapshotName}-{timestamp}` 作为新卷名称；
- * - 加载可用存储类列表（过滤系统存储类），并优先选择默认存储类或 Longhorn；
- * - 容量由快照原始大小决定，不在此弹窗中配置。
+ * 基于 VolumeSnapshot 创建新 PVC：
+ * - K8s 资源名自动生成（id-vol-xxxxxxxxxxx，与创建卷一致），满足 DNS 子域规则；
+ * - 用户填写「云盘名称」为展示别名，写入 annotations['tower.io/alias']，支持中文；
+ * - 容量由快照原始大小决定；存储类可选。
  */
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
@@ -24,7 +24,14 @@ interface Props {
   onCancel: () => void;
   onSuccess: () => void;
   cloudId: string;
-  resource: any; // The snapshot record
+  resource: any;
+}
+
+/** 与 VolumeCreateModal / 云盘创建一致的 PVC metadata.name 生成规则 */
+function generateVolumePvcName(): string {
+  let suffix = Math.random().toString(36).substring(2);
+  while (suffix.length < 11) suffix += Math.random().toString(36).substring(2);
+  return `id-vol-${suffix.substring(0, 11)}`;
 }
 
 const VolumeSnapshotRestoreModal: React.FC<Props> = ({
@@ -39,18 +46,16 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
   const [scLoading, setScLoading] = useState(false);
 
-  // 弹窗打开时重置表单，填充默认名称，并加载存储类列表
   useEffect(() => {
     if (visible && resource) {
       form.resetFields();
       form.setFieldsValue({
-        name: `restore-${resource.name}-${Math.floor(Date.now() / 1000)}`,
+        alias: '',
       });
       loadStorageClasses();
     }
   }, [visible, resource, form]);
 
-  // 加载存储类列表（过滤系统存储类），并尽量自动选择默认存储类或 Longhorn
   const loadStorageClasses = async () => {
     try {
       setScLoading(true);
@@ -78,30 +83,27 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
     }
   };
 
-  /**
-   * 校验表单并提交卷快照恢复任务：
-   * - 必选：新卷名称；
-   * - 可选：存储类；
-   * - 容量由后端按快照原始大小处理。
-   */
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
       setLoading(true);
 
+      const alias = String(values.alias ?? '').trim();
       await restoreHarvesterVolumeSnapshot(
         cloudId,
         resource.namespace,
         resource.name,
         {
-          name: values.name,
+          name: generateVolumePvcName(),
           storageClassName: values.storageClassName,
+          alias,
         }
       );
 
       message.success('快照恢复任务已提交');
       onSuccess();
     } catch (e: any) {
+      if (e?.errorFields) return;
       message.error(`恢复失败: ${e.message}`);
     } finally {
       setLoading(false);
@@ -128,12 +130,16 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
         </Form.Item>
 
         <Form.Item
-          name="name"
-          label="新卷名称"
-          rules={[{ required: true, message: '请输入新卷名称' }]}
-          extra="将创建一个以此名称命名的新持久卷申领 (PVC)"
+          name="alias"
+          label="新云盘名称"
+          rules={[
+            { required: true, message: '请输入新云盘名称' },
+            { whitespace: true, message: '新云盘名称不能为空' },
+            { max: 200, message: '名称过长' },
+          ]}
+          extra="即列表中的展示名称（别名），可为中文；系统将自动生成符合 Kubernetes 规范的云盘 ID"
         >
-          <Input placeholder="请输入新卷名称" />
+          <Input placeholder="例如：数据盘-恢复副本" />
         </Form.Item>
 
         <Form.Item

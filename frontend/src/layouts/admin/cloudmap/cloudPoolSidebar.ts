@@ -169,7 +169,7 @@ const CLOUDMAP_TAB_LABEL: Record<CloudmapPoolTabKey, string> = {
   containers: '容器',
   storage: '云存储',
   backups: '云备份',
-  flat_network: '扁平子网',
+  flat_network: '扁平网络',
   kube_ovn: 'VPC网络',
   logs_config: '日志管理',
 };

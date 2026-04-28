@@ -3,33 +3,25 @@
  * 模块名称: 回收站记录组件 (RecycleBinRecordsSection)
  * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/ecs/sections/RecycleBinRecordsSection.tsx
  * ==============================================================================
- * 
- * [功能描述]
- * 展示回收站相关的任务记录，包括：
- * - 自动关机记录（当前实现）
- * - 自动删除记录（后续扩展）
- * 
- * [核心功能]
- * 1. 显示自动关机记录列表
- * 2. 支持筛选（云平台、状态、时间范围）
- * 3. 支持分页
- * 4. 显示详细信息（云平台、虚拟机、关机时间、状态、错误信息等）
- * 
+ *
+ * 展示回收站自动关机任务写入库表中的记录：
+ * - 列表由后端按租户命名空间、云环境过滤；skipped 类记录不返回
  * ==============================================================================
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Table, Badge, Input, Button, Select, DatePicker, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { getRecycleBinShutdownRecords } from '../../../../../../services/harvesterApi';
+import { cnVmStatus } from '../../../../../../utils/harvesterUtils';
 import dayjs, { Dayjs } from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
 interface Props {
-  cloudId?: string; // 可选的云平台ID，用于筛选
+  cloudId?: string;
 }
 
 interface ShutdownRecord {
@@ -57,61 +49,62 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
     totalPages: 0,
   });
 
-  // 筛选条件
+  const pageSizeRef = useRef(pagination.pageSize);
+  useEffect(() => {
+    pageSizeRef.current = pagination.pageSize;
+  }, [pagination.pageSize]);
+
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
 
-  /**
-   * 加载数据
-   */
-  const loadData = async (page = 1) => {
-    setLoading(true);
-    try {
-      const params: any = {
-        page,
-        pageSize: pagination.pageSize,
-      };
+  const loadData = useCallback(
+    async (page = 1, pageSizeArg?: number) => {
+      const size = pageSizeArg !== undefined ? pageSizeArg : pageSizeRef.current;
+      setLoading(true);
+      try {
+        const params: any = {
+          page,
+          pageSize: size,
+        };
 
-      if (cloudId) {
-        params.cloudId = cloudId;
+        if (cloudId) {
+          params.cloudId = cloudId;
+        }
+        if (statusFilter) {
+          params.status = statusFilter;
+        }
+        if (dateRange[0] && dateRange[1]) {
+          params.startTime = dateRange[0].startOf('day').toISOString();
+          params.endTime = dateRange[1].endOf('day').toISOString();
+        }
+
+        const res = await getRecycleBinShutdownRecords(params);
+
+        const records = res?.data?.records || res?.records || [];
+        const paginationData = res?.data?.pagination || res?.pagination || {};
+
+        setData(records);
+        setPagination({
+          page: paginationData.page || page,
+          pageSize: paginationData.pageSize || size,
+          total: paginationData.total ?? 0,
+          totalPages: paginationData.totalPages ?? 0,
+        });
+      } catch (e: any) {
+        message.error(e?.message || '加载回收站记录失败');
+        setData([]);
+      } finally {
+        setLoading(false);
       }
-      if (statusFilter) {
-        params.status = statusFilter;
-      }
-      if (dateRange[0] && dateRange[1]) {
-        params.startTime = dateRange[0].startOf('day').toISOString();
-        params.endTime = dateRange[1].endOf('day').toISOString();
-      }
+    },
+    [cloudId, statusFilter, dateRange],
+  );
 
-      const res = await getRecycleBinShutdownRecords(params);
-      
-      // 兼容不同的响应格式
-      const records = res?.data?.records || res?.records || [];
-      const paginationData = res?.data?.pagination || res?.pagination || {};
-
-      setData(records);
-      setPagination({
-        page: paginationData.page || page,
-        pageSize: paginationData.pageSize || 20,
-        total: paginationData.total || 0,
-        totalPages: paginationData.totalPages || 0,
-      });
-    } catch (e: any) {
-      message.error(e?.message || '加载回收站记录失败');
-      setData([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 初始加载
   useEffect(() => {
-    loadData(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudId, statusFilter, dateRange]);
+    void loadData(1);
+  }, [loadData]);
 
-  // 筛选后的数据
   const filteredData = useMemo(() => {
     if (!keyword) return data;
 
@@ -126,7 +119,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
     });
   }, [data, keyword]);
 
-  // 表格列定义
   const columns: ColumnsType<ShutdownRecord> = [
     {
       title: '命名空间',
@@ -172,26 +164,19 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
       render: (status: string) => {
         if (status === 'success') {
           return <Badge status="success" text="成功" />;
-        } else if (status === 'failed') {
+        }
+        if (status === 'failed') {
           return <Badge status="error" text="失败" />;
-        } else if (status === 'skipped') {
-          return <Badge status="default" text="跳过" />;
         }
         return <Badge status="default" text={status || '-'} />;
       },
-      filters: [
-        { text: '成功', value: 'success' },
-        { text: '失败', value: 'failed' },
-        { text: '跳过', value: 'skipped' },
-      ],
-      onFilter: (value, record) => record.status === value,
     },
     {
       title: '原状态',
       key: 'previousStatus',
       dataIndex: 'previousStatus',
-      width: 100,
-      render: (status: string) => status || '-',
+      width: 110,
+      render: (previous: string) => (previous ? cnVmStatus(previous) : '-'),
     },
     {
       title: '错误信息',
@@ -207,11 +192,13 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
   ];
 
   const handleRefresh = () => {
-    loadData(pagination.page);
+    void loadData(pagination.page, pagination.pageSize);
   };
 
-  const handleTableChange = (newPagination: any) => {
-    loadData(newPagination.current);
+  const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
+    const nextPage = pag.current ?? 1;
+    const nextSize = pag.pageSize ?? pageSizeRef.current;
+    void loadData(nextPage, nextSize);
   };
 
   return (
@@ -236,7 +223,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
           >
             <Select.Option value="success">成功</Select.Option>
             <Select.Option value="failed">失败</Select.Option>
-            <Select.Option value="skipped">跳过</Select.Option>
           </Select>
           <RangePicker
             value={dateRange}
@@ -277,6 +263,7 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
           size: 'small',
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条`,
+          pageSizeOptions: ['10', '20', '50', '100'],
         }}
         onChange={handleTableChange}
       />

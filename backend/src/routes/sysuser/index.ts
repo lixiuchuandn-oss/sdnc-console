@@ -55,6 +55,29 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
       order: { createdAt: 'DESC' },
     });
 
+    const userIds = tenantUsers.map((u) => u.id).filter(Boolean);
+    const assignmentRepository = AppDataSource.getRepository(RoleAssignment);
+    const rbacRoleRepository = AppDataSource.getRepository(RBACRole);
+
+    /** userId -> 该用户在 rbac 中的角色（真实权限来源，TenantUser.role 字段仅为占位） */
+    let assignmentsByUser = new Map<string, RoleAssignment[]>();
+    let rbacRoleMap = new Map<string, RBACRole>();
+    if (userIds.length > 0) {
+      const assignments = await assignmentRepository.find({
+        where: { userType: 'tenant', userId: In(userIds) },
+      });
+      for (const a of assignments) {
+        const list = assignmentsByUser.get(a.userId);
+        if (list) list.push(a);
+        else assignmentsByUser.set(a.userId, [a]);
+      }
+      const roleIds = [...new Set(assignments.map((a) => a.roleId))];
+      if (roleIds.length > 0) {
+        const rbacRows = await rbacRoleRepository.find({ where: { id: In(roleIds) } });
+        rbacRoleMap = new Map(rbacRows.map((r) => [r.id, r]));
+      }
+    }
+
     // 获取所有组织和租户信息
     const organizations = await organizationRepository.find();
     const tenants = await tenantRepository.find();
@@ -71,17 +94,30 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
       tenantMap.set(tenant.id, tenant);
     });
 
-    // 组装用户信息
+    // 组装用户信息（列表「角色」以 RBAC 分配为准，TenantUser.role 不作为展示依据）
     const enrichedUsers = tenantUsers.map((user) => {
       const organization = orgMap.get(user.organizationId);
       const tenant = tenantMap.get(user.tenantId);
+
+      const assigns = assignmentsByUser.get(user.id) || [];
+      const rbacRoles = assigns
+        .map((a) => rbacRoleMap.get(a.roleId))
+        .filter((r): r is RBACRole => !!r && String(r.status || 'active') === 'active')
+        .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          scope: r.scope,
+        }));
 
       return {
         id: user.id,
         username: user.username,
         email: user.email,
         fullName: user.fullName,
+        /** 历史占位字段（创建后恒多为 `user`），勿用于列表筛选；请用 rbacRoles */
         role: user.role,
+        rbacRoles,
         status: user.status,
         createdAt: user.createdAt,
         tenant: tenant

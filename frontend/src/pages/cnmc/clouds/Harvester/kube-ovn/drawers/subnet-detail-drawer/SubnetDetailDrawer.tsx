@@ -24,7 +24,10 @@ import { CLOUD_SUBNETS_VPC_WRITE } from '../../../../../../../constants/cloudPer
 import { hasPermissionForAction } from '../../../../../../../utils/accessMapping';
 import SubnetAclFormItems, { normalizeAclRowForForm, validateAclsFormRowsForSubmit } from '../../lib/SubnetAclFormItems';
 import SubnetVmTopologyGraph from '../../lib/topology/SubnetVmTopologyGraph';
-import { KUBE_OVN_FLAT_VPC } from '../../lib/kubeOvnSubnetConstants';
+import {
+  KUBE_OVN_FLAT_VPC,
+  resolveTowerUnderlaySubnetCategory,
+} from '../../lib/kubeOvnSubnetConstants';
 import { vlanDetailDisplayParts } from '../../lib/UnderlaySubnetFormFields';
 
 export type SubnetDetailDrawerTabKey = 'detail' | 'topology' | 'acl';
@@ -177,6 +180,19 @@ const SubnetDetailDrawer: React.FC<Props> = ({
     [effectiveSubnet],
   );
   const subnetDisplay = useMemo(() => subnetAlias || subnetName || '—', [subnetAlias, subnetName]);
+
+  /** 扁平子网：列表与注解一致展示「扁平 underlay / 扁平 overlay」；其它沿用 kindLabel */
+  const subnetTypeDisplayLabel = useMemo(() => {
+    const t = String(
+      effectiveSubnet?.metadata?.annotations?.['tower.io/subnet-type'] ?? '',
+    )
+      .trim()
+      .toLowerCase();
+    if (t === 'flat') {
+      return resolveTowerUnderlaySubnetCategory(effectiveSubnet, 'flat').label;
+    }
+    return kindLabel;
+  }, [effectiveSubnet, kindLabel]);
 
   const resyncAclFormFromCluster = useCallback(
     async (name: string) => {
@@ -406,7 +422,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
               ) : null}
               <Descriptions.Item label="名称">{subnetDisplay}</Descriptions.Item>
               <Descriptions.Item label="资源名">{subnetName || '—'}</Descriptions.Item>
-              <Descriptions.Item label="子网类型">{kindLabel}</Descriptions.Item>
+              <Descriptions.Item label="子网类型">{subnetTypeDisplayLabel}</Descriptions.Item>
             </Descriptions>
           </Col>
           <Col xs={24} lg={12}>

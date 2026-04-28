@@ -209,12 +209,11 @@ function applyImageDerivedFieldsToForm(form: any, imageList: any[], imageValue: 
       it?.name ||
       '',
   );
-  const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
   const isWindows = /windows|win/.test(dispName.toLowerCase());
   try {
     form.setFieldsValue({
       rootSizeGi: minGi,
-      bootUseEfi: needEfi,
+      bootUseEfi: false,
       rootBus: isWindows ? 'sata' : 'virtio',
       rootDeviceType: 'disk',
     });
@@ -491,9 +490,8 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           it?.name ||
           '',
       );
-      const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
       const resolvedStorageClass = resolveImageStorageClass(it, defaultStorageClassName);
-      const bootUseEfi = toBooleanStrict(values.bootUseEfi, needEfi);
+      const bootUseEfi = toBooleanStrict(values.bootUseEfi, false);
 
       const v: any = {
         ...base,

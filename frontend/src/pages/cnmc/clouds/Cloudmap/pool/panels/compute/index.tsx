@@ -545,6 +545,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           vms={ecs}
           loading={resourceLoading.ecs}
           cloudId={cloudId}
+          isTenant={isTenant}
           onRefresh={() => {
             apiPost(`/api/clouds/${cloudId}/sync`)
               .catch(console.warn)

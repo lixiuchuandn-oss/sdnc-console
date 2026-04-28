@@ -286,7 +286,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
             `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
             vmKey,
         );
-        const opts = vm ? buildVmNicIpOptions(vm) : [];
+        const opts = vm ? buildVmNicIpOptions(vm, subnet) : [];
         if (opts.length > 0) {
           try {
             nic = JSON.parse(String(opts[0]?.value || '')) as { ipName: string; v4Ip?: string };
@@ -727,7 +727,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
                   `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
                   String(vmKey || ''),
               );
-              const opts = vm ? buildVmNicIpOptions(vm) : [];
+              const opts = vm ? buildVmNicIpOptions(vm, selectedSubnet) : [];
               if (!vmKey) return null;
               if (!opts.length) {
                 return (

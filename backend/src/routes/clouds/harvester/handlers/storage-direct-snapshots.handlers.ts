@@ -46,6 +46,7 @@ export async function harvesterSnapshotRestoreHandler(req: Request, res: Respons
         size: req.body.size,
         accessModes: req.body.accessModes,
         volumeMode: req.body.volumeMode,
+        alias: req.body.alias,
       },
     );
     res.json({ message: '快照恢复任务已提交', data: result });

@@ -32,6 +32,7 @@ import {
 } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 import {
   listKubeOvnDnatRules,
+  listKubeOvnEips,
   listKubeOvnFips,
   listKubeOvnSnatRules,
 } from '../../../../services/clouds/harvester/network';
@@ -409,25 +410,32 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
 
-    const toRefName = (obj: any): string | null => {
+    /** 展示名：有 tower.io/alias 则用别名，否则用 metadata.name */
+    const toAliasLabel = (obj: any): string | null => {
       const n = String(obj?.metadata?.name || obj?.name || '').trim();
       if (!n) return null;
       const alias = String(obj?.metadata?.annotations?.[TOWER_IO_ALIAS] || '').trim();
-      if (alias && alias !== n) return `${alias}(${n})`;
-      return n;
+      return alias || n;
     };
     const shortList = (arr: string[]) => (arr.length > 5 ? `${arr.slice(0, 5).join('，')} 等` : arr.join('，'));
 
     try {
-      const [fips, snats, dnats] = await Promise.all([
+      const [eips, fips, snats, dnats] = await Promise.all([
+        listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
         listKubeOvnFips({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
         listKubeOvnSnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
         listKubeOvnDnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
       ]);
 
-      const usingFips = fips.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toRefName).filter(Boolean) as string[];
-      const usingSnats = snats.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toRefName).filter(Boolean) as string[];
-      const usingDnats = dnats.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toRefName).filter(Boolean) as string[];
+      const eipObj =
+        (Array.isArray(eips) ? eips : []).find(
+          (e: any) => String(e?.metadata?.name || '').trim() === nameStr,
+        ) || null;
+      const eipLabel = eipObj ? String(toAliasLabel(eipObj) || nameStr) : nameStr;
+
+      const usingFips = fips.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toAliasLabel).filter(Boolean) as string[];
+      const usingSnats = snats.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toAliasLabel).filter(Boolean) as string[];
+      const usingDnats = dnats.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toAliasLabel).filter(Boolean) as string[];
 
       if (usingFips.length || usingSnats.length || usingDnats.length) {
         const parts: string[] = [];
@@ -435,7 +443,7 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
         if (usingSnats.length) parts.push(`SNAT 规则：${shortList(usingSnats)}`);
         if (usingDnats.length) parts.push(`DNAT 规则：${shortList(usingDnats)}`);
         return res.status(409).json({
-          message: `不能删除 EIP「${nameStr}」，因为正在被 ${parts.join('；')} 使用`,
+          message: `不能删除 公网ip「${eipLabel}」，因为正在被 ${parts.join('；')} 使用`,
           code: 'EIP_IN_USE',
           usage: {
             fips: usingFips,

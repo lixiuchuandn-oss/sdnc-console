@@ -8,19 +8,20 @@
  *    - 检索关键词：INIT_DEFAULTS
  * 2) 隐藏字段注册：rootSourceType/storageClassName/changeOsConfirmed/rootDeviceType
  *    - 检索关键词：HIDDEN_FIELDS
- * 3) 镜像选择：过滤 ISO、下拉展开刷新、选中后回填 storageClassName/容量/设备类型
+ * 3) 镜像选择：含 ISO、下拉展开刷新、选中后回填 storageClassName/容量/设备类型/总线
  *    - 检索关键词：IMAGE_SELECT
  * 4) 镜像预览：展示（设备类型/卷类型/访问模式/存储类），反映当前会提交/会使用的值
  *    - 检索关键词：IMAGE_PREVIEW
  * 5) 容量设置：InputNumber + 最小容量校验（>= 镜像大小）
  *    - 检索关键词：ROOT_SIZE
- * 6) 总线类型：Segmented（virtio/scsi/sata）写入 newOsBus
+ * 6) 总线类型：块设备 Segmented；ISO 下固定 SCSI/SATA（与创建向导一致）
  *    - 检索关键词：ROOT_BUS
  */
-import React, { useEffect, useState } from 'react';
-import { Form, Select, Input, InputNumber, Row, Col, Space, Checkbox, Segmented } from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Form, Select, Input, InputNumber, Row, Col, Space, Checkbox, Segmented, Alert, Tooltip } from 'antd';
 import { OsIcon } from '../../../../../../../components/OsIcon';
-import { resolveImageListStateKey } from '../../lib/vmImageStatus';
+import { isHarvesterVmImageReady, resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
+import { parseSizeToGi } from '../VmCreateWizard/VmWizardUtils';
 
 type Props = {
   form: any;
@@ -29,7 +30,32 @@ type Props = {
   storageClasses: any[];
   reloadStorageClasses: () => void;
   defaultStorageClassName?: string;
+  /** 当前实例使用的系统镜像（展示名或 imageId） */
+  currentOsImageLabel?: string;
+  /** 与创建向导一致：ARM64 光驱固定 SCSI，x86 固定 SATA */
+  isArm64?: boolean;
 };
+
+function findImageBySelectValue(images: any[], val: string) {
+  return (images || []).find((raw) => {
+    const x = raw as Record<string, unknown>;
+    const meta = x.metadata as Record<string, unknown> | undefined;
+    const name = meta?.name || x.name;
+    const ns = meta?.namespace;
+    const v = ns && name ? `${ns}/${name}` : name;
+    return v === val;
+  });
+}
+
+function cdromBusFieldValue(isArm64: boolean): 'scsi' | 'sata' {
+  return isArm64 ? 'scsi' : 'sata';
+}
+
+function cdromBusTooltipText(isArm64: boolean): string {
+  return isArm64
+    ? 'ARM64 集群上光驱设备固定为 SCSI，与下发的虚拟机规格一致。'
+    : 'x86/amd64 上光驱设备固定为 SATA，与下发的虚拟机规格一致。';
+}
 
 const ChangeOs: React.FC<Props> = ({
   form,
@@ -37,39 +63,152 @@ const ChangeOs: React.FC<Props> = ({
   reloadImages,
   storageClasses: _storageClasses,
   reloadStorageClasses,
-  defaultStorageClassName
+  defaultStorageClassName,
+  currentOsImageLabel,
+  isArm64 = false,
 }) => {
   const [minSize, setMinSize] = useState<number>(0);
   const rootDeviceType = Form.useWatch('rootDeviceType', form);
   const storageClassName = Form.useWatch('storageClassName', form);
+  const newOsImageWatch = Form.useWatch('newOsImage', form);
+
+  const rootDevLower = String(rootDeviceType || 'disk').toLowerCase();
+  const isCdromRoot = rootDevLower === 'cdrom';
+
+  useEffect(() => {
+    if (!isCdromRoot) return;
+    form.setFieldsValue({ newOsBus: cdromBusFieldValue(isArm64) });
+  }, [isCdromRoot, isArm64, form]);
+
+  const syncMinSizeFromImageRecord = useCallback(
+    (it: any | undefined) => {
+      if (!it) return;
+      const raw =
+        (it as any)?.spec?.virtualSize ?? (it as any)?.virtualSize ?? (it as any)?.size;
+      let gi = 0;
+      if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
+      else {
+        const pg = parseSizeToGi(raw);
+        gi = pg > 0 ? pg : 0;
+      }
+      setMinSize(gi);
+    },
+    [],
+  );
+
+  const applyFieldsForSelectedImage = useCallback(
+    (val: string) => {
+      try {
+        if (!defaultStorageClassName) reloadStorageClasses();
+        const it = findImageBySelectValue(images || [], val);
+        if (!it) return;
+
+        const kind = resolveVmImageKind(it);
+        const sc =
+          (it as any)?.storageClassName ||
+          defaultStorageClassName ||
+          form.getFieldValue('storageClassName');
+
+        let nextBus: string;
+        let nextDev: 'disk' | 'cdrom';
+        if (kind === 'iso') {
+          nextDev = 'cdrom';
+          nextBus = cdromBusFieldValue(isArm64);
+        } else {
+          nextDev = 'disk';
+          const ann = (it as any)?.metadata?.annotations || {};
+          const labels = (it as any)?.metadata?.labels || {};
+          const dispName = String(
+            (it as any)?.spec?.displayName ||
+              labels['harvesterhci.io/imageDisplayName'] ||
+              ann['harvesterhci.io/image-name'] ||
+              ann['field.cattle.io/displayName'] ||
+              '',
+          ).toLowerCase();
+          const isWindows = /windows|win/.test(dispName);
+          nextBus = isWindows ? 'sata' : 'virtio';
+        }
+
+        form.setFieldsValue({
+          storageClassName: sc,
+          rootDeviceType: nextDev,
+          newOsBus: nextBus,
+        });
+
+        const raw =
+          (it as any)?.spec?.virtualSize ?? (it as any)?.virtualSize ?? (it as any)?.size;
+        let gi = 0;
+        if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
+        else {
+          const pg = parseSizeToGi(raw);
+          gi = pg > 0 ? pg : 0;
+        }
+        syncMinSizeFromImageRecord(it);
+        if (gi) {
+          form.setFieldsValue({ newOsRootSize: gi });
+        }
+      } catch (e) {
+        console.warn('applyFieldsForSelectedImage failed', e);
+        setMinSize(0);
+      }
+    },
+    [
+      defaultStorageClassName,
+      form,
+      images,
+      isArm64,
+      reloadStorageClasses,
+      syncMinSizeFromImageRecord,
+    ],
+  );
 
   /* ============================== INIT_DEFAULTS ============================== */
+  /** 仅补 rootSourceType，勿覆盖父级（useVmReconfigure）已回填的总线/设备类型 */
   useEffect(() => {
-    if (!form.getFieldValue('rootSourceType')) {
-      form.setFieldsValue({
-        rootSourceType: 'image',
-        newOsBus: 'virtio',
-        rootDeviceType: 'disk',
-        // 用 undefined 表示“自动选择”，避免 number input 解析字符串报错
-        newOsRootSize: undefined
-      });
+    const cur = form.getFieldValue('rootSourceType');
+    if (cur == null || cur === '') {
+      form.setFieldsValue({ rootSourceType: 'image' });
     }
   }, [form]);
 
+  /** 镜像列表异步到达后：为已选镜像补全 minSize / ISO 设备类型 */
+  useEffect(() => {
+    const val = String(newOsImageWatch || '').trim();
+    if (!val || !Array.isArray(images) || images.length === 0) return;
+    const it = findImageBySelectValue(images, val);
+    if (!it) return;
+    syncMinSizeFromImageRecord(it);
+    const kind = resolveVmImageKind(it);
+    if (kind === 'iso') {
+      form.setFieldsValue({
+        rootDeviceType: 'cdrom',
+        newOsBus: cdromBusFieldValue(isArm64),
+      });
+    }
+  }, [images, newOsImageWatch, form, syncMinSizeFromImageRecord, isArm64]);
+
+  /* ============================== HIDDEN_FIELDS ============================== */
   return (
     <>
-      {/* ============================== HIDDEN_FIELDS ============================== */}
-      {/* rootSourceType 固定为 image，使用隐藏字段注册到表单 */}
       <Form.Item name="rootSourceType" hidden initialValue="image">
         <Input />
       </Form.Item>
       <Form.Item name="storageClassName" hidden>
         <Input />
       </Form.Item>
-      {/* 更换系统盘风险确认：字段注册，由外层 Footer 的复选框控制 */}
       <Form.Item name="changeOsConfirmed" valuePropName="checked" hidden>
         <Checkbox />
       </Form.Item>
+
+      {currentOsImageLabel ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="当前使用的系统镜像"
+          description={currentOsImageLabel}
+        />
+      ) : null}
 
       {/* ============================== IMAGE_SELECT ============================== */}
       <Row gutter={12} style={{ marginBottom: 0 }}>
@@ -81,75 +220,44 @@ const ChangeOs: React.FC<Props> = ({
             <Select
               showSearch
               style={{ width: '100%' }}
-              options={(images || []).filter((x: any) => {
-                 const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
-                 const annotations = x?.metadata?.annotations || x?.annotations || {};
-                 const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'] || '';
-                 const disp = String(imageName || x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
-                 const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
-                 if (isIso) return false;
-                 return resolveImageListStateKey(x) === 'ready';
-              }).map((x: any) => {
+              options={(images || [])
+                .filter((x: any) => {
+                  const k = resolveVmImageKind(x);
+                  return k !== 'unknown' && isHarvesterVmImageReady(x);
+                })
+                .map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
                   const ns = x?.metadata?.namespace || x?.namespace;
                   const annotations = x?.metadata?.annotations || x?.annotations || {};
-                  const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'] || annotations['harvesterhci.io/imageDisplayName'];
-                  const disp = imageName || x?.spec?.displayName || x?.displayName || name;
-                  return { 
+                  const disp =
+                    annotations['field.cattle.io/displayName'] ||
+                    annotations['harvesterhci.io/image-name'] ||
+                    annotations['harvesterhci.io/imageDisplayName'] ||
+                    x?.spec?.displayName ||
+                    x?.displayName ||
+                    name;
+                  const isoTag =
+                    resolveVmImageKind(x) === 'iso' ? (
+                      <span style={{ marginLeft: 6, fontSize: 12, color: '#888' }}>(ISO)</span>
+                    ) : null;
+                  return {
                     label: (
                       <Space>
                         <OsIcon osName={disp || name} />
-                        {disp || '-'}
+                        <span>{disp || '-'}</span>
+                        {isoTag}
                       </Space>
                     ),
                     value: ns && name ? `${ns}/${name}` : name,
-                    labelString: disp || name,
+                    labelString: String(disp || name || ''),
                   };
-              })}
+                })}
               optionFilterProp="labelString"
-              placeholder="请选择镜像"
-              onOpenChange={(open) => { if (open) reloadImages(); }}
-              onChange={(val) => {
-                try {
-                  if (!defaultStorageClassName) reloadStorageClasses();
-                  
-                  const it = (images || []).find((x: any) => {
-                    const name = x?.metadata?.name || x?.name;
-                    const ns = x?.metadata?.namespace || x?.namespace;
-                    const v = ns && name ? `${ns}/${name}` : name;
-                    return v === val;
-                  });
-
-                  // Set Storage Class & Device Type (Locked to disk)
-                  const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
-                  form.setFieldsValue({ 
-                    storageClassName: sc, 
-                    rootDeviceType: 'disk' 
-                  });
-
-                  // Auto-fill Size
-                  const raw = (it as any)?.virtualSize ?? (it as any)?.size;
-                  let gi = 0;
-                  if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
-                  else {
-                    const ss = String(raw || '').toUpperCase();
-                    const num = Number(ss.replace(/[^0-9]/g, '')) || 0;
-                    if (/GI$/.test(ss)) gi = num;
-                    else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024);
-                    else gi = Math.round(num / (1024 ** 3));
-                  }
-                  
-                  // Update min size constraint and form value
-                  setMinSize(gi);
-                  // Always auto-update size when image changes
-                  if (gi) {
-                    form.setFieldsValue({ newOsRootSize: gi });
-                  }
-                } catch (e) {
-                  console.warn('Failed to auto-fill size', e);
-                  setMinSize(0);
-                }
+              placeholder="请选择镜像（含 ISO）"
+              onOpenChange={(open) => {
+                if (open) reloadImages();
               }}
+              onChange={(val) => applyFieldsForSelectedImage(String(val || ''))}
             />
           </Form.Item>
           <div style={{ marginBottom: 24 }} />
@@ -162,21 +270,25 @@ const ChangeOs: React.FC<Props> = ({
           <div style={{ lineHeight: '32px' }}>镜像预览</div>
         </Col>
         <Col span={18}>
-          <div style={{ padding: 12, background: '#EDF0F7', borderRadius: 8, border: '1px solid #e5e5e5' }}>
-
-            {/* 设备类型字段注册（隐藏，仅用于表单提交） */}
+          <div
+            style={{
+              padding: 12,
+              background: '#EDF0F7',
+              borderRadius: 8,
+              border: '1px solid #e5e5e5',
+            }}
+          >
             <Form.Item name="rootDeviceType" hidden initialValue="disk">
               <Input />
             </Form.Item>
 
-            {/* 第一行：设备类型 / 卷类型 */}
             <Row gutter={12} style={{ marginBottom: 12 }}>
               <Col span={12}>
                 <Input
                   disabled
                   readOnly
                   prefix="设备类型"
-                  value={String(rootDeviceType || 'disk').toUpperCase()}
+                  value={isCdromRoot ? 'CD-ROM' : 'DISK'}
                   style={{ color: '#00000040' }}
                 />
               </Col>
@@ -185,10 +297,15 @@ const ChangeOs: React.FC<Props> = ({
               </Col>
             </Row>
 
-            {/* 第二行：访问模式 / 存储类 */}
             <Row gutter={12}>
               <Col span={12}>
-                <Input disabled readOnly prefix="访问模式" value="ReadWriteMany" style={{ color: '#00000040' }} />
+                <Input
+                  disabled
+                  readOnly
+                  prefix="访问模式"
+                  value="ReadWriteMany"
+                  style={{ color: '#00000040' }}
+                />
               </Col>
               <Col span={12}>
                 <Input
@@ -210,12 +327,11 @@ const ChangeOs: React.FC<Props> = ({
           <div style={{ lineHeight: '32px' }}>磁盘容量</div>
         </Col>
         <Col span={18}>
-          <Form.Item 
-            name="newOsRootSize" 
+          <Form.Item
+            name="newOsRootSize"
             rules={[
               {
                 validator: async (_, value) => {
-                  // 空值=自动选择：要求先选镜像（镜像会自动填充容量）
                   if (value === undefined || value === null || value === '') {
                     const image = form.getFieldValue('newOsImage');
                     if (!image) throw new Error('请先选择镜像，或手动输入容量');
@@ -227,8 +343,8 @@ const ChangeOs: React.FC<Props> = ({
                   if (minSize > 0 && num < minSize) {
                     throw new Error(`容量不能小于镜像大小 (${minSize} GiB)`);
                   }
-                }
-              }
+                },
+              },
             ]}
             noStyle
           >
@@ -247,19 +363,38 @@ const ChangeOs: React.FC<Props> = ({
       {/* ============================== ROOT_BUS ============================== */}
       <Row gutter={12} style={{ marginBottom: 0 }}>
         <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>总线类型</div>
+          <div style={{ lineHeight: '32px' }}>
+          {isCdromRoot ? (
+            <Tooltip title={cdromBusTooltipText(isArm64)}>
+              <span>总线类型</span>
+            </Tooltip>
+          ) : (
+            '总线类型'
+          )}
+          </div>
         </Col>
         <Col span={18}>
-          <Form.Item name="newOsBus" initialValue="virtio" noStyle>
-            <Segmented
-              options={['virtio', 'scsi', 'sata'].map(v => ({ label: v.toUpperCase(), value: v }))}
-            />
-          </Form.Item>
+          {isCdromRoot ? (
+            <Form.Item name="newOsBus" noStyle>
+              <Select
+                disabled
+                style={{ width: '100%' }}
+                options={[
+                  { label: 'SATA（固定）', value: 'sata' },
+                  { label: 'SCSI（固定）', value: 'scsi' },
+                ]}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item name="newOsBus" initialValue="virtio" noStyle>
+              <Segmented
+                options={['virtio', 'scsi', 'sata'].map((v) => ({ label: v.toUpperCase(), value: v }))}
+              />
+            </Form.Item>
+          )}
           <div style={{ marginBottom: 24 }} />
         </Col>
       </Row>
-
-      
     </>
   );
 };
