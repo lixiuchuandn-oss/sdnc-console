@@ -14,7 +14,7 @@
  * === 浏览器上传字段 ===
  * - 选文件后根据文件名自动填充显示名（去扩展名）与类型（扩展名 → iso | disk，与后端 imageType 一致）。
  */
-import React, { useEffect, useState, type MutableRefObject } from 'react';
+import React, { useCallback, useEffect, useState, type MutableRefObject } from 'react';
 import { Button, Col, Form, Input, message, Row, Select, Tabs, Typography, Upload } from 'antd';
 import { DownloadOutlined, PaperClipOutlined } from '@ant-design/icons';
 import StdFormModal from '../../../../../../components/StdFormModal';
@@ -79,6 +79,42 @@ function inferBrowserUploadFromFilename(filename: string): BrowserUploadInferenc
   return { displayName, imageType };
 }
 
+/** 从下载 URL 的路径最后一段推导显示名与类型（与浏览器上传推断规则一致） */
+/** 浏览器直传单请求体上限（MiB），与 Nginx `client_max_body_size` 对齐；可用 REACT_APP_CLIENT_MAX_BODY_MB 覆盖 */
+function getClientMaxBodyBytes(): number {
+  const mb = Number(String(process.env.REACT_APP_CLIENT_MAX_BODY_MB || '90').trim());
+  const safe = Number.isFinite(mb) && mb > 0 ? mb : 90;
+  return Math.floor(safe * 1024 * 1024);
+}
+
+function formatGatewayBodyTooLargeHint(): string {
+  const mb = Number(String(process.env.REACT_APP_CLIENT_MAX_BODY_MB || '90').trim());
+  const label = Number.isFinite(mb) && mb > 0 ? String(mb) : '90';
+  return `文件超过网关单次请求体大小限制（当前前端按约 ${label} MiB 预检，与 Nginx client_max_body_size 对齐）。请联系管理员调大网关限制，或改用 URL 导入 / 桌面上传工具。`;
+}
+
+function inferUrlImportFromUrl(urlStr: string): BrowserUploadInference {
+  const s = String(urlStr || '').trim();
+  if (!s) return { displayName: '', imageType: undefined };
+  try {
+    const normalized = /^https?:\/\//i.test(s) ? s : `https://${s}`;
+    const u = new URL(normalized);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const last = parts.length ? decodeURIComponent(parts[parts.length - 1] || '') : '';
+    if (!last) return { displayName: '', imageType: undefined };
+    return inferBrowserUploadFromFilename(last);
+  } catch {
+    const pathOnly = s.split(/[?#]/)[0] || '';
+    const seg = pathOnly.split('/').filter(Boolean).pop() || '';
+    if (!seg) return { displayName: '', imageType: undefined };
+    try {
+      return inferBrowserUploadFromFilename(decodeURIComponent(seg));
+    } catch {
+      return inferBrowserUploadFromFilename(seg);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 组件
 // ---------------------------------------------------------------------------
@@ -108,6 +144,21 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   }, [open, form]);
 
   /** URL 导入 Tab：校验 namespace / displayName / url 后创建集群拉取镜像 */
+  /** URL 输入失焦：合法 http(s) 时自动补全空的「显示名 / 镜像类型」 */
+  const onUrlImportUrlBlur = useCallback(() => {
+    const url = String(form.getFieldValue('url') || '').trim();
+    if (!/^https?:\/\//i.test(url)) return;
+    const { displayName, imageType } = inferUrlImportFromUrl(url);
+    const curName = String(form.getFieldValue('displayName') || '').trim();
+    const curType = form.getFieldValue('imageType');
+    const patch: Record<string, unknown> = {};
+    if (displayName && !curName) patch.displayName = displayName;
+    if (imageType && (curType === undefined || curType === null || curType === '')) {
+      patch.imageType = imageType;
+    }
+    if (Object.keys(patch).length) form.setFieldsValue(patch);
+  }, [form]);
+
   const handleCreate = async () => {
     if (!ensureWrite()) return;
     try {
@@ -150,6 +201,14 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
     const imageType =
       String(form.getFieldValue('toolImageType') || '').trim() || inferred.imageType || undefined;
     const file = toolFile;
+    const maxBytes = getClientMaxBodyBytes();
+    if (file.size > maxBytes) {
+      const approxMi = (file.size / (1024 * 1024)).toFixed(1);
+      message.error(
+        `所选镜像约 ${approxMi} MiB，${formatGatewayBodyTooLargeHint()}（无需先创建上传任务。）`,
+      );
+      return;
+    }
 
     setUploadingTask(true);
     try {
@@ -191,6 +250,15 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
           });
           if (!uploadResp.ok) {
             const text = await uploadResp.text();
+            const lower = `${text}`.toLowerCase();
+            if (
+              uploadResp.status === 413 ||
+              lower.includes('413') ||
+              lower.includes('request entity too large') ||
+              lower.includes('entity too large')
+            ) {
+              throw new Error(formatGatewayBodyTooLargeHint());
+            }
             throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);
           }
           const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
@@ -251,7 +319,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
           },
         ]}
       >
-        <Input placeholder="http(s)://..." />
+        <Input placeholder="http(s)://..." onBlur={onUrlImportUrlBlur} />
       </Form.Item>
     </>
   );

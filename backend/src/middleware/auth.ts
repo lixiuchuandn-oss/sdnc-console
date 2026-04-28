@@ -20,6 +20,13 @@ function isMustChangePasswordAllowedRoute(req: Request): boolean {
   const method = req.method;
   if (pathname === '/api/users/me' && (method === 'GET' || method === 'PUT')) return true;
   if (pathname === '/api/users/me/password' && method === 'POST') return true;
+  /** 登录后默认首页顺位（`GET /api/auth/admin-default-home`）；改密闸门期间仍允许只读拉取 */
+  if (
+    (pathname === '/api/auth/admin-default-home' || pathname === '/auth/admin-default-home') &&
+    method === 'GET'
+  ) {
+    return true;
+  }
   if (method === 'GET' && (pathname === '/api/system/rbac/roles' || pathname.startsWith('/api/system/rbac/assignments'))) {
     return true;
   }

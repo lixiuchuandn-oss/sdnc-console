@@ -366,6 +366,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshTemplates}
             isTenant={isTenantUser}
+            workspaceVmNamespace={isTenantUser ? nsValue : undefined}
             bordered={bordered}
           />
         );

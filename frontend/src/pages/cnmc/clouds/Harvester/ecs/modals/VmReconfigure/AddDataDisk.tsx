@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Form, Input, InputNumber, Select, Alert, Descriptions, Tag, Row, Col, Radio } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { FormInstance } from 'antd/es/form';
@@ -32,6 +32,12 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
   const existingPvc = Form.useWatch('existingPvcName', form);
   const diskAccessMode = Form.useWatch('newDiskAccessMode', form);
   const diskMode = Form.useWatch('newDiskMode', form) || 'spec'; // spec: 配置添加(需重启), hotplug: 在线热插拔
+
+  useEffect(() => {
+    if (diskMode === 'spec') {
+      form.setFieldsValue({ newDiskBus: 'virtio' });
+    }
+  }, [diskMode, form]);
 
   const getPvcName = (p: any) => p?.rawData?.metadata?.name || p?.metadata?.name || p?.name || '';
   const getPvcAlias = (p: any) => p?.alias || p?.rawData?.metadata?.annotations?.['tower.io/alias'] || p?.metadata?.annotations?.['tower.io/alias'] || '';
@@ -198,11 +204,11 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
                 name="newDiskName"
                 rules={[
                   { required: true, message: '请输入磁盘名称' },
-                  { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '名称必须由小写字母、数字或连字符组成，且开头结尾必须是字母或数字' }
+                  { max: 128, message: '名称过长（最多 128 字符）；非英文命名将自动生成为 Kubernetes 资源名并保留为显示别名' },
                 ]}
                 noStyle
               >
-                <Input placeholder="请输入磁盘名称" disabled={created} />
+                <Input placeholder="支持中文显示名；技术名不符合规则时由系统自动生成" disabled={created} />
               </Form.Item>
               <div style={{ marginBottom: 24 }} />
             </Col>
@@ -273,7 +279,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
           <div style={{ marginBottom: 24, color: '#999', fontSize: 12 }}>
             {diskMode === 'hotplug'
               ? '在线热插拔：仅支持运行中的虚拟机，总线类型固定为 SCSI。'
-              : '配置添加：修改虚拟机规格模板，支持自定义总线类型，保存后需重启生效。'}
+              : '配置添加：修改虚拟机规格模板，数据盘使用 VirtIO 总线，保存后需重启生效。'}
           </div>
         </Col>
       </Row>
@@ -301,31 +307,36 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
         </Row>
       )}
 
-      <Row gutter={12} style={{ marginBottom: 0 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px', display: 'flex', alignItems: 'center', gap: 4 }}>
-            总线类型
-            <span style={{ fontSize: 12, color: '#999' }} title="通常建议使用 VirtIO 以获得最佳性能。如果操作系统不支持 VirtIO 驱动，可尝试 SCSI 或 SATA。">
-              <InfoCircleOutlined />
-            </span>
-          </div>
-        </Col>
-        <Col span={18}>
-          <Form.Item
-            name="newDiskBus"
-            initialValue="virtio"
-            rules={[{ required: true, message: '请选择总线类型' }]}
-            noStyle
-          >
-            <Select style={{ width: '100%' }} disabled={diskMode === 'hotplug'}>
-              <Select.Option value="virtio">VirtIO</Select.Option>
-              <Select.Option value="scsi">SCSI</Select.Option>
-              <Select.Option value="sata">SATA</Select.Option>
-            </Select>
-          </Form.Item>
-          <div style={{ marginBottom: 24 }} />
-        </Col>
-      </Row>
+      {diskMode === 'hotplug' && (
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              总线类型
+              <span
+                style={{ fontSize: 12, color: '#999' }}
+                title="在线热插拔时总线固定为 SCSI。配置添加（需重启）时由平台使用 VirtIO，不再展示总线选项。"
+              >
+                <InfoCircleOutlined />
+              </span>
+            </div>
+          </Col>
+          <Col span={18}>
+            <Form.Item
+              name="newDiskBus"
+              initialValue="virtio"
+              rules={[{ required: true, message: '请选择总线类型' }]}
+              noStyle
+            >
+              <Select style={{ width: '100%' }} disabled>
+                <Select.Option value="virtio">VirtIO</Select.Option>
+                <Select.Option value="scsi">SCSI</Select.Option>
+                <Select.Option value="sata">SATA</Select.Option>
+              </Select>
+            </Form.Item>
+            <div style={{ marginBottom: 24 }} />
+          </Col>
+        </Row>
+      )}
     </>
   );
 };

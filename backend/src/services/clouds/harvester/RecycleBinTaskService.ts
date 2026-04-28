@@ -29,6 +29,9 @@ import { logger } from '../../../utils/logger';
 
 const rbLog = logger.child('Recycle-Bin');
 
+/** 与写入 DB 的 errorMessage 一致，用于「已为停止」跳过类记录的去重 */
+const RB_SKIP_ALREADY_STOPPED_MSG = '执行关机任务时实例已为停止状态，未再次下发关机';
+
 function summarizeRbErr(err: unknown): string {
   if (err == null) return '';
   const e = err as any;
@@ -313,8 +316,21 @@ export class RecycleBinTaskService {
     const isRunning = isVmRunningLike(vm);
 
     if (!isRunning) {
-      // 已经停止，跳过
-      rbLog.debug(`虚拟机已停止，跳过: ${cloud.name}/${instanceId} (状态: ${status})`);
+      // 已停止时写一条「跳过」便于审计；同一实例在「关机任务间隔」内不重复插入，避免每小时一条撑爆表
+      rbLog.debug(`虚拟机已停止，跳过关机: ${cloud.name}/${instanceId} (状态: ${status})`);
+      const dup = await this.hasRecentSkippedAlreadyStoppedRecord(cloud.id, instanceId);
+      if (!dup) {
+        await this.recordShutdown(cloud, {
+          namespace,
+          name,
+          instanceId,
+          uid,
+          status: 'skipped',
+          previousStatus: status,
+          errorMessage: RB_SKIP_ALREADY_STOPPED_MSG,
+          taskId,
+        });
+      }
       return 'skipped';
     }
 
@@ -361,6 +377,29 @@ export class RecycleBinTaskService {
 
       return 'failed';
     }
+  }
+
+  /**
+   * 是否在最近一个「关机任务间隔」窗口内已有同实例的「已为停止」跳过记录（防定时任务重复写库）
+   */
+  private async hasRecentSkippedAlreadyStoppedRecord(cloudId: string, instanceId: string): Promise<boolean> {
+    const intervalHours = parseInt(
+      getSystemSetting('harvester.recycle_bin.shutdown_interval_hours') || '1',
+      10,
+    );
+    const windowMs = Math.max(1, intervalHours) * 60 * 60 * 1000;
+    const since = new Date(Date.now() - windowMs * 0.95);
+
+    const recordRepo = AppDataSource.getRepository(RecycleBinShutdownRecord);
+    const cnt = await recordRepo
+      .createQueryBuilder('r')
+      .where('r.cloudId = :cloudId', { cloudId })
+      .andWhere('r.instanceId = :instanceId', { instanceId })
+      .andWhere('r.status = :st', { st: 'skipped' })
+      .andWhere('r.shutdownAt >= :since', { since })
+      .andWhere('r.errorMessage = :msg', { msg: RB_SKIP_ALREADY_STOPPED_MSG })
+      .getCount();
+    return cnt > 0;
   }
 
   /**

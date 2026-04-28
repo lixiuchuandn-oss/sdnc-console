@@ -12,6 +12,7 @@ import { getPublicAdminPasswordPolicy } from '../../../services/systemApi';
 import type { AdminPasswordPolicy } from '../../../utils/adminPasswordPolicy';
 import { validateAdminPasswordClient } from '../../../utils/adminPasswordPolicy';
 import { SecuritySettingsDrawer } from './SecuritySettings';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const { Text } = Typography;
 type SysUser = {
@@ -29,6 +30,7 @@ type RBACRole = { id: string; name: string; description?: string; scope: 'system
 type Assignment = { id: string; roleId: string; userType: 'system'|'tenant'; userId: string; createdAt: string };
 
 const AccessUsersPage: React.FC = () => {
+  const { user: authUser } = useAuth();
   const [users, setUsers] = useState<SysUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState('');
@@ -167,10 +169,19 @@ const AccessUsersPage: React.FC = () => {
       );
     } },
     { title:'邮箱', key:'email', dataIndex:'email' },
-    { title:'状态', key:'status', render: (v:any) => {
-      const map: any = { 'active': <Tag color="success">活跃</Tag>, 'inactive': <Tag color="default">非活跃</Tag>, 'suspended': <Tag color="error">暂停</Tag> };
-      return map[String(v)] || v;
-    } },
+    {
+      title: '状态',
+      key: 'status',
+      dataIndex: 'status',
+      render: (v: string) => {
+        const map: Record<string, React.ReactNode> = {
+          active: <Tag color="success">活跃</Tag>,
+          inactive: <Tag color="default">非活跃</Tag>,
+          suspended: <Tag color="error">暂停</Tag>,
+        };
+        return map[String(v)] || v;
+      },
+    },
     { title:'操作', key:'actions', width:80, fixed:'right' as const, render: (_:any, row: SysUser) => {
       const itemsRaw = row.builtIn
         ? [
@@ -209,15 +220,29 @@ const AccessUsersPage: React.FC = () => {
                 setEditOpen(true);
               } },
             { type:'divider' },
-            { key:'del', label:'删除用户', danger: true, onClick: async () => {
-                try {
-                  await apiDelete(`/api/users/${row.id}`);
-                  message.success('已删除');
-                  fetchUsers(true);
-                } catch (error: any) {
-                  message.error(error?.message || '删除失败');
-                }
-              } },
+            {
+              key: 'del',
+              label: '删除用户',
+              danger: true,
+              onClick: () => {
+                Modal.confirm({
+                  title: '确认删除用户',
+                  content: `确定删除用户「${row.username}」吗？此操作不可恢复。`,
+                  okText: '删除',
+                  okType: 'danger',
+                  cancelText: '取消',
+                  onOk: async () => {
+                    try {
+                      await apiDelete(`/api/users/${row.id}`);
+                      message.success('已删除');
+                      fetchUsers(true);
+                    } catch (error: any) {
+                      message.error(error?.message || '删除失败');
+                    }
+                  },
+                });
+              },
+            },
           ];
       const items = itemsRaw.filter(Boolean);
       return <ResourceActionsDropdown items={items as any} />;
@@ -306,9 +331,19 @@ const AccessUsersPage: React.FC = () => {
 
   const filteredUsers = useMemo(() => {
     const lower = kw.toLowerCase();
-    return users
-      .filter(u => !statusFilter ? true : (String(u.status) === statusFilter))
-      .filter(u => (u.username||'').toLowerCase().includes(lower) || (u.fullName||'').toLowerCase().includes(lower) || (u.email||'').toLowerCase().includes(lower));
+    const list = users
+      .filter((u) => (!statusFilter ? true : String(u.status) === statusFilter))
+      .filter(
+        (u) =>
+          (u.username || '').toLowerCase().includes(lower) ||
+          (u.fullName || '').toLowerCase().includes(lower) ||
+          (u.email || '').toLowerCase().includes(lower),
+      );
+    return [...list].sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return tb - ta;
+    });
   }, [users, kw, statusFilter]);
 
   const handleCreate = React.useCallback(
@@ -415,7 +450,16 @@ const AccessUsersPage: React.FC = () => {
           <>
             <Form.Item name="fullName" label="姓名"><Input disabled /></Form.Item>
             <Form.Item name="username" label="用户名"><Input disabled /></Form.Item>
-            <Form.Item name="status" label="状态"><Select options={[{ value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
+            <Form.Item name="status" label="状态">
+              <Select
+                disabled={Boolean(editingUser?.id && authUser?.id && editingUser.id === authUser.id)}
+                options={[
+                  { value: 'active', label: '活跃' },
+                  { value: 'inactive', label: '非活跃' },
+                  { value: 'suspended', label: '暂停' },
+                ]}
+              />
+            </Form.Item>
             <Form.Item name="email" label="邮箱" rules={[{ type:'email', message: '请输入有效邮箱' }]}><Input /></Form.Item>
             <Form.Item name="password" label="重置密码（留空则不修改）" dependencies={['username']} rules={passwordRulesOptional(() => editForm.getFieldValue('username') || editingUser?.username)}>
               <Input.Password placeholder="可选，输入则更新密码" />
@@ -437,7 +481,16 @@ const AccessUsersPage: React.FC = () => {
             <Form.Item name="fullName" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}><Input /></Form.Item>
             <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}><Input /></Form.Item>
             <Form.Item name="email" label="邮箱" rules={[{ type:'email', message: '请输入有效邮箱' }]}><Input /></Form.Item>
-            <Form.Item name="status" label="状态"><Select options={[{ value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
+            <Form.Item name="status" label="状态">
+              <Select
+                disabled={Boolean(editingUser?.id && authUser?.id && editingUser.id === authUser.id)}
+                options={[
+                  { value: 'active', label: '活跃' },
+                  { value: 'inactive', label: '非活跃' },
+                  { value: 'suspended', label: '暂停' },
+                ]}
+              />
+            </Form.Item>
             <Form.Item name="password" label="重置密码（留空则不修改）" dependencies={['username']} rules={passwordRulesOptional(() => editForm.getFieldValue('username') || editingUser?.username)}>
               <Input.Password placeholder="可选，输入则更新密码" />
             </Form.Item>
@@ -465,6 +518,7 @@ const AccessUsersPage: React.FC = () => {
       <Modal
         title="确认修改内置账号状态"
         open={builtInStatusConfirmOpen}
+        zIndex={2100}
         okText="确认保存"
         cancelText="取消"
         okButtonProps={{ disabled: !builtInStatusAck, danger: true }}

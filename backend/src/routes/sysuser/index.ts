@@ -26,7 +26,7 @@ const router = Router();
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const userRepository = AppDataSource.getRepository(User);
-    const users = (await userRepository.find()).map((u: any) => ({
+    const users = (await userRepository.find({ order: { createdAt: 'DESC' } })).map((u: any) => ({
       id: u.id,
       username: u.username,
       email: u.email,
@@ -322,6 +322,10 @@ router.put('/:id/status', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: '用户不存在' });
     }
 
+    if (String(req.user.id) === String(id)) {
+      return res.status(400).json({ message: '不能修改当前登录账户的状态' });
+    }
+
     user.status = status;
     await userRepository.save(user);
 
@@ -421,6 +425,10 @@ const updateUserHandler = async (req: AuthRequest, res: Response) => {
     const userRepository = AppDataSource.getRepository(User);
     const user = await userRepository.findOne({ where: { id } });
     if (!user) return res.status(404).json({ message: '用户不存在' });
+
+    if (status && String(status) !== String(user.status) && String(req.user.id) === String(id)) {
+      return res.status(400).json({ message: '不能修改当前登录账户的状态' });
+    }
 
     // 唯一性检查
     if (username && username !== user.username) {

@@ -205,7 +205,7 @@ class LicenseService {
             active: false,
             payload,
             daysRemaining,
-            message: 'Instance ID mismatch',
+            message: '授权中的平台安装 ID 与当前环境不一致，无法使用本授权',
           };
           return;
         }
@@ -217,7 +217,7 @@ class LicenseService {
           active: false, 
           payload, 
           daysRemaining,
-          message: 'License expired' 
+          message: '授权已过期' 
         };
       } else {
         this.currentStatus = { 
@@ -225,7 +225,7 @@ class LicenseService {
           active: true, 
           payload, 
           daysRemaining,
-          message: 'License is valid' 
+          message: '授权有效' 
         };
       }
     } catch (error: any) {
@@ -268,7 +268,12 @@ class LicenseService {
       // 2. 检查是否过期（防止导入已过期的 License）
       const now = Math.floor(Date.now() / 1000);
       if (payload.exp < now) {
-        throw new Error('License is already expired');
+        throw new Error('该授权已过期，无法激活');
+      }
+
+      // 绑定安装 ID 的授权必须在写入前与当前环境一致（避免先覆盖文件再发现无效）
+      if (payload.instanceId && payload.instanceId !== getInstallId()) {
+        throw new Error('授权中的平台安装 ID 与当前环境不一致，无法激活');
       }
 
       // 3. 写入文件
@@ -283,7 +288,8 @@ class LicenseService {
 
       return this.getStatus();
     } catch (error: any) {
-      throw new Error(`Activation failed: ${error.message}`);
+      const msg = String(error?.message || error || '未知错误');
+      throw new Error(msg.startsWith('Activation failed:') ? msg : `激活失败：${msg}`);
     }
   }
 

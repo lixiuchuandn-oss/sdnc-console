@@ -21,13 +21,26 @@ export interface RouteSpec {
   requiredFeature?: string;
   /** @deprecated 标记为废弃的路由 */
   deprecated?: boolean;
-  /** 
+  /**
    * 首页优先级（可选）
    * - 数值越小优先级越高
    * - 只有设置了此字段的路由才会被考虑作为首页候选
    * - 如果未设置，则不会作为首页候选
    */
   homePagePriority?: number;
+  /** 为 true 时：即使 `hidden` 也参与首页顺位（仍不出侧栏） */
+  homePageCandidate?: boolean;
+  /**
+   * 首页顺位：仅当 `hasFeature(feature)` 为 **false** 时本候选才参与（与 `requiredFeature` 不同）
+   * 例：`platform.multi-cloud` → 未开通「多云管理」授权时才可走该首页
+   */
+  homePageOnlyWithoutFeature?: string;
+  /** 首页返回路径时，将 `path` 中的 `:cloudId` 替换为上下文中的收藏池 ID */
+  homePageReplaceParamFrom?: 'favoriteCloudId';
+  /** 首页顺位仅限这些角色（小写）；未设置则不限制 */
+  homePageAllowedRoles?: string[];
+  /** 为 true 时：首页顺位跳过 `requiredActions` 的 RBAC 检查（仍校验授权类字段） */
+  homePageSkipPermissionCheck?: boolean;
   /**
    * `cloudmap-pool`：仅用于 Cloudmap 资源池侧栏与面包屑元数据；
    * 不参与管理端顶栏平台菜单；池内路径仍写入路径→权限映射（`clouds.console:read`）。
@@ -72,6 +85,11 @@ function toCloudmapPoolRouteSpec(
       write,
     },
     requiredFeature: r.requiredFeature,
+    homePagePriority: r.homePagePriority,
+    homePageCandidate: r.homePageCandidate,
+    homePageReplaceParamFrom: r.homePageReplaceParamFrom,
+    homePageAllowedRoles: r.homePageAllowedRoles,
+    homePageOnlyWithoutFeature: r.homePageOnlyWithoutFeature,
   };
 }
 
@@ -81,7 +99,32 @@ export const routeSpecs: RouteSpec[] = [
   // ============================================================================
   // CNMC 平台 (多云管理平台)
   // ============================================================================
-  
+
+  /** 工作台开荒页：首页顺位见 `homePagePriority`；访问控制见 `AdminRoute` */
+  {
+    id: 'admin-welcome',
+    path: '/admin/welcome',
+    element: 'AdminWelcomePage',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '授权管理',
+    title: '工作台',
+    breadcrumbLabel: '工作台',
+    subtitle: '首次进入或尚未开通多云管理时的引导与授权入口。',
+    icon: 'RocketOutlined',
+    hidden: true,
+    homePageCandidate: true,
+    homePagePriority: 0,
+    homePageOnlyWithoutFeature: 'platform.multi-cloud',
+    homePageAllowedRoles: ['super_admin', 'admin'],
+    homePageSkipPermissionCheck: true,
+    requiredActions: {
+      page: 'system.license:read',
+      read: 'system.license:read',
+      write: 'system.license:write',
+    },
+  },
+
   // Group: 资源池管理
   {
     id: 'dashboard',
@@ -119,7 +162,8 @@ export const routeSpecs: RouteSpec[] = [
     subtitle: '统一管理各云资源的接入、状态监控与资源统计，支持连接测试、资源池编辑、批量删除等运维操作。',
     icon: 'CloudUploadOutlined',
     order: 3,
-    requiredFeature: 'platform.default',
+    /** 默认授权不含此项；需「多云管理」授权才开放资源池列表与完整运维入口 */
+    requiredFeature: 'platform.multi-cloud',
     homePagePriority: 2
   },
   /** 与 App.tsx 中 Route 一致；用于路径权限映射（避免落入 /admin/clouds 列表的 resource-pools 权限） */
@@ -156,7 +200,7 @@ export const routeSpecs: RouteSpec[] = [
       read: 'clouds.ecs:read',
       write: 'clouds.ecs:write',
     },
-    requiredFeature: 'platform.default',
+    requiredFeature: 'platform.multi-cloud',
   },
   {
     id: 'paas-security',
@@ -175,7 +219,7 @@ export const routeSpecs: RouteSpec[] = [
       read: 'clouds.resource-pools:read',
       write: 'clouds.resource-pools:write',
     },
-    requiredFeature: 'platform.default',
+    requiredFeature: 'platform.multi-cloud',
   },
   {
     id: 'console',
@@ -196,7 +240,7 @@ export const routeSpecs: RouteSpec[] = [
       write: 'clouds.console:write'
     },
     order: 10,
-    requiredFeature: 'platform.multi-cloud',
+    /** 默认授权即可；不按多云 License 门控，仅 RBAC */
     homePagePriority: 3
   },
 

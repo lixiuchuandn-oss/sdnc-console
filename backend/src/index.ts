@@ -152,7 +152,8 @@ if (fs.existsSync(staticPath)) {
       etag: true,
       setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html')) {
-          res.setHeader('Cache-Control', 'no-cache');
+          // 避免升级后浏览器仍用旧 index 引用旧 main.*.js（部署 zip/tar 后常见问题）
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         }
       },
     }),
@@ -193,7 +194,12 @@ const sendHarvesterImageUploaderTool = (req: express.Request, res: express.Respo
       });
     } else {
       logger.warn('工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:', toolPath);
-      res.status(404).send('File not found');
+      res
+        .status(404)
+        .type('text/plain; charset=utf-8')
+        .send(
+          '未找到 ImageUploader.exe。请将编译产物放到 backend/tools/uploader/，或设置环境变量 CLOUDMAP_UPLOADER_PATH 指向可执行文件绝对路径。源码与构建说明见仓库 tools/uploader/README.txt。',
+        );
     }
   } catch (e: any) {
     logger.error('工具下载异常:', e);

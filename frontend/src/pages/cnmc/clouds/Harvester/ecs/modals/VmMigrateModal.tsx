@@ -286,6 +286,9 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
 
   const vmName = vm?.metadata?.name || '-';
   const vmNs = vm?.metadata?.namespace || '';
+  const vmAlias = String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+  /** 标题区：优先展示业务显示名，并保留 K8s 名称便于对照 */
+  const vmTitleLabel = vmAlias ? `${vmAlias}（${vmName}）` : vmName;
   const currentNode = currentNodeName || vm?.status?.nodeName;
 
   const nodeOptions = nodes
@@ -443,7 +446,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
       <span>热迁移</span>
       <Text type="secondary">
         {vmNs ? `${vmNs} / ` : ''}
-        {vmName}
+        {vmTitleLabel}
       </Text>
     </Space>
   );

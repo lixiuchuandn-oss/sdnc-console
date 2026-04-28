@@ -258,7 +258,9 @@ const BackupsSection: React.FC<Props> = ({
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
       key: 'creationTimestamp', 
-      render: (t: string) => <span>{t}</span>,
+      render: (t: string) => (
+        <span className="text-secondary">{t ? new Date(t).toLocaleString() : '-'}</span>
+      ),
       sorter: (a: any, b: any) => {
         const ta = Date.parse(String(a?.creationTimestamp || ''));
         const tb = Date.parse(String(b?.creationTimestamp || ''));

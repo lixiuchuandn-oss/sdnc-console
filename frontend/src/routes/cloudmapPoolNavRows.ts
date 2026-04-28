@@ -13,6 +13,12 @@ export type CloudmapPoolNavRow = {
   requiredFeature?: string;
   /** 池内页 `requiredActions.page`；缺省为 `clouds.console:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
   poolPageAction?: string;
+  /** 并入管理端默认首页顺位（后端 `resolveAdminDefaultHome` / RouteSpec `homePagePriority`） */
+  homePagePriority?: number;
+  homePageCandidate?: boolean;
+  homePageReplaceParamFrom?: 'favoriteCloudId';
+  homePageAllowedRoles?: string[];
+  homePageOnlyWithoutFeature?: string;
 };
 
 const RH = 'cloudmap_menu_resource_hub';
@@ -29,7 +35,19 @@ const LOGS = 'cloudmap_menu_logs_config';
 
 /** 并入 `routeSpecs` 的唯一表 */
 export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
-  { id: 'cloudmap-pool-rh-overview', pathSuffix: 'resource_hub/overview', title: '总览', order: 10, icon: 'DashboardOutlined', poolNavGroup: '资源总览', poolMenuParentKey: RH },
+  {
+    id: 'cloudmap-pool-rh-overview',
+    pathSuffix: 'resource_hub/overview',
+    title: '总览',
+    order: 10,
+    icon: 'DashboardOutlined',
+    poolNavGroup: '资源总览',
+    poolMenuParentKey: RH,
+    homePagePriority: -1,
+    homePageCandidate: true,
+    homePageReplaceParamFrom: 'favoriteCloudId',
+    homePageAllowedRoles: ['super_admin', 'admin'],
+  },
   { id: 'cloudmap-pool-rh-datacenter', pathSuffix: 'resource_hub/datacenter_topology', title: '机房拓扑', order: 11, icon: 'DashboardOutlined', poolNavGroup: '资源总览', poolMenuParentKey: RH },
   { id: 'cloudmap-pool-rh-network-topo', pathSuffix: 'resource_hub/network_topology', title: '网络拓扑', order: 12, icon: 'DashboardOutlined', poolNavGroup: '资源总览', poolMenuParentKey: RH },
   { id: 'cloudmap-pool-mon-alerts', pathSuffix: 'monitoring_alerts/alerts-list', title: '告警列表', order: 20, icon: 'AlertOutlined', poolNavGroup: '监控告警', poolMenuParentKey: MON },

@@ -143,8 +143,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 更新租户基本信息（名称/描述/状态）
-router.put('/:id', async (req, res) => {
+// 更新租户基本信息（名称/描述/状态）；PATCH 与 PUT 行为一致
+const updateTenantHandler = async (req: any, res: any) => {
   try {
     const { name, description, status } = req.body;
     const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -171,7 +171,9 @@ router.put('/:id', async (req, res) => {
     tenantLog.error('更新租户失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '更新租户失败' });
   }
-});
+};
+router.put('/:id', updateTenantHandler);
+router.patch('/:id', updateTenantHandler);
 
 // 删除租户：
 // - 级联删除租户下所有组织、资源池分配与租户用户

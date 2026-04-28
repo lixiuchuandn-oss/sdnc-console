@@ -9,6 +9,8 @@ import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 import { logger } from '../../utils/logger';
 import { adminMustChangePassword } from '../../services/adminPasswordPolicy';
+import { authMiddleware, AuthRequest } from '../../middleware/auth';
+import { resolveAdminDefaultHome } from '../../services/AdminDefaultHomeService';
 
 const authLog = logger.child('Auth');
 
@@ -236,13 +238,39 @@ router.post('/login', async (req: Request, res: Response) => {
       userPayload.mustChangePassword = adminMustChangePassword(loginUser as User);
     }
 
+    const adminDefaultHome =
+      role === 'sase_device' ? undefined : resolveAdminDefaultHome(permissions, role);
+
     res.json({
       message: '登录成功',
       token,
       user: userPayload,
+      adminDefaultHome,
     });
   } catch (error: any) {
     res.status(500).json({ message: '登录失败', error: error.message });
+  }
+});
+
+/**
+ * 当前令牌下的默认管理端首页路径及顺位过程（`resolveAdminDefaultHome`）。
+ * 需在请求头携带 `Authorization: Bearer <token>`。
+ */
+router.get('/admin-default-home', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const u = req.user as any;
+    if (!u) {
+      return res.status(401).json({ message: '未认证' });
+    }
+    if ((u as any).role === 'sase_device') {
+      return res.status(400).json({ message: '当前身份不适用默认管理端首页' });
+    }
+    const role = u.isTenantUser ? 'tenant' : String(u.role || '').toLowerCase();
+    const permissions = Array.isArray(u.permissions) ? u.permissions : [];
+    const adminDefaultHome = resolveAdminDefaultHome(permissions, role);
+    return res.json(adminDefaultHome);
+  } catch (error: any) {
+    return res.status(500).json({ message: error?.message || '解析失败' });
   }
 });
 

@@ -1059,7 +1059,7 @@ const VmSection: React.FC<Props> = ({
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
 
-    return (vms || []).filter((r: any) => {
+    const list = (vms || []).filter((r: any) => {
       // [筛选] 过滤回收站中的VM（在正常VM视图中不显示）
       const finalizers = r?.metadata?.finalizers || [];
       const labels = r?.metadata?.labels || {};
@@ -1111,6 +1111,11 @@ const VmSection: React.FC<Props> = ({
         return false;
       if (st && sKey !== st) return false;
       return true;
+    });
+    return [...list].sort((a: any, b: any) => {
+      const ta = new Date(a?.metadata?.creationTimestamp || 0).getTime();
+      const tb = new Date(b?.metadata?.creationTimestamp || 0).getTime();
+      return tb - ta;
     });
   }, [
     vms,
@@ -2732,6 +2737,7 @@ const VmSection: React.FC<Props> = ({
           existingVms={vms}
           onCreated={handleInternalQuickVmCreated}
           namespaceRecords={namespaces}
+          workspaceNamespace={nsValue}
           isTenant={isTenant}
         />
       )}

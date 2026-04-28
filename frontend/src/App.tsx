@@ -1,18 +1,15 @@
 import 'antd/dist/reset.css';
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from './contexts/AuthContext';
-import { getDefaultAdminPath, hasPermissionForAction } from './utils/accessMapping';
+import AdminHomeGate from './components/AdminHomeGate';
 import { ConfigProvider, Modal, theme as antdTheme, Spin } from 'antd';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
-import { LicenseProvider, useLicense } from './contexts/LicenseContext';
+import { LicenseProvider } from './contexts/LicenseContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
 import { routeSpecs } from './routes/RouteSpec';
-import { getSystemSetting } from './services/systemApi';
-
 import Login from './pages/auth/Login';
 import AdminLogin from './pages/auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
@@ -71,6 +68,7 @@ const OrgManagePage = lazy(() => import('./pages/cnmc/tenants/OrgManage'));
 const VmCreateWizardModal = lazy(() => import('./pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizardModal'));
 const AiSocPlaceholder = lazy(() => import('./pages/cnsoc/sec-ops/AiSocPlaceholder'));
 const AiSocFrame = lazy(() => import('./pages/cnsoc/sec-ops/AiSocFrame'));
+const AdminWelcomePage = lazy(() => import('./pages/cnmc/onboarding/AdminWelcomePage'));
 
 const LoadingFallback: React.FC = () => (
   <div
@@ -127,7 +125,8 @@ const AppRoutes: React.FC = () => {
         </Route>
 
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
-          <Route index element={<AdminIndex />} />
+          <Route index element={<AdminHomeGate />} />
+          <Route path="welcome" element={<AdminWelcomePage />} />
           <Route path="dashboard" element={<OverviewDashboard />} />
           <Route path="clouds" element={<Clouds />} />
           <Route path="clouds/:poolId/clusters/:clusterId" element={<RancherClusterWorkspace />} />
@@ -228,89 +227,7 @@ const AppRoutes: React.FC = () => {
   );
 };
 
-const AdminIndex: React.FC = () => {
-  const { user, loading } = useAuth();
-  const { hasFeature } = useLicense();
-  const perms = Array.isArray(user?.permissions) ? user!.permissions! : [];
-  const role = String(user?.role || '').toLowerCase();
-  const isAdmin = role === 'super_admin' || role === 'admin';
-  const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
-  const [favoriteReady, setFavoriteReady] = useState(false);
-
-  useEffect(() => {
-    if (!user) return;
-    if (!isAdmin) {
-      setFavoriteCloudId('');
-      setFavoriteReady(true);
-      return;
-    }
-    setFavoriteReady(false);
-    (async () => {
-      const withTimeout = <T,>(p: Promise<T>, ms: number) =>
-        Promise.race([
-          p,
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
-        ]);
-      try {
-        // 避免后端短暂不可用/重启时 getSystemSetting 长挂起，导致本页白屏
-        const fav = await withTimeout(getSystemSetting('favorite.cloudId'), 15000);
-        setFavoriteCloudId(String(fav?.value || '').trim());
-      } catch {
-        setFavoriteCloudId('');
-      } finally {
-        setFavoriteReady(true);
-      }
-    })();
-  }, [user, isAdmin]);
-
-  if (loading || !user || (isAdmin && !favoriteReady)) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '100vh',
-          width: '100%',
-        }}
-      >
-        <Spin
-          size="large"
-          tip={isAdmin && !favoriteReady ? '正在读取默认资源池…' : '加载中…'}
-        />
-      </div>
-    );
-  }
-  if (isAdmin && favoriteCloudId) {
-    const r = String(role || '');
-    const canPoolWithMgmtLicense =
-      hasFeature('platform.default') &&
-      (r === 'super_admin' ||
-        hasPermissionForAction(perms, 'clouds.resource-pools:read') ||
-        hasPermissionForAction(perms, 'clouds:read'));
-    const canPoolHeaderOnly =
-      !hasFeature('platform.default') &&
-      (r === 'super_admin' ||
-        hasPermissionForAction(perms, 'clouds.console:read') ||
-        hasPermissionForAction(perms, 'clouds.console:write'));
-    if (canPoolWithMgmtLicense || canPoolHeaderOnly) {
-      return (
-        <Navigate
-          to={`/admin/clouds/${encodeURIComponent(favoriteCloudId)}/resource_hub/overview`}
-          replace
-        />
-      );
-    }
-    if (hasPermissionForAction(perms, 'clouds.console:read')) {
-      return <Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />;
-    }
-  }
-  const target = getDefaultAdminPath(perms, hasFeature);
-  return <Navigate to={target} replace />;
-};
-
-
-  const AppContent: React.FC = () => {
+const AppContent: React.FC = () => {
   const { settings } = useSettings();
   const isDark = settings.theme === 'dark';
   return (

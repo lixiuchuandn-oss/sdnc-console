@@ -24,6 +24,8 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
     const role = String(user.role || '').toLowerCase();
     // 只有 super_admin 才跳过权限检查，admin 也需要检查权限（与后端保持一致）
     if (role === 'super_admin') return true;
+    // 系统管理员工作台开荒页：不依赖 RBAC 原子权限组合，避免三权等账号无 license 读权限时被挡在管理端外
+    if (pure === '/admin/welcome' && role === 'admin') return true;
     const act = getRequiredActionForPath(pure);
     const perms = Array.isArray(user.permissions) ? user.permissions : [];
     return hasPermissionForAction(perms, act);
@@ -55,14 +57,14 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   })();
 
   if (currentSpec?.requiredFeature && !hasFeature(currentSpec.requiredFeature)) {
-    const needPoolMgmtLicense = currentSpec.requiredFeature === 'platform.default';
-    const canOpenPoolList = hasFeature('platform.default');
+    const needMultiCloudForPools = currentSpec.requiredFeature === 'platform.multi-cloud';
+    const canOpenPoolList = hasFeature('platform.multi-cloud');
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
         <div style={{ fontSize:18, color:'#595959' }}>当前授权未包含该功能</div>
-        {needPoolMgmtLicense && !canOpenPoolList && (
+        {needMultiCloudForPools && !canOpenPoolList && (
           <div style={{ fontSize:14, color:'#8c8c8c', maxWidth:420, textAlign:'center' }}>
-            未开通资源池管理授权时，请使用页面顶部「可用区」选择或接入资源池；完整列表与运维能力需在授权后开放。
+            默认授权不含多云管理；资源池完整列表与运维能力需开通「多云管理」授权。未开通时可使用顶栏「可用区」进入已绑定池内总览（需控制台读权限）。
           </div>
         )}
         <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:12 }}>
@@ -83,7 +85,7 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
         <div style={{ fontSize:18, color:'#595959' }}>当前账号没有访问该页面的权限</div>
         <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:12 }}>
-          {hasFeature('platform.default') && (
+          {hasFeature('platform.multi-cloud') && (
             <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/clouds')}>返回资源池</button>
           )}
           <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={logout}>退出登录</button>

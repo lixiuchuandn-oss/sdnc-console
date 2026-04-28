@@ -18,7 +18,9 @@ import {
   isBuiltInKubeOvnVpc,
   isVpcOvnSubnetTableRow,
 } from '../lib/kubeOvnSubnetConstants';
+import { validateExcludeIpWithinCidr } from '../lib/ipv4CidrValidate';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
 /**
  * 接口定义
@@ -69,11 +71,12 @@ const SafeRead = {
   subnetVpc: (data: any) => data?.vpc || data?.spec?.vpc || KUBE_OVN_PUBLIC_VPC,
   subnetCidr: (data: any) => data?.cidr || data?.spec?.cidrBlock || data?.spec?.cidr || '-',
   subnetNamespace: (data: any) => {
+    const metaNs = data?.namespace || data?.metadata?.namespace;
+    if (metaNs && String(metaNs).trim()) return String(metaNs).trim();
     const provider = data?.provider || data?.spec?.provider;
     if (provider) {
-       const parts = provider.split('.');
-       // 倒数第二个部分通常是 Namespace (处理 Name 中可能包含点的情况)
-       if (parts.length >= 2) return parts[parts.length - 2];
+      const parts = String(provider).split('.');
+      if (parts.length >= 2) return parts[parts.length - 2];
     }
     return '-';
   },
@@ -369,13 +372,22 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         message.error('缺少云平台 ID');
         return;
       }
+      const cidrBlock = String(values.cidrBlock || '').trim();
+      const excludeIps = (values.excludeIps || []).filter((ip: string) => !!String(ip || '').trim());
+      for (const raw of excludeIps) {
+        const err = validateExcludeIpWithinCidr(cidrBlock, String(raw).trim());
+        if (err) {
+          message.error(err);
+          return;
+        }
+      }
       setCreatingSubnet(true);
       
       const payload: any = {
         ...values,
         vpc: targetVpc,
         namespace: targetNamespace,
-        excludeIps: values.excludeIps?.filter((ip: string) => !!ip) || [],
+        excludeIps,
       };
 
       if (isEditSubnet && currentSubnet) {
@@ -427,7 +439,9 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         if (errorMsg.includes('being terminated') || errorMsg.includes('terminating')) {
           message.error(`创建子网失败: 命名空间 ${targetNamespace} 正在被终止，无法创建资源。请选择其他命名空间。`);
         } else {
-          message.error(`${isEditSubnet ? '更新' : '创建'}子网失败: ${errorMsg}`);
+          message.error(
+            `${isEditSubnet ? '更新' : '创建'}子网失败: ${translateKnownApiErrorMessage(errorMsg)}`,
+          );
         }
       }
     } finally {
@@ -541,11 +555,27 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
 
   // --- Columns ---
 
+  /** 展开行内子网表：固定列宽 + 横向滚动，避免「命名空间」与「网关」等列挤压重叠 */
+  const cellEllipsis = (text: string) => (
+    <span
+      style={{
+        display: 'block',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+      title={text || undefined}
+    >
+      {text || '—'}
+    </span>
+  );
+
   // 子网列定义
   const subnetColumns = [
     {
       title: '名称',
       key: 'subnetAlias',
+      width: 200,
       ellipsis: true,
       render: (_: any, r: any) => {
         const alias = String(SafeRead.alias(r) || '').trim();
@@ -563,6 +593,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: 'ID',
       key: 'subnetId',
+      width: 200,
       ellipsis: true,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
@@ -572,26 +603,31 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: 'CIDR',
       key: 'cidr',
+      width: 160,
       render: (_: any, r: any) => <Tag>{SafeRead.subnetCidr(r)}</Tag>,
     },
     {
-      title: 'Namespace',
+      title: '命名空间',
       key: 'namespace',
-      render: (_: any, r: any) => <Tag>{SafeRead.subnetNamespace(r)}</Tag>,
+      width: 140,
+      render: (_: any, r: any) => cellEllipsis(SafeRead.subnetNamespace(r)),
     },
     {
       title: '网关',
       key: 'gateway',
-      render: (_: any, r: any) => SafeRead.subnetGateway(r),
+      width: 160,
+      render: (_: any, r: any) => cellEllipsis(String(SafeRead.subnetGateway(r) || '-')),
     },
     {
       title: '协议',
       key: 'protocol',
+      width: 88,
       render: (_: any, r: any) => SafeRead.subnetProtocol(r),
     },
     {
       title: '类型',
       key: 'type',
+      width: 160,
       render: (_: any, r: any) => {
         const isPrivate = SafeRead.subnetPrivate(r);
         const isNat = SafeRead.subnetNat(r);
@@ -731,6 +767,9 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     return (
       <div style={{ padding: 12,  background: '#EDF0F7', border: '1px solid #e5e5e5', borderRadius: 8 }}>
         <Table
+          className="vpc-expanded-subnet-table"
+          tableLayout="fixed"
+          scroll={{ x: 980 }}
           columns={subnetColumns}
           dataSource={relatedSubnets}
           pagination={false}

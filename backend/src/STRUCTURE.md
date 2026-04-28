@@ -80,7 +80,7 @@
 
 ```
 backend/src/
-├── index.ts                 # 应用入口：Express、路由挂载、静态资源、WebSocket
+├── index.ts                 # 应用入口：Express、路由挂载、静态资源、WebSocket、进程级定时任务（见 §8.1）
 ├── STRUCTURE.md             # 本文件（权威）
 ├── config/                  # 数据库、运行时与系统设置等配置
 ├── constants/               # 权限常量、RBAC 内置角色等
@@ -170,6 +170,19 @@ backend/src/
 HTTP 前缀、是否挂载 `authMiddleware`、静态资源与 SPA 回退、WebSocket 绑定均在 **`index.ts`** 中体现。  
 **新增对外 API 时**：先确认挂载点与鉴权策略，再实现路由模块；**不要将未挂载的 Router 留在孤立文件中**。
 
+### 8.1 进程级后台定时任务
+
+在 **`AppDataSource.initialize()` 成功之后**，`index.ts` 会启动下列 **全局**周期任务（实现上多为 `setInterval`，仓库未使用 `node-cron` 等调度库）。新增同类任务应落在 **`services/`** 并在入口集中启动，避免路由模块 `import` 副作用。
+
+| 服务 | 入口行为 | 默认周期 / 说明 |
+|------|----------|-----------------|
+| `CloudSyncService` | 立即 `startSyncJob()` | 先立刻全量同步一次，之后每 **5 分钟**（`300000` ms，可调 `intervalMs`） |
+| `VRCacheService` | `setTimeout` **10s** 后 `startSyncJob()` | 同上，默认 **5 分钟**；`VRCacheService` 可 `stopSyncJob()` 清理定时器 |
+| `RecycleBinTaskService` | `setTimeout` **15s** 后 `startTasks()` | 启动时立即各跑一次关机扫描与过期清理；之后两条定时器：关机间隔默认 **1 小时**（`harvester.recycle_bin.shutdown_interval_hours`）、清理默认 **24 小时**（`harvester.recycle_bin.cleanup_interval_hours`） |
+| `AuditLogRetentionService` | `setTimeout` **20s** 后 `start()` | 启动后先执行一次保留期清理，再每 **24 小时** 一次；保留天数见系统设置 `audit.logs.retention_days`（服务内默认 180 天） |
+
+**不在此表**：WebSocket（如 VNC ping、Pod exec 心跳）或单次 HTTP 处理内的 `setInterval`，属于连接/请求生命周期，**不是**进程启动时挂载的全局任务。
+
 ---
 
 ## 9. 迁移阶段与验收（渐进）
@@ -224,3 +237,4 @@ npm test
 | 2026-04-13 | 删除已废弃的 `routes/clouds/harvester/old/`（逻辑已由 `handlers/` + provider 承接；此前未纳入 `tsc` 编译） |
 | 2026-04-13 | 新增「待统一事项」：`entities/vRouter` 与 `services/vrouter` 目录大小写备案，延后统一 |
 | 2026-04-27 | 租户管理为独立平台 **TENANTS**：§2/§5 与前端一致；`routes/tenants/` 归入 TENANTS 而非 CNMC |
+| 2026-04-27 | §8.1：补充 `index.ts` 在 DB 就绪后挂载的进程级定时任务清单与约定 |

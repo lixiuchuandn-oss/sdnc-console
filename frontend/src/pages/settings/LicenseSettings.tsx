@@ -13,8 +13,16 @@ const { Text } = Typography;
 
 // 功能特性映射表
 const FEATURE_MAP: Record<string, { label: string; icon: React.ReactNode; desc?: string }> = {
-  'platform.default': { label: '基础平台功能', icon: <AppstoreOutlined />, desc: '包含Cloudmap资源池基础管理能力' },
-  'platform.multi-cloud': { label: '多云管理 (Multi-Cloud)', icon: <CloudServerOutlined />, desc: '支持接入阿里云、华为云等公有云资源' },
+  'platform.default': {
+    label: '基础平台功能',
+    icon: <AppstoreOutlined />,
+    desc: '登录、RBAC 等基础能力；不含资源池完整列表（该能力见「多云管理」）',
+  },
+  'platform.multi-cloud': {
+    label: '多云管理 (Multi-Cloud)',
+    icon: <CloudServerOutlined />,
+    desc: '开放资源池管理列表、公有云接入与跨池运维等完整多云能力',
+  },
   'platform.sdn': { label: 'SDN 控制中心', icon: <SafetyCertificateOutlined />, desc: 'SDN 基础能力标识' },
   'sdn.cascade': { label: 'SDN 级联管理 (Cascade)', icon: <GatewayOutlined />, desc: '支持多层级联与统一管理' },
   'sdn.interconnect': { label: 'SDN 跨域互联 (Interconnect)', icon: <ShareAltOutlined />, desc: '支持 IPsec/SRv6/VXLAN 等互联技术' },

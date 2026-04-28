@@ -135,6 +135,9 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
               if (cloneData && !value) {
                 return Promise.reject(new Error('请输入新卷名称'));
               }
+              if (cloneData && String(value || '').length > 128) {
+                return Promise.reject(new Error('名称过长（最多 128 字符）'));
+              }
               return Promise.resolve();
             },
           },

@@ -20,6 +20,7 @@
 import React, { useEffect, useState } from 'react';
 import { Form, Select, Input, InputNumber, Row, Col, Space, Checkbox, Segmented } from 'antd';
 import { OsIcon } from '../../../../../../../components/OsIcon';
+import { resolveImageListStateKey } from '../../lib/vmImageStatus';
 
 type Props = {
   form: any;
@@ -86,7 +87,8 @@ const ChangeOs: React.FC<Props> = ({
                  const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'] || '';
                  const disp = String(imageName || x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
                  const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
-                 return !isIso; // Always filter out ISOs
+                 if (isIso) return false;
+                 return resolveImageListStateKey(x) === 'ready';
               }).map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
                   const ns = x?.metadata?.namespace || x?.namespace;
