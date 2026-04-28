@@ -172,14 +172,19 @@ const buildCreateUrl = (
  * @param apiPath API 路径
  * @param token 认证 token
  * @param insecure 是否忽略 TLS
+ * @param labelSelector 标签选择器 (可选)
  */
 const getAllNamespacedResources = async (
   base: string,
   apiPath: string,
   token: string,
   insecure: boolean,
+  labelSelector?: string,
 ): Promise<any[]> => {
-  const url = buildK8sUrl(base, apiPath);
+  let url = buildK8sUrl(base, apiPath);
+  if (labelSelector) {
+    url += `?labelSelector=${encodeURIComponent(labelSelector)}`;
+  }
   const result = await getJsonOnce(url, token, insecure, true);
   return result?.items || [];
 };
@@ -193,8 +198,12 @@ const getNamespacedResources = async (
   namespace: string,
   token: string,
   insecure: boolean,
+  labelSelector?: string,
 ): Promise<any[]> => {
-  const url = buildK8sUrl(base, apiPath, namespace);
+  let url = buildK8sUrl(base, apiPath, namespace);
+  if (labelSelector) {
+    url += `?labelSelector=${encodeURIComponent(labelSelector)}`;
+  }
   const result = await getJsonOnce(url, token, insecure, true);
   return result?.items || [];
 };
@@ -317,6 +326,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 Pod 列表
    * GET /:id/resources/harvester/containers/pods
+   * Query: namespace, force, labelSelector
    */
   router.get(
     '/:id/resources/harvester/containers/pods',
@@ -324,7 +334,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, force } = req.query;
+        const { namespace, force, labelSelector } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -335,17 +345,18 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         // 生成缓存 key
-        const cacheKey = `pods:${id}:${namespace || 'all'}`;
+        const cacheKey = `pods:${id}:${namespace || 'all'}:${labelSelector || 'all'}`;
         
         // 尝试从缓存获取（force=true 时跳过缓存）
         let items = force === 'true' ? null : getCached<any[]>(cacheKey);
         
         if (!items) {
           // 缓存未命中或强制刷新，从 K8s API 获取
+          const selector = labelSelector ? String(labelSelector) : undefined;
           if (namespace) {
-            items = await getNamespacedResources(base, '/api/v1/pods', String(namespace), token, insecure);
+            items = await getNamespacedResources(base, '/api/v1/pods', String(namespace), token, insecure, selector);
           } else {
-            items = await getAllNamespacedResources(base, '/api/v1/pods', token, insecure);
+            items = await getAllNamespacedResources(base, '/api/v1/pods', token, insecure, selector);
           }
           
           // 存入缓存
