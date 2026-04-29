@@ -10,6 +10,38 @@ function ipv4ToInt(ip: string): number | null {
   return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
 }
 
+/**
+ * 校验 IPv4 CIDR 文本（如 `192.168.0.0/24`）。空白视为未填写，交由 required 规则；合法返回 null。
+ */
+export function validateIpv4CidrNotation(cidr: string): string | null {
+  const s = String(cidr ?? '').trim();
+  if (!s) return null;
+  const parts = s.split('/');
+  if (parts.length !== 2) {
+    return `目的网段「${s}」格式无效，请使用 IPv4 CIDR，例如 192.168.0.0/24`;
+  }
+  const bits = Number(parts[1]);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) {
+    return `目的网段「${s}」掩码须为 0–32 的整数`;
+  }
+  if (ipv4ToInt(parts[0]) === null) {
+    return `目的网段「${s}」中的网络地址不是有效的 IPv4`;
+  }
+  return null;
+}
+
+/**
+ * 校验单 IPv4 主机地址。空白返回 null；非法返回中文说明。
+ */
+export function validateIpv4HostAddress(ip: string): string | null {
+  const s = String(ip ?? '').trim();
+  if (!s) return null;
+  if (ipv4ToInt(s) === null) {
+    return `下一跳「${s}」不是有效的 IPv4 地址`;
+  }
+  return null;
+}
+
 export function ipv4InCidr(ip: string, cidr: string): boolean {
   const parts = cidr.trim().split('/');
   if (parts.length !== 2) return false;

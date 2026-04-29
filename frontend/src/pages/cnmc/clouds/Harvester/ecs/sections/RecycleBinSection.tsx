@@ -97,7 +97,7 @@ interface Props {
   vms: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: (force?: boolean) => void | Promise<void>;
   namespaces?: any[];
   volumes?: any[];
   images?: any[];
@@ -601,7 +601,7 @@ const RecycleBinSection: React.FC<Props> = ({
     try {
       await restoreHarvesterVm(cloudId, instanceId);
       message.success('恢复成功');
-      onRefresh(true);
+      await Promise.resolve(onRefresh(true));
     } catch (e: any) {
       message.error(`恢复失败: ${e.message}`);
     }
@@ -696,7 +696,7 @@ const RecycleBinSection: React.FC<Props> = ({
         try {
           await forceDeleteHarvesterVm(cloudId, instanceId, shouldDeleteVolumes);
           message.success('虚拟机已彻底删除');
-          onRefresh(true);
+          await Promise.resolve(onRefresh(true));
         } catch (e: any) {
           message.error(`彻底删除失败: ${e.message}`);
         }
@@ -1062,28 +1062,32 @@ const RecycleBinSection: React.FC<Props> = ({
          * 工具栏右侧: 操作按钮
          * 
          * 包含:
-         * 1. 设定清理间隔 - 打开配置对话框，设置自动清理任务的执行间隔
+         * 1. 设定清理间隔 - 管理员/运维可见；租户端不展示
          * 2. 列设置按钮 - 使用 TableColumnSettingsButton 组件，管理列的显示/隐藏
          * 3. 刷新按钮 - 手动刷新数据列表
          */
         <div className="toolbar-actions">
-          <Tooltip title={undefined}>
-            <span>
-              <Button
-                type="primary"
-                disabled={!hasRecycleBinWrite}
-                onClick={() => {
-                  if (!hasRecycleBinWrite) {
-                    message.error('当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）');
-                    return;
-                  }
-                  setConfigModalVisible(true);
-                }}
-              >
-                任务配置
-              </Button>
-            </span>
-          </Tooltip>
+          {!isTenant && (
+            <Tooltip title={undefined}>
+              <span>
+                <Button
+                  type="primary"
+                  disabled={!hasRecycleBinWrite}
+                  onClick={() => {
+                    if (!hasRecycleBinWrite) {
+                      message.error(
+                        '当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）',
+                      );
+                      return;
+                    }
+                    setConfigModalVisible(true);
+                  }}
+                >
+                  任务配置
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Button onClick={() => setRecordsDrawerVisible(true)}>
             回收站记录
           </Button>
@@ -1143,13 +1147,15 @@ const RecycleBinSection: React.FC<Props> = ({
           onRefresh={onRefresh}
         />
       )}
-      <RecycleBinTaskConfigModal
-        open={configModalVisible}
-        onClose={() => setConfigModalVisible(false)}
-        onSuccess={() => {
-          console.log('回收站任务配置已更新');
-        }}
-      />
+      {!isTenant && (
+        <RecycleBinTaskConfigModal
+          open={configModalVisible}
+          onClose={() => setConfigModalVisible(false)}
+          onSuccess={() => {
+            console.log('回收站任务配置已更新');
+          }}
+        />
+      )}
       <Drawer
         title="回收站记录"
         width={1200}

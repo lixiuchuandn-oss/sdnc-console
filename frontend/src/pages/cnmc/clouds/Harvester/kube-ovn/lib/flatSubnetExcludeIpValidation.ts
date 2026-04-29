@@ -85,12 +85,14 @@ export function collectKubeOvnSubnetErrorText(error: unknown): string {
  */
 export function friendlyMessageIfKubeOvnGatewayNotInCidr(
   error: unknown,
-  kind: 'flat' | 'public',
+  kind: 'flat' | 'public' | 'vpc',
 ): string | null {
   const raw = collectKubeOvnSubnetErrorText(error);
   if (!raw) return null;
   if (/gateway\s+[\d.]+\s+is\s+not\s+in\s+cidr/i.test(raw)) {
-    return kind === 'flat' ? '创建扁平子网失败：网关不在CIDR 范围内' : '创建公共子网失败：网关不在CIDR 范围内';
+    if (kind === 'flat') return '创建扁平子网失败：网关不在CIDR 范围内';
+    if (kind === 'vpc') return 'VPC 子网：网关不在 CIDR 范围内';
+    return '创建公共子网失败：网关不在CIDR 范围内';
   }
   return null;
 }

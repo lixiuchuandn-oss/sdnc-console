@@ -198,8 +198,13 @@ function generateDefaultVmAlias() {
   return `vm-${Math.random().toString(36).slice(2, 6)}-${Date.now().toString(36).slice(-4)}`;
 }
 
-/** 选中镜像后回填系统盘容量与启动相关字段（与向导 StepDisks 一致） */
-function applyImageDerivedFieldsToForm(form: any, imageList: any[], imageValue: string) {
+/** 选中镜像后回填系统盘容量与启动相关字段（与向导 StepDisks / ChangeOs 一致；含 ISO 光驱根盘） */
+function applyImageDerivedFieldsToForm(
+  form: any,
+  imageList: any[],
+  imageValue: string,
+  opts?: { isArm64?: boolean },
+) {
   const it = findImageByValue(imageList, String(imageValue));
   const minGi = imageMinDiskGi(it);
   const dispName = String(
@@ -211,14 +216,25 @@ function applyImageDerivedFieldsToForm(form: any, imageList: any[], imageValue: 
       it?.name ||
       '',
   );
-  const isWindows = /windows|win/.test(dispName.toLowerCase());
+  const kind = resolveImageKind(it);
+  const arm = !!opts?.isArm64;
   try {
-    form.setFieldsValue({
-      rootSizeGi: minGi,
-      bootUseEfi: false,
-      rootBus: isWindows ? 'sata' : 'virtio',
-      rootDeviceType: 'disk',
-    });
+    if (kind === 'iso') {
+      form.setFieldsValue({
+        rootSizeGi: minGi,
+        bootUseEfi: false,
+        rootBus: arm ? 'scsi' : 'sata',
+        rootDeviceType: 'cdrom',
+      });
+    } else {
+      const isWindows = /windows|win/.test(dispName.toLowerCase());
+      form.setFieldsValue({
+        rootSizeGi: minGi,
+        bootUseEfi: false,
+        rootBus: isWindows ? 'sata' : 'virtio',
+        rootDeviceType: 'disk',
+      });
+    }
   } catch {
     /* ignore */
   }
@@ -378,17 +394,15 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     return 'default';
   }, [namespaceRecords, isTenant, workspaceNamespace]);
 
-  const diskImages = useMemo(
-    () =>
-      (images || []).filter(
-        (x: any) => resolveImageKind(x) !== 'iso' && isHarvesterVmImageReady(x),
-      ),
+  /** 快速创建：下拉展示集群内所有就绪镜像（含 ISO / qcow2 等各类型）；提交时按类型设置 disk / cdrom 根盘 */
+  const allReadyVmImages = useMemo(
+    () => (images || []).filter((x: any) => isHarvesterVmImageReady(x)),
     [images],
   );
 
   const imageSelectOptions = useMemo(
     () =>
-      diskImages.map((x: any) => {
+      allReadyVmImages.map((x: any) => {
         const name = x?.metadata?.name || x?.name;
         const ns = x?.metadata?.namespace || x?.namespace;
         const disp =
@@ -398,18 +412,24 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
           x?.displayName ||
           name;
+        const isoMark = resolveImageKind(x) === 'iso';
         return {
           label: (
             <Space>
               <OsIcon osName={disp || name} />
-              {disp || '-'}
+              <span>{disp || '-'}</span>
+              {isoMark ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  (ISO)
+                </Typography.Text>
+              ) : null}
             </Space>
           ),
-          labelString: disp || name,
+          labelString: `${disp || name}${isoMark ? ' iso' : ''}`,
           value: ns && name ? `${ns}/${name}` : name,
         };
       }),
-    [diskImages],
+    [allReadyVmImages],
   );
 
   useEffect(() => {
@@ -455,6 +475,11 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     if (firstOk) form.setFieldValue('flatSubnet', firstOk.value);
   }, [open, flatSubnetOptions, form]);
 
+  const isArm64 = useMemo(() => {
+    const arch = String(capabilities?.architecture || '').toLowerCase();
+    return arch === 'arm64' || arch === 'aarch64';
+  }, [capabilities]);
+
   useEffect(() => {
     if (!open || imageSelectOptions.length === 0) return;
     const cur = form.getFieldValue('image');
@@ -465,19 +490,14 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     if (valid) return;
     const firstVal = imageSelectOptions[0].value;
     form.setFieldValue('image', firstVal);
-    applyImageDerivedFieldsToForm(form, images, String(firstVal));
-  }, [open, imageSelectOptions, form, images]);
+    applyImageDerivedFieldsToForm(form, images, String(firstVal), { isArm64 });
+  }, [open, imageSelectOptions, form, images, isArm64]);
 
   const applyPreset = (key: string) => {
     if (key === 'custom') return;
     const p = SPEC_PRESETS.find((x) => x.key === key);
     if (p) form.setFieldsValue({ cpu: p.cpu, memoryGi: p.mem });
   };
-
-  const isArm64 = useMemo(() => {
-    const arch = String(capabilities?.architecture || '').toLowerCase();
-    return arch === 'arm64' || arch === 'aarch64';
-  }, [capabilities]);
 
   const handleOk = async () => {
     try {
@@ -710,7 +730,9 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                 onOpenChange={(o) => {
                   if (o && onReloadImages) onReloadImages();
                 }}
-                onChange={(val) => applyImageDerivedFieldsToForm(form, images, String(val))}
+                onChange={(val) =>
+                  applyImageDerivedFieldsToForm(form, images, String(val), { isArm64 })
+                }
               />
             </Form.Item>
           </Col>

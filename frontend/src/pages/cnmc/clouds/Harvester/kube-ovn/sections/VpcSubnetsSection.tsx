@@ -83,6 +83,13 @@ function collectVmDisplayNamesUsingSubnet(subnetName: string, vms: any[]): strin
     .filter(Boolean) as string[];
 }
 
+function kubeResourceCreatedMs(record: any): number {
+  const raw = record?.createdAt || record?.metadata?.creationTimestamp;
+  if (raw == null || raw === '') return 0;
+  const t = new Date(String(raw)).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 const VpcSubnetsSection: React.FC<Props> = ({
   subnets,
   vpcList = [],
@@ -160,7 +167,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
     const kw = String(keyword || '')
       .toLowerCase()
       .trim();
-    return vpcOnlySubnets.filter((r: any) => {
+    const rows = vpcOnlySubnets.filter((r: any) => {
       const vpcVal = String(r?.vpc || r?.spec?.vpc || KUBE_OVN_PUBLIC_VPC);
       const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
       const cidr = String(r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '').toLowerCase();
@@ -179,6 +186,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       }
       return true;
     });
+    return [...rows].sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
   }, [vpcOnlySubnets, keyword, vpc, nat, dhcp]);
 
   const openCreateVpcSubnetModal = useCallback(() => {

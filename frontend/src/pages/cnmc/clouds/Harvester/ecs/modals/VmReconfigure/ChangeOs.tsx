@@ -8,7 +8,7 @@
  *    - 检索关键词：INIT_DEFAULTS
  * 2) 隐藏字段注册：rootSourceType/storageClassName/changeOsConfirmed/rootDeviceType
  *    - 检索关键词：HIDDEN_FIELDS
- * 3) 镜像选择：含 ISO、下拉展开刷新、选中后回填 storageClassName/容量/设备类型/总线
+ * 3) 镜像选择：仅磁盘类镜像（不含 ISO）；下拉展开刷新，选中后回填 storageClassName/容量/设备类型/总线
  *    - 检索关键词：IMAGE_SELECT
  * 4) 镜像预览：展示（设备类型/卷类型/访问模式/存储类），反映当前会提交/会使用的值
  *    - 检索关键词：IMAGE_PREVIEW
@@ -223,7 +223,9 @@ const ChangeOs: React.FC<Props> = ({
               options={(images || [])
                 .filter((x: any) => {
                   const k = resolveVmImageKind(x);
-                  return k !== 'unknown' && isHarvesterVmImageReady(x);
+                  return (
+                    k !== 'unknown' && k !== 'iso' && isHarvesterVmImageReady(x)
+                  );
                 })
                 .map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
@@ -236,16 +238,11 @@ const ChangeOs: React.FC<Props> = ({
                     x?.spec?.displayName ||
                     x?.displayName ||
                     name;
-                  const isoTag =
-                    resolveVmImageKind(x) === 'iso' ? (
-                      <span style={{ marginLeft: 6, fontSize: 12, color: '#888' }}>(ISO)</span>
-                    ) : null;
                   return {
                     label: (
                       <Space>
                         <OsIcon osName={disp || name} />
                         <span>{disp || '-'}</span>
-                        {isoTag}
                       </Space>
                     ),
                     value: ns && name ? `${ns}/${name}` : name,
@@ -253,7 +250,7 @@ const ChangeOs: React.FC<Props> = ({
                   };
                 })}
               optionFilterProp="labelString"
-              placeholder="请选择镜像（含 ISO）"
+              placeholder="请选择系统盘镜像（ISO 不可用）"
               onOpenChange={(open) => {
                 if (open) reloadImages();
               }}

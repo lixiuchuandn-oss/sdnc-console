@@ -7,6 +7,7 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -17,11 +18,48 @@ import {
   KUBE_OVN_PROVIDER_VPC,
   isBuiltInKubeOvnVpc,
   isVpcOvnSubnetTableRow,
+  TOWER_ALIAS_ANNOTATION,
 } from '../lib/kubeOvnSubnetConstants';
-import { validateExcludeIpWithinCidr } from '../lib/ipv4CidrValidate';
+import {
+  findExcludeIpUsedByAnyVm,
+  friendlyMessageIfKubeOvnGatewayNotInCidr,
+  isIpv4GatewayInCidr,
+  validateFlatSubnetExcludeIpsLocal,
+} from '../lib/flatSubnetExcludeIpValidation';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
+import { validateIpv4CidrNotation, validateIpv4HostAddress } from '../lib/ipv4CidrValidate';
+
+function normalizeSubnetCidr(c: unknown): string {
+  return String(c ?? '')
+    .trim()
+    .replace(/\s+/g, '');
+}
+
+function collectVmDisplayNamesUsingSubnet(subnetName: string, vms: any[]): string[] {
+  const sn = String(subnetName || '').trim();
+  if (!sn) return [];
+  const targetRef = `default/${sn}`.toLowerCase();
+  const tail = `/${sn.toLowerCase()}`;
+  return vms
+    .filter((vm: any) => Array.isArray(vm.networks))
+    .filter((vm: any) =>
+      vm.networks.some((n: string) => {
+        const s = String(n || '').toLowerCase();
+        const base = s.includes('@') ? s.split('@')[0] : s;
+        return base === targetRef || base.endsWith(tail);
+      }),
+    )
+    .map(
+      (vm: any) =>
+        vm?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ||
+        vm.InstanceName ||
+        vm.name ||
+        vm.metadata?.name,
+    )
+    .filter(Boolean) as string[];
+}
 
 /**
  * 接口定义
@@ -89,6 +127,14 @@ const SafeRead = {
     data?.allowDhcp ?? data?.spec?.enableDHCP ?? data?.spec?.enableDhcp ?? true,
   subnetExcludeIps: (data: any) => data?.excludeIps || data?.spec?.excludeIps || [],
 };
+
+/** API / K8s 对象创建时间 → 毫秒（无或无法解析者为 0），用于列表按创建时间倒序 */
+function kubeResourceCreatedMs(record: any): number {
+  const raw = SafeRead.creationTimestamp(record);
+  if (raw == null || raw === '') return 0;
+  const t = new Date(String(raw)).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
 
 const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
 const SUBNET_FINALIZER = 'tower.io/managed';
@@ -297,7 +343,30 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，silent=true 跳过后端全量同步）
       onRefresh?.(true, true, { vpcsAll: vpcsQueryAll });
     } catch (error: any) {
-      message.error(`${isEditVpc ? '更新' : '创建'} VPC 失败: ${error.message}`);
+      // 表单校验失败时不弹全局错误（字段下已有提示）
+      if (Array.isArray(error?.errorFields) && error.errorFields.length > 0) {
+        return;
+      }
+      const label = isEditVpc ? '更新' : '创建';
+      const rawFull = String(error?.message ?? error ?? '').trim();
+      let detail = rawFull;
+      let prev = '';
+      while (prev !== detail) {
+        prev = detail;
+        detail = detail.replace(/^((创建|更新)\s+VPC\s*失败\s*[:：]?\s*)+/i, '').trim();
+      }
+      detail = translateKnownApiErrorMessage(detail) || detail;
+      if (!detail) detail = '未知错误';
+      // 占位或非法静态路由常见于 400，给可读说明并避免重复的「xxx 失败: xxx 失败」
+      const looksBare400 =
+        /^(HTTP\s*400)$/i.test(detail) ||
+        /^request failed with status code 400$/i.test(detail) ||
+        /^(400)(\s|$)/.test(detail);
+      if (looksBare400) {
+        detail =
+          '请求参数不合法（400）。请检查静态路由：目的网段须为 IPv4 CIDR（例如 192.168.0.0/24），下一跳须为合法 IPv4 地址（例如 10.0.0.1）。';
+      }
+      message.error(`${label} VPC 失败：${detail}`);
     } finally {
       setCreating(false);
     }
@@ -374,16 +443,64 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         return;
       }
       const cidrBlock = String(values.cidrBlock || '').trim();
-      const excludeIps = (values.excludeIps || []).filter((ip: string) => !!String(ip || '').trim());
-      for (const raw of excludeIps) {
-        const err = validateExcludeIpWithinCidr(cidrBlock, String(raw).trim());
-        if (err) {
-          message.error(err);
+      const excludeIpsRaw = Array.isArray(values.excludeIps) ? values.excludeIps : [];
+      const excludeIps = excludeIpsRaw.map((ip: unknown) => String(ip || '').trim()).filter(Boolean);
+
+      const cidrForExclude =
+        isEditSubnet && currentSubnet ? String(SafeRead.subnetCidr(currentSubnet) || '').trim() : cidrBlock;
+
+      const excludeLocal = validateFlatSubnetExcludeIpsLocal(cidrForExclude, excludeIps);
+      if (!excludeLocal.ok) {
+        message.error(excludeLocal.message);
+        return;
+      }
+
+      if (!isEditSubnet) {
+        const gwTrim = String(values.gateway ?? '').trim();
+        const gwInCidr = isIpv4GatewayInCidr(gwTrim, cidrBlock);
+        if (gwInCidr === false) {
+          message.error('创建VPC子网失败：网关不在CIDR 范围内');
           return;
         }
       }
+
+      let vmList: any[] = [];
+      try {
+        const ecsRes: any = await fetchCloudProviderEcs(cloudId, true);
+        vmList = Array.isArray(ecsRes?.data)
+          ? ecsRes.data
+          : Array.isArray(ecsRes)
+            ? ecsRes
+            : [];
+      } catch {
+        /* ignore */
+      }
+      const busy = findExcludeIpUsedByAnyVm(excludeIps, vmList);
+      if (busy) {
+        message.error(
+          `${isEditSubnet ? '更新' : '创建'}失败：排除 IP「${busy.ip}」已被虚拟机「${busy.vmLabel}」占用，无法加入排除列表。`,
+        );
+        return;
+      }
+
+      if (isEditSubnet && currentSubnet) {
+        const subnetCrName = SafeRead.name(currentSubnet);
+        const usingVms =
+          vmList.length > 0 ? collectVmDisplayNamesUsingSubnet(String(subnetCrName), vmList) : [];
+        if (usingVms.length > 0) {
+          const prevCidr = normalizeSubnetCidr(SafeRead.subnetCidr(currentSubnet));
+          const nextCidr = normalizeSubnetCidr(cidrBlock);
+          if (nextCidr !== prevCidr) {
+            message.error(
+              `当前子网 ${subnetCrName} 正在被 ${usingVms.slice(0, 5).join('、')}${usingVms.length > 5 ? ' 等 VM 使用' : ''}，不能修改 CIDR 网段。可先改虚拟机网络或释放占用后再调整网段。`,
+            );
+            return;
+          }
+        }
+      }
+
       setCreatingSubnet(true);
-      
+
       const payload: any = {
         ...values,
         vpc: targetVpc,
@@ -434,6 +551,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       if (error.message?.includes('正在被终止')) {
         // 错误已在创建 NAD 时显示，这里不再重复显示
       } else {
+        const friendlyGw = friendlyMessageIfKubeOvnGatewayNotInCidr(error, 'vpc');
+        if (friendlyGw) {
+          message.error(friendlyGw);
+        } else {
         // 其他错误，显示详细错误信息
         const errorMsg = error.message || '未知错误';
         // 检查是否是命名空间终止相关的错误
@@ -443,6 +564,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           message.error(
             `${isEditSubnet ? '更新' : '创建'}子网失败: ${translateKnownApiErrorMessage(errorMsg)}`,
           );
+        }
         }
       }
     } finally {
@@ -562,7 +684,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       });
     }
 
-    return filtered;
+    return [...filtered].sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
   }, [vpcs, searchText, namespaceFilter]);
 
   // 详情抽屉
@@ -784,11 +906,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     const vpcName = SafeRead.name(record);
     
     // 关联子网：同 VPC + tower.io/ovn-network-scope=vpc（无注解时兼容 subnet-type=vpc），避免展开行混入扁平域子网
-    const relatedSubnets = subnets.filter((s) => {
-      if (!isVpcOvnSubnetTableRow(s)) return false;
-      const targetVpc = SafeRead.subnetVpc(s);
-      return String(targetVpc).trim() === String(vpcName).trim();
-    });
+    const relatedSubnets = subnets
+      .filter((s) => {
+        if (!isVpcOvnSubnetTableRow(s)) return false;
+        const targetVpc = SafeRead.subnetVpc(s);
+        return String(targetVpc).trim() === String(vpcName).trim();
+      })
+      .sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
 
     if (relatedSubnets.length === 0) {
       return <div>暂无关联子网</div>;
@@ -934,18 +1058,22 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
               { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]+$/, message: '请输入有效的 CIDR 格式 (e.g. 10.0.1.0/24)' }
             ]}
           >
-            <Input placeholder="e.g. 10.0.1.0/24" />
+            <Input placeholder="e.g. 10.0.1.0/24" disabled={isEditSubnet} />
           </Form.Item>
 
           <Form.Item
             name="gateway"
             label="网关"
-            rules={[
-              { required: true, message: '请输入网关 IP' },
-              { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入有效的 IP 地址' }
-            ]}
+            rules={
+              isEditSubnet
+                ? []
+                : [
+                    { required: true, message: '请输入网关 IP' },
+                    { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入有效的 IP 地址' },
+                  ]
+            }
           >
-            <Input placeholder="e.g. 10.0.1.1" />
+            <Input placeholder="e.g. 10.0.1.1" disabled={isEditSubnet} />
           </Form.Item>
 
           <Form.Item
@@ -1070,18 +1198,34 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
                       <Form.Item
                         {...restField}
                         name={[name, 'cidr']}
-                        rules={[{ required: true, message: '请输入 CIDR' }]}
+                        rules={[
+                          { required: true, message: '请输入目的网段 CIDR', whitespace: true },
+                          {
+                            validator: async (_: unknown, value: unknown) => {
+                              const err = validateIpv4CidrNotation(String(value ?? ''));
+                              if (err) throw new Error(err);
+                            },
+                          },
+                        ]}
                         style={{ width: 200, marginBottom: 0 }}
                       >
-                        <Input placeholder="CIDR (e.g. 192.168.0.0/24)" />
+                        <Input placeholder="例如 192.168.0.0/24" />
                       </Form.Item>
                       <Form.Item
                         {...restField}
                         name={[name, 'nextHopIP']}
-                        rules={[{ required: true, message: '请输入下一跳 IP' }]}
+                        rules={[
+                          { required: true, message: '请输入下一跳 IP', whitespace: true },
+                          {
+                            validator: async (_: unknown, value: unknown) => {
+                              const err = validateIpv4HostAddress(String(value ?? ''));
+                              if (err) throw new Error(err);
+                            },
+                          },
+                        ]}
                         style={{ width: 200, marginBottom: 0 }}
                       >
-                        <Input placeholder="Next Hop IP" />
+                        <Input placeholder="例如 10.0.0.1" />
                       </Form.Item>
                       <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
                     </Space>

@@ -546,10 +546,10 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           loading={resourceLoading.ecs}
           cloudId={cloudId}
           isTenant={isTenant}
-          onRefresh={() => {
-            apiPost(`/api/clouds/${cloudId}/sync`)
-              .catch(console.warn)
-              .finally(() => void refreshVms());
+          onRefresh={(force?: boolean) => {
+            // 必须与 useCloudmapPoolEcs.refreshVms(force) 对齐：recover/彻底删除等需 skipCache，
+            // 否则 fetchCloudProviderEcs(cloudId, false) 易返回缓存，列表不更新。
+            void refreshVms(force !== false);
           }}
           namespaces={harvesterNamespaces}
           volumes={harvesterVolumes}
