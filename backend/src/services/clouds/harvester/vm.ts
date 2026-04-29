@@ -2,6 +2,7 @@ import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson, requestOnce } from './utils';
 import { getHarvesterSettingValue } from './cluster';
 import { createHarvesterSecret, createHarvesterPVCVolume, deleteHarvesterPVC, updatePVCSpec } from './storage';
+import { buildHarvesterVmRowIps } from './vmIpMerge';
 
 /**
  * ==============================================================================
@@ -356,30 +357,18 @@ export const listHarvesterVMsStandard = async ({
       status = 'Migrating';
     }
     
-    // IP/Mac resolution (Merge VM Status & VMI Status)
-    const ips: string[] = [];
+    const ips = buildHarvesterVmRowIps(vm, vmi);
+
     const macs: string[] = [];
-    const addIp = (s: any) => {
-      const v = String(s || '').trim();
-      if (v && !ips.includes(v)) ips.push(v);
-    };
-    
-    // From VM status
-    if (vm?.status?.vmIp) addIp(vm.status.vmIp);
     if (Array.isArray(vm?.status?.interfaces)) {
       vm.status.interfaces.forEach((i: any) => {
-        addIp(i.ipAddress || i.ip);
         if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
       });
     }
-    // From VMI status (More real-time)
-    if (vmi) {
-      if (Array.isArray(vmi.status?.interfaces)) {
-        vmi.status.interfaces.forEach((i: any) => {
-          if (i.ipAddress || i.ip) addIp(i.ipAddress || i.ip);
-          if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
-        });
-      }
+    if (vmi && Array.isArray(vmi.status?.interfaces)) {
+      vmi.status.interfaces.forEach((i: any) => {
+        if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
+      });
     }
 
     // Node

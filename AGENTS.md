@@ -217,6 +217,9 @@ npm run test     # 运行测试
 - `/api/clouds/aliyun/*`: 阿里云资源
 - `/api/clouds/huawei/*`: 华为云资源
 - `/api/clouds/harvester/*`: Harvester/KubeVirt 资源
+- `/api/clouds/{id}/monitoring/storage-nodes`: Longhorn 节点（Steve `longhorn.io.nodes`，Cloudmap「分布式存储」）
+- `/api/clouds/{id}/monitoring/ceph-clusters`: Rook `CephCluster` 列表（Steve 优先 `cephclusters.ceph.rook.io`，回退 `ceph.rook.io.cephclusters`；Cloudmap「Ceph 存储」）
+- `/api/clouds/{id}/monitoring/ceph-resources`: Rook Ceph 聚合（`CephCluster`、`CephBlockPool`、`CephFilesystem`、`CephObjectStore` 四类 Steve 列表）
 
 **Harvester 容器管理**:
 - `/api/clouds/{id}/resources/harvester/containers/workloads`: 工作负载
