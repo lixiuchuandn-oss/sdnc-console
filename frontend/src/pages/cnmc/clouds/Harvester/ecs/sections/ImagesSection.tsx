@@ -57,6 +57,25 @@ import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { resolveImageListStateKey } from '../lib/vmImageStatus';
 
 /**
+ * Harvester 镜像底层文件占用：status.size / spec.size / 导入中 downloadedBytes；
+ * Tower 列表 `listHarvesterImagesStandard` 还会在顶层镜像对象上回填 `size`。
+ */
+function getImageActualFileBytes(r: any): number | undefined {
+  const raw = r?.status?.size ?? r?.spec?.size ?? r?.status?.downloadedBytes;
+  let n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n > 0) return n;
+  const topSize = r?.size;
+  n =
+    typeof topSize === 'number'
+      ? topSize
+      : typeof topSize === 'string'
+        ? Number(topSize)
+        : NaN;
+  if (Number.isFinite(n) && n > 0) return n;
+  return undefined;
+}
+
+/**
  * 组件入参说明
  * - cloudId: 当前云 ID，用于调用 Harvester 镜像相关 API
  * - images: 镜像列表（可能为原始对象或带 rawData 的包装对象）
@@ -251,6 +270,7 @@ const ImagesSection: React.FC<Props> = ({
     const gb = n / (1024 * 1024 * 1024);
     return `${gb.toFixed(2)}GB`;
   };
+
   const expandOsKeywords = useCallback((val: string) => {
     const v = (val || '').toLowerCase();
     const groups = getOsKeywordGroups();
@@ -439,20 +459,22 @@ const ImagesSection: React.FC<Props> = ({
         return <Tag color={color}>{text}</Tag>;
     } },
     { title: '虚拟大小', key: 'vsize', render: (_:any, r:any)=> {
-        // 优先使用 virtualSize，如果为 0 或不存在，则使用 size
-        const vsize = r?.virtualSize ?? r?.status?.virtualSize;
-        const size = r?.size ?? r?.status?.size;
-        if (vsize && vsize > 0) {
-          return gbText(vsize);
-        } else if (size) {
-          // size 可能是字符串格式，需要转换
-          const sizeNum = typeof size === 'string' ? Number(size) : size;
-          if (sizeNum && sizeNum > 0) {
-            return gbText(sizeNum);
-          }
-        }
-        return '-';
+        const vsize =
+          r?.virtualSize ??
+          r?.status?.virtualSize ??
+          r?.spec?.virtualSize;
+        if (vsize == null || vsize === '') return '-';
+        const num = typeof vsize === 'string' ? Number(vsize) : vsize;
+        return isFinite(num) && Number(num) > 0 ? gbText(num) : '-';
       } },
+    {
+      title: '实际大小',
+      key: 'actual_size',
+      render: (_: any, r: any) => {
+        const bytes = getImageActualFileBytes(r);
+        return bytes != null ? gbText(bytes) : '-';
+      },
+    },
     ...(hasOpsView
       ? [
           {

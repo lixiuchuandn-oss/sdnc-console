@@ -841,13 +841,13 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
-  // 加载 EIP 列表
-  const loadEips = async (cloudId?: string) => {
+  // 加载 EIP 列表；force=true 时跳过服务端/客户端缓存（删除、创建成功后需立即反映）
+  const loadEips = async (cloudId?: string, forceRefresh = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchCloudProviderOvnEips(cid, false, 'legacy', mergeTenantPublicScope(false));
+      const res = await fetchCloudProviderOvnEips(cid, !!forceRefresh, 'legacy', mergeTenantPublicScope(false));
       setEips(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadEips error:', e);
@@ -858,15 +858,16 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载 SNAT 规则（同时拉 EIP，创建 SNAT 下拉依赖公网 IP 列表；仅进 SNAT 页时此前可能未请求过 EIP）
-  const loadSnatRules = async (cloudId?: string) => {
+  const loadSnatRules = async (cloudId?: string, forceRefresh = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
+    const fr = !!forceRefresh;
     setLoading(true);
     try {
       const mergePublicNs = mergeTenantPublicScope(false);
       const [snatRes, eipRes] = await Promise.all([
-        fetchCloudProviderOvnSnatRules(cid, false, false, 'legacy', mergePublicNs),
-        fetchCloudProviderOvnEips(cid, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnSnatRules(cid, fr, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnEips(cid, fr, 'legacy', mergePublicNs),
       ]);
       setSnatRules(snatRes?.data?.items || []);
       setEips(eipRes?.data?.items || []);
@@ -880,15 +881,16 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载 DNAT 规则（同上，创建 DNAT 需选公网 IP）
-  const loadDnatRules = async (cloudId?: string) => {
+  const loadDnatRules = async (cloudId?: string, forceRefresh = false, silent = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
-    setLoading(true);
+    const fr = !!forceRefresh;
+    if (!silent) setLoading(true);
     try {
       const mergePublicNs = mergeTenantPublicScope(false);
       const [dnatRes, eipRes] = await Promise.all([
-        fetchCloudProviderOvnDnatRules(cid, false, false, 'legacy', mergePublicNs),
-        fetchCloudProviderOvnEips(cid, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnDnatRules(cid, fr, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnEips(cid, fr, 'legacy', mergePublicNs),
       ]);
       setDnatRules(dnatRes?.data?.items || []);
       setEips(eipRes?.data?.items || []);
@@ -897,7 +899,7 @@ const CloudConsolePage: React.FC = () => {
       setDnatRules([]);
       setEips([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1670,9 +1672,10 @@ const CloudConsolePage: React.FC = () => {
                   setActiveCategory={setHarvesterCategory}
                   activeResource={harvesterResource}
                   setActiveResource={setHarvesterResource}
-                  onRefreshVms={() => {
-                    loadEcs(currentCloudId, true);
-                    loadPvcs(currentCloudId, true);
+                  onRefreshVms={async (force?: boolean) => {
+                    const f = force !== false;
+                    await loadEcs(currentCloudId, f);
+                    await loadPvcs(currentCloudId, f);
                   }}
                   onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) =>
                     loadStorageClasses(currentCloudId, !!force, !!skipSync)
@@ -1687,9 +1690,11 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                   onRefreshGpus={() => loadGpus(currentCloudId)}
                   onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
-                  onRefreshEips={() => loadEips(currentCloudId)}
-                  onRefreshSnatRules={() => loadSnatRules(currentCloudId)}
-                  onRefreshDnatRules={() => loadDnatRules(currentCloudId)}
+                  onRefreshEips={(force?: boolean) => loadEips(currentCloudId, force !== false)}
+                  onRefreshSnatRules={(force?: boolean) => loadSnatRules(currentCloudId, force !== false)}
+                  onRefreshDnatRules={(force?: boolean, silent?: boolean) =>
+                    loadDnatRules(currentCloudId, force !== false, silent === true)
+                  }
                   onOpenReconfigure={(vm) => {
                     setReconfVm(vm);
                     setReconfVisible(true);

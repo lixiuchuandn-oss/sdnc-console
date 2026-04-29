@@ -2153,50 +2153,97 @@ const VmSection: React.FC<Props> = ({
       {
         title: "存储卷",
         key: "volumes",
-        ellipsis: false,
+        /** 定宽 + minWidth:0，避免长标签在 scroll.x+固定列布局下溢出盖住「创建时间」 */
+        width: 280,
         render: (_: any, r: any) => {
           const details = SafeRead.volumeDetails(r);
           if (!details || details.length === 0) return "-";
 
-          const content = (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {details.map((v: any, i: number) =>
-                v.kind !== "cloudinit" ? (
-                  <Tooltip title={v.claimName || v.name} key={i}>
+          const badges = details
+            .map((v: any, i: number) => {
+              if (v.kind === "cloudinit") return null;
+              const line = [
+                v.kind === "system"
+                  ? "系统卷"
+                  : v.kind === "data"
+                    ? "数据卷"
+                    : "",
+                formatStorageSize(v.capacityBytes),
+                v.phase,
+                v.isResizing
+                  ? "Resizing"
+                  : v.isFsPending
+                    ? "FileSystemResizePending"
+                    : "",
+              ]
+                .filter(Boolean)
+                .join(" | ");
+              return { line, claim: v.claimName || v.name, kind: v.kind, key: i };
+            })
+            .filter(Boolean) as {
+            line: string;
+            claim: string;
+            kind: string;
+            key: number;
+          }[];
+
+          const tip = badges.map((b) => b.line).join("\n");
+
+          return (
+            <Tooltip title={tip}>
+              <div
+                style={{
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    minWidth: 0,
+                    rowGap: 6,
+                  }}
+                >
+                  {badges.map((b) => (
                     <span
-                      className={`std-badge ${v.kind === "data" ? "std-badge-success" : "std-badge-info"}`}
+                      key={b.key}
+                      className={`std-badge ${b.kind === "data" ? "std-badge-success" : "std-badge-info"}`}
+                      style={{
+                        maxWidth: "100%",
+                        display: "inline-block",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        verticalAlign: "top",
+                        boxSizing: "border-box",
+                      }}
+                      title={b.claim}
                     >
-                      {[
-                        v.kind === "system"
-                          ? "系统卷"
-                          : v.kind === "data"
-                            ? "数据卷"
-                            : "",
-                        formatStorageSize(v.capacityBytes),
-                        v.phase,
-                        v.isResizing
-                          ? "Resizing"
-                          : v.isFsPending
-                            ? "FileSystemResizePending"
-                            : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" | ")}
+                      {b.line}
                     </span>
-                  </Tooltip>
-                ) : null,
-              )}
-            </div>
+                  ))}
+                </div>
+              </div>
+            </Tooltip>
           );
-          return content;
         },
       },
       {
         title: "创建时间",
         key: "created",
+        width: 176,
+        ellipsis: true,
         render: (_: any, r: any) => {
           const t = SafeRead.creationTimestamp(r);
-          return t ? new Date(t).toLocaleString() : "-";
+          const s = t ? new Date(t).toLocaleString() : "-";
+          return (
+            <span className="std-time" style={{ whiteSpace: "nowrap" }}>
+              {s}
+            </span>
+          );
         },
       },
       {

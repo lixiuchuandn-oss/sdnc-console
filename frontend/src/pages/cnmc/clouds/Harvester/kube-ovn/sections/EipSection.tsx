@@ -18,8 +18,10 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
-
-const TOWER_IO_VPC_ANNOTATION = 'tower.io/vpc';
+import {
+  buildPublicSubnetNameToVpcNameMap,
+  getOvnEipBoundVpcName,
+} from '../lib/kubeOvnEipVpcHelpers';
 
 function ipv4ToInt(ip: string): number | null {
   const m = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -181,22 +183,10 @@ export const EipSection: React.FC<EipSectionProps> = ({
     return m;
   }, [externalSubnets]);
 
-  const publicSubnetToVpcName = useMemo(() => {
-    const m: Record<string, string> = {};
-    if (networkScope !== 'vpc') return m;
-    for (const v of vpcs || []) {
-      const vpcName = String(v?.name || v?.metadata?.name || '').trim();
-      if (!vpcName || isBuiltInKubeOvnVpc(vpcName)) continue;
-      const extraRaw = (v?.spec?.extraExternalSubnets || v?.extraExternalSubnets || []) as any[];
-      const extra = (Array.isArray(extraRaw) ? extraRaw : [])
-        .map((x) => String(x ?? '').trim())
-        .filter(Boolean);
-      for (const subnetName of extra) {
-        if (!m[subnetName]) m[subnetName] = vpcName;
-      }
-    }
-    return m;
-  }, [networkScope, vpcs]);
+  const publicSubnetToVpcName = useMemo(
+    () => buildPublicSubnetNameToVpcNameMap(vpcs ?? []),
+    [vpcs],
+  );
 
   // 筛选数据
   const filteredData = useMemo(() => {
@@ -377,9 +367,10 @@ export const EipSection: React.FC<EipSectionProps> = ({
             title: 'VPC',
             key: 'vpc',
             render: (_: any, r: any) => {
-              const ext = String(r?.spec?.externalSubnet ?? '').trim();
-              const annVpc = String(r?.metadata?.annotations?.[TOWER_IO_VPC_ANNOTATION] ?? '').trim();
-              const vpcName = annVpc || (ext ? publicSubnetToVpcName[ext] : '');
+              const vpcName =
+                networkScope !== 'vpc'
+                  ? ''
+                  : getOvnEipBoundVpcName(r, publicSubnetToVpcName);
               const display = vpcName ? (vpcDisplayByName[vpcName] || vpcName) : '-';
               return <span title={vpcName || undefined}>{display}</span>;
             },

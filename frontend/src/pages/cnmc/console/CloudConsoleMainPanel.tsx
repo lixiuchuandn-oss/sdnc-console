@@ -76,7 +76,7 @@ interface Props {
   nodeValue?: string;
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
-  onRefreshVms: () => void;
+  onRefreshVms: (force?: boolean) => void | Promise<void>;
   onOpenReconfigure: (vm: any) => void;
   onStart: (iid: string) => void;
   onStop: (iid: string) => void;
@@ -97,9 +97,9 @@ interface Props {
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
   onRefreshVpcs?: () => void;
-  onRefreshEips?: () => void;
-  onRefreshSnatRules?: () => void;
-  onRefreshDnatRules?: () => void;
+  onRefreshEips?: (force?: boolean) => void;
+  onRefreshSnatRules?: (force?: boolean) => void;
+  onRefreshDnatRules?: (force?: boolean, silent?: boolean) => void;
 
   bordered?: boolean;
   showYaml?: boolean;

@@ -11,6 +11,12 @@ import {
   isBuiltInKubeOvnVpc,
   isVpcOvnSubnetTableRow,
 } from '../lib/kubeOvnSubnetConstants';
+import {
+  findExcludeIpUsedByAnyVm,
+  friendlyMessageIfKubeOvnGatewayNotInCidr,
+  isIpv4GatewayInCidr,
+  validateFlatSubnetExcludeIpsLocal,
+} from '../lib/flatSubnetExcludeIpValidation';
 
 const TOWER_VM_ALIAS = TOWER_ALIAS_ANNOTATION;
 
@@ -167,29 +173,74 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
       }
       if (!cloudId) return;
       if (submitInFlightRef.current) return;
-      submitInFlightRef.current = true;
-      const excludeIpsParsed =
+
+      const excludeIpsParsed: string[] =
         values.excludeIps && typeof values.excludeIps === 'string'
           ? String(values.excludeIps)
               .split(/[\n,]/)
               .map((s: string) => s.trim())
               .filter(Boolean)
-          : values.excludeIps;
+          : Array.isArray(values.excludeIps)
+            ? values.excludeIps
+            : [];
 
+      const cidrTrim = normalizeSubnetCidr(values.cidrBlock);
+      const gwTrim = String(values.gateway ?? '').trim();
+      const cidrForExclude =
+        isEditMode && editingRecord
+          ? normalizeSubnetCidr(
+              editingRecord.cidr ||
+                editingRecord.cidrBlock ||
+                editingRecord.spec?.cidrBlock ||
+                editingRecord.spec?.cidr,
+            )
+          : cidrTrim;
+
+      const excludeLocal = validateFlatSubnetExcludeIpsLocal(cidrForExclude, excludeIpsParsed);
+      if (!excludeLocal.ok) {
+        message.error(excludeLocal.message);
+        return;
+      }
+
+      if (!isEditMode) {
+        const gwInCidr = isIpv4GatewayInCidr(gwTrim, cidrTrim);
+        if (gwInCidr === false) {
+          message.error('创建VPC子网失败：网关不在CIDR 范围内');
+          return;
+        }
+      }
+
+      let vmList: any[] = [];
+      try {
+        const ecsRes: any = await fetchCloudProviderEcs(cloudId, true);
+        vmList = Array.isArray(ecsRes?.data)
+          ? ecsRes.data
+          : Array.isArray(ecsRes)
+            ? ecsRes
+            : [];
+      } catch {
+        /* ignore */
+      }
+
+      const busy = findExcludeIpUsedByAnyVm(excludeIpsParsed, vmList);
+      if (busy) {
+        message.error(
+          `${isEditMode ? '更新' : '创建'}失败：排除 IP「${busy.ip}」已被虚拟机「${busy.vmLabel}」占用，无法加入排除列表。`,
+        );
+        return;
+      }
+
+      submitInFlightRef.current = true;
       try {
         setSubmitting(true);
 
         if (isEditMode && editingRecord) {
           const name = editingRecord.name || editingRecord.metadata?.name;
 
-          let usingVms: string[] = [];
-          try {
-            const ecsRes = await fetchCloudProviderEcs(cloudId, true);
-            const vms: any[] = ecsRes?.data || ecsRes || [];
-            usingVms = collectVmDisplayNamesUsingSubnet(String(name), vms);
-          } catch {
-            /* ignore */
-          }
+          const usingVms =
+            vmList.length > 0
+              ? collectVmDisplayNamesUsingSubnet(String(name), vmList)
+              : [];
 
           if (usingVms.length > 0) {
             const prevCidr = normalizeSubnetCidr(
@@ -255,6 +306,11 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
       } catch (e: any) {
         console.error(e);
         if (e?.errorFields) throw e;
+        const friendlyGw = friendlyMessageIfKubeOvnGatewayNotInCidr(e, 'vpc');
+        if (friendlyGw) {
+          message.error(friendlyGw);
+          throw e;
+        }
         message.error(formatSubnetMutationError(e, isEditMode));
         throw e;
       } finally {

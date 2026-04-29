@@ -20,7 +20,11 @@ router.post('/login', async (req: Request, res: Response) => {
       if (!user) return res.status(401).json({ message: '用户名或密码错误' });
       const ok = await bcrypt.compare(password, user.password);
       if (!ok) return res.status(401).json({ message: '用户名或密码错误' });
-      if (user.status !== 'active') return res.status(401).json({ message: '账户已被禁用' });
+      if (user.status !== 'active')
+        return res.status(401).json({
+          message:
+            '该账号已被停用，暂时无法登录。如需解禁请联系租户管理员。',
+        });
 
       // 登录阶段不执行VR绑定；统一由 /api/vr-config/bind 接口完成绑定
 

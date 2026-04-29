@@ -124,9 +124,26 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ message: '用户名或密码错误' });
     }
 
-    // 状态检查
+    // 状态检查（与「用户名或密码错误」区分开，前端将原样展示 message）
     if (loginUser.status && loginUser.status !== 'active') {
-      return res.status(401).json({ message: '账户已被禁用' });
+      const st = String(loginUser.status).toLowerCase();
+      let lockedMessage: string;
+      if (st === 'suspended') {
+        lockedMessage =
+          role === 'tenant'
+            ? '该账号已被锁定，暂时无法登录。如需解禁请联系租户管理员。'
+            : '该账号已被锁定，暂时无法登录。如需解禁请联系系统管理员。';
+      } else {
+        lockedMessage =
+          role === 'tenant'
+            ? '该账号已被停用，暂时无法登录。如需解禁请联系租户管理员。'
+            : '该账号已被停用，暂时无法登录。如需解禁请联系系统管理员。';
+      }
+      return res.status(401).json({
+        message: lockedMessage,
+        code: 'USER_NOT_ACTIVE',
+        status: st,
+      });
     }
 
     // 更新最后登录
