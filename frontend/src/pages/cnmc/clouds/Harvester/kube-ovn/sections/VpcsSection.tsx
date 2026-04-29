@@ -595,7 +595,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '名称',
       key: 'subnetAlias',
-      width: 200,
+      fixed: 'left' as const,
       ellipsis: true,
       render: (_: any, r: any) => {
         const alias = String(SafeRead.alias(r) || '').trim();
@@ -613,7 +613,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: 'ID',
       key: 'subnetId',
-      width: 200,
       ellipsis: true,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
@@ -623,31 +622,26 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: 'CIDR',
       key: 'cidr',
-      width: 160,
       render: (_: any, r: any) => <Tag>{SafeRead.subnetCidr(r)}</Tag>,
     },
     {
       title: '命名空间',
       key: 'namespace',
-      width: 140,
       render: (_: any, r: any) => cellEllipsis(SafeRead.subnetNamespace(r)),
     },
     {
       title: '网关',
       key: 'gateway',
-      width: 160,
       render: (_: any, r: any) => cellEllipsis(String(SafeRead.subnetGateway(r) || '-')),
     },
     {
       title: '协议',
       key: 'protocol',
-      width: 88,
       render: (_: any, r: any) => SafeRead.subnetProtocol(r),
     },
     {
       title: '类型',
       key: 'type',
-      width: 160,
       render: (_: any, r: any) => {
         const isPrivate = SafeRead.subnetPrivate(r);
         const isNat = SafeRead.subnetNat(r);
@@ -663,7 +657,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '已用 / 总数',
       key: 'usage',
-      width: 120,
       render: (_: any, record: any) => {
         const st = record.status || {};
         const available =
@@ -681,7 +674,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const items = [
@@ -700,6 +692,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '名称',
       key: 'vpcAlias',
+      fixed: 'left' as const,
       ellipsis: true,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
@@ -767,7 +760,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
@@ -805,9 +797,9 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     return (
       <div style={{ padding: 12,  background: '#EDF0F7', border: '1px solid #e5e5e5', borderRadius: 8 }}>
         <Table
-          className="vpc-expanded-subnet-table"
+          className="std-table vpc-expanded-subnet-table"
           tableLayout="fixed"
-          scroll={{ x: 980 }}
+          scroll={{ x: true }}
           columns={subnetColumns}
           dataSource={relatedSubnets}
           pagination={false}
@@ -892,8 +884,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         columns={tableColumns}
         dataSource={dataSource}
         loading={loading}
+        scroll={{ x: true }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         expandable={{

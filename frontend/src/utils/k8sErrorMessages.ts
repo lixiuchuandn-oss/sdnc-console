@@ -109,13 +109,23 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return 'mac地址和已有虚拟机重复';
   }
 
-  // --- Harvester / Multus：虚拟机网卡引用的 NetworkAttachmentDefinition（NAD）不存在（新建 VPC/子网或扁平子网未同步时常见）---
+  // --- Harvester / Multus：NAD 不存在；完整 JSON 或 admission webhook 文案也匹配 ---
+  if (
+    lower.includes('admission webhook') &&
+    lower.includes('denied the request') &&
+    (lower.includes('network-attachment-definitions') ||
+      lower.includes('networkattachmentdefinition') ||
+      lower.includes('network-attachment')) &&
+    lower.includes('not found')
+  ) {
+    return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在子网/网络已就绪后重新选择网卡。';
+  }
   if (
     (lower.includes('network-attachment-definitions') ||
       lower.includes('networkattachmentdefinitions.k8s.cni.cncf.io')) &&
     lower.includes('not found')
   ) {
-    return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在网络页面刷新子网后重新选择网卡。';
+    return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在子网/网络已就绪后重新选择网卡。';
   }
 
   return msg;

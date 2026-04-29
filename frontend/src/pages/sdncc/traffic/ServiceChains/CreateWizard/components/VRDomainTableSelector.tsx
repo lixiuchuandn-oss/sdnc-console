@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { formatCategoryLabel } from '../../../../../../utils/securityDomainKind';
 import { Input, Table, Tag, Button } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 
@@ -19,7 +20,7 @@ const VRDomainTableSelector = ({ value, onChange, dataSource, showActions, onAdd
     const lower = effectiveKeyword.toLowerCase();
     return (dataSource || []).filter((item: any) => 
       (item.name && item.name.toLowerCase().includes(lower)) ||
-      (item.subType && item.subType.toLowerCase().includes(lower)) ||
+      (item.category && String(item.category).toLowerCase().includes(lower)) ||
       (item.provider && item.provider.toLowerCase().includes(lower)) ||
       (item.region && item.region.toLowerCase().includes(lower)) ||
       (item.cidr && item.cidr.toLowerCase().includes(lower)) ||
@@ -84,10 +85,13 @@ const VRDomainTableSelector = ({ value, onChange, dataSource, showActions, onAdd
         columns={[
           { title: '名称', dataIndex: 'name', width: 120, ellipsis: true },
           { 
-            title: '分类', 
-            dataIndex: 'subType', 
-            width: 140,
-            render: (text: any) => text ? <Tag>{text}</Tag> : '-' 
+            title: '类型', 
+            dataIndex: 'category', 
+            width: 160,
+            render: (_: any, r: any) => {
+              const t = formatCategoryLabel(r?.category);
+              return t ? <Tag>{t}</Tag> : '-';
+            },
           },
           { 
             title: '云厂商/地域', 

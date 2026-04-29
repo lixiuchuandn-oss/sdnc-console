@@ -10,6 +10,7 @@ import {
   DesktopOutlined,
   HomeOutlined,
   LoginOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import {
@@ -30,6 +31,7 @@ import CsmVswClusterSection from './sections/CsmVswClusterSection';
 import CsmPoolAssetsSection from './sections/CsmPoolAssetsSection';
 import CsmVirtualElementsSection from './sections/CsmVirtualElementsSection';
 import CsmElementGroupsSection from './sections/CsmElementGroupsSection';
+import CsmPoolPoliciesSection from './sections/CsmPoolPoliciesSection';
 
 export interface CloudItem {
   id: string;
@@ -270,7 +272,7 @@ const CloudDetailCsm: React.FC<{
             label: (
               <Space size={4}>
                 <DesktopOutlined />
-                <span>资产列表</span>
+                <span>防护对象</span>
                 <span>({assets.length})</span>
               </Space>
             ),
@@ -327,7 +329,17 @@ const CloudDetailCsm: React.FC<{
                 <span>({serviceChains.length})</span>
               </Space>
             ),
-              children: <CsmServiceChainSection cloudId={cloudId} showLog={false} />,
+            children: <CsmServiceChainSection cloudId={cloudId} showLog={false} />,
+          },
+          {
+            key: 'policies',
+            label: (
+              <Space size={4}>
+                <FileTextOutlined />
+                <span>阻断策略</span>
+              </Space>
+            ),
+            children: <CsmPoolPoliciesSection cloudId={cloudId} />,
           },
         ]}
       />

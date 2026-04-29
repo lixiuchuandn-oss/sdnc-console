@@ -282,20 +282,19 @@ const PodDetailDrawer: React.FC<{
             children: (
               <Table
                 className="std-table"
+                scroll={{ x: true }}
                 bordered={false}
-                scroll={{ x: 'max-content' }}
                 dataSource={containers.map((c: any, idx: number) => ({
                   ...c,
                   key: idx,
                   status: containerStatuses.find((s: any) => s.name === c.name),
                 }))}
                 columns={[
-                  { title: '名称', dataIndex: 'name', width: 150 },
+                  { title: '名称', dataIndex: 'name' },
                   { title: '镜像', dataIndex: 'image', ellipsis: true },
                   {
                     title: '状态',
                     key: 'status',
-                    width: 100,
                     render: (_: any, record: any) => {
                       const s = record.status;
                       if (!s) return '-';
@@ -308,7 +307,6 @@ const PodDetailDrawer: React.FC<{
                   {
                     title: '重启次数',
                     key: 'restartCount',
-                    width: 100,
                     render: (_: any, record: any) => record.status?.restartCount || 0,
                   },
                 ]}
@@ -322,16 +320,16 @@ const PodDetailDrawer: React.FC<{
             children: (
               <Table
                 className="std-table"
+                scroll={{ x: true }}
                 bordered={false}
-                scroll={{ x: 'max-content' }}
                 loading={eventsLoading}
                 dataSource={events.map((e: any, idx: number) => ({ ...e, key: idx }))}
                 columns={[
-                  { title: '类型', dataIndex: 'type', width: 80, render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag> },
-                  { title: '原因', dataIndex: 'reason', width: 130 },
+                  { title: '类型', dataIndex: 'type', render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag> },
+                  { title: '原因', dataIndex: 'reason' },
                   { title: '消息', dataIndex: 'message', ellipsis: true, render: (v: string) => <span style={{ whiteSpace: 'pre-wrap' }}>{v || '-'}</span> },
-                  { title: '次数', dataIndex: 'count', width: 60, render: (v: number) => v || 1 },
-                  { title: '时间', dataIndex: 'lastTimestamp', width: 160, render: formatTime },
+                  { title: '次数', dataIndex: 'count', render: (v: number) => v || 1 },
+                  { title: '时间', dataIndex: 'lastTimestamp', render: formatTime },
                 ]}
                 pagination={false}
                 locale={{ emptyText: '暂无事件' }}
@@ -344,15 +342,15 @@ const PodDetailDrawer: React.FC<{
             children: (
               <Table
                 className="std-table"
+                scroll={{ x: true }}
                 bordered={false}
-                scroll={{ x: 'max-content' }}
                 dataSource={(status.conditions || []).map((c: any, idx: number) => ({ ...c, key: idx }))}
                 columns={[
-                  { title: '类型', dataIndex: 'type', width: 200 },
-                  { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag> },
-                  { title: '原因', dataIndex: 'reason', width: 150 },
+                  { title: '类型', dataIndex: 'type' },
+                  { title: '状态', dataIndex: 'status', render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag> },
+                  { title: '原因', dataIndex: 'reason' },
                   { title: '消息', dataIndex: 'message', ellipsis: true },
-                  { title: '时间', dataIndex: 'lastTransitionTime', width: 180, render: formatTime },
+                  { title: '时间', dataIndex: 'lastTransitionTime', render: formatTime },
                 ]}
                 pagination={false}
               />
@@ -441,20 +439,19 @@ const PodDetailTabs: React.FC<{
           children: (
             <Table
               className="std-table"
+              scroll={{ x: true }}
               bordered={false}
-              scroll={{ x: 'max-content' }}
               dataSource={containers.map((c: any, idx: number) => ({
                 ...c,
                 key: idx,
                 status: containerStatuses.find((s: any) => s.name === c.name),
               }))}
               columns={[
-                { title: '名称', dataIndex: 'name', width: 150 },
+                { title: '名称', dataIndex: 'name' },
                 { title: '镜像', dataIndex: 'image', ellipsis: true },
                 {
                   title: '状态',
                   key: 'status',
-                  width: 100,
                   render: (_: any, record: any) => {
                     const s = record.status;
                     if (!s) return '-';
@@ -467,7 +464,6 @@ const PodDetailTabs: React.FC<{
                 {
                   title: '重启次数',
                   key: 'restartCount',
-                  width: 100,
                   render: (_: any, record: any) => record.status?.restartCount || 0,
                 },
               ]}
@@ -481,16 +477,16 @@ const PodDetailTabs: React.FC<{
           children: (
             <Table
               className="std-table"
+              scroll={{ x: true }}
               bordered={false}
-              scroll={{ x: 'max-content' }}
               loading={eventsLoading}
               dataSource={events.map((e: any, idx: number) => ({ ...e, key: idx }))}
               columns={[
-                { title: '类型', dataIndex: 'type', width: 80, render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag> },
-                { title: '原因', dataIndex: 'reason', width: 130 },
+                { title: '类型', dataIndex: 'type', render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag> },
+                { title: '原因', dataIndex: 'reason' },
                 { title: '消息', dataIndex: 'message', ellipsis: true, render: (v: string) => <span style={{ whiteSpace: 'pre-wrap' }}>{v || '-'}</span> },
-                { title: '次数', dataIndex: 'count', width: 60, render: (v: number) => v || 1 },
-                { title: '时间', dataIndex: 'lastTimestamp', width: 160, render: formatTime },
+                { title: '次数', dataIndex: 'count', render: (v: number) => v || 1 },
+                { title: '时间', dataIndex: 'lastTimestamp', render: formatTime },
               ]}
               pagination={false}
               locale={{ emptyText: '暂无事件' }}
@@ -503,15 +499,15 @@ const PodDetailTabs: React.FC<{
           children: (
             <Table
               className="std-table"
+              scroll={{ x: true }}
               bordered={false}
-              scroll={{ x: 'max-content' }}
               dataSource={(status.conditions || []).map((c: any, idx: number) => ({ ...c, key: idx }))}
               columns={[
-                { title: '类型', dataIndex: 'type', width: 200 },
-                { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag> },
-                { title: '原因', dataIndex: 'reason', width: 150 },
+                { title: '类型', dataIndex: 'type' },
+                { title: '状态', dataIndex: 'status', render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag> },
+                { title: '原因', dataIndex: 'reason' },
                 { title: '消息', dataIndex: 'message', ellipsis: true },
-                { title: '时间', dataIndex: 'lastTransitionTime', width: 180, render: formatTime },
+                { title: '时间', dataIndex: 'lastTransitionTime', render: formatTime },
               ]}
               pagination={false}
             />

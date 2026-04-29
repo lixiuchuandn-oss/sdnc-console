@@ -666,7 +666,6 @@ const RecycleBinSection: React.FC<Props> = ({
     modal.confirm({
       title: '确认彻底删除',
       icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
-      width: 500,
       content: (
         <div style={{ marginTop: 16 }}>
           <p>确定要彻底删除虚拟机 <b>{name}</b> 吗？</p>
@@ -941,7 +940,6 @@ const RecycleBinSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const hasAnyPermission = hasRecycleBinWrite;
@@ -1099,14 +1097,13 @@ const RecycleBinSection: React.FC<Props> = ({
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredVms}
         columns={displayColumns}
         loading={loading}
         rowKey={(r: any) => SafeRead.uid(r)}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         locale={{

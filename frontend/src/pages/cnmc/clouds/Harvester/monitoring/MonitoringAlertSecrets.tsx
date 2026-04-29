@@ -274,14 +274,13 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   );
 
   const allColumns: ColumnsType<SecretRow> = [
-    { title: '密钥名称', dataIndex: 'name', key: 'name', width: 200, ellipsis: true },
+    { title: '密钥名称', dataIndex: 'name', key: 'name', fixed: 'left', ellipsis: true },
     {
       title: '数据键',
       key: 'dataKeys',
-      width: 120,
       render: (_, r) => (r.data && typeof r.data === 'object' ? Object.keys(r.data).join(', ') : '-'),
     },
-    { title: '操作', key: 'action', width: 80, fixed: 'right', onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: renderAction },
+    { title: '操作', key: 'action', fixed: 'right', render: renderAction },
   ];
 
   // 列显示设置（需要在 allColumns 定义之后）
@@ -342,7 +341,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           loading={loading}
           columns={columns}
           dataSource={filteredSecrets}
-          scroll={{ x: 500 }}
+          scroll={{ x: true }}
           pagination={{ showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, pageSizeOptions: ['20', '50', '100'] }}
         />
       </PageDetailSection>

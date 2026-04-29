@@ -197,6 +197,8 @@ const CsmPoolAssetsSection: React.FC<Props> = ({ cloudId, assets, loading, onRef
   return (
     <>
       <PageDetailSection
+        showHeaderTitle
+        titleLevel={5}
         asCard={false}
         autoStyleInputs={false}
         toolbarLeft={(

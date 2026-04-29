@@ -256,7 +256,8 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
    * - IPAM 列使用 Tag 高亮展示地址分配模式
    */
   const columns = [
-    { 
+    {
+      fixed: 'left' as const,
       title: 'SLB名称', 
       dataIndex: 'name', 
       key: 'name', 
@@ -275,7 +276,6 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     {
       title: '操作',
       key: 'action',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
@@ -363,13 +363,13 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         rowSelection={rowSelection}

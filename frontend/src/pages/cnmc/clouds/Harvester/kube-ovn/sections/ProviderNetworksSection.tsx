@@ -416,6 +416,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
       dataIndex: 'displayAlias',
       key: 'displayAlias',
       ellipsis: true,
+      fixed: 'left' as const,
       render: (text: string, record: any) => {
         const s = String(text || '').trim();
         if (!s) return <span style={{ color: '#ccc' }}>—</span>;
@@ -445,7 +446,6 @@ const ProviderNetworksSection: React.FC<Props> = ({
       dataIndex: 'name',
       key: 'name',
       ellipsis: true,
-      width: 140,
       render: (text: string) => <span>{text ?? '—'}</span>,
     },
     { title: '默认接口', dataIndex: 'defaultInterface', key: 'defaultInterface', render: (text: string) => <Tag>{text}</Tag> },
@@ -508,8 +508,8 @@ const ProviderNetworksSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'action',
-      width: 88,
       align: 'left' as const,
+      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
         if (canReadProviderNetwork) {
@@ -667,8 +667,9 @@ const ProviderNetworksSection: React.FC<Props> = ({
             if (customFilter === 'no_custom' && (d.customInterfaces || []).length > 0) return false;
             return true;
           })}
+        scroll={{ x: true }}
         columns={tableColumns}
-        pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
+        pagination={{ showTotal: (total) => `共 ${total} 条` }}
       />
 
       <Modal

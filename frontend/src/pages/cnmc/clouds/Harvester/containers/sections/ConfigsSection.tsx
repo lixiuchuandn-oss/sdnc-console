@@ -660,7 +660,6 @@ const ConfigMapTable: React.FC<{
     {
       title: '名称',
       key: 'name',
-      width: 180,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -691,7 +690,6 @@ const ConfigMapTable: React.FC<{
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -699,14 +697,12 @@ const ConfigMapTable: React.FC<{
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 140,
       ellipsis: true,
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
     {
       title: '数据条目',
       key: 'dataCount',
-      width: 100,
       render: (_: any, record: any) => {
         const dataKeys = Object.keys(record?.data || {});
         const binaryKeys = Object.keys(record?.binaryData || {});
@@ -716,20 +712,17 @@ const ConfigMapTable: React.FC<{
     {
       title: '运行时长',
       key: 'age',
-      width: 100,
       render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
     },
     {
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'creationTimestamp',
-      width: 180,
       render: formatTime,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 150,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record, 'configmap');
         const systemHint = getSystemResourceProtectionHint(record, 'configmap');
@@ -831,14 +824,13 @@ const ConfigMapTable: React.FC<{
       
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         rowSelection={{
@@ -1088,7 +1080,6 @@ const SecretTable: React.FC<{
     {
       title: '名称',
       key: 'name',
-      width: 180,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -1119,7 +1110,6 @@ const SecretTable: React.FC<{
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -1127,7 +1117,6 @@ const SecretTable: React.FC<{
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 140,
       ellipsis: true,
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
@@ -1135,33 +1124,28 @@ const SecretTable: React.FC<{
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      width: 180,
       ellipsis: true,
       render: renderSecretType,
     },
     {
       title: '数据条目',
       key: 'dataCount',
-      width: 100,
       render: (_: any, record: any) => Object.keys(record?.data || {}).length,
     },
     {
       title: '运行时长',
       key: 'age',
-      width: 100,
       render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
     },
     {
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'creationTimestamp',
-      width: 180,
       render: formatTime,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 150,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record, 'secret');
         const systemHint = getSystemResourceProtectionHint(record, 'secret');
@@ -1274,14 +1258,13 @@ const SecretTable: React.FC<{
       
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         rowSelection={{

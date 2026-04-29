@@ -848,6 +848,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
           </>
         }
       >
+        {/* 仅本页：首列左固定 + 操作列右固定，须搭配 scroll.x（与 VmSection 冻结列一致） */}
         <Table
           className="std-table"
           bordered={false}
@@ -855,7 +856,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
           loading={configLoading}
           columns={displayColumns}
           dataSource={filteredList}
-          scroll={{ x: 1400 }}
+          scroll={{ x: true }}
           pagination={{
             pageSize: 10,
             showSizeChanger: true,

@@ -312,13 +312,11 @@ const PDBDetailDrawer: React.FC<{
               { 
                 title: '类型', 
                 dataIndex: 'type', 
-                width: 150,
                 render: (v: string) => formatConditionType(v),
               },
               { 
                 title: '状态', 
                 dataIndex: 'status', 
-                width: 70,
                 render: (v: string) => (
                   <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>
                 )
@@ -326,7 +324,6 @@ const PDBDetailDrawer: React.FC<{
               { 
                 title: '原因', 
                 dataIndex: 'reason', 
-                width: 150,
                 render: (v: string) => formatConditionReason(v),
               },
               { 
@@ -337,7 +334,6 @@ const PDBDetailDrawer: React.FC<{
               { 
                 title: '最后更新', 
                 dataIndex: 'lastTransitionTime', 
-                width: 150,
                 render: formatTime,
               },
             ]}
@@ -542,7 +538,6 @@ const PDBSection: React.FC<Props> = ({
       title: '名称',
       key: 'name',
       fixed: 'left' as const,
-      width: 180,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -580,7 +575,6 @@ const PDBSection: React.FC<Props> = ({
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -588,12 +582,10 @@ const PDBSection: React.FC<Props> = ({
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 120,
     },
     {
       title: '选择器',
       key: 'selector',
-      width: 180,
       render: (_: any, record: any) => {
         const matchLabels = record?.spec?.selector?.matchLabels || {};
         const entries = Object.entries(matchLabels);
@@ -677,7 +669,6 @@ const PDBSection: React.FC<Props> = ({
     {
       title: '最小可用',
       key: 'minAvailable',
-      width: 100,
       render: (_: any, record: any) => (
         <Tag color="blue">{formatIntOrString(record?.spec?.minAvailable)}</Tag>
       ),
@@ -685,7 +676,6 @@ const PDBSection: React.FC<Props> = ({
     {
       title: '最大不可用',
       key: 'maxUnavailable',
-      width: 110,
       render: (_: any, record: any) => (
         <Tag color="orange">{formatIntOrString(record?.spec?.maxUnavailable)}</Tag>
       ),
@@ -693,13 +683,11 @@ const PDBSection: React.FC<Props> = ({
     {
       title: '状态',
       key: 'status',
-      width: 100,
       render: (_: any, record: any) => renderPDBStatus(record),
     },
     {
       title: '健康状态',
       key: 'healthy',
-      width: 120,
       render: (_: any, record: any) => {
         const status = record?.status || {};
         const healthy = status.currentHealthy || 0;
@@ -716,7 +704,6 @@ const PDBSection: React.FC<Props> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'created',
-      width: 160,
       render: (v: string) => (
         <Tooltip title={formatTime(v)}>
           {calculateAge(v)}
@@ -727,7 +714,6 @@ const PDBSection: React.FC<Props> = ({
       title: '操作',
       key: 'actions',
       fixed: 'right' as const,
-      width: 80,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown
           items={[
@@ -871,7 +857,6 @@ const PDBSection: React.FC<Props> = ({
           dataSource={filteredData}
           loading={loading}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
           scroll={pdbTableScroll}

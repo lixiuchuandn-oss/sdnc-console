@@ -111,6 +111,8 @@ const PEWizard: React.FC = () => {
   const [activeLanTabKey, setActiveLanTabKey] = useState<string>('0');
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+  /** 用户点击「刷新设备回读」后仅下一帧合并里跳过对右翼 form 的覆盖，左翼 mirror 仍更新 */
+  const skipEditFormOnNextDeviceReadRef = useRef(false);
 
   const watchWanDev = Form.useWatch('wanDev', form);
   const watchLanConfigs = Form.useWatch('lanConfigs', form);
@@ -224,10 +226,14 @@ const PEWizard: React.FC = () => {
 
   const prevWanDevRef = useRef<string | undefined>(undefined);
   const hadVr3InfoRef = useRef(false);
+  /** 公网口名未变、仅 vr3 因刷新被替换时，不覆盖 wanIpv4/6 */
+  const prevVr3InfoForPeWanRef = useRef<any>(null);
 
   useEffect(() => {
     hadVr3InfoRef.current = false;
     prevWanDevRef.current = undefined;
+    prevVr3InfoForPeWanRef.current = null;
+    skipEditFormOnNextDeviceReadRef.current = false;
   }, [uuid]);
 
   /** 聚合 /api/vr-instances/:uuid；公网口网卡 IP 仅 VR3 回填 */
@@ -242,16 +248,20 @@ const PEWizard: React.FC = () => {
         setVr3Info(null);
         return;
       }
+      let savedCfg: any = {};
+      try {
+        savedCfg = (await getVRConfig(uuid)) || {};
+      } catch (e) {
+        console.warn('获取本地配置失败', e);
+      }
+      if (!silent) {
+        skipEditFormOnNextDeviceReadRef.current = true;
+      }
       const unique = collectIfaceNamesForSelect(merged as Record<string, any>);
       if (unique.length) setIfaceOptions(unique);
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
-      try {
-        const saved = await getVRConfig(uuid);
-        setExistingCfg(saved || {});
-      } catch (e) {
-        console.warn('获取本地配置失败', e);
-      }
+      setExistingCfg(savedCfg);
       if (!silent) message.success('设备数据已刷新');
     } catch (err) {
       console.warn('[PEWizard] fetchVrCacheMerged:', (err as any)?.message || err);
@@ -294,6 +304,10 @@ const PEWizard: React.FC = () => {
 
     // vr2_info 为 null/undefined 时 csmctlCfg 为空：不能从设备推断，但仍应回填 Tower 已保存的 pe 元数据
     if (!csmctlCfg) {
+      if (skipEditFormOnNextDeviceReadRef.current) {
+        skipEditFormOnNextDeviceReadRef.current = false;
+        return;
+      }
       applySavedPeToForm();
       return;
     }
@@ -453,6 +467,11 @@ const PEWizard: React.FC = () => {
     const fullInferredForMirror = { ...mirrorInferredTop, lanConfigs: lanConfigsForMirror };
     mirrorForm.setFieldsValue(fullInferredForMirror);
 
+    if (skipEditFormOnNextDeviceReadRef.current) {
+      skipEditFormOnNextDeviceReadRef.current = false;
+      return;
+    }
+
     if (existingCfg && existingCfg.pe && Object.keys(existingCfg.pe).length > 0) {
       const pe = existingCfg.pe;
       const pcfg = getPePublicConfig(pe);
@@ -497,10 +516,18 @@ const PEWizard: React.FC = () => {
 
   const watchedWanDev = Form.useWatch('wanDev', form);
   useEffect(() => {
+    const wan = watchedWanDev ? String(watchedWanDev) : '';
+    if (prevVr3InfoForPeWanRef.current != null && vr3Info != null) {
+      const nicUnchanged = (prevWanDevRef.current ?? '') === wan;
+      if (nicUnchanged) {
+        prevVr3InfoForPeWanRef.current = vr3Info;
+        return;
+      }
+    }
+    if (vr3Info) prevVr3InfoForPeWanRef.current = vr3Info;
+
     const vr3JustArrived = !!vr3Info && !hadVr3InfoRef.current;
     if (vr3Info) hadVr3InfoRef.current = true;
-
-    const wan = watchedWanDev ? String(watchedWanDev) : '';
     if (wan) {
       const nicChanged = prevWanDevRef.current !== wan;
       prevWanDevRef.current = wan || undefined;

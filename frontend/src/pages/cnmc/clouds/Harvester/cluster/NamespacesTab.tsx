@@ -383,7 +383,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
@@ -504,12 +503,12 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       {/* === 主表格 === */}
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r: any) => r?.metadata?.name || r?.name || Math.random().toString(36).slice(2)}
         loading={loading}
         dataSource={filtered}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         columns={tableColumns}

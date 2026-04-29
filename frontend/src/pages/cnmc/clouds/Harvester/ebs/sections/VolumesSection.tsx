@@ -934,7 +934,8 @@ const VolumesSection: React.FC<Props> = ({
     { 
       title: '云盘名称 (PVC)', 
       dataIndex: 'name',
-      key: 'name', 
+      key: 'name',
+      fixed: 'left' as const,
       render: (_: string, r: VolumeView) => {
         const vm = SafeRead.attachedVm(r);
         const isSystemDisk = checkIsSystemDisk(r, vm);
@@ -1061,7 +1062,6 @@ const VolumesSection: React.FC<Props> = ({
     { 
       title: '操作', 
       key: 'actions', 
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: VolumeView) => {
         const vm = SafeRead.attachedVm(r);
@@ -1318,6 +1318,7 @@ const VolumesSection: React.FC<Props> = ({
       {/* 主内容：云盘列表 */}
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey="key"
         rowSelection={{
@@ -1327,9 +1328,7 @@ const VolumesSection: React.FC<Props> = ({
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

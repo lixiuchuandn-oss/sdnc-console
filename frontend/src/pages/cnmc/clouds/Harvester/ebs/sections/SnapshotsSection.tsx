@@ -379,7 +379,6 @@ const SnapshotsSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'action',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
@@ -509,7 +508,6 @@ const SnapshotsSection: React.FC<Props> = ({
           onChange: setSelectedRowKeys,
         }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

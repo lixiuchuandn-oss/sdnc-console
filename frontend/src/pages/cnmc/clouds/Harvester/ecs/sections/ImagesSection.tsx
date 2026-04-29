@@ -473,7 +473,7 @@ const ImagesSection: React.FC<Props> = ({
         return t ? new Date(t).toLocaleString() : '-';
       },
     },
-    { title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_:any, r:any)=> {
+    { title: '操作', key: 'actions', align: 'left' as const, fixed: 'right' as const, render: (_:any, r:any)=> {
       const name = r?.name || r?.metadata?.name || '';
       const alias = getImageAlias(r);
       const deleteLabel = alias ? `${alias} (${name})` : name;
@@ -702,10 +702,9 @@ const ImagesSection: React.FC<Props> = ({
         dataSource={filtered}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        scroll={{ x: 'max-content' }}
+        scroll={{ x: true }}
       />
       <HarvesterResourceDrawer
         open={drawerOpen}

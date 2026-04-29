@@ -171,7 +171,6 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
     { 
       title: '操作', 
       key: 'actions', 
-      width: 80,
       align: 'left' as const,
       render: (_: any, r: any) => {
           const items: any[] = [];
@@ -295,13 +294,13 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
     >
       <Table
         className={!isTenant ? "std-table" : "std-table no-border"}
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r: any) => r?.metadata?.name || r?.name}
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

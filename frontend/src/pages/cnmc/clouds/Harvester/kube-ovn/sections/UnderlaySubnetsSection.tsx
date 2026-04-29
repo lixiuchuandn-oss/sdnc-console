@@ -532,6 +532,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       {
         title: '名称',
         key: 'displayName',
+        fixed: 'left' as const,
         ellipsis: true,
         render: (_: any, record: any) => {
           const alias = String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
@@ -576,7 +577,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       {
         title: '子网分类',
         key: 'towerUnderlayCategory',
-        width: 148,
         render: (_: any, record: any) => {
           const { category, label, detail } = resolveTowerUnderlaySubnetCategory(record, isFlatMode ? 'flat' : 'public');
           const color =
@@ -600,7 +600,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
             {
               title: '可访问范围',
               key: 'ovnInternalRouteCidr',
-              width: 132,
               ellipsis: true,
               render: (_: any, record: any) => {
                 const v = String(
@@ -710,7 +709,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
             {
               title: 'ACL',
               key: 'acls',
-              width: 72,
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
                 const n = Array.isArray(acls) ? acls.length : 0;
@@ -733,7 +731,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
             {
               title: '排除 IP',
               key: 'excludeIps',
-              width: 120,
               ellipsis: true,
               render: (_: any, record: any) => {
                 const ex = record?.spec?.excludeIps;
@@ -770,7 +767,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       {
         title: '操作',
         key: 'action',
-        width: 80,
         align: 'left' as const,
         fixed: 'right' as const,
         render: (_: any, record: any) => {
@@ -923,8 +919,8 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         dataSource={filteredData}
         rowKey={(r) => r.metadata.name}
         loading={loading}
-        scroll={{ x: 'max-content' }}
-        pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
+        scroll={{ x: true }}
+        pagination={{ showTotal: (total) => `共 ${total} 条` }}
       />
 
       <SubnetDetailDrawer

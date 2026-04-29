@@ -49,6 +49,30 @@ import {
 import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { kubeSubnetChoiceLabel } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
 import SubnetDetailDrawer from '../../../kube-ovn/drawers/subnet-detail-drawer';
+import { isKubeOvnSubnetNadReady } from './kubeOvnNadRefForVmWizard';
+
+/**
+ * 子网选项：NAD 未同步时置灰，当前已选可保留以提示「同步中」。
+ * vpcIdForNad 须与 isKubeOvnSubnetNadReady 的 vpc 入参一致（业务 VPC 或子网自己的 vpc/flat）。
+ */
+function kubeOvnSubnetNadOption(
+  x: any,
+  nadOptions: any[],
+  vpcIdForNad: string,
+  currentName: any,
+  buildLabel: (x: any) => string,
+) {
+  const ready = isKubeOvnSubnetNadReady(x, vpcIdForNad, nadOptions);
+  const isCurrent = currentName != null && String(x?.name) === String(currentName);
+  const base = buildLabel(x);
+  let label = base;
+  if (!ready) {
+    label = isCurrent
+      ? `${base}（子网网络未就绪，请稍候重试或刷新后创建）`
+      : `${base}（网络未就绪）`;
+  }
+  return { label, value: x?.name, disabled: !ready && !isCurrent };
+}
 
 /**
  * [接口定义] StepNetworksProps
@@ -345,18 +369,33 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                   return !used.has(String(n));
                                 })
                                 .map((x: any) => {
-                                  const n = x?.name || '-';
-                                  const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                                  const vpcDisp =
-                                    String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
-                                  return {
-                                    label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
-                                    value: n,
-                                  };
+                                  const flatVpcId =
+                                    String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
+                                    KUBE_OVN_FLAT_VPC;
+                                  return kubeOvnSubnetNadOption(
+                                    x,
+                                    nadOptions,
+                                    flatVpcId,
+                                    currentSelected,
+                                    (sx) => {
+                                      const n = sx?.name || '-';
+                                      const alias = String(
+                                        sx?.metadata?.annotations?.['tower.io/alias'] ?? '',
+                                      ).trim();
+                                      const vpcDisp =
+                                        String(
+                                          sx?.spec?.vpc || sx?.vpc || KUBE_OVN_FLAT_VPC,
+                                        ).trim() || KUBE_OVN_FLAT_VPC;
+                                      return alias ? `${alias} (${n})` : `${n} (${vpcDisp})`;
+                                    },
+                                  );
                                 });
                             })()}
                             onOpenChange={(open) => {
-                              if (open) reloadKubeSubnets();
+                              if (open) {
+                                reloadKubeSubnets();
+                                reloadNads();
+                              }
                             }}
                             onChange={(val) => {
                               let netName = val;
@@ -469,10 +508,16 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             // [过滤逻辑] 仅显示当前选中 VPC 下的子网
                             const vpc = form.getFieldValue(['primaryNic', 'vpc']); 
                             const list = kubeSubnets || []; 
+                            const currentSub = form.getFieldValue(['primaryNic', 'subnet']);
                             const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
-                            return filtered.map((x: any) => ({ label: kubeSubnetChoiceLabel(x), value: x?.name })); 
+                            if (!vpc) return [];
+                            return filtered.map((x: any) =>
+                              kubeOvnSubnetNadOption(x, nadOptions, vpc, currentSub, (sx) =>
+                                kubeSubnetChoiceLabel(sx),
+                              ),
+                            );
                           })()}
-                          onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
+                          onOpenChange={(open) => { if (open) { reloadKubeSubnets(); reloadNads(); } }}
                           onChange={(val) => { 
                             // [状态同步] 选择子网时，自动将其名称作为网络名称
                             // [修复] Kube-OVN 子网生成的 NAD 通常与子网资源本身位于同一 Namespace
@@ -796,19 +841,33 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                             return !used.has(String(n));
                                           })
                                           .map((x: any) => {
-                                            const n = x?.name || '-';
-                                            const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                                            const vpcDisp =
+                                            const flatVpcId =
                                               String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
                                               KUBE_OVN_FLAT_VPC;
-                                            return {
-                                              label: alias ? `${alias} (${n})` : `${n} (${vpcDisp})`,
-                                              value: n,
-                                            };
+                                            return kubeOvnSubnetNadOption(
+                                              x,
+                                              nadOptions,
+                                              flatVpcId,
+                                              currentSelected,
+                                              (sx) => {
+                                                const n = sx?.name || '-';
+                                                const alias = String(
+                                                  sx?.metadata?.annotations?.['tower.io/alias'] ?? '',
+                                                ).trim();
+                                                const vpcDisp =
+                                                  String(
+                                                    sx?.spec?.vpc || sx?.vpc || KUBE_OVN_FLAT_VPC,
+                                                  ).trim() || KUBE_OVN_FLAT_VPC;
+                                                return alias ? `${alias} (${n})` : `${n} (${vpcDisp})`;
+                                              },
+                                            );
                                           });
                                       })()}
                                       onOpenChange={(open) => {
-                                        if (open) reloadKubeSubnets();
+                                        if (open) {
+                                          reloadKubeSubnets();
+                                          reloadNads();
+                                        }
                                       }}
                                       onChange={(val) => {
                                     let netName = val;
@@ -932,11 +991,22 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                   options={(function () { 
                                     // [过滤逻辑] 根据当前网卡的 VPC 过滤子网
                                     const vpc = form.getFieldValue(['netIfaces', name, 'vpc']); 
-                                    const list = kubeSubnets || []; 
-                                    const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
-                                    return filtered.map((x: any) => ({ label: kubeSubnetChoiceLabel(x), value: x?.name })); 
+                                    const list = kubeSubnets || [];
+                                    const currentSub = form.getFieldValue(['netIfaces', name, 'subnet']);
+                                    const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : [];
+                                    if (!vpc) return [];
+                                    return filtered.map((x: any) =>
+                                      kubeOvnSubnetNadOption(x, nadOptions, vpc, currentSub, (sx) =>
+                                        kubeSubnetChoiceLabel(sx),
+                                      ),
+                                    );
                                   })()}
-                                  onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
+                                  onOpenChange={(open) => {
+                                    if (open) {
+                                      reloadKubeSubnets();
+                                      reloadNads();
+                                    }
+                                  }}
                                   onChange={(val) => {
                                     try {
                                       const curr = form.getFieldValue('netIfaces') || [];

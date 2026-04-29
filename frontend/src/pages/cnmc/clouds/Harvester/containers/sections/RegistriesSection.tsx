@@ -625,7 +625,6 @@ const CredentialTable: React.FC<{
     {
       title: '名称',
       key: 'name',
-      width: 220,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -654,7 +653,6 @@ const CredentialTable: React.FC<{
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -662,13 +660,11 @@ const CredentialTable: React.FC<{
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 140,
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
     {
       title: '仓库地址',
       key: 'registryServer',
-      width: 280,
       ellipsis: true,
       render: (_: any, record: any) => {
         const server = getRegistryServer(record);
@@ -682,20 +678,17 @@ const CredentialTable: React.FC<{
     {
       title: '运行时长',
       key: 'age',
-      width: 120,
       render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
     },
     {
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'creationTimestamp',
-      width: 180,
       render: formatTime,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 120,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items = [
@@ -797,14 +790,13 @@ const CredentialTable: React.FC<{
 
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={credentialDisplayColumns}
         dataSource={filteredSecrets}
         loading={loading}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />
@@ -1067,7 +1059,6 @@ const RegistriesSection: React.FC<Props> = ({
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
       render: (name: string, record: RegistryConfig) => (
         <Space>
           <DatabaseOutlined style={{ color: '#1890ff' }} />
@@ -1079,7 +1070,6 @@ const RegistriesSection: React.FC<Props> = ({
       title: '仓库地址',
       dataIndex: 'server',
       key: 'server',
-      width: 250,
       ellipsis: true,
       render: (server: string) => (
         <Text code copyable={{ text: server }} ellipsis={{ tooltip: server }}>
@@ -1091,7 +1081,6 @@ const RegistriesSection: React.FC<Props> = ({
       title: '协议',
       dataIndex: 'insecure',
       key: 'insecure',
-      width: 100,
       render: (insecure: boolean) => (
         <Tag color={insecure ? 'orange' : 'green'}>
           {insecure ? 'HTTP' : 'HTTPS'}
@@ -1101,7 +1090,6 @@ const RegistriesSection: React.FC<Props> = ({
     {
       title: '认证',
       key: 'auth',
-      width: 100,
       render: (_: any, record: RegistryConfig) => (
         <Tag color={record.username ? 'blue' : 'default'}>
           {record.username ? '已配置' : '无需认证'}
@@ -1112,13 +1100,11 @@ const RegistriesSection: React.FC<Props> = ({
       title: '添加时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 180,
       render: formatTime,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 100,
       fixed: 'right' as const,
       render: (_: any, record: RegistryConfig) => {
         const items = [
@@ -1221,6 +1207,7 @@ const RegistriesSection: React.FC<Props> = ({
             </div>
             <Table
               className="std-table"
+              scroll={{ x: true }}
               bordered={false}
               rowKey="id"
               columns={registryDisplayColumns}
@@ -1229,9 +1216,7 @@ const RegistriesSection: React.FC<Props> = ({
                 const kw = registryKeyword.toLowerCase();
                 return r.name.toLowerCase().includes(kw) || r.server.toLowerCase().includes(kw);
               })}
-              scroll={{ x: 'max-content' }}
               pagination={{
-                size: 'small',
                 showTotal: (total) => `共 ${total} 条`,
               }}
               locale={{

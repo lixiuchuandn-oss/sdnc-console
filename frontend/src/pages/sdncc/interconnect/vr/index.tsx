@@ -569,16 +569,11 @@ const VRPage: React.FC = () => {
         {
           title: 'UUID',
           key: 'uuid',
-          fixed: 'left',
           ellipsis: { showTitle: false },
           render: (_: any, row: VRRow) => {
             const id = String(row.uuid || row.id || row.vm_id || '').trim();
-            if (!id) return <span style={commonTableStyles.secondaryText}>—</span>;
-            return (
-              <Typography.Text copyable={{ text: id }} style={commonTableStyles.secondaryText}>
-                {id}
-              </Typography.Text>
-            );
+            if (!id) return '—';
+            return <Typography.Text copyable={{ text: id }}>{id}</Typography.Text>;
           },
         },
         { 

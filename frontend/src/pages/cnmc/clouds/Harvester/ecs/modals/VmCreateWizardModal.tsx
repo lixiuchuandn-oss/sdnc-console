@@ -44,6 +44,7 @@ import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../../../constants/cloudPermissions';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
 type Props = {
   isTenant?: boolean;
@@ -544,7 +545,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         navigate(-1);
       }
     } catch (e: any) {
-      message.error(e?.message || '创建失败');
+      message.error(translateKnownApiErrorMessage(String(e?.message || e || '创建失败')));
     } finally {
       submitInFlightRef.current = false;
       setSubmitting(false);

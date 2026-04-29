@@ -61,7 +61,7 @@ export default function StepProtectionObjects(props: any) {
     if (!kw) return true;
     return (
       String(item.name || '').toLowerCase().includes(kw) ||
-      String(item.subType || '').toLowerCase().includes(kw) ||
+      String(item.category || '').toLowerCase().includes(kw) ||
       String(item.provider || '').toLowerCase().includes(kw) ||
       String(item.region || '').toLowerCase().includes(kw) ||
       String(item.cidr || '').toLowerCase().includes(kw) ||

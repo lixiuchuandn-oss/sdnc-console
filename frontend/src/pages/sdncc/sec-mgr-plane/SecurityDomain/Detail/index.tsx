@@ -261,7 +261,6 @@ const SecurityDomainDetail: React.FC = () => {
             {data?.status || 'Unknown'}
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="描述" span={2}>{data?.description || '-'}</Descriptions.Item>
         <Descriptions.Item label="创建时间">{data?.createdAt || '-'}</Descriptions.Item>
         <Descriptions.Item label="更新时间">{data?.updatedAt || '-'}</Descriptions.Item>
       </Descriptions>

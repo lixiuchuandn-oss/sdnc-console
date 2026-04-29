@@ -469,17 +469,30 @@ const addRule = useCallback(() => {
 ### 全局样式
 通用 CSS 样式文件：`frontend/src/global-new.css`
 
-### Ant Design 表格固定列
-使用 columns 配置中的 `fixed` 属性（'left' 或 'right'），配合 Table 的 `scroll={{ x: 宽度 }}` 属性。
+### 列表表格（.std-table，**全站版式 A**）
+
+全站**统一版式 A**：标准数据列表**首列左冻结、行操作列右冻结**，并**配横向滚动**；**不采用**「全表不钉列、无 `scroll`」作为新列表默认。样式与表级 `min-width` 等以 **`frontend/src/global-new.css`** 中 `.std-table` 及注释为唯一落点。
+
+1. **Table 与 `scroll`**
+   - 列表 `Table` 使用 `className="std-table"`。
+   - **列冻结要求**：**首列**须 **`fixed: 'left'`**（最左一列，一般为多选/名称/主标识等主入口列，含行多选时与现网大表一致，多选列在左则一并纳入左端冻结区）；有**行级操作**时，**操作列**须 **`fixed: 'right'`**。中间业务列不钉。
+   - 因已含左/右 `fixed`，**必须**同表写 `scroll={{ x: true }}`（或等价的 `scroll.x: minWidth` 等），否则 Ant Design 下固定列易错位。
+   - 新增、整改、复制**按上条**实现；曾无首列/操作列冻结的列表**应**补全并对齐全站，避免两套路长期并存。无行操作列的只读/极窄子表，经评审可例外，不在此默认内。
+
+2. **列宽（与内容、样式分工）**
+   - **列宽以内容 + `.std-table` 表级规则为主**：`columns` 里**原则上不**写 `width: <固定 px>` 作为常规手段；表体宽度由单元格内容与本节全局样式（如 `.std-table` 中 `min-width: max(100%, max-content)` 等）**随内容推宽/换行策略**一起决定，而不是在每一列上写死像素宽。
+   - **单元格内**对超长文案做省略、加 `maxWidth` 等，属**格内**展示约束，**不等同于**在 `columns` 上写整列 `width`；可单独用于 Tooltip、多行等场景。
+   - 仅当 Ant Design/固定列在个别浏览器下**确需**最小可测宽度、且经排查无法用内容与样式解决时，再**个案**加最小约束，**禁止**因习惯把大表每列都写成固定 `width` 列阵。
+
+3. **列展示（`useTableColumnSettings` / `TableColumnSettingsButton`）**
+   - 已设 `fixed` 的列**不允许**在「列展示」中关闭；行为由 `useTableColumnSettings` 将此类列**锁定为常显**、选项 **disabled**，全不选时**仅保留冻结列**。
+
+4. **其它**
+   - **勿**为和某页「看起来一致」擅自给 `Table` 或 `pagination` 加 `size="small"` 等，除非产品/设计明确要求。
 
 ```tsx
-const columns = [
-  { title: '任务ID', fixed: 'left', width: 100, dataIndex: 'id' },
-  // ...其他列
-  { title: '操作', fixed: 'right', width: 150 }
-];
-
-<Table columns={columns} scroll={{ x: 1200 }} />
+// 首列 fixed: 'left'、行操作列 fixed: 'right'，并 scroll.x（见上节 1）
+<Table className="std-table" columns={columns} scroll={{ x: true }} />
 ```
 
 ## 后台服务

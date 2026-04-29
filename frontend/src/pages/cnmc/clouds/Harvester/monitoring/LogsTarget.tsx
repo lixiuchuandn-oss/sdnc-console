@@ -46,8 +46,8 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [scopeFilter, setScopeFilter] = useState<string>('');
 
   const allColumns: ColumnsType<LogCollectionTarget> = [
-    { title: '采集对象名称', dataIndex: 'id', key: 'id', width: 200, render: (v: string) => v || '-' },
-    { title: '采集内容', dataIndex: 'name', key: 'name', width: 230, render: (v: string) => v || '-' },
+    { title: '采集对象名称', dataIndex: 'id', key: 'id', fixed: 'left', render: (v: string) => v || '-' },
+    { title: '采集内容', dataIndex: 'name', key: 'name', render: (v: string) => v || '-' },
     {
       title: (
         <Space size={4}>
@@ -67,10 +67,9 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       ),
       dataIndex: 'logType',
       key: 'logType',
-      width: 160,
       render: (v: string) => LOG_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v ?? '-',
     },
-    { title: '采集范围', dataIndex: 'scope', key: 'scope', width: 120, 
+    { title: '采集范围', dataIndex: 'scope', key: 'scope',
       render: (v?: string) => (v === LOG_SCOPE_CLUSTER ? LOG_SCOPE_MAP.LOG_SCOPE_CLUSTER : v === LOG_SCOPE_NAMESPACE ? LOG_SCOPE_MAP.LOG_SCOPE_NAMESPACE : v || '-') },
     {
       title: '描述',
@@ -146,10 +145,10 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       <Table
         className="std-table"
         bordered={false}
-        size="middle"
         rowKey="id"
         columns={columns}
         dataSource={filteredTargets}
+        scroll={{ x: true }}
         pagination={false}
       />
     </PageDetailSection>

@@ -827,13 +827,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
 
   const allConfigColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
     () => [
-      { title: '数据源', key: 'dataSource', width: 100, render: () => 'Prometheus' },
-      { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', width: 180, render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
-      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', width: 140, render: (ns: string) => ns || '-' },
+      { title: '数据源', key: 'dataSource', fixed: 'left', render: () => 'Prometheus' },
+      { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
+      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', render: (ns: string) => ns || '-' },
       {
         title: <span style={{ fontWeight: 600, color: '#000' }}>通知对象</span>,
         key: 'receivers',
-        width: 120,
         render: (_, row) => {
           const receivers = row.spec?.receivers;
           if (!Array.isArray(receivers)) return '-';
@@ -852,12 +851,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           );
         },
       },
-      { title: '创建人', dataIndex: ['metadata', 'creator'], key: 'creator', width: 100, ellipsis: true, render: (v: string | undefined) => v || '-' },
-      { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'createdAt', width: 172, ellipsis: true, render: (v: string | undefined) => (v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
+      { title: '创建人', dataIndex: ['metadata', 'creator'], key: 'creator', ellipsis: true, render: (v: string | undefined) => v || '-' },
+      { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'createdAt', ellipsis: true, render: (v: string | undefined) => (v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       {
         title: '操作',
         key: 'action',
-        width: 80,
         fixed: 'right',
         render: (_, row) => (
           <ResourceActionsDropdown
@@ -996,7 +994,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }
           toolbarRight={
             <>
-              <Button type="primary" icon={<PlusOutlined />} disabled={!canWritePolicies} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
+              <Button type="primary" disabled={!canWritePolicies} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
               <TableColumnSettingsButton allColumns={allConfigColumns} settingsKey="monitoring_alert_notification_policy_table" />
               <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>
@@ -1009,7 +1007,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             loading={configLoading}
             columns={configColumns}
             dataSource={filteredConfigList}
-            scroll={{ x: 1000 }}
+            scroll={{ x: true }}
             pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
           />
         </PageDetailSection>

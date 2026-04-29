@@ -91,41 +91,36 @@ const ServiceRelatedPodsTab: React.FC<ServiceRelatedPodsTabProps> = ({
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
       ellipsis: true,
+      fixed: 'left' as const,
       render: (name: string) => <span style={{ fontWeight: 500 }}>{name}</span>,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
       render: renderPodStatus,
     },
     {
       title: 'Pod IP',
       dataIndex: 'podIP',
       key: 'podIP',
-      width: 130,
     },
     {
       title: '节点',
       dataIndex: 'node',
       key: 'node',
-      width: 120,
       ellipsis: true,
     },
     {
       title: '创建时间',
       dataIndex: 'creationTimestamp',
       key: 'creationTimestamp',
-      width: 170,
       render: formatTime,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 100,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items = [
@@ -216,12 +211,14 @@ const ServiceRelatedPodsTab: React.FC<ServiceRelatedPodsTabProps> = ({
         <span style={{ marginLeft: 8 }}>匹配 {tableData.length} 个 Pod</span>
       </div>
       <Table
+        className="std-table"
         columns={columns}
         dataSource={tableData}
-        pagination={{ size: 'small', pageSize: 10 }}
-        size="small"
+        pagination={{
+          pageSize: 10,
+        }}
         bordered
-        scroll={{ x: 900 }}
+        scroll={{ x: true }}
       />
     </div>
   );

@@ -303,6 +303,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     {
       title: '名称',
       key: 'alias',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
         const text = alias || '—';
@@ -379,9 +380,9 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       } 
     },
     {
-      title: '操作', 
-      key: 'action', 
-      width: 80, 
+      title: '操作',
+      key: 'action',
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const menuItems: MenuProps['items'] = [
           { key: 'metadata', label: '查看元数据' },
@@ -467,9 +468,9 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           columns={columns} 
           loading={loading} 
           bordered={false}
+          scroll={{ x: true }}
           rowKey={r => r.metadata?.uid}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />

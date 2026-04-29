@@ -6,6 +6,7 @@ import { createElement, type ReactNode } from 'react';
 import {
   DeploymentUnitOutlined,
   DesktopOutlined,
+  FileTextOutlined,
   LeftOutlined,
   NodeIndexOutlined,
   SafetyCertificateOutlined,
@@ -25,6 +26,7 @@ export const CSM_POOL_TAB_KEYS = [
   'virtual',
   'groups',
   'serviceChains',
+  'policies',
 ] as const;
 
 export type CsmPoolTabKey = (typeof CSM_POOL_TAB_KEYS)[number];
@@ -32,10 +34,11 @@ export type CsmPoolTabKey = (typeof CSM_POOL_TAB_KEYS)[number];
 const TAB_LABEL: Record<CsmPoolTabKey, string> = {
   physical: '物理主机',
   vrouters: 'VSW 集群',
-  assets: '资产列表',
+  assets: '防护对象',
   virtual: '虚拟安全网元',
   groups: '安全网元组',
   serviceChains: '服务链',
+  policies: '阻断策略',
 };
 
 const TAB_ICON: Record<CsmPoolTabKey, ReactNode> = {
@@ -45,6 +48,7 @@ const TAB_ICON: Record<CsmPoolTabKey, ReactNode> = {
   virtual: createElement(DeploymentUnitOutlined),
   groups: createElement(SafetyCertificateOutlined),
   serviceChains: createElement(UnorderedListOutlined),
+  policies: createElement(FileTextOutlined),
 };
 
 export function parseCsmPoolDetailId(pathname: string): string | null {

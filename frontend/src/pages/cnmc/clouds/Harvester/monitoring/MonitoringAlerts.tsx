@@ -173,21 +173,25 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
 
   const alertColumns: ColumnsType<ParsedAlert> = useMemo(
     () => [
-      { title: '数据源', key: 'dataSource', width: 120, render: () => 'Prometheus' },
-      { title: '告警名称', dataIndex: 'title', key: 'title', width: 220, ellipsis: true, render: (t: string) => <Typography.Text strong ellipsis>{t || '--'}</Typography.Text> },
+      { title: '数据源', key: 'dataSource', fixed: 'left', render: () => 'Prometheus' },
+      {
+        title: '告警名称',
+        dataIndex: 'title',
+        key: 'title',
+        ellipsis: true,
+        render: (t: string) => <Typography.Text strong ellipsis>{t || '--'}</Typography.Text>,
+      },
       {
         title: '等级',
         dataIndex: 'level',
         key: 'level',
-        width: 130,
         render: (level: 'critical' | 'warning') => renderLevel(level),
       },
-      { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150, render: (v: string) => v || '-' },
+      { title: '命名空间', dataIndex: 'namespace', key: 'namespace', render: (v: string) => v || '-' },
       {
         title: '节点',
         dataIndex: 'node',
         key: 'node',
-        width: 140,
         render: (_: string, row) => {
           if (row.node) return row.node;
           const inst = (row.instance ?? '').toString().trim();
@@ -201,14 +205,12 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       {
         title: '规则组',
         key: 'groupDescription',
-        width: 180,
         render: (_, row) => renderRuleGroup(row),
       },
       {
         title: '描述',
         dataIndex: 'description',
         key: 'description',
-        width: 260,
         render: (v: string) => (
           <Typography.Text
             type="secondary"
@@ -222,7 +224,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         title: '触发时间',
         dataIndex: 'activeAt',
         key: 'activeAt',
-        width: 160,
         sorter: (a: ParsedAlert, b: ParsedAlert) => {
           const ta = a.activeAt ? new Date(a.activeAt).getTime() : 0;
           const tb = b.activeAt ? new Date(b.activeAt).getTime() : 0;
@@ -233,7 +234,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       {
         title: '操作',
         key: 'action',
-        width: 100,
         fixed: 'right',
         render: (_, row) => (
           <Button type="link" onClick={() => openDetail(row)} style={{ paddingInline: 0 }}>
@@ -335,7 +335,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           loading={alertsLoading}
           columns={alertTableDisplayColumns}
           dataSource={filteredAlerts}
-          scroll={{ x: 'max-content' }}
+          scroll={{ x: true }}
           pagination={
             isAdmin
               ? {

@@ -271,7 +271,6 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     {
       title: '操作',
       key: 'actions',
-      width: 100,
       render: (_: any, r: any) => {
         const phase = r.status?.phase;
         const isRunning = phase === 'Running' || phase === 'Scheduled' || phase === 'Scheduling' || phase === 'Preparing';
@@ -350,13 +349,13 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r) => SafeMig.uidOrKey(r)}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

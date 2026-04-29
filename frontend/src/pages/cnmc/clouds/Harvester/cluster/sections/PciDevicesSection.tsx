@@ -260,7 +260,6 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
       {
         title: '操作',
         key: 'actions',
-        width: 80,
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const items = [
@@ -329,17 +328,16 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
       >
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           rowKey={(r: any) => String(r?.uid || r?.metadata?.uid || `${getNodeName(r)}-${r?.address || r?.pciAddress || ''}-${r?.resourceName || ''}-${r?.name || ''}`)}
           loading={!!loading || refreshing}
           columns={tableColumns}
           dataSource={filtered}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
           locale={{ emptyText: '暂无数据' }}
-          scroll={{ x: 1400 }}
         />
       </PageDetailSection>
 

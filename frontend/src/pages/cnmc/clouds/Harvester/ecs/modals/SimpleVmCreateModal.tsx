@@ -36,6 +36,8 @@ import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
 } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
+import { isKubeOvnSubnetNadReady } from './VmCreateWizard/kubeOvnNadRefForVmWizard';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import {
   isHarvesterVmImageReady,
   isSystemNamespace,
@@ -299,6 +301,8 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     [harvesterNads],
   );
 
+  const selectedFlatSubnetWatched = Form.useWatch('flatSubnet', form);
+
   const flatSubnetOptions = useMemo(() => {
     return (kubeSubnets || [])
       .filter(
@@ -306,18 +310,27 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       )
       .map((x: any) => {
         const n = subnetDisplayName(x);
+        const flatVpcId = String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
+        const ready = isKubeOvnSubnetNadReady(x, flatVpcId, nadOptions);
+        const isCurrent = selectedFlatSubnetWatched && String(n) === String(selectedFlatSubnetWatched);
+        const disabled = !ready && !isCurrent;
         const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-        const vpcDisp =
-          String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
+        const vpcDisp = String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
         const cidr = subnetCidrBlock(x);
-        // 展示层不暴露 metadata.name（仍用作 value），优先展示别名；网段用 Tag
         const shownName = alias || n;
         const shownVpc = alias ? '' : ` (${vpcDisp})`;
-        const titleLine = `${shownName}${shownVpc}`.trim();
-        const searchText = [titleLine, alias, n, vpcDisp, cidr].filter(Boolean).join(' ').toLowerCase();
+        const titleLine0 = `${shownName}${shownVpc}`.trim();
+        let titleLine = titleLine0;
+        if (!ready) {
+          titleLine = isCurrent
+            ? `${titleLine0}（子网网络未就绪，请稍候重试或刷新后创建）`
+            : `${titleLine0}（网络未就绪）`;
+        }
+        const searchText = [titleLine0, alias, n, vpcDisp, cidr, titleLine].filter(Boolean).join(' ').toLowerCase();
         return {
           value: n,
           searchText,
+          disabled,
           label: (
             <Space size={6} wrap>
               <span>{titleLine}</span>
@@ -326,7 +339,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           ),
         };
       });
-  }, [kubeSubnets]);
+  }, [kubeSubnets, nadOptions, selectedFlatSubnetWatched]);
 
   /** 按 Subnet metadata.name 缓存其 CIDR 段（用于快速创建网络选择展示/回填） */
   const subnetIpSegmentCacheRef = useRef<Record<string, string>>({});
@@ -342,12 +355,11 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     subnetIpSegmentCacheRef.current = { ...subnetIpSegmentCacheRef.current, ...m };
     return subnetIpSegmentCacheRef.current;
   }, [kubeSubnets]);
-  const selectedFlatSubnet = Form.useWatch('flatSubnet', form);
   const selectedFlatSubnetSegment = useMemo(() => {
-    const n = String(selectedFlatSubnet ?? '').trim();
+    const n = String(selectedFlatSubnetWatched ?? '').trim();
     if (!n) return '';
     return subnetIpSegmentByName[n] || '';
-  }, [selectedFlatSubnet, subnetIpSegmentByName]);
+  }, [selectedFlatSubnetWatched, subnetIpSegmentByName]);
 
   const targetNamespace = useMemo(() => {
     const ws = String(workspaceNamespace || '').trim();
@@ -432,12 +444,15 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   useEffect(() => {
     if (!open || flatSubnetOptions.length === 0) return;
     const cur = form.getFieldValue('flatSubnet');
+    const curOpt = flatSubnetOptions.find((o) => o.value === cur);
     const valid =
       cur != null &&
       String(cur).trim() !== '' &&
-      flatSubnetOptions.some((o) => o.value === cur);
+      curOpt &&
+      !(curOpt as { disabled?: boolean }).disabled;
     if (valid) return;
-    form.setFieldValue('flatSubnet', flatSubnetOptions[0].value);
+    const firstOk = flatSubnetOptions.find((o) => !(o as { disabled?: boolean }).disabled);
+    if (firstOk) form.setFieldValue('flatSubnet', firstOk.value);
   }, [open, flatSubnetOptions, form]);
 
   useEffect(() => {
@@ -560,7 +575,10 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       onClose();
     } catch (e: any) {
       if (e?.errorFields) return;
-      Modal.error({ title: '创建失败', content: e?.message || String(e) });
+      Modal.error({
+        title: '创建失败',
+        content: translateKnownApiErrorMessage(String(e?.message || e || '创建失败')),
+      });
     } finally {
       setSubmitting(false);
     }

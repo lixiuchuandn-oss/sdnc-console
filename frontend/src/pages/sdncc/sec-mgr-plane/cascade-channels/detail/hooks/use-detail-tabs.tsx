@@ -81,7 +81,7 @@ export function useCenDetailTabs(p: CenDetailTabsContext) {
         render: (_: any, r: any) => {
           const dom = domainOfAttachment(r);
           if (!dom) return '-';
-          const cls = getDomainClass({ category: dom.category, subType: dom.subType });
+          const cls = getDomainClass(dom);
           return <Tag color={netClassColor(cls)} style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}>{netClassLabel(cls)}</Tag>;
         },
       },

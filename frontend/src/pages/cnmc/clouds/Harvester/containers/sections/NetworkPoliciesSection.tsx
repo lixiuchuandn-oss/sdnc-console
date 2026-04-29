@@ -370,14 +370,12 @@ const NetworkPolicyDetailDrawer: React.FC<{
             columns={[
               {
                 title: '类型',
-                width: 140,
                 render: (_: any, record: any) => (
                   <Tag color={record.typeColor}>{record.type}</Tag>
                 ),
               },
               {
                 title: '来源',
-                width: 300,
                 render: (_: any, record: any) => (
                   <span style={{ color: record.source === '所有 Pod' || record.source === '所有命名空间' ? '#999' : undefined }}>
                     {record.source}
@@ -386,7 +384,6 @@ const NetworkPolicyDetailDrawer: React.FC<{
               },
               {
                 title: '端口',
-                width: 150,
                 dataIndex: 'ports',
               },
             ]}
@@ -465,14 +462,12 @@ const NetworkPolicyDetailDrawer: React.FC<{
             columns={[
               {
                 title: '类型',
-                width: 140,
                 render: (_: any, record: any) => (
                   <Tag color={record.typeColor}>{record.type}</Tag>
                 ),
               },
               {
                 title: '目标',
-                width: 300,
                 render: (_: any, record: any) => (
                   <span style={{ color: record.target === '所有 Pod' || record.target === '所有命名空间' ? '#999' : undefined }}>
                     {record.target}
@@ -481,7 +476,6 @@ const NetworkPolicyDetailDrawer: React.FC<{
               },
               {
                 title: '端口',
-                width: 150,
                 dataIndex: 'ports',
               },
             ]}
@@ -688,7 +682,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       title: '名称',
       key: 'name',
       fixed: 'left' as const,
-      width: 180,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -726,7 +719,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -734,18 +726,15 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 120,
     },
     {
       title: 'Pod 选择器',
       key: 'podSelector',
-      width: 180,
       render: (_: any, record: any) => formatPodSelector(record?.spec?.podSelector),
     },
     {
       title: '入站规则',
       key: 'ingressCount',
-      width: 100,
       render: (_: any, record: any) => {
         const count = record?.spec?.ingress?.length || 0;
         return <Tag color="blue">{count}</Tag>;
@@ -754,7 +743,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
     {
       title: '出站规则',
       key: 'egressCount',
-      width: 100,
       render: (_: any, record: any) => {
         const count = record?.spec?.egress?.length || 0;
         return <Tag color="green">{count}</Tag>;
@@ -763,14 +751,12 @@ const NetworkPoliciesSection: React.FC<Props> = ({
     {
       title: '策略类型',
       key: 'policyTypes',
-      width: 140,
       render: (_: any, record: any) => formatPolicyTypes(record?.spec?.policyTypes),
     },
     {
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'created',
-      width: 160,
       render: (v: string) => (
         <Tooltip title={formatTime(v)}>
           {calculateAge(v)}
@@ -781,7 +767,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       title: '操作',
       key: 'actions',
       fixed: 'right' as const,
-      width: 80,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record);
         const systemHint = getSystemResourceProtectionHint(record);
@@ -939,7 +924,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
           dataSource={filteredData}
           loading={loading}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
           scroll={networkPolicyTableScroll}

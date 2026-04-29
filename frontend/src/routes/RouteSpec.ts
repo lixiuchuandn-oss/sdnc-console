@@ -423,42 +423,7 @@ export const routeSpecs: RouteSpec[] = [
   // ============================================================================
   
   // Group: 安全管理面（级联、应用等；安全域/安全服务已归「流量编排」）
-  {
-    id: 'security-domain',
-    path: '/admin/sec-mgr-plane/security-domain',
-    element: 'SecurityDomainPage',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全域管理',
-    subtitle: '统一管理多云安全域边界，逻辑隔离 VPC、办公与扁平网络，支撑策略编排与全生命周期运维。',
-    icon: 'ClusterOutlined',
-    order: 0,
-    requiredActions: {
-      page: 'networks.security-domain:read',
-      read: 'networks.security-domain:read',
-      write: 'networks.security-domain:write'
-    },
-    requiredFeature: 'sdn.cascade',
-  },
-  {
-    id: 'security-domain-detail',
-    path: '/admin/sec-mgr-plane/security-domain/:id',
-    element: 'SecurityDomainDetail',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全域详情',
-    breadcrumbLabel: '详情',
-    hidden: true,
-    parentId: 'security-domain',
-    requiredActions: {
-      page: 'networks.security-domain:read',
-      read: 'networks.security-domain:read',
-      write: 'networks.security-domain:write'
-    },
-    requiredFeature: 'sdn.cascade',
-  },
+
   {
     id: 'cascade-channels',
     path: '/admin/sec-mgr-plane/cascade-channels',
@@ -513,24 +478,7 @@ export const routeSpecs: RouteSpec[] = [
     },
     requiredFeature: 'sdn.cascade',
   },
-  {
-    id: 'security-services',
-    path: '/admin/sec-mgr-plane/security-services',
-    element: 'SecurityServices',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全服务管理',
-    subtitle: '纳管 CSM 安全网元（防火墙、IPS、WAF 等），覆盖分配、状态监控、配置与资源生命周期。',
-    icon: 'SafetyCertificateOutlined',
-    order: 1,
-    requiredActions: {
-      page: 'security.services:read',
-      read: 'security.services:read',
-      write: 'security.services:write'
-    },
-    requiredFeature: 'sdn.cascade',
-  },
+
 
   // Group: 跨域互联
   {
@@ -780,6 +728,42 @@ export const routeSpecs: RouteSpec[] = [
 
   // Group: 流量编排
   {
+    id: 'security-domain',
+    path: '/admin/sec-mgr-plane/security-domain',
+    element: 'SecurityDomainPage',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '流量编排',
+    title: '安全域规划',
+    subtitle: '统一管理多云安全域边界，逻辑隔离 VPC、办公与扁平网络，支撑策略编排与全生命周期运维。',
+    icon: 'ClusterOutlined',
+    order: 0,
+    requiredActions: {
+      page: 'networks.security-domain:read',
+      read: 'networks.security-domain:read',
+      write: 'networks.security-domain:write'
+    },
+    requiredFeature: 'sdn.cascade',
+  },
+  {
+    id: 'security-domain-detail',
+    path: '/admin/sec-mgr-plane/security-domain/:id',
+    element: 'SecurityDomainDetail',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '流量编排',
+    title: '安全域详情',
+    breadcrumbLabel: '详情',
+    hidden: true,
+    parentId: 'security-domain',
+    requiredActions: {
+      page: 'networks.security-domain:read',
+      read: 'networks.security-domain:read',
+      write: 'networks.security-domain:write'
+    },
+    requiredFeature: 'sdn.cascade',
+  },
+  {
     id: 'traffic-csm-pools',
     path: '/admin/security/traffic/csm-pools',
     element: 'CsmPoolsPage',
@@ -796,6 +780,24 @@ export const routeSpecs: RouteSpec[] = [
       write: 'security.services:write',
     },
     requiredFeature: 'sdn.traffic',
+  },
+  {
+    id: 'security-services',
+    path: '/admin/sec-mgr-plane/security-services',
+    element: 'SecurityServices',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '流量编排',
+    title: '安全服务',
+    subtitle: '纳管 CSM 安全网元（防火墙、IPS、WAF 等），覆盖分配、状态监控、配置与资源生命周期。',
+    icon: 'SafetyCertificateOutlined',
+    order: 1,
+    requiredActions: {
+      page: 'security.services:read',
+      read: 'security.services:read',
+      write: 'security.services:write'
+    },
+    requiredFeature: 'sdn.cascade',
   },
   {
     id: 'traffic-csm-pool-detail',
@@ -815,61 +817,6 @@ export const routeSpecs: RouteSpec[] = [
     },
     requiredFeature: 'sdn.traffic',
   },
-  {
-    id: 'traffic-protected-objects',
-    path: '/admin/security/traffic/protected-objects',
-    element: 'ProtectedObjects',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '防护对象管理',
-    subtitle: 'CSM 侧防护资产纳管，覆盖发现、分组、监控与配置，支持按安全域与类型筛选。',
-    icon: 'SafetyCertificateOutlined',
-    order: 3,
-    requiredActions: {
-      page: 'security.services:read',
-      read: 'security.services:read',
-      write: 'security.services:write'
-    },
-    requiredFeature: 'sdn.traffic',
-  },
-  {
-    id: 'traffic-service-chains',
-    path: '/admin/security/traffic/service-chains',
-    element: 'ServiceChains',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '服务链管理',
-    subtitle: '编排流量串接防火墙、IPS、WAF 等网元，支持串行阻断与旁路检测两种模式。',
-    icon: 'NodeIndexOutlined',
-    order: 4,
-    requiredActions: {
-      page: 'security.services:read',
-      read: 'security.services:read',
-      write: 'security.services:write'
-    },
-    requiredFeature: 'sdn.traffic',
-  },
-  {
-    id: 'traffic-policies',
-    path: '/admin/security/traffic/policies',
-    element: 'Policies',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '阻断策略',
-    subtitle: '配置流量阻断与访问控制策略，与引流及服务链协同完成安全处置闭环。',
-    icon: 'FileTextOutlined',
-    order: 5,
-    requiredActions: {
-      page: 'security.services:read',
-      read: 'security.services:read',
-      write: 'security.services:write'
-    },
-    requiredFeature: 'sdn.traffic',
-  },
-
   // ============================================================================
   // CNSOC 平台 (AI SOC 安全运营中心)
   // ============================================================================

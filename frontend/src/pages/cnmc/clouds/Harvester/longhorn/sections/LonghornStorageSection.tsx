@@ -353,6 +353,7 @@ const LonghornStorageSection: React.FC<LonghornStorageSectionProps> = ({ cloudId
 
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         tableLayout="auto"
         rowKey={(r: any) => r?.metadata?.name || r?.id || JSON.stringify(r)}

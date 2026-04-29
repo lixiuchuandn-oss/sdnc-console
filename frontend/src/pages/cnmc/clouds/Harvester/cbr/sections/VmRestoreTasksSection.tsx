@@ -366,7 +366,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '任务名称',
       dataIndex: 'restoreName',
       key: 'restoreName',
-      width: 220,
       render: (_: any, r: any) => {
         const n = String(r?.restoreName || r?.restoreRaw?.metadata?.name || '').trim() || '—';
         return (
@@ -381,7 +380,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '命名空间',
       dataIndex: 'namespace',
       key: 'namespace',
-      width: 220,
       render: (ns: string) => (
         <EllipsisTooltip mono text={String(ns || '') || '—'} />
       ),
@@ -389,7 +387,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     {
       title: '源虚拟机',
       key: 'sourceVm',
-      width: 260,
       render: (_: any, r: any) => {
         const line = vmLineDisplay(
           r.sourceVmAlias !== '-' ? r.sourceVmAlias : undefined,
@@ -406,7 +403,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     {
       title: '目标虚拟机',
       key: 'targetVm',
-      width: 260,
       render: (_: any, r: any) => {
         const line = vmLineDisplay(
           r.targetVmAlias !== '-' ? r.targetVmAlias : undefined,
@@ -424,7 +420,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '恢复模式', 
       dataIndex: 'restoreMode', 
       key: 'restoreMode',
-      width: 104,
       align: 'center' as const,
       render: (mode: string) => {
         return <Tag color={mode === '新建' ? 'blue' : 'orange'}>{mode}</Tag>;
@@ -434,7 +429,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '资源类型', 
       dataIndex: 'resourceType', 
       key: 'resourceType',
-      width: 104,
       align: 'center' as const,
       render: (type: string) => {
         return <Tag color={type === '快照' ? 'purple' : 'cyan'}>{type}</Tag>;
@@ -443,7 +437,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     {
       title: '状态',
       key: 'restoreStatus',
-      width: 112,
       align: 'center' as const,
       render: (_: any, r: any) => {
         const inner = (() => {
@@ -459,7 +452,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     {
       title: '进度',
       key: 'progress',
-      width: 150,
       render: (_: any, r: any) => {
         if (!r.restoreRaw) return <Progress percent={0} status="exception" size="small" />;
         const st = r.restoreStatus || getRestoreStatus(r.restoreRaw);
@@ -478,7 +470,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '创建时间',
       dataIndex: 'creationTimestamp',
       key: 'creationTimestamp',
-      width: 176,
       render: (t: any) => {
         const n = Date.parse(String(t || ''));
         const show = Number.isFinite(n) ? new Date(n).toLocaleString() : '-';
@@ -489,7 +480,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       render: (_: any, r: any) => {
         const ns = String(r.namespace || '');
         const items: MenuProps['items'] = [
@@ -578,15 +568,14 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r: any) => r.key}
         columns={columns}
         dataSource={filtered}
         loading={loading}
-        scroll={{ x: 1320 }}
         tableLayout="fixed"
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

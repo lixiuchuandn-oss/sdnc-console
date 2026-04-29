@@ -531,18 +531,16 @@ const PodDetailDrawer: React.FC<{
                   status: containerStatuses.find((s: any) => s.name === c.name),
                 }))}
                 columns={[
-                  { title: '名称', dataIndex: 'name', width: 150 },
+                  { title: '名称', dataIndex: 'name' },
                   { title: '镜像', dataIndex: 'image', ellipsis: true },
                   {
                     title: '状态',
                     key: 'status',
-                    width: 140,
                     render: (_: any, record: any) => renderContainerStatus(record.status?.state),
                   },
                   {
                     title: '重启次数',
                     key: 'restartCount',
-                    width: 100,
                     render: (_: any, record: any) => record.status?.restartCount || 0,
                   },
                 ]}
@@ -568,7 +566,6 @@ const PodDetailDrawer: React.FC<{
                     { 
                       title: '类型', 
                       dataIndex: 'type', 
-                      width: 80,
                       render: (v: string) => (
                         <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag>
                       ),
@@ -576,7 +573,6 @@ const PodDetailDrawer: React.FC<{
                     { 
                       title: '原因', 
                       dataIndex: 'reason', 
-                      width: 130,
                     },
                     { 
                       title: '消息', 
@@ -589,13 +585,11 @@ const PodDetailDrawer: React.FC<{
                     { 
                       title: '次数', 
                       dataIndex: 'count', 
-                      width: 60,
                       render: (v: number) => v || 1,
                     },
                     { 
                       title: '时间', 
-                      dataIndex: 'lastTimestamp', 
-                      width: 160, 
+                      dataIndex: 'lastTimestamp',  
                       render: formatTime,
                     },
                   ]}
@@ -618,20 +612,18 @@ const PodDetailDrawer: React.FC<{
                   {
                     title: '类型',
                     dataIndex: 'type',
-                    width: 240,
                     render: (value: string) => renderPodConditionType(value),
                   },
                   {
                     title: '状态',
                     dataIndex: 'status',
-                    width: 80,
                     render: (v: string) => (
                       <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>
                     ),
                   },
-                  { title: '原因', dataIndex: 'reason', width: 150 },
+                  { title: '原因', dataIndex: 'reason' },
                   { title: '消息', dataIndex: 'message', ellipsis: true },
-                  { title: '时间', dataIndex: 'lastTransitionTime', width: 180, render: formatTime },
+                  { title: '时间', dataIndex: 'lastTransitionTime', render: formatTime },
                 ]}
                 pagination={false}
               />
@@ -924,7 +916,6 @@ const PodsSection: React.FC<Props> = ({
           if (blockedCount > 0) {
             modal.info({
               title: '批量驱逐结果',
-              width: 600,
               content: (
                 <div>
                   <p>成功驱逐：<strong style={{ color: '#52c41a' }}>{successCount}</strong> 个</p>
@@ -975,7 +966,6 @@ const PodsSection: React.FC<Props> = ({
       title: '名称',
       dataIndex: ['metadata', 'name'],
       key: 'name',
-      width: 220,
       ellipsis: true,
       render: (name: string, record: any) => (
         <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
@@ -984,7 +974,6 @@ const PodsSection: React.FC<Props> = ({
     {
       title: '所属工作负载',
       key: 'ownerWorkload',
-      width: 150,
       ellipsis: true,
       render: (_: any, record: any) => {
         const owner = getOwnerWorkload(record);
@@ -1003,39 +992,33 @@ const PodsSection: React.FC<Props> = ({
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 120,
       ellipsis: true,
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
     {
       title: '容器状态',
       key: 'status',
-      width: 130,
       render: (_: any, record: any) => renderPodStatus(record),
     },
     {
       title: '节点',
       dataIndex: ['spec', 'nodeName'],
       key: 'nodeName',
-      width: 120,
       ellipsis: true,
     },
     {
       title: 'IP',
       dataIndex: ['status', 'podIP'],
       key: 'podIP',
-      width: 120,
     },
     {
       title: '运行时长',
       key: 'age',
-      width: 100,
       render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
     },
     {
       title: '镜像',
       key: 'image',
-      width: 200,
       ellipsis: true,
       render: (_: any, record: any) => {
         const containers = record?.spec?.containers || [];
@@ -1045,7 +1028,6 @@ const PodsSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 120,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const itemsAll = [
@@ -1200,14 +1182,13 @@ const PodsSection: React.FC<Props> = ({
       
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         rowSelection={

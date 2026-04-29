@@ -225,7 +225,6 @@ const SshKeysSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'action',
-      width: 80,
       align: 'left' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
@@ -346,6 +345,7 @@ const SshKeysSection: React.FC<Props> = ({
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredData}
         columns={tableColumns}
@@ -356,7 +356,6 @@ const SshKeysSection: React.FC<Props> = ({
         }}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

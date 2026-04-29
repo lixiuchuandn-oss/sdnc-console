@@ -377,6 +377,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       {
         title: '名称',
         key: 'subnetAlias',
+        fixed: 'left' as const,
         ellipsis: true,
         render: (_: any, r: any) => {
           const id = String(r?.name || r?.metadata?.name || '').trim();
@@ -489,7 +490,6 @@ const VpcSubnetsSection: React.FC<Props> = ({
             {
               title: 'ACL',
               key: 'acls',
-              width: 72,
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
                 const n = Array.isArray(acls) ? acls.length : 0;
@@ -511,7 +511,6 @@ const VpcSubnetsSection: React.FC<Props> = ({
         title: '操作',
         key: 'actions',
         fixed: 'right' as const,
-        width: 80,
         render: (_: any, r: any) => {
           const name = r?.name || r?.metadata?.name;
           return (
@@ -638,9 +637,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        scroll={{ x: 'max-content' }}
+        scroll={{ x: true }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

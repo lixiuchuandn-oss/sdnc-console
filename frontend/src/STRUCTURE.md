@@ -70,7 +70,7 @@
 |-------------|----------------------------------------------|----------------------------------|
 | **跨域互联** | `group: 跨域互联`；`sdn.interconnect` | `interconnect/acl/`、`interconnect/nat/`、`interconnect/srv6/`、`interconnect/ipsec-vpn/`、`interconnect/vr/`（与 RouteSpec 分组一致，kebab-case） |
 | **安全管理面** | `group: 安全管理面` 等；`sdn.cascade` | `sec-mgr-plane/`（级联通道、应用等；**安全域/安全服务** 的 `group` 为 **流量编排**，与 RouteSpec 一致，源码仍在本目录） |
-| **流量编排** | `group: 流量编排`；`sdn.cascade`（安全域/安全服务）与 `sdn.traffic`（资源池/防护对象/服务链/策略 等） | `sec-mgr-plane/SecurityDomain`、`sec-mgr-plane/SecurityServices` 与 `traffic/`（CsmPools、ServiceChains、ProtectedObjects、Policies 等） |
+| **流量编排** | `group: 流量编排`；`sdn.cascade`（安全域/安全服务）与 `sdn.traffic`（资源池/服务链/策略 等） | `sec-mgr-plane/SecurityDomain`、`sec-mgr-plane/SecurityServices` 与 `traffic/`（`CsmPools/` 安全资源池列表/详情及 `sections/` 内各块含 **防护对象** `CsmPoolAssetsSection` 等、ServiceChains、Policies 等） |
 
 **不放入 `pages/` 的壳层与横切**（保持在 `src/` 根下）：
 
@@ -171,7 +171,7 @@ frontend/src/pages/
 ├── sdncc/                   # ========== SDNCC ==========
 │   ├── interconnect/        # 跨域互联：acl、nat、srv6、ipsec-vpn、vr（见上表；与 `/admin/interconnect/…` 产品域一致）
 │   ├── sec-mgr-plane/       # 安全管理面：级联通道、应用等；安全域/安全服务导航归「流量编排」但源码仍在 sec-mgr-plane
-│   └── traffic/             # 流量编排：CsmPools/（安全资源池列表/详情、modals/ 接入与 VM 详情、sections/）、ServiceChains/、ProtectedObjects/、Policies/ 等
+│   └── traffic/             # 流量编排：CsmPools/（安全资源池列表/详情、modals/、sections/ 含 CsmPoolAssetsSection 防护对象 等）、ServiceChains/、Policies/ 等
 │
 ├── cnsoc/                   # ========== CNSOC ==========
 │   └── （如 sec-ops、aisoc 等；与 SDN 编排能力解耦）

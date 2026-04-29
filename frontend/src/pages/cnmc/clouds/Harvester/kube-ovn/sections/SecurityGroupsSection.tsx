@@ -630,6 +630,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         dataIndex: 'name',
         key: 'name',
         ellipsis: true,
+        fixed: 'left' as const,
         render: (_: string, record: SecurityGroupRow) => (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <SafetyCertificateTwoTone  style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
@@ -667,13 +668,11 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         title: '更新时间',
         dataIndex: 'updatedAt',
         key: 'updatedAt',
-        width: 176,
         render: (t?: string) => (t ? new Date(t).toLocaleString() : '—'),
       },
       {
         title: '操作',
         key: 'actions',
-        width: 80,
         fixed: 'right' as const,
         render: (_: unknown, record: SecurityGroupRow) => {
           if (!canWrite) return '—';
@@ -758,12 +757,13 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         loading={loading}
         columns={tableColumns}
         dataSource={filtered}
+        scroll={{ x: true }}
         locale={{
           emptyText: (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无安全组，可点击「新建安全组」创建" />
           ),
         }}
-        pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
+        pagination={{ showTotal: (total) => `共 ${total} 条` }}
       />
 
       <Modal

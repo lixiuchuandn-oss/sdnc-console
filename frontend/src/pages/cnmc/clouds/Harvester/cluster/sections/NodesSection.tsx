@@ -224,7 +224,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
    * - 名称列可点击打开节点详情抽屉
    */
   const allColumns = useMemo(() => [
-    { title: '名称', key: 'name', render: (_:any, r:any)=> {
+    { title: '名称', key: 'name', fixed: 'left' as const, render: (_:any, r:any)=> {
       const text = r?.name || r?.metadata?.name || '-';
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -310,7 +310,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     { title: '系统镜像', key: 'os', render: (_:any, r:any)=> r?.osImage || r?.status?.nodeInfo?.osImage || '-' },
     { title: '内核版本', key: 'kernel', render: (_:any, r:any)=> r?.kernelVersion || r?.status?.nodeInfo?.kernelVersion || '-' },
     { title: '容器运行时', key: 'runtime', render: (_:any, r:any)=> r?.containerRuntimeVersion || r?.status?.nodeInfo?.containerRuntimeVersion || '-' },
-    { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
+    { title: '操作', key: 'actions', fixed: 'right' as const, render: (_: any, r: any) => {
         const items: any[] = [
           { key: 'detail', label: '详情', onClick: () => handleOpenNodeDetail(r) },
         ];
@@ -376,13 +376,13 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     >
     <Table
       className="std-table"
+      scroll={{ x: true }}
       bordered={false}
       rowKey={(r:any)=> r?.name || r?.metadata?.name || Math.random().toString(36).slice(2)}
       columns={tableColumns}
       dataSource={filtered}
       loading={loading}
       pagination={{
-        size: 'small',
         showTotal: (total) => `共 ${total} 条`,
       }}
     />

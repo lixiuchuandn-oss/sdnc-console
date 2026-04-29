@@ -1130,17 +1130,6 @@ const VmSection: React.FC<Props> = ({
     isPublicNamespace,
   ]);
 
-  /**
-   * 有数据时才开启 scroll.x。
-   * 不要使用 x: true：含 fixed 列时 Ant Design 要求可解析的最小表格宽度；
-   * true + 绝大部分列未定宽会导致整表被压在视口宽度内裁切右侧列（只能缩小浏览器才「看见」）。
-   * 使用足够大的像素下限以触发表格内部横向滚动（见 antd Table scroll.x / fixed columns 说明）。
-   */
-  const vmTableScroll = useMemo(
-    () => (filtered.length > 0 ? ({ x: 2400 } as const) : undefined),
-    [filtered.length],
-  );
-
   // 计算当前详情抽屉需要显示的记录（与列表选中 VM 对齐）
   const drawerRecord = useMemo(() => {
     if (!currentMetadata) return null;
@@ -1916,7 +1905,6 @@ const VmSection: React.FC<Props> = ({
       {
         title: "状态",
         key: "status",
-        fixed: "left" as any,
         render: (_: any, r: any) => {
           const s = String(SafeRead.status(r));
           const k = s.toLowerCase();
@@ -1936,13 +1924,14 @@ const VmSection: React.FC<Props> = ({
           const hasExtra = isResizing || isFsPending || cloneStatus;
 
           return (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  flexWrap: "wrap",
+                  flexWrap: "nowrap",
                   gap: 6,
+                  whiteSpace: "nowrap",
                 }}
               >
                 <Badge status={statusColor as any} text={cnVmStatus(s)} />
@@ -2028,7 +2017,9 @@ const VmSection: React.FC<Props> = ({
       {
         title: "内存",
         key: "memory",
-        render: (_: any, r: any) => SafeRead.memory(r) || "-",
+        render: (_: any, r: any) => (
+          <span style={{ whiteSpace: "nowrap" }}>{SafeRead.memory(r) || "-"}</span>
+        ),
       },
       {
         title: "GPU",
@@ -2058,7 +2049,6 @@ const VmSection: React.FC<Props> = ({
       {
         title: "热扩容",
         key: "hotplug",
-        width: 80,
         render: (_: any, r: any) => {
           const isEnabled = SafeRead.isHotPlugEnabled(r);
           return isEnabled ? (
@@ -2202,7 +2192,6 @@ const VmSection: React.FC<Props> = ({
       {
         title: "操作",
         key: "actions",
-        width: 80,
         align: "left" as const,
         fixed: "right" as const,
         render: (_: any, r: any) => {
@@ -2634,7 +2623,7 @@ const VmSection: React.FC<Props> = ({
         }
         dataSource={filtered}
         loading={loading}
-        scroll={vmTableScroll}
+        scroll={{ x: true }}
         pagination={{
           size: "small",
           showTotal: (total) => `共 ${total} 条`,

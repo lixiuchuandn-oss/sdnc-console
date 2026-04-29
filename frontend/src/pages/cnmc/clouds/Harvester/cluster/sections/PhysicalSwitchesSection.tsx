@@ -638,7 +638,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       {
         title: '操作',
         key: 'actions',
-        width: 80,
         render: (_: unknown, r: any) => (
           <ResourceActionsDropdown
             items={[
@@ -836,6 +835,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
 
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         size="small"
         rowKey="id"

@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Button, Form, message, Steps, Card, Row, Col, Space, Divider, Modal } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { fetchSecurityZones, createServiceChain } from '../../../../../services/trafficOrchestration';
 import { fetchTenants, fetchOrganizationsByTenant, fetchClouds, fetchCsmElementGroups, fetchCsmAssets, fetchCsmServiceChains, createCsmServiceChainRaw } from '../../../../../services/api';
 import { listSecurityDomains } from '../../../../../services/securityDomainApi';
 import { useAuth } from '../../../../../contexts/AuthContext';
+import { csmPoolPathForTab } from '../../../../../layouts/admin/csm/csmPoolSidebar';
 import { 
   addEdge,
   Connection,
@@ -34,6 +35,7 @@ const groupsByTypeInit = Object.fromEntries(SERVICE_TYPES.map(t => [t, [] as { i
 
 const CreateServiceChainWizard: React.FC = () => {
   const navigate = useNavigate();
+  const { cloudId: cloudIdFromRoute } = useParams<{ cloudId: string }>();
   const { user } = useAuth();
   const [current, setCurrent] = useState(0);
   const [form] = Form.useForm();
@@ -50,7 +52,25 @@ const CreateServiceChainWizard: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [clusterId, setClusterId] = useState<string>('');
-  
+
+  useEffect(() => {
+    if (!cloudIdFromRoute) return;
+    const id = decodeURIComponent(cloudIdFromRoute).trim();
+    if (!id) return;
+    setClusterId(id);
+    form.setFieldsValue({ cluster: id });
+  }, [cloudIdFromRoute, form]);
+
+  const goBackToPoolServiceChains = useCallback(() => {
+    const fromForm = String(form.getFieldValue('cluster') || '').trim();
+    const id = (cloudIdFromRoute ? decodeURIComponent(cloudIdFromRoute).trim() : '') || fromForm;
+    if (id) {
+      navigate(csmPoolPathForTab(id, 'serviceChains'));
+    } else {
+      navigate('/admin/security/traffic/csm-pools');
+    }
+  }, [cloudIdFromRoute, form, navigate]);
+
   const sortedServices = useMemo(() => {
     const cid = clusterId || form.getFieldValue('cluster');
     const isAvail = (t: string) => Boolean(cid) && (groupsByType[t] && groupsByType[t].length > 0);
@@ -485,7 +505,7 @@ const CreateServiceChainWizard: React.FC = () => {
                 message.error('CSM下发失败: ' + String(e));
             }
         }
-        navigate('/admin/security/traffic/service-chains');
+        goBackToPoolServiceChains();
     } catch (error) {
         message.error('服务链创建失败');
     }
@@ -637,13 +657,21 @@ const CreateServiceChainWizard: React.FC = () => {
     return null;
   };
 
+  const poolListPath = '/admin/security/traffic/csm-pools';
+  const serviceChainTabPath = cloudIdFromRoute
+    ? csmPoolPathForTab(decodeURIComponent(cloudIdFromRoute), 'serviceChains')
+    : undefined;
+
   return (
     <PageContainer
       title="新建服务链"
       breadcrumb={[
         { label: '网络安全', href: '/admin/security' },
-        { label: '服务链管理', href: '/admin/security/traffic/service-chains' },
-        { label: '新建服务链' }
+        { label: '安全资源池', href: poolListPath },
+        ...(serviceChainTabPath
+          ? ([{ label: '服务链', href: serviceChainTabPath }] as { label: string; href: string }[])
+          : []),
+        { label: '新建服务链' },
       ]}
       asCard={false}
     >
@@ -664,7 +692,7 @@ const CreateServiceChainWizard: React.FC = () => {
             <Divider style={{ margin: '12px 0' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <Space>
-                <Button onClick={() => navigate('/admin/security/traffic/service-chains')}>返回列表</Button>
+                <Button onClick={goBackToPoolServiceChains}>返回</Button>
                 <Button onClick={prev} disabled={current===0}>上一步</Button>
               </Space>
               <Space>

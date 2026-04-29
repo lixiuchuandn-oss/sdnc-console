@@ -178,6 +178,7 @@ const PaasSection: React.FC<Props> = ({
       {
         title: '实例名称',
         key: 'name',
+        fixed: 'left' as const,
         render: (_: any, r: any) => {
           const text = SafeRead.name(r) || '-';
           return (
@@ -203,7 +204,6 @@ const PaasSection: React.FC<Props> = ({
       {
         title: '引擎类型',
         key: 'paasType',
-        width: 128,
         render: (_: any, r: any) => {
           const label = SafeRead.paasTypeLabel(r);
           return <Tag color="processing">{label}</Tag>;
@@ -212,7 +212,6 @@ const PaasSection: React.FC<Props> = ({
       {
         title: '版本',
         key: 'paasVer',
-        width: 100,
         render: (_: any, r: any) => {
           const v = SafeRead.paasVer(r);
           return v ? <Tag color="default">{v}</Tag> : '-';
@@ -385,8 +384,8 @@ const PaasSection: React.FC<Props> = ({
         columns={columns}
         dataSource={filteredInstances}
         loading={loading}
+        scroll={{ x: true }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

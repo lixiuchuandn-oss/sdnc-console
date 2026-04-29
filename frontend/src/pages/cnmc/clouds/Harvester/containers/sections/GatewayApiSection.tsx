@@ -71,13 +71,11 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '名称',
       dataIndex: ['metadata', 'name'],
       key: 'name',
-      width: 200,
     },
     {
       title: '控制器',
       dataIndex: ['spec', 'controllerName'],
       key: 'controller',
-      width: 250,
       render: (text: string) => <Tag color="blue">{text}</Tag>,
     },
     {
@@ -90,7 +88,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      width: 180,
       render: (text: string) => text ? new Date(text).toLocaleString() : '-',
     },
   ];
@@ -101,32 +98,27 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '名称',
       dataIndex: ['metadata', 'name'],
       key: 'name',
-      width: 150,
     },
     {
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 120,
     },
     {
       title: 'GatewayClass',
       dataIndex: ['spec', 'gatewayClassName'],
       key: 'gatewayClassName',
-      width: 150,
     },
     {
       title: '监听器',
       dataIndex: ['spec', 'listeners'],
       key: 'listeners',
       render: (listeners: any[]) => listeners?.length || 0,
-      width: 80,
     },
     {
       title: '状态',
       dataIndex: ['status', 'conditions'],
       key: 'status',
-      width: 100,
       render: (conditions: any[]) => {
         const ready = conditions?.find(c => c.type === 'Ready');
         return ready?.status === 'True' 
@@ -138,13 +130,11 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      width: 180,
       render: (text: string) => text ? new Date(text).toLocaleString() : '-',
     },
     {
       title: '操作',
       key: 'action',
-      width: 80,
       render: (_: any, record: any) => (
         <Popconfirm
           title="确定删除此 Gateway？"
@@ -166,13 +156,11 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '名称',
       dataIndex: ['metadata', 'name'],
       key: 'name',
-      width: 150,
     },
     {
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 120,
     },
     {
       title: '主机名',
@@ -185,20 +173,17 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '规则数',
       dataIndex: ['spec', 'rules'],
       key: 'rules',
-      width: 80,
       render: (rules: any[]) => rules?.length || 0,
     },
     {
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      width: 180,
       render: (text: string) => text ? new Date(text).toLocaleString() : '-',
     },
     {
       title: '操作',
       key: 'action',
-      width: 80,
       render: (_: any, record: any) => (
         <Popconfirm
           title="确定删除此 HTTPRoute？"
@@ -220,13 +205,11 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '名称',
       dataIndex: ['metadata', 'name'],
       key: 'name',
-      width: 150,
     },
     {
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 120,
     },
     {
       title: '主机名',
@@ -239,20 +222,17 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '规则数',
       dataIndex: ['spec', 'rules'],
       key: 'rules',
-      width: 80,
       render: (rules: any[]) => rules?.length || 0,
     },
     {
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      width: 180,
       render: (text: string) => text ? new Date(text).toLocaleString() : '-',
     },
     {
       title: '操作',
       key: 'action',
-      width: 80,
       render: (_: any, record: any) => (
         <Popconfirm
           title="确定删除此 GRPCRoute？"
@@ -347,14 +327,13 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       children: (
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           columns={gatewayClassColumns}
           dataSource={gatewayClasses}
           rowKey={(record) => record.metadata.uid || record.metadata.name}
           loading={loading}
-          scroll={{ x: 'max-content' }}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
@@ -377,14 +356,13 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       children: (
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           columns={gatewayColumns}
           dataSource={filteredGateways}
           rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
           loading={loading}
-          scroll={{ x: 'max-content' }}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
@@ -407,14 +385,13 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       children: (
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           columns={httpRouteColumns}
           dataSource={filteredHttpRoutes}
           rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
           loading={loading}
-          scroll={{ x: 'max-content' }}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
@@ -437,14 +414,13 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       children: (
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           columns={grpcRouteColumns}
           dataSource={filteredGrpcRoutes}
           rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
           loading={loading}
-          scroll={{ x: 'max-content' }}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />

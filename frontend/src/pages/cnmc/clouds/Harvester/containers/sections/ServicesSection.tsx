@@ -235,7 +235,6 @@ const ServiceTable: React.FC<{
     {
       title: '名称',
       key: 'name',
-      width: 180,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -264,7 +263,6 @@ const ServiceTable: React.FC<{
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -272,20 +270,17 @@ const ServiceTable: React.FC<{
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 150,
       ellipsis: true,
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
     {
       title: '类型',
       key: 'type',
-      width: 120,
       render: (_: any, record: any) => renderServiceType(record?.spec?.type || 'ClusterIP'),
     },
     {
       title: '集群IP',
       key: 'clusterIP',
-      width: 130,
       render: (_: any, record: any) => {
         const ip = record?.spec?.clusterIP;
         if (!ip || ip === 'None') return <span style={{ color: '#999' }}>-</span>;
@@ -295,7 +290,6 @@ const ServiceTable: React.FC<{
     {
       title: '端口',
       key: 'ports',
-      width: 150,
       render: (_: any, record: any) => {
         const ports = record?.spec?.ports || [];
         if (ports.length === 0) return <span style={{ color: '#999' }}>-</span>;
@@ -319,7 +313,6 @@ const ServiceTable: React.FC<{
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'creationTimestamp',
-      width: 180,
       render: (v: string) => (
         <Tooltip title={formatTime(v)}>
           {calculateAge(v)}
@@ -331,7 +324,6 @@ const ServiceTable: React.FC<{
     {
       title: '操作',
       key: 'actions',
-      width: 120,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record);
         const systemHint = getSystemResourceProtectionHint(record);
@@ -420,14 +412,13 @@ const ServiceTable: React.FC<{
 
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         rowSelection={{

@@ -254,63 +254,54 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
       {
         title: '命名空间',
         key: 'ns',
-        width: 120,
         ellipsis: true,
         render: (_: unknown, r: any) => r?.metadata?.namespace || '-',
       },
       {
         title: '池名称',
         key: 'name',
-        width: 140,
         ellipsis: true,
         render: (_: unknown, r: any) => <Typography.Text strong>{r?.metadata?.name || '-'}</Typography.Text>,
       },
       {
         title: 'Ceph 池名',
         key: 'cephPool',
-        width: 120,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolCephPoolName(r?.spec),
       },
       {
         title: 'deviceClass',
         key: 'dc',
-        width: 110,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolDeviceClass(r?.spec),
       },
       {
         title: 'crushRoot',
         key: 'cr',
-        width: 100,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolCrushRoot(r?.spec),
       },
       {
         title: '混合存储',
         key: 'hybrid',
-        width: 110,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolHybridSummary(r?.spec),
       },
       {
         title: '类型',
         key: 'mode',
-        width: 72,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolMode(r?.spec),
       },
       {
         title: '副本 / 纠删',
         key: 'rep',
-        width: 110,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolReplicasOrEc(r?.spec),
       },
       {
         title: 'failureDomain',
         key: 'fd',
-        width: 120,
         ellipsis: true,
         render: (_: unknown, r: any) => {
           const f = r?.spec?.failureDomain ?? r?.spec?.replicated?.failureDomain;
@@ -320,7 +311,6 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
       {
         title: '参数',
         key: 'params',
-        width: 200,
         ellipsis: true,
         render: (_: unknown, r: any) => {
           const full = blockPoolParametersSummary(r?.spec, 8000);
@@ -336,34 +326,29 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
       {
         title: '配额',
         key: 'quota',
-        width: 160,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolQuotasSummary(r?.spec),
       },
       {
         title: 'RBD 镜像',
         key: 'mirror',
-        width: 88,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolMirroringSummary(r?.spec),
       },
       {
         title: '池 ID',
         key: 'poolId',
-        width: 72,
         ellipsis: true,
         render: (_: unknown, r: any) => blockPoolStatusPoolId(r?.status),
       },
       {
         title: 'RADOS NS',
         key: 'rns',
-        width: 88,
         render: (_: unknown, r: any) => countRadosNamespacesForBlockPool(r, radosNamespaces),
       },
       {
         title: '阶段',
         key: 'phase',
-        width: 100,
         ellipsis: true,
         render: (_: unknown, r: any) => {
           const p = rookPhase(r);
@@ -484,63 +469,54 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
       {
         title: '命名空间',
         key: 'ns',
-        width: 120,
         ellipsis: true,
         render: (_: unknown, r: any) => r?.metadata?.namespace || '-',
       },
       {
         title: '节点',
         key: 'node',
-        width: 140,
         ellipsis: true,
         render: (_: unknown, r: any) => blockDeviceNodeName(r),
       },
       {
         title: '设备 CR',
         key: 'cr',
-        width: 160,
         ellipsis: true,
         render: (_: unknown, r: any) => <Typography.Text strong>{r?.metadata?.name || '-'}</Typography.Text>,
       },
       {
         title: '设备路径',
         key: 'path',
-        width: 120,
         ellipsis: true,
         render: (_: unknown, r: any) => <Typography.Text code>{blockDeviceDevPath(r)}</Typography.Text>,
       },
       {
         title: '容量',
         key: 'cap',
-        width: 100,
         ellipsis: true,
         render: (_: unknown, r: any) => blockDeviceCapacityLabel(r),
       },
       {
         title: '类型',
         key: 'dtype',
-        width: 88,
         ellipsis: true,
         render: (_: unknown, r: any) => blockDeviceDiskType(r),
       },
       {
         title: '型号',
         key: 'model',
-        width: 160,
         ellipsis: true,
         render: (_: unknown, r: any) => blockDeviceModel(r),
       },
       {
         title: '序列号 / WWN',
         key: 'sn',
-        width: 160,
         ellipsis: true,
         render: (_: unknown, r: any) => blockDeviceSerialOrWwn(r),
       },
       {
         title: '供应阶段',
         key: 'phase',
-        width: 120,
         ellipsis: true,
         render: (_: unknown, r: any) => {
           const p = blockDeviceProvisionPhase(r);
@@ -551,14 +527,12 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
       {
         title: '供应意图',
         key: 'intent',
-        width: 130,
         ellipsis: true,
         render: (_: unknown, r: any) => blockDeviceProvisionIntent(r),
       },
       {
         title: '异常',
         key: 'err',
-        width: 72,
         render: (_: unknown, r: any) =>
           blockDeviceHasError(r) ? <Tag color="error">是</Tag> : <Typography.Text type="secondary">—</Typography.Text>,
       },
