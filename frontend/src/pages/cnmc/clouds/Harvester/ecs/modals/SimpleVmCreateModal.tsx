@@ -816,7 +816,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                           allowClear
                           placeholder={`存储类（默认 ${defaultStorageClassName || 'longhorn'}）`}
                           options={userSelectableStorageClassOptions}
-                          prefix="存储池"
+                          prefix="存储类"
                         />
                       </Form.Item>
                     </Col>

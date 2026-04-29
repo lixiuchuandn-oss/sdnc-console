@@ -76,6 +76,12 @@ export async function tryLoadStorageTab(
         );
       }
       return true;
+    case 'longhorn':
+      /** 页面内自拉 `/monitoring/storage-nodes`，池级无需预加载 */
+      return true;
+    case 'ceph':
+      /** 页面内自拉 `/monitoring/ceph-clusters` */
+      return true;
     default:
       return false;
   }

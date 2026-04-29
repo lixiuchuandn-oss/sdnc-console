@@ -85,6 +85,18 @@ export function fetchStorageNodes(cloudId: string, options?: { signal?: AbortSig
   return apiGet(`${base(cloudId)}/storage-nodes`, options);
 }
 
+/** Rook CephCluster 列表（Steve：`cephclusters.ceph.rook.io` 等，由后端选择路径） */
+export function fetchCephClusters(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/ceph-clusters`, options);
+}
+
+/** Rook Ceph 聚合：CephCluster、CephBlockPool、CephBlockPoolRadosNamespace、CephFilesystem、CephObjectStore */
+export function fetchCephResources(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/ceph-resources`, options);
+}
+
 export function fetchNodeResources(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiGet(`${base(cloudId)}/node-resources`, options);

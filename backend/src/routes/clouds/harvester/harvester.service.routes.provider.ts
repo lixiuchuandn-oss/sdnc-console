@@ -33,6 +33,8 @@ import {
 } from './handlers/logging.handlers';
 import {
   harvesterMonitoringStorageNodesHandler,
+  harvesterMonitoringCephClustersHandler,
+  harvesterMonitoringCephRookBundleHandler,
   harvesterMonitoringNodeResourcesHandler,
   harvesterMonitoringNodeMetricsHandler,
   harvesterMonitoringVirtualMachinesHandler,
@@ -300,6 +302,20 @@ export function registerHarvesterServiceRoutesProvider(
     'cloudmap.edge': harvesterMonitoringStorageNodesHandler,
   };
 
+  const monitoringCephClustersHandlers = {
+    harvester: harvesterMonitoringCephClustersHandler,
+    cloudmap: harvesterMonitoringCephClustersHandler,
+    'cloudmap.private': harvesterMonitoringCephClustersHandler,
+    'cloudmap.edge': harvesterMonitoringCephClustersHandler,
+  };
+
+  const monitoringCephRookBundleHandlers = {
+    harvester: harvesterMonitoringCephRookBundleHandler,
+    cloudmap: harvesterMonitoringCephRookBundleHandler,
+    'cloudmap.private': harvesterMonitoringCephRookBundleHandler,
+    'cloudmap.edge': harvesterMonitoringCephRookBundleHandler,
+  };
+
   const monitoringNodeResourcesHandlers = {
     harvester: harvesterMonitoringNodeResourcesHandler,
     cloudmap: harvesterMonitoringNodeResourcesHandler,
@@ -492,6 +508,8 @@ export function registerHarvesterServiceRoutesProvider(
   // Monitoring Routes
   // Overview
   router.get('/:id/monitoring/storage-nodes', checkAdminPermission, createProviderRouter(monitoringOverviewHandlers));
+  router.get('/:id/monitoring/ceph-clusters', checkAdminPermission, createProviderRouter(monitoringCephClustersHandlers));
+  router.get('/:id/monitoring/ceph-resources', checkAdminPermission, createProviderRouter(monitoringCephRookBundleHandlers));
   router.get('/:id/monitoring/node-resources', checkAdminPermission, createProviderRouter(monitoringNodeResourcesHandlers));
   router.get('/:id/monitoring/node-metrics', checkAdminPermission, createProviderRouter(monitoringNodeMetricsHandlers));
   router.get('/:id/monitoring/virtualmachines', checkAdminPermission, createProviderRouter(monitoringVirtualMachinesHandlers));

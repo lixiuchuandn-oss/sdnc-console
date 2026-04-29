@@ -2,6 +2,8 @@ import React from 'react';
 import { Empty } from 'antd';
 import VolumesSection from '../../../../Harvester/ebs/sections/VolumesSection';
 import SnapshotsSection from '../../../../Harvester/ebs/sections/SnapshotsSection';
+import CephStorageSection from '../../../../Harvester/ceph/sections/CephStorageSection';
+import LonghornStorageSection from '../../../../Harvester/longhorn/sections/LonghornStorageSection';
 import { fetchCloudProviderEcs, fetchHarvesterVolumes } from '../../api';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
@@ -55,6 +57,13 @@ export type CloudmapStorageGroupTabsProps = {
 function canViewStorageInner(key: string, checkPerm: (a: string) => boolean): boolean {
   if (key === 'volumes') return checkPerm('clouds.disks:read');
   if (key === 'snapshots') return checkPerm('clouds.snapshots:read');
+  if (key === 'longhorn' || key === 'ceph') {
+    return (
+      checkPerm('clouds.disks:read') ||
+      checkPerm('clouds.cluster-nodes:read') ||
+      checkPerm('clouds:read')
+    );
+  }
   return false;
 }
 
@@ -135,6 +144,12 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
         <DebugJSON data={rawSnapshots} show={showLog} />
       </>
     );
+  }
+  if (innerActiveKey === 'longhorn') {
+    return <LonghornStorageSection cloudId={cloudId} />;
+  }
+  if (innerActiveKey === 'ceph') {
+    return <CephStorageSection cloudId={cloudId} />;
   }
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };

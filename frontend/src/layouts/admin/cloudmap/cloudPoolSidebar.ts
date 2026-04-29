@@ -65,7 +65,7 @@ export const CLOUDMAP_CLUSTER_INNER_MENU: CloudmapPoolInnerMenuItem[] = [
   { pathSeg: 'cluster_usb', label: 'USB 设备' },
   { pathSeg: 'clusterNetworks', label: '集群网络' },
   { pathSeg: 'cluster_services', label: '基础服务' },
-  { pathSeg: 'storage_classes', label: '存储池' },
+  { pathSeg: 'storage_classes', label: '存储类' },
   { pathSeg: 'nads', label: '附加网络(NAD)' },
   { pathSeg: 'load_balancers', label: '负载均衡' },
   { pathSeg: 'ippools', label: 'IP地址池' },
