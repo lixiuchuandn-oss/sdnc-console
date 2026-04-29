@@ -167,15 +167,11 @@ const TenantsPage: React.FC = () => {
 
   // 删除租户
   const handleDeleteTenant = async (id: string) => {
-    try {
-      await apiDelete(`/api/tenants/${id}`);
-      message.success('租户删除成功');
-      fetchTenants(true);
-      if (selectedTenant?.id === id) {
-        setSelectedTenant(null);
-      }
-    } catch (error: any) {
-      message.error(error?.message || '删除租户失败');
+    await apiDelete(`/api/tenants/${id}`);
+    message.success('租户删除成功');
+    fetchTenants(true);
+    if (selectedTenant?.id === id) {
+      setSelectedTenant(null);
     }
   };
 
@@ -183,19 +179,42 @@ const TenantsPage: React.FC = () => {
     if (selectedTenantRowKeys.length === 0) { message.info('请先选择要删除的租户'); return; }
     Modal.confirm({
       title: '确认批量删除租户',
-      content: '删除后将无法恢复，相关的组织和用户也会被删除。',
+      content: '删除后将无法恢复。若某租户下仍有组织用户或资源占用，该条将删除失败。',
       okText: '删除',
       cancelText: '取消',
       onOk: async () => {
-        try {
-          await Promise.all(selectedTenantRowKeys.map(id => apiDelete(`/api/tenants/${id}`)));
-          message.success('批量删除成功');
-          setSelectedTenantRowKeys([]);
+        const results = await Promise.allSettled(
+          selectedTenantRowKeys.map((id) => apiDelete(`/api/tenants/${id}`))
+        );
+        const errors: string[] = [];
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') {
+            const reason = r.reason as { response?: { data?: { message?: string } }; message?: string };
+            const msg =
+              reason?.response?.data?.message ||
+              reason?.message ||
+              `租户 ${selectedTenantRowKeys[i]} 删除失败`;
+            errors.push(msg);
+          }
+        });
+        const ok = results.filter((r) => r.status === 'fulfilled').length;
+        if (ok > 0) {
+          message.success(`已删除 ${ok} 个租户`);
           fetchTenants(true);
-        } catch (error: any) {
-          message.error(error.response?.data?.message || '批量删除失败');
+          setSelectedTenantRowKeys([]);
         }
-      }
+        if (errors.length > 0) {
+          Modal.error({
+            title: ok > 0 ? '部分租户删除失败' : '批量删除租户失败',
+            width: 520,
+            content: (
+              <div style={{ maxHeight: 280, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+                {errors.join('\n')}
+              </div>
+            ),
+          });
+        }
+      },
     });
   };
 
@@ -262,30 +281,30 @@ const TenantsPage: React.FC = () => {
             if (key === 'delete') {
               const confirmInstance = Modal.confirm({
                 title: '确认删除租户',
-                content: '删除后将无法恢复，相关的组织和用户也会被删除。',
+                content:
+                  '删除后将无法恢复。若租户下仍有组织用户，或仍存在资源绑定等占用，系统将拒绝删除。',
                 okText: '删除',
                 cancelText: '取消',
                 onOk: async () => {
                   try {
                     await handleDeleteTenant(record.id);
                   } catch (error: any) {
-                    const errorMessage = error?.response?.data?.message || '删除租户失败';
+                    const status = error?.response?.status;
+                    const errorMessage =
+                      error?.response?.data?.message || error?.message || '删除租户失败';
                     const resources = error?.response?.data?.resources || [];
-                    
-                    // 关闭确认框
+                    const blockingReason = error?.response?.data?.blockingReason;
+
                     confirmInstance.destroy();
-                    
-                    // 如果是资源绑定错误，使用 Modal.error 显示详细信息
-                    if (error?.response?.status === 409) {
+
+                    if (status === 409) {
                       Modal.error({
                         title: '无法删除租户',
                         width: 500,
                         content: (
                           <div style={{ marginTop: 16 }}>
-                            <p style={{ marginBottom: 16, color: '#ff4d4f' }}>
-                              {errorMessage}
-                            </p>
-                            
+                            <p style={{ marginBottom: 16, color: '#ff4d4f' }}>{errorMessage}</p>
+
                             {resources.length > 0 && (
                               <div style={{ marginBottom: 16 }}>
                                 <div style={{ marginBottom: 8, fontWeight: 500 }}>关联资源：</div>
@@ -300,13 +319,16 @@ const TenantsPage: React.FC = () => {
                             )}
 
                             <p style={{ margin: 0, color: '#8c8c8c', fontSize: 12 }}>
-                              请先解除上述资源绑定后再尝试删除租户。
+                              {blockingReason === 'ORG_USERS'
+                                ? '请先删除租户下全部组织用户后再尝试删除租户。'
+                                : resources.length > 0
+                                  ? '请先解除上述资源绑定后再尝试删除租户。'
+                                  : '请根据页面提示处理后再尝试删除租户。'}
                             </p>
                           </div>
                         ),
                       });
                     } else {
-                      // 其他错误显示普通消息
                       message.error(errorMessage);
                     }
                   }

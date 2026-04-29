@@ -124,6 +124,7 @@ export {
   isProtectedNamespace,
   isTowerManagedNamespace,
   getNamespaceScenario,
+  TOWER_NAMESPACE_MANAGED_FINALIZER,
 } from './namespace';
 export {
   listHarvesterGpuResources,

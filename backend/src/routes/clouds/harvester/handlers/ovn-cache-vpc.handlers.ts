@@ -37,6 +37,7 @@ import { KubeOvnVpcInventory } from '../../../../entities/kubeovn/KubeOvnVpcInve
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubeOvnVpcs } from '../../../../services/clouds/harvester/inventory';
 import { createKubeOvnVpc, deleteKubeOvnVpc, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
+import { listKubeOvnSubnets } from '../../../../services/clouds/harvester/network';
 import { licenseService } from '../../../../services/LicenseService';
 import { checkTenantAccess } from '../harvester.direct.helpers';
 import {
@@ -237,15 +238,46 @@ export async function harvesterVpcDeleteHandler(req: Request, res: Response) {
     const cloud = (req as any).cloud;
     const { name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+    const nameTrim = String(name || '').trim();
+    if (!nameTrim) {
+      return res.status(400).json({ message: '缺少 VPC 名称' });
+    }
+
+    let subnetItems: any[] = [];
+    try {
+      subnetItems = await listKubeOvnSubnets({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      });
+    } catch (e: any) {
+      return res.status(503).json({
+        message: '暂时无法枚举子网，无法在删除 VPC 前完成校验，请稍后重试。',
+        error: e?.message || String(e),
+      });
+    }
+    const subnetsOnVpc = subnetItems.filter(
+      (s: any) => String(s?.spec?.vpc ?? '').trim() === nameTrim,
+    );
+    if (subnetsOnVpc.length > 0) {
+      const sample = subnetsOnVpc
+        .slice(0, 8)
+        .map((s: any) => String(s?.metadata?.name || '').trim())
+        .filter(Boolean);
+      const ellipsis = subnetsOnVpc.length > 8 ? '…' : '';
+      return res.status(409).json({
+        message: `该 VPC 下仍存在子网，请先删除这些子网后再删除 VPC。（当前 ${subnetsOnVpc.length} 个，示例：${sample.join('、') || subnetsOnVpc.length}${ellipsis}）`,
+      });
+    }
 
     await deleteKubeOvnVpc(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      name
+      nameTrim,
     );
 
     // 从数据库删除
     const repo = AppDataSource.getRepository(KubeOvnVpcInventory);
-    await repo.delete({ cloudId: cloud.id, name });
+    await repo.delete({ cloudId: cloud.id, name: nameTrim });
 
     res.json({ message: '删除成功' });
   } catch (error: any) {

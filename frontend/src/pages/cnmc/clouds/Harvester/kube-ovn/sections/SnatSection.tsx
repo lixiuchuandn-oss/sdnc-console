@@ -4,6 +4,7 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
+  isFlatKubeOvnSubnetForFlatNatSelector,
 } from '../lib/kubeOvnSubnetConstants';
 import {
   buildBusinessVpcPickerRows,
@@ -161,16 +162,10 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
   const subnetChoices = useMemo(() => {
     if (!networkScope) return subnets;
     return subnets.filter((s: any) => {
-      const vpc = String(s.spec?.vpc || s.vpc || '').trim();
-      const onFlatBuiltinVpc = !vpc || isBuiltInKubeOvnVpc(vpc);
       if (networkScope === 'flat') {
-        const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
-          .trim()
-          .toLowerCase();
-        const hasVlan = !!String(s?.spec?.vlan || '').trim();
-        const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
-        return t === 'flat' && onFlatBuiltinVpc && !hasVlan && vpcNorm === KUBE_OVN_FLAT_VPC;
+        return isFlatKubeOvnSubnetForFlatNatSelector(s);
       }
+      const vpc = String(s.spec?.vpc || s.vpc || '').trim();
       return vpc && !isBuiltInKubeOvnVpc(vpc);
     });
   }, [subnets, networkScope]);
@@ -214,6 +209,19 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         const snVpc = String(sn?.spec?.vpc || sn?.vpc || '').trim();
         if (selVpc && snVpc && selVpc !== snVpc) {
           message.error('所选子网不属于当前 VPC，请重新选择');
+          return;
+        }
+      }
+      const eipName = String(values.ovnEip ?? '').trim();
+      const subnetCrName = String(values.vpcSubnet ?? '').trim();
+      if (eipName && subnetCrName) {
+        const duplicate = (Array.isArray(snatRules) ? snatRules : []).some((r: any) => {
+          const exEip = String(r?.spec?.ovnEip ?? '').trim();
+          const exSubnet = String(r?.spec?.vpcSubnet ?? '').trim();
+          return exEip === eipName && exSubnet === subnetCrName;
+        });
+        if (duplicate) {
+          message.error('该公网 IP 与所选子网的组合已存在 SNAT 规则，请勿重复创建');
           return;
         }
       }

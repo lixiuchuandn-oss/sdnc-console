@@ -460,18 +460,18 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     if (!cloudId || !name) return;
 
     const relatedSubnets = (subnets || []).filter((s) => {
-      const targetVpc = SafeRead.subnetVpc(s);
-      return String(targetVpc).trim() === String(name).trim();
+      const v = String(s?.spec?.vpc ?? '').trim();
+      return v === String(name).trim();
     });
     if (relatedSubnets.length > 0) {
       const subnetNames = relatedSubnets
         .slice(0, 5)
         .map((s) => SafeRead.displayName(s))
         .join('、');
-      const moreText = relatedSubnets.length > 5 ? ' 等' : '';
+      const moreText = relatedSubnets.length > 5 ? ` 等` : '';
       Modal.error({
         title: '无法删除 VPC',
-        content: `该 VPC（${displayName}）下仍有子网（${subnetNames}${moreText}），请先删除全部关联子网后再删除 VPC。`,
+        content: `请先删除该 VPC（${displayName}）下的子网，然后再删除 VPC。当前关联示例：${subnetNames}${moreText}。`,
       });
       return;
     }

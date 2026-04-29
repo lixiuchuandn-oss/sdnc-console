@@ -70,7 +70,14 @@ export async function tryLoadKubeOvnVpcTab(
     case 'dnat':
     case 'kubeovn_dnat':
       if (canViewKubeOvnGroup) {
-        if (key === 'eips' || key === 'kubeovn_eips') {
+        if (
+          key === 'eips' ||
+          key === 'kubeovn_eips' ||
+          key === 'snat' ||
+          key === 'kubeovn_snat' ||
+          key === 'dnat' ||
+          key === 'kubeovn_dnat'
+        ) {
           loadResource(
             'eips',
             () => fetchCloudProviderOvnEips(cloudId, force, 'vpc'),

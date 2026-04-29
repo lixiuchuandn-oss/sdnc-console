@@ -28,7 +28,12 @@ export async function tryLoadKubeOvnFlatTab(
     case 'flat_kubeovn_snat':
     case 'flat_kubeovn_dnat':
       if (!canViewFlatNetworkGroup) return true;
-      if (key === 'flat_kubeovn_eips' && checkPerm('clouds.eips.flat:read')) {
+      if (
+        (key === 'flat_kubeovn_eips' ||
+          key === 'flat_kubeovn_snat' ||
+          key === 'flat_kubeovn_dnat') &&
+        checkPerm('clouds.eips.flat:read')
+      ) {
         loadResource(
           'flatEips',
           () => fetchCloudProviderOvnEips(cloudId, force, 'flat'),

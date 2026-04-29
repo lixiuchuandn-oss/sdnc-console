@@ -1,6 +1,13 @@
 import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
 
+/**
+ * 创建租户命名空间时写入的 metadata.finalizers 项。
+ * 若集群侧无对应 controller 在删除流程中摘掉，Namespace 会长期卡在 Terminating。
+ * 删除前须先 PATCH 移除此终结器。
+ */
+export const TOWER_NAMESPACE_MANAGED_FINALIZER = 'tower.io/managed';
+
 export const isProtectedNamespace = (name: string): boolean => {
   if (!name) return false;
   const lower = name.toLowerCase();
@@ -182,7 +189,7 @@ export const createHarvesterNamespace = async (
       // 添加终结器，防止命名空间被意外删除（与虚拟机统一）
       // 终结器会在命名空间删除时被调用，可以用于清理资源
       ...(options?.addFinalizer !== false ? {
-        finalizers: ['tower.io/managed'],
+        finalizers: [TOWER_NAMESPACE_MANAGED_FINALIZER],
       } : {}),
     },
   } as any;
@@ -245,7 +252,36 @@ export const deleteHarvesterNamespace = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
-  return requestJson('DELETE', url, token, insecure);
+  const params = { endpoint, token, insecure };
+
+  let ns: any;
+  try {
+    ns = await getHarvesterNamespaceRaw(params, name);
+  } catch (e: any) {
+    const code = e?.status ?? e?.response?.status;
+    if (code === 404) {
+      return { notice: 'namespace not found' };
+    }
+    throw e;
+  }
+
+  const fin = Array.isArray(ns?.metadata?.finalizers) ? ns.metadata.finalizers : [];
+  if (fin.includes(TOWER_NAMESPACE_MANAGED_FINALIZER)) {
+    const next = fin.filter((f: string) => f !== TOWER_NAMESPACE_MANAGED_FINALIZER);
+    await requestJson(
+      'PATCH',
+      url,
+      token,
+      insecure,
+      { metadata: { finalizers: next } },
+      { 'Content-Type': 'application/strategic-merge-patch+json' },
+    );
+  }
+
+  if (!ns?.metadata?.deletionTimestamp) {
+    return requestJson('DELETE', url, token, insecure);
+  }
+  return { notice: 'namespace was terminating; removed Tower finalizer' };
 };
 
 export const listHarvesterNamespacesRaw = async ({

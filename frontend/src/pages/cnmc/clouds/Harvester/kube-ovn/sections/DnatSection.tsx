@@ -16,6 +16,7 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
+  isFlatKubeOvnSubnetForFlatNatSelector,
 } from '../lib/kubeOvnSubnetConstants';
 import {
   buildBusinessVpcPickerRows,
@@ -108,16 +109,10 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   const subnetChoicesForDnat = useMemo(() => {
     if (!networkScope) return subnets;
     return subnets.filter((s: any) => {
-      const vpc = String(s?.spec?.vpc || s?.vpc || '').trim();
-      const onFlatBuiltinVpc = !vpc || isBuiltInKubeOvnVpc(vpc);
       if (networkScope === 'flat') {
-        const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
-          .trim()
-          .toLowerCase();
-        const hasVlan = !!String(s?.spec?.vlan || '').trim();
-        const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
-        return t === 'flat' && onFlatBuiltinVpc && !hasVlan && vpcNorm === KUBE_OVN_FLAT_VPC;
+        return isFlatKubeOvnSubnetForFlatNatSelector(s);
       }
+      const vpc = String(s?.spec?.vpc || s?.vpc || '').trim();
       return vpc && !isBuiltInKubeOvnVpc(vpc);
     });
   }, [subnets, networkScope]);

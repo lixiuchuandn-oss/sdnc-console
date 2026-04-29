@@ -35,6 +35,8 @@ import {
   TOWER_ALIAS_ANNOTATION,
   OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
   resolveTowerUnderlaySubnetCategory,
+  KUBE_OVN_PUBLIC_VPC,
+  TOWER_IO_NAMESPACES_ANNOTATION,
 } from '../lib/kubeOvnSubnetConstants';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
 import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
@@ -50,6 +52,9 @@ import {
 } from '../lib/flatSubnetExcludeIpValidation';
 import { getFlatSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+
+/** subnet 注解：曾绑 VLAN/物理网下由集群或控制台写入；无 VLAN overlay 应与新建扁平子网一致并清除 */
+const TOWER_PROVIDER_NETWORK_ANNOTATION = 'tower.io/provider-network';
 
 const { Option } = Select;
 
@@ -380,12 +385,19 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       const hasVlan =
         vlanRaw !== undefined && vlanRaw !== null && String(vlanRaw).trim() !== '';
       const annotations: Record<string, string | null> = {
-        ...(isFlatMode ? {} : (editRecord?.metadata?.annotations || {})),
+        ...(editRecord?.metadata?.annotations || {}),
         [TOWER_ALIAS_ANNOTATION]: aliasTrim,
       };
       if (isFlatMode) {
+        annotations[SUBNET_TYPE_ANNOTATION_KEY] = 'flat';
         annotations[SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY] = hasVlan ? 'true' : null;
         annotations[SUBNET_TYPE_FLAT_OVERLAY_ANNOTATION_KEY] = hasVlan ? null : 'true';
+        if (!hasVlan) {
+          annotations[TOWER_PROVIDER_NETWORK_ANNOTATION] = null;
+          if (!String(annotations[TOWER_IO_NAMESPACES_ANNOTATION] ?? '').trim()) {
+            annotations[TOWER_IO_NAMESPACES_ANNOTATION] = 'default';
+          }
+        }
       }
       const payload: Record<string, unknown> = {
         cidrBlock: String(rest.cidrBlock ?? '').trim(),
@@ -395,7 +407,9 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       };
       if (hasVlan) {
         payload.vlan = vlanRaw;
+        payload.vpc = KUBE_OVN_PUBLIC_VPC;
       } else {
+        // 仅清 VLAN：不要在同一 PATCH 里强改 vpc/provider，Kube-OVN admission 常驳回
         payload.vlan = null;
       }
       await updateKubeOvnSubnet(cloudId, name, payload);

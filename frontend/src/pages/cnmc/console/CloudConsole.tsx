@@ -857,33 +857,45 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
-  // 加载 SNAT 规则
+  // 加载 SNAT 规则（同时拉 EIP，创建 SNAT 下拉依赖公网 IP 列表；仅进 SNAT 页时此前可能未请求过 EIP）
   const loadSnatRules = async (cloudId?: string) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchCloudProviderOvnSnatRules(cid, false, false, 'legacy', mergeTenantPublicScope(false));
-      setSnatRules(res?.data?.items || []);
+      const mergePublicNs = mergeTenantPublicScope(false);
+      const [snatRes, eipRes] = await Promise.all([
+        fetchCloudProviderOvnSnatRules(cid, false, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnEips(cid, false, 'legacy', mergePublicNs),
+      ]);
+      setSnatRules(snatRes?.data?.items || []);
+      setEips(eipRes?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadSnatRules error:', e);
       setSnatRules([]);
+      setEips([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // 加载 DNAT 规则
+  // 加载 DNAT 规则（同上，创建 DNAT 需选公网 IP）
   const loadDnatRules = async (cloudId?: string) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchCloudProviderOvnDnatRules(cid, false, false, 'legacy', mergeTenantPublicScope(false));
-      setDnatRules(res?.data?.items || []);
+      const mergePublicNs = mergeTenantPublicScope(false);
+      const [dnatRes, eipRes] = await Promise.all([
+        fetchCloudProviderOvnDnatRules(cid, false, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnEips(cid, false, 'legacy', mergePublicNs),
+      ]);
+      setDnatRules(dnatRes?.data?.items || []);
+      setEips(eipRes?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadDnatRules error:', e);
       setDnatRules([]);
+      setEips([]);
     } finally {
       setLoading(false);
     }
