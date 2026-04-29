@@ -45,7 +45,7 @@
 // 依赖
 // -----------------------------------------------------------------------------
 import React, { useMemo, useState, useCallback } from 'react';
-import { Table, Badge, Button, Modal, Input, message, Dropdown, Select } from 'antd';
+import { Table, Badge, Button, Modal, Input, message, Dropdown, Select, Tooltip } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -298,29 +298,31 @@ const SnapshotsSection: React.FC<Props> = ({
   // 1. 名称列是否可点击查看详情。
   // 2. 操作列菜单中是否包含“查看 YAML”选项。
   const columns = useMemo(() => [
-    { 
-      title: '快照名称', 
-      dataIndex: 'alias', 
+    {
+      title: '快照名称',
+      dataIndex: 'alias',
       key: 'alias',
-      width: 280,
+      fixed: 'left' as const,
+      ellipsis: true,
       render: (_: any, r: any) => {
         const label = r.alias !== '-' ? r.alias : r.name;
         return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: 280, minWidth: 0, width: '100%' }}>
-            <CameraTwoTone style={{ flexShrink: 0 }} />
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-              title={label || undefined}
-            >
-              {label}
-            </span>
-          </span>
+          <Tooltip title={label}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <CameraTwoTone style={{ flexShrink: 0 }} />
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {label}
+              </span>
+            </div>
+          </Tooltip>
         );
       },
     },
@@ -328,37 +330,41 @@ const SnapshotsSection: React.FC<Props> = ({
       title: '快照ID',
       dataIndex: 'name',
       key: 'name',
-      render: (v: string) => (
-        <span
-          className="text-secondary"
-          style={{
-            display: 'block',
-            maxWidth: 280,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={v || undefined}
-        >
-          {v || '-'}
-        </span>
-      ),
+      ellipsis: true,
+      render: (v: string) =>
+        !v ? (
+          '-'
+        ) : (
+          <Tooltip title={v}>
+            <span
+              className="text-secondary"
+              style={{
+                display: 'block',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {v}
+            </span>
+          </Tooltip>
+        ),
     },
-    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
-    { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc'  },
-    ...(hasOpsView ? [{ title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName' }] : []),
-    { 
-      title: '状态', 
-      dataIndex: 'readyToUse', 
-      key: 'readyToUse', 
+    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', ellipsis: true }] : []),
+    { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc', ellipsis: true },
+    ...(hasOpsView ? [{ title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName', ellipsis: true }] : []),
+    {
+      title: '状态',
+      dataIndex: 'readyToUse',
+      key: 'readyToUse',
       render: (ready: boolean) => (
         <Badge status={ready ? 'success' : 'warning'} text={ready ? '就绪' : '未就绪'} />
-      )
+      ),
     },
     { title: '大小', dataIndex: 'restoreSize', key: 'restoreSize' },
-    { 
-      title: '创建时间', 
-      dataIndex: 'creationTimestamp', 
+    {
+      title: '创建时间',
+      dataIndex: 'creationTimestamp',
       key: 'creationTimestamp',
       sorter: (a: any, b: any) => {
         const ta = a?.creationTimestamp ? new Date(a.creationTimestamp).getTime() : 0;
@@ -367,7 +373,7 @@ const SnapshotsSection: React.FC<Props> = ({
       },
       defaultSortOrder: 'descend' as const,
       render: (t: string) => (
-        <span>{t ? new Date(t).toLocaleString() : '-'}</span>
+        <span style={{ whiteSpace: 'nowrap' }}>{t ? new Date(t).toLocaleString() : '-'}</span>
       ),
     },
     {
@@ -384,9 +390,9 @@ const SnapshotsSection: React.FC<Props> = ({
         }
         items.push({ key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse || !hasSnapshotsWrite });
         items.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record), disabled: !hasSnapshotsWrite });
-        
+
         return (
-          <ResourceActionsDropdown 
+          <ResourceActionsDropdown
             items={items}
             buttonProps={{ className: 'row-actions-trigger' }}
           />
@@ -401,6 +407,15 @@ const SnapshotsSection: React.FC<Props> = ({
   // ==============================================================================
   // 5. 渲染视图 (Render) — 与云详情「卷快照」Tab 页面对应
   // ==============================================================================
+
+  /**
+   * 与 VmSection「云主机」列表一致：有数据时使用 scroll.x 像素下限 + fixed 左/右列。
+   * 不要使用 x: true（含 fixed 时易导致整表被压在视口内裁切右侧列）。
+   */
+  const snapshotsTableScroll = useMemo(
+    () => (filteredData.length > 0 ? ({ x: 2400 } as const) : undefined),
+    [filteredData.length],
+  );
 
   return (
     <PageDetailSection
@@ -488,6 +503,7 @@ const SnapshotsSection: React.FC<Props> = ({
         columns={visibleColumns || columns}
         rowKey="key"
         loading={loading}
+        scroll={snapshotsTableScroll}
         rowSelection={{
           selectedRowKeys,
           onChange: setSelectedRowKeys,

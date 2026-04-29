@@ -16,6 +16,7 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
+  isFlatKubeOvnSubnetForFlatNatSelector,
 } from '../lib/kubeOvnSubnetConstants';
 import {
   buildBusinessVpcPickerRows,
@@ -108,16 +109,10 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   const subnetChoicesForDnat = useMemo(() => {
     if (!networkScope) return subnets;
     return subnets.filter((s: any) => {
-      const vpc = String(s?.spec?.vpc || s?.vpc || '').trim();
-      const onFlatBuiltinVpc = !vpc || isBuiltInKubeOvnVpc(vpc);
       if (networkScope === 'flat') {
-        const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
-          .trim()
-          .toLowerCase();
-        const hasVlan = !!String(s?.spec?.vlan || '').trim();
-        const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
-        return t === 'flat' && onFlatBuiltinVpc && !hasVlan && vpcNorm === KUBE_OVN_FLAT_VPC;
+        return isFlatKubeOvnSubnetForFlatNatSelector(s);
       }
+      const vpc = String(s?.spec?.vpc || s?.vpc || '').trim();
       return vpc && !isBuiltInKubeOvnVpc(vpc);
     });
   }, [subnets, networkScope]);
@@ -380,7 +375,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
               vmKey,
           );
-          const opts = vm ? buildVmNicIpOptions(vm) : [];
+          const opts = vm ? buildVmNicIpOptions(vm, subnet) : [];
           if (opts.length > 0) {
             nic = JSON.parse(String(opts[0]?.value || '')) as { v4Ip?: string };
           }
@@ -797,7 +792,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                           const ns = String(vm.namespace || vm.metadata?.namespace || 'default');
                           const n = String(vm.name || vm.metadata?.name || '');
                           const key = `${ns}/${n}`;
-                          const nicOpts = buildVmNicIpOptions(vm);
+                          const nicOpts = buildVmNicIpOptions(vm, selectedSubnet);
                           const ips = nicOpts
                             .map((opt: any) => {
                               try {
@@ -838,7 +833,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                   `${String(x.namespace || x.metadata?.namespace || 'default')}/${String(x.name || x.metadata?.name || '')}` ===
                   String(vmKey || ''),
               );
-              const opts = vm ? buildVmNicIpOptions(vm) : [];
+              const opts = vm ? buildVmNicIpOptions(vm, selectedSubnet) : [];
               if (!vmKey) return null;
               if (!opts.length) {
                 return (

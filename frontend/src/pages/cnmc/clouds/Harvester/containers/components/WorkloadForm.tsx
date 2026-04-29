@@ -43,6 +43,7 @@ import {
   Radio,
   Checkbox,
   Spin,
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -359,6 +360,55 @@ export interface WorkloadFormProps {
 // 常量定义
 // ============================================================
 
+const CPU_UNITS = [
+  { label: 'm', value: 'm' },
+  { label: '核', value: '' },
+];
+
+const MEMORY_UNITS = [
+  { label: 'MiB', value: 'Mi' },
+  { label: 'GiB', value: 'Gi' },
+];
+
+const K8S_ERROR_MAP: Record<string, string> = {
+  'selector does not match template labels': '标签与选择器不匹配，请检查基本信息中的标签是否与系统自动生成的标签冲突',
+  'is invalid': '资源配置无效',
+  'FieldValueInvalid': '字段值无效',
+  'FieldValueRequired': '必填字段缺失',
+  'FieldValueDuplicate': '字段值重复',
+  'FieldValueForbidden': '字段值不允许',
+  'Unauthorized': '未授权，请检查权限',
+  'Forbidden': '禁止访问',
+  'NotFound': '资源不存在',
+  'AlreadyExists': '资源已存在',
+  'Invalid': '配置无效',
+};
+
+const parseK8sError = (error: any): string => {
+  const rawMsg = error?.message || String(error);
+  
+  if (rawMsg.includes('selector') && rawMsg.includes('does not match template labels')) {
+    return '标签配置错误：自定义标签与系统选择器标签冲突。建议：请在基本信息中使用不同的标签键，或避免使用 "app" 作为标签键。';
+  }
+  
+  for (const [key, zhMsg] of Object.entries(K8S_ERROR_MAP)) {
+    if (rawMsg.includes(key)) {
+      const detailMatch = rawMsg.match(/"message":"([^"]+)"/);
+      const detail = detailMatch ? detailMatch[1] : '';
+      return `${zhMsg}${detail ? `: ${detail}` : ''}`;
+    }
+  }
+  
+  if (rawMsg.startsWith('{') || rawMsg.startsWith('创建资源失败:')) {
+    return '资源配置无效，请检查表单填写是否正确';
+  }
+  
+  return rawMsg;
+};
+
+const CPU_RESOURCE_PATTERN = /^(\d+)(m)?$/;
+const MEMORY_RESOURCE_PATTERN = /^\d+(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)$/;
+
 const WORKLOAD_TYPE_OPTIONS = [
   { value: 'deployment', label: 'Deployment', desc: '无状态应用，支持弹性伸缩' },
   { value: 'statefulset', label: 'StatefulSet', desc: '有状态应用，稳定网络标识' },
@@ -432,6 +482,78 @@ const COMMON_TOLERATION_PRESETS = [
   { key: 'node.kubernetes.io/pid-pressure', label: 'PID 压力' },
   { key: 'node.kubernetes.io/network-unavailable', label: '网络不可用' },
 ];
+
+const ResourceInput: React.FC<{
+  value?: string;
+  onChange?: (value: string | undefined) => void;
+  placeholder?: string;
+  units: Array<{ label: string; value: string }>;
+  defaultUnit: string;
+  unitTooltip?: string;
+}> = ({ value, onChange, placeholder, units, defaultUnit, unitTooltip }) => {
+  const [num, setNum] = useState<string>('');
+  const [unit, setUnit] = useState<string>(defaultUnit);
+
+  useEffect(() => {
+    if (!value) {
+      setNum('');
+      setUnit(defaultUnit);
+      return;
+    }
+    const match = value.match(/^(\d+\.?\d*)(.*)$/);
+    if (match) {
+      setNum(match[1]);
+      const suffix = match[2];
+      if (suffix !== undefined && suffix !== '') {
+        setUnit(suffix);
+      } else {
+        if (defaultUnit === 'm') {
+          setUnit('');
+        } else {
+          setUnit(defaultUnit);
+        }
+      }
+    }
+  }, [value, defaultUnit]);
+
+  const handleNumChange = (newNum: string) => {
+    setNum(newNum);
+    if (newNum) {
+      onChange?.(newNum + unit);
+    } else {
+      onChange?.(undefined);
+    }
+  };
+
+  const handleUnitChange = (newUnit: string) => {
+    setUnit(newUnit);
+    if (num) {
+      onChange?.(num + newUnit);
+    }
+  };
+
+  return (
+    <Input.Group compact style={{ display: 'flex' }}>
+      <InputNumber
+        value={num ? Number(num) : undefined}
+        onChange={(v) => handleNumChange(v ? String(v) : '')}
+        placeholder={placeholder}
+        min={0}
+        step={unit === 'm' ? 100 : 0.5}
+        precision={unit === 'm' ? 0 : 2}
+        style={{ flex: 1, minWidth: 60 }}
+      />
+      <Tooltip title={unitTooltip}>
+        <Select
+          value={unit}
+          onChange={handleUnitChange}
+          options={units}
+          style={{ width: 80 }}
+        />
+      </Tooltip>
+    </Input.Group>
+  );
+};
 
 // ============================================================
 // 子组件: 标签编辑器
@@ -2901,10 +3023,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const [nads, setNads] = useState<any[]>([]);
   const [loadingNetworkData, setLoadingNetworkData] = useState(false);
   
+  const [containersVersion, setContainersVersion] = useState(0);
+  
   const editMetadata = editData?.metadata;
   const syncingContainerRef = useRef(false);
   const watchedImagePullSecretsValue = Form.useWatch('imagePullSecrets', form);
   const watchedImagePullSecrets = useMemo<string[]>(() => watchedImagePullSecretsValue || [], [watchedImagePullSecretsValue]);
+  Form.useWatch('containers', form);
 
   /**
    * 加载 localStorage 中的仓库列表
@@ -3127,6 +3252,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     form.setFieldsValue({ containers: nextContainers });
     setActiveContainerIndex(nextContainers.length - 1);
     syncContainerEditorToForm(nextContainers[nextContainers.length - 1]);
+    setContainersVersion((v) => v + 1);
   }, [form, getSyncedFormValues, syncContainerEditorToForm]);
 
   const handleDuplicateContainer = useCallback(() => {
@@ -3150,6 +3276,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     form.setFieldsValue({ containers: nextContainers });
     setActiveContainerIndex(activeContainerIndex + 1);
     syncContainerEditorToForm(nextContainers[activeContainerIndex + 1]);
+    setContainersVersion((v) => v + 1);
   }, [activeContainerIndex, form, getSyncedFormValues, syncContainerEditorToForm]);
 
   const handleRemoveContainer = useCallback(() => {
@@ -3164,6 +3291,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     form.setFieldsValue({ containers: nextContainers });
     setActiveContainerIndex(nextIndex);
     syncContainerEditorToForm(nextContainers[nextIndex]);
+    setContainersVersion((v) => v + 1);
   }, [activeContainerIndex, form, getSyncedFormValues, message, syncContainerEditorToForm]);
 
   // 编辑模式：初始化表单数据
@@ -3571,12 +3699,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       .filter(s => isFlatVpc(s?.vpc || s?.spec?.vpc) && isFlatSubnet(s))
       .map(s => {
         const name = s.name || s?.metadata?.name || '-';
+        const subnetNs = s?.namespace || s?.metadata?.namespace || 'default';
         const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
         const cidr = s?.cidr || s?.spec?.cidrBlock || 'N/A';
         const label = alias ? `${alias}(${name})@${cidr}` : `${name}@${cidr}`;
+        const nadRef = `${subnetNs}/${name}`;
         return {
           label,
-          value: name,
+          value: nadRef,
           subnet: s,
         };
       });
@@ -4651,7 +4781,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       onSuccess();
     } catch (error: any) {
       console.error(isEditMode ? '更新工作负载失败:' : '创建工作负载失败:', error);
-      message.error(error?.message || (isEditMode ? '更新工作负载失败' : '创建工作负载失败'));
+      const friendlyMsg = parseK8sError(error);
+      message.error(friendlyMsg);
     } finally {
       setLoading(false);
     }
@@ -4901,6 +5032,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           form.setFieldsValue({ containers: nextContainers });
                           setActiveContainerIndex(index + 1);
                           syncContainerEditorToForm(nextContainers[index + 1]);
+                          setContainersVersion((v) => v + 1);
                         }}
                       >
                         复制
@@ -4923,6 +5055,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                             form.setFieldsValue({ containers: nextContainers });
                             setActiveContainerIndex(nextIndex);
                             syncContainerEditorToForm(nextContainers[nextIndex]);
+                            setContainersVersion((v) => v + 1);
                           }}
                         >
                           删除
@@ -5044,28 +5177,32 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           key: 'resources',
                           label: `资源限制 (${resourcesCount})`,
                           children: (
-                            <Row gutter={16}>
-                              <Col span={6}>
-                                <Form.Item name={['resources', 'requests', 'cpu']} label="CPU 请求">
-                                  <Input placeholder="如: 100m" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={6}>
-                                <Form.Item name={['resources', 'requests', 'memory']} label="内存请求">
-                                  <Input placeholder="如: 128Mi" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={6}>
-                                <Form.Item name={['resources', 'limits', 'cpu']} label="CPU 限制">
-                                  <Input placeholder="如: 500m" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={6}>
-                                <Form.Item name={['resources', 'limits', 'memory']} label="内存限制">
-                                  <Input placeholder="如: 512Mi" />
-                                </Form.Item>
-                              </Col>
-                            </Row>
+                            <>
+                              <Row gutter={16}>
+                                <Col span={12}>
+                                  <Form.Item name={['resources', 'requests', 'cpu']} label="CPU 请求">
+                                    <ResourceInput placeholder="如: 100" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={12}>
+                                  <Form.Item name={['resources', 'limits', 'cpu']} label="CPU 限制">
+                                    <ResourceInput placeholder="如: 500" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                              <Row gutter={16}>
+                                <Col span={12}>
+                                  <Form.Item name={['resources', 'requests', 'memory']} label="内存请求">
+                                    <ResourceInput placeholder="如: 128" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={12}>
+                                  <Form.Item name={['resources', 'limits', 'memory']} label="内存限制">
+                                    <ResourceInput placeholder="如: 512" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            </>
                           ),
                         },
                         {
@@ -5186,31 +5323,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         showSearch
                         optionFilterProp="label"
                         options={flatSubnetOptions}
-                        onChange={(val) => {
-                          // 查找选中的子网对象
-                          const subnet = (kubeSubnets || []).find(s => (s.name || s?.metadata?.name) === val);
-                          if (!subnet) {
-                            form.setFieldsValue({ flatSubnet: val });
-                            return;
-                          }
-                          
-                          // 提取 namespace
-                          let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
-                          if (!subnetNs) {
-                            const provider = subnet?.provider || subnet?.spec?.provider;
-                            if (provider) {
-                              const parts = provider.split('.');
-                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                            }
-                          }
-                          subnetNs = subnetNs || 'default';
-                          
-                          // 生成 NAD 引用（namespace/name 格式）
-                          const nadRef = `${subnetNs}/${val}`;
-                          
-                          // 存储 NAD 引用
-                          form.setFieldsValue({ flatSubnet: nadRef });
-                        }}
                       />
                     </Form.Item>
                   </>

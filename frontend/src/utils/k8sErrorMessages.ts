@@ -80,5 +80,43 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return '子网网关地址不在所选 CIDR 网段内，或不符合集群对该子网的校验规则。请核对网关与 CIDR（例如网关须落在网段内且未被排除 IP 占用），修改后重试。';
   }
 
+  // --- Kubernetes PVC：禁止将请求容量改为小于已分配容量（缩小云盘）---
+  if (
+    lower.includes('less than status.capacity') ||
+    (lower.includes('persistentvolumeclaim') &&
+      (lower.includes('spec.resources.requests.storage') || lower.includes('requests.storage')) &&
+      (lower.includes('can not be less') || lower.includes('cannot be less')))
+  ) {
+    return '虚拟云盘无法缩小磁盘容量';
+  }
+
+  // --- Kubernetes PVC：未 Bound（常为创建中/未就绪）时无法按 Bound 规则调整 spec（immutable + bound claims）---
+  if (
+    lower.includes('persistentvolumeclaim') &&
+    lower.includes('spec is immutable after creation') &&
+    lower.includes('bound claims')
+  ) {
+    return '虚拟云盘正在创建中，无法修改';
+  }
+
+  // --- Harvester：整机备份从备份新建 VM 且「保留 MAC」时，源虚拟机仍在场则准入拒绝（与源机 MAC 冲突）---
+  if (
+    lower.includes("can't restore the new vm with the same macaddress") ||
+    lower.includes('same macaddress because the source vm is still existent') ||
+    (lower.includes('spec.keepmacaddress') && lower.includes('source vm')) ||
+    (lower.includes('keepmacaddress') && lower.includes('macaddress') && lower.includes('still existent'))
+  ) {
+    return 'mac地址和已有虚拟机重复';
+  }
+
+  // --- Harvester / Multus：虚拟机网卡引用的 NetworkAttachmentDefinition（NAD）不存在（新建 VPC/子网或扁平子网未同步时常见）---
+  if (
+    (lower.includes('network-attachment-definitions') ||
+      lower.includes('networkattachmentdefinitions.k8s.cni.cncf.io')) &&
+    lower.includes('not found')
+  ) {
+    return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在网络页面刷新子网后重新选择网卡。';
+  }
+
   return msg;
 }

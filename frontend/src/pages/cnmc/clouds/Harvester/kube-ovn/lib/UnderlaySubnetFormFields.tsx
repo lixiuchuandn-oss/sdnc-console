@@ -226,7 +226,15 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
         ))}
       </Select>
     </Form.Item>
-    <Form.Item name="excludeIps" label="排除 IP (可选)">
+    <Form.Item
+      name="excludeIps"
+      label="排除 IP (可选)"
+      tooltip={
+        isFlatMode
+          ? '单行 IPv4：须落在上方 CIDR 内，且不能与当前云内任意虚拟机正在使用的 IP 相同（含 `..` 区间时由集群校验）。'
+          : undefined
+      }
+    >
       <Input.TextArea rows={3} placeholder="每行一个 IP 或 IP 范围 (e.g. 192.168.1.1..192.168.1.10)，多 IP 请换行输入。IP 范围支持 IPv4 和 IPv6。" />
     </Form.Item>
   </>

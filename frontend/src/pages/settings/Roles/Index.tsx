@@ -61,7 +61,7 @@ const SUBNET_SPLIT_ACTIONS = [
 const SUBNET_SPLIT_SET = new Set<string>(SUBNET_SPLIT_ACTIONS);
 const SUBNET_SPLIT_RESOURCE_NAME: Record<string, string> = {
   'clouds.subnets.vpc': 'VPC 子网',
-  'clouds.subnets.flat': '扁平子网',
+  'clouds.subnets.flat': '扁平网络',
   'clouds.subnets.public': '公共子网',
 };
 

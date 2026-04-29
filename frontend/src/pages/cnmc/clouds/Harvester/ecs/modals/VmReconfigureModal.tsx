@@ -33,6 +33,7 @@ import ChangePrimaryNic from './VmReconfigure/ChangePrimaryNic';
 import ChangeSecondaryNic from './VmReconfigure/ChangeSecondaryNic';
 import { useVmReconfigure } from './VmReconfigure/useVmReconfigure';
 import { isSystemStorageClass } from '../../../../../../utils/harvesterUtils';
+import { getVmRootImageIdFromVm } from '../lib/vmImageStatus';
 import './VmCreateWizard/InstanceWizard.css';
 
 /**
@@ -128,6 +129,34 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   const currentMemory = getMemoryInGi(currentMemoryRaw);
   const maxMemory = maxMemoryRaw ? getMemoryInGi(maxMemoryRaw) : undefined;
   const architecture = record?.spec?.template?.spec?.architecture || record?.spec?.architecture;
+
+  const isArm64Vm = useMemo(
+    () => String(architecture || '').toLowerCase().includes('arm'),
+    [architecture],
+  );
+
+  /** 更换系统镜像页：展示注解中的 imageId 对应的展示名（镜像列表未拉到则回显 id） */
+  const currentOsImageResolvedLabel = useMemo(() => {
+    const vm = latestVm || record;
+    const rid = getVmRootImageIdFromVm(vm);
+    const id = String(rid || '').trim();
+    if (!id) return '';
+    const hit = (images || []).find((x: any) => {
+      const name = x?.metadata?.name || x?.name;
+      const ns = x?.metadata?.namespace || x?.namespace;
+      const v = ns && name ? `${ns}/${name}` : name;
+      return v === id;
+    });
+    if (!hit) return id;
+    const ann = hit?.metadata?.annotations || {};
+    return String(
+      hit?.spec?.displayName ||
+        ann['field.cattle.io/displayName'] ||
+        ann['harvesterhci.io/image-name'] ||
+        hit?.metadata?.name ||
+        id,
+    );
+  }, [latestVm, record, images]);
   
   // 当前 VM 的热扩容状态：
   // - isHotPlugConfiguredOnVm：仅根据 Annotation 判断是否“已配置”热扩容（用于 UI 展示/布局）
@@ -364,13 +393,15 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       // --- System & Storage Config (系统与存储配置) ---
       case 'change_os':
         return (
-          <ChangeOs 
+          <ChangeOs
             form={form}
             images={images}
             reloadImages={reloadImages}
             storageClasses={scs}
             reloadStorageClasses={reloadScs}
-            defaultStorageClassName={scs.find(x => x?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true')?.metadata?.name}
+            defaultStorageClassName={scs.find((x) => x?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true')?.metadata?.name}
+            currentOsImageLabel={currentOsImageResolvedLabel || undefined}
+            isArm64={isArm64Vm}
           />
         );
       case 'expand_system_disk':

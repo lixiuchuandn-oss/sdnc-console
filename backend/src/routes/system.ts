@@ -22,11 +22,13 @@ import { In } from 'typeorm';
 import { User, UserRole } from '../entities/User';
 import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdownRecord';
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
+import { checkTenantAccess } from './clouds/harvester/harvester.direct.helpers';
 import { ALL_PERMISSIONS } from '../constants/permissions';
 import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
 // 新权限体系
 import { createApiPermissionMiddleware, checkPermission, PERMISSION_DEFINITIONS } from '../permissions';
 import { logger } from '../utils/logger';
+import { AuthRequest } from '../middleware/auth';
 
 const systemLog = logger.child('System');
 const systemAssignLog = logger.child('System-Assign');
@@ -84,26 +86,88 @@ router.patch('/settings/:key', checkSettingsPermission, (req, res) => {
 
 // 查询回收站自动关机记录
 // - 支持分页、筛选（云平台、状态、时间范围）
-router.get('/recycle-bin/shutdown-records', async (req, res) => {
+// - 仅返回「已执行关机」(success) 与「关机失败」(failed)，不返回 skipped（条件不满足未执行关机）
+// - 租户仅能查看当前云下有权限的命名空间内记录（与 UserSpace 一致）
+router.get('/recycle-bin/shutdown-records', async (req: AuthRequest, res) => {
   try {
-    const { 
-      cloudId, 
-      status, 
-      startTime, 
-      endTime, 
-      page = '1', 
-      pageSize = '20' 
+    const {
+      cloudId,
+      status,
+      startTime,
+      endTime,
+      page = '1',
+      pageSize = '20',
     } = req.query;
+
+    const pageNum = parseInt(String(page), 10) || 1;
+    const size = parseInt(String(pageSize), 10) || 20;
+
+    const u = req.user as any;
+    const isTenant =
+      (!!u?.tenantId && u?.role !== 'sase_device') || u?.role === 'tenant' || u?.isTenantUser;
+
+    /** 租户未带 cloudId 时无法推导命名空间边界，不给任何数据以防跨租户泄露 */
+    if (isTenant && !cloudId) {
+      return res.json({
+        data: {
+          records: [],
+          pagination: {
+            page: pageNum,
+            pageSize: size,
+            total: 0,
+            totalPages: 0,
+          },
+        },
+      });
+    }
 
     const recordRepo = AppDataSource.getRepository(RecycleBinShutdownRecord);
     const queryBuilder = recordRepo.createQueryBuilder('record');
 
-    // 筛选条件
     if (cloudId) {
-      queryBuilder.andWhere('record.cloudId = :cloudId', { cloudId });
+      queryBuilder.andWhere('record.cloudId = :cloudId', { cloudId: String(cloudId) });
     }
+
+    if (isTenant && cloudId) {
+      const { allowed, namespace: tenantNamespaces } = await checkTenantAccess(req as any, String(cloudId));
+      if (!allowed || !tenantNamespaces) {
+        return res.json({
+          data: {
+            records: [],
+            pagination: {
+              page: pageNum,
+              pageSize: size,
+              total: 0,
+              totalPages: 0,
+            },
+          },
+        });
+      }
+      const nsList = tenantNamespaces.split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (nsList.length === 0) {
+        return res.json({
+          data: {
+            records: [],
+            pagination: {
+              page: pageNum,
+              pageSize: size,
+              total: 0,
+              totalPages: 0,
+            },
+          },
+        });
+      }
+      queryBuilder.andWhere('record.namespace IN (:...nsList)', { nsList });
+    }
+
+    // 列表只展示发生过关机调用或关机失败；跳过（skipped）不落表展示
+    queryBuilder.andWhere("record.status IN ('success', 'failed')");
+
     if (status) {
-      queryBuilder.andWhere('record.status = :status', { status });
+      const st = String(status).toLowerCase();
+      if (st === 'success' || st === 'failed') {
+        queryBuilder.andWhere('record.status = :status', { status: st });
+      }
     }
     if (startTime) {
       queryBuilder.andWhere('record.shutdownAt >= :startTime', { startTime });
@@ -112,14 +176,9 @@ router.get('/recycle-bin/shutdown-records', async (req, res) => {
       queryBuilder.andWhere('record.shutdownAt <= :endTime', { endTime });
     }
 
-    // 排序：按关机时间倒序
     queryBuilder.orderBy('record.shutdownAt', 'DESC');
 
-    // 分页
-    const pageNum = parseInt(String(page), 10) || 1;
-    const size = parseInt(String(pageSize), 10) || 20;
     const skip = (pageNum - 1) * size;
-
     queryBuilder.skip(skip).take(size);
 
     const [records, total] = await queryBuilder.getManyAndCount();
@@ -131,7 +190,7 @@ router.get('/recycle-bin/shutdown-records', async (req, res) => {
           page: pageNum,
           pageSize: size,
           total,
-          totalPages: Math.ceil(total / size),
+          totalPages: Math.ceil(total / size) || 0,
         },
       },
     });

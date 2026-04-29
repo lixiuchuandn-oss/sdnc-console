@@ -1,3 +1,4 @@
+import { isIpv4AddressInCidr } from './flatSubnetExcludeIpValidation';
 import {
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
@@ -24,41 +25,101 @@ export function vmUsesSubnet(vm: any, subnet: any): boolean {
   });
 }
 
+const IPV4_HOST = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+function normalizeIpv4(raw: unknown): string | null {
+  const s = String(raw ?? '').trim().split('/')[0]!;
+  if (!s || !IPV4_HOST.test(s)) return null;
+  return s;
+}
+
+/** 从 kube-ovn / KubeVirt status.interfaces 单行收集 IPv4（含 ipAddresses[]）。 */
+export function collectIpv4FromKubeInterfaceRow(i: any): string[] {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const push = (v: string | null) => {
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    ordered.push(v);
+  };
+  push(normalizeIpv4(i?.ipAddress));
+  push(normalizeIpv4(i?.ip));
+  if (Array.isArray(i?.ipAddresses)) {
+    for (const x of i.ipAddresses) {
+      push(normalizeIpv4(x));
+    }
+  }
+  return ordered;
+}
+
 /**
  * 下拉 value 为 JSON：{ ipName, v4Ip }（FIP 用 ipName；DNAT 等仅需 v4Ip 时只读 v4Ip）
  * Kube-OVN IP CR 名常见为 namespace.vmName.接口名
+ *
+ * 合并 VMI 与 VM 的 status.interfaces；支持 ipAddresses；VMI 接口为空时仍使用 VM 侧接口；
+ * 仍无数据时回退 vm.ips 全量。若传入 subnet，优先展示落在该子网 CIDR 内的地址。
  */
-export function buildVmNicIpOptions(vm: any): { label: string; value: string }[] {
+export function buildVmNicIpOptions(
+  vm: any,
+  subnet?: any,
+): { label: string; value: string }[] {
   const ns = String(vm?.namespace || vm?.metadata?.namespace || 'default').trim() || 'default';
   const vmName = String(vm?.name || vm?.metadata?.name || '').trim();
   if (!vmName) return [];
+
   const vmi = vm?.vmi || vm?.vmiRaw;
-  const ifaces: any[] = Array.isArray(vmi?.status?.interfaces)
-    ? vmi.status.interfaces
-    : Array.isArray(vm?.status?.interfaces)
-      ? vm.status.interfaces
-      : [];
+  const vmiIfaces: any[] = Array.isArray(vmi?.status?.interfaces) ? vmi.status.interfaces : [];
+  const vmIfaces: any[] = Array.isArray(vm?.status?.interfaces) ? vm.status.interfaces : [];
+  const mergedIfaces = [...vmiIfaces, ...vmIfaces];
+
   const out: { label: string; value: string }[] = [];
-  for (const i of ifaces) {
-    const ip = String(i?.ipAddress || i?.ip || '').trim();
-    const iname = String(i?.name || 'default').trim() || 'default';
-    if (!ip) continue;
+  const pairSeen = new Set<string>();
+  const ifaceIpSet = new Set<string>();
+
+  const pushOption = (iname: string, ip: string) => {
+    const key = `${iname}|${ip}`;
+    if (pairSeen.has(key)) return;
+    pairSeen.add(key);
     const ipName = `${ns}.${vmName}.${iname}`;
     out.push({
       label: `${iname} — ${ip}`,
       value: JSON.stringify({ ipName, v4Ip: ip }),
     });
-  }
-  if (out.length === 0 && Array.isArray(vm?.ips) && vm.ips.length > 0) {
-    const ipStr = String(vm.ips[0] || '').trim();
-    if (ipStr) {
-      const ipName = `${ns}.${vmName}.default`;
-      out.push({
-        label: `${ipStr}（接口名按 default 推断，请以集群实际 IP CR 为准）`,
-        value: JSON.stringify({ ipName, v4Ip: ipStr }),
-      });
+  };
+
+  mergedIfaces.forEach((i, idx) => {
+    const ips = collectIpv4FromKubeInterfaceRow(i);
+    const iname = String(i?.name || '').trim() || `iface-${idx}`;
+    for (const ip of ips) {
+      ifaceIpSet.add(ip);
+      pushOption(iname, ip);
+    }
+  });
+
+  if (Array.isArray(vm?.ips) && vm.ips.length > 0) {
+    let supplementalIdx = 0;
+    for (const raw of vm.ips) {
+      const ip = normalizeIpv4(raw);
+      if (!ip || ifaceIpSet.has(ip)) continue;
+      const iname = supplementalIdx === 0 ? 'default' : `ips${supplementalIdx}`;
+      supplementalIdx += 1;
+      pushOption(iname, ip);
     }
   }
+
+  const cidr = subnet ? subnetCidrOf(subnet) : '';
+  if (cidr) {
+    const filtered = out.filter((o) => {
+      try {
+        const v4 = String(JSON.parse(String(o.value)).v4Ip || '').trim();
+        return v4 && isIpv4AddressInCidr(v4, cidr);
+      } catch {
+        return false;
+      }
+    });
+    if (filtered.length > 0) return filtered;
+  }
+
   return out;
 }
 

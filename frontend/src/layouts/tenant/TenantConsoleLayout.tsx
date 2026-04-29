@@ -192,7 +192,8 @@ const TenantConsoleHeader: React.FC<{
 /** light Sider + inline Menu，antd 自带底部折叠条（与管理端一致） */
 const TenantConsoleProductSider: React.FC = () => {
   const { model } = useTenantConsoleSider();
-  const [tenantSiderCollapsed, setTenantSiderCollapsed] = useState(true);
+  /** 默认展开侧栏（false = 未折叠）；用户可用底部收起按钮收起 */
+  const [tenantSiderCollapsed, setTenantSiderCollapsed] = useState(false);
 
   if (!model) return null;
 

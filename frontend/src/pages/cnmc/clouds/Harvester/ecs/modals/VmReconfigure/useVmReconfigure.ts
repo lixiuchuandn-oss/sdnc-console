@@ -62,6 +62,8 @@ import {
 import { rebootCloudProviderEcs } from '../../../../../../../services/api';
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { translateKnownApiErrorMessage } from '../../../../../../../utils/k8sErrorMessages';
+import { resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
+import { parseSizeToGi } from '../VmCreateWizard/VmWizardUtils';
 import { getVmRootImageIdFromVm } from '../../lib/vmImageStatus';
 
 /** POST 创建卷响应中解析 PVC metadata.name（兼容 axios 包装与 { message, data: pvc }） */
@@ -916,9 +918,89 @@ export const useVmReconfigure = (props: any) => {
         if (!images || images.length === 0) reloadImages();
         if (!scs || scs.length === 0) reloadScs();
         const r = activeRecord || record;
+        const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
+        let bootDisk = disks.find((d: any) => d.bootOrder === 1 && !d.cdrom);
+        if (!bootDisk) bootDisk = disks.find((d: any) => d.name === 'disk-0' && !d.cdrom);
+        if (!bootDisk) bootDisk = disks.find((d: any) => d.name === 'rootdisk' && !d.cdrom);
+        if (!bootDisk && disks.length > 0) bootDisk = disks.find((d: any) => !d.cdrom);
+
+        let rootDeviceType: string = 'disk';
+        let newOsBus = 'virtio';
+        if (bootDisk) {
+          if (bootDisk.cdrom) {
+            rootDeviceType = 'cdrom';
+            newOsBus = String(bootDisk.cdrom?.bus || 'sata').toLowerCase();
+          } else if (bootDisk.disk) {
+            rootDeviceType = 'disk';
+            newOsBus = String(bootDisk.disk?.bus || 'virtio').toLowerCase();
+          }
+        }
+        if (!['virtio', 'scsi', 'sata', 'ide'].includes(newOsBus)) {
+          newOsBus = 'virtio';
+        }
+
         const imgId = getVmRootImageIdFromVm(r);
+        const patch: Record<string, unknown> = {
+          rootSourceType: 'image',
+          rootDeviceType,
+          newOsBus,
+        };
         if (imgId) {
-          form.setFieldsValue({ newOsImage: imgId });
+          patch.newOsImage = imgId;
+          const hit = (images || []).find((x: any) => {
+            const name = x?.metadata?.name || x?.name;
+            const ns = x?.metadata?.namespace || x?.namespace;
+            const v = ns && name ? `${ns}/${name}` : name;
+            return v === imgId;
+          });
+          if (hit) {
+            const sc =
+              (hit as any)?.storageClassName ||
+              (hit as any)?.spec?.storageClassName ||
+              (hit as any)?.status?.storageClassName;
+            if (sc) patch.storageClassName = sc;
+            const raw =
+              (hit as any)?.spec?.virtualSize ??
+              (hit as any)?.virtualSize ??
+              (hit as any)?.size;
+            const gi = parseSizeToGi(raw);
+            if (gi > 0) patch.newOsRootSize = gi;
+            const kind = resolveVmImageKind(hit);
+            if (kind === 'iso') {
+              patch.rootDeviceType = 'cdrom';
+              const arch = String(
+                r?.spec?.template?.spec?.architecture || r?.spec?.architecture || '',
+              ).toLowerCase();
+              const arm = arch.includes('arm64') || arch.includes('aarch');
+              patch.newOsBus = arm ? 'scsi' : 'sata';
+            } else if (kind === 'disk') {
+              patch.rootDeviceType = 'disk';
+            }
+          }
+        }
+
+        form.setFieldsValue(patch);
+
+        if (systemDisk && cloudId && record?.metadata?.namespace) {
+          void (async () => {
+            try {
+              const res = await fetchHarvesterVolume(cloudId, record.metadata.namespace, systemDisk);
+              const data = (res as any)?.data || res;
+              const cap = data?.spec?.resources?.requests?.storage || data?.status?.capacity?.storage;
+              const scFromPvc = data?.spec?.storageClassName;
+              const pvcPatch: Record<string, unknown> = {};
+              if (cap) {
+                const gi = getQuantityInGi(cap);
+                if (gi > 0) pvcPatch.newOsRootSize = gi;
+              }
+              if (scFromPvc) pvcPatch.storageClassName = scFromPvc;
+              if (Object.keys(pvcPatch).length > 0) {
+                form.setFieldsValue(pvcPatch);
+              }
+            } catch {
+              /* PVC 回填失败不影响镜像注解路径 */
+            }
+          })();
         }
         break;
       }
@@ -2817,6 +2899,16 @@ export const useVmReconfigure = (props: any) => {
         }
       }
 
+      const disks = activeRecord?.spec?.template?.spec?.domain?.devices?.disks ||
+        record?.spec?.template?.spec?.domain?.devices?.disks ||
+        [];
+      const diskEntry = (Array.isArray(disks) ? disks : []).find(
+        (d: any) => String(d?.name || '') === String(diskName || ''),
+      );
+      const diskBus = String(diskEntry?.disk?.bus || diskEntry?.cdrom?.bus || '')
+        .toLowerCase()
+        .trim();
+
       const instanceId = `${namespace}/${vmName}`;
       await detachHarvesterVolumeFromVm(cloudId, instanceId, {
         name: diskName,
@@ -2840,11 +2932,15 @@ export const useVmReconfigure = (props: any) => {
         // 刷新失败不影响后续重启提示
       }
 
-      // 为避免依赖 RestartRequired 条件的时序问题，统一按“需重启”处理
-      message.success('解绑成功，设置已保存，需要重启虚拟机后生效');
-      setTimeout(() => {
-        openRestartConfirm(namespace, vmName, false);
-      }, 300);
+      // SCSI 总线数据盘走在线 detach，一般无需重启；其它总线仍提示重启使规格生效
+      if (diskBus === 'scsi') {
+        message.success('解绑成功，数据盘已从虚拟机移除');
+      } else {
+        message.success('解绑成功，设置已保存，需要重启虚拟机后生效');
+        setTimeout(() => {
+          openRestartConfirm(namespace, vmName, false);
+        }, 300);
+      }
 
       // 通知上层刷新（VM + volumes）
       try { onOk?.(true); } catch {}
@@ -2852,8 +2948,7 @@ export const useVmReconfigure = (props: any) => {
       // 提取友好的错误消息
       const errorMessage = e?.message || e?.response?.data?.message || '解绑失败';
       message.error(errorMessage);
-      // 不再抛出错误，避免导致 Uncaught runtime error
-      // 错误已经通过 message.error 显示给用户了
+      throw e;
     } finally {
       setDiskDetaching(false);
     }

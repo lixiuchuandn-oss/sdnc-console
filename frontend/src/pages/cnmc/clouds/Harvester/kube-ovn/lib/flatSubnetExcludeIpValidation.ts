@@ -38,6 +38,21 @@ export function isIpv4GatewayInCidr(gateway: string, cidr: string): boolean | nu
   return n >= range.start && n <= range.end;
 }
 
+/** IPv4 地址是否在 CIDR 内（Kube-OVN 网卡选择与排除 IP 校验同一套解析）。 */
+export function isIpv4AddressInCidr(ip: string, cidr: string): boolean {
+  const trimmed = String(ip ?? '')
+    .trim()
+    .split('/')[0]!;
+  const c = String(cidr ?? '').trim();
+  if (!trimmed || !c) return false;
+  if (!IPV4_HOST.test(trimmed)) return false;
+  const range = parseCidrRange(c);
+  if (!range) return false;
+  const n = ipv4ToLong(trimmed);
+  if (Number.isNaN(n)) return false;
+  return n >= range.start && n <= range.end;
+}
+
 /** 从 API 错误对象中拼接可搜索文本（含嵌套 details） */
 export function collectKubeOvnSubnetErrorText(error: unknown): string {
   const e = error as Record<string, unknown> | null | undefined;
@@ -78,17 +93,6 @@ export function friendlyMessageIfKubeOvnGatewayNotInCidr(
     return kind === 'flat' ? '创建扁平子网失败：网关不在CIDR 范围内' : '创建公共子网失败：网关不在CIDR 范围内';
   }
   return null;
-}
-
-function vmInSubnetAggregated(vm: any, subnetName: string): boolean {
-  if (!subnetName) return false;
-  const networks: string[] = Array.isArray(vm?.networks) ? vm.networks : [];
-  const target = subnetName.toLowerCase();
-  return networks.some((n) => {
-    const s = String(n || '').toLowerCase();
-    const base = s.includes('@') ? s.split('@')[0] : s;
-    return base === `default/${target}` || base.endsWith(`/${target}`);
-  });
 }
 
 function vmDisplay(vm: any): string {
@@ -150,20 +154,30 @@ export function validateFlatSubnetExcludeIpsLocal(
   return { ok: true };
 }
 
-/** 与 ECS 聚合列表比对：排除列表中的 IP 是否已被挂该子网的虚拟机使用 */
-export function findFlatExcludeIpConflictWithVms(
-  subnetName: string,
+/**
+ * 与 ECS 聚合列表比对：排除列表中的单行 IPv4（不含 `..` 区间）：若与该云内任意虚拟机聚合 IP 相同则禁止。
+ */
+export function findExcludeIpUsedByAnyVm(
   excludeIps: string[],
   vms: any[],
 ): { ip: string; vmLabel: string } | null {
-  if (!subnetName || excludeIps.length === 0) return null;
-  const excludeLower = new Set(excludeIps.map((x) => x.toLowerCase()));
-  for (const vm of vms || []) {
-    if (!vmInSubnetAggregated(vm, subnetName)) continue;
-    const label = vmDisplay(vm);
-    for (const ip of vmIpsAggregated(vm)) {
-      if (excludeLower.has(ip.toLowerCase())) {
-        return { ip, vmLabel: label };
+  const singles = (excludeIps || []).filter((raw) => {
+    const s = String(raw || '').trim();
+    return s && !s.includes('..');
+  });
+  if (singles.length === 0) return null;
+
+  for (const ex of singles) {
+    const exTrim = String(ex).trim();
+    if (!IPV4_HOST.test(exTrim)) continue;
+    const exLow = exTrim.toLowerCase();
+    for (const vm of vms || []) {
+      const label = vmDisplay(vm);
+      for (const rawIp of vmIpsAggregated(vm)) {
+        const normalized = rawIp.trim().split('/')[0];
+        if (normalized.toLowerCase() === exLow) {
+          return { ip: exTrim, vmLabel: label };
+        }
       }
     }
   }

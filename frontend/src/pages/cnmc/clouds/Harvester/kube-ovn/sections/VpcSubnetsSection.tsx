@@ -24,6 +24,7 @@ import {
 } from '../lib/kubeOvnSubnetConstants';
 import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
 import { ovnDisplayName } from '../lib/ovnResourceDisplay';
+import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
@@ -319,16 +320,34 @@ const VpcSubnetsSection: React.FC<Props> = ({
         /* 占用检测失败时不阻塞删除确认框 */
       }
 
-      const blocked = usingVms.length > 0;
+      const cidrForNat = String(
+        record?.spec?.cidrBlock ?? record?.spec?.cidr ?? record?.cidrBlock ?? record?.cidr ?? '',
+      ).trim();
+
+      let natBlockMsg: string | null = null;
+      try {
+        natBlockMsg = await getVpcSubnetDeleteBlockedByNatMessage(cloudId!, name, cidrForNat);
+      } catch {
+        natBlockMsg = '无法校验 SNAT/DNAT 是否引用该 VPC 子网，请检查网络后重试。';
+      }
+
+      const blockedByVm = usingVms.length > 0;
+      const blockedByNat = !!natBlockMsg;
+      const blocked = blockedByVm || blockedByNat;
 
       Modal.confirm({
         title: `删除子网: ${displayName}`,
         content: (
           <>
             <div>{`确定要删除子网 ${displayName} 吗？此操作不可恢复。`}</div>
-            {blocked && (
+            {blockedByVm && (
               <div style={{ color: '#ff4d4f', marginTop: 8 }}>
                 {`无法删除子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('、')}${usingVms.length > 5 ? ' 等' : ''}`}
+              </div>
+            )}
+            {natBlockMsg && (
+              <div style={{ color: '#ff4d4f', marginTop: blockedByVm ? 8 : 8 }}>
+                {natBlockMsg}
               </div>
             )}
           </>

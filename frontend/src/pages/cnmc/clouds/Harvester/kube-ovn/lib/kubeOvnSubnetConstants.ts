@@ -144,3 +144,34 @@ export function isFlatKubeOvnSubnetVpc(vpc: string | undefined | null): boolean 
   const v = String(vpc ?? '').trim();
   return v === KUBE_OVN_PUBLIC_VPC || v === KUBE_OVN_FLAT_VPC;
 }
+
+/**
+ * 扁平 SNAT/DNAT「选择子网」候选：**仅扁平 overlay**（不含绑 VLAN 的 underlay）。
+ * overlay/underlay 以注解为准；subnet-type=flat 且标注模糊时仍以无 VLAN 为 overlay 启发。
+ */
+export function isFlatKubeOvnSubnetForFlatNatSelector(s: any): boolean {
+  const vpc = String(s?.spec?.vpc ?? s?.vpc ?? '').trim();
+  const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
+  if (!(!vpc || isBuiltInKubeOvnVpc(vpc))) return false;
+  if (!isFlatKubeOvnSubnetVpc(vpcNorm)) return false;
+
+  const ann = s?.metadata?.annotations || {};
+  const st = String(ann[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
+    .trim()
+    .toLowerCase();
+  const overlayAnn = annTruthy(ann[SUBNET_TYPE_FLAT_OVERLAY_ANNOTATION_KEY]);
+  const underlayAnn = annTruthy(ann[SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY]);
+
+  if (overlayAnn !== underlayAnn) {
+    return overlayAnn;
+  }
+
+  if (st !== 'flat') return false;
+
+  const { category } = resolveTowerUnderlaySubnetCategory(s, 'flat');
+  if (category === 'flat-underlay') return false;
+  if (category === 'flat-overlay') return true;
+
+  const hasVlan = !!String(s?.spec?.vlan || '').trim();
+  return !hasVlan;
+}

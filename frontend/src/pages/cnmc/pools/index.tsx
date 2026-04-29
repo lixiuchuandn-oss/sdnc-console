@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Alert,
   Badge,
@@ -41,6 +41,7 @@ import {
 } from '../../../services/api';
 import { fetchKubeOvnVpcs } from '../../../services/harvesterApi';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
+import type { AdminLayoutOutletContext } from '../../../layouts/admin/adminLayoutOutletContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isMustChangePasswordApiError } from '../../../utils/errorHandler';
 
@@ -59,6 +60,20 @@ import {
 } from './poolProviders';
 
 const { Text } = Typography;
+
+function readCloudApiErr(e: unknown): string {
+  const x = e as { message?: string; responseData?: { message?: string } };
+  return String(x?.responseData?.message || x?.message || '未知错误');
+}
+
+/** 供应商筛选下拉 value = poolProviders.id；后端历史可能存 cloudmap → 等价于 Cloudmap 私有接入 */
+function matchesPoolVendor(providerRaw: string | undefined, vendorFilterValue: string): boolean {
+  const pv = String(providerRaw || '').toLowerCase().trim();
+  const fv = vendorFilterValue.toLowerCase().trim();
+  if (pv === fv) return true;
+  if (fv === 'cloudmap.private' && pv === 'cloudmap') return true;
+  return false;
+}
 
 type MetricCardProps = {
   title: string;
@@ -169,10 +184,13 @@ const Clouds: React.FC = () => {
   // 1. 调用后端 API 获取所有云资源。
   // 2. 处理 loading 状态。
   // 3. 异常处理：显示错误提示。
+  /** 顶栏「可用区」与 AdminLayout 同源列表：资源池在本页接入/变更后需同步刷新 */
+  const reloadSummaryClouds =
+    (useOutletContext<Partial<AdminLayoutOutletContext>>() || {}).reloadSummaryClouds;
+
   const fetchClouds = useCallback(async (skipCache: boolean = false) => {
     try {
-      // fetchCloudsApi 内部使用 apiRequest，需要传递 skipCache 选项
-      const response = skipCache 
+      const response = skipCache
         ? await apiRequest('/api/clouds', { skipCache: true })
         : await fetchCloudsApi();
       setClouds(Array.isArray(response) ? response : (response?.data || []));
@@ -305,16 +323,14 @@ const Clouds: React.FC = () => {
     try {
       const response = await apiPost(`/api/clouds/${cloudId}/test`, {});
       message.success(response.message || '连接测试成功');
-      fetchClouds(true); // 强制刷新列表以更新状态，跳过缓存
+      await fetchClouds(true); // 强制刷新列表以更新状态，跳过缓存
+      reloadSummaryClouds?.();
     } catch (error: any) {
-      message.error('连接测试失败：' + (error?.message || '未知错误'));
+      message.error('连接测试失败：' + readCloudApiErr(error));
     } finally {
       setTestingConnection(null);
     }
-  }, [canWriteClouds, fetchClouds]);
-
-  // ============================================================================
-  // [功能块: 工具函数 - 状态和类型文本映射]
+  }, [canWriteClouds, fetchClouds, reloadSummaryClouds]);
   // 检索关键词: getStatusText getTypeText 状态映射 类型映射
   // ============================================================================
   const getStatusText = (status: string) => CLOUD_STATUS_MAP[status] || '未知';
@@ -359,13 +375,14 @@ const Clouds: React.FC = () => {
         try {
           await apiDelete(`/api/clouds/${cloudId}`);
           message.success('云资源删除成功');
-          fetchClouds(true); // 强制刷新，跳过缓存
+          await fetchClouds(true); // 强制刷新，跳过缓存
+          reloadSummaryClouds?.();
         } catch (error: any) {
-          message.error('删除失败：' + (error?.message || '未知错误'));
+          message.error('删除失败：' + readCloudApiErr(error));
         }
       },
     });
-  }, [canWriteClouds, fetchClouds]);
+  }, [canWriteClouds, fetchClouds, reloadSummaryClouds]);
 
   // ============================================================================
   // [功能块: 表格列定义]
@@ -506,16 +523,20 @@ const Clouds: React.FC = () => {
   const { displayColumns: activeColumns } = useTableColumnSettings(tableColumns, 'clouds-list');
 
   const filteredClouds = useMemo(() => {
-    return (clouds || []).filter((c) => {
+    const filtered = (clouds || []).filter((c) => {
       if (isCsmCloud(c)) return false;
       if (keyword && !c.name.toLowerCase().includes(keyword.toLowerCase())) return false;
       if (statusFilter?.length && !statusFilter.includes(c.status)) return false;
       if (typeFilter?.length && !typeFilter.includes(c.type)) return false;
       if (vendorFilter) {
-        const prov = (c.config?.provider || '').toLowerCase();
-        if (prov !== vendorFilter) return false;
+        if (!matchesPoolVendor(c.config?.provider as string | undefined, vendorFilter)) return false;
       }
       return true;
+    });
+    return [...filtered].sort((a, b) => {
+      const ta = Date.parse(String(a.createdAt || '')) || 0;
+      const tb = Date.parse(String(b.createdAt || '')) || 0;
+      return tb - ta;
     });
   }, [clouds, keyword, statusFilter, typeFilter, vendorFilter]);
 
@@ -563,26 +584,45 @@ const Clouds: React.FC = () => {
       content: `将删除选中的 ${selectedRowKeys.length} 个资源池，操作不可恢复。`,
       okText: '删除',
       cancelText: '取消',
-      onOk: async () => {
-        try {
-          let ok = 0, fail = 0;
-          for (const id of selectedRowKeys) {
-            try {
-              await apiDelete(`/api/clouds/${id}`);
-              ok++;
-            } catch {
-              fail++;
-            }
+        onOk: async () => {
+        let ok = 0;
+        let fail = 0;
+        const failures: string[] = [];
+        for (const id of selectedRowKeys) {
+          try {
+            await apiDelete(`/api/clouds/${id}`);
+            ok++;
+          } catch (e: unknown) {
+            fail++;
+            const name = clouds.find((c) => c.id === id)?.name || id;
+            failures.push(`${name}：${readCloudApiErr(e)}`);
           }
-          message.success(`删除成功 ${ok} 个，失败 ${fail} 个`);
-          setSelectedRowKeys([]);
-          fetchClouds();
-        } catch (e: any) {
-          message.error('批量删除失败');
         }
-      }
+        setSelectedRowKeys([]);
+        await fetchClouds(true);
+        reloadSummaryClouds?.();
+
+        if (ok > 0 && fail === 0) {
+          message.success(`已删除 ${ok} 个资源池`);
+          return;
+        }
+        if (ok > 0 && fail > 0) {
+          message.warning(`已删除 ${ok} 个资源池；${fail} 个未能删除`);
+        }
+        if (fail > 0) {
+          Modal.error({
+            title: ok === 0 ? '批量删除失败' : '部分删除失败',
+            width: 560,
+            content: (
+              <div style={{ maxHeight: 320, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                {failures.join('\n')}
+              </div>
+            ),
+          });
+        }
+      },
     });
-  }, [canWriteClouds, selectedRowKeys, fetchClouds]);
+  }, [canWriteClouds, selectedRowKeys, fetchClouds, clouds, reloadSummaryClouds]);
 
   // ============================================================================
   // [功能块: 批量操作菜单配置]
@@ -661,7 +701,7 @@ const Clouds: React.FC = () => {
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
           <TableColumnSettingsButton allColumns={tableColumns} settingsKey="clouds-list" />
-          <Button icon={<ReloadOutlined />} onClick={() => fetchClouds(true)} />
+          <Button icon={<ReloadOutlined />} onClick={() => { void fetchClouds(true); reloadSummaryClouds?.(); }} />
         </div>
       )}
       actionsSize="middle"
@@ -692,7 +732,10 @@ const Clouds: React.FC = () => {
       <CloudWizard
         visible={wizardVisible}
         onCancel={() => setWizardVisible(false)}
-        onSuccess={() => fetchClouds(true)}
+        onSuccess={() => {
+          void fetchClouds(true);
+          reloadSummaryClouds?.();
+        }}
       />
 
       {/* 编辑云资源模态框（随云厂商动态） */}
@@ -705,7 +748,8 @@ const Clouds: React.FC = () => {
         onSuccess={() => {
           setEditModalVisible(false);
           setEditingCloud(null);
-          fetchClouds(true);
+          void fetchClouds(true);
+          reloadSummaryClouds?.();
         }}
         cloud={editingCloud}
       />

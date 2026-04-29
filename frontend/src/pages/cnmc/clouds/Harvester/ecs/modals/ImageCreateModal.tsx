@@ -79,18 +79,21 @@ function inferBrowserUploadFromFilename(filename: string): BrowserUploadInferenc
   return { displayName, imageType };
 }
 
-/** 从下载 URL 的路径最后一段推导显示名与类型（与浏览器上传推断规则一致） */
-/** 浏览器直传单请求体上限（MiB），与 Nginx `client_max_body_size` 对齐；可用 REACT_APP_CLIENT_MAX_BODY_MB 覆盖 */
-function getClientMaxBodyBytes(): number {
-  const mb = Number(String(process.env.REACT_APP_CLIENT_MAX_BODY_MB || '90').trim());
-  const safe = Number.isFinite(mb) && mb > 0 ? mb : 90;
-  return Math.floor(safe * 1024 * 1024);
+/**
+ * 仅当构建时配置了 REACT_APP_CLIENT_MAX_BODY_MB 为正数（MiB）时，浏览器上传前做一次预检；
+ * 未配置则不在前端拦截（仍以反向代理等的请求体上限为准）。
+ */
+function getOptionalClientMaxBodyBytes(): number | null {
+  const raw = process.env.REACT_APP_CLIENT_MAX_BODY_MB;
+  if (raw === undefined || String(raw).trim() === '') return null;
+  const mb = Number(String(raw).trim());
+  if (!Number.isFinite(mb) || mb <= 0) return null;
+  return Math.floor(mb * 1024 * 1024);
 }
 
+/** 网关/反向代理返回 413 等非成功时的通用说明 */
 function formatGatewayBodyTooLargeHint(): string {
-  const mb = Number(String(process.env.REACT_APP_CLIENT_MAX_BODY_MB || '90').trim());
-  const label = Number.isFinite(mb) && mb > 0 ? String(mb) : '90';
-  return `文件超过网关单次请求体大小限制（当前前端按约 ${label} MiB 预检，与 Nginx client_max_body_size 对齐）。请联系管理员调大网关限制，或改用 URL 导入 / 桌面上传工具。`;
+  return '上传请求被拒绝（常为反向代理或对请求体大小有限制）。请管理员调大 Nginx client_max_body_size 等网关限制；或改用 URL 导入 / 桌面上传工具。';
 }
 
 function inferUrlImportFromUrl(urlStr: string): BrowserUploadInference {
@@ -201,11 +204,12 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
     const imageType =
       String(form.getFieldValue('toolImageType') || '').trim() || inferred.imageType || undefined;
     const file = toolFile;
-    const maxBytes = getClientMaxBodyBytes();
-    if (file.size > maxBytes) {
+    const maxBytes = getOptionalClientMaxBodyBytes();
+    if (maxBytes !== null && file.size > maxBytes) {
       const approxMi = (file.size / (1024 * 1024)).toFixed(1);
+      const limitMi = (maxBytes / (1024 * 1024)).toFixed(0);
       message.error(
-        `所选镜像约 ${approxMi} MiB，${formatGatewayBodyTooLargeHint()}（无需先创建上传任务。）`,
+        `所选镜像约 ${approxMi} MiB，超过构建配置 REACT_APP_CLIENT_MAX_BODY_MB（${limitMi} MiB）的前端预检上限。仍可调环境变量或直接依赖网关放行。`,
       );
       return;
     }

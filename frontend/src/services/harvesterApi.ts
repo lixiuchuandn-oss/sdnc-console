@@ -1140,7 +1140,7 @@ export const createHarvesterVolumeSnapshot = async (cloudId: string, namespace: 
  * @param payload 恢复配置，包含卷名称、存储类名称、大小、访问模式和卷模式
  * @returns Promise<any>
  */
-export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string }) => {
+export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string; alias?: string }) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/snapshots/${encodeURIComponent(namespace)}/${encodeURIComponent(snapshotName)}/restore`, payload || {});
 };
 
@@ -1782,6 +1782,25 @@ export const fetchHarvesterPods = async (cloudId: string, namespace?: string, fo
   return await apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/containers/pods${query}`,
     force ? { skipCache: true } : undefined
+  );
+};
+
+/**
+ * 根据 label selector 查询 Pod（用于 Service 端口匹配）
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param labelSelector 标签选择器，如 "app=nginx"
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPodsBySelector = async (cloudId: string, namespace: string, labelSelector: string) => {
+  const params = [
+    `namespace=${encodeURIComponent(namespace)}`,
+    `labelSelector=${encodeURIComponent(labelSelector)}`,
+  ];
+  const query = `?${params.join('&')}`;
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/containers/pods${query}`,
+    { skipCache: true }
   );
 };
 

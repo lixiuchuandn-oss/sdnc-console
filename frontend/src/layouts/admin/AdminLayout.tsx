@@ -39,7 +39,7 @@ import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
 import { iconOf } from '../../components/PageContainer';
-import { apiPost, apiRequest, fetchClouds } from '../../services/api';
+import { apiPost, apiRequest } from '../../services/api';
 import { getPublicAdminPasswordPolicy } from '../../services/systemApi';
 import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../../utils/markdown';
@@ -414,7 +414,7 @@ const AdminLayout: React.FC = () => {
   const { message } = App.useApp();
   const [changePasswordForm] = Form.useForm();
 
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
   const [activeSidebarKey, setActiveSidebarKey] = useState('/admin/cen_compute');
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   /** 仅当选中页/池内菜单签名变化时自动展开分组；避免每次 effect 把用户已折叠的分组强行撑开 */
@@ -536,7 +536,7 @@ const AdminLayout: React.FC = () => {
     const gen = ++summaryLoadGenRef.current;
     setSummaryLoading(true);
     try {
-      const raw = await fetchClouds();
+      const raw = await apiRequest('/api/clouds', { skipCache: true });
       if (gen !== summaryLoadGenRef.current) return;
       const list = Array.isArray(raw) ? raw : (raw?.data || []);
       setSummaryClouds((Array.isArray(list) ? list : []) as Cloud[]);

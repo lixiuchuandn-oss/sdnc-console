@@ -1381,7 +1381,6 @@ const ProviderNetworkDetailDrawer: React.FC<ProviderNetworkDetailDrawerProps> = 
         cloudId={cloudId}
         vlans={displayedVlans}
         providers={providers}
-        hideNamespace
         aliasDupCheckItems={flatSubnetRecordsForForm}
         onSuccess={async () => {
           await loadSubnets();

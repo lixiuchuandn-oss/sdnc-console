@@ -2,7 +2,7 @@
 // 组织管理页（租户上下文），提供以下能力：
 // 1）左侧组织树：支持搜索、重命名、添加子组织、删除组织等操作；
 // 2）右侧标签页：
-//    - 用户管理：支持检索、创建用户、为用户分配角色、批量删除；
+//    - 用户管理：支持检索、创建用户、编辑用户信息、为用户分配角色、批量删除；
 //    - 计算/存储/安全资源分配：按组织维度分配资源池，支持筛选与移除分配；
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
@@ -52,7 +52,7 @@ import PageDetailContainer from '../../../components/PageDetailContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
-import { apiDelete, apiPatch, apiPost, apiRequest } from '../../../services/api';
+import { apiDelete, apiPost, apiPut, apiRequest } from '../../../services/api';
 import { fetchProtectionObjects, fetchServiceChains } from '../../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import {
@@ -62,6 +62,10 @@ import {
   Tenant,
   TenantUser,
 } from '../../../types/tenant';
+
+import {
+  namespaceSectionType,
+} from '../../../utils/harvesterUtils';
 
 // RBAC 角色模型：名称、范围（system/tenant）、状态等
 type RBACRole = { id: string; name: string; description?: string; scope: 'system' | 'tenant'; status?: 'active' | 'inactive' };
@@ -87,6 +91,14 @@ function formatRoleDisplayName(name: string | undefined): string {
   if (!name) return '';
   if (RBAC_BUILTIN_TENANT_ROLE_NAMES.has(name)) return name;
   return TENANT_USER_ROLE_LABEL_FALLBACK[name] || name;
+}
+
+/** 分配计算资源「使用集群已有命名空间」：下拉项仅限租户业务命名空间（排除系统/默认/公共区域及标签 admin），且未被其它组织占用 */
+function isAssignableExistingNamespaceRecord(ns: any, occupiedLc: Set<string>): boolean {
+  if (namespaceSectionType(ns) !== 'tenant') return false;
+  const n = String(ns?.metadata?.name || ns?.name || '').trim();
+  if (!n) return false;
+  return !occupiedLc.has(n.toLowerCase());
 }
 
 // --- 资源池 / 分配记录：provider 与 Tab 归类（与后端 Cloud.config.provider 对齐）---
@@ -196,11 +208,15 @@ const OrgManagePage: React.FC = () => {
 
   // --- 页面状态（表单与抽屉）---
   const [userForm] = Form.useForm();
+  const [editUserForm] = Form.useForm();
   const [resourcePoolForm] = Form.useForm();
   // 两个独立表单：
   // - userForm：用于用户创建抽屉
+  // - editUserForm：用于用户编辑弹窗
   // - resourcePoolForm：用于资源池分配抽屉
   const [userDrawerOpen, setUserDrawerOpen] = useState(false);
+  const [editUserModalOpen, setEditUserModalOpen] = useState(false);
+  const [editTargetUserId, setEditTargetUserId] = useState<string | null>(null);
   const [resourcePoolDrawerOpen, setResourcePoolDrawerOpen] = useState(false);
   // 资源分配类型（计算/存储/安全），用于抽屉内文案切换
   const [assignType, setAssignType] = useState<'compute'|'storage'|'security'>('compute');
@@ -210,19 +226,16 @@ const OrgManagePage: React.FC = () => {
   const [nsOptions, setNsOptions] = useState<any[]>([]);
   /** 当前所选资源池上已被其他组织占用的命名空间（用于下拉排除） */
   const [occupiedNamespaceNames, setOccupiedNamespaceNames] = useState<string[]>([]);
-  /** 分配抽屉「目标命名空间」：排除公共空间 + 已被其他组织绑定 */
+  /** 分配抽屉「目标命名空间」：租户业务 NS + 排除已被其他组织绑定的名称（与 harvesterUtils.namespaceSectionType 语义一致） */
   const filteredAssignNsNames = useMemo(() => {
-    const occupied = new Set(
-      (occupiedNamespaceNames || []).map((n) => String(n || '').trim()).filter(Boolean),
+    const occupiedLc = new Set(
+      (occupiedNamespaceNames || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean),
     );
     return (nsOptions || [])
-      .filter((x: any) => {
-        const sc = String(x?.metadata?.labels?.['tower.io/scenario'] || '').toLowerCase();
-        return sc !== 'public' && sc !== 'admin';
-      })
-      .map((x: any) => x?.metadata?.name || x?.name)
-      .map((n: string | undefined) => String(n || '').trim())
-      .filter((n: string): n is string => n.length > 0 && !occupied.has(n));
+      .filter((x: any) => isAssignableExistingNamespaceRecord(x, occupiedLc))
+      .map((x: any) => String(x?.metadata?.name || x?.name || '').trim())
+      .filter((n): n is string => n.length > 0)
+      .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
   }, [nsOptions, occupiedNamespaceNames]);
   // 分配资源池模式说明：
   // - assignType：计算/存储/安全三类，用于候选池过滤与文案切换
@@ -366,7 +379,7 @@ const OrgManagePage: React.FC = () => {
   // 保存组织重命名，并刷新组织树
   const handleOrgRename = async (orgId: string, name: string) => {
     try {
-      await apiPatch(`/api/tenants/organizations/${orgId}`, { name });
+      await apiPut(`/api/tenants/organizations/${orgId}`, { name });
       setRenameOrgId(null);
       setRenameName('');
       if (tenantId) fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
@@ -514,6 +527,51 @@ const OrgManagePage: React.FC = () => {
   // 删除用户：
   // - 依赖当前选中组织上下文；成功后刷新用户列表
 
+  const openEditUser = useCallback(
+    (user: TenantUser) => {
+      if (!tenantId || !selectedOrg?.id) {
+        messageApi.error('缺少租户或组织上下文，无法编辑');
+        return;
+      }
+      setEditTargetUserId(user.id);
+      editUserForm.setFieldsValue({
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+        status: user.status,
+        password: '',
+      });
+      setEditUserModalOpen(true);
+    },
+    [tenantId, selectedOrg?.id, editUserForm, messageApi],
+  );
+
+  const handleEditUserSave = async () => {
+    if (!tenantId || !selectedOrg?.id || !editTargetUserId) {
+      messageApi.error('无法保存：缺少租户、组织或用户');
+      throw new Error('abort');
+    }
+    try {
+      const values = await editUserForm.validateFields();
+      const payload: { email: string; fullName: string; status: string; password?: string } = {
+        email: values.email,
+        fullName: values.fullName,
+        status: values.status,
+      };
+      const pwd = String(values.password || '').trim();
+      if (pwd) payload.password = pwd;
+      await apiPut(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${editTargetUserId}`, payload);
+      messageApi.success('保存成功');
+      setEditUserModalOpen(false);
+      setEditTargetUserId(null);
+      editUserForm.resetFields();
+      fetchUsers(tenantId, selectedOrg.id, true);
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      messageApi.error(e?.response?.data?.message || e?.message || '保存失败');
+      throw e;
+    }
+  };
   const handleResourcePoolAssign = async (values: any) => {
     if (!selectedOrg) return;
     try {
@@ -589,15 +647,21 @@ const OrgManagePage: React.FC = () => {
       const errorDetail = responseData?.error;
       const status = e?.status || e?.response?.status;
       const vms = responseData?.vms || [];
-      const vmCount = responseData?.vmCount || 0;
+      const vmCount = responseData?.vmCount ?? vms.length;
       const volumes = responseData?.volumes || [];
-      const volumeCount = responseData?.volumeCount || 0;
+      const volumeCount = responseData?.volumeCount ?? volumes.length;
+      const containers = responseData?.containers || [];
+      const containerCount = responseData?.containerCount ?? containers.length;
+      const databases = responseData?.databases || [];
+      const databaseCount = responseData?.databaseCount ?? databases.length;
+      const vpcs = responseData?.vpcs || [];
+      const vpcCount = responseData?.vpcCount ?? vpcs.length;
       
       // 对于 409（冲突）和 503（服务不可用）错误，使用 Modal 显示详细错误信息
       if (status === 409 || status === 503) {
         modal.error({
           title: '无法移除资源池分配',
-          width: 700,
+          width: 760,
           content: (
             <div style={{ marginTop: 16 }}>
               <p style={{ marginBottom: 16, color: '#ff4d4f' }}>
@@ -610,15 +674,16 @@ const OrgManagePage: React.FC = () => {
               )}
               {vms.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ marginBottom: 8, fontWeight: 500 }}>存在的虚拟机资源（{vmCount}个）：</div>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>虚拟机（{vmCount} 个）</div>
                   <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
                     <Table
                       size="small"
                       dataSource={vms}
                       columns={[
-                        { title: '虚拟机名称', dataIndex: 'name', key: 'name', width: 200 },
-                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
-                        { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+                        { title: '别名', dataIndex: 'displayName', key: 'displayName', width: 200, ellipsis: true },
+                        { title: '名称', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
                       ]}
                       pagination={false}
                       rowKey={(record: any) => `vm-${record.namespace}/${record.name}`}
@@ -626,18 +691,75 @@ const OrgManagePage: React.FC = () => {
                   </div>
                 </div>
               )}
+              {containers.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>容器负载（{containerCount} 个）</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <Table
+                      size="small"
+                      dataSource={containers}
+                      columns={[
+                        { title: '别名', dataIndex: 'displayName', key: 'displayName', width: 200, ellipsis: true },
+                        { title: '名称', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
+                      ]}
+                      pagination={false}
+                      rowKey={(record: any) => `pod-${record.namespace}/${record.name}`}
+                    />
+                  </div>
+                </div>
+              )}
+              {databases.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>数据库相关工作负载（{databaseCount} 个）</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <Table
+                      size="small"
+                      dataSource={databases}
+                      columns={[
+                        { title: '别名', dataIndex: 'displayName', key: 'displayName', width: 200, ellipsis: true },
+                        { title: '名称', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
+                      ]}
+                      pagination={false}
+                      rowKey={(record: any) => `db-${record.namespace}/${record.name}`}
+                    />
+                  </div>
+                </div>
+              )}
+              {vpcs.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>VPC 网络（{vpcCount} 个）</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <Table
+                      size="small"
+                      dataSource={vpcs}
+                      columns={[
+                        { title: '别名', dataIndex: 'displayName', key: 'displayName', width: 220, ellipsis: true },
+                        { title: '名称', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+                        { title: 'CIDR', dataIndex: 'cidrBlock', key: 'cidrBlock', width: 160, ellipsis: true },
+                      ]}
+                      pagination={false}
+                      rowKey={(record: any) => `vpc-${record.name || record.displayName}`}
+                    />
+                  </div>
+                </div>
+              )}
               {volumes.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ marginBottom: 8, fontWeight: 500 }}>存在的虚拟卷资源（{volumeCount}个）：</div>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>存储卷 / 虚拟卷（{volumeCount} 个）</div>
                   <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
                     <Table
                       size="small"
                       dataSource={volumes}
                       columns={[
-                        { title: '虚拟卷名称', dataIndex: 'name', key: 'name', width: 200 },
-                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
-                        { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
-                        { title: '大小', dataIndex: 'size', key: 'size', width: 100 },
+                        { title: '别名', dataIndex: 'displayName', key: 'displayName', width: 200, ellipsis: true },
+                        { title: '名称', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
+                        { title: '大小', dataIndex: 'size', key: 'size', width: 90 },
                       ]}
                       pagination={false}
                       rowKey={(record: any) => `vol-${record.namespace}/${record.name}`}
@@ -960,11 +1082,14 @@ const OrgManagePage: React.FC = () => {
         <Dropdown
           menu={{
             items: [
+              { key: 'edit', label: '编辑' },
               { key: 'assign', label: '配置角色' },
               { key: 'delete', label: '删除', danger: true }
             ],
             onClick: ({ key }) => {
-              if (key === 'assign') {
+              if (key === 'edit') {
+                openEditUser(record);
+              } else if (key === 'assign') {
                 openRoleAssign(record);
               } else if (key === 'delete') {
                 modal.confirm({
@@ -982,7 +1107,7 @@ const OrgManagePage: React.FC = () => {
         </Dropdown>
       ),
     }
-  ], [rolesByUser, openRoleAssign, handleDeleteUser, modal]);
+  ], [rolesByUser, openRoleAssign, openEditUser, handleDeleteUser, modal]);
 
   const { displayColumns: userDisplayColumns } = useTableColumnSettings(userColumns, 'org_manage_users');
 
@@ -1619,6 +1744,48 @@ const OrgManagePage: React.FC = () => {
         </Form>
       </StdSideDrawer>
 
+      <Modal
+        title="编辑用户"
+        open={editUserModalOpen}
+        width={520}
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose
+        onCancel={() => {
+          setEditUserModalOpen(false);
+          setEditTargetUserId(null);
+          editUserForm.resetFields();
+        }}
+        onOk={handleEditUserSave}
+      >
+        <Form form={editUserForm} layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item name="username" label="用户名">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="fullName" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
+            <Input placeholder="请输入姓名" />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="邮箱"
+            rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱地址' }]}
+          >
+            <Input placeholder="请输入邮箱" />
+          </Form.Item>
+          <Form.Item name="password" label="新密码" extra="留空则不修改密码">
+            <Input.Password placeholder="留空则不修改" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
+            <Select
+              options={[
+                { value: 'active', label: '活跃' },
+                { value: 'inactive', label: '非活跃' },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       <StdSideDrawer
         title={assignType === 'security' ? '分配安全资源池' : '分配计算资源池'}
         open={resourcePoolDrawerOpen}
@@ -1829,17 +1996,33 @@ const OrgManagePage: React.FC = () => {
                                 if (arr.length !== 1 || !String(arr[0]).trim()) {
                                   return Promise.reject(new Error('请选择或输入恰好一个命名空间'));
                                 }
+                                const name = String(arr[0]).trim();
+                                const occLc = new Set(
+                                  (occupiedNamespaceNames || [])
+                                    .map((n) => String(n || '').trim().toLowerCase())
+                                    .filter(Boolean),
+                                );
+                                if (occLc.has(name.toLowerCase())) {
+                                  return Promise.reject(new Error('该命名空间已被其它组织占用，请选择其它名称'));
+                                }
+                                if (namespaceSectionType({ metadata: { name } }) !== 'tenant') {
+                                  return Promise.reject(
+                                    new Error(
+                                      '不可绑定系统命名空间、default、公共空间或管理类命名空间',
+                                    ),
+                                  );
+                                }
                                 return Promise.resolve();
                               },
                             }),
                           ]}
                           extra={
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              请先选择资源池以加载列表。已排除公共空间（
+                              请先选择资源池以加载列表。下拉里已排除系统命名空间、
                               <Typography.Text code style={{ fontSize: 11 }}>
-                                tower.io/scenario=public
+                                default
                               </Typography.Text>
-                              ）
+                              、公共/管理类命名空间，以及已被其它组织绑定的命名空间；手动输入须符合同样规则。
                             </Typography.Text>
                           }
                         >

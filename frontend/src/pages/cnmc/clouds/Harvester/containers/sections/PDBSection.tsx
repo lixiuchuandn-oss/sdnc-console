@@ -780,6 +780,15 @@ const PDBSection: React.FC<Props> = ({
       });
   }, [pdbs, keyword, nsValue]);
 
+  /**
+   * 与 VmSection（云主机）/ SnapshotsSection（云盘快照）一致：含 fixed 列时不用 x: true；
+   * 使用足够大的 scroll.x 像素下限，在租户控制台侧栏展开后主区域变窄时仍由表身横向滚动，避免裁切右侧列。
+   */
+  const pdbTableScroll = useMemo(
+    () => (filteredData.length > 0 ? ({ x: 2400 } as const) : undefined),
+    [filteredData.length],
+  );
+
   return (
     <>
       <PageDetailSection asCard={false}>
@@ -865,7 +874,7 @@ const PDBSection: React.FC<Props> = ({
             size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
-          scroll={{ x: 'max-content' }}
+          scroll={pdbTableScroll}
           rowSelection={{
             selectedRowKeys: selectedKeys,
             onChange: (keys) => setSelectedKeys(keys),

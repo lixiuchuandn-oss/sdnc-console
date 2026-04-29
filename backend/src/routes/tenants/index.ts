@@ -8,10 +8,12 @@ import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { UserSpace } from '../../entities/UserSpace';
 import { listKubevirtVMsRawWithMeta } from '../../services/clouds/harvester/client';
 import { listHarvesterPVCRaw } from '../../services/clouds/harvester/storage';
+import { getJsonOnce } from '../../services/clouds/harvester/utils';
 import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
 import { Cloud } from '../../entities/Cloud';
 import { HarvesterNamespaceInventory } from '../../entities/harvester/HarvesterNamespaceInventory';
 import { VpcNetwork } from '../../entities/VpcNetwork';
+import { KubeOvnVpcInventory } from '../../entities/kubeovn/KubeOvnVpcInventory';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { SecurityDomain } from '../../entities/SecurityDomain';
 import { ServiceChain } from '../../entities/ServiceChain';
@@ -21,14 +23,183 @@ import { authMiddleware, AuthRequest } from '../../middleware/auth';
 import {
   createHarvesterNamespace,
   patchHarvesterNamespaceMetadata,
+  deleteHarvesterNamespace,
+  getHarvesterNamespaceRaw,
+  isProtectedNamespace,
 } from '../../services/clouds/harvester/client';
 import { getPublicNamespaceNameSetForUnbind } from '../../services/clouds/harvester/publicNamespaces';
+import {
+  KUBE_OVN_BUILTIN_VPC_NAMES,
+  ovnNetworkScopeFromAnnotations,
+} from '../../services/clouds/harvester/kubeOvnNetworkScope';
 import bcrypt from 'bcryptjs';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { RBACRole } from '../../entities/RBACRole';
 import { logger } from '../../utils/logger';
 
 const tenantLog = logger.child('Tenant');
+
+/** 解绑资源池时因仍有引用资源而返回 409 的固定提示（详情见响应体各列表字段） */
+const UNBIND_RESOURCE_POOL_HAS_RESOURCES_MSG =
+  '该资源池下仍有资源存在，无法解绑。请先删除或迁移相关资源。';
+
+const KUBE_OVN_BUILTIN_VPC_SET = new Set<string>(KUBE_OVN_BUILTIN_VPC_NAMES);
+
+const TOWER_METADATA_ALIAS = 'tower.io/alias';
+
+type VpcUnbindConflictRow = { displayName: string; name: string; cidrBlock?: string };
+
+function mergeVpcUnbindRowsByName(tower: VpcUnbindConflictRow[], kube: VpcUnbindConflictRow[]) {
+  const seen = new Set(tower.map((r) => r.name));
+  return [...tower, ...kube.filter((r) => r.name && !seen.has(r.name))];
+}
+
+/** Harvester：Tower `vpcs` 表 + 本地 Kube-OVN VPC 库存；与租户命名空间有交集的业务 VPC（排除集群内置名、underlay 域） */
+async function kubeOvnInventoryVpcConflictRows(
+  cloudId: string,
+  namespaceList: string[],
+): Promise<VpcUnbindConflictRow[]> {
+  if (!namespaceList.length) return [];
+  let rows: KubeOvnVpcInventory[] = [];
+  try {
+    rows = await AppDataSource.getRepository(KubeOvnVpcInventory).find({ where: { cloudId } });
+  } catch {
+    return [];
+  }
+  const out: VpcUnbindConflictRow[] = [];
+  for (const row of rows) {
+    const raw = row.rawData || {};
+    const name = String(raw?.metadata?.name || row.name || '').trim();
+    if (!name || KUBE_OVN_BUILTIN_VPC_SET.has(name)) continue;
+    if (ovnNetworkScopeFromAnnotations(raw) === 'underlay') continue;
+    const allowed = raw?.spec?.namespaces;
+    if (!Array.isArray(allowed) || allowed.length === 0) continue;
+    if (!namespaceList.some((ns) => allowed.includes(ns))) continue;
+    const meta = raw.metadata || {};
+    const spec = raw.spec || {};
+    const cid =
+      typeof spec?.cidrBlocks?.[0] === 'string'
+        ? String(spec.cidrBlocks[0])
+        : spec?.cidrBlock != null
+          ? String(spec.cidrBlock)
+          : '';
+    out.push({
+      displayName: kubeTowerAliasDisplay(meta),
+      name,
+      cidrBlock: cid.trim() ? cid : '—',
+    });
+  }
+  return out;
+}
+
+/** VM/Pod/PVC 等 K8s metadata 的可读别名（tower.io/alias），无则退回资源名 */
+function kubeTowerAliasDisplay(meta?: { annotations?: Record<string, string>; name?: string }) {
+  if (!meta) return '—';
+  const ann = meta.annotations || {};
+  const a = String(ann[TOWER_METADATA_ALIAS] || '').trim();
+  if (a) return a;
+  return String(meta.name || '').trim() || '—';
+}
+
+function kubePodWorkloadDisplayName(pod: any): string {
+  const meta = pod?.metadata || {};
+  const ann = meta.annotations || {};
+  const alias = String(ann[TOWER_METADATA_ALIAS] || '').trim();
+  if (alias) return alias;
+  const lbl = meta.labels || {};
+  const byLabel = String(
+    lbl['app.kubernetes.io/instance'] ||
+      lbl['app.kubernetes.io/name'] ||
+      lbl['app'] ||
+      '',
+  ).trim();
+  if (byLabel) return byLabel;
+  return String(meta.name || '').trim() || '—';
+}
+
+function isKubeVirtOrInfraPod(pod: any): boolean {
+  const lbl = pod?.metadata?.labels || {};
+  const nm = String(pod?.metadata?.name || '');
+  if (lbl['kubevirt.io/vm'] || lbl['kubevirt.io/domain']) return true;
+  if (/^virt-launcher-/i.test(nm)) return true;
+  const ns = String(pod?.metadata?.namespace || '');
+  const sysNs = ['kube-system', 'cattle-system', 'cattle-dashboards', 'harvester-system', 'kube-public'];
+  return sysNs.includes(ns);
+}
+
+function podLooksLikeDatabase(pod: any): boolean {
+  const blob = `${JSON.stringify(pod?.metadata?.labels || {})}${pod?.metadata?.name || ''}`.toLowerCase();
+  return /\b(mysql|mariadb|mongo(db)?|postgres(ql)?|redis|cockroach|tidb|galera|rds)\b/.test(blob);
+}
+
+async function listK8sPodsClusterWideRaw(endpoint: string, token: string, insecure: boolean) {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/api/v1/pods`;
+  try {
+    const json = await getJsonOnce(url, token, insecure);
+    return Array.isArray(json?.items) ? json.items : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Harvester：解绑且已通过占用校验后，删除本组织绑定创建的租户命名空间（不删公共/system NS） */
+async function deleteHarvesterTenantNamespacesOnOrgUnbind(opts: {
+  endpoint: string;
+  token: string;
+  insecure: boolean;
+  cloudId: string;
+  organizationId: string;
+  namespaceCsv?: string | null;
+  fallbackName: string;
+}): Promise<void> {
+  const { endpoint, token, insecure, cloudId, organizationId } = opts;
+  const publicNamespacesSet = await getPublicNamespaceNameSetForUnbind(cloudId);
+  const listed = opts.namespaceCsv
+    ? opts.namespaceCsv.split(',').map((s) => s.trim()).filter(Boolean)
+    : [opts.fallbackName];
+
+  const hostParams = { endpoint, token, insecure };
+
+  for (const ns of listed) {
+    if (!ns || publicNamespacesSet.has(ns)) continue;
+    if (isProtectedNamespace(ns)) {
+      tenantLog.warn(`Unbind: skip deleting namespace ${ns}: protected/system name`);
+      continue;
+    }
+    try {
+      const body = await getHarvesterNamespaceRaw(hostParams, ns);
+      const meta = body?.metadata;
+      const labels = meta?.labels || {};
+      const bindsOrg =
+        String(labels['tower.io/organization-id'] || '').trim() === organizationId;
+      const isDefaultAutoName = ns === `ns-${organizationId}`;
+      if (!bindsOrg && !isDefaultAutoName) {
+        tenantLog.info(
+          `Unbind: skip deleting namespace "${ns}" — missing tower.io/organization-id for this organization (reuse binding)`,
+        );
+        continue;
+      }
+      await deleteHarvesterNamespace(hostParams, ns);
+      tenantLog.info(`Unbind: deleted tenant namespace "${ns}" on cloud ${cloudId}`);
+    } catch (e: any) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const st = e?.response?.status ?? e?.status;
+      if (st === 404 || /\b404\b|not\s*found/i.test(msg)) {
+        tenantLog.debug(`Unbind: namespace "${ns}" not found on cluster (${msg})`);
+        continue;
+      }
+      tenantLog.warn(`Unbind: failed deleting namespace "${ns}": ${msg}`);
+    }
+  }
+}
 
 // 租户与组织/用户/资源池管理路由：
 // - 提供租户的增删改查接口
@@ -176,9 +347,9 @@ router.put('/:id', updateTenantHandler);
 router.patch('/:id', updateTenantHandler);
 
 // 删除租户：
-// - 级联删除租户下所有组织、资源池分配与租户用户
-// - 如果租户下存在资源绑定，禁止删除
-// - 注意：与业务强关联的其它实体（如专线、防护策略等）需在对应模块中单独处理
+// - 若租户下仍存在组织用户，禁止删除（需先删除全部组织用户）
+// - 若租户下存在资源绑定等关联，禁止删除
+// - 通过后级联删除租户下组织、资源分配等，再删除租户本体
 router.delete('/:id', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -198,28 +369,42 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: '租户不存在' });
     }
 
+    /** 存在组织用户时禁止删除租户（需先逐个删除用户） */
+    const orgUserCount = await userRepository.count({
+      where: { tenantId: req.params.id },
+    });
+    if (orgUserCount > 0) {
+      return res.status(409).json({
+        message: `不能删除租户：租户下仍存在组织用户（共 ${orgUserCount} 个），请先删除全部组织用户后再删除租户。`,
+        blockingReason: 'ORG_USERS',
+        userCount: orgUserCount,
+      });
+    }
+
     // 获取租户下的所有组织
     const organizations = await organizationRepository.find({ where: { tenantId: req.params.id } });
     const orgIds = organizations.map(org => org.id);
 
     // 检查租户下所有组织是否有关联的资源绑定
     const resourceChecks: Array<{ name: string; count: number }> = [];
+    let userSpacesByOrg: UserSpace[] = [];
+    let assignmentsByOrg: ResourcePoolAssignment[] = [];
 
     if (orgIds.length > 0) {
       // 检查资源池绑定（UserSpace）
-      const userSpaces = await userSpaceRepository.find({
+      userSpacesByOrg = await userSpaceRepository.find({
         where: { organizationId: In(orgIds) },
       });
-      if (userSpaces.length > 0) {
-        resourceChecks.push({ name: '资源池绑定', count: userSpaces.length });
+      if (userSpacesByOrg.length > 0) {
+        resourceChecks.push({ name: '资源池绑定', count: userSpacesByOrg.length });
       }
 
       // 检查资源池分配（ResourcePoolAssignment）
-      const assignments = await assignmentRepository.find({
+      assignmentsByOrg = await assignmentRepository.find({
         where: { organizationId: In(orgIds) },
       });
-      if (assignments.length > 0) {
-        resourceChecks.push({ name: '资源池分配', count: assignments.length });
+      if (assignmentsByOrg.length > 0) {
+        resourceChecks.push({ name: '资源池分配', count: assignmentsByOrg.length });
       }
 
       // 检查VPC网络
@@ -272,11 +457,11 @@ router.delete('/:id', async (req, res) => {
     }
 
     // 检查租户级别的资源（直接关联到租户的资源）
-    const tenantUserSpaces = await userSpaceRepository.find({
+    const tenantScopedUserSpaces = await userSpaceRepository.find({
       where: { tenantId: req.params.id },
     });
-    if (tenantUserSpaces.length > 0) {
-      resourceChecks.push({ name: '租户资源池绑定', count: tenantUserSpaces.length });
+    if (tenantScopedUserSpaces.length > 0) {
+      resourceChecks.push({ name: '租户资源池绑定', count: tenantScopedUserSpaces.length });
     }
 
     const tenantVpcs = await vpcRepository.find({
@@ -316,9 +501,30 @@ router.delete('/:id', async (req, res) => {
 
     // 如果存在资源绑定，禁止删除
     if (resourceChecks.length > 0) {
+      const cloudRepository = AppDataSource.getRepository(Cloud);
+      const linkedCloudIds = new Set<string>();
+      for (const us of [...userSpacesByOrg, ...tenantScopedUserSpaces]) {
+        if (us?.cloudId) linkedCloudIds.add(us.cloudId);
+      }
+      for (const asn of assignmentsByOrg) {
+        if (asn?.cloudId) linkedCloudIds.add(asn.cloudId);
+      }
+      let poolNamesLine = '';
+      if (linkedCloudIds.size > 0) {
+        const clouds = await cloudRepository.find({
+          where: { id: In(Array.from(linkedCloudIds)) },
+        });
+        poolNamesLine = [...new Set(clouds.map((c) => String(c.name ?? '').trim()).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+          .join('、');
+      }
       const resourceList = resourceChecks.map((r) => `${r.name}(${r.count}个)`).join('、');
+      const message =
+        poolNamesLine.length > 0
+          ? `不能删除租户：租户下存在关联资源（${poolNamesLine}），请先解除资源绑定后再删除。`
+          : `不能删除租户：租户下存在关联资源，请先解除资源绑定后再删除。关联资源：${resourceList}`;
       return res.status(409).json({
-        message: `不能删除租户：租户下存在关联资源，请先解除资源绑定后再删除。关联资源：${resourceList}`,
+        message,
         resources: resourceChecks,
       });
     }
@@ -957,6 +1163,13 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
           return res.status(400).json({ message: '命名空间名称格式无效' });
         }
 
+        if (isProtectedNamespace(primaryNs)) {
+          return res.status(400).json({
+            message:
+              '不可绑定系统命名空间或平台预留命名空间（含 default、kube-system、kube-public、cattle-*、fleet-* 等）',
+          });
+        }
+
         for (const pool of harvesterPools) {
           const inv = await nsRepo.findOne({
             where: { cloudId: pool.id, name: primaryNs },
@@ -1302,6 +1515,11 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
     });
 
     if (userSpace) {
+      const vpcNetworkRepository = AppDataSource.getRepository(VpcNetwork);
+      const vpcRowsForOrgPool = await vpcNetworkRepository.find({
+        where: { organizationId: orgId, cloudId: poolId },
+      });
+
       // 检查该 UserSpace 下是否仍有 VM 存在
       if (userSpace.cloud && userSpace.name) {
         const isHarvesterLike = (pv: string) => {
@@ -1322,32 +1540,43 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
           const publicNamespacesSet = await getPublicNamespaceNameSetForUnbind(userSpace.cloudId);
           const tenantNamespaces = namespaces.filter((ns: string) => !publicNamespacesSet.has(ns));
           const hasPublicNamespace = namespaces.some((ns: string) => publicNamespacesSet.has(ns));
-          
-          // 如果没有租户专属命名空间，直接跳过检查，无条件解绑
-          if (tenantNamespaces.length === 0) {
+
+          // 若无租户命名空间仅能扫公用 NS，仍可因 Tower VPC 绑定阻止解绑
+            if (tenantNamespaces.length === 0) {
             tenantLog.debug(
-              `Unbind: skip resource check for userSpace ${userSpace.id}: only public namespaces (${namespaces.join(', ')}), allowing unbind`,
+              `Unbind: skip cluster resource scan for userSpace ${userSpace.id}: only public namespaces (${namespaces.join(', ')})`,
             );
+            const towerVpcRows: VpcUnbindConflictRow[] = vpcRowsForOrgPool.map((v) => ({
+              displayName: String(v.name || '').trim() || '—',
+              name: v.name,
+              cidrBlock: v.cidrBlock,
+            }));
+            const kubeOvnRows = await kubeOvnInventoryVpcConflictRows(poolId, namespaces);
+            const mergedPublicNsVpcs = mergeVpcUnbindRowsByName(towerVpcRows, kubeOvnRows);
+            if (mergedPublicNsVpcs.length > 0) {
+              return res.status(409).json({
+                message: UNBIND_RESOURCE_POOL_HAS_RESOURCES_MSG,
+                vpcs: mergedPublicNsVpcs,
+                vpcCount: mergedPublicNsVpcs.length,
+              });
+            }
           } else {
             let activeVms: any[] = [];
             let activeVolumes: any[] = [];
-            // 添加超时机制，防止云平台连接不好时一直卡住
-            const RESOURCE_CHECK_TIMEOUT = 15000; // 15秒超时
-            
+            let podsInTenantNamespaces: any[] = [];
+            const RESOURCE_CHECK_TIMEOUT = 15000;
+
             try {
-              // 创建超时 Promise
-              const timeoutPromise = new Promise<[null, any[]]>((resolve) => {
+              const timeoutPromise = new Promise<[any, any[], any[], any[]]>((resolve) => {
                 setTimeout(() => {
                   tenantLog.warn(
                     `Unbind: resource check timeout after ${RESOURCE_CHECK_TIMEOUT}ms for userSpace ${userSpace.id}`,
                   );
-                  resolve([null, []]);
+                  resolve([null, [], [], []]);
                 }, RESOURCE_CHECK_TIMEOUT);
               });
-              
-              // Check all associated namespaces for VMs and Volumes (excluding cloud-public)
-              // 使用 Promise.race 确保超时后不会一直等待
-              const [vmsResult, volumesResult] = await Promise.race([
+
+              const [vmsResult, volumesResult, podsResult] = await Promise.race([
                 Promise.all([
                   listKubevirtVMsRawWithMeta({
                     endpoint: userSpace.cloud.endpoint,
@@ -1358,90 +1587,152 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
                     endpoint: userSpace.cloud.endpoint,
                     token: userSpace.cloud.secretKey || '',
                     insecure: !!config.ignoreTls,
-                  }).catch(() => [])
+                  }).catch(() => []),
+                  listK8sPodsClusterWideRaw(
+                    userSpace.cloud.endpoint,
+                    userSpace.cloud.secretKey || '',
+                    !!config.ignoreTls,
+                  ).catch(() => []),
                 ]),
-                timeoutPromise
+                timeoutPromise,
               ]);
-              
+
               if (vmsResult && vmsResult.items) {
-                // Filter VMs belonging to tenant namespaces (excluding cloud-public and default)
-                activeVms = vmsResult.items.filter((vm: any) => 
-                   vm.metadata?.namespace && tenantNamespaces.includes(vm.metadata.namespace)
+                activeVms = vmsResult.items.filter(
+                  (vm: any) => vm.metadata?.namespace && tenantNamespaces.includes(vm.metadata.namespace),
                 );
               }
-              
+
               if (Array.isArray(volumesResult)) {
-                // Filter Volumes (PVCs) belonging to tenant namespaces (excluding cloud-public and default)
-                activeVolumes = volumesResult.filter((vol: any) => 
-                   vol.metadata?.namespace && tenantNamespaces.includes(vol.metadata.namespace)
+                activeVolumes = volumesResult.filter(
+                  (vol: any) =>
+                    vol.metadata?.namespace && tenantNamespaces.includes(vol.metadata.namespace),
                 );
+              }
+
+              if (Array.isArray(podsResult)) {
+                podsInTenantNamespaces = podsResult.filter((p: any) => {
+                  const ns = p?.metadata?.namespace;
+                  if (!ns || !tenantNamespaces.includes(ns)) return false;
+                  return !isKubeVirtOrInfraPod(p);
+                });
               }
             } catch (e: any) {
               tenantLog.error(
                 `Unbind: failed to check resources for userSpace ${userSpace.id}:`,
                 e instanceof Error ? e.message : String(e),
               );
-              // 如果包含公共命名空间（cloud-public 或 default），检查失败时也允许解绑（因为这些空间的资源不属于租户）
               if (hasPublicNamespace) {
                 tenantLog.debug(
                   `Unbind: resource check failed but contains public namespace(s), allowing unbind for userSpace ${userSpace.id}`,
                 );
-                // 继续执行解绑逻辑，不阻止
               } else {
-                // 检查失败时，区分超时和其他错误
                 const isTimeout = e?.message?.includes('timeout') || e?.message?.includes('超时');
                 if (isTimeout) {
-                  return res.status(504).json({ 
+                  return res.status(504).json({
                     message: '资源检查超时，请稍后重试',
-                    error: `系统在 ${RESOURCE_CHECK_TIMEOUT}ms 内无法完成资源检查，可能是资源池连接状态不佳。请检查资源池连接状态后重试，或联系管理员。`
+                    error: `系统在 ${RESOURCE_CHECK_TIMEOUT}ms 内无法完成资源检查，可能是资源池连接状态不佳。请检查资源池连接状态后重试，或联系管理员。`,
                   });
                 }
-                // 其他错误，为安全起见阻止解绑操作
-                return res.status(503).json({ 
+                return res.status(503).json({
                   message: '无法验证资源池状态，请稍后重试',
-                  error: '系统无法验证命名空间内是否存在虚拟机或虚拟卷，为安全起见已终止解绑操作。请检查资源池连接状态后重试。'
+                  error:
+                    '系统无法验证命名空间内的资源使用情况，为安全起见已终止解绑操作。请检查资源池连接状态后重试。',
                 });
               }
             }
 
-            // 如果存在虚拟机或虚拟卷，阻止解绑（但 cloud-public 中的资源不阻止）
-            if (activeVms.length > 0 || activeVolumes.length > 0) {
-              const vmList = activeVms.map((vm: any) => ({
+            let databasePods = podsInTenantNamespaces.filter(podLooksLikeDatabase);
+            const containerPods = podsInTenantNamespaces.filter((p: any) => !podLooksLikeDatabase(p));
+
+            const towerVpcDisplay: VpcUnbindConflictRow[] = vpcRowsForOrgPool.map((v) => ({
+              displayName: String(v.name || '').trim() || '—',
+              name: v.name,
+              cidrBlock: v.cidrBlock,
+            }));
+            const kubeOvnVpcDisplay = await kubeOvnInventoryVpcConflictRows(userSpace.cloudId, tenantNamespaces);
+            const vpcDisplayRowsMerged = mergeVpcUnbindRowsByName(towerVpcDisplay, kubeOvnVpcDisplay);
+
+            const shouldBlockRemoving =
+              activeVms.length > 0 ||
+              activeVolumes.length > 0 ||
+              containerPods.length > 0 ||
+              databasePods.length > 0 ||
+              vpcDisplayRowsMerged.length > 0;
+
+            if (shouldBlockRemoving) {
+              const vmRows = activeVms.map((vm: any) => ({
+                displayName: kubeTowerAliasDisplay(vm.metadata),
                 name: vm.metadata?.name || '未知',
                 namespace: vm.metadata?.namespace || '未知',
                 status: vm.status?.printableStatus || vm.status?.phase || '未知',
               }));
-              
-              const volumeList = activeVolumes.map((vol: any) => ({
+              const volumeRows = activeVolumes.map((vol: any) => ({
+                displayName: kubeTowerAliasDisplay(vol.metadata),
                 name: vol.metadata?.name || '未知',
                 namespace: vol.metadata?.namespace || '未知',
                 status: vol.status?.phase || vol.status?.state || '未知',
                 size: vol.status?.capacity?.storage || vol.spec?.resources?.requests?.storage || '未知',
               }));
-              
-              const resourceTypes: string[] = [];
-              if (activeVms.length > 0) resourceTypes.push(`虚拟机(${activeVms.length}个)`);
-              if (activeVolumes.length > 0) resourceTypes.push(`虚拟卷(${activeVolumes.length}个)`);
-              
-              return res.status(409).json({ 
-                message: `该资源池下仍有资源存在，无法解绑。请先删除或迁移相关资源。存在资源：${resourceTypes.join('、')}`,
-                vms: vmList,
+              const containerRows = containerPods.map((p: any) => ({
+                displayName: kubePodWorkloadDisplayName(p),
+                name: p?.metadata?.name || '—',
+                namespace: p?.metadata?.namespace || '—',
+                status: p.status?.phase || '—',
+              }));
+              const databaseRows = databasePods.map((p: any) => ({
+                displayName: kubePodWorkloadDisplayName(p),
+                name: p?.metadata?.name || '—',
+                namespace: p?.metadata?.namespace || '—',
+                status: p.status?.phase || '—',
+              }));
+
+              return res.status(409).json({
+                message: UNBIND_RESOURCE_POOL_HAS_RESOURCES_MSG,
+                vms: vmRows,
                 vmCount: activeVms.length,
-                volumes: volumeList,
-                volumeCount: activeVolumes.length
+                volumes: volumeRows,
+                volumeCount: activeVolumes.length,
+                containers: containerRows,
+                containerCount: containerRows.length,
+                databases: databaseRows,
+                databaseCount: databaseRows.length,
+                vpcs: vpcDisplayRowsMerged,
+                vpcCount: vpcDisplayRowsMerged.length,
               });
             }
           }
 
-           // [策略变更] 解绑资源池时，不再自动删除底层的 Namespace
-           // 原因为防止误删重要数据，将清理工作留给运维人员手动处理
-           // 仅解除 Tower 侧的绑定关系
-           const namespacesToDelete = userSpace.namespace 
-              ? userSpace.namespace.split(',').map(s => s.trim()).filter(Boolean)
-              : [userSpace.name];
-           tenantLog.info(
-             `Unbind: skipping Harvester Namespace deletion for userSpace: ${userSpace.id}, namespaces: ${namespacesToDelete.join(', ')} (manual cleanup if needed)`,
-           );
+           const poolToken =
+            config.token || config.apiToken || userSpace.cloud.secretKey || userSpace.cloud.accessKey || '';
+          const poolEndpoint = userSpace.cloud.endpoint || config.endpoint;
+          const poolInsecure = !!(config.ignoreTls ?? config.insecure);
+          if (poolEndpoint && poolToken) {
+            await deleteHarvesterTenantNamespacesOnOrgUnbind({
+              endpoint: poolEndpoint,
+              token: poolToken,
+              insecure: poolInsecure,
+              cloudId: poolId,
+              organizationId: orgId,
+              namespaceCsv: userSpace.namespace ?? null,
+              fallbackName: userSpace.name,
+            });
+          } else {
+            tenantLog.warn(
+              `Unbind: cloud ${userSpace.cloudId} missing endpoint/token; skipping namespace deletion on cluster`,
+            );
+          }
+        } else if (vpcRowsForOrgPool.length > 0) {
+          const vpcDisplayList = vpcRowsForOrgPool.map((v) => ({
+            displayName: String(v.name || '').trim() || '—',
+            name: v.name,
+            cidrBlock: v.cidrBlock,
+          }));
+          return res.status(409).json({
+            message: UNBIND_RESOURCE_POOL_HAS_RESOURCES_MSG,
+            vpcs: vpcDisplayList,
+            vpcCount: vpcDisplayList.length,
+          });
         }
       }
 

@@ -29,8 +29,6 @@ const DISK_BUS_OPTIONS = [
   { label: 'NVMe', value: 'nvme' },
 ] as const;
 
-const WIN_OR_LEGACY_HINT = /windows|win|uefi/i;
-
 // ---------------------------------------------------------------------------
 // 类型
 // ---------------------------------------------------------------------------
@@ -285,7 +283,6 @@ const StepDisks: React.FC<StepDisksProps> = ({
       }
       const it = findImageBySelectValue(images, val);
       const dispName = getImageRecordDisplayName(it).toLowerCase();
-      const needEfi = WIN_OR_LEGACY_HINT.test(dispName);
       const isWindows = /windows|win/.test(dispName);
       const kind = resolveVmImageKind(it);
       const isIso = kind === 'iso';
@@ -295,7 +292,8 @@ const StepDisks: React.FC<StepDisksProps> = ({
         form.getFieldValue('storageClassName');
       form.setFieldsValue({
         storageClassName: sc,
-        bootUseEfi: needEfi,
+        // EFI 默认不勾选（含 Windows）；需时在「高级设置」中手动开启
+        bootUseEfi: false,
         rootDeviceType: isIso ? 'cdrom' : 'disk',
         rootBus: isIso ? cdromBusFieldValue(isArm64) : isWindows ? 'sata' : 'virtio',
       });
@@ -317,14 +315,13 @@ const StepDisks: React.FC<StepDisksProps> = ({
       }
       const it = findImageBySelectValue(images, val);
       const dispName = getImageRecordDisplayName(it).toLowerCase();
-      const needEfi = WIN_OR_LEGACY_HINT.test(dispName);
       const sc =
         (it?.storageClassName as string | undefined) ||
         defaultStorageClassName ||
         form.getFieldValue('storageClassName');
       form.setFieldsValue({
         storageClassName: sc,
-        bootUseEfi: needEfi,
+        bootUseEfi: false,
         rootDeviceType: 'cdrom',
         rootBus: cdromBusFieldValue(isArm64),
       });

@@ -21,6 +21,7 @@ import {
 import { validateExcludeIpWithinCidr } from '../lib/ipv4CidrValidate';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
+import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
 
 /**
  * 接口定义
@@ -459,18 +460,18 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     if (!cloudId || !name) return;
 
     const relatedSubnets = (subnets || []).filter((s) => {
-      const targetVpc = SafeRead.subnetVpc(s);
-      return String(targetVpc).trim() === String(name).trim();
+      const v = String(s?.spec?.vpc ?? '').trim();
+      return v === String(name).trim();
     });
     if (relatedSubnets.length > 0) {
       const subnetNames = relatedSubnets
         .slice(0, 5)
         .map((s) => SafeRead.displayName(s))
         .join('、');
-      const moreText = relatedSubnets.length > 5 ? ' 等' : '';
+      const moreText = relatedSubnets.length > 5 ? ` 等` : '';
       Modal.error({
         title: '无法删除 VPC',
-        content: `该 VPC（${displayName}）下仍有子网（${subnetNames}${moreText}），请先删除全部关联子网后再删除 VPC。`,
+        content: `请先删除该 VPC（${displayName}）下的子网，然后再删除 VPC。当前关联示例：${subnetNames}${moreText}。`,
       });
       return;
     }
@@ -491,7 +492,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     });
   };
 
-  const handleDeleteSubnet = (record: any) => {
+  const handleDeleteSubnet = async (record: any) => {
     if (!hasVpcsWrite) {
       message.error('无权限执行该操作');
       return;
@@ -500,19 +501,38 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     const displayName = SafeRead.displayName(record);
     if (!cloudId || !name) return;
 
+    const cidrRaw = String(SafeRead.subnetCidr(record) === '-' ? '' : SafeRead.subnetCidr(record)).trim();
+    let natBlockMsg: string | null = null;
+    try {
+      natBlockMsg = await getVpcSubnetDeleteBlockedByNatMessage(cloudId, name, cidrRaw);
+    } catch {
+      natBlockMsg = '无法校验 SNAT/DNAT 是否引用该 VPC 子网，请检查网络后重试。';
+    }
+    const blocked = !!natBlockMsg;
+
     Modal.confirm({
       title: `删除子网: ${displayName}`,
-      content: `确认要删除子网 ${displayName} 吗？此操作不可撤销。`,
+      content: (
+        <>
+          <div>{`确认要删除子网 ${displayName} 吗？此操作不可撤销。`}</div>
+          {natBlockMsg && (
+            <div style={{ color: '#ff4d4f', marginTop: 8 }}>{natBlockMsg}</div>
+          )}
+        </>
+      ),
       okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteKubeOvnSubnet(cloudId, name);
-          message.success('删除成功');
-          onRefresh?.(true, false, { vpcsAll: vpcsQueryAll });
-        } catch (e: any) {
-          message.error(`删除失败: ${e.message}`);
-        }
-      },
+      okButtonProps: { disabled: blocked },
+      onOk: blocked
+        ? undefined
+        : async () => {
+            try {
+              await deleteKubeOvnSubnet(cloudId, name);
+              message.success('删除成功');
+              onRefresh?.(true, false, { vpcsAll: vpcsQueryAll });
+            } catch (e: any) {
+              message.error(`删除失败: ${e.message}`);
+            }
+          },
     });
   };
 
@@ -637,6 +657,24 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
             {isNat && <Tag color="blue">NAT</Tag>}
             {!isPrivate && !isNat && <Tag>Standard</Tag>}
           </Space>
+        );
+      },
+    },
+    {
+      title: '已用 / 总数',
+      key: 'usage',
+      width: 120,
+      render: (_: any, record: any) => {
+        const st = record.status || {};
+        const available =
+          Number(st.v4AvailableIPs ?? st.v4availableIPs ?? st.availableIPs ?? st.availableIps ?? 0) ||
+          0;
+        const used = Number(st.v4UsingIPs ?? st.v4usingIPs ?? st.usingIPs ?? st.usingIps ?? 0) || 0;
+        const total = Math.max(available + used, 0);
+        return (
+          <span title={`已用 ${used}（总数 ${total}，可用 ${available}）`}>
+            {used} / {total}
+          </span>
         );
       },
     },

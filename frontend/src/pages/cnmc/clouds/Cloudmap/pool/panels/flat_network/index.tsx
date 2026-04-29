@@ -169,6 +169,7 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
         networkScope="flat"
         onRefresh={(force = true, silent = false) => {
           const skipSync = silent;
+          void loadTabResource('flat_kubeovn_eips', force, skipSync);
           setResourceLoading((prev) => ({
             ...prev,
             flatSnatRules: true,
@@ -204,6 +205,7 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
         networkScope="flat"
         onRefresh={(force = true, silent = false) => {
           const skipSync = silent;
+          void loadTabResource('flat_kubeovn_eips', force, skipSync);
           setResourceLoading((prev) => ({
             ...prev,
             flatDnatRules: true,

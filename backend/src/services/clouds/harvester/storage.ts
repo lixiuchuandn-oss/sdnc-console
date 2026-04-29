@@ -937,6 +937,8 @@ export const restoreVolumeSnapshot = async (
     accessModes?: string[];
     volumeMode?: string;
     size?: string;
+    /** 云盘展示名 → metadata.annotations['tower.io/alias']，可为中文 */
+    alias?: string;
   },
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
@@ -954,6 +956,13 @@ export const restoreVolumeSnapshot = async (
     metadata: {
       name: String(opts.newName),
       namespace,
+      ...(String(opts.alias ?? '').trim()
+        ? {
+            annotations: {
+              'tower.io/alias': String(opts.alias).trim(),
+            },
+          }
+        : {}),
     },
     spec: {
       accessModes:

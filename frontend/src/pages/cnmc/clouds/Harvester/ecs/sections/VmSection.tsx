@@ -1131,11 +1131,13 @@ const VmSection: React.FC<Props> = ({
   ]);
 
   /**
-   * 有数据时才开启 scroll.x：固定列依赖横向滚动容器；无数据时若仍设 x，rc-table 会按表头测量列宽，
-   * 多列最小宽度之和常大于容器，空表格也会出现横向滚动条。
+   * 有数据时才开启 scroll.x。
+   * 不要使用 x: true：含 fixed 列时 Ant Design 要求可解析的最小表格宽度；
+   * true + 绝大部分列未定宽会导致整表被压在视口宽度内裁切右侧列（只能缩小浏览器才「看见」）。
+   * 使用足够大的像素下限以触发表格内部横向滚动（见 antd Table scroll.x / fixed columns 说明）。
    */
   const vmTableScroll = useMemo(
-    () => (filtered.length > 0 ? ({ x: true } as const) : undefined),
+    () => (filtered.length > 0 ? ({ x: 2400 } as const) : undefined),
     [filtered.length],
   );
 

@@ -52,60 +52,159 @@ type Props = {
 /**
  * Pod 状态渲染
  */
-const renderPodStatus = (pod: any) => {
-  const phase = pod?.status?.phase || 'Unknown';
-  const conditions = pod?.status?.conditions || [];
-  
-  const statusMap: Record<string, { color: string; text: string }> = {
-    Running: { color: 'green', text: '运行中' },
-    Pending: { color: 'blue', text: '等待中' },
-    Succeeded: { color: 'cyan', text: '已完成' },
-    Failed: { color: 'red', text: '失败' },
-    Unknown: { color: 'default', text: '未知' },
-    Terminating: { color: 'orange', text: '终止中' },
-  };
-  
-  // 检查是否正在终止
-  const metadata = pod?.metadata || {};
-  if (metadata.deletionTimestamp) {
-    return <Tag color="orange">终止中</Tag>;
+const CONTAINER_REASON_MAP: Record<string, { color: string; text: string }> = {
+  // Waiting reasons
+  ImagePullBackOff: { color: 'red', text: '镜像拉取失败' },
+  ErrImagePull: { color: 'red', text: '镜像拉取错误' },
+  ContainerCreating: { color: 'blue', text: '容器创建中' },
+  CrashLoopBackOff: { color: 'red', text: '崩溃重启中' },
+  CreateContainerConfigError: { color: 'red', text: '容器配置错误' },
+  CreateContainerError: { color: 'red', text: '创建容器错误' },
+  InvalidImageName: { color: 'red', text: '镜像名称无效' },
+  RegistryUnavailable: { color: 'red', text: '仓库不可用' },
+  // Terminated reasons
+  Completed: { color: 'cyan', text: '已完成' },
+  Error: { color: 'red', text: '错误' },
+  ContainerCannotRun: { color: 'red', text: '容器无法运行' },
+  OOMKilled: { color: 'red', text: '内存溢出终止' },
+};
+
+const renderContainerStatus = (state: any) => {
+  if (!state) return '-';
+  if (state.running) return <Tag color="green">运行中</Tag>;
+  if (state.waiting) {
+    const reason = state.waiting.reason;
+    const mapped = CONTAINER_REASON_MAP[reason];
+    if (mapped) return <Tag color={mapped.color}>{mapped.text}</Tag>;
+    return <Tag color="orange">{reason || '等待中'}</Tag>;
   }
-  
-  // 检查容器状态
-  const containerStatuses = pod?.status?.containerStatuses || [];
-  
-  // 优先检查 terminated 状态（如 CrashLoopBackOff、Error 等）
-  const terminated = containerStatuses.find((c: any) => c?.state?.terminated);
-  if (terminated) {
-    const reason = terminated.state.terminated.reason;
+  if (state.terminated) {
+    const reason = state.terminated.reason;
+    const mapped = CONTAINER_REASON_MAP[reason];
+    if (mapped) return <Tag color={mapped.color}>{mapped.text}</Tag>;
     if (reason === 'Error' || reason === 'ContainerCannotRun') {
       return <Tag color="red">错误</Tag>;
     }
     return <Tag color="red">{reason || '已终止'}</Tag>;
   }
+  return '-';
+};
+
+const isPodRunning = (pod: any): boolean => {
+  const phase = pod?.status?.phase;
+  if (phase !== 'Running') return false;
+  const containerStatuses = pod?.status?.containerStatuses || [];
+  return containerStatuses.some((c: any) => c?.state?.running);
+};
+
+const getPodContainerSummary = (pod: any): { running: number; total: number; hasRunning: boolean } => {
+  const containerStatuses = pod?.status?.containerStatuses || [];
+  const running = containerStatuses.filter((c: any) => c?.state?.running).length;
+  return { running, total: containerStatuses.length, hasRunning: running > 0 };
+};
+
+const renderPodStatus = (pod: any) => {
+  const phase = pod?.status?.phase || 'Unknown';
+  const conditions = pod?.status?.conditions || [];
   
-  // 检查 waiting 状态
+  const metadata = pod?.metadata || {};
+  if (metadata.deletionTimestamp) {
+    return <Tag color="orange">终止中</Tag>;
+  }
+  
+  const containerStatuses = pod?.status?.containerStatuses || [];
+  const summary = getPodContainerSummary(pod);
+  
+  // 构建 Tooltip 详情
+  const buildTooltip = () => {
+    const lines: string[] = [];
+    containerStatuses.forEach((c: any) => {
+      const name = c.name;
+      if (c?.state?.running) {
+        lines.push(`${name}: 运行中`);
+      } else if (c?.state?.waiting) {
+        const reason = c.state.waiting.reason;
+        const mapped = CONTAINER_REASON_MAP[reason];
+        lines.push(`${name}: ${mapped?.text || reason || '等待中'}`);
+      } else if (c?.state?.terminated) {
+        const reason = c.state.terminated.reason;
+        const mapped = CONTAINER_REASON_MAP[reason];
+        lines.push(`${name}: ${mapped?.text || reason || '已终止'}`);
+      } else {
+        lines.push(`${name}: 未知`);
+      }
+    });
+    return lines.join('\n');
+  };
+  
+  // 全部容器运行中
+  if (summary.running === summary.total && summary.total > 0) {
+    return (
+      <Tooltip title={buildTooltip()}>
+        <Tag color="green">运行中 ({summary.running}/{summary.total})</Tag>
+      </Tooltip>
+    );
+  }
+  
+  // 部分容器运行中
+  if (summary.running > 0 && summary.running < summary.total) {
+    return (
+      <Tooltip title={buildTooltip()}>
+        <Tag color="orange">运行中 ({summary.running}/{summary.total})</Tag>
+      </Tooltip>
+    );
+  }
+  
+  // 无容器运行中，检查具体状态
+  if (summary.total === 0) {
+    const statusMap: Record<string, { color: string; text: string }> = {
+      Pending: { color: 'blue', text: '等待中' },
+      Succeeded: { color: 'cyan', text: '已完成' },
+      Failed: { color: 'red', text: '失败' },
+      Unknown: { color: 'default', text: '未知' },
+    };
+    const status = statusMap[phase] || statusMap.Unknown;
+    return <Tag color={status.color}>{status.text}</Tag>;
+  }
+  
+  // 有容器但都非运行中
+  const terminated = containerStatuses.find((c: any) => c?.state?.terminated);
+  if (terminated) {
+    const reason = terminated.state.terminated.reason;
+    const mapped = CONTAINER_REASON_MAP[reason];
+    return (
+      <Tooltip title={buildTooltip()}>
+        <Tag color={mapped?.color || 'red'}>{mapped?.text || reason || '已终止'} ({summary.running}/{summary.total})</Tag>
+      </Tooltip>
+    );
+  }
+  
   const waiting = containerStatuses.find((c: any) => c?.state?.waiting);
   if (waiting) {
     const reason = waiting.state.waiting.reason;
-    // CrashLoopBackOff 表示容器反复崩溃
-    if (reason === 'CrashLoopBackOff') {
-      return <Tag color="red">崩溃重启中</Tag>;
-    }
-    return <Tag color="orange">{reason || '等待中'}</Tag>;
+    const mapped = CONTAINER_REASON_MAP[reason];
+    return (
+      <Tooltip title={buildTooltip()}>
+        <Tag color={mapped?.color || 'orange'}>{mapped?.text || reason || '等待中'} ({summary.running}/{summary.total})</Tag>
+      </Tooltip>
+    );
   }
   
-  // 检查是否有容器未就绪（Running 阶段但有容器未启动）
+  // 启动中
   const ready = conditions.find((c: any) => c?.type === 'Ready');
   if (phase === 'Running' && ready?.status !== 'True') {
-    const containersReady = conditions.find((c: any) => c?.type === 'ContainersReady');
-    if (containersReady?.status !== 'True') {
-      return <Tag color="orange">启动中</Tag>;
-    }
+    return (
+      <Tooltip title={buildTooltip()}>
+        <Tag color="orange">启动中 ({summary.running}/{summary.total})</Tag>
+      </Tooltip>
+    );
   }
   
-  const status = statusMap[phase] || statusMap.Unknown;
-  return <Tag color={status.color}>{status.text}</Tag>;
+  return (
+    <Tooltip title={buildTooltip()}>
+      <Tag>{phase} ({summary.running}/{summary.total})</Tag>
+    </Tooltip>
+  );
 };
 
 /**
@@ -438,26 +537,7 @@ const PodDetailDrawer: React.FC<{
                     title: '状态',
                     key: 'status',
                     width: 140,
-                    render: (_: any, record: any) => {
-                      const s = record.status;
-                      if (!s) return '-';
-                      if (s.state?.running) return <Tag color="green">运行中</Tag>;
-                      if (s.state?.waiting) {
-                        const reason = s.state.waiting.reason;
-                        if (reason === 'CrashLoopBackOff') {
-                          return <Tag color="red">崩溃重启中</Tag>;
-                        }
-                        return <Tag color="orange">{reason}</Tag>;
-                      }
-                      if (s.state?.terminated) {
-                        const reason = s.state.terminated.reason;
-                        if (reason === 'Error' || reason === 'ContainerCannotRun') {
-                          return <Tag color="red">错误</Tag>;
-                        }
-                        return <Tag color="red">{reason || '已终止'}</Tag>;
-                      }
-                      return '-';
-                    },
+                    render: (_: any, record: any) => renderContainerStatus(record.status?.state),
                   },
                   {
                     title: '重启次数',
@@ -928,9 +1008,9 @@ const PodsSection: React.FC<Props> = ({
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
     {
-      title: '状态',
+      title: '容器状态',
       key: 'status',
-      width: 100,
+      width: 130,
       render: (_: any, record: any) => renderPodStatus(record),
     },
     {
@@ -982,6 +1062,8 @@ const PodsSection: React.FC<Props> = ({
           {
             key: 'terminal',
             label: '终端',
+            disabled: !isPodRunning(record),
+            tooltip: isPodRunning(record) ? undefined : '仅运行中的容器可打开终端',
             onClick: () => handleOpenTerminal(record),
           },
           // 安全驱逐功能 - PDB 规则验证完成后隐藏入口
@@ -1177,6 +1259,10 @@ const PodsSection: React.FC<Props> = ({
           podName={terminalPod?.metadata?.name}
           containers={terminalContainers}
           defaultContainer={terminalContainers[0]}
+          containerStatuses={(terminalPod?.status?.containerStatuses || []).map((c: any) => ({
+            name: c.name,
+            state: c.state,
+          }))}
           onClose={() => {
             setTerminalVisible(false);
             setTerminalPod(null);

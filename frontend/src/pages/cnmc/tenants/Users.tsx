@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Table, Button, message, Input, Select, Form, Modal, Transfer, Dropdown } from 'antd';
 import { ReloadOutlined, UserAddOutlined, DeleteOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
@@ -17,7 +17,10 @@ interface TenantUser {
   username: string;
   email: string;
   fullName: string;
+  /** 历史字段，多为占位 `user`；真实 RBAC 角色见 rbacRoles */
   role: string;
+  /** 来自 /api/users/tenant-users 聚合的租户 RBAC 角色 */
+  rbacRoles?: Array<{ id: string; name: string; scope?: string }>;
   status: 'active' | 'inactive';
   createdAt: string;
   tenant: {
@@ -56,6 +59,19 @@ interface CreateUserFormValues {
   role: string;
 }
 
+/** 列表展示用：优先接口返回的 rbacRoles，否则用目录匹配旧 role 占位字段 */
+function displayRolesForTenantUser(record: TenantUser, roleCatalog: RBACRole[]): Array<{ id: string; name: string; scope?: string }> {
+  const api = Array.isArray(record.rbacRoles) ? record.rbacRoles.filter((x) => x?.id && x?.name) : [];
+  if (api.length > 0) return api;
+  const raw = String(record.role || '').trim();
+  if (!raw || raw === 'user') return [];
+  const hit = roleCatalog.find((r) => r.id === raw || r.name === raw);
+  if (hit) return [{ id: hit.id, name: hit.name, scope: hit.scope }];
+  /** 可能是未被目录加载的旧 UUID：仅展示缩写避免整列铺满 */
+  const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw);
+  return looksUuid ? [{ id: raw, name: `${raw.slice(0, 8)}…` }] : [{ id: raw, name: raw }];
+}
+
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<TenantUser[]>([]);
@@ -74,6 +90,9 @@ const UserManagement: React.FC = () => {
   // Create User State
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createForm] = Form.useForm();
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<TenantUser | null>(null);
+  const [editForm] = Form.useForm();
   const [tenants, setTenants] = useState<Array<{ id: string; name: string }>>([]);
   const [organizations, setOrganizations] = useState<Array<{ id: string; name: string }>>([]);
   
@@ -152,11 +171,6 @@ const UserManagement: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const availableRolesRef = useRef(availableRoles);
-  useEffect(() => {
-    availableRolesRef.current = availableRoles;
-  }, [availableRoles]);
-
   const handleFilterChange = (_: any, all: any) => {
     setSearchText(all.keyword || '');
     setSelectedTenant(all.tenant || '');
@@ -167,25 +181,32 @@ const UserManagement: React.FC = () => {
   useEffect(() => {
     let filtered = users;
     if (searchText) {
-      filtered = filtered.filter(user => 
-        user.username.toLowerCase().includes(searchText.toLowerCase()) ||
-        user.fullName.toLowerCase().includes(searchText.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchText.toLowerCase()) ||
-        user.tenant?.name.toLowerCase().includes(searchText.toLowerCase()) ||
-        user.organization?.name.toLowerCase().includes(searchText.toLowerCase())
+      const kw = searchText.toLowerCase();
+      filtered = filtered.filter(
+        (user) =>
+          user.username.toLowerCase().includes(kw) ||
+          user.fullName.toLowerCase().includes(kw) ||
+          user.email.toLowerCase().includes(kw) ||
+          user.tenant?.name.toLowerCase().includes(kw) ||
+          user.organization?.name.toLowerCase().includes(kw) ||
+          displayRolesForTenantUser(user, availableRoles).some((r) =>
+            String(r.name || '').toLowerCase().includes(kw),
+          ),
       );
     }
     if (selectedTenant) {
-      filtered = filtered.filter(user => user.tenant?.id === selectedTenant);
+      filtered = filtered.filter((user) => user.tenant?.id === selectedTenant);
     }
     if (selectedRole) {
-      filtered = filtered.filter(user => user.role === selectedRole);
+      filtered = filtered.filter((user) =>
+        displayRolesForTenantUser(user, availableRoles).some((r) => r.id === selectedRole),
+      );
     }
     if (selectedStatus) {
       filtered = filtered.filter(user => user.status === selectedStatus);
     }
     setFilteredUsers(filtered);
-  }, [users, searchText, selectedTenant, selectedRole, selectedStatus]);
+  }, [users, searchText, selectedTenant, selectedRole, selectedStatus, availableRoles]);
 
   const getTenantOptions = () => {
     const tenantList = users.reduce((acc, user) => {
@@ -217,6 +238,57 @@ const UserManagement: React.FC = () => {
       fetchTenantUsers();
     } catch (error: any) {
       messageApi.error(error.response?.data?.message || '创建用户失败');
+    }
+  };
+
+  // Edit User
+  const openEditModal = useCallback(
+    (user: TenantUser) => {
+      if (!user.tenant?.id || !user.organization?.id) {
+        messageApi.error('用户数据缺失租户或组织信息，无法编辑');
+        return;
+      }
+      setEditingUser(user);
+      editForm.setFieldsValue({
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+        status: user.status,
+        password: '',
+      });
+      setEditModalOpen(true);
+    },
+    [editForm, messageApi],
+  );
+
+  const handleEditUser = async () => {
+    if (!editingUser?.tenant?.id || !editingUser.organization?.id) {
+      messageApi.error('用户数据缺失租户或组织信息，无法保存');
+      throw new Error('missing-tenant-org');
+    }
+    try {
+      const values = await editForm.validateFields();
+      const payload: { email: string; fullName: string; status: string; password?: string } = {
+        email: values.email,
+        fullName: values.fullName,
+        status: values.status,
+      };
+      const pwd = String(values.password || '').trim();
+      if (pwd) payload.password = pwd;
+      await apiCall(
+        'put',
+        `/api/tenants/${editingUser.tenant.id}/organizations/${editingUser.organization.id}/users/${editingUser.id}`,
+        payload,
+      );
+      messageApi.success('保存成功');
+      setEditModalOpen(false);
+      setEditingUser(null);
+      editForm.resetFields();
+      fetchTenantUsers();
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      messageApi.error(e?.response?.data?.message || '保存失败');
+      throw e;
     }
   };
 
@@ -339,14 +411,29 @@ const UserManagement: React.FC = () => {
     } },
     {
       title: '角色',
-      dataIndex: 'role',
+      dataIndex: 'rbacRoles',
       key: 'role',
-      render: (role: string) => {
-        const matchedRole = availableRolesRef.current.find(r => r.id === role || r.name === role);
-        const roleName = matchedRole ? matchedRole.name : role;
-        const isSystem = matchedRole?.type === 'system';
-        const badgeClass = isSystem ? 'std-badge std-badge-info' : 'std-badge std-badge-success';
-        return <span className={badgeClass}>{roleName}</span>;
+      render: (_: unknown, record: TenantUser) => {
+        const list = displayRolesForTenantUser(record, availableRoles);
+        if (!list.length) {
+          return <span className="std-badge std-badge-default">未分配</span>;
+        }
+        return (
+          <span>
+            {list.map((r) => {
+              const inCatalog = availableRoles.find((c) => c.id === r.id);
+              const useInfo =
+                String(inCatalog?.scope || r.scope || '') === 'system' ||
+                (inCatalog?.type && String(inCatalog.type) === 'system');
+              const badgeClass = useInfo ? 'std-badge std-badge-info' : 'std-badge std-badge-success';
+              return (
+                <span key={r.id} className={badgeClass} style={{ marginRight: 6 }}>
+                  {r.name}
+                </span>
+              );
+            })}
+          </span>
+        );
       },
     },
     {
@@ -370,10 +457,12 @@ const UserManagement: React.FC = () => {
       render: (_, record) => (
         <ResourceActionsDropdown
           items={[
+            { key: 'edit', label: '编辑' },
             { key: 'assign', label: '分配角色' },
-            { key: 'delete', label: '删除', danger: true }
+            { key: 'delete', label: '删除', danger: true },
           ]}
           onClick={({ key }) => {
+            if (key === 'edit') openEditModal(record);
             if (key === 'assign') openAssignRoleModal(record);
             if (key === 'delete') {
               modal.confirm({
@@ -389,7 +478,7 @@ const UserManagement: React.FC = () => {
         />
       )
     }
-  ], [modal, availableRolesRef, openAssignRoleModal, handleDeleteUser]);
+  ], [modal, availableRoles, openAssignRoleModal, openEditModal, handleDeleteUser]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: columns } = useTableColumnSettings(baseColumns, 'tenant-users-columns');
@@ -551,6 +640,52 @@ const UserManagement: React.FC = () => {
           </Select>
         </Form.Item>
       </StdFormModal>
+
+      <Modal
+        title="编辑组织用户"
+        open={editModalOpen}
+        width={520}
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose
+        onCancel={() => {
+          setEditModalOpen(false);
+          setEditingUser(null);
+          editForm.resetFields();
+        }}
+        onOk={handleEditUser}
+      >
+        <Form form={editForm} layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item name="username" label="用户名">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item
+            name="fullName"
+            label="姓名"
+            rules={[{ required: true, message: '请输入姓名' }]}
+          >
+            <Input placeholder="请输入姓名" />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="邮箱"
+            rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱地址' }]}
+          >
+            <Input placeholder="请输入邮箱" />
+          </Form.Item>
+          <Form.Item name="password" label="新密码" extra="留空则不修改密码">
+            <Input.Password placeholder="留空则不修改" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
+            <Select
+              options={[
+                { value: 'active', label: '活跃' },
+                { value: 'inactive', label: '非活跃' },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title={`分配角色 - ${currentAssignUser?.username}`}

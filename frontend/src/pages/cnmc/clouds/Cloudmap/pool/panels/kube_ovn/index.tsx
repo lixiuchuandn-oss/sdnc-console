@@ -239,6 +239,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           networkScope="vpc"
           onRefresh={(force = true, silent = false) => {
             const skipSync = silent;
+            void loadTabResource('eips', force, skipSync);
             setResourceLoading((prev) => ({
               ...prev,
               snatRules: true,
@@ -279,6 +280,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           networkScope="vpc"
           onRefresh={(force = true, silent = false) => {
             const skipSync = silent;
+            void loadTabResource('eips', force, skipSync);
             setResourceLoading((prev) => ({
               ...prev,
               dnatRules: true,
