@@ -1683,7 +1683,7 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                   onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                   onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
-                  onRefreshImages={() => loadImages(currentCloudId, true)}
+                  onRefreshImages={(force?: boolean) => loadImages(currentCloudId, force ?? true)}
                   onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
                   onRefreshBackups={() => loadBackups(currentCloudId, true)}
                   onRefreshSchedules={() => loadSchedules(currentCloudId)}

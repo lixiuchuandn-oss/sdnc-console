@@ -481,12 +481,12 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           images={harvesterImages}
           loading={resourceLoading.images}
           vms={ecs}
-          onRefresh={() =>
+          onRefresh={(force?: boolean) =>
             loadResource(
               'images',
-              () => fetchHarvesterImages(cloudId, true),
+              () => fetchHarvesterImages(cloudId, force ?? true),
               (json) => setHarvesterImages(json?.data?.items || []),
-              true,
+              force ?? true,
             )
           }
           isTenant={isTenant}

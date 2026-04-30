@@ -23,6 +23,7 @@ import {
   createHarvesterImage,
   createHarvesterImageUploadTask,
   fetchHarvesterImageUploadTask,
+  fetchHarvesterImages,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
 import { getToken } from '../../../../../../utils/tokenStorage';
@@ -40,6 +41,8 @@ export type ImageCreateModalProps = {
   /** 与列表页权限校验一致，无写权限时直接 return */
   ensureWrite: () => boolean;
   onUrlImportSuccess?: () => void;
+  /** 浏览器上传任务创建成功后调用，用于刷新镜像列表 */
+  onBrowserUploadSuccess?: () => void;
   /** 合并/更新侧边栏「上传任务」列表中的单条记录 */
   onUploadTaskUpsert: (task: HarvesterImageUploadTask) => void;
   /** 与 ImagesSection 共用，取消任务时可 abort 浏览器直传 fetch */
@@ -129,6 +132,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   variant,
   ensureWrite,
   onUrlImportSuccess,
+  onBrowserUploadSuccess,
   onUploadTaskUpsert,
   uploadControllersRef,
 }) => {
@@ -214,6 +218,19 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       return;
     }
 
+    try {
+      const imagesRes = await fetchHarvesterImages(cloudId, true);
+      const images = imagesRes?.data?.items || [];
+      const exists = images.some((img: any) => img?.spec?.displayName === displayName);
+      if (exists) {
+        message.error(`创建镜像失败:镜像名称${displayName}已存在，请更换镜像名称再试`);
+        return;
+      }
+    } catch (e) {
+      message.error('检查镜像名称失败');
+      return;
+    }
+
     setUploadingTask(true);
     try {
       const created: any = await createHarvesterImageUploadTask(cloudId, {
@@ -229,6 +246,8 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       setToolFile(null);
       form.setFieldsValue({ toolDisplayName: '', toolImageType: undefined });
       message.success('任务已创建，开始上传，可在「上传任务」查看/取消');
+      // 触发镜像列表刷新
+      onBrowserUploadSuccess?.();
 
       const controller = new AbortController();
       uploadControllersRef.current.set(task.id, controller);
@@ -308,7 +327,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
           </Form.Item>
         </Col>
       </Row>
-      <Form.Item label="镜像显示名" name="displayName" rules={[{ required: true }]}>
+      <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}>
         <Input placeholder="如：ubuntu_20.04_200G.qcow2" />
       </Form.Item>
       <Form.Item
@@ -356,7 +375,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
         </Col>
       </Row>
       <Form.Item
-        label="镜像显示名"
+        label="镜像名称"
         name="toolDisplayName"
         tooltip="选择文件后将用文件名（去掉扩展名）自动填充，可修改"
       >
@@ -379,10 +398,21 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
               const f = file as File;
               setToolFile(f);
               const inferred = inferBrowserUploadFromFilename(f.name);
-              form.setFieldsValue({
-                toolDisplayName: inferred.displayName,
-                toolImageType: inferred.imageType,
-              });
+              // 检查用户是否已经填写了镜像名称，如果已填写则不替换
+              const currentDisplayName = String(form.getFieldValue('toolDisplayName') || '').trim();
+              const currentImageType = form.getFieldValue('toolImageType');
+              const patch: Record<string, unknown> = {};
+              // 只有当用户没有填写镜像名称时，才自动填充
+              if (!currentDisplayName && inferred.displayName) {
+                patch.toolDisplayName = inferred.displayName;
+              }
+              // 只有当用户没有选择镜像类型时，才自动填充
+              if ((currentImageType === undefined || currentImageType === null || currentImageType === '') && inferred.imageType) {
+                patch.toolImageType = inferred.imageType;
+              }
+              if (Object.keys(patch).length) {
+                form.setFieldsValue(patch);
+              }
               return false;
             }}
             maxCount={1}
