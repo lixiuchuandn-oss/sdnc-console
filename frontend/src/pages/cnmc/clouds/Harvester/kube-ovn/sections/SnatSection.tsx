@@ -103,9 +103,9 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     return map;
   }, [eips]);
 
-  // 筛选数据
+  // 筛选数据并按创建时间倒序排序
   const filteredData = useMemo(() => {
-    return snatRules.filter((item: any) => {
+    const filtered = snatRules.filter((item: any) => {
       const eipName = String(item?.spec?.ovnEip || '').trim();
       const eip = String(
         item?.status?.v4Eip ||
@@ -133,6 +133,13 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       }
       
       return true;
+    });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
     });
   }, [snatRules, keyword, vpcFilter, eipIpv4ByName, networkScope]);
 
@@ -420,6 +427,22 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           ).trim() || '-'
         );
       } 
+    },
+    {
+      title: '创建时间',
+      key: 'createdAt',
+      render: (_: any, r: any) => {
+        const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+        try {
+          if (!c) return '-';
+          const d = new Date(c);
+          if (!isNaN(d.getTime())) {
+            const txt = d.toLocaleString('zh-CN', { hour12: false });
+            return txt;
+          }
+        } catch { }
+        return c || '-';
+      },
     },
     {
       title: '操作',
