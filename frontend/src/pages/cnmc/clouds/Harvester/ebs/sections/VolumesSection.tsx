@@ -1426,7 +1426,7 @@ const VolumesSection: React.FC<Props> = ({
             });
             message.success('更新成功');
             setEditOpen(false);
-            onRefresh?.();
+            onRefresh?.(true, true);
           } catch (e: any) { message.error(e.message || '更新失败'); }
         }}
       >

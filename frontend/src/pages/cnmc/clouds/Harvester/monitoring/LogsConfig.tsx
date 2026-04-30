@@ -548,22 +548,20 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
       }
     } else {
       if (isClusterFlow) {
-        const { data, ok, error } = await createClusterflow(cloudId, payload);
+        const { ok, error } = await createClusterflow(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as any) || {};
-          setConfigList((prev) => [...prev, { ...raw, id: raw.metadata?.name, metadata: raw.metadata, spec: raw.spec }]);
           handleCloseForm();
+          await loadConfigList();
         } else message.error(error || '创建失败');
       } else {
-        const { data, ok, error } = await createFlow(cloudId, payload);
+        const { ok, error } = await createFlow(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as any) || {};
-          setConfigList((prev) => [...prev, { ...raw, id: raw.metadata?.name ?? `${namespace}/${name}`, metadata: raw.metadata ?? { name, namespace }, spec: raw.spec }]);
           handleCloseForm();
+          await loadConfigList();
         } else message.error(error || '创建失败');
       }
     }

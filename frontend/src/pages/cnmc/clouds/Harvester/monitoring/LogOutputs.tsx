@@ -701,13 +701,12 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           message.warning('该名称已存在，请使用其他名称');
           return;
         }
-        const { data, ok, error } = await createClusteroutput(cloudId, payload);
+        const { ok, error } = await createClusteroutput(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as ClusterOutputItem) || {};
-          setList((prev) => [...prev, { ...raw, id: raw.metadata?.name, metadata: raw.metadata, spec: raw.spec }]);
           handleCloseForm();
+          await loadList();
         } else message.error(error || '创建失败');
       } else {
         const { data: existing, ok: hasExisting } = await fetchOutputDetail(cloudId, namespace, name);
@@ -716,13 +715,12 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           message.warning('该命名空间下名称已存在，请使用其他名称');
           return;
         }
-        const { data, ok, error } = await createOutput(cloudId, payload);
+        const { ok, error } = await createOutput(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as ClusterOutputItem) || {};
-          setList((prev) => [...prev, { ...raw, id: `${namespace}/${name}`, metadata: raw.metadata ?? { name, namespace }, spec: raw.spec }]);
           handleCloseForm();
+          await loadList();
         } else message.error(error || '创建失败');
       }
     }

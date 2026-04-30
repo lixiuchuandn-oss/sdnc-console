@@ -1184,7 +1184,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const name = SafeRead.vmId(vmData);
       await startCloudProviderEcs(cloudId, `${ns}/${name}`);
       message.success("启动指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "启动失败");
     }
@@ -1202,7 +1202,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const name = SafeRead.vmId(vmData);
       await stopCloudProviderEcs(cloudId, `${ns}/${name}`, force);
       message.success("停止指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "停止失败");
     }
@@ -1222,7 +1222,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const instanceId = `${ns}/${name}`;
       await rebootCloudProviderEcs(cloudId, instanceId);
       message.success("重启指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "重启失败");
     }
@@ -1240,7 +1240,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const name = SafeRead.vmId(vmData);
       await pauseHarvesterVm(cloudId, ns, name);
       message.success("暂停指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "暂停失败");
     }
@@ -1258,7 +1258,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const name = SafeRead.vmId(vmData);
       await unpauseHarvesterVm(cloudId, ns, name);
       message.success("恢复指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "恢复失败");
     }
@@ -1426,7 +1426,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           message.success(
             isRunning ? "弹出CD-ROM成功，等待完成重启" : "弹出CD-ROM成功",
           );
-          onRefresh && onRefresh();
+          onRefresh && onRefresh(true);
         } catch (e: any) {
           message.error(`弹出失败: ${e.message}`);
         } finally {

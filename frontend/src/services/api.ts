@@ -312,28 +312,23 @@ export const fetchRancherClustersForPool = async (
 
 
 
-// 获取用户数据
+// 获取用户数据（不启用 GET 内存缓存，避免与设置页等写操作后列表不同步）
 export const fetchUsers = async () => {
-  return await apiRequest('/api/users', { enableCache: true });
+  return await apiRequest('/api/users');
 };
 
-
-
-
-
-
-// 获取租户数据
+// 获取租户数据（不启用 GET 内存缓存，避免多入口写租户后其它页仍见旧列表）
 export const fetchTenants = async () => {
-  return await apiRequest('/api/tenants', { enableCache: true });
+  return await apiRequest('/api/tenants');
 };
 
 export const fetchAvailableResourcePools = async () => {
-  return await apiRequest('/api/tenants/available-resource-pools', { enableCache: true });
+  return await apiRequest('/api/tenants/available-resource-pools');
 };
 
 // User Spaces
 export const fetchUserSpaces = async () => {
-  return await apiRequest('/api/user-spaces', { enableCache: true });
+  return await apiRequest('/api/user-spaces');
 };
 
 export const createUserSpace = async (payload: any) => {

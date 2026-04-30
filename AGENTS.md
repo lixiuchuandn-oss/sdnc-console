@@ -412,6 +412,48 @@ const addRule = useCallback(() => {
 }, [rules, form]);
 ```
 
+### 资源列表与增删改联动（研发规范）
+
+凡含「列表 + 创建/编辑/删除」的页面，**须**使操作成功后的当前页列表与后端一致，**不**要求用户整页刷新才能看到结果。
+
+1. **写操作成功后必须触发列表重载**  
+   在 `onSuccess` 或提交成功分支中，在 `await` 写接口完成之后，调用与当前表格同源的加载函数，或使用父级传入的 `onRefresh` / `onRefresh(true)`。
+
+2. **列表对应 GET 若使用 `enableCache: true`（或项目内对读接口开了缓存）**  
+   于上述成功后的重载中须**强制新读**：`apiRequest(path, { skipCache: true })`，或对 `frontend/src/utils/requestManager.ts` 中 `clearCache` 所支持的精确 path 先 `clearCache` 再 GET。
+
+3. **Harvester 云详情内各 Section / Tab**  
+   成功回调中重载列表时，与现有一致：使用 **`onRefresh(true, …)`**（第一参为 force，由内部配合 `skipCache` 与/或查询参数 `force=true` 等，以项目内既有实现为准）。
+
+| 场景 | 要求 |
+|------|------|
+| 新增/编辑/删除成功 | 同一次成功路径内执行列表重载，不得仅关弹窗或仅提示成功。 |
+| 读列表可能走前端缓存 | 重载时 `skipCache: true` 或 `clearCache` 后再请求。 |
+| Harvester 子模块 | 使用 `onRefresh(true, …)` 等既有约定，不另起一套。 |
+
+**自测**：完成一条增/删/改后，当前页列表应已更新，无需 F5 / Ctrl+F5。
+
+**全站检索（审计同类问题时用）**  
+在 `frontend/src` 内可配合检索（命中后人工判断是否应在成功路径上强制重载）：
+
+- 无参 `onRefresh()` / `onRefresh?.()`：成功路径与工具栏「刷新」应使用 `onRefresh(true)` 或 `onRefresh(true, true)`（与子组件、父级数据加载约定一致）。**勿**将 `onClick={onRefresh}` 直接绑到 Button（会把点击事件当第一参传入）。
+- `onSuccess={onRefresh}`：以**子组件在成功时如何调用**为准；若子组件已传 `(true, true)` 则等效于规范 3。
+- 个别 `apiRequest(…, { enableCache: true })` 仍见 `hooks`、仪表盘等；与列表强一致时写操作后重载须 `skipCache: true` 或 `clearCache`（见第 2 条）。
+
+`services/api.ts` 中 **`fetchTenants` / `fetchUsers` / `fetchAvailableResourcePools` / `fetchUserSpaces` 对 GET 未再默认叠一层 `enableCache`**，与其它列表读法一致，避免多入口改数据后仍读内存旧值。`pages/cnmc/tenants/index.tsx` 内本地 `fetchTenants(force)` 与 `?force=true` 行为保留。新改列表与增删改仍须依上节三条与**自测**；合入前可抽查检索上面两条。
+
+**公共组件对齐**：`PageContainer` 工具栏刷新按钮已对 `onRefresh` **固定传入 `true`**（与 `PageDetailSection` → `SharedToolbar` 行为一致），避免 `onClick={onRefresh}` 把 React 点击事件误当作 `force`。业务页仍须在写成功后自行调用列表重载。
+
+**覆盖范围与边界（为何不可能「一次改完全库」）**  
+规范针对的是 **列表数据与写接口结果一致**，下列情况要么已走乐观/局部更新、要么不是「列表 GET 缓存」类问题，需单独产品/技术判断，**不能**仅靠一次全局替换解决：
+
+- **监控/告警/日志等子模块**：部分创建成功走 **本地 `setState` 合并**（不再次请求列表），或需 **轮询/长延迟** 才与集群一致；要按页内是否应 `loadX(true)` 或 `skipCache` 评审。
+- **零参函数绑在 `onClick={load}` 上**：若 `load` 签名为 `(force?: boolean)`，点击会误把 **事件对象** 当 `force`（真值）；应改为 `onClick={() => load(true)}` 或 `() => void load()`。 arity 为 0 的 `async () =>` 无此问题（多余实参被忽略）。
+- **仪表盘** `enableCache: true`、**权限定义** 等慢变只读；仅当产品要求「改配置后同页必须立刻变」时，在对应写成功路径上对该 GET 加 `skipCache`。
+- **后端/集群最终一致**：K8s 等对象晚几秒才出现在 list 接口，前端只能 **延迟重试/轮询**，与 F5 无关。
+
+新功能合入时仍应做**自测**与上表「全站检索」抽查；旧页不可能在某次提交里全部穷举改完。
+
 ### 页面模板组件
 
 前端页面开发遵循三层容器结构：

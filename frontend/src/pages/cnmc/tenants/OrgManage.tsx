@@ -822,7 +822,7 @@ const OrgManagePage: React.FC = () => {
   useEffect(() => {
     if (!selectedOrg?.id) return;
     if (!tenantId) return;
-    fetchUsers(tenantId, selectedOrg.id);
+    fetchUsers(tenantId, selectedOrg.id, true);
     fetchAssignments(selectedOrg.id);
     (async () => {
       try {

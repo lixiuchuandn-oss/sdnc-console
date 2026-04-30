@@ -33,8 +33,8 @@ export type PhysicalSwitchDetailDrawerProps = {
   onClose: () => void;
   /** 本次打开抽屉时默认选中的 Tab（仅在 open 由关→开时应用一次） */
   initialTab?: 'overview' | 'cli';
-  /** 从集群重新拉取 ASW-CTL 列表/探测数据（由 Section 注入） */
-  onRefreshFromCluster?: () => void;
+  /** 从集群重新拉取 ASW-CTL 列表/探测数据（由 Section 注入）；与云详情 `onRefresh(force)` 约定一致 */
+  onRefreshFromCluster?: (force?: boolean) => void;
   refreshLoading?: boolean;
 };
 
@@ -471,7 +471,7 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
                   <Button
                     type="text"
                     size="small"
-                    onClick={() => onRefreshFromCluster()}
+                    onClick={() => onRefreshFromCluster?.(true)}
                     loading={refreshLoading}
                     style={heroActionTextPrimary}
                   >
