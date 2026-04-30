@@ -19,7 +19,7 @@ type Props = {
   record: any;
   cloudId: string;
   onDetach: (diskName: string) => Promise<void>;
-  onRefresh?: () => Promise<void>;
+  onRefresh?: (force?: boolean) => void | Promise<void>;
   loading?: boolean;
   volumes?: any[]; // 可选的 volumes 列表，用于回退数据源（与虚拟卷详情页保持一致）
 };
@@ -131,7 +131,7 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
     try {
       await onDetach(diskName);
       if (onRefresh) {
-        await onRefresh();
+        await onRefresh(true);
       }
     } catch (error: any) {
       console.error('解绑操作失败:', error);
@@ -143,7 +143,7 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
     if (!onRefresh) return;
     setRefreshing(true);
     try {
-      await onRefresh();
+      await onRefresh(true);
       // 刷新成功后，数据会自动更新（因为 record 依赖会触发 useMemo 重新计算）
     } catch (error: any) {
       console.error('刷新失败:', error);

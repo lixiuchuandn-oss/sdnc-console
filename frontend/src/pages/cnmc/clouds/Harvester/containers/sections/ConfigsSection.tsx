@@ -817,7 +817,7 @@ const ConfigMapTable: React.FC<{
             settingsKey="harvester-containers-configmaps"
           />
           <Tooltip title="刷新">
-            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} />
           </Tooltip>
         </div>
       </div>
@@ -997,7 +997,7 @@ const SecretTable: React.FC<{
     try {
       await deleteHarvesterSecret(cloudId, namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -1251,7 +1251,7 @@ const SecretTable: React.FC<{
             settingsKey="harvester-containers-secrets"
           />
           <Tooltip title="刷新">
-            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} />
           </Tooltip>
         </div>
       </div>

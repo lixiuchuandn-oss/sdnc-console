@@ -107,7 +107,7 @@ const ServiceTable: React.FC<{
   data: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   namespacesOptions: string[];
   nsValue?: string;
   onNsChange: (v?: string) => void;
@@ -194,7 +194,7 @@ const ServiceTable: React.FC<{
       setAliasModalVisible(false);
       setAliasRecord(null);
       aliasForm.resetFields();
-      onRefresh();
+      onRefresh(true);
       return true;
     } catch (e: any) {
       console.error(e);
@@ -224,7 +224,7 @@ const ServiceTable: React.FC<{
     try {
       await deleteHarvesterService(cloudId, namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -404,7 +404,7 @@ const ServiceTable: React.FC<{
             <Button
               type="default"
               icon={<ReloadOutlined />}
-              onClick={() => onRefresh()}
+              onClick={() => onRefresh(true)}
             />
           </Tooltip>
         </div>

@@ -1024,7 +1024,7 @@ const JobTable: React.FC<{
     try {
       await deleteHarvesterJob(cloudId, namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -1060,7 +1060,7 @@ const JobTable: React.FC<{
       );
       
       message.success('Job 已重新创建');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '重试失败');
     }
@@ -1117,7 +1117,7 @@ const JobTable: React.FC<{
       setAliasModalVisible(false);
       setAliasRecord(null);
       aliasForm.resetFields();
-      onRefresh();
+      onRefresh(true);
       return true;
     } catch (e: any) {
       console.error(e);
@@ -1316,7 +1316,7 @@ const JobTable: React.FC<{
             settingsKey="harvester-containers-jobs"
           />
           <Tooltip title="刷新">
-            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} />
           </Tooltip>
         </div>
       </div>
@@ -1507,7 +1507,7 @@ const CronJobTable: React.FC<{
     try {
       await deleteHarvesterCronJob(cloudId, namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -1521,7 +1521,7 @@ const CronJobTable: React.FC<{
     try {
       await suspendHarvesterCronJob(cloudId, namespace, name);
       message.success('已暂停');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '暂停失败');
     }
@@ -1535,7 +1535,7 @@ const CronJobTable: React.FC<{
     try {
       await resumeHarvesterCronJob(cloudId, namespace, name);
       message.success('已恢复');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '恢复失败');
     }
@@ -1549,7 +1549,7 @@ const CronJobTable: React.FC<{
     try {
       await triggerHarvesterCronJob(cloudId, namespace, name);
       message.success('已触发执行');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '触发失败');
     }
@@ -1606,7 +1606,7 @@ const CronJobTable: React.FC<{
       setAliasModalVisible(false);
       setAliasRecord(null);
       aliasForm.resetFields();
-      onRefresh();
+      onRefresh(true);
       return true;
     } catch (e: any) {
       console.error(e);
@@ -1834,7 +1834,7 @@ const CronJobTable: React.FC<{
             settingsKey="harvester-containers-cronjobs"
           />
           <Tooltip title="刷新">
-            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh()} />
+            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} />
           </Tooltip>
         </div>
       </div>

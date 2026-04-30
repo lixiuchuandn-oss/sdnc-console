@@ -793,13 +793,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         loadConfigList();
       } else message.error(error || '更新失败');
     } else {
-      const { data: created, ok, error } = await createAlertmanagerconfig(cloudId, payload);
+      const { ok, error } = await createAlertmanagerconfig(cloudId, payload);
       setFormLoading(false);
       if (ok) {
         message.success('创建成功');
-        const raw = (created as any) || {};
-        setConfigList((prev) => [...prev, { ...raw, id: raw.id ?? `${namespace}/${name}`, metadata: { ...raw.metadata, name, namespace }, spec: (raw.spec ?? payload.spec) as AlertmanagerConfigItem['spec'] }]);
         handleCloseForm();
+        await loadConfigList();
       } else message.error(error || '创建失败');
     }
   }, [editingRecord, form, handleCloseForm, loadConfigList, specReceiverNameToSpecByType, cloudId, canWritePolicies]);

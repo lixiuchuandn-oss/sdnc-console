@@ -70,7 +70,7 @@ const SafeMig = {
  */
 interface Props {
   cloudId: string;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
@@ -143,7 +143,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
    */
   const handleRefresh = () => {
     loadData(true);
-    if (onRefresh) onRefresh();
+    if (onRefresh) onRefresh(true);
   };
 
   /**

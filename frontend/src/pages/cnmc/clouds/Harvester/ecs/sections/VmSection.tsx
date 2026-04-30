@@ -1290,7 +1290,7 @@ const VmSection: React.FC<Props> = ({
               ? "已取消重要实例标记 (防删锁已移除)"
               : "已设为重要实例 (防删锁已启用)",
           );
-          onRefresh();
+          onRefresh(true);
         }
       } catch (e: any) {
         console.error(e);

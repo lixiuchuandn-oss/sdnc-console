@@ -786,7 +786,7 @@ const PodsSection: React.FC<Props> = ({
     try {
       await deleteHarvesterContainerResource(cloudId, '/api/v1/pods', namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -814,7 +814,7 @@ const PodsSection: React.FC<Props> = ({
         try {
           await evictHarvesterPod(cloudId, namespace, name);
           message.success('驱逐成功');
-          onRefresh();
+          onRefresh(true);
         } catch (e: any) {
           // 检查是否是 PDB 阻止
           if (e?.status === 429 || e?.message?.includes('PDB') || e?.message?.includes('disruption')) {
@@ -875,7 +875,7 @@ const PodsSection: React.FC<Props> = ({
         } else {
           message.warning(`成功删除 ${successCount} 个，失败 ${failCount} 个`);
         }
-        onRefresh();
+        onRefresh(true);
       },
     });
   }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
@@ -935,7 +935,7 @@ const PodsSection: React.FC<Props> = ({
             message.success(`成功驱逐 ${successCount} 个 Pod`);
           }
           
-          onRefresh();
+          onRefresh(true);
         } catch (e: any) {
           message.error(e?.message || '批量驱逐失败');
         }

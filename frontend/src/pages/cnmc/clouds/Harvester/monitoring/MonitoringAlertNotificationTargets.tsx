@@ -603,7 +603,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           const { ok, error } = await deleteFn();
           if (ok) {
             message.success('已删除');
-            loadReceivers();
+            await loadReceivers();
           } else {
             message.error(error || '删除失败');
           }

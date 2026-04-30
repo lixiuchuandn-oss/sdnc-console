@@ -515,7 +515,7 @@ const ImagesSection: React.FC<Props> = ({
           try {
             await deleteHarvesterImage(cloudId, ns, name);
             message.success('删除成功');
-            onRefresh?.();
+            onRefresh?.(true);
           } catch (e: any) {
             message.error(e?.message || '删除失败');
           }

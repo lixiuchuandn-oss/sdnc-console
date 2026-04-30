@@ -29,7 +29,7 @@ interface GatewayApiSectionProps {
   nsValue?: string;
   onNsChange?: (v?: string) => void;
   services?: any[];
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   createDefaultNamespace?: string;
 }
 
@@ -253,7 +253,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     try {
       await deleteGateway(cloudId, record.metadata.namespace, record.metadata.name);
       message.success('Gateway 删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
@@ -264,7 +264,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     try {
       await deleteHttpRoute(cloudId, record.metadata.namespace, record.metadata.name);
       message.success('HTTPRoute 删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
@@ -275,7 +275,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     try {
       await deleteGrpcRoute(cloudId, record.metadata.namespace, record.metadata.name);
       message.success('GRPCRoute 删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
@@ -311,7 +311,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             <pre style={{ background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
               kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml
             </pre>
-            <Button type="primary" onClick={onRefresh} style={{ marginTop: 8 }}>
+            <Button type="primary" onClick={() => onRefresh(true)} style={{ marginTop: 8 }}>
               刷新检测
             </Button>
           </div>
@@ -464,7 +464,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setGatewayModalOpen(false);
-          onRefresh();
+          onRefresh(true);
         }}
         onCancel={() => setGatewayModalOpen(false)}
       />
@@ -479,7 +479,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setHttpRouteModalOpen(false);
-          onRefresh();
+          onRefresh(true);
         }}
         onCancel={() => setHttpRouteModalOpen(false)}
       />
@@ -494,7 +494,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setGrpcRouteModalOpen(false);
-          onRefresh();
+          onRefresh(true);
         }}
         onCancel={() => setGrpcRouteModalOpen(false)}
       />

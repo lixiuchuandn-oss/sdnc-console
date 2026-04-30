@@ -73,7 +73,7 @@ export type PhysicalSwitchesSectionProps = {
     liveError?: string;
   } | null;
   loading: boolean;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
 };
 
 /** @deprecated 使用 PhysicalSwitchesSectionProps */
@@ -425,7 +425,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
 
       await apiPut(`/api/clouds/${cloudId}`, { config: prevCfg });
       await onReloadCloudMeta();
-      onRefresh();
+      onRefresh(true);
       message.success('已保存');
       setConfigModalOpen(false);
     } catch (e: any) {
@@ -450,7 +450,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         aswCtlApiKey: empty.apiKey,
       });
       await onReloadCloudMeta();
-      onRefresh();
+      onRefresh(true);
       message.success('已清除配置');
       setConfigModalOpen(false);
     } catch (e: any) {
@@ -812,7 +812,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
               allColumns={allColumns}
               settingsKey="harvester_physical_switches_table"
             />
-            <Button icon={<ReloadOutlined />} loading={loading} onClick={() => onRefresh()} />
+            <Button icon={<ReloadOutlined />} loading={loading} onClick={() => onRefresh(true)} />
           </div>
         }
       >

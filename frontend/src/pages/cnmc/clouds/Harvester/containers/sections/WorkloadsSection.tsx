@@ -200,7 +200,7 @@ const WorkloadTable: React.FC<{
   data: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   onEdit?: (record: any) => void;
   namespacesOptions: string[];
   nsValue?: string;
@@ -289,7 +289,7 @@ const WorkloadTable: React.FC<{
       setAliasModalVisible(false);
       setAliasRecord(null);
       aliasForm.resetFields();
-      onRefresh();
+      onRefresh(true);
       return true;
     } catch (e: any) {
       console.error(e);
@@ -337,7 +337,7 @@ const WorkloadTable: React.FC<{
         try {
           await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
           message.success('扩缩容指令已下发');
-          onRefresh();
+          onRefresh(true);
         } catch (e: any) {
           message.error(e?.message || '扩缩容失败');
         }
@@ -353,7 +353,7 @@ const WorkloadTable: React.FC<{
     try {
       await restartHarvesterDeployment(cloudId, namespace, name);
       message.success('重启指令已下发');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '重启失败');
     }
@@ -367,7 +367,7 @@ const WorkloadTable: React.FC<{
     try {
       await deleteHarvesterContainerResource(cloudId, apiPath, namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -571,7 +571,7 @@ const WorkloadTable: React.FC<{
             <Button
               type="default"
               icon={<ReloadOutlined />}
-              onClick={() => onRefresh()}
+              onClick={() => onRefresh(true)}
             />
           </Tooltip>
         </div>

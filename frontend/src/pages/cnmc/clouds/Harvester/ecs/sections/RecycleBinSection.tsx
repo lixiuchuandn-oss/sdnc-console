@@ -1096,7 +1096,7 @@ const RecycleBinSection: React.FC<Props> = ({
             allColumns={allColumns}
             settingsKey="harvester_recycle_bin_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh()} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading} />
         </div>
       }
     >

@@ -12,7 +12,7 @@ type Props = {
   cloudId: string;
   assets: any[];
   loading: boolean;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void | Promise<void>;
 };
 
 const CsmPoolAssetsSection: React.FC<Props> = ({ cloudId, assets, loading, onRefresh }) => {
@@ -71,7 +71,7 @@ const CsmPoolAssetsSection: React.FC<Props> = ({ cloudId, assets, loading, onRef
                     if (!assetId) { message.warning('缺少资产ID'); return; }
                     await deleteCsmAsset(cloudId, String(assetId));
                     message.success('删除成功');
-                    await onRefresh();
+                    await onRefresh(true);
                   } catch (e: any) {
                     message.error(e.message || '删除失败');
                   }
@@ -147,7 +147,7 @@ const CsmPoolAssetsSection: React.FC<Props> = ({ cloudId, assets, loading, onRef
           if (fail === 0) message.success('批量删除成功');
           else message.warning(`删除完成：成功 ${ok}，失败 ${fail}`);
           setAssetSelectedRowKeys([]);
-          await onRefresh();
+          await onRefresh(true);
         } catch (e: any) {
           message.error(e.message || '批量删除失败');
         }
@@ -168,7 +168,7 @@ const CsmPoolAssetsSection: React.FC<Props> = ({ cloudId, assets, loading, onRef
       message.success('创建成功');
       setAssetCreateOpen(false);
       assetForm.resetFields();
-      await onRefresh();
+      await onRefresh(true);
     } catch (e: any) {
       if (e?.errorFields) return;
       message.error(e.message || '创建失败');
@@ -187,7 +187,7 @@ const CsmPoolAssetsSection: React.FC<Props> = ({ cloudId, assets, loading, onRef
       message.success('更新成功');
       setAssetEditOpen(false);
       setEditingAsset(null);
-      await onRefresh();
+      await onRefresh(true);
     } catch (e: any) {
       if (e?.errorFields) return;
       message.error(e.message || '更新失败');

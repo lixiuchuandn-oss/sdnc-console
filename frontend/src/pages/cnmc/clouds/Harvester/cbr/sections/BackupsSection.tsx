@@ -204,7 +204,7 @@ const BackupsSection: React.FC<Props> = ({
         try {
           await deleteHarvesterBackup(cloudId, record.namespace, record.name);
           message.success('删除成功');
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }

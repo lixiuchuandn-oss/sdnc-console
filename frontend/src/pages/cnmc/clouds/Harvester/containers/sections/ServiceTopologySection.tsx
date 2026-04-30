@@ -539,7 +539,7 @@ interface ServiceTopologySectionProps {
   pods: any[];
   namespacesOptions: string[];
   loading?: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
   nsValue?: string;
   onNsChange?: (value: string) => void;
 }
@@ -669,7 +669,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
     onNsChange?.(v);
   }, [onNsChange]);
 
-  const handleRefresh = useCallback(() => onRefresh?.(), [onRefresh]);
+  const handleRefresh = useCallback(() => onRefresh?.(true), [onRefresh]);
 
   // ========== 快速操作 ==========
 
@@ -743,7 +743,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
       await updateHarvesterService(cloudId, namespace, name, data);
     }
     message.success('保存成功');
-    onRefresh?.();
+    onRefresh?.(true);
   }, [cloudId, yamlEditingNode, message, onRefresh]);
 
   // ========== 渲染 ==========
@@ -921,7 +921,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           onLoadYaml={loadYaml}
           onSaveYaml={saveYaml}
           onCancel={() => setYamlModalOpen(false)}
-          onSuccess={() => { setYamlModalOpen(false); onRefresh?.(); }}
+          onSuccess={() => { setYamlModalOpen(false); onRefresh?.(true); }}
         />
       )}
 
@@ -936,7 +936,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           secrets={[]}
           defaultNamespace={formDefaultNs}
           onCancel={() => setEditModalOpen(false)}
-          onSuccess={() => { setEditModalOpen(false); onRefresh?.(); }}
+          onSuccess={() => { setEditModalOpen(false); onRefresh?.(true); }}
         />
       )}
 
@@ -950,7 +950,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           namespacesOptions={namespacesOptions}
           defaultNamespace={formDefaultNs}
           onCancel={() => setEditModalOpen(false)}
-          onSuccess={() => { setEditModalOpen(false); onRefresh?.(); }}
+          onSuccess={() => { setEditModalOpen(false); onRefresh?.(true); }}
         />
       )}
 
