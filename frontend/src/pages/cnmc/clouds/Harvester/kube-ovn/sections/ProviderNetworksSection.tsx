@@ -224,8 +224,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
       return;
     }
     try {
-      const customConfig: Record<string, string[]> = {};
-      let defaultIf = String(values.defaultInterface || '');
+      let defaultIf = String(values.defaultInterface || '').trim();
       const selectedNodesFromForm: string[] = Array.isArray(values.targetNodes) ? values.targetNodes : targetNodes;
 
       if (createMode === 'node_specific') {
@@ -241,33 +240,50 @@ const ProviderNetworksSection: React.FC<Props> = ({
           return;
         }
         if (!defaultIf) defaultIf = selectedMappings[0].iface;
-        selectedMappings.forEach(({ nodeName, iface }) => {
-          if (!customConfig[iface]) customConfig[iface] = [];
-          customConfig[iface].push(nodeName);
-        });
-      } else {
-        nodes.forEach(node => {
-          const iface = interfaceMap[node.metadata.name];
-          if (iface && iface !== defaultIf) {
-            if (!customConfig[iface]) customConfig[iface] = [];
-            customConfig[iface].push(node.metadata.name);
-          }
-        });
       }
 
-      if (!defaultIf) {
+      if (!defaultIf && createMode === 'centralized') {
         message.warning('请选择默认网卡');
         return;
       }
 
-      if (createMode === 'node_specific' && !Object.keys(customConfig).length) {
-        // 指定模式下至少需要保留一条节点映射，确保支持“单节点单网卡”创建。
-        const fallbackNode = selectedNodesFromForm[0];
-        if (fallbackNode) {
-          if (!customConfig[defaultIf]) customConfig[defaultIf] = [];
-          customConfig[defaultIf].push(fallbackNode);
+      const nodeNamesForSpec: string[] =
+        createMode === 'node_specific'
+          ? selectedNodesFromForm.filter((n) => String(n || '').trim())
+          : nodes.map((n: any) => String(n?.metadata?.name || '').trim()).filter(Boolean);
+
+      /** 按网卡聚合节点：批量模式下同为默认网卡也写入 customInterfaces；多网卡时每项 nodes 为该网卡的全部节点名 */
+      const ifaceBuckets: Record<string, Set<string>> = {};
+      for (const nodeName of nodeNamesForSpec) {
+        let iface = '';
+        if (createMode === 'node_specific') {
+          iface = String(interfaceMap[nodeName] || '').trim();
+          if (!iface) {
+            message.warning(`请为节点「${nodeName}」选择网卡`);
+            return;
+          }
+        } else {
+          iface = String(interfaceMap[nodeName] ?? defaultIf ?? '').trim();
+          if (!iface) {
+            message.warning('请选择默认网卡');
+            return;
+          }
         }
+        if (!ifaceBuckets[iface]) ifaceBuckets[iface] = new Set();
+        ifaceBuckets[iface].add(nodeName);
       }
+
+      if (!Object.keys(ifaceBuckets).length) {
+        message.warning('没有可下发的节点—网卡映射');
+        return;
+      }
+
+      const customInterfaces = Object.keys(ifaceBuckets)
+        .sort()
+        .map((iface) => ({
+          interface: iface,
+          nodes: Array.from(ifaceBuckets[iface]).sort(),
+        }));
 
       const towerAlies = String(values.towerAlies ?? '').trim();
       if (!towerAlies) {
@@ -281,7 +297,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
         annotations: { [TOWER_IO_ALIES_ANNOTATION]: towerAlies },
         spec: {
           defaultInterface: defaultIf,
-          customInterfaces: Object.keys(customConfig).map(iface => ({ interface: iface, nodes: customConfig[iface] })),
+          customInterfaces,
           exchangeLinkName: false,
         },
       };

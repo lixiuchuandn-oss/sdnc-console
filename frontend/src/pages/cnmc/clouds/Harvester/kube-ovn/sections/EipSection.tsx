@@ -556,7 +556,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
           {externalSubnets.length === 0 && (
             <Alert
               type="warning"
-              message="没有可选的公共子网。EIP 需使用注解 tower.io/subnet-type=public、且挂在内置 VPC ovn-cluster 下的子网；请先在「公共子网」入口创建。"
+              message='没有可选的公共子网，请先在「公共子网」入口创建'
               style={{ marginBottom: 16 }}
             />
           )}
