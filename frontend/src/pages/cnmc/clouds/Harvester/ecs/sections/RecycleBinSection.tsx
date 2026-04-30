@@ -660,6 +660,7 @@ const RecycleBinSection: React.FC<Props> = ({
     modal.confirm({
       title: '确认彻底删除',
       icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
+      width: 500,
       content: (
         <div style={{ marginTop: 16 }}>
           <p>确定要彻底删除虚拟机 <b>{name}</b> 吗？</p>
@@ -736,7 +737,7 @@ const RecycleBinSection: React.FC<Props> = ({
         const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
         const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
         return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <OsIcon osName={osName} style={{ flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{text}</span>
             {isImportant && (

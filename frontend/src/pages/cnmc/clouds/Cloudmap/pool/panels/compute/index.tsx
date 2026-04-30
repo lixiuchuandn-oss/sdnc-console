@@ -386,7 +386,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                     message.error(e?.message || '恢复失败');
                   }
                 }}
-                onDelete={async (iid: string, deleteVolumes?: boolean) => {
+                onDelete={async (iid: string, deleteVolumes?: boolean, isBatch?: boolean) => {
                   try {
                     const [namespace, name] = iid.split('/');
                     if (!namespace || !name) {
@@ -444,7 +444,9 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                       iid,
                       deleteVolumes,
                     );
-                    message.success('虚拟机已移入回收站，到期后自动删除');
+                    if (!isBatch) {
+                      message.success('虚拟机已移入回收站，到期后自动删除');
+                    }
                     apiPost(`/api/clouds/${cloudId}/sync`)
                       .catch(console.warn)
                       .finally(() => void refreshVms());
@@ -479,12 +481,12 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           images={harvesterImages}
           loading={resourceLoading.images}
           vms={ecs}
-          onRefresh={() =>
+          onRefresh={(force?: boolean) =>
             loadResource(
               'images',
-              () => fetchHarvesterImages(cloudId, true),
+              () => fetchHarvesterImages(cloudId, force ?? true),
               (json) => setHarvesterImages(json?.data?.items || []),
-              true,
+              force ?? true,
             )
           }
           isTenant={isTenant}

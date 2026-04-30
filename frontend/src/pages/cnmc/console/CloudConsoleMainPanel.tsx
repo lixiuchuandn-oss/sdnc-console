@@ -90,7 +90,7 @@ interface Props {
   onRefreshSshKeys: () => void;
   onRefreshVolumes?: () => void;
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
-  onRefreshImages?: () => void;
+  onRefreshImages?: (force?: boolean) => void;
   onRefreshSnapshots?: () => void;
   onRefreshBackups?: () => void;
   onRefreshSchedules?: () => void;

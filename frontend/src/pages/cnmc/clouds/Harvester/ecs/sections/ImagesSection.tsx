@@ -116,6 +116,14 @@ const ImagesSection: React.FC<Props> = ({
     return false;
   }, [hasImagesWrite]);
 
+  // 本地镜像列表状态，用于删除后立即更新UI
+  const [localImages, setLocalImages] = useState<any[]>(images);
+  
+  // 同步外部传入的 images 到本地状态
+  React.useEffect(() => {
+    setLocalImages(images);
+  }, [images]);
+
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>(''); // 默认不过滤，显示所有类型
@@ -133,6 +141,21 @@ const ImagesSection: React.FC<Props> = ({
   const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
+  const [taskProgressCache, setTaskProgressCache] = useState<Map<string, number>>(new Map());
+
+  const getSmoothProgress = useCallback((task: HarvesterImageUploadTask): number => {
+    const current = Number(task.progress || 0);
+    const cached = taskProgressCache.get(task.id) || 0;
+    const smooth = Math.max(current, cached);
+    if (smooth > cached) {
+      setTaskProgressCache((prev) => {
+        const next = new Map(prev);
+        next.set(task.id, smooth);
+        return next;
+      });
+    }
+    return smooth;
+  }, [taskProgressCache]);
 
   // 标签编辑状态
   const [labelEditModalOpen, setLabelEditModalOpen] = useState(false);
@@ -189,8 +212,9 @@ const ImagesSection: React.FC<Props> = ({
   React.useEffect(() => {
     if (!cloudId) return;
     const timer = window.setInterval(async () => {
+      // 轮询所有未完成的任务（包括成功状态，因为需要检测从进行中变为成功的瞬间）
       const active = toolTaskListRef.current.filter((t) =>
-        ['pending', 'ingesting', 'proxying'].includes(String(t?.status || '')),
+        ['pending', 'ingesting', 'proxying', 'success'].includes(String(t?.status || '')),
       );
       if (active.length === 0) return;
       try {
@@ -205,6 +229,18 @@ const ImagesSection: React.FC<Props> = ({
             }
           }),
         );
+        // 检查是否有任务从非成功状态变为成功状态
+        const newlyCompleted = next.filter((x) => 
+          x.status === 'success' && 
+          !toolTaskListRef.current.some((t) => t.id === x.id && t.status === 'success')
+        );
+        
+        // 检查是否有任务进度发生变化
+        const progressChanged = next.some((x) => {
+          const oldTask = toolTaskListRef.current.find((t) => t.id === x.id);
+          return oldTask && oldTask.progress !== x.progress;
+        });
+        
         setToolTaskList((prev) => {
           const map = new Map(prev.map((x) => [x.id, x]));
           next.forEach((x) => map.set(x.id, x));
@@ -214,7 +250,11 @@ const ImagesSection: React.FC<Props> = ({
               new Date(a.createdAt || a.updatedAt || 0).getTime(),
           );
         });
-        if (next.some((x) => x.status === 'success')) onRefreshRef.current?.(true, true);
+        
+        // 如果有任务进度变化或刚刚完成，刷新镜像列表
+        if (progressChanged || newlyCompleted.length > 0) {
+          onRefreshRef.current?.(true, true);
+        }
       } catch {
         // ignore polling failure
       }
@@ -239,8 +279,12 @@ const ImagesSection: React.FC<Props> = ({
       imported: '已导入',
       pending: '等待',
       downloading: '下载中',
+      uploading: '上传中',
+      importing: '导入中',
+      exporting: '导出中',
       ready: '就绪',
       failed: '失败',
+      cancelled: '已取消',
       unknown: '未知',
     };
     return m[k] || (s || '-');
@@ -257,6 +301,10 @@ const ImagesSection: React.FC<Props> = ({
         if (k === 'failed') return 'red';
         if (k === 'imported') return 'success';
         if (k === 'downloading') return 'blue';
+        if (k === 'uploading') return 'blue';
+        if (k === 'importing') return 'blue';
+        if (k === 'exporting') return 'blue';
+        if (k === 'cancelled') return 'default';
         if (k === 'pending') return 'gold';
         return undefined;
       })();
@@ -289,7 +337,7 @@ const ImagesSection: React.FC<Props> = ({
   }, []);
 
   const filtered = useMemo(() => {
-    const base = Array.isArray(images) ? images : [];
+    const base = Array.isArray(localImages) ? localImages : [];
     // 如果没有过滤条件，直接返回所有镜像
     const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || (hasOpsView ? scopeFilter : '');
     let list: any[];
@@ -357,7 +405,7 @@ const ImagesSection: React.FC<Props> = ({
   }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, hasOpsView, expandOsKeywords, getImageCreatedMs]);
 
   /** 与 resolveImageListStateKey 返回值一致（去掉易与 ready 混淆的 imported/pending） */
-  const statusOptions = ['ready', 'failed', 'downloading', 'unknown'];
+  const statusOptions = ['ready', 'failed', 'uploading', 'importing', 'exporting', 'downloading', 'cancelled', 'unknown'];
   const osOptions = [
     { value: '', label: '全部' },
     { value: 'windows', label: 'Windows' },
@@ -407,12 +455,17 @@ const ImagesSection: React.FC<Props> = ({
             const ns = getNs(r); const name = getId(r);
             const alias = getImageAlias(r);
             const label = alias ? `${alias} (${name})` : name;
-            try { await deleteHarvesterImage(cloudId, ns, name); return { ok: true, name: label }; }
+            try { await deleteHarvesterImage(cloudId, ns, name); return { ok: true, name: label, ns, id: name }; }
             catch (e: any) { return { ok: false, name: label, err: e?.message || String(e) }; }
           }));
-          const ok = results.filter(x => x.ok).length;
+          const okResults = results.filter(x => x.ok);
           const fail = results.filter(x => !x.ok);
-          if (ok > 0) message.success(`删除成功 ${ok} 条`);
+          if (okResults.length > 0) {
+            message.success(`删除成功 ${okResults.length} 条`);
+            // 删除成功后立即更新本地状态，实现即时反馈
+            const deletedIds = new Set(okResults.map(r => `${r.ns}/${r.id}`));
+            setLocalImages(prev => prev.filter(img => !deletedIds.has(`${img?.metadata?.namespace}/${img?.metadata?.name}`)));
+          }
           if (fail.length > 0) {
             message.error(
               `删除失败 ${fail.length} 条：${fail.map((f: any) => (f.err ? `${f.name}（${f.err}）` : f.name)).join('；')}`,
@@ -515,6 +568,9 @@ const ImagesSection: React.FC<Props> = ({
           try {
             await deleteHarvesterImage(cloudId, ns, name);
             message.success('删除成功');
+            // 删除成功后立即更新本地状态，实现即时反馈
+            setLocalImages(prev => prev.filter(img => !(img?.metadata?.namespace === ns && img?.metadata?.name === name)));
+            // 同时调用 onRefresh 从后端同步数据
             onRefresh?.(true);
           } catch (e: any) {
             message.error(e?.message || '删除失败');
@@ -712,6 +768,7 @@ const ImagesSection: React.FC<Props> = ({
         variant={hasOpsView ? 'full' : 'standard'}
         ensureWrite={ensureImagesWrite}
         onUrlImportSuccess={() => onRefresh?.(true, true)}
+        onBrowserUploadSuccess={() => onRefresh?.(true, true)}
         onUploadTaskUpsert={upsertTask}
         uploadControllersRef={uploadControllersRef}
       />
@@ -782,7 +839,7 @@ const ImagesSection: React.FC<Props> = ({
                   命名空间：{t.namespace || '-'}
                 </Typography.Text>
                 <Progress
-                  percent={Number(t.progress || 0)}
+                  percent={getSmoothProgress(t)}
                   size="small"
                   status={
                     t.status === 'failed'

@@ -8,6 +8,10 @@ function mapBackendVmImageState(raw: string): string {
   if (k === 'imported') return 'ready';
   if (k === 'failed') return 'failed';
   if (k === 'downloading') return 'downloading';
+  if (k === 'uploading') return 'uploading';
+  if (k === 'importing') return 'importing';
+  if (k === 'exporting') return 'exporting';
+  if (k === 'cancelled') return 'cancelled';
   if (k === 'unknown') return 'unknown';
   return k || 'unknown';
 }
@@ -32,9 +36,13 @@ function getVmImageConditions(r: any): any[] {
 
 /** 与 ImagesSection.resolveImageListStateKey 一致 */
 export function resolveImageListStateKey(r: any): string {
+  // 优先使用后端设置的 state 字段
   if (typeof r?.state === 'string' && r.state.trim() !== '') {
     const mapped = mapBackendVmImageState(r.state);
-    if (mapped !== 'unknown') return mapped;
+    // 如果后端明确设置了状态，直接返回映射结果（包括 unknown）
+    if (mapped !== 'unknown' || r.state.toLowerCase() === 'unknown') {
+      return mapped;
+    }
   }
   const conditions = getVmImageConditions(r);
   const imported = conditions.find((c: any) => c?.type === 'Imported');
@@ -42,9 +50,16 @@ export function resolveImageListStateKey(r: any): string {
   if (conditionStatusIsFalse(imported?.status)) return 'failed';
 
   const progress = Number(r?.status?.progress ?? r?.progress);
+  const sourceType = r?.sourceType || r?.spec?.sourceType || '';
   if (Number.isFinite(progress)) {
     if (progress >= 100) return 'ready';
-    if (progress > 0 && progress < 100) return 'downloading';
+    if (progress > 0 && progress < 100) {
+      // 根据 sourceType 区分不同的状态
+      if (sourceType === 'upload') return 'uploading';
+      if (sourceType === 'download') return 'importing';
+      if (sourceType === 'export') return 'exporting';
+      return 'downloading';
+    }
   }
 
   if (typeof r?.status === 'string' && r.status.trim() !== '') return mapBackendVmImageState(r.status);

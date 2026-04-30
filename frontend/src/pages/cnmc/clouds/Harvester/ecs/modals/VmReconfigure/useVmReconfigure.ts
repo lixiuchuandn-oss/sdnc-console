@@ -489,7 +489,7 @@ export const useVmReconfigure = (props: any) => {
             const isVpc = subnetType === 'vpc';
             const netMode =
               type === 'managedtap'
-                ? 'flat_subnet'
+                ? isVpc ? 'vpc' : 'flat_subnet'
                 : type === 'sriov' || type === 'macvtap'
                   ? 'passthrough'
                   : isVpc
@@ -564,7 +564,7 @@ export const useVmReconfigure = (props: any) => {
             const isVpc = subnetType === 'vpc';
             const netMode =
               type === 'managedtap'
-                ? 'flat_subnet'
+                ? isVpc ? 'vpc' : 'flat_subnet'
                 : type === 'sriov' || type === 'macvtap'
                   ? 'passthrough'
                   : isVpc
@@ -625,7 +625,7 @@ export const useVmReconfigure = (props: any) => {
             const isVpc = subnetType === 'vpc';
             const mode =
               type === 'managedtap'
-                ? 'flat_subnet'
+                ? isVpc ? 'vpc' : 'flat_subnet'
                 : type === 'sriov' || type === 'macvtap'
                   ? 'passthrough'
                   : isVpc

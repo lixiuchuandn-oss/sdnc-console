@@ -41,6 +41,12 @@ export class ImageUploadTask {
   @Column({ type: 'integer', nullable: true })
   fileSize?: number;
 
+  @Column({ type: 'text', nullable: true })
+  createdImageName?: string;
+
+  @Column({ type: 'text', nullable: true })
+  createdImageNamespace?: string;
+
   @Column({ type: 'text', default: 'pending' })
   taskStatus!: ImageUploadTaskStatus;
 

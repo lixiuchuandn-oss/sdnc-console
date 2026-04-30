@@ -188,9 +188,9 @@ export const EipSection: React.FC<EipSectionProps> = ({
     [vpcs],
   );
 
-  // 筛选数据
+  // 筛选数据并按创建时间倒序排序
   const filteredData = useMemo(() => {
-    return eips.filter((item: any) => {
+    const filtered = eips.filter((item: any) => {
       const ip = item.spec?.v4Ip || '';
       const type = item.spec?.type || '';
       const ready = item.status?.ready;
@@ -215,6 +215,13 @@ export const EipSection: React.FC<EipSectionProps> = ({
       }
       
       return true;
+    });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
     });
   }, [eips, keyword, statusFilter, typeFilter]);
 
@@ -420,6 +427,22 @@ export const EipSection: React.FC<EipSectionProps> = ({
       ) 
     },
     {
+      title: '创建时间',
+      key: 'createdAt',
+      render: (_: any, r: any) => {
+        const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+        try {
+          if (!c) return '-';
+          const d = new Date(c);
+          if (!isNaN(d.getTime())) {
+            const txt = d.toLocaleString('zh-CN', { hour12: false });
+            return txt;
+          }
+        } catch { }
+        return c || '-';
+      },
+    },
+    {
       title: '操作',
       key: 'action',
       fixed: 'right' as const,
@@ -556,7 +579,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
           {externalSubnets.length === 0 && (
             <Alert
               type="warning"
-              message="没有可选的公共子网。EIP 需使用注解 tower.io/subnet-type=public、且挂在内置 VPC ovn-cluster 下的子网；请先在「公共子网」入口创建。"
+              message='没有可选的公共子网，请先在「公共子网」入口创建'
               style={{ marginBottom: 16 }}
             />
           )}

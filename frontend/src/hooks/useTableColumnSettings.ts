@@ -95,7 +95,10 @@ export function useTableColumnSettings<T extends object>(
           // 过滤掉无效的 key
           const validKeys = parsed.filter((k: string) => allKeys.includes(k));
           if (validKeys.length > 0) {
-            setCheckedColumnKeys(mergeWithLocked(validKeys));
+            // 获取保存的设置中缺少的新列（新增的列默认显示）
+            const missingKeys = allKeys.filter((k) => !validKeys.includes(k));
+            const mergedKeys = [...validKeys, ...missingKeys];
+            setCheckedColumnKeys(mergeWithLocked(mergedKeys));
             setColumnSettingsInitialized(true);
             return;
           }
