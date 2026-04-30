@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, Button, message, Row, Col, Typography } from 'antd';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
-import { patchHarvesterVm } from '../../../../../services/harvesterApi';
+import { patchHarvesterVm } from '../../../../../../services/harvesterApi';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   cloudId: string;
-  /** KubeVirt VirtualMachine 形态（与列表 vms 项一致） */
+  /** KubeVirt VirtualMachine 资源，与 vms 列表项一致 */
   resource: any;
   onSuccess: () => void;
+  /** 列表页说明文案：云数据库 vs 虚拟网元 */
+  hintVariant?: 'database' | 'vne';
 };
 
 const RdsInstanceLabelEditModal: React.FC<Props> = ({
@@ -18,6 +20,7 @@ const RdsInstanceLabelEditModal: React.FC<Props> = ({
   cloudId,
   resource,
   onSuccess,
+  hintVariant = 'database',
 }) => {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
@@ -65,7 +68,7 @@ const RdsInstanceLabelEditModal: React.FC<Props> = ({
       const ns = resource?.metadata?.namespace || resource?.namespace || 'default';
       const name = resource?.metadata?.name || resource?.name;
 
-      if (!name) throw new Error('虚拟机缺少 metadata.name');
+      if (!name) throw new Error('虚拟机资源缺少名称');
 
       await patchHarvesterVm(cloudId, ns, name, patchOps, 'application/json-patch+json');
       message.success('更新标签成功');
@@ -81,7 +84,7 @@ const RdsInstanceLabelEditModal: React.FC<Props> = ({
 
   return (
     <Modal
-      title="编辑云数据库标签"
+      title="编辑实例标签"
       open={open}
       onCancel={onClose}
       onOk={handleSubmit}
@@ -90,19 +93,79 @@ const RdsInstanceLabelEditModal: React.FC<Props> = ({
       width={600}
     >
       <div style={{ marginBottom: 16, color: 'rgba(0, 0, 0, 0.45)' }}>
-        与镜像编辑标签方式相同。云数据库实例常用标签示例：
-        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, marginLeft: 4 }}>
-          tower.io/rds
-        </span>
-        、
-        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4 }}>
-          tower.io/paas-type
-        </span>
-        、
-        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4 }}>
-          tower.io/paas-ver
-        </span>
-        。请勿随意删除 <Typography.Text code>harvesterhci.io/*</Typography.Text> 等系统标签，以免影响调度与展示。
+        {hintVariant === 'vne' ? (
+          <>
+            虚拟网元实例列表与能力依赖
+            <span
+              style={{
+                fontFamily: 'monospace',
+                background: '#f5f5f5',
+                padding: '2px 4px',
+                borderRadius: 4,
+                margin: '0 4px',
+              }}
+            >
+              tower.io/paas-category=vne
+            </span>
+            （旧实例可为
+            <span
+              style={{
+                fontFamily: 'monospace',
+                background: '#f5f5f5',
+                padding: '2px 4px',
+                borderRadius: 4,
+                margin: '0 4px',
+              }}
+            >
+              tower.io/vne-router
+            </span>
+            ）、
+            <span
+              style={{
+                fontFamily: 'monospace',
+                background: '#f5f5f5',
+                padding: '2px 4px',
+                borderRadius: 4,
+                margin: '0 4px',
+              }}
+            >
+              tower.io/paas-type
+            </span>
+            、
+            <span
+              style={{
+                fontFamily: 'monospace',
+                background: '#f5f5f5',
+                padding: '2px 4px',
+                borderRadius: 4,
+                margin: '0 4px',
+              }}
+            >
+              tower.io/paas-ver
+            </span>
+            等。请勿随意删除；<Typography.Text code>harvesterhci.io/*</Typography.Text> 等为 Harvester 系统标签，请谨慎编辑。
+          </>
+        ) : (
+          <>
+            云数据库实例列表与能力依赖
+            <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, margin: '0 4px' }}>
+              tower.io/paas-category=database
+            </span>
+            （旧实例可为
+            <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, margin: '0 4px' }}>
+              tower.io/rds
+            </span>
+            ）、
+            <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, margin: '0 4px' }}>
+              tower.io/paas-type
+            </span>
+            、
+            <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, margin: '0 4px' }}>
+              tower.io/paas-ver
+            </span>
+            等。请勿随意删除；<Typography.Text code>harvesterhci.io/*</Typography.Text> 等为 Harvester 系统标签，请谨慎编辑。
+          </>
+        )}
       </div>
 
       <Form form={form} layout="vertical">
@@ -121,7 +184,7 @@ const RdsInstanceLabelEditModal: React.FC<Props> = ({
                         {
                           pattern:
                             /^([A-Za-z0-9][-A-Za-z0-9_.]*[A-Za-z0-9]\/)?([A-Za-z0-9][-A-Za-z0-9_.]*[A-Za-z0-9])$/,
-                          message: '必须是合法的 Kubernetes 标签键名',
+                          message: '必须是合法的Kubernetes标签键名',
                         },
                       ]}
                     >

@@ -20,6 +20,7 @@ export type UseCloudmapPoolPathSyncParams = {
   locationPathname: string;
   navigate: NavigateFunction;
   canViewClusterGroup: boolean;
+  canViewOniaasNetworkTab: boolean;
   setActiveTabKey: (tab: string) => void;
   setResourceHubSubKey: (sub: CloudmapResourceSubKey) => void;
   handleTabChangeRef: MutableRefObject<(key: string) => void>;
@@ -30,6 +31,7 @@ export function useCloudmapPoolPathSync({
   locationPathname,
   navigate,
   canViewClusterGroup,
+  canViewOniaasNetworkTab,
   setActiveTabKey,
   setResourceHubSubKey,
   handleTabChangeRef,
@@ -51,6 +53,13 @@ export function useCloudmapPoolPathSync({
     const p = parseCloudmapPoolPath(locationPathname, cloudId);
     if (!p) {
       navigate(`${cloudmapPoolBasePath(cloudId)}/resource_hub/overview`, {
+        replace: true,
+      });
+      return;
+    }
+
+    if (p.tab === 'oniaas_network' && !canViewOniaasNetworkTab) {
+      navigate(cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: 'overview' }), {
         replace: true,
       });
       return;
@@ -86,6 +95,7 @@ export function useCloudmapPoolPathSync({
     locationPathname,
     cloudId,
     canViewClusterGroup,
+    canViewOniaasNetworkTab,
     navigate,
     setActiveTabKey,
     setResourceHubSubKey,

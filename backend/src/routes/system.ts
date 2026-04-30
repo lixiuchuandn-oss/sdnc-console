@@ -27,6 +27,8 @@ import { ALL_PERMISSIONS } from '../constants/permissions';
 import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
 // 新权限体系
 import { createApiPermissionMiddleware, checkPermission, PERMISSION_DEFINITIONS } from '../permissions';
+import { randomUUID } from 'crypto';
+import { OfflineUpgradeService } from '../services/OfflineUpgradeService';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 
@@ -45,6 +47,10 @@ const checkRbacPermission = createApiPermissionMiddleware({
 
 // 权限检查中间件：检查系统设置权限（已迁移到新权限体系）
 const checkSettingsPermission = createApiPermissionMiddleware({
+  allowSuperAdmin: true,
+});
+
+const checkUpgradePermission = createApiPermissionMiddleware({
   allowSuperAdmin: true,
 });
 
@@ -600,6 +606,66 @@ router.delete('/rbac/assignments/:id', checkRbacPermission, async (req: any, res
 const tempUploadsDir = path.join(process.cwd(), 'temp_uploads');
 if (!fs.existsSync(tempUploadsDir)) fs.mkdirSync(tempUploadsDir, { recursive: true });
 const upload = multer({ dest: tempUploadsDir });
+
+const offlineUpgradeStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join(tempUploadsDir, 'offline-upgrade');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, _file, cb) => {
+    cb(null, `${randomUUID()}.zip`);
+  },
+});
+const offlineUpgradeUpload = multer({
+  storage: offlineUpgradeStorage,
+  limits: { fileSize: 512 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (path.extname(file.originalname).toLowerCase() !== '.zip') {
+      cb(new Error('仅支持 .zip 离线包'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+router.get('/offline-upgrade/status', checkUpgradePermission, (_req, res) => {
+  try {
+    res.json({ data: OfflineUpgradeService.getStatus() });
+  } catch (e: any) {
+    systemLog.error('offline-upgrade status:', e instanceof Error ? e.message : String(e));
+    res.status(500).json({ message: e?.message || '读取失败' });
+  }
+});
+
+router.post(
+  '/offline-upgrade/apply',
+  checkUpgradePermission,
+  (req, res, next) => {
+    offlineUpgradeUpload.single('bundle')(req, res, (err: unknown) => {
+      if (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return res.status(400).json({ message: msg || '上传失败' });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    const f = req.file as Express.Multer.File | undefined;
+    if (!f?.path) {
+      return res.status(400).json({ message: '请选择 .zip 离线包（字段名 bundle）' });
+    }
+    try {
+      const data = OfflineUpgradeService.applyFromZipFile(f.path);
+      res.json({ data });
+    } catch (e: any) {
+      systemLog.error('offline-upgrade apply:', e instanceof Error ? e.message : String(e));
+      res.status(500).json({ message: e?.message || '离线升级失败' });
+    } finally {
+      await fs.promises.unlink(f.path).catch(() => {});
+    }
+  },
+);
 
 // 上传接口：
 // - 表单字段名为 files，最多一次上传 50 个文件

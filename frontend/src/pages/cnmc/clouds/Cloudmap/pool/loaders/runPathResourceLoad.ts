@@ -6,6 +6,7 @@ import { tryLoadClusterTab } from './pathResource/clusterPathLoads';
 import { tryLoadKubeOvnVpcTab } from './pathResource/kubeOvnPathLoads';
 import { tryLoadKubeOvnFlatTab } from './pathResource/flatNetworkPathLoads';
 import { tryLoadContainerTab } from './pathResource/containersPathLoads';
+import { tryLoadOniaasNetworkTab } from './pathResource/oniaasNetworkPathLoads';
 
 /**
  * 按 URL 内层段（与侧栏 `pathSeg` 一致）按需拉数。
@@ -21,6 +22,7 @@ export async function runPathResourceLoad(
   if (await tryLoadBackupTab(key, force, skipSync, deps)) return;
   if (await tryLoadComputeTab(key, force, skipSync, deps)) return;
   if (await tryLoadClusterTab(key, force, skipSync, deps)) return;
+  if (await tryLoadOniaasNetworkTab(key, force, skipSync, deps)) return;
   if (await tryLoadKubeOvnVpcTab(key, force, skipSync, deps)) return;
   if (await tryLoadKubeOvnFlatTab(key, force, skipSync, deps)) return;
   if (await tryLoadContainerTab(key, force, skipSync, deps)) return;

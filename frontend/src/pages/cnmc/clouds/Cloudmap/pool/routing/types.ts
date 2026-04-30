@@ -17,6 +17,7 @@ export type CloudmapPoolPanelProps = {
   canViewClusterGroup: boolean;
   canViewComputeGroup: boolean;
   canViewCloudDatabaseTab: boolean;
+  canViewOniaasNetworkTab: boolean;
   canViewContainersGroup: boolean;
   canViewStorageGroup: boolean;
   canViewBackupsGroup: boolean;

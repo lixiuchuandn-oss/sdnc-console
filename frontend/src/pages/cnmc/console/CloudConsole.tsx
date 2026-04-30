@@ -1635,6 +1635,7 @@ const CloudConsolePage: React.FC = () => {
                   isTenant={isTenantUser}
                   namespacesOptions={namespacesOptions}
                   namespaceRecords={namespaces}
+                  harvesterClusterCapabilities={harvesterCapabilities}
                 />
               )}
               {(consoleLeftNavKey === 'host' ||

@@ -89,7 +89,17 @@ const ImageLabelEditModal: React.FC<Props> = ({ open, onClose, cloudId, resource
       width={600}
     >
       <div style={{ marginBottom: 16, color: 'rgba(0, 0, 0, 0.45)' }}>
-        您可以通过添加特定的标签来控制镜像的行为。例如，添加 <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4 }}>tower.io/rds: true</span> 可以将其标记为云数据库镜像。
+        可通过标签控制镜像归属：云数据库目录推荐
+        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4 }}>tower.io/paas-category: database</span>
+        与
+        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, marginLeft: 4 }}>tower.io/paas-type: mysql</span>
+        等；虚拟网元目录用
+        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, marginLeft: 4 }}>paas-category: vne</span>
+        。旧镜像仍可读
+        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, marginLeft: 4 }}>tower.io/rds</span>
+        /
+        <span style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 4px', borderRadius: 4, marginLeft: 4 }}>tower.io/vne-type</span>
+        。
       </div>
 
       <Form form={form} layout="vertical">
@@ -111,7 +121,7 @@ const ImageLabelEditModal: React.FC<Props> = ({ open, onClose, cloudId, resource
                         }
                       ]}
                     >
-                      <Input placeholder="Key (例如: tower.io/rds)" />
+                      <Input placeholder="Key (例如: tower.io/paas-category)" />
                     </Form.Item>
                   </Col>
                   <Col span={11}>

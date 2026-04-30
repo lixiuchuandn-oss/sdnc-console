@@ -15,6 +15,7 @@ import { ReactComponent as UbuntuSvg } from '../assets/OS/ubuntu.svg';
 import { ReactComponent as UosSvg } from '../assets/OS/uos.svg';
 import { ReactComponent as WindowsSvg } from '../assets/OS/windows.svg';
 import { ReactComponent as CloudmapSvg } from '../assets/OS/rhytvr.svg';
+import { ReactComponent as VirtualRouterSvg } from '../assets/OS/virtual-router.svg';
 
 interface OsIconProps {
   /** OS name or image name to resolve icon from */
@@ -46,6 +47,9 @@ const OS_MATCHERS = [
 
   // cloudmap云网络服务
   { keywords: ['rhytvr'], component: CloudmapSvg },
+
+  // 虚拟网元 / 虚拟路由器（镜像名或标注含下列子串时）
+  { keywords: ['virtual-router', 'vne-router', 'vrouter'], component: VirtualRouterSvg },
 ];
 
 export const getOsKeywordGroups = () => OS_MATCHERS.map(m => m.keywords);

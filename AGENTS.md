@@ -37,7 +37,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 
 | 文档 | 职责 |
 |------|------|
-| **`AGENTS.md`**（本文件） | 项目总览、技术栈、环境与运行、**对外 HTTP API / WebSocket 路径**、Harvester 容器能力表、开发与质量约定 |
+| **`AGENTS.md`**（本文件） | 项目总览、技术栈、环境与运行、**平台发布版本管理约定**、**对外 HTTP API / WebSocket 路径**、Harvester 容器能力表、开发与质量约定 |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
 | **`deployment/docs/specs/...`** | Harvester 前端子树、权限、API 规格等专题文档 |
@@ -143,10 +143,10 @@ Compute.Tower/
 │   │   │   │   │       ├── kube-ovn/      # VPC、子网、EIP/FIP、安全组等
 │   │   │   │   │       ├── hsm/           # Tower HSM：Cloudmap 资源总览（机房拓扑、网络拓扑）；拓扑图与样式见 `hsm/lib/networkTopology/`
 │   │   │   │   │       ├── shared/components/  # 跨域详情抽屉与 Tab
-│   │   │   │   │       └── monitoring/    # 监控与日志
+│   │   │   │   │       ├── monitoring/    # 监控与日志
+│   │   │   │   │       └── cloud-database/  # 云数据库（Cloudmap 资源池 VM；与侧栏 paas_databases 对应）
 │   │   │   │   ├── console/
 │   │   │   │   ├── tenants/   # 租户管理：平台 TENANTS（与 CNMC 平级）；源码暂放 cnmc 下（过渡期）
-│   │   │   │   └── paas/      # PaaS 归属 CNMC（如 cloud-database/）
 │   │   │   ├── sdncc/         # SDN 管理
 │   │   │   ├── cnsoc/         # 安全运营等
 │   │   │   └── settings/      # SETTINGS：规范目标目录名；存量可能仍为 Settings/（迁移见 STRUCTURE.md）
@@ -203,6 +203,35 @@ npm run test     # 运行测试
 - `HOST`: 监听地址
 - `PORT`: 服务端口
 
+## 版本管理（平台发布版本）
+
+本节约定 **Compute Tower 平台自身**（前后端一体交付）的版本号口径，与 **License / 商业功能授权** 无关。
+
+### 「当前软件版本」从哪里来
+
+- **系统设置 → 离线升级** 页展示的「当前软件版本」，来自 **`GET /api/system/offline-upgrade/status`** 响应中的 **`runtimeVersion`**。
+- **实现**：`backend/src/services/OfflineUpgradeService.ts` 的 `getStatus()` 从运行进程可访问的目录向上查找 **`backend/package.json`**（`name === "compute-tower-backend"`），读取其 **`version`** 字段；缺失时返回字符串 **`unknown`**。
+- **含义**：表示**当前部署目录中后端 npm 包的 `version`**，与磁盘上的 `backend/package.json` 一致；**不是** License 载荷中的产品标识，**不是**数据库内单独维护的市场版本表；**不**读取 `frontend/package.json`（若仅前端构建与后端 `version` 未对齐，该字段无法反映前端包版本）。
+
+### 权威版本号（研发约定）
+
+1. **唯一权威**：平台对外发布、运维工单、管理界面「当前软件版本」对齐的 **SemVer**，以 **`backend/package.json` → `version`** 为准。
+2. **粒度**：主版本长期固定为 `x.0.0`、从不递增 **PATCH** 会显得版本号「过粗」、无法与迭代节奏对齐；**默认可交付单元**应以 **PATCH**（`x.y.Z`）体现小步发版；需要区分**同 PATCH 下多次构建**时，可采用 SemVer **build metadata**（形如 `1.0.1+20260429` 或 `1.0.1+build.42`，`+` 后不参与 npm 依赖比较，仅供运维/流水线识别，展示上仍可读 `package.json` 全串）。
+3. **前端同步**：**`frontend/package.json` → `version`** 应与后端 **同级版本号保持一致**（同一发版单元）；发版或打离线包前**同时修改**两处，避免「界面显示 1.2.0、前端包实为 1.1.9」类歧义。
+4. **离线包 `manifest.json` 的 `version`**（见 `deployment/docs/specs/offline-upgrade-bundle.md`）：仅作**包内标注**并写入升级记录；**不会**自动回写 `package.json`。若希望升级后展示号与包内标注一致，应在构建离线包时让 `server/` 内已包含更新后的 `package.json`（或发版流程显式 bump 后再打包）。
+
+### 发版与 bump 建议
+
+- 采用 **SemVer** `MAJOR.MINOR.PATCH`：破坏性 API/行为 → MAJOR；向下兼容功能 → MINOR；修复与补丁 → PATCH。
+- **正式发布**：更新 `backend/package.json` 与 `frontend/package.json` 的 `version`，提交后打 Git 标签（如 `v1.2.3` 与 version 对齐），再构建前端产物与后端 `dist/` 并组离线 zip。
+- **仅替换静态资源**：可只发前端 `public/`；若后端逻辑未变，可不 bump 后端 `version`——为减少认知成本，仍建议前后端 **PATCH** 同步 bump。
+
+### 实现与文档索引
+
+- 读版本：`OfflineUpgradeService.getStatus()`（`backend/src/services/OfflineUpgradeService.ts`）
+- 状态路由：`GET /api/system/offline-upgrade/status`（`backend/src/routes/system.ts`）
+- 离线包目录约定：`deployment/docs/specs/offline-upgrade-bundle.md`
+
 ## API 规范
 
 ### 路由前缀
@@ -254,6 +283,7 @@ npm run test     # 运行测试
 **系统**:
 - `/api/system`: 系统配置
 - `/api/system/license`: 授权管理
+- `/api/system/offline-upgrade/status`、`/api/system/offline-upgrade/apply`：离线升级（zip）；**包结构与构建约定**见 `deployment/docs/specs/offline-upgrade-bundle.md`
 - `/api/audit-logs`: 审计日志
 - `/api/dashboard`: 仪表盘数据
 
@@ -555,7 +585,7 @@ const addRule = useCallback(() => {
 
 | 平台 | 代码 | 说明 |
 |------|------|------|
-| 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**PaaS**（源码在 `pages/cnmc/paas/`，与平台子能力一致） |
+| 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**云数据库**（Cloudmap 资源池 VM，源码在 `pages/cnmc/clouds/Harvester/cloud-database/`） |
 | 租户管理 | TENANTS | 租户、组织、租户用户等；与 CNMC **平级**的独立平台（`RouteSpec.platform` / 顶栏导航）；页面源码过渡期在 `pages/cnmc/tenants/` |
 | 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略 |
 | SDN管理 | SDNCC | SRv6、IPsec、ACL、NAT、VR |

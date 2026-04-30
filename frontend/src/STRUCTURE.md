@@ -34,7 +34,7 @@
 2. **业务域第二刀**：平台内再按 **业务域** 分（云厂商、功能子系统、PaaS 子模块等）。
 3. **域内按前端角色第三刀**：在业务域内使用 `sections/`、`drawers/`、`modals/`、`lib/`（大域必选；小域可先扁平，膨胀后再拆）。
 4. **跨域复用进 shared**：仅当 **≥2 个业务域** 明确依赖时，再上浮到该云类型下的 `shared/`（Harvester 见上述修改纪要）；**跨平台**复用进 `src/components` 等根级。
-5. **PaaS 归属 CNMC**：云数据库等托管能力业务上依赖资源池，**不是**与「多云管理」平级的独立顶层产品；源码放在 **`pages/cnmc/paas/`**（如 `cloud-database/`）。
+5. **云数据库（Cloudmap 资源池）**：托管能力仅基于 **Harvester/Cloudmap 资源池虚拟机**，**不是**与「多云管理」平级的独立顶层产品，且**不**适用于阿里云/华为云等公有云控制台；与侧栏/路由 `paas_databases` 对应。源码按 Harvester 域命名，放在 **`pages/cnmc/clouds/Harvester/cloud-database/`**（`kebab-case`，与 `kube-ovn` 等域同级）。
 6. **URL 不与目录强制同构**：对外 path 无需与文件夹逐段对应；`lazy(import)` 指向真实文件即可。
 7. **迁移可渐进**：允许过渡期 barrel 再导出等；每步 **`npx tsc --noEmit`**验收。
 
@@ -164,9 +164,6 @@ frontend/src/pages/
 │   │   ├── Aliyun/、Hw/、Cloudmap/ 等（与仓库目录名一致；CSM 详情在 sdncc/traffic/CsmPools/：CloudDetailCsm、sections/、modals/）
 │   ├── console/           # WebSSH、控制台等
 │   ├── tenants/           # 租户管理：产品平台为 TENANTS（独立）；源码暂放此路径（过渡期）
-│   └── paas/
-│       ├── cloud-database/  # sections / modals / drawers、index 聚合导出
-│       └── …                # 未来其他托管子模块
 │
 ├── sdncc/                   # ========== SDNCC ==========
 │   ├── interconnect/        # 跨域互联：acl、nat、srv6、ipsec-vpn、vr（见上表；与 `/admin/interconnect/…` 产品域一致）
@@ -183,7 +180,8 @@ frontend/src/pages/
 **补充**：
 
 - `pools/` 承载资源池列表与选云后的壳；各云深度实现放在 `clouds/<vendor>/`。
-- Harvester **内部**目录树 **不在此重复展开**；必须遵守 **`deployment/docs/specs/修改纪要_Harvester前端目录结构_域优先与shared.md`**。
+- **云数据库（`cloud-database`）** 仅依赖 **Harvester 资源池虚拟机**，源码在 **`clouds/Harvester/cloud-database/`**，**不**与阿里云/华为云等公有云详情混放；云数据库入口为资源池内 `/admin/clouds/:id/paas_databases` 等（见 `RouteSpec` / Cloudmap 侧栏），与目录名不必同构。
+- Harvester **内部**目录树 **不在此重复展开**；必须遵守 **`deployment/docs/specs/修改纪要_Harvester前端目录结构_域优先与shared.md`**（其中可含 `paas/`）。
 - 可选：在 `tsconfig.json` 配置路径别名（如 `@/`）缩短 import。
 
 ---
@@ -224,7 +222,7 @@ frontend/src/pages/
 
 ## 10. URL、懒加载与路由
 
-- 对外 **path**（如 `/admin/paas/databases`）无需与 `pages/cnmc/paas/...` 逐段对应。
+- 对外 **path**（如 `/admin/clouds/:id/paas_databases`、控制台路由）无需与 `pages/.../Harvester/cloud-database/...` 逐段对应。
 - 目录调整 **不改变** 对外 URL 时，更新 `lazy(() => import('…'))` 与 import 即可。
 
 ---
@@ -242,7 +240,7 @@ frontend/src/pages/
 **收敛完成度自检（持续维护）**：
 
 - [ ] `RouteSpec.platform` 与产品归属一致，或本文档登记例外（租户相关须为 **`TENANTS`**，勿标为 CNMC）。
-- [ ] PaaS 源码在 `pages/cnmc/paas/`，语义上属 CNMC 子能力。
+- [ ] 云数据库（`cloud-database`）源码在 `pages/cnmc/clouds/Harvester/cloud-database/`，产品仍属 CNMC 下能力而非独立顶层平台。
 - [ ] Harvester 符合修改纪要（域 / `shared` / `monitoring` 小写等）。
 - [ ] `npx tsc --noEmit` 通过；发版前生产构建通过。
 

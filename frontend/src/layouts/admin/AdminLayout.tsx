@@ -220,9 +220,6 @@ function sidebarForPath(p: string): string {
   }
 
   const s = p.toLowerCase();
-  if (s.includes('/admin/paas')) {
-    return '/admin/cen_compute';
-  }
   if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security/traffic')) {
     return '/admin/cen_sdn';
   }

@@ -17,8 +17,8 @@
  * 6) 总线类型：块设备 Segmented；ISO 下固定 SCSI/SATA（与创建向导一致）
  *    - 检索关键词：ROOT_BUS
  */
-import React, { useCallback, useEffect, useState } from 'react';
-import { Form, Select, Input, InputNumber, Row, Col, Space, Checkbox, Segmented, Alert, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Form, Select, Input, InputNumber, Row, Col, Space, Checkbox, Segmented, Tooltip, Descriptions } from 'antd';
 import { OsIcon } from '../../../../../../../components/OsIcon';
 import { isHarvesterVmImageReady, resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from '../VmCreateWizard/VmWizardUtils';
@@ -30,6 +30,8 @@ type Props = {
   storageClasses: any[];
   reloadStorageClasses: () => void;
   defaultStorageClassName?: string;
+  /** 当前实例根盘镜像 ID（`ns/name`，来自 VM；勿用表单 `newOsImage`，否则会随「变更镜像」误变） */
+  currentOsImageId?: string;
   /** 当前实例使用的系统镜像（展示名或 imageId） */
   currentOsImageLabel?: string;
   /** 与创建向导一致：ARM64 光驱固定 SCSI，x86 固定 SATA */
@@ -45,6 +47,22 @@ function findImageBySelectValue(images: any[], val: string) {
     const v = ns && name ? `${ns}/${name}` : name;
     return v === val;
   });
+}
+
+/** 与「变更镜像」下拉项一致，用于 OsIcon 的 osName 解析 */
+function imageRecordDisplayName(x: any): string {
+  if (!x) return '';
+  const annotations = x?.metadata?.annotations || x?.annotations || {};
+  const name = x?.metadata?.name || x?.name;
+  return String(
+    annotations['field.cattle.io/displayName'] ||
+      annotations['harvesterhci.io/image-name'] ||
+      annotations['harvesterhci.io/imageDisplayName'] ||
+      x?.spec?.displayName ||
+      x?.displayName ||
+      name ||
+      '',
+  ).trim();
 }
 
 function cdromBusFieldValue(isArm64: boolean): 'scsi' | 'sata' {
@@ -64,6 +82,7 @@ const ChangeOs: React.FC<Props> = ({
   storageClasses: _storageClasses,
   reloadStorageClasses,
   defaultStorageClassName,
+  currentOsImageId,
   currentOsImageLabel,
   isArm64 = false,
 }) => {
@@ -74,6 +93,19 @@ const ChangeOs: React.FC<Props> = ({
 
   const rootDevLower = String(rootDeviceType || 'disk').toLowerCase();
   const isCdromRoot = rootDevLower === 'cdrom';
+
+  /** 当前镜像图标：仅用 props `currentOsImageId`（VM 根盘），禁止用表单 `newOsImage` */
+  const currentOsIconName = useMemo(() => {
+    const id = String(currentOsImageId || '').trim();
+    if (id && Array.isArray(images) && images.length > 0) {
+      const it = findImageBySelectValue(images, id);
+      if (it) {
+        const fromRecord = imageRecordDisplayName(it);
+        if (fromRecord) return fromRecord;
+      }
+    }
+    return String(currentOsImageLabel || '').trim();
+  }, [images, currentOsImageId, currentOsImageLabel]);
 
   useEffect(() => {
     if (!isCdromRoot) return;
@@ -200,20 +232,32 @@ const ChangeOs: React.FC<Props> = ({
         <Checkbox />
       </Form.Item>
 
-      {currentOsImageLabel ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="当前使用的系统镜像"
-          description={currentOsImageLabel}
-        />
-      ) : null}
+      {/* 当前实例系统镜像（只读回显） */}
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>当前镜像</div>
+        </Col>
+        <Col span={18}>
+          <Input
+            disabled
+            readOnly
+            value={currentOsImageLabel || ''}
+            placeholder="—"
+            style={{ width: '100%', color: 'rgba(0, 0, 0, 0.65)' }}
+            prefix={
+              <span style={{ display: 'inline-flex', alignItems: 'center', marginInlineEnd: 4 }}>
+                <OsIcon osName={currentOsIconName || ' '} />
+              </span>
+            }
+          />
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
 
       {/* ============================== IMAGE_SELECT ============================== */}
       <Row gutter={12} style={{ marginBottom: 0 }}>
         <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>选择镜像</div>
+          <div style={{ lineHeight: '32px' }}>选择新镜像</div>
         </Col>
         <Col span={18}>
           <Form.Item name="newOsImage" rules={[{ required: true, message: '请选择镜像' }]} noStyle>
@@ -230,14 +274,7 @@ const ChangeOs: React.FC<Props> = ({
                 .map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
                   const ns = x?.metadata?.namespace || x?.namespace;
-                  const annotations = x?.metadata?.annotations || x?.annotations || {};
-                  const disp =
-                    annotations['field.cattle.io/displayName'] ||
-                    annotations['harvesterhci.io/image-name'] ||
-                    annotations['harvesterhci.io/imageDisplayName'] ||
-                    x?.spec?.displayName ||
-                    x?.displayName ||
-                    name;
+                  const disp = imageRecordDisplayName(x) || name;
                   return {
                     label: (
                       <Space>
@@ -262,58 +299,30 @@ const ChangeOs: React.FC<Props> = ({
       </Row>
 
       {/* ============================== IMAGE_PREVIEW ============================== */}
+      <Form.Item name="rootDeviceType" hidden initialValue="disk">
+        <Input />
+      </Form.Item>
       <Row gutter={12} style={{ marginBottom: 24 }}>
         <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>镜像预览</div>
+          <div style={{ lineHeight: '32px' }}>新镜像预览</div>
         </Col>
         <Col span={18}>
           <div
             style={{
               padding: 12,
-              background: '#EDF0F7',
+              border: '1px solid #d9d9d9',
               borderRadius: 8,
-              border: '1px solid #e5e5e5',
+              background: '#fafafa',
             }}
           >
-            <Form.Item name="rootDeviceType" hidden initialValue="disk">
-              <Input />
-            </Form.Item>
-
-            <Row gutter={12} style={{ marginBottom: 12 }}>
-              <Col span={12}>
-                <Input
-                  disabled
-                  readOnly
-                  prefix="设备类型"
-                  value={isCdromRoot ? 'CD-ROM' : 'DISK'}
-                  style={{ color: '#00000040' }}
-                />
-              </Col>
-              <Col span={12}>
-                <Input disabled readOnly prefix="卷类型" value="Block" style={{ color: '#00000040' }} />
-              </Col>
-            </Row>
-
-            <Row gutter={12}>
-              <Col span={12}>
-                <Input
-                  disabled
-                  readOnly
-                  prefix="访问模式"
-                  value="ReadWriteMany"
-                  style={{ color: '#00000040' }}
-                />
-              </Col>
-              <Col span={12}>
-                <Input
-                  disabled
-                  readOnly
-                  prefix="存储类"
-                  value={storageClassName ? String(storageClassName) : '自动选择'}
-                  style={{ color: '#00000040' }}
-                />
-              </Col>
-            </Row>
+            <Descriptions size="small" column={1} styles={{ label: { width: 88 } }}>
+              <Descriptions.Item label="设备类型">{isCdromRoot ? 'CD-ROM' : 'DISK'}</Descriptions.Item>
+              <Descriptions.Item label="卷类型">Block</Descriptions.Item>
+              <Descriptions.Item label="访问模式">ReadWriteMany</Descriptions.Item>
+              <Descriptions.Item label="存储类">
+                {storageClassName ? String(storageClassName) : '自动选择'}
+              </Descriptions.Item>
+            </Descriptions>
           </div>
         </Col>
       </Row>

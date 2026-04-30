@@ -889,7 +889,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                     })
                   }
                 >
-                  + 添加数据盘
+                  + 添加磁盘
                 </Button>
               </>
             )}

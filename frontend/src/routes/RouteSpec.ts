@@ -183,45 +183,6 @@ export const routeSpecs: RouteSpec[] = [
     },
   },
   {
-    id: 'paas-databases',
-    path: '/admin/paas/databases',
-    element: 'PaasDatabasesPage',
-    layout: 'admin',
-    platform: 'CNMC',
-    group: 'PaaS服务',
-    /** 入口并入 Cloudmap 资源池详情一级 Tab；本路由保留并重定向 */
-    hidden: true,
-    title: '数据库',
-    subtitle: '跨资源池管理云数据库实例与数据备份，与资源池详情解耦的统一入口。',
-    icon: 'DatabaseOutlined',
-    order: 0,
-    requiredActions: {
-      page: 'clouds.ecs:read',
-      read: 'clouds.ecs:read',
-      write: 'clouds.ecs:write',
-    },
-    requiredFeature: 'platform.multi-cloud',
-  },
-  {
-    id: 'paas-security',
-    path: '/admin/paas/security',
-    element: 'PaasSecurityHub',
-    layout: 'admin',
-    platform: 'CNMC',
-    group: 'PaaS服务',
-    hidden: true,
-    title: '云安全',
-    subtitle: '托管类安全产品将在此集中交付与运维。',
-    icon: 'SafetyCertificateOutlined',
-    order: 1,
-    requiredActions: {
-      page: 'clouds.resource-pools:read',
-      read: 'clouds.resource-pools:read',
-      write: 'clouds.resource-pools:write',
-    },
-    requiredFeature: 'platform.multi-cloud',
-  },
-  {
     id: 'console',
     path: '/console',
     element: 'CloudConsolePage',
@@ -1050,6 +1011,23 @@ export const routeSpecs: RouteSpec[] = [
       page: 'system.settings:read',
       read: 'system.settings:read',
       write: 'system.settings:write'
+    }
+  },
+  {
+    id: 'settings-offline-upgrade',
+    path: '/admin/settings/offline-upgrade',
+    element: 'OfflineUpgradeSettings',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '版本升级',
+    title: '离线升级',
+    subtitle: '上传官方离线 zip 包，将前端静态资源与后端构建产物合并到当前部署目录，用于无外网或受控环境下的版本更新。',
+    icon: 'CloudUploadOutlined',
+    order: 25,
+    requiredActions: {
+      page: 'system.upgrade:read',
+      read: 'system.upgrade:read',
+      write: 'system.upgrade:write'
     }
   },
   {

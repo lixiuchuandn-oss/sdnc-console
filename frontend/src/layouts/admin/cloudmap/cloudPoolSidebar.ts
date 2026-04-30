@@ -16,6 +16,7 @@ import {
   DesktopOutlined,
   FileTextOutlined,
   GlobalOutlined,
+  NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
 import type { Cloud } from '../../../pages/cnmc/pools/poolProviders';
@@ -31,6 +32,7 @@ export const CLOUDMAP_POOL_TAB_KEYS = [
   'cluster',
   'compute',
   'paas_databases',
+  'oniaas_network',
   'containers',
   'storage',
   'backups',
@@ -166,6 +168,7 @@ const CLOUDMAP_TAB_LABEL: Record<CloudmapPoolTabKey, string> = {
   cluster: '集群',
   compute: '云主机',
   paas_databases: '云数据库',
+  oniaas_network: '虚拟网元',
   containers: '容器',
   storage: '云存储',
   backups: '云备份',
@@ -180,6 +183,7 @@ const CLOUDMAP_TAB_ICON: Record<CloudmapPoolTabKey, ReactNode> = {
   cluster: createElement(ClusterOutlined),
   compute: createElement(DesktopOutlined),
   paas_databases: createElement(ConsoleSqlOutlined),
+  oniaas_network: createElement(NodeIndexOutlined),
   containers: createElement(DeploymentUnitOutlined),
   storage: createElement(DatabaseOutlined),
   backups: createElement(CloudDownloadOutlined),
@@ -222,6 +226,8 @@ export const CLOUDMAP_KUBE_OVN_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] 
   INNER_MENU_BY_TAB.kube_ovn || [];
 export const CLOUDMAP_PAAS_DATABASES_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
   INNER_MENU_BY_TAB.paas_databases || [];
+export const CLOUDMAP_ONIAAS_NETWORK_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
+  INNER_MENU_BY_TAB.oniaas_network || [];
 export const CLOUDMAP_MONITORING_ALERTS_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
   INNER_MENU_BY_TAB.monitoring_alerts || [];
 export const CLOUDMAP_LOGS_CONFIG_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =

@@ -1,13 +1,24 @@
+/**
+ * 变配 · 存储：添加数据盘（新建 / 已有 PVC、热插拔）与添加 ISO 光盘卷（两步创建后挂载）。
+ * 光盘字段为 newCdrom*，数据盘为 newDisk*，与 useVmReconfigure 提交逻辑一致。
+ */
 import React, { useEffect } from 'react';
-import { Form, Input, InputNumber, Select, Alert, Descriptions, Tag, Row, Col, Radio } from 'antd';
+import { Form, Input, InputNumber, Select, Alert, Descriptions, Row, Col, Radio, Space, Checkbox } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { FormInstance } from 'antd/es/form';
+import { OsIcon } from '../../../../../../../components/OsIcon';
+import { isHarvesterVmImageReady, resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
 
 type Props = {
   form: FormInstance;
   scOptions: any[];
   reloadScs: () => void;
   pvcOptions?: any[];
+  /** 添加数据盘时拉 ISO 列表（磁盘来源「选择光盘」） */
+  images?: any[];
+  reloadImages?: () => void;
+  /** 默认 `data_disk`；`cdrom` 为独立菜单「添加光盘」 */
+  kind?: 'data_disk' | 'cdrom';
 };
 
 const formatAccessMode = (m: string) => {
@@ -23,7 +34,17 @@ const formatAccessModes = (modes: any[]) => {
   return Array.from(new Set(list)).map(formatAccessMode).join(', ');
 };
 
-const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions = [] }) => {
+const AddDataDisk: React.FC<Props> = ({
+  form,
+  scOptions,
+  reloadScs,
+  pvcOptions = [],
+  images = [],
+  reloadImages,
+  kind = 'data_disk',
+}) => {
+  const isCdrom = kind === 'cdrom';
+
   const created = !!Form.useWatch('newDiskCreated', form);
   const diskName = Form.useWatch('newDiskName', form);
   const diskSize = Form.useWatch('newDiskSize', form);
@@ -33,7 +54,19 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
   const diskAccessMode = Form.useWatch('newDiskAccessMode', form);
   const diskMode = Form.useWatch('newDiskMode', form) || 'spec'; // spec: 配置添加(需重启), hotplug: 在线热插拔
 
+  const cdromCreated = !!Form.useWatch('newCdromCreated', form);
+  const volName = Form.useWatch('newCdromName', form);
+  const cdromSize = Form.useWatch('newCdromSize', form);
+  const cdromSc = Form.useWatch('newCdromSc', form);
+  const cdromAccess = Form.useWatch('newCdromAccessMode', form);
+  const newCdromBootFromCdrom = !!Form.useWatch('newCdromBootFromCdrom', form);
+  const newDiskBootFromCdrom = !!Form.useWatch('newDiskBootFromCdrom', form);
+  /** Harvester：虚拟光驱总线固定 SCSI（非 SCSI 易触发校验错误） */
+  const cdromBusLabel = 'SCSI';
+
   useEffect(() => {
+    if (isCdrom) return;
+    if (diskSource === 'iso') return;
     if (diskMode === 'spec') {
       const cur = form.getFieldValue('newDiskBus');
       // 配置添加不提供 SCSI；若从历史状态带入 scsi（如刚从热插拔切回），回退到 virtio
@@ -44,9 +77,155 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
         form.setFieldsValue({ newDiskBus: 'virtio' });
       }
     }
-  }, [diskMode, form]);
+  }, [diskMode, form, isCdrom, diskSource]);
 
-  const getPvcName = (p: any) => p?.rawData?.metadata?.name || p?.metadata?.name || p?.name || '';
+
+  if (isCdrom) {
+    return (
+      <>
+        <Form.Item name="newCdromCreated" initialValue={false} hidden>
+          <Input />
+        </Form.Item>
+        <Form.Item name="newCdromAccessMode" initialValue="ReadWriteMany" hidden noStyle>
+          <Input />
+        </Form.Item>
+
+        {cdromCreated && (
+          <div style={{ marginBottom: 16 }}>
+            <Alert type="success" showIcon message="光盘卷已创建" />
+          </div>
+        )}
+
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px' }}>ISO 镜像</div>
+          </Col>
+          <Col span={18}>
+            <Form.Item name="newCdromImage" rules={[{ required: true, message: '请选择 ISO 镜像' }]} noStyle>
+              <Select
+                showSearch
+                style={{ width: '100%' }}
+                disabled={cdromCreated}
+                placeholder="请选择 ISO 镜像"
+                optionFilterProp="labelString"
+                onOpenChange={(o) => {
+                  if (o) reloadImages?.();
+                }}
+                options={(images || [])
+                  .filter((x: any) => resolveVmImageKind(x) === 'iso' && isHarvesterVmImageReady(x))
+                  .map((x: any) => {
+                    const name = x?.metadata?.name || x?.name;
+                    const ns = x?.metadata?.namespace || x?.namespace;
+                    const annotations = x?.metadata?.annotations || x?.annotations || {};
+                    const disp =
+                      annotations['field.cattle.io/displayName'] ||
+                      annotations['harvesterhci.io/image-name'] ||
+                      annotations['harvesterhci.io/imageDisplayName'] ||
+                      x?.spec?.displayName ||
+                      x?.displayName ||
+                      name;
+                    const value = ns && name ? `${ns}/${name}` : name;
+                    return {
+                      label: (
+                        <Space>
+                          <OsIcon osName={disp || name} />
+                          <span>{disp || '-'}</span>
+                        </Space>
+                      ),
+                      value,
+                      labelString: `${disp || ''} ${name || ''} ${value || ''}`,
+                    };
+                  })}
+              />
+            </Form.Item>
+            <div style={{ marginBottom: 24 }} />
+          </Col>
+        </Row>
+
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px' }}>卷显示名</div>
+          </Col>
+          <Col span={18}>
+            <Form.Item
+              name="newCdromName"
+              rules={[
+                { required: true, message: '请输入卷显示名' },
+                {
+                  max: 128,
+                  message: '名称过长（最多 128 字符）；非英文命名将自动生成为 Kubernetes 资源名并保留为显示别名',
+                },
+              ]}
+              noStyle
+            >
+              <Input placeholder="支持中文显示名；技术名不符合规则时由系统自动生成" disabled={cdromCreated} />
+            </Form.Item>
+            <div style={{ marginBottom: 24 }} />
+          </Col>
+        </Row>
+
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px' }}>容量 (GiB)</div>
+          </Col>
+          <Col span={18}>
+            <Form.Item
+              name="newCdromSize"
+              initialValue={10}
+              rules={[{ required: true, message: '请输入容量' }]}
+              noStyle
+            >
+              <InputNumber min={1} suffix="GiB" style={{ width: '150px' }} disabled={cdromCreated} />
+            </Form.Item>
+            <div style={{ marginBottom: 24 }} />
+          </Col>
+        </Row>
+
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px' }}>存储类</div>
+          </Col>
+          <Col span={18}>
+            <Form.Item name="newCdromSc" rules={[{ required: true, message: '请选择存储类' }]} noStyle>
+              <Select
+                options={scOptions}
+                placeholder="请选择存储类"
+                onDropdownVisibleChange={(o) => o && reloadScs()}
+                disabled={cdromCreated}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <div style={{ marginBottom: 24 }} />
+          </Col>
+        </Row>
+
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '22px', paddingTop: 4 }}>启动顺序</div>
+          </Col>
+          <Col span={18}>
+            <Form.Item name="newCdromBootFromCdrom" valuePropName="checked" initialValue={false} noStyle>
+              <Checkbox disabled={cdromCreated}>优先从该光驱启动</Checkbox>
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px' }}>访问类型</div>
+          </Col>
+          <Col span={18}>
+            <Select disabled style={{ width: '100%' }} value="ReadWriteMany">
+              <Select.Option value="ReadWriteMany">RWX (ReadWriteMany)</Select.Option>
+            </Select>
+          </Col>
+        </Row>
+      </>
+    );
+  }
+
+  const getPvcName = (p: any) =>
+    p?.rawData?.metadata?.name || p?.metadata?.name || p?.pvcName || p?.name || '';
   const getPvcAlias = (p: any) => p?.alias || p?.rawData?.metadata?.annotations?.['tower.io/alias'] || p?.metadata?.annotations?.['tower.io/alias'] || '';
   const getPvcNs = (p: any) => p?.rawData?.metadata?.namespace || p?.metadata?.namespace || p?.namespace || '';
   const getPvcCap = (p: any) => {
@@ -55,12 +234,25 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
   };
   const getPvcSc = (p: any) => {
     const raw = p?.rawData || p;
-    return raw?.spec?.storageClassName || p?.storageClassName || '';
+    return (
+      raw?.spec?.storageClassName ||
+      p?.storageClassName ||
+      (typeof raw?.storageClassName === 'string' ? raw.storageClassName : '') ||
+      ''
+    );
   };
   const getPvcAccessModes = (p: any) => {
     const raw = p?.rawData || p;
     const modes = raw?.spec?.accessModes;
-    return Array.isArray(modes) ? modes.filter(Boolean) : [];
+    if (Array.isArray(modes) && modes.length > 0) return modes.filter(Boolean);
+    const am = raw?.accessModes ?? p?.accessModes;
+    if (typeof am === 'string' && am.trim()) {
+      return am
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    }
+    return [];
   };
   const selectedExistingPvcObj = (diskSource === 'existing' ? (pvcOptions || []).find((p: any) => getPvcName(p) === (existingPvc || diskName)) : undefined);
   const previewName = selectedExistingPvcObj ? (getPvcAlias(selectedExistingPvcObj) || getPvcName(selectedExistingPvcObj) || '-') : '-';
@@ -85,24 +277,13 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
 
       {created && diskSource === 'create' && (
         <div style={{ marginBottom: 16 }}>
-          <Alert
-            type="success"
-            showIcon
-            message="数据盘已创建"
-            description={
-              <div>
-                <div style={{ marginBottom: 8 }}>
-                  <Tag color="green">已创建</Tag> 请点击底部【挂载磁盘】继续。
-                </div>
-                <Descriptions size="small" column={1} styles={{ label: { width: 120 } }}>
-                  <Descriptions.Item label="磁盘名称">{diskName || '-'}</Descriptions.Item>
-                  <Descriptions.Item label="容量">{diskSize ? `${diskSize} GiB` : '-'}</Descriptions.Item>
-                  <Descriptions.Item label="存储类">{diskSc || '-'}</Descriptions.Item>
-                  <Descriptions.Item label="访问类型">{formatAccessMode(String(diskAccessMode || 'ReadWriteMany'))}</Descriptions.Item>
-                </Descriptions>
-              </div>
-            }
-          />
+          <Alert type="success" showIcon message="磁盘卷已创建，请点击挂载磁盘" />
+        </div>
+      )}
+
+      {created && diskSource === 'iso' && (
+        <div style={{ marginBottom: 16 }}>
+          <Alert type="success" showIcon message="光盘卷已创建，请点击挂载光盘" />
         </div>
       )}
 
@@ -116,88 +297,248 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
             value={diskSource || 'create'}
             onChange={(e) => {
               const v = String(e.target.value);
-              form.setFieldsValue({ newDiskSource: v });
               if (v === 'create') {
-                // 切回创建模式：重置选择状态
-                form.setFieldsValue({ existingPvcName: undefined, newDiskCreated: false });
-              } else {
-                // 切到已有模式：创建按钮应置灰（由 newDiskCreated=true 控制挂载按钮启用）
-                form.setFieldsValue({ newDiskCreated: false });
+                form.setFieldsValue({
+                  newDiskSource: v,
+                  existingPvcName: undefined,
+                  newDiskCreated: false,
+                  newDiskIsoImage: undefined,
+                  newDiskBootFromCdrom: false,
+                });
+              } else if (v === 'existing') {
+                form.setFieldsValue({
+                  newDiskSource: v,
+                  newDiskCreated: false,
+                  newDiskIsoImage: undefined,
+                  newDiskBootFromCdrom: false,
+                });
+              } else if (v === 'iso') {
+                form.setFieldsValue({
+                  newDiskSource: v,
+                  newDiskCreated: false,
+                  newDiskMode: 'spec',
+                  newDiskBus: 'virtio',
+                  existingPvcName: undefined,
+                  newDiskIsoImage: undefined,
+                  newDiskBootFromCdrom: false,
+                });
               }
             }}
           >
             <Radio.Button value="create">创建新磁盘</Radio.Button>
             <Radio.Button value="existing">选择已有磁盘</Radio.Button>
+            <Radio.Button value="iso">选择光盘</Radio.Button>
           </Radio.Group>
           <div style={{ marginBottom: 24 }} />
         </Col>
       </Row>
 
       {diskSource === 'existing' && (
-        <Row gutter={12} style={{ marginBottom: 0 }}>
-          <Col span={6}>
-            <div style={{ lineHeight: '32px' }}>选择已有磁盘</div>
-          </Col>
-          <Col span={18}>
-            <Form.Item
-              name="existingPvcName"
-              rules={[{ required: true, message: '请选择已有磁盘' }]}
-              style={{ marginBottom: 0 }}
-              extra="仅展示当前命名空间下、且未挂载的卷"
-            >
-              <Select
-                showSearch
-                placeholder="选择一个已有 PVC"
-                style={{ width: '100%' }}
-                options={(pvcOptions || [])
-                  .map((p: any) => {
-                    const name = getPvcName(p);
-                    const alias = getPvcAlias(p);
-                    const ns = getPvcNs(p);
-                    const cap = getPvcCap(p);
-                    if (!name) return null;
-                    const access = formatAccessModes(getPvcAccessModes(p));
-                    const head = alias ? `${alias} (${name})` : name;
-                    const label = cap ? `${head} (${cap}) · ${access}` : `${head} · ${access}`;
-                    return { label, value: name, _ns: ns, labelString: `${alias || ''} ${name} ${cap || ''} ${access}`.trim() };
-                  })
-                  .filter(Boolean) as any}
-                optionFilterProp="labelString"
-                onChange={(name) => {
-                  form.setFieldsValue({ newDiskName: name, newDiskCreated: true });
+        <>
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>选择已有磁盘</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="existingPvcName"
+                rules={[{ required: true, message: '请选择已有磁盘' }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="选择一个已有 PVC"
+                  style={{ width: '100%' }}
+                  options={(pvcOptions || [])
+                    .map((p: any) => {
+                      const name = getPvcName(p);
+                      const alias = getPvcAlias(p);
+                      const ns = getPvcNs(p);
+                      const cap = getPvcCap(p);
+                      if (!name) return null;
+                      const access = formatAccessModes(getPvcAccessModes(p));
+                      const head = alias ? `${alias} (${name})` : name;
+                      const label = cap ? `${head} (${cap}) · ${access}` : `${head} · ${access}`;
+                      return { label, value: name, _ns: ns, labelString: `${alias || ''} ${name} ${cap || ''} ${access}`.trim() };
+                    })
+                    .filter(Boolean) as any}
+                  optionFilterProp="labelString"
+                  onChange={(name) => {
+                    form.setFieldsValue({ newDiskName: name, newDiskCreated: true });
+                  }}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12} style={{ marginBottom: 24 }}>
+            <Col span={6}>
+              <div
+                style={{
+                  lineHeight: '22px',
+                  fontSize: 13,
+                  color: 'rgba(0, 0, 0, 0.88)',
+                  fontWeight: 500,
                 }}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
+              >
+                磁盘预览
+              </div>
+            </Col>
+            <Col span={18}>
+              <div
+                style={{
+                  padding: 12,
+                  border: '1px solid #d9d9d9',
+                  borderRadius: 8,
+                  background: '#fafafa',
+                }}
+              >
+                <Descriptions size="small" column={1} styles={{ label: { width: 96 } }}>
+                  <Descriptions.Item label="磁盘名称">{previewName}</Descriptions.Item>
+                  <Descriptions.Item label="磁盘容量">{previewCap}</Descriptions.Item>
+                  <Descriptions.Item label="存储类">{previewSc}</Descriptions.Item>
+                  <Descriptions.Item label="访问类型">{previewAccess}</Descriptions.Item>
+                </Descriptions>
+              </div>
+            </Col>
+          </Row>
+        </>
       )}
 
-      {diskSource === 'existing' && (
-        <Row gutter={12} style={{ marginBottom: 24 }}>
-          <Col span={6}>
-            <div style={{ lineHeight: '32px' }}>磁盘预览</div>
-          </Col>
-          <Col span={18}>
-            <div style={{ padding: 12, background: '#EDF0F7', borderRadius: 8, border: '1px solid #e5e5e5' }}>
-              <Row gutter={12} style={{ marginBottom: 12 }}>
-                <Col span={12}>
-                  <Input disabled readOnly prefix="磁盘名称" value={previewName} style={{ color: '#00000040' }} />
-                </Col>
-                <Col span={12}>
-                  <Input disabled readOnly prefix="磁盘容量" value={previewCap} style={{ color: '#00000040' }} />
-                </Col>
-              </Row>
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Input disabled readOnly prefix="存储类" value={previewSc} style={{ color: '#00000040' }} />
-                </Col>
-                <Col span={12}>
-                  <Input disabled readOnly prefix="访问类型" value={previewAccess} style={{ color: '#00000040' }} />
-                </Col>
-              </Row>
-            </div>
-          </Col>
-        </Row>
+      {diskSource === 'iso' && (
+        <>
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>ISO 镜像</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="newDiskIsoImage"
+                rules={[{ required: true, message: '请选择 ISO 镜像' }]}
+                style={{ marginBottom: 8 }}
+              >
+                <Select
+                  showSearch
+                  style={{ width: '100%' }}
+                  disabled={created}
+                  placeholder="请选择 ISO 镜像"
+                  optionFilterProp="labelString"
+                  onOpenChange={(o) => {
+                    if (o) reloadImages?.();
+                  }}
+                  options={(images || [])
+                    .filter((x: any) => resolveVmImageKind(x) === 'iso' && isHarvesterVmImageReady(x))
+                    .map((x: any) => {
+                      const name = x?.metadata?.name || x?.name;
+                      const ns = x?.metadata?.namespace || x?.namespace;
+                      const annotations = x?.metadata?.annotations || x?.annotations || {};
+                      const disp =
+                        annotations['field.cattle.io/displayName'] ||
+                        annotations['harvesterhci.io/image-name'] ||
+                        annotations['harvesterhci.io/imageDisplayName'] ||
+                        x?.spec?.displayName ||
+                        x?.displayName ||
+                        name;
+                      const value = ns && name ? `${ns}/${name}` : name;
+                      return {
+                        label: (
+                          <Space>
+                            <OsIcon osName={disp || name} />
+                            <span>{disp || '-'}</span>
+                          </Space>
+                        ),
+                        value,
+                        labelString: `${disp || ''} ${name || ''} ${value || ''}`,
+                      };
+                    })}
+                />
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
+
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>卷显示名</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="newDiskName"
+                rules={[
+                  { required: true, message: '请输入卷显示名' },
+                  { max: 128, message: '名称过长（最多 128 字符）；非英文命名将自动生成为 Kubernetes 资源名并保留为显示别名' },
+                ]}
+                noStyle
+              >
+                <Input placeholder="支持中文显示名；技术名不符合规则时由系统自动生成" disabled={created} />
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
+
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>容量 (GiB)</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="newDiskSize"
+                initialValue={10}
+                rules={[{ required: true, message: '请输入容量' }]}
+                noStyle
+              >
+                <InputNumber min={1} suffix="GiB" style={{ width: '150px' }} disabled={created} />
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
+
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>存储类</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item name="newDiskSc" rules={[{ required: true, message: '请选择存储类' }]} noStyle>
+                <Select
+                  options={scOptions}
+                  placeholder="请选择存储类"
+                  onDropdownVisibleChange={(o) => o && reloadScs()}
+                  disabled={created}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
+
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>访问类型</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="newDiskAccessMode"
+                initialValue="ReadWriteMany"
+                rules={[{ required: true, message: '请选择访问类型' }]}
+                noStyle
+              >
+                <Select disabled style={{ width: '100%' }}>
+                  <Select.Option value="ReadWriteMany">RWX (ReadWriteMany)</Select.Option>
+                </Select>
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
+
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '22px', paddingTop: 4 }}>启动顺序</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item name="newDiskBootFromCdrom" valuePropName="checked" initialValue={false} noStyle>
+                <Checkbox style={{ lineHeight: '32px' }} disabled={created}>优先从该光驱启动</Checkbox>
+              </Form.Item>
+            </Col>
+          </Row>
+        </>
       )}
       
       {diskSource === 'create' && (
@@ -262,34 +603,35 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
         </>
       )}
 
-      {/* 添加方式：配置添加(需重启) / 在线热插拔 */}
-      <Row gutter={12} style={{ marginBottom: 0 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>添加方式</div>
-        </Col>
-        <Col span={18}>
-          <Radio.Group
-            value={diskMode}
-            onChange={(e) => {
-              const v = String(e.target.value);
-              // 在线热插拔：总线固定为 SCSI
-              if (v === 'hotplug') {
-                form.setFieldsValue({ newDiskMode: v, newDiskBus: 'scsi' });
-              } else {
-                form.setFieldsValue({ newDiskMode: v });
-              }
-            }}
-          >
-            <Radio value="spec">配置添加（需重启）</Radio>
-            <Radio value="hotplug">在线热插拔</Radio>
-          </Radio.Group>
-          <div style={{ marginBottom: 24, color: '#999', fontSize: 12 }}>
-            {diskMode === 'hotplug'
-              ? '在线热插拔：仅支持运行中的虚拟机，总线类型固定为 SCSI。'
-              : '配置添加：修改虚拟机规格模板挂载数据盘，可自选总线类型，保存后需重启生效。'}
-          </div>
-        </Col>
-      </Row>
+      {/* 添加方式：配置添加(需重启) / 在线热插拔（选择光盘时整段不展示，由 newDiskMode 隐藏字段保持 spec） */}
+      {diskSource !== 'iso' && (
+        <Row gutter={12} style={{ marginBottom: 0 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px' }}>添加方式</div>
+          </Col>
+          <Col span={18}>
+            <Radio.Group
+              value={diskMode}
+              onChange={(e) => {
+                const v = String(e.target.value);
+                if (v === 'hotplug') {
+                  form.setFieldsValue({ newDiskMode: v, newDiskBus: 'scsi' });
+                } else {
+                  form.setFieldsValue({ newDiskMode: v });
+                }
+              }}
+            >
+              <Radio value="spec">配置添加（需重启）</Radio>
+              <Radio value="hotplug">在线热插拔</Radio>
+            </Radio.Group>
+            <div style={{ marginBottom: 24, color: '#999', fontSize: 12 }}>
+              {diskMode === 'hotplug'
+                ? '在线热插拔：仅支持运行中的虚拟机，总线类型固定为 SCSI。'
+                : '配置添加：修改虚拟机规格模板挂载数据盘，可自选总线类型，保存后需重启生效。'}
+            </div>
+          </Col>
+        </Row>
+      )}
 
       {diskSource === 'create' && (
         <Row gutter={12} style={{ marginBottom: 0 }}>
@@ -314,7 +656,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
         </Row>
       )}
 
-      {(diskMode === 'spec' || diskMode === 'hotplug') && (
+      {(diskMode === 'spec' || diskMode === 'hotplug') && diskSource !== 'iso' && (
         <Row gutter={12} style={{ marginBottom: 0 }}>
           <Col span={6}>
             <div style={{ lineHeight: '32px', display: 'flex', alignItems: 'center', gap: 4 }}>

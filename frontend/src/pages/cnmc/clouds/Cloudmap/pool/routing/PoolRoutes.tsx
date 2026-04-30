@@ -8,6 +8,7 @@ import { Empty } from 'antd';
 import {
   CloudmapBackupsGroupTabs,
   CloudmapCloudDatabaseTabs,
+  CloudmapOniaasNetworkTabs,
   CloudmapClusterTabs,
   CloudmapComputeGroupTabs,
   CloudmapContainersTabs,
@@ -269,6 +270,45 @@ const PaasDatabasesRoute: React.FC = () => {
       }
       isTenant={p.isTenant}
       namespacesOptions={p.namespacesOptions}
+      capabilities={p.capabilities}
+    />
+  );
+};
+
+const OniaasNetworkRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewOniaasNetworkTab) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapOniaasNetworkTabs
+      cloudId={p.cloudId}
+      innerActiveKey={p.poolInnerActive('oniaas_network')}
+      ecs={p.ecs}
+      ecsLoading={!!p.resourceLoading.ecs}
+      onRefreshVms={() => p.refreshVms(true)}
+      onForceRefreshVms={() => p.refreshVms(true)}
+      canReadLoadBalancers={p.canReadLoadBalancers}
+      isTenant={p.isTenant}
+      harvesterLoadBalancers={p.harvesterLoadBalancers}
+      loadTabResource={p.loadTabResource}
+      resourceLoading={p.resourceLoading}
+      namespacesForLb={p.harvesterNamespaces}
+      checkPerm={p.checkPerm}
+      canReadFlatSubnets={p.canReadFlatSubnets}
+      canReadVpcSubnets={p.canReadVpcSubnets}
+      harvesterImages={p.harvesterImages}
+      harvesterStorageClasses={p.harvesterStorageClasses}
+      kubeOvnSubnets={p.kubeOvnSubnets}
+      harvesterNads={p.harvesterNads}
+      loadResource={p.loadResource}
+      setHarvesterImages={p.setHarvesterImages}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setHarvesterNads={p.setHarvesterNads}
+      setHarvesterStorageClasses={p.setHarvesterStorageClasses}
+      namespacesOptions={p.namespacesOptions}
+      harvesterNamespaces={p.harvesterNamespaces}
+      capabilities={p.capabilities}
     />
   );
 };
@@ -465,6 +505,7 @@ const CloudmapPoolRoutes: React.FC = () => {
         <Route path="cluster/:poolInnerSeg?" element={<ClusterRoute />} />
         <Route path="compute/:poolInnerSeg?" element={<ComputeRoute />} />
         <Route path="paas_databases/:poolInnerSeg?" element={<PaasDatabasesRoute />} />
+        <Route path="oniaas_network/:poolInnerSeg?" element={<OniaasNetworkRoute />} />
         <Route path="containers/:poolInnerSeg?" element={<ContainersRoute />} />
         <Route path="storage/:poolInnerSeg?" element={<StorageRoute />} />
         <Route path="backups/:poolInnerSeg?" element={<BackupsRoute />} />

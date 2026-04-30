@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import JsonHighlight from '../../../../../../components/JsonHighlight';
@@ -111,22 +111,22 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
 
   return (
     <Drawer
-      title={
-        <Space>
-          {onBack && (
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
-              返回
-            </Button>
-          )}
-          <span>{drawerTitle}</span>
-        </Space>
-      }
-      open={open}
-      onClose={onClose}
-      placement="right"
-      width="60%"
-      styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}
-    >
+        title={
+          <Space>
+            {onBack && (
+              <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
+                返回
+              </Button>
+            )}
+            <span>{drawerTitle}</span>
+          </Space>
+        }
+        open={open}
+        onClose={onClose}
+        placement="right"
+        width="60%"
+        styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}
+      >
       <style>{`
         .full-height-drawer-tabs { height: 100%; display: flex; flex-direction: column; }
         .full-height-drawer-tabs .ant-tabs-nav { margin-bottom: 0; padding: 0 16px; }
@@ -485,11 +485,17 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
               </div>
             ),
           },
-          ...(viewLink ? [{
-            key: 'view_link',
-            label: '实时数据 (View Link)',
-            children: <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />,
-          }] : []),
+          ...(viewLink
+            ? [
+                {
+                  key: 'view_link',
+                  label: '实时数据 (View Link)',
+                  children: (
+                    <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />
+                  ),
+                },
+              ]
+            : []),
           // Service 类型显示关联 Pod Tab（除非 hideRelatedPods 为 true）
           ...(resourceType === 'Service' && !hideRelatedPods ? [{
             key: 'related_pods',

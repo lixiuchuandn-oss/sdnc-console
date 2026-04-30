@@ -28,6 +28,7 @@ const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'));
 
 const LicenseSettingsPage = lazy(() => import('./pages/settings/LicenseSettings'));
+const OfflineUpgradeSettings = lazy(() => import('./pages/settings/OfflineUpgradeSettings'));
 const SRv6Page = lazy(() => import('./pages/sdncc/interconnect/srv6/index'));
 const SRv6CreatePage = lazy(() => import('./pages/sdncc/interconnect/srv6/Create'));
 const IPsecVPNPage = lazy(() => import('./pages/sdncc/interconnect/ipsec-vpn/index'));
@@ -57,8 +58,6 @@ const CsmPoolDetailPage = lazy(() =>
 );
 const WebSSHPage = lazy(() => import('./pages/cnmc/pools/WebSSH'));
 const CloudConsolePage = lazy(() => import('./pages/cnmc/console/CloudConsole'));
-const PaasDatabasesPage = lazy(() => import('./pages/cnmc/paas/PaasDatabasesPage'));
-const PaasSecurityHub = lazy(() => import('./pages/cnmc/paas/PaasSecurityHub'));
 const HarvesterVNCPage = lazy(() => import('./pages/cnmc/clouds/Harvester/HarvesterVNC'));
 const OrgManagePage = lazy(() => import('./pages/cnmc/tenants/OrgManage'));
 const VmCreateWizardModal = lazy(() => import('./pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizardModal'));
@@ -127,9 +126,6 @@ const AppRoutes: React.FC = () => {
           <Route path="clouds" element={<Clouds />} />
           <Route path="clouds/:poolId/clusters/:clusterId" element={<RancherClusterWorkspace />} />
           <Route path="clouds/:id/*" element={<CloudDetailGate />} />
-          <Route path="paas/databases" element={<PaasDatabasesPage />} />
-          <Route path="paas/security" element={<PaasSecurityHub />} />
-
           <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
           <Route path="clouds/ecs" element={<Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />} />
@@ -179,6 +175,7 @@ const AppRoutes: React.FC = () => {
           <Route path="settings/audit-logs" element={<AuditLogs />} />
           <Route path="settings/advanced" element={<AdvancedSettings />} />
 
+          <Route path="settings/offline-upgrade" element={<OfflineUpgradeSettings />} />
           <Route path="settings/license" element={<LicenseSettingsPage />} />
           
           <Route path="coming-soon" element={<ComingSoon />} />

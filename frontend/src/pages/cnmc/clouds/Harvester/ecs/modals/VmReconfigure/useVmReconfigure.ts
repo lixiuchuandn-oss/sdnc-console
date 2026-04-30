@@ -2,43 +2,12 @@
  * @file useVmReconfigure.ts
  * @description Harvester 虚拟机变配弹窗（VmReconfigureModal）的状态与提交逻辑 Hook。
  *
- * ## 职责
- * - 管理变配表单、左侧功能项 `selectedKey`、以及镜像/存储类/GPU/USB/NAD/VPC/子网/节点等资源列表状态。
- * - 弹窗打开时通过聚合接口刷新 `latestVm`（含 related.volumes），供解绑磁盘等子组件使用。
- * - 随 `selectedKey` 切换重置并回填表单（与创建向导字段对齐的变配语义）。
- * - `handleSubmit` 按当前菜单分支调用更新 VM / 卷 / 策略等 API；部分操作后提示重启（`openRestartConfirm` / `maybePromptRestart`）。
- *
- * ## 模块级函数（文件顶部，Hook 外）
- * | 函数 | 用途 |
- * |------|------|
- * | `parseQuantity` | 将 K8s 资源量字符串（如 1Gi、500Mi）解析为字节数。 |
- * | `hasDuplicateFlatSubnetsInNetworks` | 检查 networks 中 Kube-OVN 扁平子网是否被多块网卡重复使用。 |
- * | `allocateSecondaryNicNames` | 为辅网卡生成 `nic-N` 名称，避免与主网卡及其它辅卡冲突。 |
- *
- * ## Hook 内主要函数（节选）
- * | 函数 | 用途 |
- * |------|------|
- * | `getCurrentSpec` | 从 VM 清单解析当前 CPU/内存及热插拔相关上限，供表单初值。 |
- * | `loadSystemDiskSize` | 读取系统盘 PVC 容量并写入表单（扩系统盘步骤）。 |
- * | `getParsedNetworkData` | 解析 cloud-init networkData（YAML）为对象，用于静态 IP 等。 |
- * | `getQuantityInGi` / `getMemoryInGi` | 资源量转 GiB 整数，供展示与表单。 |
- * | `reloadNads` / `reloadVpcs` / `reloadSubnets` 等 | 拉取集群网络与节点数据。 |
- * | `ensureNadsLoaded` | 若内存无 NAD 列表则先拉取。 |
- * | `getMissingNadsFromNetworks` | 根据 VM networks 解析 multus 引用，返回集群中不存在的 NAD。 |
- * | `generateMacAddress` | 生成随机 MAC（静态 IP 且未填 MAC 时使用）。 |
- * | `openRestartConfirm` | 变更需重启时弹出确认框，可选立即调用云主机重启 API。 |
- * | `isRestartRequiredFromVm` | 判断 VM status.conditions 是否含 RestartRequired。 |
- * | `isVmStopped` | 判断是否关机，用于跳过「立即重启」提示。 |
- * | `fetchAggregatedVm` | 拉取聚合 VM 并写回 `latestVm`。 |
- * | `maybePromptRestart` | 提交后短暂延迟再拉取 VM，若需重启且未关机则弹确认。 |
- * | `handleSubmit` | 主提交：按 `selectedKey` 分支处理各类变配（见函数上方分支说明）。 |
- * | `handleCreateDisk` / `handleAttachDisk` | 添加数据盘：创建 PVC 或挂载已有卷。 |
- * | `handleDetachDisk` | 解绑数据盘。 |
- * | `refreshVm` | 手动刷新聚合 VM 数据。 |
+ * 拆分说明（STRUCTURE：Harvester `ecs` 域内 `lib/` 放纯函数，提交体单独文件）：
+ * - `lib/`：`vmReconfigureQuantity`、`vmReconfigureNetwork`、`vmReconfigureCloudInit` 等
+ * - `vmReconfigureSubmit.ts`：`runVmReconfigureSubmit`（按 `selectedKey` 的表单提交分支）
  */
 import { useState, useEffect, useMemo } from 'react';
 import { Form, message, Modal } from 'antd';
-import yaml from 'js-yaml';
 import {
   updateHarvesterVmSpec,
   createHarvesterVolume,
@@ -62,72 +31,24 @@ import {
 import { rebootCloudProviderEcs } from '../../../../../../../services/api';
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { translateKnownApiErrorMessage } from '../../../../../../../utils/k8sErrorMessages';
-import { resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
+import { isHarvesterVmImageReady, resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from '../VmCreateWizard/VmWizardUtils';
 import { getVmRootImageIdFromVm } from '../../lib/vmImageStatus';
+import { runVmReconfigureSubmit } from './vmReconfigureSubmit';
+import { harvesterCreatedPvcNameFromResponse } from './lib/vmReconfigureHarvesterResponse';
+import { parseQuantity, storageQuantityToGiB } from './lib/vmReconfigureQuantity';
+import {
+  allocateSecondaryNicNames,
+  getMissingNadsFromNetworks,
+  hasDuplicateFlatSubnetsInNetworks,
+} from './lib/vmReconfigureNetwork';
+import { applyBootOrderCdromFirst } from './lib/vmReconfigureBootOrder';
+import { buildExpandDiskCandidates, type ExpandDiskCandidate } from './lib/vmReconfigureDiskCandidates';
+import { parseVmCloudInitNetworkData } from './lib/vmReconfigureCloudInit';
+import { getVmReconfigureCurrentSpec } from './lib/vmReconfigureCurrentSpec';
+import { isRestartRequiredFromVm, isVmStopped } from './lib/vmReconfigureVmStatus';
 
-/** POST 创建卷响应中解析 PVC metadata.name（兼容 axios 包装与 { message, data: pvc }） */
-function harvesterCreatedPvcNameFromResponse(res: any, fallback: string): string {
-  let cur: any = res;
-  for (let i = 0; i < 4 && cur; i++) {
-    const n = String(cur?.metadata?.name || '').trim();
-    if (n) return n;
-    cur = cur?.data ?? cur?.body?.data;
-  }
-  return fallback;
-}
-
-/** 将 Kubernetes 资源量字符串（如 `1Gi`、`500Mi`、`1000`）解析为字节数。 */
-const parseQuantity = (s: string | number | undefined): number => {
-  if (typeof s === 'number') return s;
-  if (!s) return 0;
-  const str = String(s);
-  const units: Record<string, number> = {
-    'Ki': 1024, 'Mi': 1024**2, 'Gi': 1024**3, 'Ti': 1024**4, 'Pi': 1024**5,
-    'k': 1000, 'M': 1000**2, 'G': 1000**3, 'T': 1000**4, 'P': 1000**5
-  };
-  for (const [u, m] of Object.entries(units)) {
-    if (str.endsWith(u)) {
-      return parseFloat(str.slice(0, -u.length)) * m;
-    }
-  }
-  return parseFloat(str);
-};
-
-/** 全部 multus 网络中，Kube-OVN 扁平子网（tower.io/subnet-type=flat）是否重复使用 */
-function hasDuplicateFlatSubnetsInNetworks(networks: any[], subnetInventory: any[]): boolean {
-  const names: string[] = [];
-  for (const n of networks || []) {
-    const nn = n?.multus?.networkName;
-    if (!nn) continue;
-    const raw = String(nn);
-    const name = raw.includes('/') ? raw.split('/').pop() || '' : raw;
-    if (!name) continue;
-    const s = subnetInventory.find((x: any) => x?.metadata?.name === name);
-    const t = String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase();
-    if (t === 'flat') names.push(name);
-  }
-  return new Set(names).size !== names.length;
-}
-
-/**
- * 为辅网卡分配 nic-N 名称：从 nic-1、nic-2… 中取最小可用编号，保证不与主网卡名冲突。
- * Harvester 等底座常把第一块网卡命名为 nic-1，若仍固定辅卡为 nic-1 会与主卡重名。
- */
-function allocateSecondaryNicNames(primaryIfaceName: string, count: number): string[] {
-  const used = new Set<string>();
-  if (primaryIfaceName) used.add(primaryIfaceName);
-  const out: string[] = [];
-  let n = 1;
-  for (let i = 0; i < count; i++) {
-    while (used.has(`nic-${n}`)) n++;
-    const name = `nic-${n}`;
-    used.add(name);
-    out.push(name);
-    n++;
-  }
-  return out;
-}
+export { buildExpandDiskCandidates, type ExpandDiskCandidate };
 
 /**
  * 虚拟机变配主 Hook：供 VmReconfigureModal 使用。
@@ -147,10 +68,13 @@ export const useVmReconfigure = (props: any) => {
   } = props;
 
   const [form] = Form.useForm();
-  // 添加数据盘：创建/挂载两步按钮的 loading 状态
+  // 添加磁盘：创建/挂载两步按钮的 loading 状态
   const [diskCreating, setDiskCreating] = useState(false);
   const [diskAttaching, setDiskAttaching] = useState(false);
-  // 添加数据盘：可选择"已有磁盘(PVC)"进行挂载
+  // 添加光盘（ISO）
+  const [cdromCreating, setCdromCreating] = useState(false);
+  const [cdromAttaching, setCdromAttaching] = useState(false);
+  // 添加磁盘：可选择「已有磁盘」(PVC) 进行挂载
   const [availableDiskPvcs, setAvailableDiskPvcs] = useState<any[]>([]);
   // 解绑数据盘：loading 状态
   const [diskDetaching, setDiskDetaching] = useState(false);
@@ -171,6 +95,7 @@ export const useVmReconfigure = (props: any) => {
   const [nodes, setNodes] = useState<any[]>([]);
   const [gpuLoading, setGpuLoading] = useState<boolean>(false);
   const [usbLoading, setUsbLoading] = useState<boolean>(false);
+  /** 当前选中的「待扩容」PVC 的已有容量（GiB），用于下限校验与展示 */
   const [systemDiskSize, setSystemDiskSize] = useState<number | null>(null);
   const [systemDiskLoading, setSystemDiskLoading] = useState<boolean>(false);
 
@@ -244,23 +169,30 @@ export const useVmReconfigure = (props: any) => {
     return { systemDisk: sysDiskPvc };
   }, [record, activeRecord]);
 
-  /** 读取系统盘 PVC 的容量并写入表单字段 `systemDiskSize`（扩系统盘菜单使用）。 */
-  const loadSystemDiskSize = async () => {
-    if (!systemDisk || !record?.metadata?.namespace) return;
+  const expandDiskCandidates = useMemo(
+    () => buildExpandDiskCandidates(activeRecord, record),
+    [activeRecord, record],
+  );
+
+  /** 读取指定 PVC 容量并回填「新容量」输入框为当前值（用户再改大）。 */
+  const loadExpandDiskSize = async (pvcName: string) => {
+    const pvc = String(pvcName || '').trim();
+    if (!pvc || !record?.metadata?.namespace) return;
     try {
       setSystemDiskLoading(true);
-      const res = await fetchHarvesterVolume(cloudId, record.metadata.namespace, systemDisk);
-       const data = res?.data || res;
-       // Prefer spec.resources.requests (user intent) over status.capacity (actual/current)
-       // This avoids issues where status reflects underlying image size before resize is complete
-       const cap = data?.spec?.resources?.requests?.storage || data?.status?.capacity?.storage;
-       if (cap) {
-         const sizeGi = getQuantityInGi(cap);
-         setSystemDiskSize(sizeGi);
-         form.setFieldsValue({ systemDiskSize: sizeGi });
-       }
-     } catch (e) {
-      console.error('Failed to load system disk size', e);
+      const res = await fetchHarvesterVolume(cloudId, record.metadata.namespace, pvc);
+      const data = res?.data || res;
+      const cap = data?.spec?.resources?.requests?.storage || data?.status?.capacity?.storage;
+      if (cap) {
+        const sizeGi = storageQuantityToGiB(cap);
+        setSystemDiskSize(sizeGi);
+        form.setFieldsValue({ systemDiskSize: sizeGi });
+      } else {
+        setSystemDiskSize(null);
+      }
+    } catch (e) {
+      console.error('Failed to load PVC size', e);
+      setSystemDiskSize(null);
     } finally {
       setSystemDiskLoading(false);
     }
@@ -277,89 +209,20 @@ export const useVmReconfigure = (props: any) => {
   // Handle initial config type (处理初始选中项)
   useEffect(() => {
     if (open && initialConfigType) {
-      setSelectedKey(initialConfigType === 'mem_advanced' ? 'cpu_advanced' : initialConfigType);
+      const key =
+        initialConfigType === 'mem_advanced'
+          ? 'cpu_advanced'
+          : initialConfigType === 'expand_system_disk'
+            ? 'expand_disk'
+            : initialConfigType;
+      setSelectedKey(key);
     } else if (open && !initialConfigType) {
       setSelectedKey('change_spec');
     }
   }, [open, initialConfigType]);
 
-  /**
-   * 从 `record` / `activeRecord` 解析当前 CPU/内存及热插拔上限（maxSockets、maxMemory 等），
-   * 供「调整规格」「热插拔设置」「CPU 高级」等表单的初始值。
-   */
-  const getCurrentSpec = () => {
-    let cpu = record?.Extra?.CPU;
-    let mem = record?.Extra?.Memory;
-    
-    // Retrieve maxSockets and maxMemory from the active record (latest state)
-    const domain = activeRecord?.spec?.template?.spec?.domain;
-    const maxSockets = domain?.cpu?.maxSockets;
-    const maxMemory = domain?.memory?.maxGuest;
-
-    if (cpu === undefined || cpu === null) {
-       const sockets = domain?.cpu?.sockets || 1;
-       const cores = domain?.cpu?.cores || 1;
-       const threads = domain?.cpu?.threads || 1;
-       cpu = sockets * cores * threads;
-    }
-    
-    // [Harvester 兼容] 在热扩容模式下，优先使用 domain.memory.guest
-    // 复刻 Harvester 逻辑：通过 Annotation 判断热扩容状态
-    // 如果启用了热扩容，domain.memory.guest 不会被 mutator 修改，是用户实际设置的值
-    const annotations = activeRecord?.metadata?.annotations || {};
-    const isHotPlug = annotations['harvesterhci.io/enableCPUAndMemoryHotplug']?.toLowerCase() === 'true';
-    if (mem === undefined || mem === null || isHotPlug) {
-      // 热扩容模式下，优先使用 domain.memory.guest
-      mem = activeRecord?.spec?.template?.spec?.domain?.memory?.guest;
-      // 如果没有 guest 内存，再使用 requests.memory（非热扩容模式）
-      if (!mem && !isHotPlug) {
-        mem = activeRecord?.spec?.template?.spec?.domain?.resources?.requests?.memory;
-      }
-    }
-    return { cpu: Number(cpu || 0), memory: mem, maxSockets, maxMemory };
-  };
-
-  /** 生成随机本地管理 MAC（52:54:00 前缀），用于静态 IP 且未指定 MAC 的网卡。 */
-  const generateMacAddress = () => {
-    const hex = '0123456789ABCDEF';
-    let mac = '52:54:00'; 
-    for (let i = 0; i < 3; i++) {
-      mac += ':' + hex[Math.floor(Math.random() * 16)] + hex[Math.floor(Math.random() * 16)];
-    }
-    return mac;
-  };
-
-  /**
-   * 从 VM 的 cloud-init volume 中解析 `networkData`（YAML），失败时返回空 ethernets 结构。
-   * 用于读写静态 IP、网关、DNS 等。
-   */
-  const getParsedNetworkData = (vm: any) => {
-    try {
-      const volumes = vm?.spec?.template?.spec?.volumes || [];
-      const ciVol = volumes.find((v: any) => v.cloudInitNoCloud);
-      if (ciVol && ciVol.cloudInitNoCloud.networkData) {
-        return yaml.load(ciVol.cloudInitNoCloud.networkData) as any;
-      }
-    } catch (e) {
-      console.warn('Failed to parse existing networkData', e);
-    }
-    return { network: { version: 2, ethernets: {} } };
-  };
-
-  /** 将任意资源量字符串转为 GiB 整数（向上取整）。 */
-  const getQuantityInGi = (q: string | number | undefined): number => {
-    const bytes = parseQuantity(q);
-    if (!bytes) return 0;
-    return Math.ceil(bytes / (1024 ** 3));
-  };
-
-  /** 将内存量字符串转为 GiB 整数（向上取整），与 `getQuantityInGi` 语义一致。 */
-  const getMemoryInGi = (memStr: string | number | undefined): number => {
-    const bytes = parseQuantity(memStr);
-    if (!bytes) return 0;
-    // Always round up to next GiB to ensure user sees integer GiB if close enough, or CEIL if it was MiB
-    return Math.ceil(bytes / (1024 ** 3));
-  };
+  const getCurrentSpec = () => getVmReconfigureCurrentSpec(record, activeRecord);
+  const getMemoryInGi = storageQuantityToGiB;
 
   /** 是否开启 CPU/内存热插拔（仅看 Annotation，与当前是否可热插无关）。 */
   const isHotPlugConfiguredOnVm = useMemo(() => {
@@ -401,35 +264,6 @@ export const useVmReconfigure = (props: any) => {
   const ensureNadsLoaded = async () => {
     if (Array.isArray(nads) && nads.length > 0) return nads;
     return await reloadNads();
-  };
-
-  /**
-   * 从 VM 的 `networks[].multus.networkName` 解析出 NAD 引用，与 `nadList` 比对，
-   * 返回集群中不存在的 `namespace/name` 列表（用于提交前拦截无效网络）。
-   */
-  const getMissingNadsFromNetworks = (networks: any[], vmNamespace: string, nadList: any[]) => {
-    const list = Array.isArray(nadList) ? nadList : [];
-    const getNs = (x: any) => x?.metadata?.namespace || x?.namespace || '';
-    const getName = (x: any) => x?.metadata?.name || x?.name || '';
-    const hasNad = (ns: string, name: string) =>
-      list.some((x: any) => String(getNs(x)) === String(ns) && String(getName(x)) === String(name));
-
-    return (Array.isArray(networks) ? networks : [])
-      .map((n: any) => n?.multus?.networkName)
-      .filter(Boolean)
-      .map((raw: any) => String(raw))
-      .map((s: string) => (s.includes('@') ? s.split('@')[0] : s))
-      .map((s: string) => {
-        const parts = s.split('/');
-        if (parts.length > 1) return { namespace: parts[0], name: parts[1] };
-        const shortName = parts[0];
-        const matched = list.filter((x: any) => String(getName(x)) === String(shortName));
-        if (matched.length === 1) return { namespace: getNs(matched[0]), name: shortName };
-        return { namespace: vmNamespace, name: shortName };
-      })
-      .filter((ref: any) => ref?.name && ref?.namespace)
-      .filter((ref: any) => !hasNad(ref.namespace, ref.name))
-      .map((ref: any) => `${ref.namespace}/${ref.name}`);
   };
 
   /** 拉取 Kube-OVN VPC 列表。 */
@@ -524,9 +358,17 @@ export const useVmReconfigure = (props: any) => {
 
     // Re-populate initial values for specific tabs
     switch (selectedKey) {
-      case 'expand_system_disk': {
-         loadSystemDiskSize();
-         break;
+      case 'expand_disk': {
+        const list = buildExpandDiskCandidates(latestVm || record, record);
+        const first = list[0]?.pvcName;
+        if (first) {
+          form.setFieldsValue({ expandDiskPvc: first });
+          void loadExpandDiskSize(first);
+        } else {
+          form.setFieldsValue({ expandDiskPvc: undefined, systemDiskSize: undefined });
+          setSystemDiskSize(null);
+        }
+        break;
       }
       case 'change_spec': {
         const { cpu, memory } = getCurrentSpec();
@@ -601,8 +443,8 @@ export const useVmReconfigure = (props: any) => {
         const limit = parseCpu(resources?.limits?.cpu);
         const reqMem = resources?.requests?.memory;
         const limMem = resources?.limits?.memory;
-        const reqGi = reqMem ? getQuantityInGi(reqMem) : undefined;
-        const limGi = limMem ? getQuantityInGi(limMem) : undefined;
+        const reqGi = reqMem ? storageQuantityToGiB(reqMem) : undefined;
+        const limGi = limMem ? storageQuantityToGiB(limMem) : undefined;
 
         form.setFieldsValue({
           cpuSockets: cpuSpec?.sockets || 1,
@@ -653,7 +495,7 @@ export const useVmReconfigure = (props: any) => {
                   : isVpc
                     ? 'vpc'
                     : 'flat';
-            const networkDataObj = getParsedNetworkData(record);
+            const networkDataObj = parseVmCloudInitNetworkData(record);
             let eth = networkDataObj?.network?.ethernets?.['nic-0'] || networkDataObj?.network?.ethernets?.['nic0'];
             if (!eth && iface.macAddress && networkDataObj?.network?.ethernets) {
               eth = Object.values(networkDataObj.network.ethernets).find(
@@ -699,7 +541,7 @@ export const useVmReconfigure = (props: any) => {
           )[2];
           const networks = record?.spec?.template?.spec?.networks || [];
           const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
-          const networkDataObj = getParsedNetworkData(record);
+          const networkDataObj = parseVmCloudInitNetworkData(record);
 
           let primaryForm: { netMode?: string; primaryNic?: any } = {};
           if (interfaces.length > 0) {
@@ -990,7 +832,7 @@ export const useVmReconfigure = (props: any) => {
               const scFromPvc = data?.spec?.storageClassName;
               const pvcPatch: Record<string, unknown> = {};
               if (cap) {
-                const gi = getQuantityInGi(cap);
+                const gi = storageQuantityToGiB(cap);
                 if (gi > 0) pvcPatch.newOsRootSize = gi;
               }
               if (scFromPvc) pvcPatch.storageClassName = scFromPvc;
@@ -1006,6 +848,15 @@ export const useVmReconfigure = (props: any) => {
       }
       case 'add_disk': {
         if (!scs || scs.length === 0) reloadScs();
+        if (!images || images.length === 0) reloadImages();
+        form.setFieldsValue({
+          newDiskSource: 'create',
+          newDiskCreated: false,
+          newDiskMode: 'spec',
+          newDiskIsoImage: undefined,
+          existingPvcName: undefined,
+          newDiskBootFromCdrom: false,
+        });
         // 预加载当前 namespace 下可挂载的 PVC（用于“选择已有磁盘”）
         if (open && cloudId && record?.metadata?.namespace) {
           void (async () => {
@@ -1023,13 +874,24 @@ export const useVmReconfigure = (props: any) => {
               });
               const enriched = await Promise.all(
                 normalized.map(async (x: any) => {
-                  if (x.alias) return x;
                   if (!x.namespace || !x.pvcName) return x;
+                  const raw = x?.rawData || x;
+                  const hasSpecSc = !!(raw?.spec?.storageClassName || x?.storageClassName);
+                  const modes = raw?.spec?.accessModes;
+                  const hasSpecModes = Array.isArray(modes) && modes.length > 0;
+                  // 缓存路径常带完整 PVC；直连 Longhorn 列表仅有摘要，须拉 PVC 详情才能预览存储类/访问模式
+                  if (hasSpecSc && hasSpecModes) return x;
                   try {
                     const detail: any = await fetchHarvesterVolume(cloudId, x.namespace, x.pvcName);
-                    const ann = detail?.metadata?.annotations || detail?.data?.metadata?.annotations || {};
-                    const alias = ann?.['tower.io/alias'];
-                    return alias ? { ...x, alias } : x;
+                    const pvc = detail?.data || detail;
+                    if (!pvc || typeof pvc !== 'object' || !pvc.metadata) return x;
+                    const ann = pvc?.metadata?.annotations || {};
+                    const aliasFromPvc = ann?.['tower.io/alias'];
+                    return {
+                      ...x,
+                      alias: x.alias || aliasFromPvc || undefined,
+                      rawData: pvc,
+                    };
                   } catch {
                     return x;
                   }
@@ -1041,6 +903,20 @@ export const useVmReconfigure = (props: any) => {
             }
           })();
         }
+        break;
+      }
+      case 'add_cdrom': {
+        if (!images || images.length === 0) reloadImages();
+        if (!scs || scs.length === 0) reloadScs();
+        form.setFieldsValue({
+          newCdromCreated: false,
+          newCdromSize: 10,
+          newCdromAccessMode: 'ReadWriteMany',
+          newCdromImage: undefined,
+          newCdromName: undefined,
+          newCdromSc: undefined,
+          newCdromBootFromCdrom: false,
+        });
         break;
       }
     }
@@ -1225,20 +1101,38 @@ export const useVmReconfigure = (props: any) => {
     form.setFieldsValue({ gpuNodeName: inferredNode });
   }, [open, selectedKey, activeRecord, gpuResources, form]);
 
+  /** 虚拟光驱（cdrom）在 Harvester 侧总线固定为 SCSI；挂载后必须重启（或关机态下启动后再重启）方可靠生效。 */
+  const CDROM_BUS: 'scsi' = 'scsi';
+
   /**
    * 变更需重启生效时弹出确认：用户可选择立即重启（调用云 API）或稍后手动重启。
-   * 若 VM 已停止则仅提示「下次启动生效」，不弹重启框。
+   * 若 VM 已停止则通常仅 toast「下次启动生效」；`options.cdrom` 时改为弹窗强调光盘必须走重启链路。
    */
-  const openRestartConfirm = (namespace: string, vmName: string, force: boolean = false) => {
-    // [修复] 检查虚拟机状态，如果已停止则不提示重启
+  const openRestartConfirm = (
+    namespace: string,
+    vmName: string,
+    force: boolean = false,
+    options?: { cdrom?: boolean },
+  ) => {
     const activeVm = latestVm || record;
     if (isVmStopped(activeVm)) {
+      if (options?.cdrom) {
+        Modal.info({
+          title: '光盘配置已保存',
+          content:
+            '当前虚拟机已关机，规格已写入。添加/挂载光盘后必须重启才能生效：请先启动虚拟机，再执行一次重启（或关机再开），否则光驱可能不可用。',
+          okText: '知道了',
+        });
+        return;
+      }
       message.success('设置已保存，下次启动时将自动应用新配置');
       return;
     }
-    
+
     Modal.confirm({
-      title: '规格变更已提交，需要重启实例生效，是否重启实例',
+      title: options?.cdrom
+        ? '光盘已挂入规格：必须重启虚拟机后生效，是否立即重启'
+        : '规格变更已提交，需要重启实例生效，是否重启实例',
       okText: '立即重启',
       cancelText: '手动重启',
       onOk: async () => {
@@ -1249,25 +1143,8 @@ export const useVmReconfigure = (props: any) => {
           message.error(translateKnownApiErrorMessage(String(e?.message || e || '重启失败')));
         }
       },
-      onCancel: () => {}
+      onCancel: () => {},
     });
-  };
-
-  /** 读取 VM status.conditions 是否包含 `RestartRequired=True`。 */
-  const isRestartRequiredFromVm = (vm: any) => {
-    const conditions = vm?.status?.conditions || [];
-    return conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
-  };
-
-  /** 判断虚拟机是否处于停止状态（用于跳过重启提示）。 */
-  const isVmStopped = (vm: any) => {
-    if (!vm) return false;
-    // 检查 spec.running 字段
-    if (vm.spec?.running === false) return true;
-    // 检查状态字符串
-    const status = vm.status?.printableStatus || vm.status?.phase || '';
-    const statusLower = String(status).toLowerCase();
-    return ['stopped', 'shutoff', 'down', 'offline'].includes(statusLower);
   };
 
   /** 拉取聚合 VM 数据并更新 `latestVm`，返回更新后的 VM 对象。 */
@@ -1280,6 +1157,77 @@ export const useVmReconfigure = (props: any) => {
     }
     setLatestVm(updatedVm);
     return updatedVm;
+  };
+
+  /** 将已存在的 ISO PVC（卷名 / claimName 均为 `volName`）挂到 VM 模板为 SCSI cdrom（供挂载步骤复用）。 */
+  const attachIsoPvcAsCdromToVm = async (volName: string, bootFromCdrom: boolean) => {
+    const vmName = record?.metadata?.name;
+    const namespace = record?.metadata?.namespace;
+    if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
+
+    const currentNetworks =
+      activeRecord?.spec?.template?.spec?.networks || record?.spec?.template?.spec?.networks || [];
+    const nadList = await ensureNadsLoaded();
+    const missing = getMissingNadsFromNetworks(currentNetworks, String(namespace || 'default'), nadList);
+    if (missing.length > 0) {
+      throw new Error(`虚拟机网卡引用的 NAD 不存在：${missing.join(', ')}`);
+    }
+
+    const vmSpecSource = latestVm || record;
+    const vmSpec = vmSpecSource?.spec || {};
+    const tplSpec = vmSpec?.template?.spec || {};
+    const domain = tplSpec?.domain || {};
+    const devices = domain?.devices || {};
+    const volumes = Array.isArray(tplSpec?.volumes) ? [...tplSpec.volumes] : [];
+    const disks = Array.isArray(devices?.disks) ? [...devices.disks] : [];
+
+    const nameTaken =
+      volumes.some((v: any) => v?.name === volName) || disks.some((d: any) => d?.name === volName);
+    if (nameTaken) {
+      throw new Error(`名称 ${volName} 与现有卷/磁盘冲突`);
+    }
+
+    volumes.push({
+      name: volName,
+      persistentVolumeClaim: { claimName: volName },
+    });
+    disks.push({
+      name: volName,
+      cdrom: { bus: CDROM_BUS },
+    });
+    if (bootFromCdrom) {
+      applyBootOrderCdromFirst(disks, volName);
+    }
+
+    await patchHarvesterVm(cloudId, namespace, vmName, {
+      spec: {
+        template: {
+          spec: {
+            ...tplSpec,
+            domain: {
+              ...domain,
+              devices: {
+                ...devices,
+                disks,
+              },
+            },
+            volumes,
+          },
+        },
+      },
+    });
+
+    try {
+      const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
+      const data = res?.data?.vm ? res.data : res;
+      const updatedVm = data?.vm || data;
+      if (updatedVm && data?.related) {
+        updatedVm.related = data.related;
+      }
+      setLatestVm(updatedVm);
+    } catch {
+      /* ignore */
+    }
   };
 
   /**
@@ -1312,1372 +1260,98 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
-  /**
-   * 变配表单统一提交入口：根据 `selectedKey` 分支处理。
-   *
-   * - `expand_system_disk`：扩容系统盘 PVC，必要时更新 annotation。
-   * - `change_spec`：调整 CPU/内存（含热插拔路径下的 patch 逻辑）。
-   * - `hotplug_settings`：开关 CPU/内存热插拔及上限。
-   * - `cpu_advanced`：CPU 拓扑、独占、requests/limits 等高级域。
-   * - `change_os`：更换镜像/启动相关。
-   * - `add_disk`：新增数据盘（卷与磁盘条目）。
-   * - `change_gpu`：GPU 绑定与节点亲和。
-   * - `change_node_scheduling` / `change_node_affinity`：节点调度与亲和性。
-   * - `change_usb`：USB 设备透传列表。
-   * - `vm_policy`：运行策略、驱逐策略等。
-   * - `change_primary_nic` / `change_secondary_nic`：主/辅网卡 Multus 与 cloud-init 网络数据。
-   *
-   * 非网卡类提交前会校验当前 VM 引用的 NAD 均存在（`getMissingNadsFromNetworks`）。
-   */
+  /** 表单提交：分支实现见 `vmReconfigureSubmit.ts` 的 `runVmReconfigureSubmit`。 */
   const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      const vmName = record?.metadata?.name;
-      const namespace = record?.metadata?.namespace;
-
-      if (selectedKey !== 'change_primary_nic' && selectedKey !== 'change_secondary_nic') {
-        const currentNetworks = activeRecord?.spec?.template?.spec?.networks || record?.spec?.template?.spec?.networks || [];
-        const nadList = await ensureNadsLoaded();
-        const missing = getMissingNadsFromNetworks(currentNetworks, String(namespace || 'default'), nadList);
-        if (missing.length > 0) {
-          message.error(`更新失败：虚拟机网卡引用的 NAD 不存在：${missing.join(', ')}。请先在【变更网卡】中修复后再进行该操作。`);
-          return;
-        }
-      }
-
-      switch (selectedKey) {
-        case 'expand_system_disk': {
-          const newSize = values.systemDiskSize;
-          if (systemDisk && newSize) {
-             // 1. Update PVC
-             await updateHarvesterVolume(cloudId, namespace, systemDisk, { sizeGi: newSize });
-             
-             // 2. Update VM Annotation if exists (for consistency)
-             // Use activeRecord to ensure we have the latest annotations
-             const currentAnnotations = (latestVm || record)?.metadata?.annotations || {};
-             const templateStr = currentAnnotations['harvesterhci.io/volumeClaimTemplates'];
-             
-             if (templateStr) {
-                 try {
-                     const templates = JSON.parse(templateStr);
-                     let hasChange = false;
-                     const updatedTemplates = templates.map((t: any) => {
-                         if (t.metadata.name === systemDisk) {
-                             hasChange = true;
-                             return {
-                                 ...t,
-                                 spec: {
-                                     ...t.spec,
-                                     resources: {
-                                         ...t.spec.resources,
-                                         requests: {
-                                             ...t.spec.resources.requests,
-                                             storage: `${newSize}Gi`
-                                         }
-                                     }
-                                 }
-                             };
-                         }
-                         return t;
-                     });
-                     
-                     if (hasChange) {
-                        await patchHarvesterVm(cloudId, namespace, vmName, {
-                            annotations: {
-                                'harvesterhci.io/volumeClaimTemplates': JSON.stringify(updatedTemplates)
-                            }
-                        });
-                     }
-                 } catch (e) {
-                     console.warn('Failed to update volumeClaimTemplates annotation', e);
-                 }
-             }
-             
-             try {
-               const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
-               const data = res?.data?.vm ? res.data : res;
-               const updatedVm = data?.vm || data;
-               if (updatedVm && data?.related) {
-                 updatedVm.related = data.related;
-               }
-               setLatestVm(updatedVm);
-             } catch {}
-
-            message.success('系统盘扩容请求已提交，设置已保存');
-            void maybePromptRestart(namespace, vmName);
-          }
-          break;
-        }
-        case 'change_spec': {
-          // [关键检查] 如果热扩容正在进行中，禁止任何变更操作
-          const conditions = activeRecord?.status?.conditions || [];
-          const isHotPlugInProgress = conditions.some((c: any) => 
-            (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True'
-          );
-          
-          if (isHotPlugInProgress) {
-            message.warning('热扩容操作正在进行中，请等待操作完成后再进行变更');
-            return;
-          }
-          
-          // 检查当前虚拟机的CPU拓扑和热扩容状态
-          const currentDomain = activeRecord?.spec?.template?.spec?.domain;
-          const currentCores = currentDomain?.cpu?.cores || 1;
-          const currentThreads = currentDomain?.cpu?.threads || 1;
-          const currentSockets = currentDomain?.cpu?.sockets || 1;
-          const currentTotalCpu = currentSockets * currentCores * currentThreads;
-          
-          // [热扩容配置判断] 同时检查 Annotation 和 maxSockets，确保准确识别热扩容能力
-          // 根据 Harvester 源码（pkg/util/virtualmachine/virtualmachine.go:SupportCPUAndMemoryHotplug），
-          // 热扩容能力通过 Annotation harvesterhci.io/enableCPUAndMemoryHotplug 控制
-          const hotPlugAnnotation = activeRecord?.metadata?.annotations?.['harvesterhci.io/enableCPUAndMemoryHotplug'];
-          const isHotPlugConfiguredByAnnotation = hotPlugAnnotation?.toLowerCase() === 'true';
-          const hasMaxSockets = currentDomain?.cpu?.maxSockets && currentDomain.cpu.maxSockets > currentSockets;
-          // 只有当 Annotation 存在且 maxSockets 配置了，才认为已配置热扩容
-          const isCurrentlyHotPlug = isHotPlugConfiguredByAnnotation && hasMaxSockets;
-          
-          // 检查用户是否修改了规格
-          // [关键修复] 统一使用 getCurrentSpec 获取当前内存值，确保表单初始化和提交验证使用相同的数据源
-          const { memory: currentMemRaw } = getCurrentSpec();
-          const currentMemGi = getMemoryInGi(currentMemRaw);
-          const cpuChanged = values.cpu !== undefined && values.cpu !== currentTotalCpu;
-          
-          // [关键修复] 只有当表单中的内存值与当前内存值确实不同时，才认为用户修改了内存
-          // 使用容差比较避免浮点数精度问题，但如果差值很小（<=0.01），认为没有变化
-          const formMemory = values.memory !== undefined ? Number(values.memory) : undefined;
-          const memoryChanged = formMemory !== undefined && Math.abs(formMemory - currentMemGi) > 0.01;
-          
-          // [注意] change_spec 中不再有 enableHotPlug 字段，热扩容开关已拆分为独立功能
-          // 这里只检查当前VM是否已配置热扩容，用于限制规则判断
-          
-          // [热扩容限制] 如果已开启热扩容，只允许增加资源，不允许减少
-          if (isCurrentlyHotPlug) {
-            if (cpuChanged && values.cpu < currentTotalCpu) {
-              message.warning('热扩容模式下不允许减少CPU，请先关闭热扩容后再修改');
-              return;
-            }
-            // [关键修复] 只有当用户确实修改了内存（memoryChanged=true）且新值小于当前值时，才报错
-            // 如果用户没有修改内存（memoryChanged=false），即使进入这个判断也不会报错
-            if (memoryChanged && formMemory !== undefined && formMemory < currentMemGi - 0.01) {
-              message.warning('热扩容模式下不允许减少内存，请先关闭热扩容后再修改');
-              return;
-            }
-            // 检查是否超出热扩容上限
-            const maxSockets = currentDomain?.cpu?.maxSockets;
-            const maxMemory = currentDomain?.memory?.maxGuest;
-            if (cpuChanged && maxSockets && values.cpu > maxSockets) {
-              message.warning(`CPU数量不能超过热扩容上限 ${maxSockets} 核`);
-              return;
-            }
-            if (memoryChanged && maxMemory) {
-              const maxMemGi = parseQuantity(maxMemory) / (1024**3);
-              if (Number(values.memory) > maxMemGi) {
-                message.warning(`内存数量不能超过热扩容上限 ${maxMemGi} GiB`);
-                return;
-              }
-            }
-          }
-          
-          // [注意] change_spec 中不再处理热扩容开关变更，热扩容开关已拆分为独立功能
-          
-          // 如果已开启热扩容，确保拓扑符合要求（cores=1, threads=1）
-          // 如果当前拓扑不符合要求，需要先修复拓扑（但这种情况应该很少见，因为开启热扩容时会自动设置）
-          const needTopologyFix = isCurrentlyHotPlug && (currentCores !== 1 || currentThreads !== 1);
-          
-          if (needTopologyFix) {
-            // 第一步：先设置拓扑为 sockets=x（现有CPU数量总和）, cores=1, threads=1（不开启热扩容）
-            const topologyPayload: any = {
-              cpu: currentTotalCpu, // 保持总CPU数不变
-              cpuSockets: currentTotalCpu, // sockets = 现有CPU数量总和
-              cpuCores: 1,
-              cpuThreads: 1,
-              enableHotPlug: false // 先不开启热扩容，只设置拓扑
-            };
-            
-            await updateHarvesterVmSpec(cloudId, namespace, vmName, topologyPayload);
-            message.info('已先设置CPU拓扑为cores=1, threads=1，正在开启热扩容...');
-            
-            // 刷新VM状态
-            try {
-              const refreshedVm = await fetchHarvesterVmDetail(cloudId, namespace, vmName);
-              setLatestVm(refreshedVm?.data || refreshedVm);
-              await new Promise(resolve => setTimeout(resolve, 300));
-            } catch (e) {
-              console.warn('刷新VM状态失败，继续执行', e);
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          }
-          
-          // 第二步：构建规格变更payload
-          // [注意] change_spec 只处理规格变更，不处理热扩容开关变更
-          let payload: any = {};
-          
-          // 如果当前已开启热扩容，使用热扩容模式的最小化 payload
-          if (isCurrentlyHotPlug) {
-            // [热扩容模式] 只传递必要的字段，避免触发 RestartRequired
-            // 1. CPU: 只传递 cpu（后端会转换为 sockets），不传递 cpuCores/cpuThreads（如果已经是1）
-            // 2. 内存: 只传递 memory（后端会使用 domain.memory.guest），不传递 resources
-            if (values.cpu !== undefined) {
-              payload.cpu = values.cpu;
-              // 不传递 cpuSockets，因为后端会根据 cpu 自动设置 sockets
-              // 不传递 cpuCores 和 cpuThreads，因为后端会检查当前值，如果已经是1则不会在Patch中包含
-            }
-            if (values.memory !== undefined) {
-              payload.memory = `${values.memory}Gi`;
-            }
-          } else {
-            // [标准模式] 传递完整的拓扑信息
-            payload = { 
-              cpu: values.cpu,
-              cpuSockets: values.cpuSockets,
-              cpuCores: values.cpuCores,
-              cpuThreads: values.cpuThreads,
-              memory: `${values.memory}Gi`
-            };
-          }
-          
-          // 如果需要修复拓扑，先修复
-          if (needTopologyFix) {
-            // 先设置正确的拓扑
-            const topologyPayload: any = {
-              cpu: currentTotalCpu,
-              cpuSockets: currentTotalCpu,
-              cpuCores: 1,
-              cpuThreads: 1
-            };
-            await updateHarvesterVmSpec(cloudId, namespace, vmName, topologyPayload);
-            message.info('已修复CPU拓扑为cores=1, threads=1');
-            
-            // 刷新VM状态
-            try {
-              const refreshedVm = await fetchHarvesterVmDetail(cloudId, namespace, vmName);
-              setLatestVm(refreshedVm?.data || refreshedVm);
-              await new Promise(resolve => setTimeout(resolve, 300));
-            } catch (e) {
-              console.warn('刷新VM状态失败，继续执行', e);
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          }
-
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
-
-          // [Hot Plug Logic] Check if we can skip restart prompt
-          // 如果第一步修改了拓扑，需要重新获取最新的VM状态
-          let finalDomain = currentDomain;
-          if (needTopologyFix) {
-            try {
-              const refreshedVm = await fetchHarvesterVmDetail(cloudId, namespace, vmName);
-              const refreshedData = refreshedVm?.data || refreshedVm;
-              finalDomain = refreshedData?.spec?.template?.spec?.domain;
-              setLatestVm(refreshedData);
-            } catch (e) {
-              console.warn('刷新VM状态失败，使用原始状态', e);
-            }
-          }
-          
-          // [注意] change_spec 中不再有 enableHotPlug 字段，使用 isCurrentlyHotPlug 判断是否“已配置”热扩容
-          // 这里的 isHotPlugActive 用于判断“本次操作是否按热扩容路径执行”，因此直接复用 isCurrentlyHotPlug，
-          // 上面已经做过 isHotPlugInProgress 校验，这里不再重复依赖状态条件，避免误判为需要重启。
-          const isHotPlugActive = !!isCurrentlyHotPlug;
-
-          // Get current resources from active record (source of truth)
-          // 使用最新的domain状态（如果刷新了则用新的，否则用原来的）
-          const finalSockets = finalDomain?.cpu?.sockets || currentSockets;
-          const finalCores = finalDomain?.cpu?.cores || currentCores;
-          const finalThreads = finalDomain?.cpu?.threads || currentThreads;
-          const finalTotalCpu = finalSockets * finalCores * finalThreads;
-
-          const newCpu = values.cpu !== undefined ? Number(values.cpu) : finalTotalCpu; // Total Cores，如果未传则保持原值
-          // [关键修复] 如果用户没有修改内存（values.memory 为 undefined），应该使用表单初始化时的值（currentMemGi）
-          // 这样可以确保即使用户只改了 CPU，内存比较逻辑也能正确工作
-          const newMemGi = values.memory !== undefined ? Number(values.memory) : currentMemGi; // GiB，如果未传则使用表单初始值
-
-          // [热扩容判断] 如果已配置热扩容，且本次操作是"只增不减"的标准热扩容场景，则无需重启
-          const arch = activeRecord?.spec?.template?.spec?.architecture;
-          const isArm = arch === 'arm64' || arch === 'aarch64';
-          
-          // [关键修复] 统一使用表单值与初始值的比较来判断是否修改了CPU/内存
-          // 这样可以避免因为计算方式不同或刷新后的值变化导致的误判
-          // 注意：这里使用之前已经计算好的 cpuChanged 和 memoryChanged（基于表单值和初始值的比较）
-          const finalCpuChanged = cpuChanged; // 复用之前计算的 cpuChanged
-          const finalMemChanged = memoryChanged; // 复用之前计算的 memoryChanged（基于 formMemory 和 currentMemGi）
-          
-          // 检查是否是"只增不减"的热扩容场景（基于表单值和当前实际值的比较）
-          const isCpuHotAdd = !finalCpuChanged || (newCpu >= finalTotalCpu - 0.01);
-          const isMemHotAdd = !finalMemChanged || (newMemGi >= currentMemGi - 0.01); // 与表单初始化时的 currentMemGi 比较
-          
-          // ARM架构不支持CPU热插拔，但支持内存热插拔
-          const isCpuHotPlugAllowed = !isArm || !finalCpuChanged;
-          
-          // [关键修复] 检查 VM 是否可迁移（内存热插拔的前提条件）
-          // KubeVirt 要求：Memory-hotplug is only available for migratable VMs
-          // 通过检查 VMI 的 status.conditions 中 LiveMigratable condition（status 为 True 表示可迁移）
-          const vmi = activeRecord?.vmi || activeRecord?.vmiRaw;
-          const vmiConditions = vmi?.status?.conditions || [];
-          const isMigratable = vmiConditions.some(
-            (c: any) => 
-              (c.type === 'LiveMigratable' || c.type === 'VirtualMachineInstanceIsMigratable') && 
-              c.status === 'True'
-          );
-          
-          // [关键修复] 如果已配置热扩容（isHotPlugActive），且满足以下条件，则走热扩容路径（无需重启）：
-          // 1. CPU：未修改 或 （增加且非ARM架构）- CPU 热插拔不需要 VM 可迁移
-          // 2. 内存：未修改 或 （增加 且 VM 可迁移）- 内存热插拔需要 VM 可迁移
-          // 根据 Harvester 源码（pkg/api/vm/formatter.go:canCPUAndMemoryHotplug），CPU 热扩容不检查 migratable
-          const canUseCpuHotPlug = isHotPlugActive && isCpuHotAdd && isCpuHotPlugAllowed;
-          // 内存热插拔需要 VM 可迁移（KubeVirt 要求："Memory-hotplug is only available for migratable VMs"）
-          const canUseMemHotPlug = isHotPlugActive && isMemHotAdd && (isMigratable || !finalMemChanged);
-          
-          // 如果只改了CPU，或只改了内存（且可迁移），或两者都改且都满足条件，则可以使用热扩容
-          const canUseHotPlug = 
-            (finalCpuChanged && !finalMemChanged && canUseCpuHotPlug) ||
-            (!finalCpuChanged && finalMemChanged && canUseMemHotPlug) ||
-            (finalCpuChanged && finalMemChanged && canUseCpuHotPlug && canUseMemHotPlug) ||
-            (!finalCpuChanged && !finalMemChanged); // 都没改，不需要重启
-          
-          if (canUseHotPlug) {
-             message.success('规格变更已提交（热扩容生效），无需重启实例');
-          } else {
-             // 如果内存变更但 VM 不可迁移，给出明确提示
-             if (finalMemChanged && !isMigratable && isHotPlugActive) {
-               message.warning('内存热扩容需要 VM 可迁移，当前 VM 不可迁移，将需要重启生效');
-             }
-             // [修复] 检查虚拟机是否处于停止状态，停止状态的虚拟机在启动时会自动应用配置，无需重启
-             try {
-               const updatedVm = await fetchAggregatedVm(namespace, vmName);
-               if (isVmStopped(updatedVm)) {
-                 message.success('设置已保存，下次启动时将自动应用新配置');
-               } else {
-                 openRestartConfirm(namespace, vmName, false);
-               }
-             } catch {
-               // 如果获取VM状态失败，仍然提示重启（保守策略）
-               openRestartConfirm(namespace, vmName, false);
-             }
-          }
-          break;
-        }
-        case 'hotplug_settings': {
-          // [关键检查] 如果热扩容正在进行中，禁止任何变更操作
-          const conditions = activeRecord?.status?.conditions || [];
-          const isHotPlugInProgress = conditions.some((c: any) => 
-            (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True'
-          );
-          
-          if (isHotPlugInProgress) {
-            message.warning('热扩容操作正在进行中，请等待操作完成后再进行变更');
-            return;
-          }
-          
-          // 检查当前虚拟机的CPU拓扑和热扩容状态
-          const currentDomain = activeRecord?.spec?.template?.spec?.domain;
-          const currentCores = currentDomain?.cpu?.cores || 1;
-          const currentThreads = currentDomain?.cpu?.threads || 1;
-          const currentSockets = currentDomain?.cpu?.sockets || 1;
-          const currentTotalCpu = currentSockets * currentCores * currentThreads;
-          
-          // [热扩容配置判断] 同时检查 Annotation 和 maxSockets，确保准确识别热扩容能力
-          const hotPlugAnnotation = activeRecord?.metadata?.annotations?.['harvesterhci.io/enableCPUAndMemoryHotplug'];
-          const isHotPlugConfiguredByAnnotation = hotPlugAnnotation?.toLowerCase() === 'true';
-          const hasMaxSockets = currentDomain?.cpu?.maxSockets && currentDomain.cpu.maxSockets > currentSockets;
-          const isCurrentlyHotPlug = isHotPlugConfiguredByAnnotation && hasMaxSockets;
-
-          // 如果要开启热扩容，且当前拓扑不是cores=1, threads=1，需要先设置拓扑
-          const needTopologyFix = values.enableHotPlug && !isCurrentlyHotPlug && (currentCores !== 1 || currentThreads !== 1);
-          
-          if (needTopologyFix) {
-            // 第一步：先设置拓扑为 sockets=x（现有CPU数量总和）, cores=1, threads=1
-            // [关键修复] 不传入 enableHotPlug，避免触发热扩容逻辑（设置 maxSockets = 1）
-            // 我们只是调整拓扑，不应该修改热扩容状态
-            const topologyPayload: any = {
-              cpu: currentTotalCpu, // 保持总CPU数不变
-              cpuSockets: currentTotalCpu, // sockets = 现有CPU数量总和
-              cpuCores: 1,
-              cpuThreads: 1
-              // 不传入 enableHotPlug，让后端只处理拓扑调整
-            };
-            
-            await updateHarvesterVmSpec(cloudId, namespace, vmName, topologyPayload);
-            message.info('已先设置CPU拓扑为cores=1, threads=1，正在开启热扩容...');
-            
-            // 刷新VM状态
-            try {
-              const refreshedVm = await fetchHarvesterVmDetail(cloudId, namespace, vmName);
-              setLatestVm(refreshedVm?.data || refreshedVm);
-              await new Promise(resolve => setTimeout(resolve, 300));
-            } catch (e) {
-              console.warn('刷新VM状态失败，继续执行', e);
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          }
-          
-          // 第二步：提交热扩容设置
-          let payload: any;
-          
-          if (values.enableHotPlug) {
-            // 开启热扩容
-            // [关键修复] 如果第一步调整了拓扑，需要在第二步时同时传入拓扑参数
-            // 确保后端知道拓扑已经调整为单核模式，避免验证失败
-            payload = {
-              enableHotPlug: true,
-              maxSockets: values.maxSockets,
-              maxMemory: `${values.maxMemory}Gi`
-            };
-            
-            // 如果第一步调整了拓扑，或者当前拓扑已经是单核模式，传入拓扑参数
-            if (needTopologyFix || (currentCores === 1 && currentThreads === 1)) {
-              // 获取调整后的拓扑（如果第一步调整了，使用调整后的值；否则使用当前值）
-              const finalSockets = needTopologyFix ? currentTotalCpu : currentSockets;
-              payload.cpuSockets = finalSockets;
-              payload.cpuCores = 1;
-              payload.cpuThreads = 1;
-            }
-          } else {
-            // 关闭热扩容
-            payload = {
-              enableHotPlug: false
-            };
-          }
-
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
-          message.success('热扩容设置已提交');
-          // [修复] 开启热扩容应该无条件提示重启对话框
-          // 只要开启了热扩容（values.enableHotPlug === true），就需要重启生效
-          if (values.enableHotPlug) {
-            openRestartConfirm(namespace, vmName, false);
-          } else {
-            // 关闭热扩容也需要重启生效
-            openRestartConfirm(namespace, vmName, false);
-          }
-          break;
-        }
-        case 'cpu_advanced': {
-          // 构造最小化 payload，避免将 null 之类的非法 quantity 传给后端
-          const advancedPayload: any = {
-            cpuSockets: values.cpuSockets,
-            cpuCores: values.cpuCores,
-            cpuThreads: values.cpuThreads,
-            cpuModel: values.cpuModel,
-            cpuModelCustom: values.cpuModelCustom,
-            dedicatedCPUPlacement: values.dedicatedCPUPlacement,
-            isolateEmulatorThread: values.isolateEmulatorThread,
-          };
-
-          if (values.dedicatedCPUPlacement) {
-            advancedPayload.cpuRequest = null;
-            advancedPayload.cpuLimit = null;
-          } else {
-            // 仅在用户填写了 cpuRequest 时才下发
-            if (values.cpuRequest !== undefined && values.cpuRequest !== null && values.cpuRequest !== '') {
-              advancedPayload.cpuRequest = Number(values.cpuRequest);
-            }
-
-            // 仅在用户填写了 cpuLimit 时才下发；未填写则不修改后端 limit 配置
-            if (values.cpuLimit !== undefined && values.cpuLimit !== null && values.cpuLimit !== '') {
-              advancedPayload.cpuLimit = Number(values.cpuLimit);
-            }
-          }
-
-          if (typeof values.memoryRequestGi === 'number') {
-            advancedPayload.memoryRequestGi = values.memoryRequestGi > 0 ? values.memoryRequestGi : null;
-          }
-          if (typeof values.memoryLimitGi === 'number') {
-            advancedPayload.memoryLimitGi = values.memoryLimitGi > 0 ? values.memoryLimitGi : null;
-          }
-
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, advancedPayload);
-          message.success('性能设置已更新');
-          openRestartConfirm(namespace, vmName, false);
-          break;
-        }
-        case 'change_os': {
-          // [修复] 处理容量值：空值/“自动选择”/无效 -> 使用默认值 40Gi
-          let rootSize = '40Gi';
-          const sizeValue = values.newOsRootSize;
-          if (sizeValue !== undefined && sizeValue !== null && sizeValue !== '' && sizeValue !== '自动选择') {
-            const numSize = Number(sizeValue);
-            if (!isNaN(numSize) && numSize > 0) {
-              rootSize = `${numSize}Gi`;
-            }
-          }
-          
-          // [修复] 验证必填字段
-          if (!values.newOsImage) {
-            message.error('请选择镜像');
-            return;
-          }
-
-          // [安全确认] 用户必须勾选“我已知晓风险”复选框才能提交
-          if (!values.changeOsConfirmed) {
-            message.warning('请勾选确认更换系统盘的风险后再提交');
-            return;
-          }
-          
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, {
-             action: 'reinstall',
-             image: values.newOsImage,
-             rootSize: rootSize,
-             bus: values.newOsBus || 'virtio',
-             storageClassName: values.storageClassName || undefined,
-             rootDeviceType: values.rootDeviceType || 'disk'
-          });
-          // message.success('重装系统请求已提交。请确保实例处于【停止】状态后，再点击【启动】（不要直接重启）。');
-          openRestartConfirm(namespace, vmName, true);
-          break;
-        }
-        case 'add_disk': {
-          const volName = values.newDiskName;
-          const created = !!values.newDiskCreated;
-
-          // 两步流程：
-          // - 第一次提交：只创建 PVC（避免 PVC 尚未 Bound 导致挂载需要点两次）
-          // - 第二次提交：通过修改 VM 规格模板挂载数据盘（支持自定义总线类型，需重启生效）
-          if (!created) {
-            const accessMode = values.newDiskAccessMode || 'ReadWriteMany';
-            const accessModeText = accessMode === 'ReadWriteOnce' ? 'RWO (ReadWriteOnce)' :
-                                   accessMode === 'ReadWriteMany' ? 'RWX (ReadWriteMany)' :
-                                   accessMode === 'ReadOnlyMany' ? 'ROX (ReadOnlyMany)' :
-                                   'RWX (ReadWriteMany)';
-            
-            const createRes: any = await createHarvesterVolume(cloudId, {
-              namespace,
-              name: volName,
-              size: values.newDiskSize,
-              storageClassName: values.newDiskSc,
-              accessModes: [accessMode],
-              volumeMode: 'Block',
-            });
-            const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-            form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
-            message.success(`数据盘创建成功（访问类型: ${accessModeText}），请再次点击【提交】进行挂载（需重启生效）`);
-            return; // 不关闭弹窗
-          }
-
-          // 第二步：通过修改 VM 规格模板挂载数据盘，而不是走在线热插拔 API
-          {
-            const vmSpecSource = latestVm || record;
-            const vmSpec = vmSpecSource?.spec || {};
-            const tplSpec = vmSpec?.template?.spec || {};
-            const domain = tplSpec?.domain || {};
-            const devices = domain?.devices || {};
-            const volumes = Array.isArray(tplSpec?.volumes) ? [...tplSpec.volumes] : [];
-            const disks = Array.isArray(devices?.disks) ? [...devices.disks] : [];
-
-            // 确保 PVC 作为 volume 存在
-            const volExisting = volumes.find((v: any) => v?.name === volName);
-            if (!volExisting) {
-              volumes.push({
-                name: volName,
-                persistentVolumeClaim: { claimName: volName },
-              });
-            }
-
-            // 为该 volume 添加/更新磁盘信息（总线类型由用户选择）
-            const targetBus = values.newDiskBus || 'virtio';
-            const diskExisting = disks.find((d: any) => d?.name === volName);
-            if (diskExisting) {
-              diskExisting.disk = diskExisting.disk || {};
-              diskExisting.disk.bus = targetBus;
-              // 不设置 bootOrder，避免误当成系统盘
-            } else {
-              disks.push({
-                name: volName,
-                disk: { bus: targetBus },
-              });
-            }
-
-            const patchPayload: any = {
-              spec: {
-                template: {
-                  spec: {
-                    ...tplSpec,
-                    domain: {
-                      ...domain,
-                      devices: {
-                        ...devices,
-                        disks,
-                      },
-                    },
-                    volumes,
-                  },
-                },
-              },
-            };
-
-            await patchHarvesterVm(cloudId, namespace, vmName, patchPayload);
-          }
-
-          try {
-            const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
-            const data = res?.data?.vm ? res.data : res;
-            const updatedVm = data?.vm || data;
-            if (updatedVm && data?.related) {
-              updatedVm.related = data.related;
-            }
-            setLatestVm(updatedVm);
-          } catch {
-            // 刷新失败不影响后续重启提示
-          }
-          // 无论后端是否显式打上 RestartRequired，都统一给出“需重启”提示
-          message.success('数据盘挂载成功，设置已保存，需要重启后生效');
-          openRestartConfirm(namespace, vmName, false);
-          // 清理 step 标记，避免下次复用表单误走挂载
-          form.setFieldsValue({ newDiskCreated: false });
-
-          // 通知上层刷新（VM + volumes），并关闭
-          try { onOk?.(true); } catch {}
-          onClose?.();
-          break;
-        }
-        case 'change_gpu': {
-          const mode = values.gpuMode || 'none';
-          const names = Array.isArray(values.gpuResourceNames) ? values.gpuResourceNames : [];
-          const deviceNames = Array.isArray(values.gpuDeviceNames) ? values.gpuDeviceNames : [];
-          const gpuNodeName = values.gpuNodeName !== undefined ? values.gpuNodeName : undefined;
-          
-          // [节点选择器校验] 如果是直通GPU（非vGPU），需要校验节点选择器
-          if (mode !== 'none' && mode !== 'vgpu' && names.length > 0) {
-            const activeVm = latestVm || record;
-            const currentNodeSelector = activeVm?.spec?.template?.spec?.nodeSelector || {};
-            const currentNodeName = currentNodeSelector['kubernetes.io/hostname'];
-            
-            // 获取要挂载的GPU设备所在的节点
-            const gpuList = Array.isArray(gpuResources) ? gpuResources : [];
-            const targetGpus = names.map((rn: string) => gpuList.find((g: any) => String(g?.resourceName || '') === String(rn))).filter(Boolean);
-            const targetNodes = targetGpus.map((g: any) => String(g?.node || g?.nodeName || '').trim()).filter(Boolean);
-            const uniqueTargetNodes = Array.from(new Set(targetNodes));
-            
-            if (uniqueTargetNodes.length > 0) {
-              const targetNode = uniqueTargetNodes[0]; // 取第一个节点（如果多个节点不一致，后面会拒绝）
-              
-              // 检查当前VM是否有其他直通设备（USB或GPU）
-              const domain = activeVm?.spec?.template?.spec?.domain;
-              const hostDevices = Array.isArray(domain?.devices?.hostDevices) ? domain.devices.hostDevices : [];
-              const currentGpus = Array.isArray(domain?.devices?.gpus) ? domain.devices.gpus : [];
-              const isUsbHostDevice = (d: any) => {
-                const dn = String(d?.deviceName || '').toLowerCase();
-                const n = String(d?.name || '').toLowerCase();
-                return n.startsWith('usb') || dn.includes('usb');
-              };
-              const isGpuLikeHostDevice = (d: any) => {
-                if (isUsbHostDevice(d)) return false;
-                const dn = String(d?.deviceName || '').toLowerCase();
-                const n = String(d?.name || '').toLowerCase();
-                return n.startsWith('gpu') || dn.startsWith('nvidia.com/');
-              };
-              const hasOtherPassthroughDevices = hostDevices.some((d: any) => isGpuLikeHostDevice(d) || isUsbHostDevice(d)) || currentGpus.length > 0;
-              
-              // 1. 判断是否有节点选择器
-              if (!currentNodeName) {
-                // 2. 如果没有，自动设置节点选择器
-                await updateHarvesterVmSpec(cloudId, namespace, vmName, {
-                  gpuMode: mode,
-                  gpuResourceNames: names,
-                  gpuDeviceNames: deviceNames,
-                  gpuNodeName: targetNode,
-                });
-                message.success(`GPU配置已更新，已自动设置节点选择器为 ${targetNode}`);
-                openRestartConfirm(namespace, vmName, false);
-                break;
-              } else {
-                // 3. 如果有节点选择器
-                if (!hasOtherPassthroughDevices) {
-                  // 3.1 没有其他直通设备，提示用户是否变更节点
-                  if (currentNodeName !== targetNode) {
-                    Modal.confirm({
-                      title: '节点选择器不一致',
-                      content: `当前VM的节点选择器为 ${currentNodeName}，但GPU设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`,
-                      okText: '是，变更节点',
-                      cancelText: '取消',
-                      onOk: async () => {
-                        await updateHarvesterVmSpec(cloudId, namespace, vmName, {
-                          gpuMode: mode,
-                          gpuResourceNames: names,
-                          gpuDeviceNames: deviceNames,
-                          gpuNodeName: targetNode,
-                        });
-                        message.success('GPU配置已更新，节点选择器已变更');
-                        openRestartConfirm(namespace, vmName, false);
-                      },
-                    });
-                    return; // 不继续执行，等待用户确认
-                  }
-                } else {
-                  // 3.2 有其他直通设备
-                  if (currentNodeName === targetNode) {
-                    // 3.2.1 节点选择器与自己一致，跳过（直接提交）
-                  } else {
-                    // 3.2.2 节点选择器与自己不一致，拒绝变配
-                    message.error(`无法挂载GPU：当前VM已挂载其他直通设备，节点选择器为 ${currentNodeName}，但GPU设备位于节点 ${targetNode}。请先移除其他直通设备或选择位于 ${currentNodeName} 节点的GPU设备。`);
-                    return; // 拒绝提交
-                  }
-                }
-              }
-              
-              // 检查多个GPU是否在同一节点
-              if (uniqueTargetNodes.length > 1) {
-                message.error(`无法挂载GPU：选择的GPU设备位于不同节点（${uniqueTargetNodes.join(', ')}），请选择位于同一节点的GPU设备。`);
-                return; // 拒绝提交
-              }
-            }
-          }
-          
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, {
-            gpuMode: mode,
-            gpuResourceNames: mode === 'none' ? [] : names,
-            gpuDeviceNames: mode === 'none' ? [] : deviceNames,
-            gpuNodeName: mode === 'none' ? null : gpuNodeName,
-          });
-          message.success('GPU配置已更新');
-          openRestartConfirm(namespace, vmName, false);
-          break;
-        }
-        case 'change_node_scheduling': {
-          const mode = values.nodeSchedulingMode;
-          const fixedNode = values.fixedNode;
-          const nodeSelectorPairs = values.nodeSelectorPairs || [];
-          
-          // 验证
-          if (mode === 'fixed' && !fixedNode) {
-            message.error('请选择要固定的节点');
-            return;
-          }
-          if (mode === 'label') {
-            const validPairs = nodeSelectorPairs.filter((p: any) => p?.key && p?.value);
-            if (validPairs.length === 0) {
-              message.error('请至少添加一个标签选择器');
-              return;
-            }
-          }
-          
-          // 构建提交参数
-          let updateParams: any = {};
-          
-          if (mode === 'auto') {
-            // 自动调度：清空所有 nodeSelector
-            updateParams.nodeSelector = null;
-          } else if (mode === 'fixed') {
-            // 指定主机：使用 nodeSelector
-            const nodeName = String(fixedNode || '').trim();
-            if (nodeName) {
-              updateParams.nodeSelector = {
-                'kubernetes.io/hostname': nodeName
-              };
-            } else {
-              updateParams.nodeSelector = null;
-            }
-          } else if (mode === 'label') {
-            // 标签选择：构建 nodeSelector 对象
-            const nodeSelector: Record<string, string> = {};
-            nodeSelectorPairs.forEach((p: any) => {
-              const key = String(p?.key || '').trim();
-              const value = String(p?.value || '').trim();
-              if (key && value) {
-                nodeSelector[key] = value;
-              }
-            });
-            updateParams.nodeSelector = Object.keys(nodeSelector).length > 0 ? nodeSelector : null;
-          }
-
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);
-          message.success('节点调度配置已更新');
-          openRestartConfirm(namespace, vmName, false);
-          break;
-        }
-        case 'change_node_affinity': {
-          const mode = values.nodeAffinityMode;
-          const terms = values.nodeAffinityTerms || [];
-          
-          // 构建 nodeAffinity
-          let nodeAffinity: any = null; // 使用 null 表示清空
-          if (mode === 'required' && terms.length > 0) {
-            const nodeSelectorTerms = terms.map((term: any) => {
-              const expressions = (term.expressions || []).filter((expr: any) => expr?.key && expr?.operator);
-              if (expressions.length === 0) return null;
-              
-              return {
-                matchExpressions: expressions.map((expr: any) => {
-                  const matchExpr: any = {
-                    key: String(expr.key || '').trim(),
-                    operator: String(expr.operator || 'In'),
-                  };
-                  
-                  // 某些操作符不需要 values（如 Exists, DoesNotExist）
-                  if (!['Exists', 'DoesNotExist'].includes(matchExpr.operator)) {
-                    const values = Array.isArray(expr.values) ? expr.values : [];
-                    const filteredValues = values.filter((v: any) => v && String(v).trim()).map((v: any) => String(v).trim());
-                    if (filteredValues.length > 0) {
-                      matchExpr.values = filteredValues;
-                    } else {
-                      // 如果操作符需要值但没有提供，跳过这个表达式
-                      return null;
-                    }
-                  }
-                  
-                  return matchExpr;
-                }).filter((expr: any) => expr !== null && expr.key),
-              };
-            }).filter((term: any) => term !== null && term.matchExpressions && term.matchExpressions.length > 0);
-            
-            if (nodeSelectorTerms.length > 0) {
-              nodeAffinity = {
-                nodeAffinity: {
-                  requiredDuringSchedulingIgnoredDuringExecution: {
-                    nodeSelectorTerms,
-                  },
-                },
-              };
-            }
-          }
-          
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, { affinity: nodeAffinity });
-          message.success('节点亲和性配置已更新');
-          openRestartConfirm(namespace, vmName, false);
-          break;
-        }
-        case 'change_usb': {
-          const names = Array.isArray(values.usbResourceNames) ? values.usbResourceNames : [];
-          
-          // [节点选择器校验] USB是直通设备，需要校验节点选择器
-          if (names.length > 0) {
-            const activeVm = latestVm || record;
-            const currentNodeSelector = activeVm?.spec?.template?.spec?.nodeSelector || {};
-            const currentNodeName = currentNodeSelector['kubernetes.io/hostname'];
-            
-            // 获取要挂载的USB设备所在的节点
-            const usbList = Array.isArray(usbResources) ? usbResources : [];
-            const targetUsbs = names.map((rn: string) => usbList.find((u: any) => String(u?.resourceName || '') === String(rn))).filter(Boolean);
-            const targetNodes = targetUsbs.map((u: any) => String(u?.nodeName || u?.node || '').trim()).filter(Boolean);
-            const uniqueTargetNodes = Array.from(new Set(targetNodes));
-            
-            if (uniqueTargetNodes.length > 0) {
-              const targetNode = uniqueTargetNodes[0]; // 取第一个节点（如果多个节点不一致，后面会拒绝）
-              
-              // 检查当前VM是否有其他直通设备（USB或GPU）
-              const domain = activeVm?.spec?.template?.spec?.domain;
-              const hostDevices = Array.isArray(domain?.devices?.hostDevices) ? domain.devices.hostDevices : [];
-              const currentGpus = Array.isArray(domain?.devices?.gpus) ? domain.devices.gpus : [];
-              const isUsbHostDevice = (d: any) => {
-                const dn = String(d?.deviceName || '').toLowerCase();
-                const n = String(d?.name || '').toLowerCase();
-                return n.startsWith('usb') || dn.includes('usb');
-              };
-              const isGpuLikeHostDevice = (d: any) => {
-                if (isUsbHostDevice(d)) return false;
-                const dn = String(d?.deviceName || '').toLowerCase();
-                const n = String(d?.name || '').toLowerCase();
-                return n.startsWith('gpu') || dn.startsWith('nvidia.com/');
-              };
-              const hasOtherPassthroughDevices = hostDevices.some((d: any) => isGpuLikeHostDevice(d) || isUsbHostDevice(d)) || currentGpus.length > 0;
-              
-              // 1. 判断是否有节点选择器
-              if (!currentNodeName) {
-                // 2. 如果没有，自动设置节点选择器
-                await updateHarvesterVmSpec(cloudId, namespace, vmName, { 
-                  usbResourceNames: names,
-                  nodeSelector: { 'kubernetes.io/hostname': targetNode }
-                });
-                message.success(`USB配置已更新，已自动设置节点选择器为 ${targetNode}`);
-                openRestartConfirm(namespace, vmName, false);
-                break;
-              } else {
-                // 3. 如果有节点选择器
-                if (!hasOtherPassthroughDevices) {
-                  // 3.1 没有其他直通设备，提示用户是否变更节点
-                  if (currentNodeName !== targetNode) {
-                    Modal.confirm({
-                      title: '节点选择器不一致',
-                      content: `当前VM的节点选择器为 ${currentNodeName}，但USB设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`,
-                      okText: '是，变更节点',
-                      cancelText: '取消',
-                      onOk: async () => {
-                        await updateHarvesterVmSpec(cloudId, namespace, vmName, { 
-                          usbResourceNames: names,
-                          nodeSelector: { 'kubernetes.io/hostname': targetNode }
-                        });
-                        message.success('USB配置已更新，节点选择器已变更');
-                        openRestartConfirm(namespace, vmName, false);
-                      },
-                    });
-                    return; // 不继续执行，等待用户确认
-                  }
-                } else {
-                  // 3.2 有其他直通设备
-                  if (currentNodeName === targetNode) {
-                    // 3.2.1 节点选择器与自己一致，跳过（直接提交）
-                  } else {
-                    // 3.2.2 节点选择器与自己不一致，拒绝变配
-                    message.error(`无法挂载USB：当前VM已挂载其他直通设备，节点选择器为 ${currentNodeName}，但USB设备位于节点 ${targetNode}。请先移除其他直通设备或选择位于 ${currentNodeName} 节点的USB设备。`);
-                    return; // 拒绝提交
-                  }
-                }
-              }
-              
-              // 检查多个USB是否在同一节点
-              if (uniqueTargetNodes.length > 1) {
-                message.error(`无法挂载USB：选择的USB设备位于不同节点（${uniqueTargetNodes.join(', ')}），请选择位于同一节点的USB设备。`);
-                return; // 拒绝提交
-              }
-            }
-          }
-          
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, { usbResourceNames: names });
-          message.success('USB配置已更新');
-          openRestartConfirm(namespace, vmName, false);
-          break;
-        }
-        case 'vm_policy': {
-          const rs = values.runStrategy || 'Manual';
-          const es = values.evictionStrategy ? String(values.evictionStrategy) : null;
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, { runStrategy: rs, evictionStrategy: es });
-          message.success('策略配置已更新');
-          openRestartConfirm(namespace, vmName, false);
-          break;
-        }
-        case 'change_primary_nic': {
-           // Construct new networks list with modified primary
-           const nic = values.primaryNic;
-           const netMode = values.netMode || 'flat';
-           // We need to fetch current VM state to be safe, but using record is okay for now
-           const networks = [...(record?.spec?.template?.spec?.networks || [])];
-           const interfaces = [...(record?.spec?.template?.spec?.domain?.devices?.interfaces || [])];
-           
-           if (interfaces.length > 0) {
-              // Update interface[0]
-              const interfaceConfig: any = {
-                 name: networks[0]?.name || 'default', // Keep link name
-                 model: nic.model || 'virtio',
-              };
-              
-              // Set MAC address if provided
-              if (nic.macAddress) {
-                 interfaceConfig.macAddress = nic.macAddress;
-              }
-              
-              // Set interface type (managedtap binding, bridge, masquerade, sriov, macvtap)
-              if (nic.type === 'managedtap') {
-                 interfaceConfig.binding = { name: 'managedtap' };
-              } else if (nic.type === 'masquerade') {
-                 interfaceConfig.masquerade = {};
-              } else if (nic.type === 'sriov') {
-                 interfaceConfig.sriov = {};
-              } else if (nic.type === 'macvtap') {
-                 interfaceConfig.macvtap = {};
-              } else {
-                 interfaceConfig.bridge = {};
-              }
-              
-              interfaces[0] = interfaceConfig;
-              
-              // Update network[0]
-              let pNetName = nic.name;
-              
-              // Handle different network modes
-              if (netMode === 'vpc') {
-                 // VPC network: subnet name is the network name
-                 const subnetName = nic.subnet || nic.name || '';
-                 if (subnetName) {
-                    const subnet = subnets.find((s: any) => s?.metadata?.name === subnetName);
-                    if (subnet?.metadata?.namespace) {
-                       pNetName = `${subnet.metadata.namespace}/${subnetName}`;
-                    } else {
-                       const nad = nads.find((n: any) => n?.metadata?.name === subnetName);
-                       if (nad?.metadata?.namespace) {
-                          pNetName = `${nad.metadata.namespace}/${subnetName}`;
-                       } else {
-                          pNetName = subnetName;
-                       }
-                    }
-                 } else {
-                    pNetName = '';
-                 }
-              } else if (netMode === 'flat_subnet') {
-                 const raw = nic.name || '';
-                 const subnetName =
-                    nic.subnet ||
-                    (raw && String(raw).includes('/') ? String(raw).split('/').pop() : raw) ||
-                    '';
-                 if ((!pNetName || !String(pNetName).includes('/')) && subnetName) {
-                    const subnet = subnets.find((s: any) => s?.metadata?.name === subnetName);
-                    let ns = subnet?.metadata?.namespace;
-                    if (!ns && subnet?.spec?.provider) {
-                       const parts = String(subnet.spec.provider).split('.');
-                       if (parts.length >= 2) ns = parts[parts.length - 2];
-                    }
-                    if (ns) {
-                       pNetName = `${ns}/${subnetName}`;
-                    } else {
-                       const nad = nads.find((n: any) => n?.metadata?.name === subnetName);
-                       if (nad?.metadata?.namespace) {
-                          pNetName = `${nad.metadata.namespace}/${subnetName}`;
-                       } else {
-                          pNetName = subnetName;
-                       }
-                    }
-                 } else if (!subnetName) {
-                    pNetName = '';
-                 }
-              } else if (netMode === 'flat') {
-                 // Flat network: NAD name (namespace/name format)
-                 if (!pNetName) {
-                    // If no name selected, use pod network
-                    pNetName = 'default/pod';
-                 } else if (!pNetName.includes('/')) {
-                    // If name doesn't have namespace, try to resolve it from loaded NADs
-                    const found = nads.find((n: any) => n.metadata.name === pNetName);
-                    if (found) {
-                       pNetName = `${found.metadata.namespace}/${found.metadata.name}`;
-                    } else {
-                       // Fallback: assume it's in default namespace
-                       pNetName = `default/${pNetName}`;
-                    }
-                 }
-              } else if (netMode === 'passthrough') {
-                 // Passthrough network: SR-IOV/Macvtap NAD
-                 if (!pNetName) {
-                    pNetName = 'default/pod';
-                 } else if (!pNetName.includes('/')) {
-                    const found = nads.find((n: any) => n.metadata.name === pNetName);
-                    if (found) {
-                       pNetName = `${found.metadata.namespace}/${found.metadata.name}`;
-                    } else {
-                       pNetName = `default/${pNetName}`;
-                    }
-                 }
-              } else {
-                 pNetName = pNetName || 'default/pod';
-              }
-
-              // Build network configuration
-              if (pNetName === 'default/pod' || !pNetName) {
-                 // Pod network: no multus needed
-                 networks[0] = {
-                    name: networks[0]?.name || 'default',
-                 };
-              } else {
-                 // Multus network: NAD or VPC subnet
-                 networks[0] = {
-                    name: networks[0]?.name || 'default',
-                    multus: { networkName: pNetName }
-                 };
-              }
-
-              if (hasDuplicateFlatSubnetsInNetworks(networks, subnets)) {
-                message.error('同一扁平子网在同一云主机内只能使用一次');
-                return;
-              }
-
-              const payload: any = { networks, interfaces };
-
-              // --- Static IP Handling (NetworkData) ---
-              let networkDataObj = getParsedNetworkData(record);
-              let hasNetworkDataChange = false;
-              const ifaceName = 'nic-0'; // Primary NIC
-
-              if (nic.ipAddress) {
-                 hasNetworkDataChange = true;
-                 if (!networkDataObj.network) networkDataObj.network = { version: 2, ethernets: {} };
-                 if (!networkDataObj.network.ethernets) networkDataObj.network.ethernets = {};
-                 
-                 const mac = nic.macAddress || interfaces[0].macAddress;
-                 const ethConfig: any = {
-                     addresses: [nic.ipAddress]
-                 };
-                 
-                 if (mac) {
-                     ethConfig.match = { macaddress: mac };
-                 } else {
-                     ethConfig.match = { name: 'e*' };
-                 }
-
-                 if (nic.gateway) ethConfig.gateway4 = nic.gateway;
-                 if (nic.dns) {
-                    const dnsList = nic.dns.split(/[,;\s]+/).filter((d: string) => d.trim());
-                    if (dnsList.length > 0) {
-                        ethConfig.nameservers = { addresses: dnsList };
-                    }
-                 }
-                 // Use nic-0 as key
-                 networkDataObj.network.ethernets[ifaceName] = ethConfig;
-                 
-                 // Clean up legacy 'nic0' key if it exists to avoid duplicates/confusion
-                 if (networkDataObj.network.ethernets['nic0']) {
-                     delete networkDataObj.network.ethernets['nic0'];
-                 }
-              } else {
-                 // Remove static config if exists
-                 if (networkDataObj?.network?.ethernets?.[ifaceName]) {
-                     delete networkDataObj.network.ethernets[ifaceName];
-                     hasNetworkDataChange = true;
-                 }
-                 if (networkDataObj?.network?.ethernets?.['nic0']) {
-                     delete networkDataObj.network.ethernets['nic0'];
-                     hasNetworkDataChange = true;
-                 }
-              }
-                 
-              if (hasNetworkDataChange) {
-                 payload.networkData = yaml.dump(networkDataObj);
-              }
-              
-              {
-                const nadList = await ensureNadsLoaded();
-                const missing = getMissingNadsFromNetworks(networks, String(namespace || 'default'), nadList);
-                if (missing.length > 0) {
-                  message.error(`更新失败：引用的 NAD 不存在：${missing.join(', ')}。请更换为存在的网络后再提交。`);
-                  return;
-                }
-              }
-
-              await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
-              openRestartConfirm(namespace, vmName, false);
-           }
-           break;
-        }
-        case 'change_secondary_nic': {
-           const secondaryNics = values.secondaryNics || [];
-           
-           // Fetch current state
-           const currentNetworks = record?.spec?.template?.spec?.networks || [];
-           const currentInterfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
-           
-           // Keep Primary NIC (index 0) if exists
-           const newNetworks = currentNetworks.length > 0 ? [currentNetworks[0]] : [];
-           const newInterfaces = currentInterfaces.length > 0 ? [currentInterfaces[0]] : [];
-           
-           let networkDataObj = getParsedNetworkData(record);
-           let hasNetworkDataChange = false;
-
-           const primaryIfaceName =
-             String(currentInterfaces[0]?.name || currentNetworks[0]?.name || '').trim() || 'default';
-           const secondaryIfaceNames = allocateSecondaryNicNames(primaryIfaceName, secondaryNics.length);
-
-           // Append Secondary NICs
-           secondaryNics.forEach((nic: any, idx: number) => {
-              const ifaceName = secondaryIfaceNames[idx];
-              let mac = nic.macAddress;
-
-              // Auto-generate MAC if Static IP is used but MAC is missing
-              if (nic.ipAddress && !mac) {
-                  mac = generateMacAddress();
-              }
-
-              // Interface
-              const ifaceRow: any = {
-                 name: ifaceName,
-                 model: nic.model || 'virtio',
-                 macAddress: mac,
-              };
-              const nt = nic.type || 'bridge';
-              if (nt === 'managedtap') ifaceRow.binding = { name: 'managedtap' };
-              else if (nt === 'masquerade') ifaceRow.masquerade = {};
-              else if (nt === 'sriov') ifaceRow.sriov = {};
-              else if (nt === 'macvtap') ifaceRow.macvtap = {};
-              else ifaceRow.bridge = {};
-              newInterfaces.push(ifaceRow);
-              
-              // Network
-              let sNetName = nic.name;
-              // Handle flat network name resolution
-              if (nic.mode === 'flat' && sNetName && !sNetName.includes('/')) {
-                  const found = nads.find((n: any) => n.metadata.name === sNetName);
-                  if (found) sNetName = `${found.metadata.namespace}/${found.metadata.name}`;
-              }
-              if (nic.mode === 'passthrough' && sNetName && !sNetName.includes('/')) {
-                  const found = nads.find((n: any) => n.metadata.name === sNetName);
-                  if (found) sNetName = `${found.metadata.namespace}/${found.metadata.name}`;
-              }
-              // Handle VPC network name (subnet name -> NAD name)
-              // For Kube-OVN VPC, subnet name should match NAD name, but networkName needs namespace/name format
-              if (nic.mode === 'vpc') {
-                  const subnetName = nic.subnet;
-                  if (subnetName) {
-                      // 按子网名 + VPC 查找，避免跨 VPC 同名子网误匹配
-                      const subnet = subnets.find(
-                        (s: any) =>
-                          s?.metadata?.name === subnetName &&
-                          String(s?.spec?.vpc || s?.vpc || '').trim() === String(nic?.vpc || '').trim(),
-                      );
-                      if (subnet?.metadata?.namespace) {
-                          sNetName = `${subnet.metadata.namespace}/${subnetName}`;
-                      } else {
-                          // Fallback: try to find NAD with same name
-                          const nad = nads.find((n: any) => n.metadata.name === subnetName);
-                          if (nad) {
-                              sNetName = `${nad.metadata.namespace}/${subnetName}`;
-                          } else {
-                              // Last resort: use subnet name only (may fail if NAD not found)
-                              sNetName = subnetName;
-                          }
-                      }
-                  }
-              }
-              if (nic.mode === 'flat_subnet') {
-                  const raw = nic.name || '';
-                  const subnetName =
-                      nic.subnet ||
-                      (raw && String(raw).includes('/') ? String(raw).split('/').pop() : raw) ||
-                      '';
-                  if ((!sNetName || !String(sNetName).includes('/')) && subnetName) {
-                      const subnet = subnets.find((s: any) => {
-                        if (s?.metadata?.name !== subnetName) return false;
-                        const st = String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '')
-                          .trim()
-                          .toLowerCase();
-                        return st === 'flat';
-                      });
-                      let ns = subnet?.metadata?.namespace;
-                      if (!ns && subnet?.spec?.provider) {
-                          const parts = String(subnet.spec.provider).split('.');
-                          if (parts.length >= 2) ns = parts[parts.length - 2];
-                      }
-                      if (ns) {
-                          sNetName = `${ns}/${subnetName}`;
-                      } else {
-                          const nad = nads.find((n: any) => n?.metadata?.name === subnetName);
-                          if (nad?.metadata?.namespace) {
-                              sNetName = `${nad.metadata.namespace}/${subnetName}`;
-                          } else {
-                              sNetName = subnetName;
-                          }
-                      }
-                  }
-              }
-
-              newNetworks.push({
-                 name: ifaceName,
-                 multus: { networkName: sNetName }
-              });
-
-              // Update NetworkData for Static IP
-              if (nic.ipAddress) {
-                  hasNetworkDataChange = true;
-                  if (!networkDataObj.network) networkDataObj.network = { version: 2, ethernets: {} };
-                  if (!networkDataObj.network.ethernets) networkDataObj.network.ethernets = {};
-                  
-                  const ethConfig: any = {
-                      match: { macaddress: mac },
-                      addresses: [nic.ipAddress]
-                  };
-                  if (nic.gateway) ethConfig.gateway4 = nic.gateway;
-                  if (nic.dns) {
-                      const dnsList = nic.dns.split(/[,;\s]+/).filter((d: string) => d.trim());
-                      if (dnsList.length > 0) {
-                          ethConfig.nameservers = { addresses: dnsList };
-                      }
-                  }
-                  networkDataObj.network.ethernets[ifaceName] = ethConfig;
-              } else {
-                  // If switching back to DHCP, remove static config for this interface
-                  if (networkDataObj?.network?.ethernets?.[ifaceName]) {
-                      delete networkDataObj.network.ethernets[ifaceName];
-                      hasNetworkDataChange = true;
-                  }
-              }
-           });
-
-           if (hasDuplicateFlatSubnetsInNetworks(newNetworks, subnets)) {
-               message.error('同一扁平子网在同一云主机内只能使用一次');
-               return;
-           }
-
-           // 删除 cloud-init 中已无对应网卡的 ethernets 条目（与当前 interfaces[].name 对齐）
-           const ifaceNamesInSpec = new Set(
-             newInterfaces.map((i: any) => String(i?.name || '').trim()).filter(Boolean),
-           );
-           if (networkDataObj?.network?.ethernets) {
-             Object.keys(networkDataObj.network.ethernets).forEach((key) => {
-               if (!ifaceNamesInSpec.has(key)) {
-                 delete networkDataObj.network.ethernets[key];
-                 hasNetworkDataChange = true;
-               }
-             });
-           }
-
-           const payload: any = {
-              networks: newNetworks,
-              interfaces: newInterfaces
-           };
-
-           if (hasNetworkDataChange) {
-               payload.networkData = yaml.dump(networkDataObj);
-           }
-
-           {
-             const nadList = await ensureNadsLoaded();
-             const missing = getMissingNadsFromNetworks(newNetworks, String(namespace || 'default'), nadList);
-             if (missing.length > 0) {
-               message.error(`更新失败：引用的 NAD 不存在：${missing.join(', ')}。请更换为存在的网络后再提交。`);
-               return;
-             }
-           }
-
-           await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
-           openRestartConfirm(namespace, vmName, false);
-           break;
-        }
-        // ... other cases
-        default:
-          break;
-      }
-      onOk();
-      onClose();
-    } catch (e: any) {
-      console.error(e);
-      // 如果不是表单校验错误，则提示后端/逻辑异常
-      if (!e?.errorFields) {
-        let errorMsg = e?.message || '操作失败';
-        
-        if (typeof errorMsg === 'string') {
-          // KubeVirt/Harvester Webhook Error Translation
-          if (errorMsg.includes('Guest memory is greater than the configured maxGuest memory')) {
-            errorMsg = '调整后的内存超过了配置的最大限制（热扩容上限），请求被拒绝。';
-          }
-          const nadNotFound = errorMsg.match(/network-attachment-definitions\.k8s\.cni\.cncf\.io\s+"([^"]+)"\s+not\s+found/i);
-          if (nadNotFound?.[1]) {
-            errorMsg = `更新失败：引用的网络附件（NAD）不存在：${nadNotFound[1]}。请在虚拟机网卡配置中更换为存在的网络，或在对应命名空间创建该 NAD。`;
-          }
-        }
-
-        message.error(errorMsg);
-      }
-    }
+    await runVmReconfigureSubmit({
+      form,
+      cloudId,
+      record,
+      latestVm,
+      activeRecord,
+      selectedKey,
+      systemDisk,
+      subnets,
+      nads,
+      images,
+      gpuResources,
+      usbResources,
+      setLatestVm,
+      ensureNadsLoaded,
+      openRestartConfirm,
+      maybePromptRestart,
+      fetchAggregatedVm,
+      onOk,
+      onClose,
+    });
   };
 
   // ============================================================================
-  // Add Disk: Split Actions (Create vs Attach) for better UX
-  // 注意：PVC 就绪等待逻辑在后端 harvesterAddVolumeToVM(*)
-  // 已经实现，这里不再阻塞前端交互，只在创建成功后允许挂载。
+  // Add Disk：创建 PVC 与挂载 VM 分步（含「选择光盘」ISO）；挂载走后端 removeVolume/addVolume 或 patch 逻辑。
   // ============================================================================
-  /** 「添加数据盘」：按表单创建 PVC，可选随后挂载到 VM。 */
+  /** 「添加磁盘」：按表单创建 PVC（ISO 与普通盘均为仅创建，挂载用底部【挂载磁盘】或第二次提交）。 */
   const handleCreateDisk = async () => {
     if (diskCreating || diskAttaching) return;
     setDiskCreating(true);
     try {
-      const values = await form.validateFields(['newDiskName', 'newDiskSize', 'newDiskSc', 'newDiskAccessMode']);
+      const src = String(form.getFieldValue('newDiskSource') || 'create');
+      if (src === 'existing') {
+        message.warning('已选择已有磁盘时，请直接点击【挂载磁盘】');
+        return;
+      }
+
+      if (src === 'iso') {
+        await form.validateFields(['newDiskIsoImage', 'newDiskName', 'newDiskSize', 'newDiskSc', 'newDiskAccessMode']);
+      } else {
+        await form.validateFields(['newDiskName', 'newDiskSize', 'newDiskSc', 'newDiskAccessMode']);
+      }
+
+      const values = form.getFieldsValue();
       const vmName = record?.metadata?.name;
       const namespace = record?.metadata?.namespace;
       if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
 
       const volName = values.newDiskName;
       const accessMode = values.newDiskAccessMode || 'ReadWriteMany';
-      const accessModeText = accessMode === 'ReadWriteOnce' ? 'RWO (ReadWriteOnce)' :
-                             accessMode === 'ReadWriteMany' ? 'RWX (ReadWriteMany)' :
-                             accessMode === 'ReadOnlyMany' ? 'ROX (ReadOnlyMany)' :
-                             'RWX (ReadWriteMany)';
-      
+
+      if (src === 'iso') {
+        const imgVal = String(values.newDiskIsoImage || '').trim();
+        const hit = (images || []).find((x: any) => {
+          const name = x?.metadata?.name || x?.name;
+          const ns = x?.metadata?.namespace || x?.namespace;
+          const v = ns && name ? `${ns}/${name}` : name;
+          return v === imgVal;
+        });
+        if (!hit || resolveVmImageKind(hit) !== 'iso' || !isHarvesterVmImageReady(hit)) {
+          message.error('请选择有效的 ISO 镜像');
+          return;
+        }
+        const createRes: any = await createHarvesterVolume(cloudId, {
+          namespace,
+          name: volName,
+          size: values.newDiskSize,
+          storageClassName: values.newDiskSc,
+          accessModes: [accessMode],
+          volumeMode: 'Block',
+          annotations: { 'harvesterhci.io/imageId': imgVal },
+        });
+        const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
+        form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
+        message.success('光盘卷已创建');
+        return;
+      }
+
       const createRes: any = await createHarvesterVolume(cloudId, {
-        namespace,
-        name: volName,
-        size: values.newDiskSize,
-        storageClassName: values.newDiskSc,
-        accessModes: [accessMode],
-        volumeMode: 'Block',
-      });
+          namespace,
+          name: volName,
+          size: values.newDiskSize,
+          storageClassName: values.newDiskSc,
+          accessModes: [accessMode],
+          volumeMode: 'Block',
+        });
 
       const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
       form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
-      message.success(`数据盘创建成功（访问类型: ${accessModeText}），请点击【挂载磁盘】继续`);
+      message.success('磁盘卷已创建');
     } catch (e: any) {
       // 表单校验错误交给 antd
       if (e?.errorFields) return;
@@ -2692,7 +1366,11 @@ export const useVmReconfigure = (props: any) => {
     if (diskCreating || diskAttaching) return;
     setDiskAttaching(true);
     try {
-      const values = await form.validateFields(['newDiskName', 'newDiskCreated', 'newDiskBus', 'newDiskMode']);
+      const diskSrc = String(form.getFieldValue('newDiskSource') || 'create');
+      const values =
+        diskSrc === 'iso'
+          ? await form.validateFields(['newDiskName', 'newDiskCreated'])
+          : await form.validateFields(['newDiskName', 'newDiskCreated', 'newDiskBus', 'newDiskMode']);
       const vmName = record?.metadata?.name;
       const namespace = record?.metadata?.namespace;
       if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
@@ -2715,6 +1393,36 @@ export const useVmReconfigure = (props: any) => {
 
       const volName = values.newDiskName;
       const mode = values.newDiskMode || 'spec';
+
+      if (diskSrc === 'iso') {
+        if (mode === 'hotplug') {
+          message.warning('选择光盘（ISO）仅支持「配置添加」挂载至规格模板；须重启生效，请切换添加方式后重试。');
+          return;
+        }
+
+        try {
+          await attachIsoPvcAsCdromToVm(volName, !!form.getFieldValue('newDiskBootFromCdrom'));
+        } catch (e: any) {
+          message.error(e?.message || '挂载失败');
+          return;
+        }
+
+        message.success(
+          form.getFieldValue('newDiskBootFromCdrom')
+            ? '光盘已挂载并将启动顺序设为优先光驱；须重启后生效（光驱总线固定 SCSI）'
+            : '光盘已挂载到虚拟机规格；须重启后生效（光驱总线固定 SCSI）',
+        );
+        setTimeout(() => {
+          openRestartConfirm(namespace, vmName, false, { cdrom: true });
+        }, 300);
+
+        form.setFieldsValue({ newDiskCreated: false, newDiskIsoImage: undefined, newDiskBootFromCdrom: false });
+        try {
+          onOk?.(true);
+        } catch {}
+        onClose?.();
+        return;
+      }
 
       if (mode === 'hotplug') {
         // 在线热插拔：仅支持运行中的虚拟机，总线类型固定为 SCSI
@@ -2751,7 +1459,7 @@ export const useVmReconfigure = (props: any) => {
           console.warn('在线热插拔后刷新 VM 数据失败:', e);
         }
 
-        message.success('数据盘已在线热插拔成功（SCSI，总线）');
+        message.success('磁盘已在线热插拔成功（SCSI 总线）');
         try { onOk?.(true); } catch {}
         onClose?.();
         return;
@@ -2828,13 +1536,11 @@ export const useVmReconfigure = (props: any) => {
         console.warn('刷新VM数据失败:', refreshErr);
         // 刷新失败不影响后续重启提示
       }
-      // 统一弹出重启提示，而不是让用户自己判断
-      message.success('数据盘挂载成功，设置已保存，需要重启后生效');
+      message.success('磁盘挂载成功，设置已保存，需要重启后生效');
       setTimeout(() => {
         openRestartConfirm(namespace, vmName, false);
       }, 300);
-      
-      // 清理 step 标记，避免下次误走挂载
+
       form.setFieldsValue({ newDiskCreated: false });
       try { onOk?.(true); } catch {}
       onClose?.();
@@ -2843,6 +1549,107 @@ export const useVmReconfigure = (props: any) => {
       message.error(e?.message || '挂载失败');
     } finally {
       setDiskAttaching(false);
+    }
+  };
+
+  /** 添加光盘：创建带 ISO imageId 注解的 PVC（第二步用【挂载光盘】挂为 cdrom）。 */
+  const handleCreateCdrom = async () => {
+    if (cdromCreating || cdromAttaching) return;
+    setCdromCreating(true);
+    try {
+      const values = await form.validateFields([
+        'newCdromName',
+        'newCdromSize',
+        'newCdromSc',
+        'newCdromImage',
+        'newCdromAccessMode',
+      ]);
+      const vmName = record?.metadata?.name;
+      const namespace = record?.metadata?.namespace;
+      if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
+
+      const imgVal = String(values.newCdromImage || '').trim();
+      const hit = (images || []).find((x: any) => {
+        const name = x?.metadata?.name || x?.name;
+        const ns = x?.metadata?.namespace || x?.namespace;
+        const v = ns && name ? `${ns}/${name}` : name;
+        return v === imgVal;
+      });
+      if (!hit || resolveVmImageKind(hit) !== 'iso') {
+        message.error('请选择有效的 ISO 镜像');
+        return;
+      }
+
+      const volName = values.newCdromName;
+      const accessMode = values.newCdromAccessMode || 'ReadWriteMany';
+
+      const createRes: any = await createHarvesterVolume(cloudId, {
+        namespace,
+        name: volName,
+        size: values.newCdromSize,
+        storageClassName: values.newCdromSc,
+        accessModes: [accessMode],
+        volumeMode: 'Block',
+        annotations: {
+          'harvesterhci.io/imageId': imgVal,
+        },
+      });
+
+      const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
+      form.setFieldsValue({ newCdromCreated: true, newCdromName: actualName });
+      message.success('光盘卷已创建');
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      message.error(e?.message || '创建光盘卷失败');
+    } finally {
+      setCdromCreating(false);
+    }
+  };
+
+  /** 将已创建的光盘 PVC 挂为虚拟光驱（cdrom，总线固定 SCSI）；须重启生效。 */
+  const handleAttachCdrom = async () => {
+    if (cdromCreating || cdromAttaching) return;
+    setCdromAttaching(true);
+    try {
+      const values = await form.validateFields(['newCdromName', 'newCdromCreated']);
+      const vmName = record?.metadata?.name;
+      const namespace = record?.metadata?.namespace;
+      if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
+
+      const created = !!values.newCdromCreated;
+      if (!created) {
+        message.warning('请先创建光盘卷');
+        return;
+      }
+
+      const volName = values.newCdromName;
+
+      try {
+        await attachIsoPvcAsCdromToVm(volName, !!form.getFieldValue('newCdromBootFromCdrom'));
+      } catch (e: any) {
+        message.error(e?.message || '挂载光盘失败');
+        return;
+      }
+
+      message.success(
+        form.getFieldValue('newCdromBootFromCdrom')
+          ? '光盘已挂载并将启动顺序设为优先光驱；须重启后生效（光驱总线固定 SCSI）'
+          : '光盘已挂载到虚拟机规格；须重启后生效（光驱总线固定 SCSI）',
+      );
+      setTimeout(() => {
+        openRestartConfirm(namespace, vmName, false, { cdrom: true });
+      }, 300);
+
+      form.setFieldsValue({ newCdromCreated: false, newCdromBootFromCdrom: false });
+      try {
+        onOk?.(true);
+      } catch {}
+      onClose?.();
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      message.error(e?.message || '挂载光盘失败');
+    } finally {
+      setCdromAttaching(false);
     }
   };
 
@@ -2879,7 +1686,7 @@ export const useVmReconfigure = (props: any) => {
   };
 
   /**
-   * 解绑指定数据盘：提交前校验 VM 网卡引用的 NAD 仍存在，再调用 detach API 并刷新聚合 VM。
+   * 解绑指定云硬盘（块设备）：提交前校验 VM 网卡引用的 NAD 仍存在，再调用 detach API 并刷新聚合 VM。
    */
   const handleDetachDisk = async (diskName: string) => {
     if (diskDetaching) return;
@@ -2932,9 +1739,9 @@ export const useVmReconfigure = (props: any) => {
         // 刷新失败不影响后续重启提示
       }
 
-      // SCSI 总线数据盘走在线 detach，一般无需重启；其它总线仍提示重启使规格生效
+      // SCSI 总线走在线 detach，一般无需重启；其它总线仍提示重启使规格生效
       if (diskBus === 'scsi') {
-        message.success('解绑成功，数据盘已从虚拟机移除');
+        message.success('解绑成功，该卷已从虚拟机移除');
       } else {
         message.success('解绑成功，设置已保存，需要重启虚拟机后生效');
         setTimeout(() => {
@@ -2975,6 +1782,8 @@ export const useVmReconfigure = (props: any) => {
     systemDisk,
     systemDiskSize,
     systemDiskLoading,
+    expandDiskCandidates,
+    loadExpandDiskSize,
     getCurrentSpec,
     getMemoryInGi,
     isHotPlugEnabledOnVm,
@@ -2987,6 +1796,10 @@ export const useVmReconfigure = (props: any) => {
     diskAttaching,
     handleCreateDisk,
     handleAttachDisk,
+    cdromCreating,
+    cdromAttaching,
+    handleCreateCdrom,
+    handleAttachCdrom,
     availableDiskPvcs,
     // detach disk actions
     diskDetaching,

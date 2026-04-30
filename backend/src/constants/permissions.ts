@@ -360,6 +360,10 @@ export const ALL_PERMISSIONS = [
   // 系统设置
   'system.settings:read',      // 系统设置 - 查看
   'system.settings:write',     // 系统设置 - 编辑
+
+  // 离线版本升级（上传 zip 合并 public/server）
+  'system.upgrade:read',       // 离线升级 - 查看状态
+  'system.upgrade:write',      // 离线升级 - 上传并应用
   
   // 授权管理
   'system.license:read',       // 授权管理 - 查看
@@ -538,6 +542,7 @@ export const PERMISSION_GROUPS = {
     '通用设置': [
       'system.settings',
     ],
+    '版本升级': ['system.upgrade'],
     '操作审计': [
       'system.audit',
     ],
@@ -643,6 +648,9 @@ export function getGroupByPermission(permission: string): string | null {
   }
   if (prefix === 'system.integration') {
     return '高级集成';
+  }
+  if (prefix === 'system.upgrade') {
+    return '版本升级';
   }
   if (prefix === 'system.audit') {
     return '操作审计';

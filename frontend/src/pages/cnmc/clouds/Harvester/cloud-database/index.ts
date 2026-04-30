@@ -1,6 +1,6 @@
 /**
  * 云数据库（PaaS）相关 UI：列表、创建与管理弹窗等。
- * 归属 **pages/cnmc/paas**，不放在 **cnmc/clouds/Harvester/**；创建向导仍依赖 Harvester 下 VM 向导与 kube-ovn 常量。
+ * 仅适用于 **Cloudmap 资源池（Harvester）** 上的云数据库托管 VM；与侧栏/路由 `paas_databases` 对应。源码在 **pages/cnmc/clouds/Harvester/cloud-database/**（与 `ecs`/`kube-ovn` 等域同级），创建向导复用同树 **ecs**、**kube-ovn**。
  */
 export { default as PaasSection } from './sections/PaasSection';
 /** @deprecated 使用 PaasSection */

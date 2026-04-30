@@ -46,6 +46,38 @@ export async function updateSystemSetting(key: string, value: string): Promise<{
   return data?.data || data;
 }
 
+export type OfflineUpgradeStatusDto = {
+  runtimeVersion: string;
+  lastApplied: {
+    at: string;
+    manifestVersion?: string;
+    appliedPublic: boolean;
+    appliedServer: boolean;
+  } | null;
+};
+
+export type OfflineUpgradeApplyResultDto = {
+  manifestVersion?: string;
+  appliedPublic: boolean;
+  appliedServer: boolean;
+  needsRestart: boolean;
+  message: string;
+};
+
+export async function getOfflineUpgradeStatus(): Promise<OfflineUpgradeStatusDto> {
+  const res = (await apiRequest(`${API_BASE}/offline-upgrade/status`)) as { data?: OfflineUpgradeStatusDto };
+  if (res?.data) return res.data;
+  return res as unknown as OfflineUpgradeStatusDto;
+}
+
+export async function applyOfflineUpgradeBundle(file: File): Promise<OfflineUpgradeApplyResultDto> {
+  const form = new FormData();
+  form.append('bundle', file);
+  const res = (await apiUpload(`${API_BASE}/offline-upgrade/apply`, form)) as { data?: OfflineUpgradeApplyResultDto };
+  if (res?.data) return res.data;
+  return res as unknown as OfflineUpgradeApplyResultDto;
+}
+
 export async function importThreatEvents(file: File): Promise<{ ok: boolean; count: number; message: string }> {
   const form = new FormData();
   form.append('file', file);

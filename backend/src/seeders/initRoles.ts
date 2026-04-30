@@ -149,6 +149,8 @@ export async function initializeRoles() {
       // 通用设置分组：授权管理
       'system.license:read',
       'system.license:write',
+      'system.upgrade:read',
+      'system.upgrade:write',
       // 权限管控分组：只保留用户管理
       'users:read',
       'users:write',

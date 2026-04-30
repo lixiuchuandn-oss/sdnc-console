@@ -26,6 +26,7 @@ const MON = 'cloudmap_menu_monitoring_alerts';
 const CLUSTER = 'cloudmap_menu_cluster';
 const COMPUTE = 'cloudmap_menu_compute';
 const PAAS = 'cloudmap_menu_paas_databases';
+const ONIAAS = 'cloudmap_menu_oniaas_network';
 const CONT = 'cloudmap_menu_containers';
 const STOR = 'cloudmap_menu_storage';
 const BAK = 'cloudmap_menu_backups';
@@ -78,6 +79,24 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   { id: 'cloudmap-pool-compute-bin', pathSuffix: 'compute/recycle_bin', title: '回收站', order: 45, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-compute-mig', pathSuffix: 'compute/migrations', title: '迁移记录', order: 46, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-paas-rds', pathSuffix: 'paas_databases/rds', title: '云数据库', order: 50, icon: 'ConsoleSqlOutlined', poolNavGroup: '云数据库', poolMenuParentKey: PAAS },
+  {
+    id: 'cloudmap-pool-oniaas-vr',
+    pathSuffix: 'oniaas_network/virtual_routers',
+    title: '虚拟路由器',
+    order: 51,
+    icon: 'NodeIndexOutlined',
+    poolNavGroup: '虚拟网元',
+    poolMenuParentKey: ONIAAS,
+  },
+  {
+    id: 'cloudmap-pool-oniaas-slb',
+    pathSuffix: 'oniaas_network/slb',
+    title: '负载均衡器',
+    order: 52,
+    icon: 'ApiOutlined',
+    poolNavGroup: '虚拟网元',
+    poolMenuParentKey: ONIAAS,
+  },
   { id: 'cloudmap-pool-cntr-wl', pathSuffix: 'containers/workloads', title: '工作负载', order: 60, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.workloads:read' },
   { id: 'cloudmap-pool-cntr-pods', pathSuffix: 'containers/pods', title: '容器实例', order: 61, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.pods:read' },
   { id: 'cloudmap-pool-cntr-jobs', pathSuffix: 'containers/jobs', title: '任务', order: 62, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.jobs:read' },

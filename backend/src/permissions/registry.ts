@@ -156,6 +156,10 @@ export class PermissionRegistry {
         else if (secondPart === 'settings') {
           permissionBase = 'system.settings';
         }
+        // system/offline-upgrade/* -> system.upgrade
+        else if (secondPart === 'offline-upgrade') {
+          permissionBase = 'system.upgrade';
+        }
       }
     }
     // 租户相关路径

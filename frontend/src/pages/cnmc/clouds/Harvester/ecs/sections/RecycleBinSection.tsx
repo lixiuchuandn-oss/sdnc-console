@@ -72,7 +72,7 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { cnVmStatus, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../../../components/OsIcon';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import RecycleBinTaskConfigModal from '../../ecs/modals/RecycleBinTaskConfigModal';
@@ -143,8 +143,6 @@ const RecycleBinSection: React.FC<Props> = ({
   // [运维信息抽屉状态] 控制资源详情抽屉的显示
   const [drawerVisible, setDrawerVisible] = useState(false); // 抽屉是否可见
   const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null); // 当前查看的 VM 记录
-  const [drawerActiveTab, setDrawerActiveTab] = useState('detail'); // 抽屉当前激活的标签页
-
   // [配置模态框状态] 控制任务配置模态框的显示
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [recordsDrawerVisible, setRecordsDrawerVisible] = useState(false);
@@ -610,15 +608,11 @@ const RecycleBinSection: React.FC<Props> = ({
   /**
    * 显示运维信息抽屉
    * 
-   * 打开 HarvesterResourceDrawer 查看虚拟机的详细信息
+   * 打开 CRD / 注解 / 标签 抽屉
    * 在租户模式下，此功能会被隐藏
-   * 
-   * @param record - 要查看的虚拟机对象
-   * @param tab - 初始激活的标签页（默认为 'detail'）
    */
-  const handleShowOpsinfo = useCallback((record: any, tab: string = 'detail') => {
+  const handleShowOpsinfo = useCallback((record: any) => {
     setCurrentDrawerRecord(record);
-    setDrawerActiveTab(tab);
     setDrawerVisible(true);
   }, []);
 
@@ -954,7 +948,7 @@ const RecycleBinSection: React.FC<Props> = ({
             {
               key: 'opsinfo',
               label: '查看YAML',
-              onClick: () => handleShowOpsinfo(r, 'detail'),
+              onClick: () => handleShowOpsinfo(r),
             },
           ] : []),
           { type: 'divider' },
@@ -1120,31 +1114,20 @@ const RecycleBinSection: React.FC<Props> = ({
         运维信息抽屉 (Resource Detail Drawer)
         ========================================
         
-        用于显示虚拟机的详细信息，包括:
-        - 基本信息
-        - YAML 配置
-        - 事件日志
-        - 关联资源等
+        用于显示虚拟机的 CRD（YAML）、注解与标签编辑（HarvesterCrdMetadataDrawer）。
         
         注意: 在租户模式下，此抽屉不会显示（isTenant 控制）
       */}
       {drawerRecord && (
-        <HarvesterResourceDrawer
+        <HarvesterCrdMetadataDrawer
           open={drawerVisible}
           onClose={() => {
             setDrawerVisible(false);
             setCurrentDrawerRecord(null);
           }}
-          resourceType="VirtualMachine"
-          forceOpsMode={true}
-          record={drawerRecord}
-          activeTab={drawerActiveTab}
-          onTabChange={setDrawerActiveTab}
           cloudId={cloudId}
-          namespaces={namespaces}
-          volumes={volumes}
-          images={images}
-          onRefresh={onRefresh}
+          record={drawerRecord}
+          onSuccess={() => void onRefresh(true)}
         />
       )}
       {!isTenant && (

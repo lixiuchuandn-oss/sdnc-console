@@ -100,9 +100,9 @@
 
 | 区域 | 路径（示例） |
 |------|----------------|
-| 创建向导 / 镜像目录 | `paas/cloud-database/modals/RdsCreateModal.tsx` |
-| 实例列表与筛选 | `paas/cloud-database/sections/PaasSection.tsx` |
-| 实例标签编辑 | `paas/cloud-database/modals/RdsInstanceLabelEditModal.tsx` |
+| 创建向导 / 镜像目录 | `clouds/Harvester/cloud-database/modals/RdsCreateModal.tsx` |
+| 实例列表与筛选 | `clouds/Harvester/cloud-database/sections/PaasSection.tsx` |
+| 实例标签编辑 | `clouds/Harvester/cloud-database/modals/RdsInstanceLabelEditModal.tsx` |
 | 镜像标签编辑 | `clouds/Harvester/ecs/modals/ImageLabelEditModal.tsx` |
 | 控制台云数据库面板 | `console/CloudConsole.tsx`、`CloudConsoleDatabasePanel.tsx`（若引用同一筛选） |
 | 后端 | 若有按 label 过滤 VM/Image 的接口，需与前端双读策略一致 |

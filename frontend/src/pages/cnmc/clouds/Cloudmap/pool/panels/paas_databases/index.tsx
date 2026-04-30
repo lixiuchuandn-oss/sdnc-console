@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { Empty } from 'antd';
-import { PaasSection } from '../../../../../paas/cloud-database';
+import { PaasSection } from '../../../../Harvester/cloud-database';
 
 export type CloudmapCloudDatabaseTabsProps = {
   cloudId: string;
@@ -25,6 +25,8 @@ export type CloudmapCloudDatabaseTabsProps = {
 
   isTenant: boolean;
   namespacesOptions?: string[];
+  /** 与 `runPoolEssentials` 中 capabilities 一致，供 RDS 创建时匹配 machine.type */
+  capabilities?: any;
 };
 
 const CloudmapCloudDatabaseTabs: React.FC<CloudmapCloudDatabaseTabsProps> = ({
@@ -44,6 +46,7 @@ const CloudmapCloudDatabaseTabs: React.FC<CloudmapCloudDatabaseTabsProps> = ({
   onReloadStorageClasses,
   isTenant,
   namespacesOptions = [],
+  capabilities,
 }) => {
   if (innerActiveKey === 'rds') {
     return (
@@ -63,6 +66,7 @@ const CloudmapCloudDatabaseTabs: React.FC<CloudmapCloudDatabaseTabsProps> = ({
         onReloadStorageClasses={onReloadStorageClasses}
         isTenant={isTenant}
         namespacesOptions={namespacesOptions}
+        clusterCapabilities={capabilities}
       />
     );
   }

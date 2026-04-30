@@ -4,7 +4,7 @@
  * 虚拟机资源变配模态框 (VM Reconfiguration Modal)
  * 
  * 主要功能：
- * 1. 提供虚拟机规格变更、系统重装、磁盘管理等多种运维操作。
+ * 1. 提供虚拟机规格变更、系统重装、磁盘与光盘管理等多种运维操作。
  * 2. 采用"单任务模式" (Single Task Mode)：
  *    - 左侧导航栏采用 Menu 单选模式，确保同一时间只能进行一种类型的变配操作。
  *    - 切换功能项时，自动重置表单，避免不同任务间的配置冲突。
@@ -71,7 +71,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
    * - selectedKey: 当前选中的变配菜单项 key；
    * - scs/images/gpuResources/nads/vpcs/subnets: 各类下拉资源数据；
    * - reloadXXX: 对应资源的刷新函数；
-   * - systemDisk/systemDiskSize/systemDiskLoading: 系统盘信息及加载状态；
+   * - expandDiskCandidates / loadExpandDiskSize / systemDiskSize / systemDiskLoading: 磁盘扩容；
    * - getCurrentSpec/getMemoryInGi/isHotPlugEnabledOnVm: 用于计算当前规格与热扩容能力的工具函数；
    * - handleSubmit: 提交当前选中任务的统一入口。
    */
@@ -86,9 +86,10 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     usbLoading,
     reloadScs, reloadImages, reloadGpuResources, reloadUsbResources, reloadNads, reloadVpcs, reloadSubnets,
     handleSubmit,
-    systemDisk,
     systemDiskSize,
     systemDiskLoading,
+    expandDiskCandidates,
+    loadExpandDiskSize,
     getCurrentSpec,
     getMemoryInGi,
     isHotPlugEnabledOnVm,
@@ -101,6 +102,10 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     diskAttaching,
     handleCreateDisk,
     handleAttachDisk,
+    cdromCreating,
+    cdromAttaching,
+    handleCreateCdrom,
+    handleAttachCdrom,
     availableDiskPvcs,
     // detach disk actions
     diskDetaching,
@@ -111,8 +116,9 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   // 监听表单中的 CPU / 内存，用于动态计算按钮文案等
   const cpu = Form.useWatch('cpu', form);
   const memory = Form.useWatch('memory', form);
-  // 添加数据盘两步按钮：监听创建状态
+  // 添加数据盘 / 光盘两步按钮：监听创建状态
   const newDiskCreated = Form.useWatch('newDiskCreated', form);
+  const newCdromCreated = Form.useWatch('newCdromCreated', form);
   const newDiskSource = Form.useWatch('newDiskSource', form);
   const changeOsConfirmed = Form.useWatch('changeOsConfirmed', form);
   // [移除] enableHotPlug 已拆分为独立功能，不再在 change_spec 中监听
@@ -135,11 +141,16 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     [architecture],
   );
 
-  /** 更换系统镜像页：展示注解中的 imageId 对应的展示名（镜像列表未拉到则回显 id） */
-  const currentOsImageResolvedLabel = useMemo(() => {
+  /** 当前实例根盘镜像 ID（来自 VM 规格/注解，不随「变更镜像」表单变化） */
+  const currentOsImageId = useMemo(() => {
     const vm = latestVm || record;
     const rid = getVmRootImageIdFromVm(vm);
-    const id = String(rid || '').trim();
+    return String(rid || '').trim() || undefined;
+  }, [latestVm, record]);
+
+  /** 更换系统镜像页：展示注解中的 imageId 对应的展示名（镜像列表未拉到则回显 id） */
+  const currentOsImageResolvedLabel = useMemo(() => {
+    const id = currentOsImageId || '';
     if (!id) return '';
     const hit = (images || []).find((x: any) => {
       const name = x?.metadata?.name || x?.name;
@@ -156,7 +167,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         hit?.metadata?.name ||
         id,
     );
-  }, [latestVm, record, images]);
+  }, [currentOsImageId, images]);
   
   // 当前 VM 的热扩容状态：
   // - isHotPlugConfiguredOnVm：仅根据 Annotation 判断是否“已配置”热扩容（用于 UI 展示/布局）
@@ -167,7 +178,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   /**
    * 左侧菜单分组：
    * - 资源配置：规格、CPU 高级、内存高级、GPU 变更；
-   * - 系统与存储：更换系统镜像、系统盘扩容、添加数据盘；
+   * - 系统与存储：更换系统镜像、磁盘扩容、添加数据盘、添加光盘；
    * - 网络配置：主网卡/辅助网卡变更。
    *
    * 注意：该菜单结构与文案属于“样式冻结”范围，修改前需与产品确认。
@@ -190,9 +201,9 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       icon: <HddOutlined />,
       children: [
         { key: 'change_os', label: '更换系统镜像' },
-        { key: 'expand_system_disk', label: '系统盘扩容' },
-        { key: 'add_disk', label: '添加数据盘' },
-        { key: 'detach_disk', label: '解绑数据盘' },
+        { key: 'add_disk', label: '添加云硬盘' },
+        { key: 'expand_disk', label: '云硬盘扩容' },
+        { key: 'detach_disk', label: '解绑云硬盘' },
       ]
     },
     {
@@ -400,29 +411,41 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             storageClasses={scs}
             reloadStorageClasses={reloadScs}
             defaultStorageClassName={scs.find((x) => x?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true')?.metadata?.name}
+            currentOsImageId={currentOsImageId}
             currentOsImageLabel={currentOsImageResolvedLabel || undefined}
             isArm64={isArm64Vm}
           />
         );
-      case 'expand_system_disk':
+      case 'expand_disk':
         return (
-          <SystemDiskExpand 
+          <SystemDiskExpand
             form={form}
-            scOptions={scOptions}
-            reloadScs={reloadScs}
-            selectedKey={selectedKey}
-            systemDisk={systemDisk}
-            systemDiskSize={systemDiskSize}
+            expandDiskCandidates={expandDiskCandidates}
+            loadExpandDiskSize={loadExpandDiskSize}
+            expandDiskCurrentSizeGi={systemDiskSize}
             loading={systemDiskLoading}
           />
         );
       case 'add_disk':
         return (
-          <AddDataDisk 
+          <AddDataDisk
             form={form}
             scOptions={scOptions}
             reloadScs={reloadScs}
             pvcOptions={availableDiskPvcs}
+            images={images || []}
+            reloadImages={reloadImages}
+          />
+        );
+      case 'add_cdrom':
+        return (
+          <AddDataDisk
+            kind="cdrom"
+            form={form}
+            scOptions={scOptions}
+            reloadScs={reloadScs}
+            images={images || []}
+            reloadImages={reloadImages}
           />
         );
       case 'detach_disk':
@@ -547,6 +570,26 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
               disabled={diskCreating || !newDiskCreated}
             >
               挂载磁盘
+            </Button>
+          </>
+        ) : selectedKey === 'add_cdrom' ? (
+          <>
+            <Button onClick={onClose}>取消</Button>
+            <Button
+              type="primary"
+              onClick={handleCreateCdrom}
+              loading={cdromCreating}
+              disabled={cdromAttaching || !!newCdromCreated}
+            >
+              创建光盘卷
+            </Button>
+            <Button
+              type="primary"
+              onClick={handleAttachCdrom}
+              loading={cdromAttaching}
+              disabled={cdromCreating || !newCdromCreated}
+            >
+              挂载光盘
             </Button>
           </>
         ) : selectedKey === 'change_os' ? (

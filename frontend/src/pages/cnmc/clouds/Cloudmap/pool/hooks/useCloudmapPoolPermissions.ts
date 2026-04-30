@@ -27,6 +27,8 @@ export type CloudmapPoolPermissions = {
   canViewClusterGroup: boolean;
   canViewComputeGroup: boolean;
   canViewCloudDatabaseTab: boolean;
+  /** 虚拟网元（Cloudmap 侧栏：虚拟路由、负载均衡等池内网络能力） */
+  canViewOniaasNetworkTab: boolean;
   canViewContainersGroup: boolean;
   canViewStorageGroup: boolean;
   canViewBackupsGroup: boolean;
@@ -113,6 +115,9 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
   const canViewCloudDatabaseTab =
     checkPerm('clouds.ecs:read') || checkPerm('clouds:read');
 
+  const canViewOniaasNetworkTab =
+    checkPerm('clouds.ecs:read') || checkPerm('clouds:read') || canReadLoadBalancers;
+
   const canViewContainersGroup =
     checkPerm(CLOUD_CONTAINERS_READ) ||
     checkPerm('clouds:read') ||
@@ -164,6 +169,7 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     canViewClusterGroup,
     canViewComputeGroup,
     canViewCloudDatabaseTab,
+    canViewOniaasNetworkTab,
     canViewContainersGroup,
     canViewStorageGroup,
     canViewBackupsGroup,

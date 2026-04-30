@@ -26,13 +26,21 @@ type Props = {
   vm: any | null;
   /** 管理台 HTTP 端口，默认 3000 */
   port?: number;
+  /** iframe 无障碍标题；云数据库默认「数据库管理」，虚拟路由器等可传入 */
+  iframeTitle?: string;
 };
 
 /**
  * 大模态框内 iframe 嵌套外部数据库管理页（不下钻路由）。
  * 控制台地址由实例虚拟机主网卡 IP 与端口拼接。
  */
-const RdsDatabaseConsoleModal: React.FC<Props> = ({ open, onClose, vm, port = DEFAULT_CONSOLE_PORT }) => {
+const RdsDatabaseConsoleModal: React.FC<Props> = ({
+  open,
+  onClose,
+  vm,
+  port = DEFAULT_CONSOLE_PORT,
+  iframeTitle = '数据库管理',
+}) => {
   const src = useMemo(() => (vm ? buildRdsDatabaseConsoleUrl(vm, port) : ''), [vm, port]);
 
   return (
@@ -67,7 +75,7 @@ const RdsDatabaseConsoleModal: React.FC<Props> = ({ open, onClose, vm, port = DE
     >
       {src ? (
         <iframe
-          title="数据库管理"
+          title={iframeTitle}
           src={src}
           style={{
             width: '100%',

@@ -116,6 +116,17 @@ async function withInventoryUpsertLock<T>(key: string, fn: () => Promise<T>): Pr
   }
 }
 
+/**
+ * 按 cloudId 清空库存行。SQLite 下 `manager.delete(Entity, { cloudId })` 在部分 TypeORM 版本会生成
+ * 未正确引用列名的 SQL，UUID 中的 `-` 会被解析为减号，触发 SQLITE_ERROR: near "-": syntax error。
+ * 使用参数化原生 DELETE 规避（表名来自元数据，已带 @Entity 显式表名）。
+ */
+async function deleteInventoryByCloudId(manager: any, entityTarget: any, cloudId: string): Promise<void> {
+  const meta = manager.connection.getMetadata(entityTarget);
+  const table = meta.tableName;
+  await manager.query(`DELETE FROM "${table}" WHERE "cloudId" = ?`, [cloudId]);
+}
+
 const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (item: any) => any) => {
   const targetName =
     typeof repo?.target === 'function'
@@ -127,7 +138,9 @@ const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (it
 
   await withInventoryUpsertLock(lockKey, async () => {
     if (!items || items.length === 0) {
-      await repo.delete({ cloudId });
+      await AppDataSource.transaction(async (manager: any) => {
+        await deleteInventoryByCloudId(manager, repo.target, cloudId);
+      });
       return;
     }
 
@@ -136,9 +149,19 @@ const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (it
       return { ...mapped, cloudId };
     });
 
+    /** SQLite：子网 `rawData` 极大时，TypeORM+sqlite3 的批量 INSERT 在个别环境会生成非法 SQL（如 SQLITE_ERROR: near "-"）。逐行 save 走单行 INSERT，其它库存仍批量 save。 */
+    const sqliteSubnetRowByRow =
+      AppDataSource.options.type === 'sqlite' && repo.target === KubeOvnSubnetInventory;
+
     await AppDataSource.transaction(async (manager: any) => {
-      await manager.delete(repo.target, { cloudId });
-      await manager.save(repo.target, entities);
+      await deleteInventoryByCloudId(manager, repo.target, cloudId);
+      if (sqliteSubnetRowByRow) {
+        for (const row of entities) {
+          await manager.save(repo.target, row);
+        }
+      } else {
+        await manager.save(repo.target, entities);
+      }
     });
   });
 };

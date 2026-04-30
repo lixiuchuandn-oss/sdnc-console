@@ -119,10 +119,8 @@ import { getToken } from "../../../../../../utils/tokenStorage";
 import { useAuth } from "../../../../../../contexts/AuthContext";
 import { hasPermissionForAction } from "../../../../../../utils/accessMapping";
 
-/** 延迟加载，避免与 HarvesterOpsinfoDrawer 的静态循环依赖（其内会再引用本抽屉） */
-const LazyHarvesterResourceDrawer = React.lazy(
-  () => import("./HarvesterOpsinfoDrawer"),
-);
+/** 延迟加载：CRD + 注解/标签 运维抽屉（与 VmDetailDrawer 无循环依赖） */
+const LazyHarvesterCrdMetadataDrawer = React.lazy(() => import("./HarvesterCrdMetadataDrawer"));
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -188,7 +186,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [opsYamlDrawerOpen, setOpsYamlDrawerOpen] = useState(false);
-  const [opsYamlActiveTab, setOpsYamlActiveTab] = useState("detail");
   const { user } = useAuth();
 
   React.useEffect(() => {
@@ -1777,7 +1774,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       icon: <FileTextOutlined />,
       title: undefined,
       onClick: () => {
-        setOpsYamlActiveTab("detail");
         setOpsYamlDrawerOpen(true);
       },
     },
@@ -1813,7 +1809,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     },
   ];
 
-  // 根节点为 Fragment：主详情 Drawer + 条件渲染的 YAML 运维抽屉（React.lazy 加载 HarvesterOpsinfoDrawer，forceOpsMode 避免递归回到本组件）
+  // 根节点为 Fragment：主详情 Drawer + 条件渲染的 CRD/注解/标签 抽屉（React.lazy 加载 HarvesterCrdMetadataDrawer）
   return (
     <>
       <Drawer
@@ -3411,15 +3407,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       </Drawer>
       {opsYamlDrawerOpen ? (
         <Suspense fallback={null}>
-          <LazyHarvesterResourceDrawer
+          <LazyHarvesterCrdMetadataDrawer
             open={opsYamlDrawerOpen}
             onClose={() => setOpsYamlDrawerOpen(false)}
-            resourceType="VirtualMachine"
-            record={vmData}
-            activeTab={opsYamlActiveTab}
-            onTabChange={setOpsYamlActiveTab}
             cloudId={cloudId}
-            forceOpsMode
+            record={vmData}
+            onSuccess={() => onRefresh?.(true)}
           />
         </Suspense>
       ) : null}

@@ -1,10 +1,10 @@
-/**
+﻿/**
  * 云数据库 RDS 实例专属创建弹窗
  *
  * 这是一个极简版创建向导，去除了常规虚拟机的复杂配置。
  * 特点：
  * - 默认将网络配置为 Kube-OVN 扁平子网。
- * - 默认注入 tower.io/rds、tower.io/paas-type；版本写入 tower.io/paas-ver（镜像标签优先，否则取表单 RDS 版本）。
+ * - 统一标签：`tower.io/paas-managed`、`tower.io/paas-category=database`、`tower.io/paas-type`；版本 `tower.io/paas-ver`（镜像优先，否则表单）。
  */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
@@ -22,28 +22,35 @@ import {
   Col,
   Alert,
 } from 'antd';
-import { OsIcon } from '../../../../../components/OsIcon';
-import { ReactComponent as CpuSvg } from '../../../../../assets/clouds/cpu.svg';
-import { ReactComponent as MemSvg } from '../../../../../assets/clouds/mem.svg';
-import { ReactComponent as DiskSvg } from '../../../../../assets/clouds/disk.svg';
-import { ReactComponent as NicSvg } from '../../../../../assets/clouds/nic.svg';
-import { createHarvesterVm } from '../../../../../services/harvesterApi';
+import { OsIcon } from '../../../../../../components/OsIcon';
+import { ReactComponent as CpuSvg } from '../../../../../../assets/clouds/cpu.svg';
+import { ReactComponent as MemSvg } from '../../../../../../assets/clouds/mem.svg';
+import { ReactComponent as DiskSvg } from '../../../../../../assets/clouds/disk.svg';
+import { ReactComponent as NicSvg } from '../../../../../../assets/clouds/nic.svg';
+import { createHarvesterVm, fetchHarvesterCapabilities } from '../../../../../../services/harvesterApi';
 import {
   initialWizardValues,
   constructVmPayload,
   generateUniqueVmId,
   parseSizeToGi,
-} from '../../../clouds/Harvester/ecs/modals/VmCreateWizard/VmWizardUtils';
+} from '../../ecs/modals/VmCreateWizard/VmWizardUtils';
 import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
-} from '../../../clouds/Harvester/kube-ovn/lib/kubeOvnSubnetConstants';
+} from '../../kube-ovn/lib/kubeOvnSubnetConstants';
+import {
+  PAAS_CATEGORY_DATABASE,
+  PAAS_CATEGORY_VNE,
+  PAAS_MANAGED_LABEL_VALUE,
+  TOWER_LABEL_PAAS_CATEGORY,
+  TOWER_LABEL_PAAS_MANAGED,
+} from '../../shared/harvesterTowerPaas';
 import {
   pickDefaultStorageClassName,
   isSystemNamespace,
   isPublicNamespace,
   pickFirstNamespaceRecordByScenarioForOptions,
-} from '../../../../../utils/harvesterUtils';
+} from '../../../../../../utils/harvesterUtils';
 
 const PAAS_DISPLAY: Record<string, string> = {
   mysql: 'MySQL',
@@ -62,13 +69,18 @@ export type RdsCreateModalProps = {
   kubeSubnets: any[];
   harvesterNads?: any[];
   onCreated: () => void;
-  /** 与镜像标签 tower.io/paas-type 一致，并写入新建实例 */
+  /** 与镜像标签 `tower.io/paas-type` 一致，并写入新建实例 */
   paasType?: string;
-  /** 可选命名空间列表（与 VM 向导一致）；租户时取首个非系统/非公共命名空间，避免固定 default 导致 403 */
+  /** 可选命名空间（与 VM 向导一致）；租户时取首个非系统/非公共命名空间，避免写死 default 导致 403 */
   namespacesOptions?: string[];
-  /** 与 namespacesOptions 对应的库存对象，用于 tower.io/scenario 默认选中 */
+  /** 与 `namespacesOptions` 对应的库存对象，用于 tower.io/scenario 默认选中 */
   namespaceRecords?: any[];
   isTenant?: boolean;
+  /**
+   * `GET .../harvester/capabilities` 的 `data`（与 VM 向导一致）。
+   * 不传时在弹窗打开时自动拉取，用于 `domain.machine.type`（如 recommendedMachineType、virt / q35）与 ARM 热扩展开关。
+   */
+  clusterCapabilities?: any;
 };
 
 const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
@@ -172,6 +184,10 @@ function getImageLabels(image: any): Record<string, any> {
   );
 }
 
+function readImagePaasCategory(image: any): string {
+  return String(getImageLabels(image)[TOWER_LABEL_PAAS_CATEGORY] || '').trim().toLowerCase();
+}
+
 function readImagePaasType(image: any): string {
   return String(getImageLabels(image)['tower.io/paas-type'] || '').trim().toLowerCase();
 }
@@ -211,7 +227,45 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
   namespacesOptions = [],
   namespaceRecords = [],
   isTenant = false,
+  clusterCapabilities: clusterCapabilitiesProp,
 }) => {
+  /** 父级未传时由本弹窗拉取 */
+  const [localClusterCapabilities, setLocalClusterCapabilities] = useState<any | null>(null);
+
+  const effectiveClusterCapabilities = useMemo(
+    () => (clusterCapabilitiesProp !== undefined ? clusterCapabilitiesProp : localClusterCapabilities),
+    [clusterCapabilitiesProp, localClusterCapabilities],
+  );
+
+  /** 与 VmCreateWizardModal：由 capabilities.architecture 判断，供 constructVmPayload 关闭 ARM 上热扩容等 */
+  const isArm64ForVm = useMemo(() => {
+    const arch = String(effectiveClusterCapabilities?.architecture || '').toLowerCase();
+    return arch === 'arm64' || arch === 'aarch64';
+  }, [effectiveClusterCapabilities]);
+
+  useEffect(() => {
+    if (!open) {
+      setLocalClusterCapabilities(null);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !cloudId) return;
+    if (clusterCapabilitiesProp !== undefined) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const json: any = await fetchHarvesterCapabilities(cloudId);
+        if (!cancelled) setLocalClusterCapabilities(json?.data ?? null);
+      } catch {
+        if (!cancelled) setLocalClusterCapabilities(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, cloudId, clusterCapabilitiesProp]);
+
   const paasKey = String(paasType || 'mysql').trim().toLowerCase();
   const paasLabel = PAAS_DISPLAY[paasKey] || paasKey.toUpperCase();
 
@@ -287,9 +341,13 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
       });
   }, [kubeSubnets]);
 
-  /** 带 tower.io/paas-type 的镜像，作为 RDS 可选镜像目录 */
+  /** 数据库目录镜像：排除 `paas-category=vne`；其余带 `paas-type` 的视为数据库（含仅打 paas-type 的旧镜像） */
   const catalogImages = useMemo(
-    () => (images || []).filter((x: any) => !!readImagePaasType(x)),
+    () =>
+      (images || []).filter((x: any) => {
+        if (readImagePaasCategory(x) === PAAS_CATEGORY_VNE) return false;
+        return !!readImagePaasType(x);
+      }),
     [images],
   );
 
@@ -429,7 +487,7 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
 
   const handleOk = async () => {
     if (!namespaceReady) {
-      message.warning('当前账号未分配可用的业务命名空间，无法创建实例');
+      message.warning('当前账号未分配可用的业务命名空间，无法创建实例。');
       return;
     }
     try {
@@ -493,20 +551,21 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
         selectedNodeName: null,
         gpuResources: [],
         selectedGpu: null,
-        capabilities: undefined,
-        isArm64: false,
+        capabilities: effectiveClusterCapabilities || undefined,
+        isArm64: isArm64ForVm,
         vmId,
       });
 
       // ==========================================
-      // 核心注入: 为创建的实例打上 RDS 的标签（顶层 + spec.template，与列表 SafeRead 一致）
+      // 为创建的实例打上 RDS 标签（顶层 + spec.template，与列表 SafeRead 一致）
       // ==========================================
       const formPaasVer = String(values.rdsPaasVer || '').trim();
       const imgPaasVer = readImagePaasVer(it);
       const verForVm = imgPaasVer || formPaasVer;
 
       if (!payload.metadata.labels) payload.metadata.labels = {};
-      payload.metadata.labels['tower.io/rds'] = 'true';
+      payload.metadata.labels[TOWER_LABEL_PAAS_MANAGED] = PAAS_MANAGED_LABEL_VALUE;
+      payload.metadata.labels[TOWER_LABEL_PAAS_CATEGORY] = PAAS_CATEGORY_DATABASE;
       payload.metadata.labels['tower.io/paas-type'] = typeForVm;
       if (verForVm) {
         payload.metadata.labels['tower.io/paas-ver'] = verForVm;
@@ -515,7 +574,8 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
       const tplMeta = payload.spec?.template?.metadata;
       if (tplMeta) {
         if (!tplMeta.labels) tplMeta.labels = {};
-        tplMeta.labels['tower.io/rds'] = 'true';
+        tplMeta.labels[TOWER_LABEL_PAAS_MANAGED] = PAAS_MANAGED_LABEL_VALUE;
+        tplMeta.labels[TOWER_LABEL_PAAS_CATEGORY] = PAAS_CATEGORY_DATABASE;
         tplMeta.labels['tower.io/paas-type'] = typeForVm;
         if (verForVm) {
           tplMeta.labels['tower.io/paas-ver'] = verForVm;
@@ -619,7 +679,7 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
         </div>
 
         <Row gutter={12}>
-          <Col xs={24} md={12}>
+          <Col xs={24} md={14}>
             <Form.Item
               name="rdsPaasType"
               label="RDS 类型"
@@ -635,7 +695,7 @@ const RdsCreateModal: React.FC<RdsCreateModalProps> = ({
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12}>
+          <Col xs={24} md={10}>
             <Form.Item name="rdsPaasVer" label="RDS 版本">
               <Select
                 placeholder="全部版本"

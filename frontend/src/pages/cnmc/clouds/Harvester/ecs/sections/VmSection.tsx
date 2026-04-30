@@ -118,6 +118,7 @@ import {
 import { useCloudmapOpsViewWrite } from "../../hooks/useCloudmapOpsViewWrite";
 import SimpleVmCreateModal from "../../ecs/modals/SimpleVmCreateModal";
 import VmAliasEditModal from "../modals/VmAliasEditModal";
+import { isTowerPaasInventoryExcludedVm } from "../../shared/harvesterTowerPaas";
 
 /**
  * [类型定义] 组件 Props 接口
@@ -1070,6 +1071,11 @@ const VmSection: React.FC<Props> = ({
         return false;
       }
 
+      // PaaS / 托管工作负载（云数据库、虚拟网元等）：见 `shared/harvesterTowerPaas.ts`
+      if (isTowerPaasInventoryExcludedVm(r)) {
+        return false;
+      }
+
       const iid = getIid(r);
       const name = String(SafeRead.name(r)).toLowerCase();
       const ns =
@@ -1947,12 +1953,12 @@ const VmSection: React.FC<Props> = ({
                 >
                   {isResizing && (
                     <Tag style={tagStyle} color="processing">
-                      系统盘扩容中
+                      磁盘扩容中
                     </Tag>
                   )}
                   {isFsPending && (
                     <Tag style={tagStyle} color="warning">
-                      系统盘待扩容
+                      磁盘待扩容
                     </Tag>
                   )}
                   {cloneStatus && (
