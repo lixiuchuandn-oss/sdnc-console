@@ -171,7 +171,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
 
   const filteredData = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    return data.filter((item: any) => {
+    const filtered = data.filter((item: any) => {
       const idName = String(item?.metadata?.name ?? '').toLowerCase();
       const alias = String(item?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').toLowerCase();
       const cidr = String(item?.spec?.cidrBlock ?? '').toLowerCase();
@@ -181,6 +181,13 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         if (v !== vlanFilter) return false;
       }
       return true;
+    });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
     });
   }, [data, keyword, vlanFilter]);
 
@@ -587,11 +594,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                 : category === 'flat-overlay'
                   ? 'cyan'
                   : 'default';
-          return (
-            <Tooltip title={detail}>
-              <Tag color={color}>{label}</Tag>
-            </Tooltip>
-          );
+          return <Tag color={color}>{label}</Tag>;
         },
       },
       { title: 'CIDR', dataIndex: ['spec', 'cidrBlock'], key: 'cidr' },
@@ -702,6 +705,22 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           );
         },
       },
+      {
+        title: '创建时间',
+        key: 'createdAt',
+        render: (_: any, r: any) => {
+          const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+          try {
+            if (!c) return '-';
+            const d = new Date(c);
+            if (!isNaN(d.getTime())) {
+              const txt = d.toLocaleString('zh-CN', { hour12: false });
+              return txt;
+            }
+          } catch { }
+          return c || '-';
+        },
+      },
 
       ...(isStandardView
         ? []
@@ -750,16 +769,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                 }
                 const allText = parts.join('\n');
                 const first = parts[0];
-                return (
-                  <Tooltip
-                    title={<span style={{ whiteSpace: 'pre-line' }}>{allText}</span>}
-                    overlayStyle={{ maxWidth: 480 }}
-                  >
-                    <Typography.Text ellipsis style={{ maxWidth: '100%' }}>
-                      {first}
-                    </Typography.Text>
-                  </Tooltip>
-                );
+                return <span title={allText}>{first}</span>;
               },
             },
           ]

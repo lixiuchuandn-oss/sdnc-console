@@ -151,7 +151,7 @@ type Props = {
   onSoftReboot?: (iid: string) => void;
   onPause?: (iid: string) => void;
   onUnpause?: (iid: string) => void;
-  onDelete: (iid: string, deleteVolumes?: boolean) => void;
+  onDelete: (iid: string, deleteVolumes?: boolean, isBatch?: boolean) => void;
   images?: any[];
   namespaces?: any[];
   volumes?: any[];
@@ -1402,7 +1402,7 @@ const VmSection: React.FC<Props> = ({
         ),
         okText: "移入回收站",
         okType: "default",
-        onOk: () => onDelete(iid, deleteVolumes),
+        onOk: () => onDelete(iid, deleteVolumes, false),
       });
     },
     [onDelete, SafeRead, modal],
@@ -1750,30 +1750,39 @@ const VmSection: React.FC<Props> = ({
             (r: any) => !protectedTargets.includes(r),
           );
 
-          const results: Array<{ ok: boolean; iid: string; err?: string }> = [];
+          const results: Array<{ ok: boolean; iid: string; err?: string; name?: string }> = [];
           for (const r of deletableTargets) {
             const iid = getIid(r);
+            const name = SafeRead.name(r);
             try {
-              await onDelete(iid, false);
-              results.push({ ok: true, iid });
+              await onDelete(iid, false, true);
+              results.push({ ok: true, iid, name });
             } catch (e: any) {
-              results.push({ ok: false, iid, err: e?.message || String(e) });
+              results.push({ ok: false, iid, err: e?.message || String(e), name });
             }
           }
 
-          const ok = results.filter((x) => x.ok).length;
-          const fail = results.filter((x) => !x.ok);
+          const okResults = results.filter((x) => x.ok);
+          const failResults = results.filter((x) => !x.ok);
 
-          if (ok > 0) message.success(`已成功将 ${ok} 台虚拟机移入回收站`);
-          if (protectedTargets.length > 0)
-            message.warning(
-              `已跳过重要虚拟机 ${protectedTargets.length} 台（受防删保护）`,
-            );
-          if (fail.length > 0) {
-            console.error("Batch recycle-bin errors:", fail);
-            message.error(
-              `移入回收站失败 ${fail.length} 台：${fail.map((f) => f.iid).join(", ")}`,
-            );
+          const okNames = okResults.map((r) => r.name || r.iid).join(", ");
+          const protectedNames = protectedTargets.map((r: any) => SafeRead.name(r)).join(", ");
+          
+          let summaryMsg = "";
+          if (okResults.length > 0) {
+            summaryMsg += `成功移入 ${okResults.length} 个（${okNames}）虚拟机到回收站，到期后自动删除`;
+          }
+          if (protectedTargets.length > 0) {
+            if (summaryMsg) summaryMsg += "，";
+            summaryMsg += `跳过 ${protectedTargets.length} 个（受防删保护）：${protectedNames}`;
+          }
+          if (summaryMsg) {
+            message.success(summaryMsg);
+          }
+          if (failResults.length > 0) {
+            console.error("Batch recycle-bin errors:", failResults);
+            const failNames = failResults.map((r) => r.name || r.iid).join(", ");
+            message.error(`移入回收站失败 ${failResults.length} 台：${failNames}`);
           }
 
           setSelectedKeys([]);

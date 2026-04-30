@@ -277,9 +277,9 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   const [vpcFilter, setVpcFilter] = useState<string>('');
   const [protocolFilter, setProtocolFilter] = useState<string>('');
 
-  // 筛选数据
+  // 筛选数据并按创建时间倒序排序
   const filteredData = useMemo(() => {
-    return dnatRules.filter((item: any) => {
+    const filtered = dnatRules.filter((item: any) => {
       const eipName = String(item?.spec?.ovnEip || item?.status?.ovnEip || '').trim();
       const eip =
         String(
@@ -314,6 +314,13 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       }
       
       return true;
+    });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
     });
   }, [dnatRules, keyword, vpcFilter, protocolFilter, eipIpv4ByName, networkScope]);
 
@@ -568,6 +575,22 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
             },
           },
         ]),
+    {
+      title: '创建时间',
+      key: 'createdAt',
+      render: (_: any, r: any) => {
+        const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+        try {
+          if (!c) return '-';
+          const d = new Date(c);
+          if (!isNaN(d.getTime())) {
+            const txt = d.toLocaleString('zh-CN', { hour12: false });
+            return txt;
+          }
+        } catch { }
+        return c || '-';
+      },
+    },
     {
       title: '操作',
       key: 'action',

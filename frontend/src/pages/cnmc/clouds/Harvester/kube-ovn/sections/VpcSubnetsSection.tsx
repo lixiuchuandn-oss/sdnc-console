@@ -492,6 +492,22 @@ const VpcSubnetsSection: React.FC<Props> = ({
           );
         },
       },
+      {
+        title: '创建时间',
+        key: 'createdAt',
+        render: (_: any, r: any) => {
+          const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+          try {
+            if (!c) return '-';
+            const d = new Date(c);
+            if (!isNaN(d.getTime())) {
+              const txt = d.toLocaleString('zh-CN', { hour12: false });
+              return txt;
+            }
+          } catch { }
+          return c || '-';
+        },
+      },
       ...(isStandardView
         ? []
         : [
