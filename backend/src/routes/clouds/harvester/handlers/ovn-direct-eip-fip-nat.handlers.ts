@@ -424,9 +424,11 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     const eipObj = (Array.isArray(eips) ? eips : []).find(
       (e: any) => String(e?.metadata?.name || '').trim() === nameStr,
     );
-    // 通过 EIP 的 type 字段判断是否是 LRP 类型（LRP 类型不需要 VPC License）
-    const eipType = String(eipObj?.spec?.type || '').trim().toLowerCase();
-    const eipScope = eipType === 'lrp' ? 'underlay' : 'vpc';
+    // 通过 EIP 的 spec.vpc 字段判断是否属于 VPC 网络
+    // 如果 vpc 字段存在且非空，则属于 VPC 网络，需要 VPC License
+    // 否则属于扁平网络（underlay），不需要 VPC License
+    const eipVpc = String(eipObj?.spec?.vpc || '').trim();
+    const eipScope = eipVpc ? 'vpc' : 'underlay';
 
     if (!assertOvnVpcLicenseForDelete(req, res, eipScope)) return;
 
