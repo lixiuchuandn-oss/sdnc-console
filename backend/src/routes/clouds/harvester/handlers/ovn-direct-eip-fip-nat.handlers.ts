@@ -38,7 +38,7 @@ import {
 } from '../../../../services/clouds/harvester/network';
 import { upsertVpcPolicyDstRouteForExternalSubnet } from './ovnInternalPublicSubnetSync';
 
-function getOriginFromEndpoint(endpoint: string): string {
+export function getOriginFromEndpoint(endpoint: string): string {
   const base = (endpoint || '').replace(/\/+$/, '');
   try {
     const u = new URL(base);
@@ -84,6 +84,16 @@ function assertOvnVpcLicenseForList(req: any, res: Response, scope: OvnNetworkSc
 /** POST 创建：`underlay` 不校验 VPC License */
 function assertOvnVpcLicenseForCreate(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
   if (scope === 'underlay') return true;
+  if (!licenseService.hasFeature('network.ovn.vpc')) {
+    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    return false;
+  }
+  return true;
+}
+
+/** DELETE 等：根据资源 scope 判断是否需要 VPC License */
+function assertOvnVpcLicenseForDelete(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
+  if (scope === 'underlay' || scope === null || scope === undefined) return true;
   if (!licenseService.hasFeature('network.ovn.vpc')) {
     res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
     return false;
@@ -367,7 +377,7 @@ async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next:
 }
 
 /** 集群级 OVN CR 删除：兼容两种 API 路径；双 404 视为已删除 */
-async function deleteKubeOvnClusterCr(
+export async function deleteKubeOvnClusterCr(
   origin: string,
   token: string,
   insecure: boolean,
@@ -397,7 +407,6 @@ async function deleteKubeOvnClusterCr(
 
 export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -409,6 +418,12 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    const repo = AppDataSource.getRepository(KubeOvnEipInventory);
+    const eipInventory = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr } });
+    const eipScope = eipInventory?.ovnNetworkScope || 'underlay';
+
+    if (!assertOvnVpcLicenseForDelete(req, res, eipScope)) return;
 
     /** 展示名：有 tower.io/alias 则用别名，否则用 metadata.name */
     const toAliasLabel = (obj: any): string | null => {
@@ -474,7 +489,6 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -486,6 +500,12 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    const repo = AppDataSource.getRepository(KubeOvnFipInventory);
+    const fipInventory = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr } });
+    const fipScope = fipInventory?.ovnNetworkScope || 'underlay';
+
+    if (!assertOvnVpcLicenseForDelete(req, res, fipScope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnfips', 'ovn-fips', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnFipInventory).delete({ cloudId: cloud.id, name: nameStr });
@@ -501,7 +521,6 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -513,6 +532,11 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+    const natRule = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr, type: 'SNAT' } });
+    const scope = natRule?.ovnNetworkScope || 'underlay';
+    if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnsnatrules', 'ovn-snat-rules', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnNatRuleInventory).delete({
@@ -532,7 +556,6 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
 
 export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -544,6 +567,11 @@ export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, nex
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+    const natRule = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr, type: 'DNAT' } });
+    const scope = natRule?.ovnNetworkScope || 'underlay';
+    if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovndnatrules', 'ovn-dnat-rules', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnNatRuleInventory).delete({

@@ -718,10 +718,11 @@ export const EipSection: React.FC<EipSectionProps> = ({
                   if (!ipv4InCidr(raw, cidr)) {
                     throw new Error(`IP 须落在公共子网网段 ${cidr} 内`);
                   }
-                  const excluded = s ? normalizeExcludeIps(s) : [];
-                  if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
-                    throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
-                  }
+                  // 排除列表仅限制自动分配，不限制用户手动指定的 IP
+                  // const excluded = s ? normalizeExcludeIps(s) : [];
+                  // if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
+                  //   throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
+                  // }
                 },
               }),
             ]}

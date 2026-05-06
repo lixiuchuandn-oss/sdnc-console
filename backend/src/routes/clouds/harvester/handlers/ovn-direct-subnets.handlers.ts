@@ -5,6 +5,7 @@ import { KubevirtNadInventory } from '../../../../entities/kubevirt/KubevirtNadI
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 import { updateHarvesterSubnet, listKubeOvnEips } from '../../../../services/clouds/harvester/client';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
+import { deleteKubeOvnClusterCr, getOriginFromEndpoint } from './ovn-direct-eip-fip-nat.handlers';
 import {
   checkTenantAccess,
   fetchCloudOr404,
@@ -1234,6 +1235,7 @@ export async function harvesterSubnetDirectDeleteHandler(
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const apiBase = resolveHarvesterK8sApiBase(cloud.endpoint || '');
+    const origin = getOriginFromEndpoint(cloud.endpoint || '');
 
     const url = `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
 
@@ -1295,6 +1297,7 @@ export async function harvesterSubnetDirectDeleteHandler(
     }
 
     // 校验 EIP：仅非 lrp 占用时禁止删除
+    let lrpEipsToDelete: any[] = [];
     try {
       const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
       const blocking = eipsReferencingSubnetExcludingLrp(eips, name);
@@ -1307,8 +1310,30 @@ export async function harvesterSubnetDirectDeleteHandler(
           eips: names,
         });
       }
+      // 收集需要删除的 LRP EIP（这些是系统自动创建的，删除子网时应一并清理）
+      lrpEipsToDelete = (Array.isArray(eips) ? eips : []).filter((eip) => {
+        const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
+        if (String(sub || '').trim() !== name) return false;
+        const t = String(eip?.spec?.type ?? eip?.type ?? '').trim().toLowerCase();
+        return t === 'lrp';
+      });
     } catch (e) {
       console.warn('[DeleteSubnet] EIP usage check failed:', e);
+    }
+
+    // 删除公共子网时，自动清理关联的 LRP EIP
+    if (lrpEipsToDelete.length > 0 && isPublicSubnetOnOvnCluster(subnetBefore)) {
+      for (const lrpEip of lrpEipsToDelete) {
+        const eipName = String(lrpEip?.metadata?.name || lrpEip?.name || '').trim();
+        if (eipName) {
+          try {
+            await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovneips', 'ovn-eips', eipName);
+            console.info('[DeleteSubnet] Deleted LRP EIP:', eipName);
+          } catch (delErr) {
+            console.warn('[DeleteSubnet] Failed to delete LRP EIP:', eipName, delErr);
+          }
+        }
+      }
     }
 
     if (isPublicSubnetOnOvnCluster(subnetBefore)) {
