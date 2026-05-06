@@ -487,21 +487,6 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     } catch (e: any) {
       console.warn('[EIP-Delete] 本地库存删除失败:', e?.message || e);
     }
-
-    const eipVpc = eipObj ? String(eipObj?.spec?.vpc || '').trim() : '';
-    const eipSubnet = eipObj ? String(eipObj?.spec?.externalSubnet || '').trim() : '';
-    if (eipVpc && eipSubnet) {
-      const lrpEipName = `${eipVpc}-${eipSubnet}`;
-      try {
-        await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovneips', 'ovn-eips', lrpEipName);
-        console.info('[EIP-Delete] Deleted LRP EIP:', lrpEipName);
-      } catch (lrpErr: any) {
-        if (lrpErr?.status !== 404) {
-          console.warn('[EIP-Delete] Failed to delete LRP EIP:', lrpEipName, lrpErr?.message || lrpErr);
-        }
-      }
-    }
-
     res.json({ message: '删除成功' });
   } catch (error: any) {
     if (res.headersSent) return;
