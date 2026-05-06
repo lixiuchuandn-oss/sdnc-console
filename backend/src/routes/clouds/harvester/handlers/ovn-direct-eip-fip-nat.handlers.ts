@@ -419,9 +419,14 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
 
-    const repo = AppDataSource.getRepository(KubeOvnEipInventory);
-    const eipInventory = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr } });
-    const eipScope = eipInventory?.ovnNetworkScope || 'underlay';
+    // 先获取 EIP 列表，从中找到要删除的 EIP 并判断其类型
+    const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const eipObj = (Array.isArray(eips) ? eips : []).find(
+      (e: any) => String(e?.metadata?.name || '').trim() === nameStr,
+    );
+    // 通过 EIP 的 type 字段判断是否是 LRP 类型（LRP 类型不需要 VPC License）
+    const eipType = String(eipObj?.spec?.type || '').trim().toLowerCase();
+    const eipScope = eipType === 'lrp' ? 'underlay' : 'vpc';
 
     if (!assertOvnVpcLicenseForDelete(req, res, eipScope)) return;
 
@@ -501,9 +506,14 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
 
-    const repo = AppDataSource.getRepository(KubeOvnFipInventory);
-    const fipInventory = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr } });
-    const fipScope = fipInventory?.ovnNetworkScope || 'underlay';
+    // 先获取 FIP 列表，从中找到要删除的 FIP 并判断其类型
+    const fips = await listKubeOvnFips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const fipObj = (Array.isArray(fips) ? fips : []).find(
+      (f: any) => String(f?.metadata?.name || '').trim() === nameStr,
+    );
+    // FIP 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const fipVpc = String(fipObj?.spec?.vpc || '').trim();
+    const fipScope = fipVpc ? 'vpc' : 'underlay';
 
     if (!assertOvnVpcLicenseForDelete(req, res, fipScope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnfips', 'ovn-fips', nameStr);
@@ -533,9 +543,14 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
 
-    const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
-    const natRule = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr, type: 'SNAT' } });
-    const scope = natRule?.ovnNetworkScope || 'underlay';
+    // 先获取 SNAT 规则列表，从中找到要删除的规则并判断其类型
+    const snats = await listKubeOvnSnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const snatObj = (Array.isArray(snats) ? snats : []).find(
+      (s: any) => String(s?.metadata?.name || '').trim() === nameStr,
+    );
+    // SNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const snatVpc = String(snatObj?.spec?.vpc || '').trim();
+    const scope = snatVpc ? 'vpc' : 'underlay';
     if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnsnatrules', 'ovn-snat-rules', nameStr);
     try {
@@ -568,9 +583,14 @@ export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, nex
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
 
-    const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
-    const natRule = await repo.findOne({ where: { cloudId: cloud.id, name: nameStr, type: 'DNAT' } });
-    const scope = natRule?.ovnNetworkScope || 'underlay';
+    // 先获取 DNAT 规则列表，从中找到要删除的规则并判断其类型
+    const dnats = await listKubeOvnDnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const dnatObj = (Array.isArray(dnats) ? dnats : []).find(
+      (d: any) => String(d?.metadata?.name || '').trim() === nameStr,
+    );
+    // DNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const dnatVpc = String(dnatObj?.spec?.vpc || '').trim();
+    const scope = dnatVpc ? 'vpc' : 'underlay';
     if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovndnatrules', 'ovn-dnat-rules', nameStr);
     try {
