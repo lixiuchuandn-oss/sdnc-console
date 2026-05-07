@@ -53,6 +53,7 @@ const AddDataDisk: React.FC<Props> = ({
   const existingPvc = Form.useWatch('existingPvcName', form);
   const diskAccessMode = Form.useWatch('newDiskAccessMode', form);
   const diskMode = Form.useWatch('newDiskMode', form) || 'spec'; // spec: 配置添加(需重启), hotplug: 在线热插拔
+  const newDiskIsoImage = Form.useWatch('newDiskIsoImage', form);
 
   const cdromCreated = !!Form.useWatch('newCdromCreated', form);
   const volName = Form.useWatch('newCdromName', form);
@@ -78,6 +79,45 @@ const AddDataDisk: React.FC<Props> = ({
       }
     }
   }, [diskMode, form, isCdrom, diskSource]);
+
+  // 当选择 ISO 镜像时，自动获取镜像对应的存储类（添加云硬盘模式）
+  useEffect(() => {
+    if (isCdrom) return;
+    if (diskSource !== 'iso') return;
+    const imgVal = String(newDiskIsoImage || '').trim();
+    if (!imgVal) return;
+    const hit = (images || []).find((x: any) => {
+      const name = x?.metadata?.name || x?.name;
+      const ns = x?.metadata?.namespace || x?.namespace;
+      const v = ns && name ? `${ns}/${name}` : name;
+      return v === imgVal;
+    });
+    if (hit) {
+      const sc = (hit as any)?.storageClassName || (hit as any)?.spec?.storageClassName;
+      if (sc) {
+        form.setFieldsValue({ newDiskSc: sc });
+      }
+    }
+  }, [diskSource, form, images, isCdrom, newDiskIsoImage]);
+
+  // 当选择 ISO 镜像时，自动获取镜像对应的存储类（cdrom 模式）
+  useEffect(() => {
+    if (!isCdrom) return;
+    const imgVal = String(form.getFieldValue('newCdromImage') || '').trim();
+    if (!imgVal) return;
+    const hit = (images || []).find((x: any) => {
+      const name = x?.metadata?.name || x?.name;
+      const ns = x?.metadata?.namespace || x?.namespace;
+      const v = ns && name ? `${ns}/${name}` : name;
+      return v === imgVal;
+    });
+    if (hit) {
+      const sc = (hit as any)?.storageClassName || (hit as any)?.spec?.storageClassName;
+      if (sc) {
+        form.setFieldsValue({ newCdromSc: sc });
+      }
+    }
+  }, [form, images, isCdrom]);
 
 
   if (isCdrom) {
@@ -501,7 +541,7 @@ const AddDataDisk: React.FC<Props> = ({
                   options={scOptions}
                   placeholder="请选择存储类"
                   onDropdownVisibleChange={(o) => o && reloadScs()}
-                  disabled={created}
+                  disabled={created || diskSource === 'iso'}
                   style={{ width: '100%' }}
                 />
               </Form.Item>

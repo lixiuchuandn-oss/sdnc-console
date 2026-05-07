@@ -1101,8 +1101,8 @@ export const useVmReconfigure = (props: any) => {
     form.setFieldsValue({ gpuNodeName: inferredNode });
   }, [open, selectedKey, activeRecord, gpuResources, form]);
 
-  /** 虚拟光驱（cdrom）在 Harvester 侧总线固定为 SCSI；挂载后必须重启（或关机态下启动后再重启）方可靠生效。 */
-  const CDROM_BUS: 'scsi' = 'scsi';
+  /** 虚拟光驱（cdrom）在 Harvester 侧总线固定为 SATA；挂载后必须重启（或关机态下启动后再重启）方可靠生效。 */
+  const CDROM_BUS: 'sata' = 'sata';
 
   /**
    * 变更需重启生效时弹出确认：用户可选择立即重启（调用云 API）或稍后手动重启。

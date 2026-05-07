@@ -771,7 +771,7 @@ const VolumesSection: React.FC<Props> = ({
 
     modal.confirm({
       title: '批量删除确认',
-      content: `即将删除 ${targets.length} 个卷：${targets.map(displayLabel).join(', ')}`,
+      content: `即将删除 ${targets.length} 个云盘：${targets.map(displayLabel).join(', ')}`,
       okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
       onOk: async () => {
         try {
@@ -783,8 +783,8 @@ const VolumesSection: React.FC<Props> = ({
             return status === 404 || msg.includes('not found') || msg.includes('未找到');
           }).length;
           const fail = Math.max(0, results.length - ok);
-          if (ok > 0) message.success(`成功删除 ${ok} 个卷`);
-          if (fail > 0) message.error(`${fail} 个卷删除失败`);
+          if (ok > 0) message.success(`成功删除 ${ok} 个云盘`);
+          if (fail > 0) message.error(`${fail} 个云盘删除失败`);
           setSelectedRowKeys([]);
           burstRefreshVolumes();
         } catch (e: any) {
@@ -876,7 +876,7 @@ const VolumesSection: React.FC<Props> = ({
       const iid = String(vm.InstanceId || '');
       modal.confirm({
         title: '无法确定挂载的磁盘名称',
-        content: '请先在虚机内卸载该卷（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
+        content: '请先在虚机内卸载该云盘（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
         okText: '重启虚拟机',
         cancelText: '取消',
         onOk: async () => {
@@ -904,7 +904,7 @@ const VolumesSection: React.FC<Props> = ({
 
     modal.confirm({
       title: '确认卸载',
-      content: `将从云主机 ${vm.InstanceName || vm.InstanceId} 卸载卷 ${r.name}`,
+      content: `将从云主机 ${vm.InstanceName || vm.InstanceId} 卸载云盘 ${r.name}`,
       onOk: async () => {
         try {
           // 先试全名 ID，不行再试短 ID
@@ -1022,7 +1022,7 @@ const VolumesSection: React.FC<Props> = ({
       }
     },
     { 
-      title: '卷类型', 
+      title: '云盘类型', 
       dataIndex: 'volumeMode',
       key: 'volumeMode',
       render: (v: string) => <span className="text-secondary">{v || '-'}</span>
@@ -1070,7 +1070,7 @@ const VolumesSection: React.FC<Props> = ({
         const items: any[] = [
           // 1. 资源详情 / 运维信息
           ...(!isTenant && !isStandardView ? [
-            { key: 'volume_detail', label: '卷详情', onClick: () => handleOpenVolumeDetail(r, 'detail') },
+            { key: 'volume_detail', label: '云盘详情', onClick: () => handleOpenVolumeDetail(r, 'detail') },
             { key: 'detail', label: '查看YAML', onClick: () => handleOpenOpsDrawer(r, 'detail') },
           ] : []),
           
@@ -1131,7 +1131,7 @@ const VolumesSection: React.FC<Props> = ({
           },
           { 
             key: 'clone', 
-            label: '克隆虚拟卷', 
+            label: '克隆云盘', 
             disabled: !hasDisksWrite,
             onClick: () => { 
               if (!ensureDisksWrite()) return;
@@ -1168,7 +1168,7 @@ const VolumesSection: React.FC<Props> = ({
                   <div>
                     <div style={{ marginBottom: 8 }}>云盘：{diskLabel}</div>
                     {vm ? (
-                      <div style={{ color: '#d48806' }}>该卷仍挂载在云主机：{vmLabel}。删除可能失败，请先卸载。</div>
+                      <div style={{ color: '#d48806' }}>该云盘仍挂载在云主机：{vmLabel}。删除可能失败，请先卸载。</div>
                     ) : null}
                     <div>删除后无法恢复。</div>
                   </div>
@@ -1257,7 +1257,7 @@ const VolumesSection: React.FC<Props> = ({
             setVolumeCreateSeed(null);
             setCreateModalNonce((n) => n + 1);
             setCreateOpen(true); 
-          }}>创建卷</Button>
+          }}>创建云盘</Button>
           <Tooltip
             title={
               !hasDisksWrite

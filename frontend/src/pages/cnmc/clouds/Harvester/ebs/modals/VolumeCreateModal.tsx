@@ -1,10 +1,10 @@
 /**
  * =============================================================================
- * Harvester / 虚拟云盘（EBS）—「创建卷」弹窗
+ * Harvester / 虚拟云盘（EBS）—「创建云盘」弹窗
  * 路径: `ebs/modals/VolumeCreateModal.tsx`
  *
  * 【在云详情中的位置】
- * 由 `VolumesSection`（云详情 Tab「虚拟云盘」）工具栏「创建卷」打开；亦可在「克隆卷 → 不克隆数据」
+ * 由 `VolumesSection`（云详情 Tab「虚拟云盘」）工具栏「创建云盘」打开；亦可在「克隆云盘 → 不克隆数据」
  * 流程中作为第二步表单出现。
  *
  * 【职责边界】
@@ -65,7 +65,7 @@ function generateVolumePvcName(): string {
 const DEFAULT_VOLUME_SIZE_GIB = 40;
 
 // -----------------------------------------------------------------------------
-// 组件：创建卷 Modal（表单主体 + 提交）
+// 组件：创建云盘 Modal（表单主体 + 提交）
 // -----------------------------------------------------------------------------
 const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
   open,
@@ -182,7 +182,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
   // --- 渲染：StdFormModal 包裹表单项（对应云详情弹层）---
   return (
     <StdFormModal
-      title="创建卷"
+      title="创建云盘"
       open={open}
       onCancel={onCancel}
       confirmLoading={creating}
@@ -229,7 +229,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
       </Form.Item>
 
       {/* 区块：Block / Filesystem */}
-      <Form.Item label="卷类型" name="volumeMode" initialValue="Block">
+      <Form.Item label="云盘类型" name="volumeMode" initialValue="Block">
         <Select
           options={[
             { value: 'Block', label: 'Block' },

@@ -1,8 +1,8 @@
 /**
- * Harvester EBS — 克隆虚拟卷（含「仅元数据」转创建卷分支）
+ * Harvester EBS — 克隆云盘（含「仅元数据」转创建云盘分支）
  * 路径: `ebs/modals/VolumeCloneModal.tsx`
  *
- * 【页面位置】云详情「虚拟云盘」表格行操作 →「克隆虚拟卷」
+ * 【页面位置】云详情「虚拟云盘」表格行操作 →「克隆云盘」
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { App, Checkbox, Form, Input } from 'antd';
@@ -29,7 +29,7 @@ export type VolumeCloneModalProps = {
   storageClasses: any[];
   nsOptions: { value: string; label: string }[];
   onCloneSuccess?: () => void;
-  /** 取消「克隆数据」时关闭本弹窗并打开创建卷，传入预填 seed */
+  /** 取消「克隆数据」时关闭本弹窗并打开创建云盘，传入预填 seed */
   onBranchToCreateVolume: (seed: VolumeCreateSeed) => void;
 };
 
@@ -114,7 +114,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
 
   return (
     <StdFormModal
-      title="克隆虚拟卷"
+      title="克隆云盘"
       open={open}
       onCancel={onCancel}
       confirmLoading={submitting}
@@ -146,7 +146,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
         <Input placeholder="请输入新云盘名称" />
       </Form.Item>
       <Form.Item name="cloneData" valuePropName="checked">
-        <Checkbox>克隆虚拟卷数据</Checkbox>
+        <Checkbox>克隆云盘数据</Checkbox>
       </Form.Item>
     </StdFormModal>
   );

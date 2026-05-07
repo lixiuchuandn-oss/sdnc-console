@@ -80,7 +80,7 @@ export async function runVmReconfigureSubmit(d: VmReconfigureSubmitDeps): Promis
   const getQuantityInGi = (q: string | number | undefined) => storageQuantityToGiB(q);
   const getParsedNetworkData = (vm: any) => parseVmCloudInitNetworkData(vm);
   const generateMacAddress = () => generateMacAddressForStaticNic();
-  const CDROM_BUS: 'scsi' = 'scsi';
+  const CDROM_BUS: 'sata' = 'sata';
 
   try {
     const values = await form.validateFields();

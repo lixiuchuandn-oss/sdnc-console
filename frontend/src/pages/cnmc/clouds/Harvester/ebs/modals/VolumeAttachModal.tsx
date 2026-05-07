@@ -26,7 +26,7 @@ export type VolumeAttachModalProps = {
   /** 当前云盘（PVC）名称 */
   pvcName: string;
   vms: any[];
-  /** 若卷已挂在某 VM 上，可预填该实例 id（Tower/后端字段：InstanceId 或 id） */
+  /** 若云盘已挂在某 VM 上，可预填该实例 id（Tower/后端字段：InstanceId 或 id） */
   initialInstanceId?: string;
   onSuccess?: (force?: boolean) => void;
 };

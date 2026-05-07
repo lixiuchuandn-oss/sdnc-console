@@ -13,60 +13,20 @@ export function applyBootOrderCdromFirst(disks: any[], cdromVolumeName: string) 
   const vol = String(cdromVolumeName || '').trim();
   if (!vol) return;
 
-  let hadAnyBootOrder = false;
+  // 清除所有非光盘磁盘的 bootOrder，只保留光盘的启动顺序
   for (const d of disks) {
     if (!d || d.name === vol || d.cdrom || isAuxiliaryVmDisk(d)) continue;
-    const o = Number(d.bootOrder);
-    if (Number.isFinite(o) && o >= 1) {
-      hadAnyBootOrder = true;
-      break;
-    }
+    delete d.bootOrder;
   }
 
-  for (const d of disks) {
-    if (!d || d.name === vol || d.cdrom || isAuxiliaryVmDisk(d)) continue;
-    const o = Number(d.bootOrder);
-    if (Number.isFinite(o) && o >= 1) {
-      d.bootOrder = o + 1;
-    }
-  }
-
+  // 设置光盘为第一个启动设备
   const cd = disks.find((d: any) => d?.name === vol);
   if (cd) cd.bootOrder = 1;
 
-  if (hadAnyBootOrder) {
-    let maxOrder = 1;
-    for (const d of disks) {
-      if (!d || d.name === vol || d.cdrom || isAuxiliaryVmDisk(d)) continue;
-      const o = Number(d.bootOrder);
-      if (Number.isFinite(o)) maxOrder = Math.max(maxOrder, o);
-    }
-    for (const d of disks) {
-      if (!d || d.name === vol || d.cdrom || isAuxiliaryVmDisk(d)) continue;
-      const o = Number(d.bootOrder);
-      if (!Number.isFinite(o) || o < 1) {
-        maxOrder += 1;
-        d.bootOrder = maxOrder;
-      }
-    }
-    return;
-  }
-
-  const blockDisks = disks.filter((d: any) => d && !d.cdrom && d.name !== vol && !isAuxiliaryVmDisk(d));
-  const primary =
-    blockDisks.find((d: any) => d.name === 'disk-0') ||
-    blockDisks.find((d: any) => d.name === 'rootdisk') ||
-    blockDisks[0];
-  if (primary) {
-    primary.bootOrder = 2;
-  }
-  let next = 3;
-  for (const d of blockDisks) {
-    if (d === primary) continue;
-    const po = Number(d.bootOrder);
-    if (!Number.isFinite(po) || po < 1) {
-      d.bootOrder = next;
-      next += 1;
-    }
+  // 将 cdrom 磁盘移到数组最前面，确保 QEMU/KVM 正确识别启动顺序
+  const cdIndex = disks.findIndex((d: any) => d?.name === vol);
+  if (cdIndex !== -1 && cdIndex !== 0) {
+    const [cdDisk] = disks.splice(cdIndex, 1);
+    disks.unshift(cdDisk);
   }
 }

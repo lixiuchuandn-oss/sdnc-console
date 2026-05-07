@@ -30,6 +30,7 @@ interface ShutdownRecord {
   cloudName: string;
   namespace: string;
   name: string;
+  displayName?: string;
   instanceId: string;
   uid: string;
   shutdownAt: string;
@@ -112,6 +113,7 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
     return data.filter((record) => {
       return (
         record.cloudName?.toLowerCase().includes(kw) ||
+        record.displayName?.toLowerCase().includes(kw) ||
         record.name?.toLowerCase().includes(kw) ||
         record.namespace?.toLowerCase().includes(kw) ||
         record.instanceId?.toLowerCase().includes(kw)
@@ -127,13 +129,16 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
       ellipsis: true,
     },
     {
-      title: '虚拟机名称',
+      title: '云主机名称',
       key: 'name',
       dataIndex: 'name',
       ellipsis: true,
+      render: (name: string, record: ShutdownRecord) => {
+        return record.displayName || name;
+      },
     },
     {
-      title: '实例ID',
+      title: '云主机ID',
       key: 'instanceId',
       dataIndex: 'instanceId',
       ellipsis: true,
@@ -201,7 +206,7 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
         <>
           <Input
             allowClear
-            placeholder="虚拟机/实例ID"
+            placeholder="云主机/实例ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
