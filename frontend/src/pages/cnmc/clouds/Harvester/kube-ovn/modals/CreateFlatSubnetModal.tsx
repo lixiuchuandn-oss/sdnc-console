@@ -52,6 +52,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   title = '创建扁平子网',
 }) => {
   const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
   /** 打开弹窗时预生成，与 CreateVpcSubnetModal / CreatePublicSubnetModal 一致，避免多次提交产生不同 CR 名 */
   const pendingUnderlaySubnetCrNameRef = useRef<string>('');
   const { user } = useAuth();
@@ -81,6 +82,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         message.error('当前账号没有扁平子网操作权限（租户角色仅允许查看）');
         return;
       }
+      setSubmitting(true);
       try {
         const { alias, ...rest } = values;
         const aliasTrim = String(alias ?? '').trim();
@@ -183,6 +185,8 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           }
         }
         message.error(`创建扁平子网失败：${formatKubeOvnFriendlyError(detail)}`);
+      } finally {
+        setSubmitting(false);
       }
     },
     [canSubmit, cloudId, form, onClose, onSuccess, vlans],
@@ -201,6 +205,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
       okButtonProps={{ disabled: !canSubmit }}
       width={600}
       destroyOnHidden
+      confirmLoading={submitting}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit} className="std-form">
         <UnderlaySubnetFormFields

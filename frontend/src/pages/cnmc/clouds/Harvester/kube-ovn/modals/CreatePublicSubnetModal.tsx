@@ -61,6 +61,10 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
   const [form] = Form.useForm();
   /** 打开弹窗时预生成 CR metadata.name（与 CreateFlatSubnetModal / CreateVpcSubnetModal 一致） */
   const pendingUnderlaySubnetCrNameRef = useRef<string>('');
+  /** 标记是否已初始化过表单，避免浏览器自动填充数据被多次 resetFields 清空 */
+  const isFormInitializedRef = useRef(false);
+  /** 提交时的 loading 状态 */
+  const [submitting, setSubmitting] = React.useState(false);
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
@@ -74,7 +78,14 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
   }, [perms, isTenantUser]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      isFormInitializedRef.current = false;
+      return;
+    }
+    // 只在弹窗第一次打开时初始化表单，避免浏览器自动填充数据被多次 resetFields 清空
+    if (isFormInitializedRef.current) return;
+    isFormInitializedRef.current = true;
+    
     pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
     form.resetFields();
     const vlanPreset =
@@ -92,6 +103,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
         message.error('当前账号没有公共子网操作权限（租户角色仅允许查看）');
         return;
       }
+      setSubmitting(true);
       try {
         const { alias, accessScopeMode, accessRouteCidr, ...rest } = values;
         const aliasTrim = String(alias ?? '').trim();
@@ -169,6 +181,8 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
           }
         }
         message.error(`创建公共子网失败：${formatKubeOvnFriendlyError(detail)}`);
+      } finally {
+        setSubmitting(false);
       }
     },
     [canSubmit, cloudId, form, onClose, onSuccess, vlans],
@@ -187,6 +201,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
       okButtonProps={{ disabled: !canSubmit }}
       width={640}
       destroyOnHidden
+      confirmLoading={submitting}
     >
       <Form
         form={form}

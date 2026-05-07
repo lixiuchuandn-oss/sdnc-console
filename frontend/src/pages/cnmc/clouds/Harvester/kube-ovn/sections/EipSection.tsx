@@ -239,6 +239,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
       message.error('无权限执行该操作');
       return;
     }
+    setCreateLoading(true);
     try {
       const values = await form.validateFields();
       const v4 = String(values.v4Ip ?? '').trim();
@@ -253,7 +254,6 @@ export const EipSection: React.FC<EipSectionProps> = ({
           return;
         }
       }
-      setCreateLoading(true);
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
       const displayName = String(values.displayName ?? '').trim();
       const vpc = String(values.vpc ?? '').trim();
