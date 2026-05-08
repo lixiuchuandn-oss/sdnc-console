@@ -226,19 +226,18 @@ export const useVmReconfigure = (props: any) => {
     return conditions.some((c: any) => (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True');
   }, [activeRecord]);
 
-  /** 拉取集群 NetworkAttachmentDefinition 列表并写入 `nads`。 */
+  /** 拉取集群 NetworkAttachmentDefinition 列表并写入 `nads`（带 force：触发后端库存与集群同步）。 */
   const reloadNads = async () => {
     try {
-      const res = await fetchHarvesterNads(cloudId);
+      const res = await fetchHarvesterNads(cloudId, true);
       const items = res?.data?.items || res?.items || [];
       setNads(items);
       return items;
     } catch (e) { console.error(e); return []; }
   };
 
-  /** 若内存中已有 NAD 则直接返回，否则调用 `reloadNads`。提交前校验引用完整性时使用。 */
+  /** 提交前校验 multus 引用时始终重新拉取 NAD，避免库存未同步导致误报「NAD 不存在」。 */
   const ensureNadsLoaded = async () => {
-    if (Array.isArray(nads) && nads.length > 0) return nads;
     return await reloadNads();
   };
 
@@ -270,19 +269,19 @@ export const useVmReconfigure = (props: any) => {
     onClose,
   });
 
-  /** 拉取 Kube-OVN VPC 列表。 */
+  /** 拉取 Kube-OVN VPC 列表（force：与集群同步后再读库存，避免新建 VPC 后下拉/提交仍陈旧）。 */
   const reloadVpcs = async () => {
     try { 
-      const res = await fetchKubeOvnVpcs(cloudId); 
+      const res = await fetchKubeOvnVpcs(cloudId, true); 
       const items = res?.data?.items || res?.items || [];
       setVpcs(items); 
       return items;
     } catch (e) { console.error(e); return []; }
   };
-  /** 拉取 Kube-OVN Subnet 列表。 */
+  /** 拉取 Kube-OVN Subnet 列表（force：新建扁平/VPC 子网后立即变配网卡时列表需对齐集群）。 */
   const reloadSubnets = async () => {
     try { 
-      const res = await fetchKubeOvnSubnets(cloudId); 
+      const res = await fetchKubeOvnSubnets(cloudId, true); 
       const items = res?.data?.items || res?.items || [];
       setSubnets(items); 
       return items;

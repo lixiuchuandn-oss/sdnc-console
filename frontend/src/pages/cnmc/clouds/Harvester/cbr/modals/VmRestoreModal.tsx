@@ -15,6 +15,18 @@ import { stopCloudProviderEcs } from '../../../../../../services/api';
 import { createHarvesterVirtualMachineRestore, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../../../services/harvesterApi';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
+/** 与回收站列表一致：finalizers 或 label 标记为回收站中的云主机 */
+function isHarvesterVmInRecycleBin(vm: any): boolean {
+  if (!vm) return false;
+  const meta = vm.metadata ?? vm;
+  const finalizers = Array.isArray(meta?.finalizers) ? meta.finalizers : [];
+  const labels = (meta?.labels || {}) as Record<string, string>;
+  return (
+    finalizers.includes('tower.io/recycle-bin') ||
+    String(labels['tower.io/recycle-bin'] || '').toLowerCase() === 'true'
+  );
+}
+
 /**
  * 组件入参
  * - visible: 弹窗是否可见
@@ -96,6 +108,16 @@ const VmRestoreModal: React.FC<Props> = ({
     return !!sourceVmObj;
   }, [sourceVmObj]);
 
+  const isSourceVmInRecycleBin = useMemo(
+    () => isHarvesterVmInRecycleBin(sourceVmObj),
+    [sourceVmObj],
+  );
+
+  const canReplaceSourceVm = useMemo(
+    () => isSourceVmExists && !isSourceVmInRecycleBin,
+    [isSourceVmExists, isSourceVmInRecycleBin],
+  );
+
   const isSourceVmRunning = useMemo(() => {
     if (!sourceVmObj) return false;
     const status = sourceVmObj?.status?.printableStatus || sourceVmObj?.status?.phase || sourceVmObj?.status || '';
@@ -115,6 +137,7 @@ const VmRestoreModal: React.FC<Props> = ({
         : '';
       form.setFieldsValue({
         name: `restore-${sourceName}-${Math.floor(Date.now() / 1000)}`,
+        // 回收站中的虚拟机不允许替换，强制新建
         newVM: true,
         deletionPolicy: 'retain',
         newVmName: suggestedNewVmName,
@@ -123,6 +146,13 @@ const VmRestoreModal: React.FC<Props> = ({
       });
     }
   }, [open, resource, form, sourceName, sourceVmName, sourceVmAlias]);
+
+  useEffect(() => {
+    if (!open || !resource) return;
+    if (isSourceVmInRecycleBin) {
+      form.setFieldsValue({ newVM: true });
+    }
+  }, [open, resource, form, isSourceVmInRecycleBin]);
 
   /**
    * 提交创建虚拟机恢复任务：
@@ -139,6 +169,7 @@ const VmRestoreModal: React.FC<Props> = ({
 
       if (values.newVM === false) {
         if (!isSourceVmExists) throw new Error('源虚拟机不存在，无法执行替换');
+        if (isSourceVmInRecycleBin) throw new Error('源虚拟机在回收站中，不允许替换虚拟机，请选择新建虚拟机或先将虚拟机移出回收站');
         if (isSourceVmRunning) {
           message.loading('源虚拟机正在运行，正在停止...', 0);
           try {
@@ -284,7 +315,11 @@ const VmRestoreModal: React.FC<Props> = ({
         message={newVM === false ? '将替换目标虚拟机' : '将新建虚拟机'}
         description={
           newVM === false
-            ? (isSourceVmExists ? '替换模式会自动停止目标虚拟机后执行恢复。' : '目标虚拟机不存在，无法执行替换。')
+            ? isSourceVmInRecycleBin
+              ? '源虚拟机在回收站中，不允许使用替换模式，请使用新建虚拟机或先从回收站还原后再操作。'
+              : isSourceVmExists
+                ? '替换模式会自动停止目标虚拟机后执行恢复。'
+                : '目标虚拟机不存在，无法执行替换。'
             : '新建模式会创建一个新的虚拟机，不会覆盖现有虚拟机。'
         }
         type="warning"
@@ -319,7 +354,21 @@ const VmRestoreModal: React.FC<Props> = ({
         >
           <Radio.Group>
             <Radio value={true}>新建虚拟机</Radio>
-            <Radio value={false} disabled={!isSourceVmExists}>替换虚拟机</Radio>
+            <Tooltip
+              title={
+                !isSourceVmExists
+                  ? '目标虚拟机不存在，无法替换'
+                  : isSourceVmInRecycleBin
+                    ? '虚拟机在回收站中时不允许替换，请使用新建虚拟机或先从回收站还原'
+                    : undefined
+              }
+            >
+              <span style={{ display: 'inline-block' }}>
+                <Radio value={false} disabled={!canReplaceSourceVm}>
+                  替换虚拟机
+                </Radio>
+              </span>
+            </Tooltip>
           </Radio.Group>
         </Form.Item>
 

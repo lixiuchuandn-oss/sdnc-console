@@ -2,6 +2,7 @@ import {
   fetchCloudProviderOvnEips,
   fetchCloudProviderOvnSnatRules,
   fetchCloudProviderOvnDnatRules,
+  fetchKubeOvnSubnets,
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
@@ -9,7 +10,7 @@ import type { PoolPathResourceDeps } from '../poolDataDeps';
 export async function tryLoadKubeOvnFlatTab(
   key: string,
   force: boolean,
-  _skipSync: boolean,
+  skipSync: boolean,
   deps: PoolPathResourceDeps,
 ): Promise<boolean> {
   const {
@@ -17,6 +18,8 @@ export async function tryLoadKubeOvnFlatTab(
     checkPerm,
     loadResource,
     canViewFlatNetworkGroup,
+    setKubeOvnSubnets,
+    setRawSubnets,
     setKubeOvnFlatEips,
     setKubeOvnFlatSnatRules,
     setKubeOvnFlatDnatRules,
@@ -28,6 +31,25 @@ export async function tryLoadKubeOvnFlatTab(
     case 'flat_kubeovn_snat':
     case 'flat_kubeovn_dnat':
       if (!canViewFlatNetworkGroup) return true;
+
+      const needsFlatSubnetForTab =
+        (key === 'flat_kubeovn_eips' && checkPerm('clouds.eips.flat:read')) ||
+        (key === 'flat_kubeovn_snat' && checkPerm('clouds.snat.flat:read')) ||
+        (key === 'flat_kubeovn_dnat' && checkPerm('clouds.dnat.flat:read'));
+
+      if (needsFlatSubnetForTab && checkPerm('clouds.networks:read')) {
+        loadResource(
+          'subnets',
+          () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+          (json) => {
+            const list: any[] = (json as any)?.data?.items || [];
+            setKubeOvnSubnets(Array.isArray(list) ? list : []);
+            setRawSubnets(json || null);
+          },
+          force,
+        );
+      }
+
       if (
         (key === 'flat_kubeovn_eips' ||
           key === 'flat_kubeovn_snat' ||
@@ -44,7 +66,7 @@ export async function tryLoadKubeOvnFlatTab(
           force,
         );
       }
-      /* Cloudmapï¼šFIP å…¥å£æš‚ç¼“è”è°ƒ
+      /* Cloudmap：FIP 入口暂缓联调
       if (key === 'flat_kubeovn_fips' && checkPerm('clouds.fips.flat:read')) { ... }
       */
       if (
