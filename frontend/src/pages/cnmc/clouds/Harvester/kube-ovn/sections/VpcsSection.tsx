@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Table, Button, Space, Modal, Input, Tag, Tabs, Form, Select, message, Switch, Radio } from 'antd';
+import { Table, Button, Space, Modal, Input, Tag, Tabs, Form, Select, message, Switch, Radio, Row, Col, Checkbox } from 'antd';
 import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, SearchOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -377,15 +377,16 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       message.error('无权限执行该操作');
       return;
     }
-    const vpcName = SafeRead.name(record);
+    const vpcId = SafeRead.name(record);
+    const vpcAlias = SafeRead.alias(record) || vpcId;
     const ns = SafeRead.vpcNamespace(record); // 使用新的提取逻辑
-    setTargetVpc(vpcName);
+    setTargetVpc(vpcAlias);
     setTargetNamespace(ns);
     setIsEditSubnet(false);
     setCurrentSubnet(null);
     subnetForm.resetFields();
     subnetForm.setFieldsValue({
-      vpc: vpcName,
+      vpc: vpcId,
       namespace: ns,
       protocol: 'IPv4',
       nat: true,
@@ -426,7 +427,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       protocol,
       nat,
       allowDhcp,
-      excludeIps,
+      excludeIps: Array.isArray(excludeIps) ? excludeIps.join(', ') : excludeIps,
     });
     setCreateSubnetModalVisible(true);
   };
@@ -437,14 +438,27 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       return;
     }
     try {
-      const values = await subnetForm.validateFields();
+      const values = await subnetForm.validateFields().catch(() => {
+        // 表单验证失败，不显示顶部错误消息，由表单自动显示验证提示
+        return null;
+      });
+      if (!values) {
+        return;
+      }
       if (!cloudId) {
         message.error('缺少云平台 ID');
         return;
       }
       const cidrBlock = String(values.cidrBlock || '').trim();
-      const excludeIpsRaw = Array.isArray(values.excludeIps) ? values.excludeIps : [];
-      const excludeIps = excludeIpsRaw.map((ip: unknown) => String(ip || '').trim()).filter(Boolean);
+      const excludeIps: string[] =
+        values.excludeIps && typeof values.excludeIps === 'string'
+          ? String(values.excludeIps)
+              .split(/[\n,]/)
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : Array.isArray(values.excludeIps)
+            ? values.excludeIps.map((ip: unknown) => String(ip || '').trim()).filter(Boolean)
+            : [];
 
       const cidrForExclude =
         isEditSubnet && currentSubnet ? String(SafeRead.subnetCidr(currentSubnet) || '').trim() : cidrBlock;
@@ -1029,17 +1043,18 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       />
 
       <Modal
-        title={`${isEditSubnet ? '编辑 VPC 子网' : '添加 VPC 子网'} (VPC: ${targetVpc})`}
+        title={`${isEditSubnet ? '编辑 VPC 子网' : '新建 VPC 子网'} (所属VPC: ${targetVpc})`}
         open={createSubnetModalVisible}
         onOk={handleSubnetModalSubmit}
         onCancel={() => setCreateSubnetModalVisible(false)}
         confirmLoading={creatingSubnet}
-        okText={isEditSubnet ? '确定' : '创建'}
+        okText={isEditSubnet ? '确定' : '确定'}
         cancelText="取消"
         width={600}
+        centered
         destroyOnHidden
       >
-        <Form form={subnetForm} layout="vertical">
+        <Form form={subnetForm} layout="vertical" className="std-form">
           <Form.Item
             name="name"
             label="名称"
@@ -1047,93 +1062,54 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
               { required: true, message: '请输入子网名称' },
             ]}
           >
-            <Input placeholder="请输入子网名称 (支持中文)" />
+            <Input placeholder="例如 subnet-a3f2-k2z9" style={{ width: '100%' }} />
           </Form.Item>
 
-          <Form.Item
-            name="cidrBlock"
-            label="CIDR"
-            rules={[
-              { required: true, message: '请输入 CIDR' },
-              { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]+$/, message: '请输入有效的 CIDR 格式 (e.g. 10.0.1.0/24)' }
-            ]}
-          >
-            <Input placeholder="e.g. 10.0.1.0/24" disabled={isEditSubnet} />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="cidrBlock"
+                label="CIDR"
+                rules={[
+                  { required: true, message: '请输入 CIDR' },
+                  { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$/, message: '格式错误' },
+                ]}
+              >
+                <Input placeholder="10.0.1.0/24" style={{ width: '100%' }} disabled={isEditSubnet} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="gateway"
+                label="网关"
+                rules={[
+                  { required: true, message: '请输入网关地址' },
+                  { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '格式错误' },
+                ]}
+              >
+                <Input placeholder="10.0.1.1" style={{ width: '100%' }} disabled={isEditSubnet} />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="gateway"
-            label="网关"
-            rules={
-              isEditSubnet
-                ? []
-                : [
-                    { required: true, message: '请输入网关 IP' },
-                    { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入有效的 IP 地址' },
-                  ]
-            }
-          >
-            <Input placeholder="e.g. 10.0.1.1" disabled={isEditSubnet} />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="nat" valuePropName="checked" initialValue={true}>
+                <Checkbox>启用 NAT 出网</Checkbox>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="allowDhcp" valuePropName="checked" initialValue={true}>
+                <Checkbox>启用 DHCP 服务</Checkbox>
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="protocol"
-            label="协议"
-            initialValue="IPv4"
-          >
-            <Radio.Group>
-              <Radio.Button value="IPv4">IPv4</Radio.Button>
-              <Radio.Button value="IPv6" disabled>IPv6 (暂不支持)</Radio.Button>
-            </Radio.Group>
-          </Form.Item>
-
-          <Space size={24}>
-            <Form.Item
-              name="nat"
-              label="NAT"
-              valuePropName="checked"
-              tooltip="是否启用 NAT 转发"
-            >
-              <Switch />
-            </Form.Item>
-            
-            <Form.Item
-              name="allowDhcp"
-              label="DHCP"
-              valuePropName="checked"
-              tooltip="是否启用 DHCP 服务"
-            >
-              <Switch />
-            </Form.Item>
-          </Space>
-
-          <Form.Item
-            label="排除 IP 范围"
-            tooltip="这些 IP 将不会分配给 Pod 或 VM"
-            style={{ marginBottom: 0 }}
-          >
-            <Form.List name="excludeIps">{(fields, { add, remove }) => (
-                <>
-                  {fields.map(({ key, name, ...restField }) => (
-                    <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                      <Form.Item
-                        {...restField}
-                        name={name}
-                        rules={[{ required: true, message: '请输入 IP 或 IP 范围' }]}
-                        style={{ width: 300, marginBottom: 0 }}
-                      >
-                        <Input placeholder="IP 或 CIDR (e.g. 10.0.1.10..10.0.1.20)" />
-                      </Form.Item>
-                      <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
-                    </Space>
-                  ))}
-                  <Form.Item style={{ marginTop: 8 }}>
-                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                      添加排除 IP
-                    </Button>
-                  </Form.Item>
-                </>
-              )}</Form.List>
+          <Form.Item name="excludeIps" label="排除 IP 范围">
+            <Input.TextArea
+              placeholder="填写需要排除的IP地址或IP范围，虚拟机自动分配IP时将跳过这些地址。支持单IP(如10.0.1.1)或IP范围(如10.0.1.10..10.0.1.20)，用逗号分隔。"
+              rows={3}
+            />
           </Form.Item>
         </Form>
       </Modal>

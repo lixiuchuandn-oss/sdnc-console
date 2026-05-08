@@ -241,7 +241,14 @@ export const EipSection: React.FC<EipSectionProps> = ({
     }
     setCreateLoading(true);
     try {
-      const values = await form.validateFields();
+      const values = await form.validateFields().catch(() => {
+        // 表单验证失败，不显示顶部错误消息，由表单自动显示验证提示
+        setCreateLoading(false);
+        return null;
+      });
+      if (!values) {
+        return;
+      }
       const v4 = String(values.v4Ip ?? '').trim();
       if (v4) {
         const owner = (Array.isArray(eips) ? eips : []).find((ex: any) => {
