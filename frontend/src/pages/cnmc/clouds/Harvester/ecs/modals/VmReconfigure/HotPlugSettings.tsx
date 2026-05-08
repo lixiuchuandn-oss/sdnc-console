@@ -139,8 +139,7 @@ const HotPlugSettings: React.FC<Props> = ({
               {enableHotPlug && !isHotPlugEnabledOnVm && (
                 <Alert
                   type="info"
-                  message="首次开启热扩容需要重启生效"
-                  description="开启热扩容后，CPU拓扑将自动调整为 cores=1, threads=1，sockets=当前CPU数量"
+                  message="首次开启热扩容需要重启生效，开启后 CPU 拓扑将自动调整为 cores=1、threads=1、sockets=当前 CPU 数量。"
                   style={{ marginTop: 12 }}
                 />
               )}

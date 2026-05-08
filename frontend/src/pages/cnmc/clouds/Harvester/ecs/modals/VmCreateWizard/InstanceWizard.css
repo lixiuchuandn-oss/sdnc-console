@@ -116,11 +116,3 @@
 .wizard-summary-scroll { scrollbar-width: none; -ms-overflow-style: none; }
 .wizard-summary-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .wizard-step-scroll { scrollbar-width: thin; scrollbar-color: #f7f9fb transparent; }
-
-/* 资源变配：左侧导航垂直滚动条（与 wizard-step-scroll 一致） */
-.vm-reconfigure-sidebar-scroll {
-  overflow-x: hidden;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: #f7f9fb transparent;
-}

@@ -15,6 +15,13 @@ const formatAccessModes = (modes: any[]) => {
   return Array.from(new Set(list)).map(formatAccessMode).join(', ');
 };
 
+/** 与外层 flex+gap 配合：清掉 Tag 默认 margin，否则与 gap 叠在一起（写在父 div 上无效，须作用在 .ant-tag 根节点） */
+const DISK_META_TAG_PROPS = {
+  color: 'blue' as const,
+  bordered: true as const,
+  style: { marginInlineEnd: 0, marginBottom: 0 } as React.CSSProperties,
+};
+
 type Props = {
   record: any;
   cloudId: string;
@@ -224,24 +231,13 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
                         marginTop: 4,
                       }}
                     >
-                      <Tag color="blue" bordered={false}>
-                        PVC：{item.claimName}
-                      </Tag>
-                      <Tag color="blue" bordered={false}>
-                        容量：{item.capacity}
-                      </Tag>
-                      <Tag color="blue" bordered={false}>
-                        总线：{busLabel(item.bus)}
-                      </Tag>
-                      <Tag color="blue" bordered={false}>
-                        存储类：{item.storageClassName}
-                      </Tag>
-                      <Tag color="blue" bordered={false}>
-                        访问：{item.accessModes}
-                      </Tag>
-                      <Tag color="blue" bordered={false}>
-                        类型：{item.fileType}
-                      </Tag>
+                      <Tag {...DISK_META_TAG_PROPS}>PVC：{item.claimName}</Tag>
+                      <Tag {...DISK_META_TAG_PROPS}>类型：{item.fileType}</Tag>
+                      <Tag {...DISK_META_TAG_PROPS}>容量：{item.capacity}</Tag>
+                      <Tag {...DISK_META_TAG_PROPS}>存储类：{item.storageClassName}</Tag>
+                      <Tag {...DISK_META_TAG_PROPS}>访问：{item.accessModes}</Tag>
+                      <Tag {...DISK_META_TAG_PROPS}>总线：{busLabel(item.bus)}</Tag>
+                      <Tag {...DISK_META_TAG_PROPS}>启动顺序：{item.bootOrder}</Tag>
                     </div>
                   }
                 />

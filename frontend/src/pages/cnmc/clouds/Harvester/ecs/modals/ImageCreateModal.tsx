@@ -15,9 +15,8 @@
  * - 选文件后根据文件名自动填充显示名（去扩展名）与类型（扩展名 → iso | disk，与后端 imageType 一致）。
  */
 import React, { useCallback, useEffect, useState, type MutableRefObject } from 'react';
-import { Button, Col, Form, Input, message, Row, Select, Tabs, Typography, Upload } from 'antd';
+import { Button, Col, Form, Input, message, Modal, Row, Select, Tabs, Typography, Upload } from 'antd';
 import { DownloadOutlined, PaperClipOutlined } from '@ant-design/icons';
-import StdFormModal from '../../../../../../components/StdFormModal';
 import { API_BASE_URL } from '../../../../../../services/api';
 import {
   createHarvesterImage,
@@ -191,7 +190,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   };
 
   /**
-   * 浏览器上传 Tab：StdFormModal 触发 form.submit → 本函数。
+   * 浏览器上传 Tab：确定触发 form.submit → 本函数。
    * 镜像显示名为可选；最终以表单值为准，空则再次用 inferBrowserUploadFromFilename(file.name)。
    */
   const handleStartTaskUpload = async () => {
@@ -449,46 +448,54 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   const isUrlCreateTab = createTab === 'url';
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="新增镜像"
       onCancel={onClose}
-      onFinish={isUrlCreateTab ? handleCreate : handleStartTaskUpload}
-      form={form}
+      onOk={() => form.submit()}
       okText={isUrlCreateTab ? '创建' : '提交任务'}
       confirmLoading={uploadingTask}
       okButtonProps={createTab === 'desktop' ? { style: { display: 'none' } } : undefined}
       width={600}
+      centered
+      destroyOnHidden
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
-      {variant === 'standard' ? (
-        renderBrowserUploadPanel()
-      ) : (
-        <Tabs
-          activeKey={createTab}
-          destroyInactiveTabPane
-          onChange={(k) => {
-            setCreateTab(k as 'browser' | 'desktop' | 'url');
-          }}
-          items={[
-            {
-              key: 'browser',
-              label: '浏览器上传',
-              children: renderBrowserUploadPanel(),
-            },
-            {
-              key: 'url',
-              label: 'URL 导入',
-              children: renderUrlImportPanel(),
-            },
-            {
-              key: 'desktop',
-              label: 'Windows 桌面工具',
-              children: renderDesktopToolPanel(),
-            },
-          ]}
-        />
-      )}
-    </StdFormModal>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={isUrlCreateTab ? handleCreate : handleStartTaskUpload}
+      >
+        {variant === 'standard' ? (
+          renderBrowserUploadPanel()
+        ) : (
+          <Tabs
+            activeKey={createTab}
+            destroyInactiveTabPane
+            onChange={(k) => {
+              setCreateTab(k as 'browser' | 'desktop' | 'url');
+            }}
+            items={[
+              {
+                key: 'browser',
+                label: '浏览器上传',
+                children: renderBrowserUploadPanel(),
+              },
+              {
+                key: 'url',
+                label: 'URL 导入',
+                children: renderUrlImportPanel(),
+              },
+              {
+                key: 'desktop',
+                label: 'Windows 桌面工具',
+                children: renderDesktopToolPanel(),
+              },
+            ]}
+          />
+        )}
+      </Form>
+    </Modal>
   );
 };
 

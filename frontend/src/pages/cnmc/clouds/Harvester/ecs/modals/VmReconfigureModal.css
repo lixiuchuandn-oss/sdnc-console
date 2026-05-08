@@ -1,0 +1,21 @@
+/* 资源变配弹窗：左侧 Sider / Menu（与创建向导滚动条风格一致：thin） */
+
+.vm-reconfigure-sidebar-scroll {
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #f7f9fb transparent;
+}
+
+.vm-reconfigure-sider-menu.ant-menu-inline .ant-menu-item {
+  height: 36px;
+  line-height: 36px;
+  margin-block: 2px;
+  padding-inline: 16px !important;
+}
+
+.vm-reconfigure-sider-menu .ant-menu-item-group-title {
+  height: 36px;
+  line-height: 36px;
+  padding: 0;
+}

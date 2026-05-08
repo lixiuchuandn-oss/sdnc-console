@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { App, Form, Input, Select } from 'antd';
-import StdFormModal from '../../../../../components/StdFormModal';
+import { App, Form, Input, Modal, Select } from 'antd';
 import { fetchCloudProviderSubnets } from '../../../../../services/api';
 import { updateHuaweiCloudSubnet } from '../../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
@@ -31,29 +30,42 @@ const SubnetEditModal: React.FC<Props> = ({ open, cloudId, target, onClose, onSu
   }, [open, target, form]);
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="编辑子网"
-      form={form}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onClose}
-      onFinish={async (values: any) => {
-        try {
-          const id0 = target?.id || target?.SubnetId; if (!id0) return;
-          await updateHuaweiCloudSubnet(cloudId, id0, { name: values.name, description: values.description, dhcp_enable: values.dhcp_enable, primary_dns: values.primary_dns, secondary_dns: values.secondary_dns });
-          const json = await fetchCloudProviderSubnets(cloudId);
-          const subnetList: any[] = (json?.data?.subnets) || (json?.subnets) || [];
-          onSuccess(Array.isArray(subnetList) ? subnetList : []);
-          message.success('更新成功');
-          onClose();
-        } catch (e: any) { message.error(normalizeErr(e, '更新失败')); }
-      }}
+      onOk={() => form.submit()}
+      okText="保存"
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={async (values: any) => {
+          try {
+            const id0 = target?.id || target?.SubnetId;
+            if (!id0) return;
+            await updateHuaweiCloudSubnet(cloudId, id0, { name: values.name, description: values.description, dhcp_enable: values.dhcp_enable, primary_dns: values.primary_dns, secondary_dns: values.secondary_dns });
+            const json = await fetchCloudProviderSubnets(cloudId);
+            const subnetList: any[] = (json?.data?.subnets) || (json?.subnets) || [];
+            onSuccess(Array.isArray(subnetList) ? subnetList : []);
+            message.success('更新成功');
+            onClose();
+          } catch (e: any) {
+            message.error(normalizeErr(e, '更新失败'));
+          }
+        }}
+      >
       <Form.Item name="name" label="名称"> <Input placeholder="请输入名称" /> </Form.Item>
       <Form.Item name="description" label="描述"> <Input placeholder="请输入描述" /> </Form.Item>
       <Form.Item name="dhcp_enable" label="DHCP"> <Select allowClear placeholder="启用/关闭" options={[{ label:'启用', value:true }, { label:'关闭', value:false }]} style={{ width: 160 }} /> </Form.Item>
       <Form.Item name="primary_dns" label="主DNS"> <Input placeholder="例如 114.xx.xx.114" /> </Form.Item>
       <Form.Item name="secondary_dns" label="备DNS"> <Input placeholder="例如 114.xx.xx.115" /> </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

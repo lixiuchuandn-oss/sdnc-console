@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { MenuProps } from 'antd';
-import { Button, Form, Input, Select, Table, Dropdown, message, Space, Tag, App, Typography } from 'antd';
+import { Button, Form, Input, Modal, Select, Table, Dropdown, message, Space, Tag, App, Typography } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
-import StdFormModal from '../../../components/StdFormModal';
 import PageContainer from '../../../components/PageContainer';
 import { usePermissionDefinitions } from '../../../hooks/usePermissionDefinitions';
 import { GROUPS, PLATFORMS } from '../../../constants/navigation';
@@ -694,7 +693,18 @@ const AccessRolesPage: React.FC = () => {
       />
 
       {/* 新建角色模态框 */}
-      <StdFormModal title="新建授权角色" open={createOpen} onCancel={()=> setCreateOpen(false)} okText="创建" destroyOnHidden width={600} form={createForm} onFinish={handleCreate}>
+      <Modal
+        title="新建授权角色"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={() => createForm.submit()}
+        okText="创建"
+        destroyOnHidden
+        width={600}
+        centered
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
+      >
+        <Form form={createForm} layout="vertical" onFinish={handleCreate}>
         <Form.Item name="name" label="角色名称" rules={[{ required: true, message: '请输入角色名称' }]}>
           <Input placeholder="例如：安全管理员" />
         </Form.Item>
@@ -707,7 +717,8 @@ const AccessRolesPage: React.FC = () => {
         <Form.Item name="description" label="描述">
           <Input.TextArea placeholder="角色用途说明（可选）" autoSize={{ minRows: 3, maxRows: 6 }} />
         </Form.Item>
-      </StdFormModal>
+        </Form>
+      </Modal>
 
       <RolePermissionDrawer
         open={grantOpen}

@@ -16,18 +16,21 @@ const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
 async function getVRConfig(vrId: string) {
   try {
     const config = await vrController.getVRConfig(vrId);
-    return { config, from: 'device' };
-  } catch (e) {
-    const dbConfig = await vrConfigRepo().findOne({ where: { uuid: vrId } });
-    if (dbConfig?.config_json) {
-      try {
-        return { config: JSON.parse(dbConfig.config_json), from: 'db' };
-      } catch {
-        return { config: {}, from: 'error' };
-      }
+    if (config != null) {
+      return { config, from: 'device' };
     }
-    return { config: {}, from: 'empty' };
+  } catch {
+    // 网络/签名等失败：回退本地库
   }
+  const dbConfig = await vrConfigRepo().findOne({ where: { uuid: vrId } });
+  if (dbConfig?.config_json) {
+    try {
+      return { config: JSON.parse(dbConfig.config_json), from: 'db' };
+    } catch {
+      return { config: {}, from: 'error' };
+    }
+  }
+  return { config: {}, from: 'empty' };
 }
 
 // List

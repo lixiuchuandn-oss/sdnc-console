@@ -119,6 +119,15 @@ import { useCloudmapOpsViewWrite } from "../../hooks/useCloudmapOpsViewWrite";
 import SimpleVmCreateModal from "../../ecs/modals/SimpleVmCreateModal";
 import VmAliasEditModal from "../modals/VmAliasEditModal";
 import { isTowerPaasInventoryExcludedVm } from "../../shared/harvesterTowerPaas";
+import {
+  findFirstVmVolumeResizeState,
+  findPvcForClaim,
+  getPvcCapacityStorageString,
+  normalizePvcPhaseForDisplay,
+  readPvcResizeFlags,
+  resolveVmNamespace,
+} from "../lib/vmVolumePvc";
+import { formatStorageSize, parseStorageSize } from "../lib/storageSize";
 
 /**
  * [类型定义] 组件 Props 接口
@@ -316,57 +325,6 @@ const VmSection: React.FC<Props> = ({
       return `${r.metadata.namespace}/${r.metadata.name}`;
     }
     return String(r?.InstanceId || r?.id || "");
-  };
-
-  /**
-   * [函数] 解析存储大小字符串
-   * 将 "10Gi", "500Mi", "1024" 等不同格式的存储字符串统一转换为 GiB 数值。
-   */
-  const parseStorageSize = (sizeStr: string): number => {
-    if (!sizeStr) return 0;
-    const str = String(sizeStr).trim();
-
-    // 纯数字 => 视为字节 (Bytes)
-    if (/^\d+$/.test(str)) {
-      const bytes = parseFloat(str);
-      return bytes / 1024 ** 3; // 转换为 GiB
-    }
-
-    // 支持二进制单位 (Ki, Mi, Gi, Ti) 和十进制单位 (k, KB, ...)
-    const units: Record<string, number> = {
-      ki: 1024,
-      mi: 1024 ** 2,
-      gi: 1024 ** 3,
-      ti: 1024 ** 4,
-      k: 1000,
-      kb: 1000,
-      m: 1000 ** 2,
-      mb: 1000 ** 2,
-      g: 1000 ** 3,
-      gb: 1000 ** 3,
-      t: 1000 ** 4,
-      tb: 1000 ** 4,
-    };
-
-    const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
-    if (!match) return parseFloat(str) || 0;
-
-    const val = parseFloat(match[1]);
-    const unit = match[2].toLowerCase();
-    const mul = units[unit];
-    if (!mul) return val; // 默认为 GiB
-    return (val * mul) / 1024 ** 3; // 转换为 GiB
-  };
-
-  /**
-   * [函数] 格式化存储大小
-   * 将 GiB 数值格式化为人类可读的字符串 (MiB, GiB, TiB)。
-   */
-  const formatStorageSize = (sizeGiB: number): string => {
-    if (sizeGiB === 0) return "-";
-    if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
-    if (sizeGiB >= 1024) return `${(sizeGiB / 1024).toFixed(1)} TiB`;
-    return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
   };
 
   // ==========================================
@@ -664,15 +622,7 @@ const VmSection: React.FC<Props> = ({
       // 逻辑：合并 VM 的 Volumes 定义和系统中 PVC 的实时状态
       volumeDetails: (r: any) => {
         const vols = r?.spec?.template?.spec?.volumes || [];
-
-        // 解析 VM 所在的 Namespace
-        let vmNs = r?.metadata?.namespace || r?.namespace;
-        if (!vmNs) {
-          const iid = r?.id || r?.metadata?.uid || "";
-          if (iid && iid.includes("/")) {
-            vmNs = iid.split("/")[0];
-          }
-        }
+        const vmNs = resolveVmNamespace(r);
 
         // 确定启动盘 (Boot Volume)
         const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
@@ -698,52 +648,25 @@ const VmSection: React.FC<Props> = ({
           let status = "";
           let isResizing = false;
           let isFsPending = false;
-          let message = "";
           let phase = "";
 
-          // 在全局 volumes 列表中查找对应的 PVC
           if (claimName && volumes && volumes.length > 0) {
-            const pvc = volumes.find((p: any) => {
-              const pName = p?.metadata?.name || p?.name;
-              const pNs = p?.metadata?.namespace || p?.namespace;
-              if (pName === claimName && pNs === vmNs) return true;
-              const pId = p?.id;
-              if (pId && pId === `${vmNs}/${claimName}`) return true;
-              if (p?.name === claimName && p?.namespace === vmNs) return true;
-              return false;
-            });
-
+            const pvc = findPvcForClaim(volumes, claimName, vmNs);
             if (pvc) {
               const actualPvc = pvc?.rawData || pvc;
-              const capStr =
-                actualPvc?.status?.capacity?.storage ||
-                actualPvc?.spec?.resources?.requests?.storage ||
-                pvc?.size ||
-                "";
+              const capStr = getPvcCapacityStorageString(actualPvc, pvc);
               if (capStr) {
                 capacityBytes = parseStorageSize(capStr);
                 capacity = capStr;
               }
-              phase = actualPvc?.status?.phase || pvc?.state || "Bound";
-
-              // 检查扩容相关的 Conditions
-              const conditions = actualPvc?.status?.conditions || [];
-              const fsPendingCond = conditions.find(
-                (c: any) =>
-                  c.type === "FileSystemResizePending" && c.status === "True",
-              );
-              const resizingCond = conditions.find(
-                (c: any) => c.type === "Resizing" && c.status === "True",
-              );
-
-              if (fsPendingCond) {
+              phase = normalizePvcPhaseForDisplay(actualPvc, pvc);
+              const resize = readPvcResizeFlags(actualPvc);
+              if (resize.isFsPending) {
                 status = "FileSystemResizePending";
                 isFsPending = true;
-                message = fsPendingCond.message;
-              } else if (resizingCond) {
+              } else if (resize.isResizing) {
                 status = "Resizing";
                 isResizing = true;
-                message = resizingCond.message;
               } else {
                 status = phase;
               }
@@ -767,7 +690,6 @@ const VmSection: React.FC<Props> = ({
             phase,
             isResizing,
             isFsPending,
-            message,
             kind,
           };
         });
@@ -940,85 +862,7 @@ const VmSection: React.FC<Props> = ({
    * 此函数遍历 VM 的所有 PVC，检测并返回当前的扩容阶段，以便 UI 给出准确提示。
    */
   const checkResizeStatus = useCallback(
-    (r: any) => {
-      if (!volumes || volumes.length === 0)
-        return {
-          isResizing: false,
-          isFsPending: false,
-          pvcName: "",
-          message: "",
-        };
-
-      const vmVolumes = r?.spec?.template?.spec?.volumes || [];
-
-      // 解析 VM Namespace
-      let vmNs = r?.metadata?.namespace || r?.namespace;
-      if (!vmNs) {
-        const iid = r?.id || r?.metadata?.uid || "";
-        if (iid && iid.includes("/")) {
-          vmNs = iid.split("/")[0];
-        }
-      }
-
-      for (const v of vmVolumes) {
-        const claimName = v?.persistentVolumeClaim?.claimName;
-        if (!claimName) continue;
-
-        // 查找对应的 PVC 对象
-        const pvc = volumes.find((p: any) => {
-          // 策略 1: 标准 Metadata 匹配
-          const pName = p?.metadata?.name || p?.name;
-          const pNs = p?.metadata?.namespace || p?.namespace;
-          if (pName === claimName && pNs === vmNs) return true;
-
-          // 策略 2: ID 匹配
-          const pId = p?.id;
-          if (pId && pId === `${vmNs}/${claimName}`) return true;
-
-          // 策略 3: 扁平结构
-          if (p?.name === claimName && p?.namespace === vmNs) return true;
-
-          return false;
-        });
-        if (!pvc) continue;
-
-        const actualPvc = pvc?.rawData || pvc;
-        const conditions = actualPvc?.status?.conditions || [];
-
-        // 阶段 2: 等待文件系统扩容
-        const fsPendingCond = conditions.find(
-          (c: any) =>
-            c.type === "FileSystemResizePending" && c.status === "True",
-        );
-        if (fsPendingCond) {
-          return {
-            isResizing: false,
-            isFsPending: true,
-            pvcName: claimName,
-            message: fsPendingCond.message,
-          };
-        }
-
-        // 阶段 1: 正在扩容物理卷
-        const resizingCond = conditions.find(
-          (c: any) => c.type === "Resizing" && c.status === "True",
-        );
-        if (resizingCond) {
-          return {
-            isResizing: true,
-            isFsPending: false,
-            pvcName: claimName,
-            message: resizingCond.message || "等待存储后端...",
-          };
-        }
-      }
-      return {
-        isResizing: false,
-        isFsPending: false,
-        pvcName: "",
-        message: "",
-      };
-    },
+    (r: any) => findFirstVmVolumeResizeState(r, volumes),
     [volumes],
   );
 
