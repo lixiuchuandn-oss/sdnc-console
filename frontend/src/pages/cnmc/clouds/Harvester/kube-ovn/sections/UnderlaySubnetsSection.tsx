@@ -825,13 +825,13 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                     }
                   }
                   const disp =
-                    String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || name;
-                  Modal.confirm({
-                    title: '确认删除',
-                    okType: 'danger',
-                    content: `确定删除该${subnetKindLabel}「${disp}」吗？`,
-                    onOk: () => handleDelete(name),
-                  });
+                      String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || name;
+                    Modal.confirm({
+                      title: '确认删除',
+                      okType: 'danger',
+                      content: `确定删除该${subnetKindLabel}「${disp}」吗？`,
+                      onOk: () => handleDelete(name),
+                    });
                 })();
               },
             },

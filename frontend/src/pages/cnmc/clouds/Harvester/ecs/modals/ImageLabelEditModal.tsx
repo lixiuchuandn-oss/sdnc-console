@@ -106,11 +106,10 @@ const ImageLabelEditModal: React.FC<Props> = ({ open, onClose, cloudId, resource
         <Form.List name="labels">
           {(fields, { add, remove }) => (
             <>
-              {fields.map(({ key, name, ...restField }) => (
-                <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                  <Col span={11}>
+              {fields.map(({ key, name }) => (
+                <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
                     <Form.Item
-                      {...restField}
                       name={[name, 'key']}
                       style={{ marginBottom: 0 }}
                       rules={[
@@ -123,23 +122,22 @@ const ImageLabelEditModal: React.FC<Props> = ({ open, onClose, cloudId, resource
                     >
                       <Input placeholder="Key (例如: tower.io/paas-category)" />
                     </Form.Item>
-                  </Col>
-                  <Col span={11}>
+                  </div>
+                  <div style={{ flex: 1 }}>
                     <Form.Item
-                      {...restField}
                       name={[name, 'value']}
                       style={{ marginBottom: 0 }}
                     >
                       <Input placeholder="Value (例如: true)" />
                     </Form.Item>
-                  </Col>
-                  <Col span={2} style={{ textAlign: 'center' }}>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40 }}>
                     <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', cursor: 'pointer' }} />
-                  </Col>
-                </Row>
+                  </div>
+                </div>
               ))}
               <Form.Item style={{ marginTop: 16 }}>
-                <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                <Button type="dashed" onClick={() => add({ key: '', value: '' })} block icon={<PlusOutlined />}>
                   添加标签
                 </Button>
               </Form.Item>

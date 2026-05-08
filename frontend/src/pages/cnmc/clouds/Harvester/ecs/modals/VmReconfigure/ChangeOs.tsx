@@ -65,14 +65,12 @@ function imageRecordDisplayName(x: any): string {
   ).trim();
 }
 
-function cdromBusFieldValue(isArm64: boolean): 'scsi' | 'sata' {
-  return isArm64 ? 'scsi' : 'sata';
+function cdromBusFieldValue(isArm64: boolean): 'sata' {
+  return 'sata';
 }
 
 function cdromBusTooltipText(isArm64: boolean): string {
-  return isArm64
-    ? 'ARM64 集群上光驱设备固定为 SCSI，与下发的虚拟机规格一致。'
-    : 'x86/amd64 上光驱设备固定为 SATA，与下发的虚拟机规格一致。';
+  return '光驱设备固定为 SATA，与下发的虚拟机规格一致。';
 }
 
 const ChangeOs: React.FC<Props> = ({
@@ -292,74 +290,6 @@ const ChangeOs: React.FC<Props> = ({
                 if (open) reloadImages();
               }}
               onChange={(val) => applyFieldsForSelectedImage(String(val || ''))}
-            />
-          </Form.Item>
-          <div style={{ marginBottom: 24 }} />
-        </Col>
-      </Row>
-
-      {/* ============================== IMAGE_PREVIEW ============================== */}
-      <Form.Item name="rootDeviceType" hidden initialValue="disk">
-        <Input />
-      </Form.Item>
-      <Row gutter={12} style={{ marginBottom: 24 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>新镜像预览</div>
-        </Col>
-        <Col span={18}>
-          <div
-            style={{
-              padding: 12,
-              border: '1px solid #d9d9d9',
-              borderRadius: 8,
-              background: '#fafafa',
-            }}
-          >
-            <Descriptions size="small" column={1} styles={{ label: { width: 88 } }}>
-              <Descriptions.Item label="设备类型">{isCdromRoot ? 'CD-ROM' : 'DISK'}</Descriptions.Item>
-              <Descriptions.Item label="卷类型">Block</Descriptions.Item>
-              <Descriptions.Item label="访问模式">ReadWriteMany</Descriptions.Item>
-              <Descriptions.Item label="存储类">
-                {storageClassName ? String(storageClassName) : '自动选择'}
-              </Descriptions.Item>
-            </Descriptions>
-          </div>
-        </Col>
-      </Row>
-
-      {/* ============================== ROOT_SIZE ============================== */}
-      <Row gutter={12} style={{ marginBottom: 0 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>磁盘容量</div>
-        </Col>
-        <Col span={18}>
-          <Form.Item
-            name="newOsRootSize"
-            rules={[
-              {
-                validator: async (_, value) => {
-                  if (value === undefined || value === null || value === '') {
-                    const image = form.getFieldValue('newOsImage');
-                    if (!image) throw new Error('请先选择镜像，或手动输入容量');
-                    return;
-                  }
-                  const num = Number(value);
-                  if (Number.isNaN(num)) throw new Error('请输入有效的数字');
-                  if (num <= 0) throw new Error('容量必须大于 0');
-                  if (minSize > 0 && num < minSize) {
-                    throw new Error(`容量不能小于镜像大小 (${minSize} GiB)`);
-                  }
-                },
-              },
-            ]}
-            noStyle
-          >
-            <InputNumber
-              style={{ width: '150px' }}
-              min={minSize > 0 ? minSize : 1}
-              precision={0}
-              placeholder={minSize ? `最小 ${minSize} GiB` : '自动选择'}
-              suffix="GiB"
             />
           </Form.Item>
           <div style={{ marginBottom: 24 }} />

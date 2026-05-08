@@ -293,6 +293,21 @@ export class RecycleBinTaskService {
   }
 
   /**
+   * 获取虚拟机的显示名称（与前端VmSection.tsx逻辑一致）
+   */
+  private getVmDisplayName(vm: any): string | undefined {
+    const annotations = vm?.metadata?.annotations || {};
+    // 优先使用 annotations["field.cattle.io/displayName"]
+    const annotationName = annotations['field.cattle.io/displayName'];
+    if (annotationName) return String(annotationName).trim();
+    // 其次使用 spec.displayName
+    if (vm?.spec?.displayName) return String(vm.spec.displayName).trim();
+    // 最后使用顶层 displayName
+    if (vm?.displayName) return String(vm.displayName).trim();
+    return undefined;
+  }
+
+  /**
    * 处理单个虚拟机：检查状态并关机
    */
   private async processVm(
@@ -305,6 +320,7 @@ export class RecycleBinTaskService {
     const name = vm?.metadata?.name || '';
     const uid = vm?.metadata?.uid || '';
     const instanceId = namespace && name ? `${namespace}/${name}` : uid;
+    const displayName = this.getVmDisplayName(vm);
 
     if (!namespace || !name) {
       rbLog.warn(`虚拟机缺少命名空间或名称，跳过: ${instanceId}`);
@@ -323,6 +339,7 @@ export class RecycleBinTaskService {
         await this.recordShutdown(cloud, {
           namespace,
           name,
+          displayName,
           instanceId,
           uid,
           status: 'skipped',
@@ -350,6 +367,7 @@ export class RecycleBinTaskService {
       await this.recordShutdown(cloud, {
         namespace,
         name,
+        displayName,
         instanceId,
         uid,
         status: 'success',
@@ -365,6 +383,7 @@ export class RecycleBinTaskService {
       await this.recordShutdown(cloud, {
         namespace,
         name,
+        displayName,
         instanceId,
         uid,
         status: 'failed',
@@ -430,6 +449,7 @@ export class RecycleBinTaskService {
     data: {
       namespace: string;
       name: string;
+      displayName?: string;
       instanceId: string;
       uid: string;
       status: string;
@@ -445,6 +465,7 @@ export class RecycleBinTaskService {
         cloudName: cloud.name || '',
         namespace: data.namespace,
         name: data.name,
+        displayName: data.displayName,
         instanceId: data.instanceId,
         uid: data.uid,
         status: data.status,

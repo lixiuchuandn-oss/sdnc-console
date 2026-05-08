@@ -239,8 +239,16 @@ export const EipSection: React.FC<EipSectionProps> = ({
       message.error('无权限执行该操作');
       return;
     }
+    setCreateLoading(true);
     try {
-      const values = await form.validateFields();
+      const values = await form.validateFields().catch(() => {
+        // 表单验证失败，不显示顶部错误消息，由表单自动显示验证提示
+        setCreateLoading(false);
+        return null;
+      });
+      if (!values) {
+        return;
+      }
       const v4 = String(values.v4Ip ?? '').trim();
       if (v4) {
         const owner = (Array.isArray(eips) ? eips : []).find((ex: any) => {
@@ -253,7 +261,6 @@ export const EipSection: React.FC<EipSectionProps> = ({
           return;
         }
       }
-      setCreateLoading(true);
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
       const displayName = String(values.displayName ?? '').trim();
       const vpc = String(values.vpc ?? '').trim();
@@ -718,10 +725,11 @@ export const EipSection: React.FC<EipSectionProps> = ({
                   if (!ipv4InCidr(raw, cidr)) {
                     throw new Error(`IP 须落在公共子网网段 ${cidr} 内`);
                   }
-                  const excluded = s ? normalizeExcludeIps(s) : [];
-                  if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
-                    throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
-                  }
+                  // 排除列表仅限制自动分配，不限制用户手动指定的 IP
+                  // const excluded = s ? normalizeExcludeIps(s) : [];
+                  // if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
+                  //   throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
+                  // }
                 },
               }),
             ]}

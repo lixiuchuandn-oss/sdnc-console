@@ -60,15 +60,13 @@ export interface StepDisksProps {
 // 纯函数与小型展示组件
 // ---------------------------------------------------------------------------
 
-function cdromBusFieldValue(isArm64: boolean): 'scsi' | 'sata' {
-  return isArm64 ? 'scsi' : 'sata';
+function cdromBusFieldValue(isArm64: boolean): 'sata' {
+  return 'sata';
 }
 
 /** 光驱固定总线说明：写在 Form.Item `tooltip`，与「总线」标签对齐，勿放在控件旁 */
 function cdromBusTooltipText(isArm64: boolean): string {
-  return isArm64
-    ? 'ARM64 集群上光驱设备固定为 SCSI，与下发的虚拟机规格一致。'
-    : 'x86/amd64 上光驱设备固定为 SATA，与下发的虚拟机规格一致。';
+  return '光驱设备固定为 SATA，与下发的虚拟机规格一致。';
 }
 
 function generateDiskSuffix(): string {

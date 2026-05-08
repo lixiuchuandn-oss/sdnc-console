@@ -31,6 +31,9 @@ export class RecycleBinShutdownRecord {
   @Column({ type: 'text' })
   name!: string;
 
+  @Column({ type: 'text', nullable: true })
+  displayName?: string;
+
   @Column({ type: 'text' })
   instanceId!: string; // 格式: namespace/name
 

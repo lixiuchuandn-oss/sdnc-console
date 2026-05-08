@@ -553,10 +553,6 @@ const ImagesSection: React.FC<Props> = ({
       const alias = getImageAlias(r);
       const deleteLabel = alias ? `${alias} (${name})` : name;
       const ns = getNs(r);
-      const links = r?.links || {};
-      const download = links?.download || '';
-
-      const handleDownload = () => { if (download) window.open(download, '_blank'); };
       const handleDelete = async () => { 
           if (!ensureImagesWrite()) return;
           if (!name) return;
@@ -583,7 +579,6 @@ const ImagesSection: React.FC<Props> = ({
           items={[
             ...(!isTenant && hasOpsView ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
             { key: 'editLabels', label: '编辑标签', disabled: !hasImagesWrite, onClick: () => { setLabelEditRecord(r); setLabelEditModalOpen(true); } },
-            { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: '确认删除镜像？', content: `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`, onOk: handleDelete }) },
           ]} 

@@ -38,7 +38,7 @@ import {
 } from '../../../../services/clouds/harvester/network';
 import { upsertVpcPolicyDstRouteForExternalSubnet } from './ovnInternalPublicSubnetSync';
 
-function getOriginFromEndpoint(endpoint: string): string {
+export function getOriginFromEndpoint(endpoint: string): string {
   const base = (endpoint || '').replace(/\/+$/, '');
   try {
     const u = new URL(base);
@@ -84,6 +84,16 @@ function assertOvnVpcLicenseForList(req: any, res: Response, scope: OvnNetworkSc
 /** POST 创建：`underlay` 不校验 VPC License */
 function assertOvnVpcLicenseForCreate(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
   if (scope === 'underlay') return true;
+  if (!licenseService.hasFeature('network.ovn.vpc')) {
+    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    return false;
+  }
+  return true;
+}
+
+/** DELETE 等：根据资源 scope 判断是否需要 VPC License */
+function assertOvnVpcLicenseForDelete(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
+  if (scope === 'underlay' || scope === null || scope === undefined) return true;
   if (!licenseService.hasFeature('network.ovn.vpc')) {
     res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
     return false;
@@ -367,7 +377,7 @@ async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next:
 }
 
 /** 集群级 OVN CR 删除：兼容两种 API 路径；双 404 视为已删除 */
-async function deleteKubeOvnClusterCr(
+export async function deleteKubeOvnClusterCr(
   origin: string,
   token: string,
   insecure: boolean,
@@ -397,7 +407,6 @@ async function deleteKubeOvnClusterCr(
 
 export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -409,6 +418,19 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先获取 EIP 列表，从中找到要删除的 EIP 并判断其类型
+    const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const eipObj = (Array.isArray(eips) ? eips : []).find(
+      (e: any) => String(e?.metadata?.name || '').trim() === nameStr,
+    );
+    // 通过 EIP 的 spec.vpc 字段判断是否属于 VPC 网络
+    // 如果 vpc 字段存在且非空，则属于 VPC 网络，需要 VPC License
+    // 否则属于扁平网络（underlay），不需要 VPC License
+    const eipVpc = String(eipObj?.spec?.vpc || '').trim();
+    const eipScope = eipVpc ? 'vpc' : 'underlay';
+
+    if (!assertOvnVpcLicenseForDelete(req, res, eipScope)) return;
 
     /** 展示名：有 tower.io/alias 则用别名，否则用 metadata.name */
     const toAliasLabel = (obj: any): string | null => {
@@ -474,7 +496,6 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -486,6 +507,17 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先获取 FIP 列表，从中找到要删除的 FIP 并判断其类型
+    const fips = await listKubeOvnFips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const fipObj = (Array.isArray(fips) ? fips : []).find(
+      (f: any) => String(f?.metadata?.name || '').trim() === nameStr,
+    );
+    // FIP 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const fipVpc = String(fipObj?.spec?.vpc || '').trim();
+    const fipScope = fipVpc ? 'vpc' : 'underlay';
+
+    if (!assertOvnVpcLicenseForDelete(req, res, fipScope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnfips', 'ovn-fips', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnFipInventory).delete({ cloudId: cloud.id, name: nameStr });
@@ -501,7 +533,6 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -513,6 +544,16 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先获取 SNAT 规则列表，从中找到要删除的规则并判断其类型
+    const snats = await listKubeOvnSnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const snatObj = (Array.isArray(snats) ? snats : []).find(
+      (s: any) => String(s?.metadata?.name || '').trim() === nameStr,
+    );
+    // SNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const snatVpc = String(snatObj?.spec?.vpc || '').trim();
+    const scope = snatVpc ? 'vpc' : 'underlay';
+    if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnsnatrules', 'ovn-snat-rules', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnNatRuleInventory).delete({
@@ -532,7 +573,6 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
 
 export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -544,6 +584,16 @@ export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, nex
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先获取 DNAT 规则列表，从中找到要删除的规则并判断其类型
+    const dnats = await listKubeOvnDnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const dnatObj = (Array.isArray(dnats) ? dnats : []).find(
+      (d: any) => String(d?.metadata?.name || '').trim() === nameStr,
+    );
+    // DNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const dnatVpc = String(dnatObj?.spec?.vpc || '').trim();
+    const scope = dnatVpc ? 'vpc' : 'underlay';
+    if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovndnatrules', 'ovn-dnat-rules', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnNatRuleInventory).delete({
