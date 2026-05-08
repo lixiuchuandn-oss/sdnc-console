@@ -36,7 +36,10 @@ import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
 } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
-import { isKubeOvnSubnetNadReady } from './VmCreateWizard/kubeOvnNadRefForVmWizard';
+import {
+  isKubeOvnSubnetNadReady,
+  resolveMultusNetNameForKubeOvnSubnetNic,
+} from './VmCreateWizard/kubeOvnNadRefForVmWizard';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import {
   isHarvesterVmImageReady,
@@ -95,7 +98,6 @@ function resolveFlatSubnetPrimaryNic(
   kubeSubnets: any[],
   nadOptions: { value: string }[],
 ) {
-  let netName = subnetName;
   const subnet = (kubeSubnets || []).find((x: any) => {
     const nm = subnetDisplayName(x);
     return (
@@ -104,29 +106,7 @@ function resolveFlatSubnetPrimaryNic(
       isKubeOvnFlatSubnet(x)
     );
   });
-  let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-  if (!subnetNs && subnet) {
-    const provider = subnet?.provider || subnet?.spec?.provider;
-    if (provider) {
-      const parts = String(provider).split('.');
-      if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-    }
-  }
-  if (subnetNs) {
-    netName = `${subnetNs}/${subnetName}`;
-  } else {
-    try {
-      const found = (nadOptions || []).find((x: any) => {
-        const vv = String(x?.value || '');
-        const parts = vv.split('/');
-        const name = parts.length > 1 ? parts[1] : parts[0];
-        return name === subnetName;
-      });
-      if (found) netName = found.value;
-    } catch {
-      /* ignore */
-    }
-  }
+  const netName = resolveMultusNetNameForKubeOvnSubnetNic(subnet, subnetName, nadOptions);
   return {
     type: 'managedtap',
     model: 'virtio',
