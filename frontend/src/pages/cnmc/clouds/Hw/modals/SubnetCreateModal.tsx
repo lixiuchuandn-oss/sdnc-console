@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { App, Form, Input, Select } from 'antd';
-import StdFormModal from '../../../../../components/StdFormModal';
+import { App, Form, Input, Modal, Select } from 'antd';
 import { fetchCloudProviderSubnets } from '../../../../../services/api';
 import { createHuaweiCloudSubnet } from '../../../../../services/huaweiApi';
 import { parseCidrNum, samePrefix, rangesOverlap, normalizeErr } from '../utils/net';
@@ -20,22 +19,33 @@ const SubnetCreateModal: React.FC<Props> = ({ open, cloudId, vpcs, subnets, onCl
   const [subnetVpcCidr, setSubnetVpcCidr] = useState<string>('');
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="创建子网"
-      form={form}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onClose}
-      onFinish={async (values: any) => {
-        try {
-          await createHuaweiCloudSubnet(cloudId, { vpc_id: values.vpcId, cidr: values.cidr, ipv6_cidr: values.ipv6_cidr || undefined, name: values.name, gateway_ip: values.gateway_ip, dhcp_enable: values.dhcp_enable, primary_dns: values.primary_dns, secondary_dns: values.secondary_dns });
-          const json = await fetchCloudProviderSubnets(cloudId);
-          const subnetList: any[] = (json?.data?.subnets) || (json?.subnets) || [];
-          onSuccess(Array.isArray(subnetList) ? subnetList : []);
-          message.success('创建成功');
-          onClose();
-        } catch (e: any) { message.error(normalizeErr(e, '创建失败')); }
-      }}
+      onOk={() => form.submit()}
+      okText="保存"
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={async (values: any) => {
+          try {
+            await createHuaweiCloudSubnet(cloudId, { vpc_id: values.vpcId, cidr: values.cidr, ipv6_cidr: values.ipv6_cidr || undefined, name: values.name, gateway_ip: values.gateway_ip, dhcp_enable: values.dhcp_enable, primary_dns: values.primary_dns, secondary_dns: values.secondary_dns });
+            const json = await fetchCloudProviderSubnets(cloudId);
+            const subnetList: any[] = (json?.data?.subnets) || (json?.subnets) || [];
+            onSuccess(Array.isArray(subnetList) ? subnetList : []);
+            message.success('创建成功');
+            onClose();
+          } catch (e: any) {
+            message.error(normalizeErr(e, '创建失败'));
+          }
+        }}
+      >
       <Form.Item name="vpcId" label="VPC" rules={[{ required: true }]} extra={<span>VPC IPv4 CIDR：{subnetVpcCidr || '-'}</span>}> 
         <Select placeholder="选择VPC" options={(vpcs||[]).map((v:any)=> ({ label: `${v?.name || v?.id || '-'}`, value: v?.id }))} onChange={(val:string)=>{ const vp = (vpcs||[]).find((x:any)=> String(x?.id||'')===String(val||'')); setSubnetVpcCidr(vp?.cidr || ''); }} />
       </Form.Item>
@@ -76,7 +86,8 @@ const SubnetCreateModal: React.FC<Props> = ({ open, cloudId, vpcs, subnets, onCl
       <Form.Item name="dhcp_enable" label="DHCP"> <Select allowClear placeholder="启用/关闭" options={[{ label:'启用', value:true }, { label:'关闭', value:false }]} style={{ width: 160 }} /> </Form.Item>
       <Form.Item name="primary_dns" label="主DNS"> <Input placeholder="例如 114.xx.xx.114" /> </Form.Item>
       <Form.Item name="secondary_dns" label="备DNS"> <Input placeholder="例如 114.xx.xx.115" /> </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

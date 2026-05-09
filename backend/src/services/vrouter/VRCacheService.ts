@@ -1,10 +1,13 @@
 import { AppDataSource } from '../../config/database';
-import { vrController } from './vrController';
+import {
+  fetchAllVR1RowsFromCsm,
+  fetchAllVR3RowsFromCsm,
+  type CsmVrBizError,
+} from './vrController';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
 import { VRCacheDevice } from '../../entities/vRouter/VRCacheDevice';
-import { extractRows } from '../../utils/apiUtils';
 import { logger } from '../../utils/logger';
 
 const vrCacheLog = logger.child('VR-Cache');
@@ -29,10 +32,33 @@ function summarizeVrCacheError(err: unknown): string {
   return code ? `${msg} (${code})` : msg;
 }
 
+/** 单次 VR1/VR3/设备同步摘要（供 API 透出，避免错误仅落在服务端日志） */
+export type VrCacheSyncPart = {
+  ok: boolean;
+  rowCount?: number;
+  /** CSM 分页拉取次数（成功路径） */
+  pages_fetched?: number;
+  /** 对端 payload 声明的总条数（若有） */
+  reported_total?: number;
+  csm_business_error?: CsmVrBizError;
+  error?: string;
+  /** CSM/拉取失败时已清空该表，避免与对端不一致的旧数据残留 */
+  cache_cleared_on_failure?: boolean;
+};
+
+export type VrCacheSyncDiagnostics = {
+  syncedAt: string;
+  vr1: VrCacheSyncPart;
+  vr3: VrCacheSyncPart;
+  device: VrCacheSyncPart;
+};
+
 export class VRCacheService {
   private static instance: VRCacheService;
-  private isRunning: boolean = false;
+  /** 串行队列：同步进行中时新请求排队，避免「直接 return 什么都不做」导致手动刷新无效果 */
+  private syncChain: Promise<void> = Promise.resolve();
   private timer: NodeJS.Timeout | null = null;
+  private lastSyncDiagnostics: VrCacheSyncDiagnostics | null = null;
 
   private constructor() {}
 
@@ -41,6 +67,10 @@ export class VRCacheService {
       VRCacheService.instance = new VRCacheService();
     }
     return VRCacheService.instance;
+  }
+
+  public getLastSyncDiagnostics(): VrCacheSyncDiagnostics | null {
+    return this.lastSyncDiagnostics;
   }
 
   public startSyncJob(intervalMs: number = 300000) {
@@ -66,37 +96,87 @@ export class VRCacheService {
     vrCacheLog.info('后台同步任务已停止。');
   }
 
-  public async syncAll() {
-    if (this.isRunning) {
+  public async syncAll(): Promise<void> {
+    const job = async () => {
+      vrCacheLog.info('开始全量同步...');
+      const syncedAt = new Date().toISOString();
+      try {
+        const [vr1, vr3, device] = await Promise.all([
+          this.syncBasicCache(),
+          this.syncExtendedCache(),
+          this.syncDeviceCache(),
+        ]);
+        await this.reconcileVrCachesAfterSync(vr1, vr3);
+        this.lastSyncDiagnostics = { syncedAt, vr1, vr3, device };
+        vrCacheLog.info('全量同步完成。');
+      } catch (err) {
+        vrCacheLog.error('严重错误:', summarizeVrCacheError(err));
+      }
+    };
+
+    const p = this.syncChain.then(job);
+    this.syncChain = p.then(
+      () => undefined,
+      () => undefined,
+    );
+    await p;
+  }
+
+  /**
+   * 刷新后本地 VR 缓存须与 CSM 可解释状态一致：
+   * - VR1 未成功：清空 VR3 表（避免仅有扩展、无基础）
+   * - VR1+VR3 均成功：删掉 VR3 中在 VR1 不存在的 uuid
+   */
+  private async reconcileVrCachesAfterSync(vr1: VrCacheSyncPart, vr3: VrCacheSyncPart) {
+    const basicRepo = AppDataSource.getRepository(VRCacheBasic);
+    const extendedRepo = AppDataSource.getRepository(VRCacheExtended);
+
+    if (!vr1.ok) {
+      await extendedRepo.clear();
+      vrCacheLog.warn('VR1 未成功同步，已清空 VR3 扩展缓存以避免与 CSM 不一致');
       return;
     }
 
-    this.isRunning = true;
-    vrCacheLog.info('开始全量同步...');
-
-    try {
-      await Promise.all([this.syncBasicCache(), this.syncExtendedCache(), this.syncDeviceCache()]);
-      vrCacheLog.info('全量同步完成。');
-    } catch (err) {
-      vrCacheLog.error('严重错误:', summarizeVrCacheError(err));
-    } finally {
-      this.isRunning = false;
+    if (vr1.ok && vr3.ok) {
+      const basics = await basicRepo.find();
+      const allowed = new Set(basics.map((b) => String(b.uuid || '').trim()).filter(Boolean));
+      const extendeds = await extendedRepo.find();
+      let removed = 0;
+      for (const e of extendeds) {
+        const u = String(e.uuid || '').trim();
+        if (u && !allowed.has(u)) {
+          await extendedRepo.delete({ uuid: e.uuid });
+          removed += 1;
+        }
+      }
+      if (removed > 0) {
+        vrCacheLog.info(`已移除 ${removed} 条 VR3 孤儿行（VR1 列表中无对应 uuid）`);
+      }
     }
   }
 
-  private async syncBasicCache() {
+  private async syncBasicCache(): Promise<VrCacheSyncPart> {
+    const part: VrCacheSyncPart = { ok: false };
     vrCacheLog.info('开始同步 VR1 基础信息...');
     const repo = AppDataSource.getRepository(VRCacheBasic);
 
     try {
-      const csmData = await vrController.getVRList(1000, 1);
-
-      if (csmData) {
-      } else {
-        vrCacheLog.warn('VR1 响应为空');
+      const { rows, bizError, pagesFetched, reportedTotal } = await fetchAllVR1RowsFromCsm(1000);
+      if (bizError) {
+        await repo.clear();
+        part.cache_cleared_on_failure = true;
+        part.csm_business_error = bizError;
+        part.error = `CSM VR1 [${bizError.code}] ${bizError.msg || ''}`;
+        vrCacheLog.warn(`VR1 CSM 业务错误，已清空本地 VR1 缓存: ${part.error}`);
+        return part;
       }
 
-      const rows = extractRows(csmData);
+      part.rowCount = rows.length;
+      part.pages_fetched = pagesFetched;
+      if (reportedTotal != null) part.reported_total = reportedTotal;
+      if (rows.length === 0) {
+        vrCacheLog.warn('VR1 全量分页后无有效行');
+      }
 
       await repo.clear();
 
@@ -111,9 +191,21 @@ export class VRCacheService {
         .filter((e: any) => !!e.uuid);
 
       await repo.save(entities);
-      vrCacheLog.info(`VR1 同步完成: 写入 ${entities.length} 条记录`);
+      part.ok = true;
+      vrCacheLog.info(
+        `VR1 同步完成: 写入 ${entities.length} 条（分页 ${pagesFetched} 次${reportedTotal != null ? `，对端 total=${reportedTotal}` : ''}）`,
+      );
+      return part;
     } catch (err) {
-      vrCacheLog.error('VR1 同步失败:', summarizeVrCacheError(err));
+      try {
+        await repo.clear();
+        part.cache_cleared_on_failure = true;
+      } catch {
+        /* ignore */
+      }
+      part.error = summarizeVrCacheError(err);
+      vrCacheLog.error('VR1 同步失败，已清空本地 VR1 缓存:', part.error);
+      return part;
     }
   }
 
@@ -134,17 +226,25 @@ export class VRCacheService {
     });
   }
 
-  private async syncExtendedCache() {
+  private async syncExtendedCache(): Promise<VrCacheSyncPart> {
+    const part: VrCacheSyncPart = { ok: false };
     vrCacheLog.info('开始同步 VR3 扩展信息...');
     const repo = AppDataSource.getRepository(VRCacheExtended);
 
     try {
-      const csmData = await vrController.getVR3List(1000, 1);
-
-      if (csmData) {
+      const { rows, bizError, pagesFetched, reportedTotal } = await fetchAllVR3RowsFromCsm(1000);
+      if (bizError) {
+        await repo.clear();
+        part.cache_cleared_on_failure = true;
+        part.csm_business_error = bizError;
+        part.error = `CSM VR3 [${bizError.code}] ${bizError.msg || ''}`;
+        vrCacheLog.warn(`VR3 CSM 业务错误，已清空本地 VR3 缓存: ${part.error}`);
+        return part;
       }
 
-      const rows = extractRows(csmData);
+      part.rowCount = rows.length;
+      part.pages_fetched = pagesFetched;
+      if (reportedTotal != null) part.reported_total = reportedTotal;
 
       await repo.clear();
 
@@ -164,13 +264,26 @@ export class VRCacheService {
         .filter((e: any) => !!e.uuid);
 
       await repo.save(entities);
-      vrCacheLog.info(`VR3 同步完成: 写入 ${entities.length} 条记录`);
+      part.ok = true;
+      vrCacheLog.info(
+        `VR3 同步完成: 写入 ${entities.length} 条（分页 ${pagesFetched} 次${reportedTotal != null ? `，对端 total=${reportedTotal}` : ''}）`,
+      );
+      return part;
     } catch (err) {
-      vrCacheLog.error('VR3 同步失败:', summarizeVrCacheError(err));
+      try {
+        await repo.clear();
+        part.cache_cleared_on_failure = true;
+      } catch {
+        /* ignore */
+      }
+      part.error = summarizeVrCacheError(err);
+      vrCacheLog.error('VR3 同步失败，已清空本地 VR3 缓存:', part.error);
+      return part;
     }
   }
 
-  private async syncDeviceCache() {
+  private async syncDeviceCache(): Promise<VrCacheSyncPart> {
+    const part: VrCacheSyncPart = { ok: false };
     vrCacheLog.info('开始同步本地设备配置...');
     const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
     const configRepo = AppDataSource.getRepository(VRConfig);
@@ -190,9 +303,20 @@ export class VRCacheService {
         .filter((e: any) => !!e.uuid);
 
       await deviceRepo.save(entities);
+      part.ok = true;
+      part.rowCount = entities.length;
       vrCacheLog.info(`设备同步完成: 写入 ${entities.length} 条记录`);
+      return part;
     } catch (err) {
-      vrCacheLog.error('设备同步失败:', summarizeVrCacheError(err));
+      try {
+        await deviceRepo.clear();
+        part.cache_cleared_on_failure = true;
+      } catch {
+        /* ignore */
+      }
+      part.error = summarizeVrCacheError(err);
+      vrCacheLog.error('设备缓存同步失败，已清空 VRCacheDevice:', summarizeVrCacheError(err));
+      return part;
     }
   }
 }

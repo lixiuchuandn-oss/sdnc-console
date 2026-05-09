@@ -80,6 +80,7 @@ import RecycleBinRecordsSection from './RecycleBinRecordsSection';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { formatStorageSize, parseStorageSize } from '../lib/storageSize';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -174,65 +175,6 @@ const RecycleBinSection: React.FC<Props> = ({
   // [工具函数] 3. 辅助函数 (Utility Functions)
   // ==========================================
   
-  /**
-   * 解析存储大小字符串，转换为 GiB 数值
-   * 
-   * 支持的格式:
-   * - 纯数字: 视为字节数，转换为 GiB
-   * - 带单位: 如 "10Gi", "500Mi", "2Ti" 等
-   * - 支持二进制单位 (Ki, Mi, Gi, Ti) 和十进制单位 (K, KB, M, MB, G, GB, T, TB)
-   * 
-   * @param sizeStr - 存储大小字符串，如 "10Gi", "500Mi", "10737418240" 等
-   * @returns 以 GiB 为单位的数值
-   * 
-   * @example
-   * parseStorageSize("10Gi") => 10
-   * parseStorageSize("500Mi") => 0.48828125
-   * parseStorageSize("10737418240") => 10
-   */
-  const parseStorageSize = (sizeStr: string): number => {
-    if (!sizeStr) return 0;
-    const str = String(sizeStr).trim();
-    if (/^\d+$/.test(str)) {
-      const bytes = parseFloat(str);
-      return bytes / (1024 ** 3);
-    }
-    const units: Record<string, number> = {
-      ki: 1024, mi: 1024 ** 2, gi: 1024 ** 3, ti: 1024 ** 4,
-      k: 1000, kb: 1000, m: 1000 ** 2, mb: 1000 ** 2, g: 1000 ** 3, gb: 1000 ** 3, t: 1000 ** 4, tb: 1000 ** 4,
-    };
-    const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
-    if (!match) return parseFloat(str) || 0;
-    const val = parseFloat(match[1]);
-    const unit = match[2].toLowerCase();
-    const mul = units[unit];
-    if (!mul) return val;
-    return (val * mul) / (1024 ** 3);
-  };
-
-  /**
-   * 格式化存储大小为可读字符串
-   * 
-   * 根据大小自动选择合适的单位:
-   * - < 1 GiB: 显示为 MiB
-   * - >= 1024 GiB: 显示为 TiB
-   * - 其他: 显示为 GiB
-   * 
-   * @param sizeGiB - 以 GiB 为单位的存储大小
-   * @returns 格式化后的字符串，如 "500 MiB", "10 GiB", "2.5 TiB"
-   * 
-   * @example
-   * formatStorageSize(0.5) => "512 MiB"
-   * formatStorageSize(10) => "10 GiB"
-   * formatStorageSize(2048) => "2.0 TiB"
-   */
-  const formatStorageSize = (sizeGiB: number): string => {
-    if (sizeGiB === 0) return '-';
-    if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
-    if (sizeGiB >= 1024) return `${(sizeGiB / 1024).toFixed(1)} TiB`;
-    return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
-  };
-
   /**
    * 获取虚拟机的唯一标识符
    * 

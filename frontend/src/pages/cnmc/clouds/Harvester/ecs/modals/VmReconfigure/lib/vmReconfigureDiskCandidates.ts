@@ -1,8 +1,10 @@
-/** 磁盘扩容：仅系统盘 PVC（光盘不纳入扩容）。与 `systemDisk` 解析规则对齐 */
+/** 磁盘扩容候选；`isSystemDisk` 用于 UI（如仅系统盘展示扩容指南）。与 `systemDisk` 解析规则对齐 */
 export type ExpandDiskCandidate = {
   pvcName: string;
   diskName: string;
   label: string;
+  /** 根盘/系统盘 PVC；非系统盘不展示「系统盘扩容指南」 */
+  isSystemDisk: boolean;
 };
 
 export function buildExpandDiskCandidates(activeRecord: any, record: any): ExpandDiskCandidate[] {
@@ -29,6 +31,7 @@ export function buildExpandDiskCandidates(activeRecord: any, record: any): Expan
       pvcName: sysPvc,
       diskName: String(bootDisk?.name || 'disk-0'),
       label: `系统盘（${sysPvc}）`,
+      isSystemDisk: true,
     },
   ];
 }

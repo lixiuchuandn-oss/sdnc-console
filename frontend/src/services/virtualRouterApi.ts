@@ -180,20 +180,36 @@ export const vrApi = {
   },
   
   /**
-   * 删除虚拟路由器实例
-   * @param vmId 虚拟路由器实例 ID
+   * 删除虚拟路由器实例（CSM 注册面 vrcontrol，与页面注册一致；非 ctcontrol 的 DELETE /VR1/:id）
+   * @param vmId CSM 侧实例 id（或可与对端约定为 uuid 时传入 uuid）
    * @returns Promise<any> 删除结果
    */
   deleteVRInstance: async (vmId: string) => {
-    try {
-      const path = `/V2/ctcontrol/VR1/${vmId}`;
-      return await proxyApiRequest(path, 'DELETE', '');
-    } catch (error: any) {
-      if (error?.code || error?.msg) {
-        throw new Error(`[错误码: ${error.code}] ${error.msg}`);
+    const body = { id: vmId };
+    const paths = [
+      '/V2/vrcontrol/VR1/unregister',
+      '/V2/vrcontrol/VR1/delete',
+      '/V2/vrcontrol/VR1/remove',
+      '/V2/vrcontrol/VR1/deregister',
+      '/V2/ctcontrol/VR1/delete',
+      '/V2/ctcontrol/VR1/unregister',
+      '/V2/ctcontrol/VR1/remove',
+    ];
+    let lastErr: unknown = null;
+    for (const path of paths) {
+      try {
+        return await proxyApiRequest(path, 'POST', '', body);
+      } catch (error: any) {
+        lastErr = error;
+        const s = String(error?.message || error?.msg || '');
+        if (/\b404\b|\b405\b|Not Found/i.test(s)) continue;
+        if (error?.code || error?.msg) {
+          throw new Error(`[错误码: ${error.code}] ${error.msg}`);
+        }
+        throw error;
       }
-      throw error;
     }
+    throw lastErr instanceof Error ? lastErr : new Error('CSM 未找到可用的 VR 注销接口');
   },
 
   /**
@@ -375,10 +391,35 @@ export const fetchVrCacheMerged = async (uuid: string) => {
 };
 
 /**
- * 获取合并后的 VR 缓存（全部）
+ * 直连 CSM：并行拉 VR1 列表、VR2 单实例、VR3 列表，返回各接口 raw_http_response_json（排障用）
+ * GET /api/vr-instances/:uuid/csm-live-raw
  */
-export const fetchVrCacheMergedAll = async () => {
-  const json = await apiRequest(`/api/vr-instances?all=1`, { skipCache: true, silent: true });
+export const fetchVrCsmLiveRaw = async (
+  uuid: string,
+  options?: { pageSize?: number; pageNum?: number; skipCache?: boolean },
+) => {
+  const u = String(uuid || '').trim();
+  if (!u) throw new Error('缺少UUID');
+  const qs = new URLSearchParams();
+  if (options?.pageSize != null) qs.set('page_size', String(options.pageSize));
+  if (options?.pageNum != null) qs.set('page_num', String(options.pageNum));
+  const q = qs.toString();
+  const json = await apiRequest(
+    `/api/vr-instances/${encodeURIComponent(u)}/csm-live-raw${q ? `?${q}` : ''}`,
+    { skipCache: options?.skipCache !== false },
+  );
+  return json?.data ?? null;
+};
+
+/**
+ * 获取合并后的 VR 缓存（全部）
+ * 列表行数与 Tower 侧 VR1 缓存一致；刷新后应与 CSMCTL VR1 pagelist 全量条数对齐。
+ */
+export const fetchVrCacheMergedAll = async (options?: { skipCache?: boolean }) => {
+  const json = await apiRequest(`/api/vr-instances?all=1`, {
+    skipCache: options?.skipCache !== false,
+    silent: true,
+  });
   return (json?.data?.items ?? []) as any[];
 };
 

@@ -115,6 +115,7 @@ import HarvesterVmLogsTab from "./HarvesterVmLogsTab";
 import HarvesterVmDiagnosisTab from "./HarvesterVmDiagnosisTab";
 import { OsIcon } from "../../../../../../components/OsIcon";
 import VmSaveAsTemplateModal from "../../ecs/modals/VmSaveAsTemplateModal";
+import { formatStorageSize, parseStorageSize } from "../../ecs/lib/storageSize";
 import { getToken } from "../../../../../../utils/tokenStorage";
 import { useAuth } from "../../../../../../contexts/AuthContext";
 import { hasPermissionForAction } from "../../../../../../utils/accessMapping";
@@ -630,39 +631,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // ==============================================================================
   // 8. 展示辅助函数 (Format Helpers)
   // ==============================================================================
-  // [单位换算] 统一处理 K8s 资源量字符串（Ki/Mi/Gi/Ti 与 KB/MB/GB 等）并转换为 GiB 口径显示
-  const parseStorageSize = (sizeStr: string): number => {
-    if (!sizeStr) return 0;
-    const str = String(sizeStr).trim();
-    if (/^\d+$/.test(str)) return parseFloat(str) / 1024 ** 3;
-    const units: Record<string, number> = {
-      ki: 1024,
-      mi: 1024 ** 2,
-      gi: 1024 ** 3,
-      ti: 1024 ** 4,
-      k: 1000,
-      kb: 1000,
-      m: 1000 ** 2,
-      mb: 1000 ** 2,
-      g: 1000 ** 3,
-      gb: 1000 ** 3,
-      t: 1000 ** 4,
-      tb: 1000 ** 4,
-    };
-    const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
-    if (!match) return parseFloat(str) || 0;
-    const val = parseFloat(match[1]);
-    const unit = match[2].toLowerCase();
-    const mul = units[unit];
-    return mul ? (val * mul) / 1024 ** 3 : val;
-  };
-
-  const formatStorageSize = (sizeGiB: number): string => {
-    if (sizeGiB === 0) return "-";
-    if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
-    if (sizeGiB >= 1024) return `${(sizeGiB / 1024).toFixed(1)} TiB`;
-    return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
-  };
+  // 存储量 parse/format 见 ../../ecs/lib/storageSize
 
   const formatMemoryParts = (val: any): [string, string] => {
     if (!val) return ["-", ""];

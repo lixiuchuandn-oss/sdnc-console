@@ -51,6 +51,7 @@ import { pickDefaultStorageClassName } from '../../../../../../../utils/harveste
 import { useHarvesterPublicNamespaces } from '../../../context/HarvesterPublicNamespacesContext';
 import { parseSizeToGi } from './VmWizardUtils';
 import { kubeVpcOptionsForVmWizard } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
+import { resolveKubeOvnSubnetNadNamespace } from './kubeOvnNadRefForVmWizard';
 
 /**
  * useHarvesterData Hook
@@ -261,7 +262,7 @@ export const useHarvesterData = (
       const normalized = items.map((x: any) => ({
         ...x,
         name: x?.metadata?.name || x?.name,
-        namespace: x?.metadata?.namespace || 'default', // [修复] 提取 Subnet 所属 Namespace，若缺失则默认为 default
+        namespace: x?.metadata?.namespace || resolveKubeOvnSubnetNadNamespace(x) || undefined,
         vpc: x?.spec?.vpc || x?.vpc,
         cidr: x?.spec?.cidrBlock || x?.cidr
       }));

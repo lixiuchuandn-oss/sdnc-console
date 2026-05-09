@@ -5,7 +5,6 @@ import type { MenuProps } from 'antd';
 import { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import PageContainer from '../../../components/PageContainer';
-import StdFormModal from '../../../components/StdFormModal';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
@@ -577,13 +576,18 @@ const UserManagement: React.FC = () => {
         scroll={{ x: 'max-content' }}
       />
 
-      <StdFormModal
+      <Modal
         open={createModalOpen}
         title="创建组织用户"
         onCancel={() => setCreateModalOpen(false)}
-        onFinish={handleCreateUser}
-        form={createForm}
+        onOk={() => createForm.submit()}
+        okText="保存"
+        width={600}
+        centered
+        destroyOnHidden
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
       >
+        <Form form={createForm} layout="vertical" onFinish={handleCreateUser}>
         <Form.Item
           name="username"
           label="用户名"
@@ -639,7 +643,8 @@ const UserManagement: React.FC = () => {
             {availableRoles.map(r => <Option key={r.id} value={r.id}>{r.name}</Option>)}
           </Select>
         </Form.Item>
-      </StdFormModal>
+        </Form>
+      </Modal>
 
       <Modal
         title="编辑组织用户"

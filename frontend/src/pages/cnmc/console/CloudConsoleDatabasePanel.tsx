@@ -47,6 +47,7 @@ interface Props {
   images: any[];
   storageClasses: any[];
   subnets: any[];
+  harvesterNads?: any[];
   loading: boolean;
 
   activeCategory: CloudConsoleDatabaseCategory;
@@ -80,6 +81,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   images,
   storageClasses,
   subnets,
+  harvesterNads = [],
   loading,
   activeCategory,
   setActiveCategory,
@@ -129,7 +131,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
         images={images}
         storageClasses={storageClasses}
         kubeSubnets={subnets}
-        harvesterNads={[]}
+        harvesterNads={harvesterNads}
         onReloadImages={onReloadImages}
         onReloadSubnets={onReloadSubnets}
         onReloadStorageClasses={onReloadStorageClasses}
@@ -148,6 +150,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
     images,
     storageClasses,
     subnets,
+    harvesterNads,
     onRefreshVms,
     onForceRefreshVms,
     onReloadImages,

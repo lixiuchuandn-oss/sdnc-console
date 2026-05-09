@@ -18,8 +18,7 @@
 // 依赖：React / Ant Design / 工程内 UI 与 API
 // -----------------------------------------------------------------------------
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Form, Input, Select, InputNumber, App } from 'antd';
-import StdFormModal from '../../../../../../components/StdFormModal';
+import { Form, Input, Select, InputNumber, App, Modal } from 'antd';
 import { createHarvesterVolume, fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
@@ -179,17 +178,21 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
     [cloudId, hasOpsView, message, onCancel, onSuccess],
   );
 
-  // --- 渲染：StdFormModal 包裹表单项（对应云详情弹层）---
+  // --- 渲染：Modal + Form（云详情弹层）---
   return (
-    <StdFormModal
+    <Modal
       title="创建云盘"
       open={open}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onCancel}
+      onOk={() => form.submit()}
       confirmLoading={creating}
       okText="创建"
-      form={form}
-      onFinish={handleFinish}
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form form={form} layout="vertical" onFinish={handleFinish}>
       {/* 区块：展示名 → 写入 annotations['tower.io/alias'] */}
       <Form.Item label="名称" name="alias" rules={[{ required: true }]}>
         <Input placeholder="例如: 测试pvc" />
@@ -250,7 +253,8 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
           style={{ width: '100%' }}
         />
       </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

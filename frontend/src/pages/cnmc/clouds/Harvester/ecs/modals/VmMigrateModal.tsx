@@ -9,9 +9,8 @@
  * - 提交时调用 migrateHarvesterVm，携带 instanceId 与目标节点。
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { Form, Select, message, Typography, Table, Space, Progress } from 'antd';
+import { Form, Modal, Select, message, Typography, Table, Space, Progress } from 'antd';
 import { CloudServerOutlined, AimOutlined } from '@ant-design/icons';
-import StdFormModal from '../../../../../../components/StdFormModal';
 import {
   migrateHarvesterVm,
   fetchHarvesterResourceByLink,
@@ -452,18 +451,19 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
   );
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title={modalTitle}
-      form={form}
       onCancel={onClose}
-      onFinish={handleFinish}
+      onOk={() => form.submit()}
       okText="开始迁移"
       confirmLoading={loading}
       width={760}
       destroyOnHidden
       centered
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form form={form} layout="vertical" onFinish={handleFinish}>
       <Form.Item
         name="targetNode"
         label="迁移目标"
@@ -492,7 +492,8 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
       <style>{`
         .vm-migrate-compare-table .ant-table-cell { vertical-align: top; }
       `}</style>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

@@ -1,6 +1,5 @@
 import React from 'react';
-import { App, Form, Input, Select } from 'antd';
-import StdFormModal from '../../../../../components/StdFormModal';
+import { App, Form, Input, Modal, Select } from 'antd';
 import { fetchCloudProviderVpcs } from '../../../../../services/api';
 import { createHuaweiCloudVpc } from '../../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
@@ -17,24 +16,35 @@ const VpcCreateModal: React.FC<Props> = ({ open, cloudId, onClose, onSuccess }) 
   const [form] = Form.useForm();
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="创建VPC"
-      form={form}
+      centered
+      destroyOnHidden
       onCancel={onClose}
-      onFinish={async (values: any) => {
-        try {
-          const nameVal = String(values.name || '').trim();
-          const descVal = String(values.description || '').trim();
-          await createHuaweiCloudVpc(cloudId, { cidr: values.cidr, name: nameVal, description: descVal || undefined });
-          const json = await fetchCloudProviderVpcs(cloudId);
-          const vpcList: any[] = (json?.data?.vpcs) || (json?.vpcs) || [];
-          onSuccess(Array.isArray(vpcList) ? vpcList : []);
-          message.success('创建成功');
-          onClose();
-        } catch (e: any) { message.error(normalizeErr(e, '创建失败')); }
-      }}
+      onOk={() => form.submit()}
+      okText="保存"
+      width={600}
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={async (values: any) => {
+          try {
+            const nameVal = String(values.name || '').trim();
+            const descVal = String(values.description || '').trim();
+            await createHuaweiCloudVpc(cloudId, { cidr: values.cidr, name: nameVal, description: descVal || undefined });
+            const json = await fetchCloudProviderVpcs(cloudId);
+            const vpcList: any[] = (json?.data?.vpcs) || (json?.vpcs) || [];
+            onSuccess(Array.isArray(vpcList) ? vpcList : []);
+            message.success('创建成功');
+            onClose();
+          } catch (e: any) {
+            message.error(normalizeErr(e, '创建失败'));
+          }
+        }}
+      >
       <Form.Item name="name" label="名称" validateTrigger={["onChange","onBlur","onSubmit"]} rules={[{ required: true, transform: (v:any)=> String(v||'').trim(), message: '请输入名称' }]}> <Input placeholder="请输入名称" /> </Form.Item>
       <Form.Item shouldUpdate noStyle>
         {({ getFieldValue }) => {
@@ -50,7 +60,8 @@ const VpcCreateModal: React.FC<Props> = ({ open, cloudId, onClose, onSuccess }) 
       </Form.Item>
       <Form.Item name="description" label="描述"> <Input placeholder="请输入描述" /> </Form.Item>
       <Form.Item name="tags" label="标签"> <Select mode="tags" placeholder="输入后回车添加" style={{ width: '100%' }} /> </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

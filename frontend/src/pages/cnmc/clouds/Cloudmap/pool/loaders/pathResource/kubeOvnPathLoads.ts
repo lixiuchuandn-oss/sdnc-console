@@ -70,6 +70,41 @@ export async function tryLoadKubeOvnVpcTab(
     case 'dnat':
     case 'kubeovn_dnat':
       if (canViewKubeOvnGroup) {
+        const needsEipSubnetContext =
+          key === 'eips' ||
+          key === 'kubeovn_eips' ||
+          key === 'snat' ||
+          key === 'kubeovn_snat' ||
+          key === 'dnat' ||
+          key === 'kubeovn_dnat';
+        if (needsEipSubnetContext && checkPerm('clouds.networks:read')) {
+          loadResource(
+            'subnets',
+            () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setKubeOvnSubnets(Array.isArray(list) ? list : []);
+              setRawSubnets(json || null);
+            },
+            force,
+          );
+        }
+        if (
+          needsEipSubnetContext &&
+          checkPerm('clouds.networks:read') &&
+          ovnVpcEnabled
+        ) {
+          loadResource(
+            'vpcs',
+            () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'vpc'),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setKubeOvnVpcs(Array.isArray(list) ? list : []);
+              setRawVpcs(json || null);
+            },
+            force,
+          );
+        }
         if (
           key === 'eips' ||
           key === 'kubeovn_eips' ||

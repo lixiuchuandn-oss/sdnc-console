@@ -139,6 +139,13 @@ function kubeResourceCreatedMs(record: any): number {
 const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
 const SUBNET_FINALIZER = 'tower.io/managed';
 
+/** 创建/编辑 VPC「绑定命名空间」下拉里隐藏的平台命名空间（编辑时若已是当前绑定则仍展示，避免无法回显） */
+const VPC_BIND_NAMESPACE_EXCLUDE = new Set(['cloud-public', 'hci-manager-system']);
+function isVpcBindNamespaceExcluded(name: string): boolean {
+  const n = String(name || '').trim().toLowerCase();
+  return Boolean(n) && VPC_BIND_NAMESPACE_EXCLUDE.has(n);
+}
+
 // Helper
 const generateResourceId = (prefix: string) => `id-${prefix}-${Math.random().toString(36).substring(2, 13)}`;
 
@@ -211,6 +218,12 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const [form] = Form.useForm();
   const [isEditVpc, setIsEditVpc] = useState(false);
   const [currentVpc, setCurrentVpc] = useState<any>(null);
+
+  const editVpcBoundNamespace = useMemo(() => {
+    if (!isEditVpc || !currentVpc) return '';
+    const arr = SafeRead.vpcNamespaces(currentVpc);
+    return Array.isArray(arr) && arr.length > 0 ? String(arr[0] ?? '').trim() : '';
+  }, [isEditVpc, currentVpc]);
 
   // Create Subnet State
   const [createSubnetModalVisible, setCreateSubnetModalVisible] = useState(false);
@@ -1153,7 +1166,11 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
               options={namespaces
                 .filter((n: any) => {
                   const name = n?.metadata?.name || n?.name || '';
-                  return name && !isSystemNamespace(name);
+                  if (!name || isSystemNamespace(name)) return false;
+                  if (isVpcBindNamespaceExcluded(name)) {
+                    return isEditVpc && editVpcBoundNamespace === name;
+                  }
+                  return true;
                 })
                 .map((n: any) => {
                   const name = n.metadata?.name || n.name || '';

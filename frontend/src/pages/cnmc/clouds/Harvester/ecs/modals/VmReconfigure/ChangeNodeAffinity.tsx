@@ -155,7 +155,7 @@ const ChangeNodeAffinity: React.FC<Props> = ({
         <Segmented
           options={[
             { value: 'none', label: '未设置' },
-            { value: 'required', label: '必须满足（Required）' },
+            { value: 'required', label: '必须满足' },
           ]}
         />
       </Form.Item>

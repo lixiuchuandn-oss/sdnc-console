@@ -394,7 +394,10 @@ export const fetchHarvesterNads = (cloudId: string, force = false, skipSync = fa
   if (force) params.append('force', 'true');
   void skipSync;
   const queryString = params.toString();
-  return apiRequest(`/api/clouds/${cloudId}/resources/harvester/nads${queryString ? `?${queryString}` : ''}`);
+  const mustBypassCache = !!force;
+  return apiRequest(`/api/clouds/${cloudId}/resources/harvester/nads${queryString ? `?${queryString}` : ''}`, {
+    skipCache: mustBypassCache,
+  });
 };
 
 /**
@@ -638,7 +641,10 @@ export const fetchCloudProviderOvnEips = async (
   if (mergePublicScenarioNamespaces !== undefined) {
     extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
   }
-  return await apiRequest(ovnListUrl(cloudId, 'ovneips', scope, extra));
+  const mustBypassCache = !!force;
+  return await apiRequest(ovnListUrl(cloudId, 'ovneips', scope, extra), {
+    skipCache: mustBypassCache,
+  });
 };
 
 /**
@@ -1397,7 +1403,10 @@ export const fetchKubeOvnVpcs = async (
   void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs?${query}`);
+  const mustBypassCache = !!force;
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs?${query}`, {
+    skipCache: mustBypassCache,
+  });
 };
 
 /**

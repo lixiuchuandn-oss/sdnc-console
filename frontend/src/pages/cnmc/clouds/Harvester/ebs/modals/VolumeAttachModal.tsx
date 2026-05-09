@@ -11,8 +11,7 @@
  * 界面不单独展示命名空间字段；筛选仍仅依据 PVC 所在命名空间。
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { App, Form, Input, Select } from 'antd';
-import StdFormModal from '../../../../../../components/StdFormModal';
+import { App, Form, Input, Modal, Select } from 'antd';
 import { attachHarvesterVolumeToVmByName } from '../../../../../../services/harvesterApi';
 
 export type VolumeAttachModalProps = {
@@ -128,15 +127,19 @@ const VolumeAttachModal: React.FC<VolumeAttachModalProps> = ({
   );
 
   return (
-    <StdFormModal
+    <Modal
       title="挂载到云主机"
       open={open}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onCancel}
+      onOk={() => form.submit()}
       confirmLoading={submitting}
       okText="挂载"
-      form={form}
-      onFinish={handleFinish}
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form form={form} layout="vertical" onFinish={handleFinish}>
       <Form.Item label="云主机" name="instanceId" rules={[{ required: true }]}>
         <Select
           showSearch
@@ -151,7 +154,8 @@ const VolumeAttachModal: React.FC<VolumeAttachModalProps> = ({
       <Form.Item label="虚拟云盘">
         <Input value={pvcName} disabled />
       </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 
