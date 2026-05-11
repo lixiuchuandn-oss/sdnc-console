@@ -528,9 +528,18 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
 
       setCreatingSubnet(true);
 
+      // 须使用 Kube-OVN VPC CR 的 metadata.name（spec.vpc），不能用 tower.io/alias。
+      // targetVpc 仅用于弹窗标题展示，此前写入 payload 会导致与「子网」页新建不一致并报集群错误。
+      const vpcCrName = String(values.vpc ?? '').trim();
+      if (!vpcCrName) {
+        message.error('缺少所属 VPC，请关闭弹窗后从 VPC 列表重新打开');
+        setCreatingSubnet(false);
+        return;
+      }
+
       const payload: any = {
         ...values,
-        vpc: targetVpc,
+        vpc: vpcCrName,
         namespace: targetNamespace,
         excludeIps,
       };
@@ -1068,6 +1077,9 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         destroyOnHidden
       >
         <Form form={subnetForm} layout="vertical" className="std-form">
+          <Form.Item name="vpc" hidden rules={[{ required: true, message: '缺少所属 VPC' }]}>
+            <Input type="hidden" />
+          </Form.Item>
           <Form.Item
             name="name"
             label="名称"
