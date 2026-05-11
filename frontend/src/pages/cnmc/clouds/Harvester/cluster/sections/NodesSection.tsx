@@ -8,7 +8,7 @@
  * - 详情抽屉内「运维信息」Tab（ViewLinkTab）查看集群 API 节点 JSON
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress } from 'antd';
+import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress, Spin } from 'antd';
 import { DatabaseTwoTone, ReloadOutlined, SearchOutlined, DatabaseFilled } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -37,6 +37,12 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   const [readyFilter, setReadyFilter] = useState<string>('');
   // 从 metrics.k8s.io 拉取到的 CPU/内存使用数据，按节点名索引
   const [metricsMap, setMetricsMap] = useState<Record<string, { cpuUsedCores?: number; memUsedBytes?: number }>>({});
+  // 从 Pod 列表计算的 CPU/内存请求数据（已分配资源），按节点名索引
+  const [requestsMap, setRequestsMap] = useState<Record<string, { cpuRequestCores?: number; memRequestBytes?: number }>>({});
+  // 超配配置（从 overcommit-config 获取）
+  const [overcommitConfig, setOvercommitConfig] = useState<{ cpu?: number; memory?: number }>({});
+  // 资源数据加载状态
+  const [resourceLoading, setResourceLoading] = useState(true);
 
   // 物理节点详情抽屉
   const [nodeDetailOpen, setNodeDetailOpen] = useState(false);
@@ -190,32 +196,114 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   };
 
   /**
-   * 从 metrics.k8s.io 拉取节点实时指标
-   * - 仅在 cloudId 存在时请求
-   * - 将 cpu/memory 使用量解析后缓存到 metricsMap 中
+   * 并行获取节点实时指标、Pod 资源请求数据和超配配置
+   * - 实时使用数据：从 metrics.k8s.io 获取
+   * - 已分配数据：从 Pod 列表计算
+   * - 超配配置：从 overcommit-config 获取
    */
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         if (!cloudId) return;
-        const res = await (await import('../../../../../../services/harvesterApi')).fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes');
-        const items: any[] = Array.isArray((res as any)?.items) ? (res as any).items : [];
-        const map: Record<string, { cpuUsedCores?: number; memUsedBytes?: number }> = {};
-        for (const it of items) {
+        
+        const harvesterApi = await import('../../../../../../services/harvesterApi');
+        
+        // 并行执行三个 API 请求，overcommit-config 请求失败不影响其他数据
+        const [metricsRes, podsRes, overcommitRes] = await Promise.all([
+          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes'),
+          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/api/v1/pods?allNamespaces=true'),
+          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/v1/harvester/harvesterhci.io.settings').catch(() => null)
+        ]);
+        
+        // 处理实时使用数据
+        const metricsItems: any[] = Array.isArray((metricsRes as any)?.items) ? (metricsRes as any).items : [];
+        const metricsMap: Record<string, { cpuUsedCores?: number; memUsedBytes?: number }> = {};
+        for (const it of metricsItems) {
           const name = it?.metadata?.name || '';
           const cpuUsed = parseCpuToCores(it?.usage?.cpu);
           const memUsed = parseMemoryToBytes(it?.usage?.memory);
-          if (name) map[name] = { cpuUsedCores: cpuUsed, memUsedBytes: memUsed };
+          if (name) metricsMap[name] = { cpuUsedCores: cpuUsed, memUsedBytes: memUsed };
         }
-        if (!cancelled) setMetricsMap(map);
+        
+        // 处理已分配数据
+        const podsItems: any[] = Array.isArray((podsRes as any)?.items) ? (podsRes as any).items : [];
+        const requestsMap: Record<string, { cpuRequestCores?: number; memRequestBytes?: number }> = {};
+        for (const pod of podsItems) {
+          const nodeName = pod?.spec?.nodeName || '';
+          if (!nodeName) continue;
+          
+          if (!requestsMap[nodeName]) {
+            requestsMap[nodeName] = { cpuRequestCores: 0, memRequestBytes: 0 };
+          }
+          
+          const containers = Array.isArray(pod?.spec?.containers) ? pod.spec.containers : [];
+          const initContainers = Array.isArray(pod?.spec?.initContainers) ? pod.spec.initContainers : [];
+          const allContainers = [...containers, ...initContainers];
+          
+          for (const container of allContainers) {
+            const requests = container?.resources?.requests || {};
+            const limits = container?.resources?.limits || {};
+            const cpuReq = requests?.cpu || limits?.cpu;
+            const memReq = requests?.memory || limits?.memory;
+            
+            requestsMap[nodeName].cpuRequestCores = (requestsMap[nodeName].cpuRequestCores || 0) + parseCpuToCores(cpuReq);
+            requestsMap[nodeName].memRequestBytes = (requestsMap[nodeName].memRequestBytes || 0) + parseMemoryToBytes(memReq);
+          }
+        }
+        
+        // 处理超配配置 - 从设置列表中找到 overcommit-config
+        let config: { cpu?: number; memory?: number } = {};
+        if (overcommitRes) {
+          try {
+            // 兼容多种响应格式
+            const items = Array.isArray((overcommitRes as any)?.data) ? (overcommitRes as any).data : 
+                          Array.isArray((overcommitRes as any)?.items) ? (overcommitRes as any).items : 
+                          Array.isArray(overcommitRes) ? overcommitRes : [];
+            // 查找 overcommit-config 项
+            const overcommitItem = items.find((item: any) => 
+              item?.id === 'overcommit-config' || 
+              item?.metadata?.name === 'overcommit-config' ||
+              item?.name === 'overcommit-config'
+            );
+            if (overcommitItem) {
+              // 兼容多种 value 格式
+              const overcommitValue = overcommitItem?.value || 
+                                     overcommitItem?.spec?.value || 
+                                     overcommitItem?.data?.value || 
+                                     '{}';
+              const parsed = typeof overcommitValue === 'string' ? JSON.parse(overcommitValue) : overcommitValue;
+              // 确保值是有效的数字且大于0
+              const cpuValue = parsed?.cpu !== undefined ? Number(parsed.cpu) : undefined;
+              const memValue = parsed?.memory !== undefined ? Number(parsed.memory) : undefined;
+              config = {
+                cpu: cpuValue !== undefined && !isNaN(cpuValue) && cpuValue > 0 ? cpuValue : undefined,
+                memory: memValue !== undefined && !isNaN(memValue) && memValue > 0 ? memValue : undefined,
+              };
+            }
+          } catch {
+            config = {};
+          }
+        }
+        
+        if (!cancelled) {
+          setMetricsMap(metricsMap);
+          setRequestsMap(requestsMap);
+          setOvercommitConfig(config);
+          setResourceLoading(false);
+        }
       } catch {
-        if (!cancelled) setMetricsMap({});
+        if (!cancelled) {
+          setMetricsMap({});
+          setRequestsMap({});
+          setOvercommitConfig({});
+          setResourceLoading(false);
+        }
       }
     };
     load();
     return () => { cancelled = true; };
-  }, [cloudId, nodes]);
+  }, [cloudId]);
 
   /**
    * 表格列定义
@@ -254,54 +342,151 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
         return <span className={`std-badge ${ok ? 'std-badge-success' : 'std-badge-error'}`}>{ok ? 'Ready' : 'NotReady'}</span>;
       } 
     },
-    { title: 'CPU', key: 'cpu', render: (_:any, r:any)=> {
+    { 
+      title: (
+        <span>
+          CPU
+          <Tooltip 
+            title={
+              <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
+                <b>总量</b>：物理节点的实际CPU核数
+                <br />
+                <b>超配总量</b>：物理节点的实际CPU核数乘以CPU超配比后得到的逻辑核数
+              </div>
+            }
+            placement="top"
+          >
+            <span style={{ marginLeft: 4, color: '#999', fontSize: 14, cursor: 'help' }}>?</span>
+          </Tooltip>
+        </span>
+      ), 
+      key: 'cpu', 
+      render: (_:any, r:any)=> {
+      if (resourceLoading) {
+        return (
+          <div style={{ minWidth: 260, padding: '10px 0' }}>
+            <Spin size="small" />
+          </div>
+        );
+      }
       const name = r?.name || r?.metadata?.name || '';
       const used = metricsMap[name]?.cpuUsedCores ?? 0;
+      const requested = requestsMap[name]?.cpuRequestCores ?? 0;
       const total = parseCpuToCores(r?.status?.allocatable?.cpu || r?.status?.capacity?.cpu || r?.cpu);
-      const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
+      const usedPct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
+      // 使用配置的超配比，默认200%（确保值在合理范围内）- 测试用
+      const overcommitRatio = overcommitConfig.cpu !== undefined && overcommitConfig.cpu > 0 
+        ? overcommitConfig.cpu 
+        : 200;
+      const overcommitTotal = total * (overcommitRatio / 100);
+      // 已分配率 = 已分配 / 超配总量
+      const requestedPct = overcommitTotal > 0 ? Math.round((requested / overcommitTotal) * 1000) / 10 : undefined;
+      // 已分配剩余 = 超配总量 - 已分配
+      const requestedRemaining = overcommitTotal - requested;
+      const usedRemaining = total - used;
+      const overcommitRemaining = overcommitTotal - requested;
       return (
-        <div style={{ minWidth: 180, lineHeight: '20px' }}>
-          {typeof pct === 'number' ? (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
-                <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
-                <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
-              </div>
-              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
-                {used.toFixed(2)} core / {total.toFixed(2)} core
-              </div>
-            </>
-          ) : (
-            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
-              {total > 0 ? `${total.toFixed(2)} core` : '-'}
-            </div>
-          )}
+        <div style={{ minWidth: 260 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '18px', marginBottom: 3 }}>
+            <Progress 
+              percent={typeof requestedPct === 'number' ? Math.max(0, Math.min(100, requestedPct)) : 0} 
+              size="small" 
+              showInfo={false}
+              strokeColor="#52c41a"
+            />
+            <span style={{ fontSize: 12 }}>{typeof requestedPct === 'number' ? `${requestedPct.toFixed(1)}%` : '-'}</span>
+          </div>
+          <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 11, lineHeight: '12px', marginBottom: 4 }}>
+            超配总量: {overcommitTotal.toFixed(1)} / 分配: {requested.toFixed(1)} / 未分配: {requestedRemaining.toFixed(1)} core
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '18px', marginBottom: 3 }}>
+            <Progress 
+              percent={typeof usedPct === 'number' ? Math.max(0, Math.min(100, usedPct)) : 0} 
+              size="small" 
+              showInfo={false}
+              strokeColor="#1890ff"
+            />
+            <span style={{ fontSize: 12 }}>{typeof usedPct === 'number' ? `${usedPct.toFixed(1)}%` : '-'}</span>
+          </div>
+          <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 11, lineHeight: '12px' }}>
+            总量: {total.toFixed(1)} / 使用: {used.toFixed(1)} / 剩余: {usedRemaining.toFixed(1)} core
+          </div>
         </div>
       );
     } },
-    { title: '内存', key: 'mem', render: (_:any, r:any)=> {
+    { 
+      title: (
+        <span>
+          内存
+          <Tooltip 
+            title={
+              <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
+                <b>总量</b>：物理节点的实际内存总容量
+                <br />
+                <b>超配总量</b>：物理节点的实际内存总容量乘以内存超配比后得到的逻辑内存数
+              </div>
+            }
+            placement="top"
+          >
+            <span style={{ marginLeft: 4, color: '#999', fontSize: 14, cursor: 'help' }}>?</span>
+          </Tooltip>
+        </span>
+      ), 
+      key: 'mem', 
+      render: (_:any, r:any)=> {
+      if (resourceLoading) {
+        return (
+          <div style={{ minWidth: 260, padding: '10px 0' }}>
+            <Spin size="small" />
+          </div>
+        );
+      }
       const name = r?.name || r?.metadata?.name || '';
       const used = metricsMap[name]?.memUsedBytes ?? 0;
+      const requested = requestsMap[name]?.memRequestBytes ?? 0;
       const total = parseMemoryToBytes(r?.status?.allocatable?.memory || r?.status?.capacity?.memory || r?.memory);
-      const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
+      const usedPct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
       const toGiBNum = (bytes: number) => (bytes > 0 ? (bytes / (1024 * 1024 * 1024)) : 0);
+      const requestedGiB = toGiBNum(requested);
+      const usedGiB = toGiBNum(used);
+      const totalGiB = toGiBNum(total);
+      // 使用配置的超配比，默认200%（确保值在合理范围内）- 测试用
+      const overcommitRatio = overcommitConfig.memory !== undefined && overcommitConfig.memory > 0 
+        ? overcommitConfig.memory 
+        : 200;
+      const overcommitTotalGiB = totalGiB * (overcommitRatio / 100);
+      // 已分配率 = 已分配 / 超配总量
+      const requestedPct = overcommitTotalGiB > 0 ? Math.round((requestedGiB / overcommitTotalGiB) * 1000) / 10 : undefined;
+      // 已分配剩余 = 超配总量 - 已分配
+      const requestedRemaining = overcommitTotalGiB - requestedGiB;
+      const usedRemaining = totalGiB - usedGiB;
+      const overcommitRemaining = overcommitTotalGiB - requestedGiB;
       return (
-        <div style={{ minWidth: 180, lineHeight: '20px' }}>
-          {typeof pct === 'number' ? (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
-                <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
-                <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
-              </div>
-              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
-                {toGiBNum(used).toFixed(2)} GiB / {toGiBNum(total).toFixed(2)} GiB
-              </div>
-            </>
-          ) : (
-            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
-              {total > 0 ? `${toGiBNum(total).toFixed(2)} GiB` : '-'}
-            </div>
-          )}
+        <div style={{ minWidth: 260 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '18px', marginBottom: 3 }}>
+            <Progress 
+              percent={typeof requestedPct === 'number' ? Math.max(0, Math.min(100, requestedPct)) : 0} 
+              size="small" 
+              showInfo={false}
+              strokeColor="#52c41a"
+            />
+            <span style={{ fontSize: 12 }}>{typeof requestedPct === 'number' ? `${requestedPct.toFixed(1)}%` : '-'}</span>
+          </div>
+          <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 11, lineHeight: '12px', marginBottom: 4 }}>
+            超配总量: {overcommitTotalGiB.toFixed(1)} / 分配: {requestedGiB.toFixed(1)} / 未分配: {requestedRemaining.toFixed(1)} GiB
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '18px', marginBottom: 3 }}>
+            <Progress 
+              percent={typeof usedPct === 'number' ? Math.max(0, Math.min(100, usedPct)) : 0} 
+              size="small" 
+              showInfo={false}
+              strokeColor="#1890ff"
+            />
+            <span style={{ fontSize: 12 }}>{typeof usedPct === 'number' ? `${usedPct.toFixed(1)}%` : '-'}</span>
+          </div>
+          <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 11, lineHeight: '12px' }}>
+            总量: {totalGiB.toFixed(1)} / 使用: {usedGiB.toFixed(1)} / 剩余: {usedRemaining.toFixed(1)} GiB
+          </div>
         </div>
       );
     } },

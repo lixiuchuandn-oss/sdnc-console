@@ -29,7 +29,7 @@
  * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
  */
 import React, { useMemo, useState, useEffect } from 'react';
-import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert } from 'antd';
+import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert, Tooltip } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../../../services/harvesterApi';
 import {
@@ -326,40 +326,125 @@ const StepBasic: React.FC<StepBasicProps> = ({
               },
               { title: '状态', dataIndex: 'ready', key: 'ready', render: (b: boolean) => b ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag> },
               {
-                title: 'CPU 使用率', key: 'cpu_usage', render: (_: any, r: any) => {
-                  // [演示逻辑] 基于名称生成确定性伪随机数，模拟负载展示 (25% ~ 84%)
+                title: (
+                  <span>
+                    CPU
+                    <Tooltip 
+                      title={
+                        <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
+                          <b>总量</b>：物理节点的实际CPU核数
+                          <br />
+                          <b>超配总量</b>：物理节点的实际CPU核数乘以CPU超配比后得到的逻辑核数
+                        </div>
+                      }
+                      placement="top"
+                    >
+                      <span style={{ marginLeft: 4, color: '#999', fontSize: 14, cursor: 'help' }}>?</span>
+                    </Tooltip>
+                  </span>
+                ), 
+                key: 'cpu_usage', render: (_: any, r: any) => {
                   const s = String(r?.name || r?.internalIP || '').trim();
                   let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
-                  const pct = 25 + (h % 60);
+                  const usedPct = 25 + (h % 60);
                   const cpuRaw = r?.cpu ?? r?.status?.capacity?.cpu;
-                  const cores = typeof cpuRaw === 'number' ? cpuRaw : Number(String(cpuRaw || '').replace(/[^0-9]/g, '')) || 0;
+                  const total = typeof cpuRaw === 'number' ? cpuRaw : Number(String(cpuRaw || '').replace(/[^0-9]/g, '')) || 32;
+                  const overcommitTotal = total * 2; // 默认超配比200%
+                  const requested = total > 0 ? Math.round((usedPct / 100) * total * 10) / 10 : 0;
+                  const used = total > 0 ? Math.round((usedPct / 100) * total * 10) / 10 : 0;
+                  // 已分配率 = 已分配 / 超配总量
+                  const requestedPct = overcommitTotal > 0 ? Math.round((requested / overcommitTotal) * 1000) / 10 : 0;
                   return (
-                    <div>
-                      <div style={{ fontSize: 12, color: '#555' }}>{cores ? `${cores} core` : '-'}</div>
-                      <div style={{ width: 140 }}><Progress percent={pct} showInfo={false} /></div>
+                    <div style={{ minWidth: 180 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 3 }}>
+                        <Progress 
+                          percent={Math.max(0, Math.min(100, requestedPct))} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#52c41a"
+                        />
+                        <span style={{ fontSize: 11 }}>{requestedPct.toFixed(0)}%</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px', marginBottom: 3 }}>
+                        超配总量: {overcommitTotal.toFixed(1)} / 分配: {requested.toFixed(1)} / 未分配: {(overcommitTotal - requested).toFixed(1)} core
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 2 }}>
+                        <Progress 
+                          percent={Math.max(0, Math.min(100, usedPct))} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#1890ff"
+                        />
+                        <span style={{ fontSize: 11 }}>{usedPct.toFixed(0)}%</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}>
+                        总量: {total} / 使用: {used.toFixed(1)} / 剩余: {(total - used).toFixed(1)} core
+                      </div>
                     </div>
                   );
                 }
               },
               {
-                title: '内存使用率', key: 'mem_usage', render: (_: any, r: any) => {
-                  // [演示逻辑] 基于IP/名称生成确定性伪随机数，模拟负载展示 (20% ~ 84%)
+                title: (
+                  <span>
+                    内存
+                    <Tooltip 
+                      title={
+                        <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
+                          <b>总量</b>：物理节点的实际内存总容量
+                          <br />
+                          <b>超配总量</b>：物理节点的实际内存总容量乘以内存超配比后得到的逻辑内存数
+                        </div>
+                      }
+                      placement="top"
+                    >
+                      <span style={{ marginLeft: 4, color: '#999', fontSize: 14, cursor: 'help' }}>?</span>
+                    </Tooltip>
+                  </span>
+                ), 
+                key: 'mem_usage', render: (_: any, r: any) => {
                   const s = String(r?.internalIP || r?.name || '').trim();
                   let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 17 + s.charCodeAt(i)) >>> 0; }
-                  const pct = 20 + (h % 65);
+                  const usedPct = 20 + (h % 65);
                   const memRaw = r?.memory ?? r?.status?.capacity?.memory;
                   const raw = String(memRaw || '').toUpperCase();
                   const num = Number(String(raw).replace(/[^0-9]/g, '')) || 0;
-                  let gb = 0;
-                  if (/KI$/.test(raw)) { gb = Math.round(num / (1024 * 1024)); }
-                  else if (/MI$/.test(raw)) { gb = Math.round(num / 1024); }
-                  else if (/GI$/.test(raw)) { gb = num; }
-                  else if (typeof memRaw === 'number') { gb = Math.round(Number(memRaw) / (1024 * 1024 * 1024)); }
-                  const capText = gb ? `${gb} GB` : '-';
+                  let total = 0;
+                  if (/KI$/.test(raw)) { total = Math.round(num / (1024 * 1024)); }
+                  else if (/MI$/.test(raw)) { total = Math.round(num / 1024); }
+                  else if (/GI$/.test(raw)) { total = num; }
+                  else { total = 128; }
+                  const overcommitTotal = total * 2; // 默认超配比200%
+                  const requested = total > 0 ? Math.round((usedPct / 100) * total * 10) / 10 : 0;
+                  const used = total > 0 ? Math.round((usedPct / 100) * total * 10) / 10 : 0;
+                  // 已分配率 = 已分配 / 超配总量
+                  const requestedPct = overcommitTotal > 0 ? Math.round((requested / overcommitTotal) * 1000) / 10 : 0;
                   return (
-                    <div>
-                      <div style={{ fontSize: 12, color: '#555' }}>{capText}</div>
-                      <div style={{ width: 140 }}><Progress percent={pct} showInfo={false} /></div>
+                    <div style={{ minWidth: 180 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 3 }}>
+                        <Progress 
+                          percent={Math.max(0, Math.min(100, requestedPct))} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#52c41a"
+                        />
+                        <span style={{ fontSize: 11 }}>{requestedPct.toFixed(0)}%</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px', marginBottom: 3 }}>
+                        超配总量: {overcommitTotal.toFixed(1)} / 分配: {requested.toFixed(1)} / 未分配: {(overcommitTotal - requested).toFixed(1)} GiB
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 2 }}>
+                        <Progress 
+                          percent={Math.max(0, Math.min(100, usedPct))} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#1890ff"
+                        />
+                        <span style={{ fontSize: 11 }}>{usedPct.toFixed(0)}%</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}>
+                        总量: {total} / 使用: {used.toFixed(1)} / 剩余: {(total - used).toFixed(1)} GiB
+                      </div>
                     </div>
                   );
                 }
