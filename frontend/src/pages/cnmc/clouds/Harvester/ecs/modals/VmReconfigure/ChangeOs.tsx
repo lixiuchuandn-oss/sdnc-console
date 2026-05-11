@@ -258,7 +258,7 @@ const ChangeOs: React.FC<Props> = ({
           <div style={{ lineHeight: '32px' }}>选择新镜像</div>
         </Col>
         <Col span={18}>
-          <Form.Item name="newOsImage" rules={[{ required: true, message: '请选择镜像' }]} noStyle>
+          <Form.Item name="newOsImage" rules={[{ required: true, message: '请选择镜像' }]}>
             <Select
               showSearch
               style={{ width: '100%' }}
@@ -328,6 +328,38 @@ const ChangeOs: React.FC<Props> = ({
               />
             </Form.Item>
           )}
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      {/* ============================== ROOT_SIZE ============================== */}
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>容量 (GiB)</div>
+        </Col>
+        <Col span={18}>
+          <Form.Item
+            name="newOsRootSize"
+            rules={[
+              { required: true, message: '请输入容量' },
+              {
+                validator: (_, value) => {
+                  if (value < minSize) {
+                    return Promise.reject(new Error(`容量不能小于镜像大小 ${minSize} GiB`));
+                  }
+                  return Promise.resolve();
+                }
+              }
+            ]}
+            noStyle
+          >
+            <InputNumber
+              style={{ width: '150px' }}
+              min={minSize}
+              step={1}
+              suffix="GiB"
+            />
+          </Form.Item>
           <div style={{ marginBottom: 24 }} />
         </Col>
       </Row>

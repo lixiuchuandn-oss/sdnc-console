@@ -31,62 +31,11 @@ export function initChangeOsMenu(ctx: VmReconfigureMenuInitCtx): void {
     newOsBus = 'virtio';
   }
 
-  const imgId = getVmRootImageIdFromVm(r);
   const patch: Record<string, unknown> = {
     rootSourceType: 'image',
     rootDeviceType,
     newOsBus,
   };
-  if (imgId) {
-    patch.newOsImage = imgId;
-    const hit = (images || []).find((x: any) => {
-      const name = x?.metadata?.name || x?.name;
-      const ns = x?.metadata?.namespace || x?.namespace;
-      const v = ns && name ? `${ns}/${name}` : name;
-      return v === imgId;
-    });
-    if (hit) {
-      const sc =
-        (hit as any)?.storageClassName ||
-        (hit as any)?.spec?.storageClassName ||
-        (hit as any)?.status?.storageClassName;
-      if (sc) patch.storageClassName = sc;
-      const raw = (hit as any)?.spec?.virtualSize ?? (hit as any)?.virtualSize ?? (hit as any)?.size;
-      const gi = parseSizeToGi(raw);
-      if (gi > 0) patch.newOsRootSize = gi;
-      const kind = resolveVmImageKind(hit);
-      if (kind === 'iso') {
-        patch.rootDeviceType = 'cdrom';
-        const arch = String(r?.spec?.template?.spec?.architecture || r?.spec?.architecture || '').toLowerCase();
-        const arm = arch.includes('arm64') || arch.includes('aarch');
-        patch.newOsBus = arm ? 'scsi' : 'sata';
-      } else if (kind === 'disk') {
-        patch.rootDeviceType = 'disk';
-      }
-    }
-  }
 
   form.setFieldsValue(patch);
-
-  if (systemDisk && cloudId && record?.metadata?.namespace) {
-    void (async () => {
-      try {
-        const res = await fetchHarvesterVolume(cloudId, record.metadata.namespace, systemDisk);
-        const data = (res as any)?.data || res;
-        const cap = data?.spec?.resources?.requests?.storage || data?.status?.capacity?.storage;
-        const scFromPvc = data?.spec?.storageClassName;
-        const pvcPatch: Record<string, unknown> = {};
-        if (cap) {
-          const gi = storageQuantityToGiB(cap);
-          if (gi > 0) pvcPatch.newOsRootSize = gi;
-        }
-        if (scFromPvc) pvcPatch.storageClassName = scFromPvc;
-        if (Object.keys(pvcPatch).length > 0) {
-          form.setFieldsValue(pvcPatch);
-        }
-      } catch {
-        /* PVC 回填失败不影响镜像注解路径 */
-      }
-    })();
-  }
 }

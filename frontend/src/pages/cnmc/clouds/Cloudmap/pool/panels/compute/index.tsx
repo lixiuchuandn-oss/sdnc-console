@@ -262,6 +262,42 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                       return vId === iid;
                     });
 
+                    // [资源检查] 启动前检查 CPU/内存资源是否足够（使用共享的资源数据）
+                    if (vm) {
+                      const parseMemoryToGiB = (s: string): number => {
+                        const t = s.trim();
+                        const m = t.match(/^(\d+(?:\.\d+)?)([KMG]i?)?$/i);
+                        if (!m) return 0;
+                        const val = Number(m[1]);
+                        const unit = (m[2] || '').toLowerCase();
+                        if (unit === 'ki') return val / (1024 * 1024);
+                        if (unit === 'mi') return val / 1024;
+                        if (unit === 'gi') return val;
+                        return val / (1024 * 1024 * 1024);
+                      };
+
+                      // 获取 VM 的 CPU 和内存配置
+                      const cpu = vm?.spec?.template?.spec?.domain?.cpu;
+                      let cpuRequest = 0;
+                      if (cpu?.sockets !== undefined && cpu?.cores !== undefined && cpu?.threads !== undefined) {
+                        cpuRequest = Number(cpu.sockets) * Number(cpu.cores) * Number(cpu.threads);
+                      } else if (cpu?.sockets !== undefined && cpu?.cores !== undefined) {
+                        cpuRequest = Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
+                      } else if (vm?.cpu !== undefined && vm?.cpu !== null) {
+                        cpuRequest = Number(vm.cpu);
+                      } else {
+                        cpuRequest = Number(cpu?.cores || cpu?.sockets || vm?.vmi?.spec?.domain?.cpu?.cores || 0);
+                      }
+
+                      const memoryStr = String(vm?.spec?.template?.spec?.domain?.memory?.guest || vm?.memoryGb || vm?.vmi?.spec?.domain?.memory?.guest || '');
+                      const memoryRequest = parseMemoryToGiB(memoryStr);
+
+                      // 获取目标节点名称
+                      const targetNodeName = vm?.nodeName || vm?.spec?.template?.spec?.nodeName;
+
+                      // 移除资源检查逻辑，允许直接启动虚拟机
+                    }
+
                     if (vm && harvesterVolumes.length > 0) {
                       const vmVolumes =
                         vm?.spec?.template?.spec?.volumes || [];

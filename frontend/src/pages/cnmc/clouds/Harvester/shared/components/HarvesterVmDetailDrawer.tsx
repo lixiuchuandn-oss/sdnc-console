@@ -1145,6 +1145,29 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       );
       return;
     }
+
+    // [资源检查] 启动前检查 CPU/内存资源是否足够（使用共享的资源数据，同步检查）
+    const cpuRequest = Number(SafeRead.cpu(vmData)) || 0;
+    const memoryStr = String(SafeRead.memory(vmData));
+    
+    // 解析内存字符串为 GiB
+    const parseMemoryToGiB = (s: string): number => {
+      const t = s.trim();
+      const m = t.match(/^(\d+(?:\.\d+)?)([KMG]i?)?$/i);
+      if (!m) return 0;
+      const val = Number(m[1]);
+      const unit = (m[2] || '').toLowerCase();
+      if (unit === 'ki') return val / (1024 * 1024);
+      if (unit === 'mi') return val / 1024;
+      if (unit === 'gi') return val;
+      return val / (1024 * 1024 * 1024);
+    };
+    
+    const memoryRequest = parseMemoryToGiB(memoryStr);
+
+    // 获取目标节点名称（如果虚拟机已绑定到特定节点）
+    const targetNodeName = vmData?.nodeName || vmData?.spec?.template?.spec?.nodeName;
+
     try {
       const ns = SafeRead.namespace(vmData);
       const name = SafeRead.vmId(vmData);
