@@ -701,8 +701,8 @@ export async function submitVmReconfigureAddDisk(
         message.success(
           diskSrc === 'iso'
             ? values.newDiskBootFromCdrom
-              ? '光盘挂载成功，已设为优先从光驱启动；须重启虚拟机后生效（光驱总线固定 SCSI）'
-              : '光盘挂载成功，设置已保存；须重启虚拟机后生效（光驱总线固定 SCSI）'
+              ? '光盘挂载成功，已设为优先从光驱启动；须重启虚拟机后生效（光驱总线固定 SATA）'
+              : '光盘挂载成功，设置已保存；须重启虚拟机后生效（光驱总线固定 SATA）'
             : '磁盘挂载成功，设置已保存，需要重启后生效',
         );
         openRestartConfirm(namespace, vmName, false, diskSrc === 'iso' ? { cdrom: true } : undefined);

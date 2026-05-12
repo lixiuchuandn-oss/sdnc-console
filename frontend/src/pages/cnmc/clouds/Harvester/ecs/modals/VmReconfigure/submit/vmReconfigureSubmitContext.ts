@@ -10,7 +10,7 @@ export type VmReconfigureSubmitCtx = VmReconfigureSubmitDeps & {
   getQuantityInGi: (q: any) => number;
   getParsedNetworkData: (vm: any) => any;
   generateMacAddress: () => string;
-  CDROM_BUS: 'scsi';
+  CDROM_BUS: 'sata';
 };
 
 export function buildVmReconfigureSubmitCtx(d: VmReconfigureSubmitDeps): VmReconfigureSubmitCtx {
@@ -21,6 +21,6 @@ export function buildVmReconfigureSubmitCtx(d: VmReconfigureSubmitDeps): VmRecon
     getQuantityInGi: (q) => storageQuantityToGiB(q),
     getParsedNetworkData: (vm) => parseVmCloudInitNetworkData(vm),
     generateMacAddress: () => generateMacAddressForStaticNic(),
-    CDROM_BUS: 'scsi',
+    CDROM_BUS: 'sata',
   };
 }

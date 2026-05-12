@@ -62,8 +62,8 @@ const AddDataDisk: React.FC<Props> = ({
   const cdromAccess = Form.useWatch('newCdromAccessMode', form);
   const newCdromBootFromCdrom = !!Form.useWatch('newCdromBootFromCdrom', form);
   const newDiskBootFromCdrom = !!Form.useWatch('newDiskBootFromCdrom', form);
-  /** Harvester：虚拟光驱总线固定 SCSI（非 SCSI 易触发校验错误） */
-  const cdromBusLabel = 'SCSI';
+  /** Harvester：虚拟光驱总线固定 SATA */
+  const cdromBusLabel = 'SATA';
 
   useEffect(() => {
     if (isCdrom) return;

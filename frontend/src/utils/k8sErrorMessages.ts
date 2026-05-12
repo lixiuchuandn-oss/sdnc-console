@@ -128,5 +128,14 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在子网/网络已就绪后重新选择网卡。';
   }
 
+  // --- KubeVirt：启动顺序冲突（已为其他设备设置了启动顺序）---
+  if (
+    lower.includes('bootorder') &&
+    lower.includes('already set') &&
+    lower.includes('different device')
+  ) {
+    return '启动顺序配置冲突：已为其他设备设置了启动顺序。请取消当前设备的「优先启动」设置，或先清除其他设备的启动顺序后再重试。';
+  }
+
   return msg;
 }
