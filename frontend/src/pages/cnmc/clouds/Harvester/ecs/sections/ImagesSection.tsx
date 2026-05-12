@@ -124,6 +124,36 @@ const ImagesSection: React.FC<Props> = ({
     setLocalImages(images);
   }, [images]);
 
+  // [自动刷新] 当有镜像处于进行中状态时，自动刷新列表以更新进度
+  const prevProgressRef = React.useRef<Map<string, number>>(new Map());
+  React.useEffect(() => {
+    if (!onRefresh) return;
+    const hasProgressing = localImages.some((img: any) => {
+      const stateKey = resolveImageListStateKey(img);
+      const progressingStates = ['downloading', 'uploading', 'importing', 'exporting', 'pending'];
+      if (!progressingStates.includes(stateKey)) return false;
+      const progress = Number(img?.status?.progress ?? img?.progress ?? 0);
+      const prevProgress = prevProgressRef.current.get(img?.name || img?.metadata?.name || '');
+      // 如果进度有变化或者是进行中状态且首次检测到
+      if (prevProgress !== undefined && prevProgress !== progress) return true;
+      if (progress > 0 && progress < 100 && prevProgress === undefined) {
+        prevProgressRef.current.set(img?.name || img?.metadata?.name || '', progress);
+        return true;
+      }
+      if (prevProgress !== undefined) {
+        prevProgressRef.current.set(img?.name || img?.metadata?.name || '', progress);
+      }
+      return false;
+    });
+    
+    if (hasProgressing) {
+      const timer = window.setTimeout(() => {
+        onRefresh(true, true);
+      }, 3000); // 3秒刷新一次
+      return () => window.clearTimeout(timer);
+    }
+  }, [localImages, onRefresh]);
+
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>(''); // 默认不过滤，显示所有类型
@@ -290,12 +320,42 @@ const ImagesSection: React.FC<Props> = ({
     return m[k] || (s || '-');
   }, []);
   /**
+   * 根据状态和sourceType获取状态文本
+   */
+  const getStatusText = useCallback((stateKey: string, sourceType?: string): string => {
+    const k = String(stateKey || '').toLowerCase();
+    const st = String(sourceType || '').toLowerCase();
+    
+    if (k === 'downloading' || k === 'importing') {
+      if (st === 'download') return '下载中';
+      if (st === 'export-from-volume') return '从磁盘导出中';
+      if (st === 'upload') return '上传中';
+    }
+    
+    const m: Record<string, string> = {
+      imported: '已导入',
+      pending: '等待',
+      downloading: '下载中',
+      uploading: '上传中',
+      importing: '导入中',
+      exporting: '导出中',
+      ready: '就绪',
+      failed: '失败',
+      cancelled: '已取消',
+      unknown: '未知',
+    };
+    return m[k] || (stateKey || '-');
+  }, []);
+
+  /**
    * 状态 Badge 渲染：根据状态选择不同颜色和中文文案
    */
   const statusBadge = useCallback(
-    (s?: string) => {
-      const k = String(s || '').toLowerCase();
-      const text = cnStatus(s);
+    (r?: any) => {
+      const stateKey = typeof r === 'string' ? r : resolveImageListStateKey(r);
+      const k = String(stateKey || '').toLowerCase();
+      const sourceType = typeof r !== 'string' ? (r?.sourceType || r?.spec?.sourceType) : undefined;
+      const text = getStatusText(stateKey, sourceType);
       const color = (function () {
         if (k === 'ready') return 'green';
         if (k === 'failed') return 'red';
@@ -310,7 +370,7 @@ const ImagesSection: React.FC<Props> = ({
       })();
       return <Tag color={color}>{text}</Tag>;
     },
-    [cnStatus],
+    [getStatusText],
   );
   const gbText = (bytes?: number | string): string => {
     const n = typeof bytes === 'number' ? bytes : (typeof bytes === 'string' ? Number(bytes) : NaN);
@@ -504,7 +564,12 @@ const ImagesSection: React.FC<Props> = ({
           { title: '作用域', key: 'scope', render: (_: any, r: any) => (isImagePublicByScenario(r) ? '公共镜像' : '私有镜像') },
         ]
       : []),
-    { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(resolveImageListStateKey(r)) },
+    { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(r) },
+    { title: '进度', key: 'progress', render: (_:any, r:any)=> {
+        const progress = Number(r?.status?.progress ?? r?.progress);
+        if (!Number.isFinite(progress) || progress <= 0) return '-';
+        return <Progress percent={Math.round(progress)} size="small" status={progress >= 100 ? 'success' : 'active'} />;
+      } },
     { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
         const kind = resolveVmImageKind(r);
         const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? 'Qcow2' : '其他';
@@ -612,6 +677,10 @@ const ImagesSection: React.FC<Props> = ({
         const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
         upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
       }
+      // 取消任务后立即刷新镜像列表，确保镜像状态同步更新
+      onRefreshRef.current?.(true, true);
+      // 清除进度缓存，防止已取消的任务继续触发自动刷新
+      prevProgressRef.current.clear();
       message.success('已取消');
     } catch (e: any) {
       message.error(e?.message || '取消失败');

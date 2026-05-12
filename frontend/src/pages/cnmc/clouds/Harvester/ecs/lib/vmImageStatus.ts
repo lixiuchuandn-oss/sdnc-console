@@ -36,6 +36,48 @@ function getVmImageConditions(r: any): any[] {
 
 /** 与 ImagesSection.resolveImageListStateKey 一致 */
 export function resolveImageListStateKey(r: any): string {
+  // 优先检查取消状态（用户主动取消应该优先于其他状态）
+  // 检查多个可能的取消状态字段
+  const statusStr = String(r?.status?.state ?? r?.state ?? r?.status?.phase ?? '').toLowerCase();
+  
+  // 检查是否有取消相关的标记
+  const isCancelled = (() => {
+    // 1. 检查状态字段
+    if (statusStr === 'cancelled') return true;
+    
+    // 2. 检查 Cancelled condition
+    const conditions = getVmImageConditions(r);
+    const cancelledCondition = conditions.find((c: any) => c?.type === 'Cancelled');
+    if (conditionStatusIsTrue(cancelledCondition?.status)) return true;
+    
+    // 3. 检查 Imported condition 的 message 是否包含取消相关信息
+    const importedCondition = conditions.find((c: any) => c?.type === 'Imported');
+    if (importedCondition && conditionStatusIsFalse(importedCondition?.status)) {
+      const msg = String(importedCondition?.message || '').toLowerCase();
+      if (msg.includes('cancel') || msg.includes('cancelled') || msg.includes('user') || msg.includes('中止')) {
+        return true;
+      }
+    }
+    
+    // 4. 检查其他 condition 的 message
+    for (const cond of conditions) {
+      const msg = String(cond?.message || '').toLowerCase();
+      if (msg.includes('cancel') || msg.includes('cancelled') || msg.includes('user')) {
+        return true;
+      }
+    }
+    
+    // 5. 检查 status 中的 message 字段
+    const statusMsg = String(r?.status?.message || '').toLowerCase();
+    if (statusMsg.includes('cancel') || statusMsg.includes('cancelled') || statusMsg.includes('user')) {
+      return true;
+    }
+    
+    return false;
+  })();
+  
+  if (isCancelled) return 'cancelled';
+  
   // 优先使用后端设置的 state 字段
   if (typeof r?.state === 'string' && r.state.trim() !== '') {
     const mapped = mapBackendVmImageState(r.state);
@@ -44,10 +86,15 @@ export function resolveImageListStateKey(r: any): string {
       return mapped;
     }
   }
+  
   const conditions = getVmImageConditions(r);
   const imported = conditions.find((c: any) => c?.type === 'Imported');
-  if (conditionStatusIsTrue(imported?.status)) return 'ready';
-  if (conditionStatusIsFalse(imported?.status)) return 'failed';
+  if (conditionStatusIsTrue(imported?.status)) {
+    return 'ready';
+  }
+  if (conditionStatusIsFalse(imported?.status)) {
+    return 'failed';
+  }
 
   const progress = Number(r?.status?.progress ?? r?.progress);
   const sourceType = r?.sourceType || r?.spec?.sourceType || '';
