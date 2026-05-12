@@ -137,5 +137,20 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return '启动顺序配置冲突：已为其他设备设置了启动顺序。请取消当前设备的「优先启动」设置，或先清除其他设备的启动顺序后再重试。';
   }
 
+  // --- Harvester：定时备份冲突（虚拟机已存在备份计划）---
+  if (
+    lower.includes('already has backup schedule')
+  ) {
+    return '定时备份创建失败：该虚拟机已存在备份计划。一台虚拟机只能配置一个定时备份任务，请先删除已有的备份计划后再创建新的。';
+  }
+
+  // --- Harvester：定时备份时间粒度冲突（与已有计划时间间隔过短）---
+  if (
+    lower.includes('same granularity as schedule') &&
+    lower.includes('offset less than')
+  ) {
+    return '定时备份创建失败：新创建的备份计划与已存在的计划时间粒度相同，但执行时间间隔过短（需至少间隔10分钟）。请调整执行时间或删除冲突的计划后再试。';
+  }
+
   return msg;
 }

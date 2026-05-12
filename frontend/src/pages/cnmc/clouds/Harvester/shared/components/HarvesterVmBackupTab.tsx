@@ -101,15 +101,18 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
     });
 
     // 按创建时间倒序
+    const getTimestamp = (item: any) => {
+      const raw = item.rawData || item;
+      return new Date(raw.metadata?.creationTimestamp || raw.createdAt || item.createdAt || 0).getTime();
+    };
+
     const sorter = (a: any, b: any) => {
-      const ta = new Date(a.rawData?.metadata?.creationTimestamp || a.createdAt).getTime();
-      const tb = new Date(b.rawData?.metadata?.creationTimestamp || b.createdAt).getTime();
-      return tb - ta;
+      return getTimestamp(b) - getTimestamp(a);
     };
 
     return {
-      backupList: backupsOnly.sort(sorter),
-      snapshotList: snapshotsOnly.sort(sorter)
+      backupList: [...backupsOnly].sort(sorter),
+      snapshotList: [...snapshotsOnly].sort(sorter)
     };
   }, [backups, vmId]);
 
@@ -123,11 +126,12 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
     });
     
     // 按创建时间倒序
-    return vmSchedules.sort((a: any, b: any) => {
-      const ta = new Date(a.rawData?.metadata?.creationTimestamp || a.createdAt).getTime();
-      const tb = new Date(b.rawData?.metadata?.creationTimestamp || b.createdAt).getTime();
-      return tb - ta;
-    });
+    const getTimestamp = (item: any) => {
+      const raw = item.rawData || item;
+      return new Date(raw.metadata?.creationTimestamp || raw.createdAt || item.createdAt || 0).getTime();
+    };
+    
+    return [...vmSchedules].sort((a: any, b: any) => getTimestamp(b) - getTimestamp(a));
   }, [schedules, vmId]);
 
   // 动作
@@ -273,7 +277,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           title={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontWeight: 500 }}>{displayName}</span>
-                {readyToUse ? <Tag color="success" style={{ fontSize: 10 }}>READY</Tag> : <Tag color="warning" style={{ fontSize: 10 }}>NOT READY</Tag>}
+                {readyToUse ? <Tag color="success" style={{ fontSize: 10 }}>就绪</Tag> : <Tag color="warning" style={{ fontSize: 10 }}>未就绪</Tag>}
             </div>
           }
           description={
