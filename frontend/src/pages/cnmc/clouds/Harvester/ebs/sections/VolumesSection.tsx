@@ -1383,7 +1383,7 @@ const VolumesSection: React.FC<Props> = ({
                 displayName: v.displayName,
                 targetStorageClassName: v.targetStorageClassName
               });
-              message.success('任务已提交');
+              message.success('导出镜像任务已提交，在云主机镜像列表能看到导出的镜像数据');
               setExportOpen(false);
               onRefreshImages?.(true, true);
             } catch (e: any) {
