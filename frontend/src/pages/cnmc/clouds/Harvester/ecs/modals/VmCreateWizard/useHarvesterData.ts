@@ -433,9 +433,30 @@ export const useHarvesterData = (
   // [数据处理] SSH 密钥选项
   const sshKeyOptions = useMemo(() => (sshKeys || []).map((x: any) => {
     const name = x?.metadata?.name || x?.name;
+    // 获取密钥别名（优先显示别名，没有则显示名称）
+    const alias = x?.metadata?.annotations?.['tower.io/alias'] || x?.alias || '';
+    const displayName = alias || name;
+    
+    // 获取公钥内容，尝试多个可能的字段路径
+    const raw = x?.rawData || x;
+    
+    // Harvester KeyPair 的公钥可能存储在多个位置
+    const publicKey = 
+      raw?.spec?.publicKey || 
+      raw?.status?.publicKey || 
+      raw?.publicKey || 
+      x?.spec?.publicKey ||
+      x?.status?.publicKey ||
+      x?.publicKey ||
+      x?.data?.spec?.publicKey ||
+      x?.data?.publicKey ||
+      raw?.data?.items?.[0]?.spec?.publicKey ||
+      raw?.data?.items?.[0]?.publicKey ||
+      '';
     return {
-      label: name,
-      value: name // Harvester uses name reference
+      label: displayName, // 显示别名或名称
+      value: name, // Harvester uses name reference
+      publicKey,   // 存储公钥内容供生成 Cloud-Config 使用
     };
   }), [sshKeys]);
 

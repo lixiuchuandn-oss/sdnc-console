@@ -144,14 +144,6 @@ const StepOthers: React.FC<StepOthersProps> = ({
           </Form.Item>
         </Space>
       </Form.Item>
-      <Form.Item label="SSH 公钥标识" name="sshNames">
-        <Select 
-          mode="tags" 
-          placeholder="输入或选择SSH key名称" 
-          options={sshKeyOptions || []} 
-          onOpenChange={(open) => { if (open) reloadSshKeys(); }}
-        />
-      </Form.Item>
       <Form.Item label="Cloud-Init" name="userData">
         <Input.TextArea rows={6} placeholder="#cloud-config" />
       </Form.Item>
