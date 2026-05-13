@@ -152,5 +152,14 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return '定时备份创建失败：新创建的备份计划与已存在的计划时间粒度相同，但执行时间间隔过短（需至少间隔10分钟）。请调整执行时间或删除冲突的计划后再试。';
   }
 
+  // --- Harvester：Cloud-init 配置缺少数据源 ---
+  if (
+    lower.includes('cloudinitnocloud') &&
+    lower.includes('userdatasource') &&
+    lower.includes('networkdatasource')
+  ) {
+    return 'Cloud-init 配置不完整：请在「高级设置」中为 Cloud-init 配置至少一个用户数据源（userDataSource）或网络数据源（networkDataSource）。';
+  }
+
   return msg;
 }
