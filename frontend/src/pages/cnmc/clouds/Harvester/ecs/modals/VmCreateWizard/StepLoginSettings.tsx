@@ -203,17 +203,6 @@ const StepLoginSettings: React.FC<StepLoginSettingsProps> = ({ form, sshKeyOptio
                         >
                           <Input.Password placeholder="8-64 位，不含空白或冒号(:)" autoComplete="new-password" />
                         </Form.Item>
-                        <Form.Item label="预览生成的 Cloud-Config" shouldUpdate={(p, c) => p.userData !== c.userData}>
-                          {() => (
-                            <Input.TextArea 
-                              readOnly 
-                              value={form.getFieldValue('userData')} 
-                              rows={6} 
-                              style={{ backgroundColor: '#f5f5f5', fontFamily: 'monospace', fontSize: '12px' }}
-                              placeholder="生成的 Cloud Config 将显示在这里"
-                            />
-                          )}
-                        </Form.Item>
                       </>
                     )}
                     
@@ -246,17 +235,6 @@ const StepLoginSettings: React.FC<StepLoginSettingsProps> = ({ form, sshKeyOptio
                               } catch {}
                             }}
                           />
-                        </Form.Item>
-                        <Form.Item label="预览生成的 Cloud-Config" shouldUpdate={(p, c) => p.userData !== c.userData}>
-                          {() => (
-                            <Input.TextArea 
-                              readOnly 
-                              value={form.getFieldValue('userData')} 
-                              rows={6} 
-                              style={{ backgroundColor: '#f5f5f5', fontFamily: 'monospace', fontSize: '12px' }}
-                              placeholder="生成的 Cloud Config 将显示在这里"
-                            />
-                          )}
                         </Form.Item>
                       </>
                     )}

@@ -325,10 +325,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
           ['primaryNic', 'subnet'], 
           ['primaryNic', 'type'], 
           ['primaryNic', 'model'], 
-          ['primaryNic', 'macAddress'], 
-          ['primaryNic', 'ipAddress'], 
-          ['primaryNic', 'gateway'], 
-          ['primaryNic', 'dns'],
           'netIfaces'
         ];
       case 4: // Login
@@ -363,6 +359,27 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     try {
       lastValidationErrorTypeRef.current = null;
       await form.validateFields(fields);
+
+      // 网络步骤：MAC / 静态IP 仅在 VPC / 扁平子网展示，须单独按模式校验
+      if (targetStep === 3) {
+        const extraNetPaths: (string | number)[][] = [];
+        const netMode = String(form.getFieldValue('netMode') || '');
+        if (netMode === 'vpc' || netMode === 'flat_subnet') {
+          extraNetPaths.push(['primaryNic', 'macAddress'], ['primaryNic', 'ipAddress']);
+        }
+        const netIfaces = form.getFieldValue('netIfaces');
+        if (Array.isArray(netIfaces)) {
+          netIfaces.forEach((row: any, i: number) => {
+            const m = String(row?.mode || '');
+            if (m === 'vpc' || m === 'flat_subnet') {
+              extraNetPaths.push(['netIfaces', i, 'macAddress'], ['netIfaces', i, 'ipAddress']);
+            }
+          });
+        }
+        if (extraNetPaths.length > 0) {
+          await form.validateFields(extraNetPaths);
+        }
+      }
       
       // Step 0 额外校验：若选择指定主机模式，必须选中主机
       if (targetStep === 0 && hostModeState === 'node' && !selectedNodeName) {

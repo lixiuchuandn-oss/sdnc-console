@@ -207,8 +207,6 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           subnet: undefined,
           macAddress: undefined,
           ipAddress: undefined,
-          gateway: undefined,
-          dns: undefined,
         },
       });
     } catch {
@@ -561,7 +559,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           }}
         </Form.Item>
 
-        {/* 3. 通用物理属性配置 (类型、模型、MAC、IP) */}
+        {/* 3. 通用物理属性配置 (类型、模型、MAC、静态IP) */}
         <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode || prev.primaryNic?.type !== curr.primaryNic?.type || prev.primaryNic?.name !== curr.primaryNic?.name}>
           {({ getFieldValue }) => {
             const mode = getFieldValue('netMode') || 'flat_subnet';
@@ -600,26 +598,53 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             );
           }}
         </Form.Item>
-        <Col span={8}>
-          <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} preserve rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]} >
-            <Input placeholder="52:54:00:12:34:56" />
-          </Form.Item>
-        </Col>
-        <Col span={8}>
-          <Form.Item label="静态IP" name={["primaryNic", 'ipAddress']} preserve rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址 (如 192.168.1.10 或 192.168.1.10/24)' }]} >
-            <Input placeholder="192.168.1.10/24" />
-          </Form.Item>
-        </Col>
-        <Col span={8}>
-          <Form.Item label="网关" name={["primaryNic", 'gateway']} preserve>
-            <Input placeholder="192.168.1.1" />
-          </Form.Item>
-        </Col>
-        <Col span={8}>
-          <Form.Item label="DNS" name={["primaryNic", 'dns']} preserve>
-            <Input placeholder="8.8.8.8" />
-          </Form.Item>
-        </Col>
+        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
+          {({ getFieldValue }) => {
+            const nm = getFieldValue('netMode') || 'flat_subnet';
+            if (nm === 'flat' || nm === 'passthrough') return null;
+            return (
+              <Col span={8}>
+                <Form.Item
+                  label="MAC 地址"
+                  name={['primaryNic', 'macAddress']}
+                  preserve
+                  rules={[
+                    {
+                      pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/,
+                      message: '格式如 52:54:00:12:34:56',
+                    },
+                  ]}
+                >
+                  <Input placeholder="52:54:00:12:34:56" />
+                </Form.Item>
+              </Col>
+            );
+          }}
+        </Form.Item>
+        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
+          {({ getFieldValue }) => {
+            const nm = getFieldValue('netMode') || 'flat_subnet';
+            if (nm !== 'vpc' && nm !== 'flat_subnet') return null;
+            return (
+              <Col span={8}>
+                <Form.Item
+                  label="静态IP"
+                  name={['primaryNic', 'ipAddress']}
+                  preserve
+                  rules={[
+                    {
+                      pattern:
+                        /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/,
+                      message: '请输入有效的 IP 地址 (如 192.168.1.10 或 192.168.1.10/24)',
+                    },
+                  ]}
+                >
+                  <Input placeholder="192.168.1.10/24" />
+                </Form.Item>
+              </Col>
+            );
+          }}
+        </Form.Item>
       </Row>
 
 
@@ -999,7 +1024,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       return null;
                     })()}
 
-                    {/* --- 通用物理属性 (类型/模型/MAC/IP/Gateway/DNS) --- */}
+                    {/* --- 通用物理属性 (类型/模型/MAC/静态IP) --- */}
                     <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode || prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type || prev.netIfaces?.[name]?.name !== curr.netIfaces?.[name]?.name}>
                       {({ getFieldValue }) => {
                         const mode2 = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
@@ -1039,26 +1064,57 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         );
                       }}
                     </Form.Item>
-                    <Col span={8}>
-                      <Form.Item label="MAC 地址" name={[name, 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]} >
-                        <Input placeholder="52:54:00:12:34:56" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="静态IP" name={[name, 'ipAddress']} rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址' }]} style={{ marginBottom: ['vpc', 'flat_subnet'].includes(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') ? 0 : undefined }}>
-                        <Input placeholder="192.168.1.10/24" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="网关" name={[name, 'gateway']} style={{ marginBottom: ['vpc', 'flat_subnet'].includes(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') ? 0 : undefined }}>
-                        <Input placeholder="192.168.1.1" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="DNS" name={[name, 'dns']} style={{ marginBottom: 0 }}>
-                        <Input placeholder="8.8.8.8" />
-                      </Form.Item>
-                    </Col>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode}
+                    >
+                      {({ getFieldValue }) => {
+                        const m = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
+                        if (m === 'flat' || m === 'passthrough') return null;
+                        return (
+                          <Col span={8}>
+                            <Form.Item
+                              label="MAC 地址"
+                              name={[name, 'macAddress']}
+                              rules={[
+                                {
+                                  pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/,
+                                  message: '格式如 52:54:00:12:34:56',
+                                },
+                              ]}
+                            >
+                              <Input placeholder="52:54:00:12:34:56" />
+                            </Form.Item>
+                          </Col>
+                        );
+                      }}
+                    </Form.Item>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode}
+                    >
+                      {({ getFieldValue }) => {
+                        const m = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
+                        if (m !== 'vpc' && m !== 'flat_subnet') return null;
+                        return (
+                          <Col span={8}>
+                            <Form.Item
+                              label="静态IP"
+                              name={[name, 'ipAddress']}
+                              rules={[
+                                {
+                                  pattern:
+                                    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/,
+                                  message: '请输入有效的 IP 地址',
+                                },
+                              ]}
+                            >
+                              <Input placeholder="192.168.1.10/24" />
+                            </Form.Item>
+                          </Col>
+                        );
+                      }}
+                    </Form.Item>
                   </Row>
                   <Row gutter={12}>
                     <Col span={24}>
