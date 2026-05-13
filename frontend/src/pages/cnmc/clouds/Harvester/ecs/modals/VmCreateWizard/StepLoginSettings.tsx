@@ -89,88 +89,91 @@ const StepLoginSettings: React.FC<StepLoginSettingsProps> = ({ form, sshKeyOptio
         </Col>
 
         <Col span={24}>
-          <Form.Item
-            label="登录账号"
-            name="loginAccount"
-            rules={[{ required: true, message: '请选择登录账户' }]}
-          >
-            <Radio.Group options={[{ label: 'root', value: 'root' }, { label: 'cloudmap', value: 'cloudmap' }]} />
-          </Form.Item>
-        </Col>
-
-        <Col span={24}>
           <Form.Item shouldUpdate={(p, c) => p.loginMethod !== c.loginMethod} noStyle>
             {() => {
               const m = String(form.getFieldValue('loginMethod') || 'later');
-              if (m === 'password') {
+              
+              // 只有选择"设置账户密码"或"设置 SSH 公钥"时才显示登录账号
+              if (m === 'password' || m === 'ssh') {
                 return (
                   <>
-                  <Form.Item
-                    label="登录密码"
-                    name="loginPassword"
-                    rules={[
-                      ({ getFieldValue }) => ({
-                        validator: (_: any, val: any) => {
-                          if (String(getFieldValue('loginMethod') || 'later') !== 'password') return Promise.resolve();
-                          const s = String(val || '');
-                          if (!s) return Promise.reject(new Error('请输入密码'));
-                          if (s.length < 8) return Promise.reject(new Error('密码长度至少 8 位'));
-                          if (s.length > 64) return Promise.reject(new Error('密码长度最多 64 位'));
-                          if (/[\s:]/.test(s)) return Promise.reject(new Error('密码不可包含空白字符或冒号(:)'));
-                          return Promise.resolve();
-                        },
-                      }),
-                    ]}
-                  >
-                    <Input.Password placeholder="8-64 位，不含空白或冒号(:)" autoComplete="new-password" />
-                  </Form.Item>
-                  <Form.Item label="预览生成的 Cloud-Config" shouldUpdate={(p, c) => p.userData !== c.userData}>
-                    {() => (
-                      <Input.TextArea 
-                        readOnly 
-                        value={form.getFieldValue('userData')} 
-                        rows={6} 
-                        style={{ backgroundColor: '#f5f5f5', fontFamily: 'monospace', fontSize: '12px' }}
-                        placeholder="生成的 Cloud Config 将显示在这里"
-                      />
+                    <Form.Item
+                      label="登录账号"
+                      name="loginAccount"
+                      rules={[{ required: true, message: '请选择登录账户' }]}
+                    >
+                      <Radio.Group options={[{ label: 'root', value: 'root' }, { label: 'cloudmap', value: 'cloudmap' }]} />
+                    </Form.Item>
+                    
+                    {m === 'password' && (
+                      <>
+                        <Form.Item
+                          label="登录密码"
+                          name="loginPassword"
+                          rules={[
+                            ({ getFieldValue }) => ({
+                              validator: (_: any, val: any) => {
+                                if (String(getFieldValue('loginMethod') || 'later') !== 'password') return Promise.resolve();
+                                const s = String(val || '');
+                                if (!s) return Promise.reject(new Error('请输入密码'));
+                                if (s.length < 8) return Promise.reject(new Error('密码长度至少 8 位'));
+                                if (s.length > 64) return Promise.reject(new Error('密码长度最多 64 位'));
+                                if (/[\s:]/.test(s)) return Promise.reject(new Error('密码不可包含空白字符或冒号(:)'));
+                                return Promise.resolve();
+                              },
+                            }),
+                          ]}
+                        >
+                          <Input.Password placeholder="8-64 位，不含空白或冒号(:)" autoComplete="new-password" />
+                        </Form.Item>
+                        <Form.Item label="预览生成的 Cloud-Config" shouldUpdate={(p, c) => p.userData !== c.userData}>
+                          {() => (
+                            <Input.TextArea 
+                              readOnly 
+                              value={form.getFieldValue('userData')} 
+                              rows={6} 
+                              style={{ backgroundColor: '#f5f5f5', fontFamily: 'monospace', fontSize: '12px' }}
+                              placeholder="生成的 Cloud Config 将显示在这里"
+                            />
+                          )}
+                        </Form.Item>
+                      </>
                     )}
-                  </Form.Item>
+                    
+                    {m === 'ssh' && (
+                      <Form.Item
+                        label="选择 SSH 公钥"
+                        name="sshNames"
+                        rules={[
+                          ({ getFieldValue }) => ({
+                            validator: (_: any, val: any) => {
+                              if (String(getFieldValue('loginMethod') || 'later') !== 'ssh') return Promise.resolve();
+                              const arr = Array.isArray(val) ? val : [];
+                              if (arr.length === 0) return Promise.reject(new Error('请选择 SSH 密钥'));
+                              return Promise.resolve();
+                            },
+                          }),
+                        ]}
+                      >
+                        <Select
+                          mode="multiple"
+                          placeholder="选择 SSH 公钥"
+                          options={sshKeyOptions || []}
+                          onOpenChange={(open) => {
+                            if (open) reloadSshKeys();
+                          }}
+                          onChange={(vals) => {
+                            try {
+                              lastGeneratedSshNamesRef.current = JSON.stringify(Array.isArray(vals) ? vals : []);
+                            } catch {}
+                          }}
+                        />
+                      </Form.Item>
+                    )}
                   </>
                 );
               }
-
-              if (m === 'ssh') {
-                return (
-                  <Form.Item
-                    label="选择 SSH 公钥"
-                    name="sshNames"
-                    rules={[
-                      ({ getFieldValue }) => ({
-                        validator: (_: any, val: any) => {
-                          if (String(getFieldValue('loginMethod') || 'later') !== 'ssh') return Promise.resolve();
-                          const arr = Array.isArray(val) ? val : [];
-                          if (arr.length === 0) return Promise.reject(new Error('请选择 SSH 密钥'));
-                          return Promise.resolve();
-                        },
-                      }),
-                    ]}
-                  >
-                    <Select
-                      mode="multiple"
-                      placeholder="选择 SSH 公钥"
-                      options={sshKeyOptions || []}
-                      onOpenChange={(open) => {
-                        if (open) reloadSshKeys();
-                      }}
-                      onChange={(vals) => {
-                        try {
-                          lastGeneratedSshNamesRef.current = JSON.stringify(Array.isArray(vals) ? vals : []);
-                        } catch {}
-                      }}
-                    />
-                  </Form.Item>
-                );
-              }
+              
               return null;
             }}
           </Form.Item>
