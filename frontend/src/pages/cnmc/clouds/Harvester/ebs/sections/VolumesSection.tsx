@@ -1167,12 +1167,17 @@ const VolumesSection: React.FC<Props> = ({
                   <div>
                     <div style={{ marginBottom: 8 }}>云盘：{diskLabel}</div>
                     {vm ? (
-                      <div style={{ color: '#d48806' }}>该云盘仍挂载在云主机：{vmLabel}。删除可能失败，请先卸载。</div>
+                      <div style={{ color: '#d48806' }}>该云盘仍挂载在云主机：{vmLabel}，请先卸载后再删除。</div>
                     ) : null}
                     <div>删除后无法恢复。</div>
                   </div>
                 ),
-                okText: '确认', cancelText: '取消', okButtonProps: { danger: true },
+                okText: '确认', cancelText: '取消', 
+                okButtonProps: { 
+                  danger: true,
+                  disabled: !!vm,
+                  title: vm ? `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除` : undefined
+                },
                 onOk: async () => { 
                   try { 
                     await deleteHarvesterVolume(cloudId, r.namespace, r.name); 

@@ -634,7 +634,12 @@ const ImagesSection: React.FC<Props> = ({
             // 同时调用 onRefresh 从后端同步数据
             onRefresh?.(true);
           } catch (e: any) {
-            message.error(e?.message || '删除失败');
+            const errMsg = e?.message || '';
+            if (e?.status === 422 || errMsg.includes('422') || errMsg.toLowerCase().includes('in use') || errMsg.includes('被使用')) {
+              message.error('删除镜像失败: 当前镜像正在被虚拟机使用，请先删除引用该镜像的虚拟机');
+            } else {
+              message.error(errMsg || '删除失败');
+            }
           }
       };
 
