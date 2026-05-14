@@ -97,6 +97,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
       'CronJob': `/apis/batch/v1/namespaces/${ns}/cronjobs/${name}`,
       'ConfigMap': `/api/v1/namespaces/${ns}/configmaps/${name}`,
       'Secret': `/api/v1/namespaces/${ns}/secrets/${name}`,
+      'KeyPair': `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/keypairs/${name}`,
     };
     
     return typeToPath[resourceType] || null;

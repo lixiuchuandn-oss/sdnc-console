@@ -196,10 +196,24 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
     >
       <Input placeholder="显示名称（支持中文）" />
     </Form.Item>
-    <Form.Item name="cidrBlock" label="CIDR" rules={[{ required: true }]}>
+    <Form.Item
+      name="cidrBlock"
+      label="CIDR"
+      rules={[
+        { required: true, message: '请输入 CIDR' },
+        { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$/, message: '格式错误' },
+      ]}
+    >
       <Input placeholder="192.168.1.0/24" />
     </Form.Item>
-    <Form.Item name="gateway" label="网关" rules={[{ required: true }]}>
+    <Form.Item
+      name="gateway"
+      label="网关"
+      rules={[
+        { required: true, message: '请输入网关地址' },
+        { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '格式错误' },
+      ]}
+    >
       <Input placeholder="192.168.1.1" />
     </Form.Item>
     <Form.Item

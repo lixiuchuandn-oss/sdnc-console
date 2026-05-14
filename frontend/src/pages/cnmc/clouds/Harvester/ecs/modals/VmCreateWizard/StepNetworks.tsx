@@ -49,7 +49,30 @@ import {
 import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { kubeSubnetChoiceLabel } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
 import SubnetDetailDrawer from '../../../kube-ovn/drawers/subnet-detail-drawer';
-import { kubeOvnSubnetNadOption } from '../../lib/kubeOvnSubnetNadSelect';
+import { isKubeOvnSubnetNadReady, resolveMultusNetNameForKubeOvnSubnetNic } from './kubeOvnNadRefForVmWizard';
+
+/**
+ * 子网选项：NAD 未同步时置灰，当前已选可保留以提示「同步中」。
+ * vpcIdForNad 须与 isKubeOvnSubnetNadReady 的 vpc 入参一致（业务 VPC 或子网自己的 vpc/flat）。
+ */
+function kubeOvnSubnetNadOption(
+  x: any,
+  nadOptions: any[],
+  vpcIdForNad: string,
+  currentName: any,
+  buildLabel: (x: any) => string,
+) {
+  const ready = isKubeOvnSubnetNadReady(x, vpcIdForNad, nadOptions);
+  const isCurrent = currentName != null && String(x?.name) === String(currentName);
+  const base = buildLabel(x);
+  let label = base;
+  if (!ready) {
+    label = isCurrent
+      ? `${base}（子网网络未就绪，请稍候重试或刷新后创建）`
+      : `${base}（网络未就绪）`;
+  }
+  return { label, value: x?.name, disabled: !ready && !isCurrent };
+}
 
 /**
  * [接口定义] StepNetworksProps
@@ -184,8 +207,6 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           subnet: undefined,
           macAddress: undefined,
           ipAddress: undefined,
-          gateway: undefined,
-          dns: undefined,
         },
       });
     } catch {
@@ -375,29 +396,12 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               }
                             }}
                             onChange={(val) => {
-                              let netName = val;
                               const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
-                              let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-                              if (!subnetNs) {
-                                const provider = subnet?.provider || subnet?.spec?.provider;
-                                if (provider) {
-                                  const parts = provider.split('.');
-                                  if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                                }
-                              }
-                              if (subnetNs) {
-                                netName = `${subnetNs}/${val}`;
-                              } else {
-                                try {
-                                  const found = (nadOptions || []).find((x: any) => {
-                                    const vv = String(x?.value || '');
-                                    const parts = vv.split('/');
-                                    const name = parts.length > 1 ? parts[1] : parts[0];
-                                    return name === val;
-                                  });
-                                  if (found) netName = found.value;
-                                } catch {}
-                              }
+                              const netName = resolveMultusNetNameForKubeOvnSubnetNic(
+                                subnet,
+                                String(val),
+                                nadOptions,
+                              );
                               const flatVpc =
                                 String(subnet?.spec?.vpc || subnet?.vpc || KUBE_OVN_FLAT_VPC).trim() ||
                                 KUBE_OVN_FLAT_VPC;
@@ -495,49 +499,17 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             );
                           })()}
                           onOpenChange={(open) => { if (open) { reloadKubeSubnets(); reloadNads(); } }}
-                          onChange={(val) => { 
-                            // [状态同步] 选择子网时，自动将其名称作为网络名称
-                            // [修复] Kube-OVN 子网生成的 NAD 通常与子网资源本身位于同一 Namespace
-                            // 优先从 kubeSubnets 中获取子网对象，提取其 Namespace 并拼装为 <ns>/<name> 格式
-                            // 若未找到子网对象，则回退到 nadOptions 查找逻辑
-                            let netName = val;
-                            
+                          onChange={(val) => {
                             const vpcCur = form.getFieldValue(['primaryNic', 'vpc']);
-                            // 1. 按 VPC + 子网名匹配，避免跨 VPC 同名子网误绑 NAD
                             const subnet = (kubeSubnets || []).find(
                               (x: any) => x.name === val && x?.vpc === vpcCur,
                             );
-                            
-                            // [修复] 从 Subnet 对象中获取正确的 Namespace
-                            // 后端 /subnets 接口已增强，会自动将关联 NAD 的 Namespace 注入到 metadata.namespace 字段
-                            // 优先使用该字段，如果不存在则回退到 Provider 解析逻辑
-                            let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-                            if (!subnetNs) {
-                                const provider = subnet?.provider || subnet?.spec?.provider;
-                                if (provider) {
-                                    const parts = provider.split('.');
-                                    // 倒数第二个部分通常是 Namespace
-                                    if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                                }
-                            }
-
-                            if (subnetNs) {
-                               netName = `${subnetNs}/${val}`;
-                            } else {
-                               // 2. 回退：尝试从 nadOptions 中查找匹配的 NAD
-                               try {
-                                 const found = (nadOptions || []).find((x: any) => {
-                                   const v = String(x?.value || '');
-                                   const parts = v.split('/');
-                                   const name = parts.length > 1 ? parts[1] : parts[0];
-                                   return name === val;
-                                 });
-                                 if (found) netName = found.value;
-                               } catch {}
-                            }
-
-                            // 使用合并更新，确保不覆盖 subnet 字段自身的更新
-                            form.setFieldsValue({ primaryNic: { name: netName, type: 'managedtap' } }); 
+                            const netName = resolveMultusNetNameForKubeOvnSubnetNic(
+                              subnet,
+                              String(val),
+                              nadOptions,
+                            );
+                            form.setFieldsValue({ primaryNic: { name: netName, type: 'managedtap' } });
                           }}
                         />
                       </Form.Item>
@@ -587,7 +559,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           }}
         </Form.Item>
 
-        {/* 3. 通用物理属性配置 (类型、模型、MAC、IP) */}
+        {/* 3. 通用物理属性配置 (类型、模型、MAC、静态IP) */}
         <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode || prev.primaryNic?.type !== curr.primaryNic?.type || prev.primaryNic?.name !== curr.primaryNic?.name}>
           {({ getFieldValue }) => {
             const mode = getFieldValue('netMode') || 'flat_subnet';
@@ -626,26 +598,53 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             );
           }}
         </Form.Item>
-        <Col span={8}>
-          <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} preserve rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]} >
-            <Input placeholder="52:54:00:12:34:56" />
-          </Form.Item>
-        </Col>
-        <Col span={8}>
-          <Form.Item label="静态IP" name={["primaryNic", 'ipAddress']} preserve rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址 (如 192.168.1.10 或 192.168.1.10/24)' }]} >
-            <Input placeholder="192.168.1.10/24" />
-          </Form.Item>
-        </Col>
-        <Col span={8}>
-          <Form.Item label="网关" name={["primaryNic", 'gateway']} preserve>
-            <Input placeholder="192.168.1.1" />
-          </Form.Item>
-        </Col>
-        <Col span={8}>
-          <Form.Item label="DNS" name={["primaryNic", 'dns']} preserve>
-            <Input placeholder="8.8.8.8" />
-          </Form.Item>
-        </Col>
+        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
+          {({ getFieldValue }) => {
+            const nm = getFieldValue('netMode') || 'flat_subnet';
+            if (nm === 'flat' || nm === 'passthrough') return null;
+            return (
+              <Col span={8}>
+                <Form.Item
+                  label="MAC 地址"
+                  name={['primaryNic', 'macAddress']}
+                  preserve
+                  rules={[
+                    {
+                      pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/,
+                      message: '格式如 52:54:00:12:34:56',
+                    },
+                  ]}
+                >
+                  <Input placeholder="52:54:00:12:34:56" />
+                </Form.Item>
+              </Col>
+            );
+          }}
+        </Form.Item>
+        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
+          {({ getFieldValue }) => {
+            const nm = getFieldValue('netMode') || 'flat_subnet';
+            if (nm !== 'vpc' && nm !== 'flat_subnet') return null;
+            return (
+              <Col span={8}>
+                <Form.Item
+                  label="静态IP"
+                  name={['primaryNic', 'ipAddress']}
+                  preserve
+                  rules={[
+                    {
+                      pattern:
+                        /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/,
+                      message: '请输入有效的 IP 地址 (如 192.168.1.10 或 192.168.1.10/24)',
+                    },
+                  ]}
+                >
+                  <Input placeholder="192.168.1.10/24" />
+                </Form.Item>
+              </Col>
+            );
+          }}
+        </Form.Item>
       </Row>
 
 
@@ -847,31 +846,14 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                         }
                                       }}
                                       onChange={(val) => {
-                                    let netName = val;
                                     const subnet = (kubeSubnets || []).find(
                                       (x: any) => (x?.name || x?.metadata?.name) === val,
                                     );
-                                    let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-                                    if (!subnetNs) {
-                                      const provider = subnet?.provider || subnet?.spec?.provider;
-                                      if (provider) {
-                                        const parts = provider.split('.');
-                                        if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                                      }
-                                    }
-                                    if (subnetNs) {
-                                      netName = `${subnetNs}/${val}`;
-                                    } else {
-                                      try {
-                                        const found = (nadOptions || []).find((x: any) => {
-                                          const vv = String(x?.value || '');
-                                          const parts = vv.split('/');
-                                          const nm = parts.length > 1 ? parts[1] : parts[0];
-                                          return nm === val;
-                                        });
-                                        if (found) netName = found.value;
-                                      } catch {}
-                                    }
+                                    const netName = resolveMultusNetNameForKubeOvnSubnetNic(
+                                      subnet,
+                                      String(val),
+                                      nadOptions,
+                                    );
                                     try {
                                       const curr = form.getFieldValue('netIfaces') || [];
                                       const next = [...curr];
@@ -989,32 +971,14 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                       const curr = form.getFieldValue('netIfaces') || [];
                                       const next = [...curr];
                                       const vpc = form.getFieldValue(['netIfaces', name, 'vpc']);
-                                      // 与主网卡 VPC 一致：Multus 需 namespace/name，不能仅写子网 CR 名（否则 webhook 报 NAD not found）
-                                      let netName = val;
                                       const subnet = (kubeSubnets || []).find(
                                         (x: any) => x?.name === val && x?.vpc === vpc,
                                       );
-                                      let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-                                      if (!subnetNs) {
-                                        const provider = subnet?.provider || subnet?.spec?.provider;
-                                        if (provider) {
-                                          const parts = String(provider).split('.');
-                                          if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                                        }
-                                      }
-                                      if (subnetNs) {
-                                        netName = `${subnetNs}/${val}`;
-                                      } else {
-                                        try {
-                                          const found = (nadOptions || []).find((x: any) => {
-                                            const vv = String(x?.value || '');
-                                            const parts = vv.split('/');
-                                            const nm = parts.length > 1 ? parts[1] : parts[0];
-                                            return nm === val;
-                                          });
-                                          if (found) netName = found.value;
-                                        } catch {}
-                                      }
+                                      const netName = resolveMultusNetNameForKubeOvnSubnetNic(
+                                        subnet,
+                                        String(val),
+                                        nadOptions,
+                                      );
                                       next[name] = { ...next[name], subnet: val, name: netName, type: 'managedtap' };
                                       form.setFieldsValue({ netIfaces: next });
                                     } catch {}
@@ -1060,7 +1024,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       return null;
                     })()}
 
-                    {/* --- 通用物理属性 (类型/模型/MAC/IP/Gateway/DNS) --- */}
+                    {/* --- 通用物理属性 (类型/模型/MAC/静态IP) --- */}
                     <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode || prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type || prev.netIfaces?.[name]?.name !== curr.netIfaces?.[name]?.name}>
                       {({ getFieldValue }) => {
                         const mode2 = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
@@ -1100,26 +1064,57 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         );
                       }}
                     </Form.Item>
-                    <Col span={8}>
-                      <Form.Item label="MAC 地址" name={[name, 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]} >
-                        <Input placeholder="52:54:00:12:34:56" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="静态IP" name={[name, 'ipAddress']} rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址' }]} style={{ marginBottom: ['vpc', 'flat_subnet'].includes(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') ? 0 : undefined }}>
-                        <Input placeholder="192.168.1.10/24" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="网关" name={[name, 'gateway']} style={{ marginBottom: ['vpc', 'flat_subnet'].includes(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') ? 0 : undefined }}>
-                        <Input placeholder="192.168.1.1" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="DNS" name={[name, 'dns']} style={{ marginBottom: 0 }}>
-                        <Input placeholder="8.8.8.8" />
-                      </Form.Item>
-                    </Col>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode}
+                    >
+                      {({ getFieldValue }) => {
+                        const m = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
+                        if (m === 'flat' || m === 'passthrough') return null;
+                        return (
+                          <Col span={8}>
+                            <Form.Item
+                              label="MAC 地址"
+                              name={[name, 'macAddress']}
+                              rules={[
+                                {
+                                  pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/,
+                                  message: '格式如 52:54:00:12:34:56',
+                                },
+                              ]}
+                            >
+                              <Input placeholder="52:54:00:12:34:56" />
+                            </Form.Item>
+                          </Col>
+                        );
+                      }}
+                    </Form.Item>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode}
+                    >
+                      {({ getFieldValue }) => {
+                        const m = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
+                        if (m !== 'vpc' && m !== 'flat_subnet') return null;
+                        return (
+                          <Col span={8}>
+                            <Form.Item
+                              label="静态IP"
+                              name={[name, 'ipAddress']}
+                              rules={[
+                                {
+                                  pattern:
+                                    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/,
+                                  message: '请输入有效的 IP 地址',
+                                },
+                              ]}
+                            >
+                              <Input placeholder="192.168.1.10/24" />
+                            </Form.Item>
+                          </Col>
+                        );
+                      }}
+                    </Form.Item>
                   </Row>
                   <Row gutter={12}>
                     <Col span={24}>

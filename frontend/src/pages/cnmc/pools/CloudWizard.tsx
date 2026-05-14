@@ -697,68 +697,75 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                 const isCloudmapPrivateEndpoint = selectedProvider?.id === 'cloudmap.private' && field.key === 'endpoint';
                 const isCloudmapPrivateToken = selectedProvider?.id === 'cloudmap.private' && field.key === 'apiToken';
 
+                const cloudmapFieldExtra =
+                  isCloudmapPrivateEndpoint ? (
+                    <div style={{ marginTop: 8 }}>
+                      <Image
+                        src={cloudmapApiImage}
+                        alt="如何获取 Cloudmap API 地址"
+                        preview={{
+                          mask: '点击放大',
+                        }}
+                        style={{
+                          maxWidth: '100%',
+                          height: 'auto',
+                          border: '1px solid #eaeaea',
+                          borderRadius: 8,
+                          display: 'block',
+                          cursor: 'pointer',
+                        }}
+                      />
+                      <div
+                        style={{
+                          color: '#777777',
+                          fontSize: 12,
+                          lineHeight: '1',
+                          marginTop: 8,
+                        }}
+                      >
+                        在Cloudmap控制台中，进入账号和API密钥页面，复制端点地址
+                      </div>
+                    </div>
+                  ) : isCloudmapPrivateToken ? (
+                    <div style={{ marginTop: 8 }}>
+                      <Image
+                        src={cloudmapKeyImage}
+                        alt="如何获取 Cloudmap API 令牌"
+                        preview={{
+                          mask: '点击放大',
+                        }}
+                        style={{
+                          maxWidth: '100%',
+                          height: 'auto',
+                          border: '1px solid #eaeaea',
+                          borderRadius: 8,
+                          display: 'block',
+                          cursor: 'pointer',
+                        }}
+                      />
+                      <div
+                        style={{
+                          color: '#777777',
+                          fontSize: 12,
+                          lineHeight: '1',
+                          marginTop: 8,
+                        }}
+                      >
+                        创建令牌时，是唯一查看令牌的机会。如果丢失则需要重新创建API密钥
+                      </div>
+                    </div>
+                  ) : undefined;
+
                 return (
-                  <React.Fragment key={field.key}>
-                    <Form.Item
-                      name={field.key}
-                      label={field.label}
-                      rules={rules}
-                    >
-                      {inputElement}
-                    </Form.Item>
-                    {isCloudmapPrivateEndpoint && (
-                      <div style={{ marginTop: -16, marginBottom: 24 }}>
-                        <Image
-                          src={cloudmapApiImage}
-                          alt="如何获取 Cloudmap API 地址"
-                          preview={{
-                            mask: '点击放大',
-                          }}
-                          style={{
-                            maxWidth: '100%',
-                            height: 'auto',
-                            border: '1px solid #eaeaea',
-                            borderRadius: 8,
-                            display: 'block',
-                            cursor: 'pointer'
-                          }}
-                        />
-                        <div style={{ 
-                          color: '#777777', 
-                          fontSize: 12,
-                          lineHeight: '1'
-                        }}>
-                          在Cloudmap控制台中，进入账号和API密钥页面，复制端点地址
-                        </div>
-                      </div>
-                    )}
-                    {isCloudmapPrivateToken && (
-                      <div style={{ marginTop: -16, marginBottom: 24 }}>
-                        <Image
-                          src={cloudmapKeyImage}
-                          alt="如何获取 Cloudmap API 令牌"
-                          preview={{
-                            mask: '点击放大',
-                          }}
-                          style={{
-                            maxWidth: '100%',
-                            height: 'auto',
-                            border: '1px solid #eaeaea',
-                            borderRadius: 8,
-                            display: 'block',
-                            cursor: 'pointer'
-                          }}
-                        />
-                        <div style={{ 
-                          color: '#777777', 
-                          fontSize: 12,
-                          lineHeight: '1'
-                        }}>
-                          创建令牌时，是唯一查看令牌的机会。如果丢失则需要重新创建API密钥
-                        </div>
-                      </div>
-                    )}
-                  </React.Fragment>
+                  <Form.Item
+                    key={field.key}
+                    name={field.key}
+                    label={field.label}
+                    rules={rules}
+                    extra={cloudmapFieldExtra}
+                  >
+                    {inputElement}
+                  </Form.Item>
                 );
               })}
 

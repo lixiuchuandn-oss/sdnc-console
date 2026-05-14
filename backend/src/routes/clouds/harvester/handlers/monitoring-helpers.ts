@@ -25,6 +25,7 @@ export const DINGTALK_CONFIGMAP_NS = CATTLE_MONITORING_SYSTEM_NS;
 export const DINGTALK_CONFIGMAP_NAME = 'alertmanager-webhook-dingtalk';
 export const DINGTALK_CONFIG_KEY = 'config.yaml';
 export const MONITORING_RECEIVER_SECRET_LABEL = 'monitoring-receiver-secret';
+export const ALERTMANAGER_TARGET_ANNOTATION = 'tower.io/alertmanager-target';
 
 export const EMAIL_RECEIVER = 'email-receiver';
 export const DINGTALK_RECEIVER = 'dingtalk-receiver';

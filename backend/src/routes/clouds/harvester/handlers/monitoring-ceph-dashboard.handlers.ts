@@ -12,13 +12,16 @@ import { CephMgrDashboardSnapshot } from '../../../../entities/harvester/CephMgr
 import { getJsonOnce, resolveHarvesterCloudKubeToken } from '../../../../services/clouds/harvester/utils';
 import { ensureProvider, isUnreachableError, normalizeOrigin } from './monitoring-helpers';
 
-/** K8s Service 代理到 Ceph mgr Dashboard：scheme:name:port，port 可为数字或 Service 端口名（Rook 常见 http-dashboard / https-dashboard） */
+/**
+ * K8s Service 代理到 Ceph mgr Dashboard：scheme:name:port（见 services/proxy）。
+ * 顺序：先 HTTP + 常见监听端口；`https:…:https-dashboard` 很多集群 Service 上存在但 Endpoint 为空（会 503），故排在 HTTP 数字端口之后。
+ */
 const CEPH_DASH_PROXY_TRIES: readonly string[] = [
   'http:rook-ceph-mgr-dashboard:http-dashboard',
-  'https:rook-ceph-mgr-dashboard:https-dashboard',
-  'http:rook-ceph-mgr-dashboard:dashboard',
   'http:rook-ceph-mgr-dashboard:7000',
+  'http:rook-ceph-mgr-dashboard:dashboard',
   'https:rook-ceph-mgr-dashboard:7000',
+  'https:rook-ceph-mgr-dashboard:https-dashboard',
   'https:rook-ceph-mgr-dashboard:8443',
   'https:rook-ceph-mgr-dashboard:8440',
 ];
@@ -32,13 +35,13 @@ const CEPH_DASHBOARD_API_ACCEPTS: readonly string[] = [
 /**
  * 本地 / 联调默认 Dashboard 账号（与 tools/ceph-dashboard-api-probe.ps1 演示一致）。
  * - 显式账号：CEPH_DASHBOARD_USER + CEPH_DASHBOARD_PASSWORD（任意环境优先）
- * - 否则：NODE_ENV 非 production 时自动用 admin/admin123（npm run dev / 未设 NODE_ENV 的 npm start 均属此类）
+ * - 否则：NODE_ENV 非 production 时自动用 admin/Cloudmap@123（npm run dev / 未设 NODE_ENV 的 npm start 均属此类；联调测试集群）
  * - 显式关闭默认登录：CEPH_DASHBOARD_DISABLE_DEV_DEFAULTS=1
  * - 生产（NODE_ENV=production）且未配账号：仅 Kube Bearer（Dashboard 常 401）
  * - 仅生产仍需演示会话：CEPH_DASHBOARD_DEV_AUTO_LOGIN=1
  */
 const CEPH_DASHBOARD_DEV_DEFAULT_USER = 'admin';
-const CEPH_DASHBOARD_DEV_DEFAULT_PASSWORD = 'admin123';
+const CEPH_DASHBOARD_DEV_DEFAULT_PASSWORD = 'Cloudmap@123';
 
 function getCephDashboardLoginCredentials(): { user: string; password: string } | null {
   const u = process.env.CEPH_DASHBOARD_USER?.trim();
@@ -588,7 +591,7 @@ async function fetchCephDashboardWithSession(
 
 /**
  * 经 Kubernetes API `services/proxy` 调用 Ceph Dashboard REST。
- * 非 production（或未显式 production）默认 admin/admin123 先登录再拉取；生产用 CEPH_DASHBOARD_USER/PASSWORD 或仅 Bearer。
+ * 非 production（或未显式 production）默认 admin/Cloudmap@123 先登录再拉取；生产用 CEPH_DASHBOARD_USER/PASSWORD 或仅 Bearer。
  */
 /** 供同步入库等复用；与 GET/POST ceph-dashboard/summary 同源拉取逻辑 */
 export async function fetchCephDashboardApi(

@@ -29,14 +29,54 @@
  * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
  */
 import React, { useMemo, useState, useEffect } from 'react';
-import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert } from 'antd';
-import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert, Tooltip, Spin } from 'antd';
+import { ReloadOutlined, LoadingOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../../../services/harvesterApi';
 import {
   isSystemNamespace,
   pickFirstNamespaceRecordByScenarioForOptions,
 } from '../../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../../context/HarvesterPublicNamespacesContext';
+
+const parseCpuToCores = (s?: string): number => {
+  if (!s) return 0;
+  const t = String(s).trim();
+  if (/m$/i.test(t)) {
+    const v = Number(t.replace(/m$/i, ''));
+    return isFinite(v) ? v / 1000 : 0;
+  } else if (/n$/i.test(t)) {
+    const v = Number(t.replace(/n$/i, ''));
+    return isFinite(v) ? v / 1e9 : 0;
+  } else if (/u$/i.test(t)) {
+    const v = Number(t.replace(/u$/i, ''));
+    return isFinite(v) ? v / 1e6 : 0;
+  }
+  const v = Number(t);
+  return isFinite(v) ? v : 0;
+};
+
+const parseMemoryToBytes = (s?: string): number => {
+  if (!s) return 0;
+  const t = String(s).trim();
+  const m = t.match(/^(\d+(?:\.\d+)?)([KMGTP]i?)?$/i);
+  if (!m) return 0;
+  const val = Number(m[1]);
+  const unit = (m[2] || '').toLowerCase();
+  let bytes = val;
+  if (unit === 'ki') bytes = val * 1024;
+  else if (unit === 'mi') bytes = val * 1024 * 1024;
+  else if (unit === 'gi') bytes = val * 1024 * 1024 * 1024;
+  else if (unit === 'ti') bytes = val * 1024 * 1024 * 1024 * 1024;
+  else if (unit === 'k') bytes = val * 1000;
+  else if (unit === 'm') bytes = val * 1e6;
+  else if (unit === 'g') bytes = val * 1e9;
+  else if (unit === 't') bytes = val * 1e12;
+  return bytes;
+};
+
+const bytesToGiB = (bytes: number): number => {
+  return bytes / (1024 * 1024 * 1024);
+};
 
 /**
  * 组件 Props 定义
@@ -109,6 +149,99 @@ const StepBasic: React.FC<StepBasicProps> = ({
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
   const [capabilities, setCapabilities] = useState<any>({});
+  
+  // 资源数据状态
+  const [metricsMap, setMetricsMap] = useState<Record<string, { cpuUsedCores?: number; memUsedBytes?: number }>>({});
+  const [requestsMap, setRequestsMap] = useState<Record<string, { cpuRequestCores?: number; memRequestBytes?: number }>>({});
+  const [nodesDetailMap, setNodesDetailMap] = useState<Record<string, { allocatableCpu?: string; allocatableMemory?: string; capacityCpu?: string; capacityMemory?: string }>>({});
+  const [resourceLoading, setResourceLoading] = useState(true);
+  
+  // 获取资源数据
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        if (!cloudId || cloudId === 'all') return;
+        
+        const harvesterApi = await import('../../../../../../../services/harvesterApi');
+        
+        const [metricsRes, podsRes, nodesRes] = await Promise.all([
+          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes'),
+          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/api/v1/pods?allNamespaces=true'),
+          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/api/v1/nodes')
+        ]);
+        
+        // 处理实时使用数据
+        const metricsItems: any[] = Array.isArray((metricsRes as any)?.items) ? (metricsRes as any).items : [];
+        const newMetricsMap: Record<string, { cpuUsedCores?: number; memUsedBytes?: number }> = {};
+        for (const it of metricsItems) {
+          const name = it?.metadata?.name || '';
+          const cpuUsed = parseCpuToCores(it?.usage?.cpu);
+          const memUsed = parseMemoryToBytes(it?.usage?.memory);
+          if (name) newMetricsMap[name] = { cpuUsedCores: cpuUsed, memUsedBytes: memUsed };
+        }
+        
+        // 处理已分配数据
+        const podsItems: any[] = Array.isArray((podsRes as any)?.items) ? (podsRes as any).items : [];
+        const newRequestsMap: Record<string, { cpuRequestCores?: number; memRequestBytes?: number }> = {};
+        for (const pod of podsItems) {
+          const nodeName = pod?.spec?.nodeName || '';
+          if (!nodeName) continue;
+          
+          if (!newRequestsMap[nodeName]) {
+            newRequestsMap[nodeName] = { cpuRequestCores: 0, memRequestBytes: 0 };
+          }
+          
+          const containers = Array.isArray(pod?.spec?.containers) ? pod.spec.containers : [];
+          const initContainers = Array.isArray(pod?.spec?.initContainers) ? pod.spec.initContainers : [];
+          const allContainers = [...containers, ...initContainers];
+          
+          for (const container of allContainers) {
+            const requests = container?.resources?.requests || {};
+            const limits = container?.resources?.limits || {};
+            const cpuReq = requests?.cpu || limits?.cpu;
+            const memReq = requests?.memory || limits?.memory;
+            
+            newRequestsMap[nodeName].cpuRequestCores = (newRequestsMap[nodeName].cpuRequestCores || 0) + parseCpuToCores(cpuReq);
+            newRequestsMap[nodeName].memRequestBytes = (newRequestsMap[nodeName].memRequestBytes || 0) + parseMemoryToBytes(memReq);
+          }
+        }
+        
+        // 处理节点详细数据（包含 allocatable 和 capacity）
+        const newNodesDetailMap: Record<string, { allocatableCpu?: string; allocatableMemory?: string; capacityCpu?: string; capacityMemory?: string }> = {};
+        const nodesItems: any[] = Array.isArray((nodesRes as any)?.items) ? (nodesRes as any).items : [];
+        for (const nodeItem of nodesItems) {
+          const name = nodeItem?.metadata?.name || '';
+          if (!name) continue;
+          newNodesDetailMap[name] = {
+            allocatableCpu: nodeItem?.status?.allocatable?.cpu,
+            allocatableMemory: nodeItem?.status?.allocatable?.memory,
+            capacityCpu: nodeItem?.status?.capacity?.cpu,
+            capacityMemory: nodeItem?.status?.capacity?.memory,
+          };
+        }
+        
+        if (!cancelled) {
+          setMetricsMap(newMetricsMap);
+          setRequestsMap(newRequestsMap);
+          setNodesDetailMap(newNodesDetailMap);
+          setResourceLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setMetricsMap({});
+          setRequestsMap({});
+          setNodesDetailMap({});
+          setResourceLoading(false);
+        }
+      }
+    };
+    
+    setResourceLoading(true);
+    load();
+    
+    return () => { cancelled = true; };
+  }, [cloudId]);
 
   const visibleNamespaceOptions = useMemo(() => {
     if (!isTenant) return namespaceOptions;
@@ -326,40 +459,149 @@ const StepBasic: React.FC<StepBasicProps> = ({
               },
               { title: '状态', dataIndex: 'ready', key: 'ready', render: (b: boolean) => b ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag> },
               {
-                title: 'CPU 使用率', key: 'cpu_usage', render: (_: any, r: any) => {
-                  // [演示逻辑] 基于名称生成确定性伪随机数，模拟负载展示 (25% ~ 84%)
-                  const s = String(r?.name || r?.internalIP || '').trim();
-                  let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
-                  const pct = 25 + (h % 60);
-                  const cpuRaw = r?.cpu ?? r?.status?.capacity?.cpu;
-                  const cores = typeof cpuRaw === 'number' ? cpuRaw : Number(String(cpuRaw || '').replace(/[^0-9]/g, '')) || 0;
+                title: (
+                  <span>
+                    CPU
+                    <Tooltip 
+                      title={
+                        <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
+                          <b>物理总量</b>：物理节点的实际CPU核数
+                          <br />
+                          <b>可分配总量</b>：物理总量减去系统预留后的可用资源
+                          <br />
+                          <b>已分配</b>：所有Pod的CPU资源请求(requests)之和
+                          <br />
+                          <b>已使用</b>：节点实时CPU使用量
+                        </div>
+                      }
+                      placement="top"
+                    >
+                      <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12, cursor: 'help' }} />
+                    </Tooltip>
+                  </span>
+                ), 
+                key: 'cpu_usage', render: (_: any, r: any) => {
+                  if (resourceLoading) {
+                    return (
+                      <div style={{ minWidth: 180, padding: '10px 0' }}>
+                        <Spin size="small" />
+                      </div>
+                    );
+                  }
+                  const nodeName = String(r?.name || r?.metadata?.name || '').trim();
+                  const nodeDetail = nodesDetailMap[nodeName];
+                  // 可分配总量 = 物理总量 - 系统预留（从 nodesDetailMap 获取）
+                  const allocatable = parseCpuToCores(nodeDetail?.allocatableCpu ?? r?.cpu);
+                  // 物理总量（从 nodesDetailMap 获取）
+                  const capacity = parseCpuToCores(nodeDetail?.capacityCpu ?? r?.cpu);
+                  const requested = requestsMap[nodeName]?.cpuRequestCores || 0;
+                  const used = metricsMap[nodeName]?.cpuUsedCores || 0;
+                  // 已分配率 = 已分配 / 可分配总量
+                  const requestedPct = allocatable > 0 ? Math.round((requested / allocatable) * 1000) / 10 : undefined;
+                  const usedPct = capacity > 0 ? Math.round((used / capacity) * 1000) / 10 : undefined;
+                  // 已分配剩余 = 可分配总量 - 已分配
+                  const requestedRemaining = allocatable - requested;
+                  const usedRemaining = capacity - used;
                   return (
-                    <div>
-                      <div style={{ fontSize: 12, color: '#555' }}>{cores ? `${cores} core` : '-'}</div>
-                      <div style={{ width: 140 }}><Progress percent={pct} showInfo={false} /></div>
+                    <div style={{ minWidth: 180 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 3 }}>
+                        <Progress 
+                          percent={typeof requestedPct === 'number' ? Math.max(0, Math.min(100, requestedPct)) : 0} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#52c41a"
+                        />
+                        <span style={{ fontSize: 11 }}>{typeof requestedPct === 'number' ? `${requestedPct.toFixed(0)}%` : '-'}</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px', marginBottom: 3 }}>
+                        可分配总量: {allocatable.toFixed(1)} / 已分配: {requested.toFixed(1)} / 未分配: {requestedRemaining.toFixed(1)} core
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 2 }}>
+                        <Progress 
+                          percent={typeof usedPct === 'number' ? Math.max(0, Math.min(100, usedPct)) : 0} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#1890ff"
+                        />
+                        <span style={{ fontSize: 11 }}>{typeof usedPct === 'number' ? `${usedPct.toFixed(0)}%` : '-'}</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}>
+                        物理总量: {capacity.toFixed(1)} / 已使用: {used.toFixed(1)} / 未使用: {usedRemaining.toFixed(1)} core
+                      </div>
                     </div>
                   );
                 }
               },
               {
-                title: '内存使用率', key: 'mem_usage', render: (_: any, r: any) => {
-                  // [演示逻辑] 基于IP/名称生成确定性伪随机数，模拟负载展示 (20% ~ 84%)
-                  const s = String(r?.internalIP || r?.name || '').trim();
-                  let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 17 + s.charCodeAt(i)) >>> 0; }
-                  const pct = 20 + (h % 65);
-                  const memRaw = r?.memory ?? r?.status?.capacity?.memory;
-                  const raw = String(memRaw || '').toUpperCase();
-                  const num = Number(String(raw).replace(/[^0-9]/g, '')) || 0;
-                  let gb = 0;
-                  if (/KI$/.test(raw)) { gb = Math.round(num / (1024 * 1024)); }
-                  else if (/MI$/.test(raw)) { gb = Math.round(num / 1024); }
-                  else if (/GI$/.test(raw)) { gb = num; }
-                  else if (typeof memRaw === 'number') { gb = Math.round(Number(memRaw) / (1024 * 1024 * 1024)); }
-                  const capText = gb ? `${gb} GB` : '-';
+                title: (
+                  <span>
+                    内存
+                    <Tooltip 
+                      title={
+                        <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
+                          <b>物理总量</b>：物理节点的实际内存总容量
+                          <br />
+                          <b>可分配总量</b>：物理总量减去系统预留后的可用资源
+                          <br />
+                          <b>已分配</b>：所有Pod的内存资源请求(requests)之和
+                          <br />
+                          <b>已使用</b>：节点实时内存使用量
+                        </div>
+                      }
+                      placement="top"
+                    >
+                      <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12, cursor: 'help' }} />
+                    </Tooltip>
+                  </span>
+                ), 
+                key: 'mem_usage', render: (_: any, r: any) => {
+                  if (resourceLoading) {
+                    return (
+                      <div style={{ minWidth: 180, padding: '10px 0' }}>
+                        <Spin size="small" />
+                      </div>
+                    );
+                  }
+                  const nodeName = String(r?.name || r?.metadata?.name || '').trim();
+                  const nodeDetail = nodesDetailMap[nodeName];
+                  // 可分配总量 = 物理总量 - 系统预留（从 nodesDetailMap 获取）
+                  const allocatable = bytesToGiB(parseMemoryToBytes(nodeDetail?.allocatableMemory));
+                  // 物理总量（从 nodesDetailMap 获取）
+                  const capacity = bytesToGiB(parseMemoryToBytes(nodeDetail?.capacityMemory));
+                  const requested = bytesToGiB(requestsMap[nodeName]?.memRequestBytes || 0);
+                  const used = bytesToGiB(metricsMap[nodeName]?.memUsedBytes || 0);
+                  // 已分配率 = 已分配 / 可分配总量
+                  const requestedPct = allocatable > 0 ? Math.round((requested / allocatable) * 1000) / 10 : undefined;
+                  const usedPct = capacity > 0 ? Math.round((used / capacity) * 1000) / 10 : undefined;
+                  // 已分配剩余 = 可分配总量 - 已分配
+                  const requestedRemaining = allocatable - requested;
+                  const usedRemaining = capacity - used;
                   return (
-                    <div>
-                      <div style={{ fontSize: 12, color: '#555' }}>{capText}</div>
-                      <div style={{ width: 140 }}><Progress percent={pct} showInfo={false} /></div>
+                    <div style={{ minWidth: 180 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 3 }}>
+                        <Progress 
+                          percent={typeof requestedPct === 'number' ? Math.max(0, Math.min(100, requestedPct)) : 0} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#52c41a"
+                        />
+                        <span style={{ fontSize: 11 }}>{typeof requestedPct === 'number' ? `${requestedPct.toFixed(0)}%` : '-'}</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px', marginBottom: 3 }}>
+                        可分配总量: {allocatable.toFixed(1)} / 已分配: {requested.toFixed(1)} / 未分配: {requestedRemaining.toFixed(1)} GiB
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 2 }}>
+                        <Progress 
+                          percent={typeof usedPct === 'number' ? Math.max(0, Math.min(100, usedPct)) : 0} 
+                          size="small" 
+                          showInfo={false}
+                          strokeColor="#1890ff"
+                        />
+                        <span style={{ fontSize: 11 }}>{typeof usedPct === 'number' ? `${usedPct.toFixed(0)}%` : '-'}</span>
+                      </div>
+                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}>
+                        物理总量: {capacity.toFixed(1)} / 已使用: {used.toFixed(1)} / 未使用: {usedRemaining.toFixed(1)} GiB
+                      </div>
                     </div>
                   );
                 }

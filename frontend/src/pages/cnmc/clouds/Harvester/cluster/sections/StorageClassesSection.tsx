@@ -28,6 +28,16 @@ import { fetchHarvesterStorageClassDetail } from '../../../../../../services/har
 import { isSystemStorageClass } from '../../../../../../utils/harvesterUtils';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
+/** 从 StorageClass.parameters 推断后端块池（Rook/Ceph RBD 常用 pool；部分驱动用 blockPool / storagePool） */
+function storageClassBackendPoolLabel(r: any): string {
+  const p = r?.parameters || {};
+  const pool = String(p.pool ?? p.blockPool ?? p.storagePool ?? p.StoragePool ?? '').trim();
+  const dataPool = String(p.dataPool ?? '').trim();
+  if (pool && dataPool) return `${pool}（数据 ${dataPool}）`;
+  if (pool) return pool;
+  return '';
+}
+
 /**
  * Props 定义
  *
@@ -108,6 +118,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
    *   - 使用 .cell-link 样式，点击打开 HarvesterResourceDrawer 详情
    *   - 若为默认 StorageClass，额外显示 "Default" 徽章（std-badge std-badge-warning）
    * - Provisioner：显示 provisioner 字段
+   * - 关联存储池：从 parameters.pool（及 dataPool 等）推断；Longhorn 等无池字段时显示 —
    * - 回收策略：reclaimPolicy
    * - 绑定模式：volumeBindingMode
    * - 允许扩容：allowVolumeExpansion（是/否）
@@ -136,6 +147,23 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       title: 'Provisioner', 
       dataIndex: 'provisioner', 
       key: 'provisioner' 
+    },
+    {
+      title: '关联存储池',
+      key: 'backendPool',
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const label = storageClassBackendPoolLabel(r);
+        const tip =
+          '来自 StorageClass 的 parameters（如 RBD 的 pool）；若无 pool 字段（例如 Longhorn）则与 Ceph 块池无直接对应。';
+        return label ? (
+          <span title={label}>{label}</span>
+        ) : (
+          <span style={{ color: 'rgba(0, 0, 0, 0.45)' }} title={tip}>
+            —
+          </span>
+        );
+      },
     },
     { 
       title: '回收策略', 
@@ -233,7 +261,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       const name = String(r?.metadata?.name || r?.name || '').toLowerCase();
       const provisioner = String(r?.provisioner || '').toLowerCase();
       const reclaimPolicy = String(r?.reclaimPolicy || '').toLowerCase();
-      if (kw && !(name.includes(kw) || provisioner.includes(kw))) return false;
+      const poolHint = storageClassBackendPoolLabel(r).toLowerCase();
+      if (kw && !(name.includes(kw) || provisioner.includes(kw) || poolHint.includes(kw))) return false;
       if (pf && provisioner !== pf) return false;
       if (rf && reclaimPolicy !== rf) return false;
       return true;
@@ -247,7 +276,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         <>
           <Input 
             allowClear 
-            placeholder="名称/驱动" 
+            placeholder="名称/驱动/存储池" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 

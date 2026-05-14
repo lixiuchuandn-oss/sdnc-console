@@ -1,13 +1,11 @@
 /** Ceph 存储池：列表与增删改走 Rook `CephBlockPool`（Tower `/ceph/rook`）；总览仍由 `CephStorageSection` 独立使用 Dashboard，勿混用。 */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Alert, Button, Empty, Input, message, Popconfirm, Progress, Select, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import { DatabaseTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import { cloudmapPoolBasePath } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { fetchCephPoolRbdConfiguration, fetchCephDashboardPools } from '../../../../../../services/monitoringApi';
 import { deleteCephBlockPoolRook, fetchCephRookBundle } from '../../../../../../services/cephApi';
 import {
@@ -586,27 +584,9 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
   const { displayColumns: userDisplayColumns } = useTableColumnSettings(poolColumnsForSettings, TABLE_SETTINGS_KEY);
 
   const tableColumns = useMemo(() => {
-    const pathBase = cloudmapPoolBasePath(cloudId);
-    const blockChainLink = (r: CephPoolTableRow) => (
-      <Link
-        to={`${pathBase}/storage/rados_namespaces?blockPool=${encodeURIComponent(r.name)}`}
-        style={{ whiteSpace: 'nowrap' }}
-      >
-        RADOS 命名空间
-      </Link>
-    );
     const cols = userDisplayColumns;
     if (listSource !== 'rook') {
-      return [
-        ...cols,
-        {
-          title: '块存储链',
-          key: 'chain',
-          fixed: 'right' as const,
-          width: 132,
-          render: (_: unknown, r: CephPoolTableRow) => blockChainLink(r),
-        },
-      ];
+      return cols;
     }
     return [
       ...cols,
@@ -614,35 +594,31 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
         title: '操作',
         key: 'actions',
         fixed: 'right' as const,
-        width: 258,
-        render: (_: unknown, r: CephPoolTableRow) => (
-          <Space size={4} wrap>
-            {blockChainLink(r)}
-            {r.source === 'rook' ? (
-              <>
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => {
-                    setPoolModalMode('edit');
-                    setPoolEditRecord(r);
-                    setPoolModalOpen(true);
-                  }}
-                >
-                  编辑
+        width: 140,
+        render: (_: unknown, r: CephPoolTableRow) =>
+          r.source === 'rook' ? (
+            <Space size={4} wrap>
+              <Button
+                type="link"
+                size="small"
+                onClick={() => {
+                  setPoolModalMode('edit');
+                  setPoolEditRecord(r);
+                  setPoolModalOpen(true);
+                }}
+              >
+                编辑
+              </Button>
+              <Popconfirm title="确定删除该 CephBlockPool？" okText="删除" cancelText="取消" onConfirm={() => void deletePool(r)}>
+                <Button type="link" size="small" danger>
+                  删除
                 </Button>
-                <Popconfirm title="确定删除该 CephBlockPool？" okText="删除" cancelText="取消" onConfirm={() => void deletePool(r)}>
-                  <Button type="link" size="small" danger>
-                    删除
-                  </Button>
-                </Popconfirm>
-              </>
-            ) : null}
-          </Space>
-        ),
+              </Popconfirm>
+            </Space>
+          ) : null,
       },
     ];
-  }, [userDisplayColumns, listSource, deletePool, cloudId]);
+  }, [userDisplayColumns, listSource, deletePool]);
 
   const resetFilters = () => {
     setKeyword('');

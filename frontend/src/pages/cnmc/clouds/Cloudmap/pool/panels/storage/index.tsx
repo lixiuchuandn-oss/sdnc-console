@@ -4,7 +4,6 @@ import VolumesSection from '../../../../Harvester/ebs/sections/VolumesSection';
 import SnapshotsSection from '../../../../Harvester/ebs/sections/SnapshotsSection';
 import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
 import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
-import CloudmapStorageCephRadosNamespaces from './CloudmapStorageCephRadosNamespaces';
 import CloudmapStorageCephRbdMirror from './CloudmapStorageCephRbdMirror';
 import { fetchCloudProviderEcs, fetchHarvesterVolumes } from '../../api';
 
@@ -60,7 +59,7 @@ export type CloudmapStorageGroupTabsProps = {
 function canViewStorageInner(key: string, checkPerm: (a: string) => boolean): boolean {
   const cephish =
     checkPerm('clouds.disks:read') || checkPerm('clouds.cluster-nodes:read') || checkPerm('clouds:read');
-  if (key === 'storage_pools' || key === 'rados_namespaces' || key === 'rbd_mirror') return cephish;
+  if (key === 'storage_pools' || key === 'rbd_mirror') return cephish;
   if (key === 'storage_classes') {
     return (
       checkPerm('clouds.storage-classes:read') || checkPerm('clouds.ecs:read') || checkPerm('clouds:read')
@@ -99,9 +98,6 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (props
 
   if (innerActiveKey === 'storage_pools') {
     return <CephPoolSection cloudId={cloudId} applicationsScope="cloud" />;
-  }
-  if (innerActiveKey === 'rados_namespaces') {
-    return <CloudmapStorageCephRadosNamespaces cloudId={cloudId} />;
   }
   if (innerActiveKey === 'rbd_mirror') {
     return <CloudmapStorageCephRbdMirror cloudId={cloudId} />;

@@ -101,6 +101,12 @@ function kubeResourceCreatedMs(record: any): number {
   return Number.isFinite(t) ? t : 0;
 }
 
+const VPC_BIND_NAMESPACE_EXCLUDE = new Set(['cloud-public', 'hci-manager-system']);
+function isVpcBindNamespaceExcluded(name: string): boolean {
+  const n = String(name || '').trim().toLowerCase();
+  return Boolean(n) && VPC_BIND_NAMESPACE_EXCLUDE.has(n);
+}
+
 // Helper
 const generateResourceId = (prefix: string) => `id-${prefix}-${Math.random().toString(36).substring(2, 13)}`;
 
@@ -186,6 +192,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const [vpcSubnetPresetVpcId, setVpcSubnetPresetVpcId] = useState<string | null>(null);
   const [vpcSubnetCreateNs, setVpcSubnetCreateNs] = useState<string | null>(null);
   const [vpcSubnetModalTitleSuffix, setVpcSubnetModalTitleSuffix] = useState<string>('');
+
+  const editVpcBoundNamespace = useMemo(() => {
+    if (!isEditVpc || !currentVpc) return '';
+    const arr = SafeRead.vpcNamespaces(currentVpc);
+    return Array.isArray(arr) && arr.length > 0 ? String(arr[0] ?? '').trim() : '';
+  }, [isEditVpc, currentVpc]);
+
   
   // Namespaces State
   const [namespaces, setNamespaces] = useState<any[]>([]);
@@ -849,6 +862,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         refreshOpts={{ vpcsAll: vpcsQueryAll }}
       />
 
+
       <Modal
         title={isEditVpc ? "编辑 VPC" : "创建 VPC"}
         open={createModalVisible}
@@ -888,7 +902,11 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
               options={namespaces
                 .filter((n: any) => {
                   const name = n?.metadata?.name || n?.name || '';
-                  return name && !isSystemNamespace(name);
+                  if (!name || isSystemNamespace(name)) return false;
+                  if (isVpcBindNamespaceExcluded(name)) {
+                    return isEditVpc && editVpcBoundNamespace === name;
+                  }
+                  return true;
                 })
                 .map((n: any) => {
                   const name = n.metadata?.name || n.name || '';

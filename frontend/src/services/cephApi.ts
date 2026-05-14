@@ -173,33 +173,6 @@ export function deleteCephBlockPoolRook(cloudId: string, namespace: string, name
   return apiDelete(url);
 }
 
-/** `CephBlockPoolRadosNamespace` 单个资源（Steve） */
-export function getCephRadosNamespaceRook(
-  cloudId: string,
-  namespace: string,
-  name: string,
-  options?: { signal?: AbortSignal },
-) {
-  if (!cloudId || !namespace.trim() || !name.trim()) {
-    return Promise.resolve({ data: null, ok: false, error: '缺少参数' });
-  }
-  const url = `${cephRookBase(cloudId)}/blockpool-rados-namespaces/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-  return apiGet(url, { signal: options?.signal });
-}
-
-export function createCephRadosNamespaceRook(cloudId: string, body: unknown) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiWrite(`${cephRookBase(cloudId)}/blockpool-rados-namespaces`, 'POST', body);
-}
-
-export function deleteCephRadosNamespaceRook(cloudId: string, namespace: string, name: string) {
-  if (!cloudId || !namespace.trim() || !name.trim()) {
-    return Promise.resolve({ ok: false, error: '缺少参数' });
-  }
-  const url = `${cephRookBase(cloudId)}/blockpool-rados-namespaces/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-  return apiDelete(url);
-}
-
 /** `CephRBDMirror` 单个资源（Steve，列表仍用 bundle） */
 export function getCephRbdMirrorRook(
   cloudId: string,

@@ -6,7 +6,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 云存储域：`storage/storage_pools | rados_namespaces | storage_classes | volumes | snapshots | rbd_mirror` */
+/** 云存储域：`storage/storage_pools | storage_classes | volumes | snapshots | rbd_mirror` */
 export async function tryLoadStorageTab(
   key: string,
   force: boolean,
@@ -28,7 +28,6 @@ export async function tryLoadStorageTab(
 
   switch (key) {
     case 'storage_pools':
-    case 'rados_namespaces':
     case 'rbd_mirror':
       return true;
     case 'storage_classes':

@@ -11,7 +11,7 @@ export type CephBlockRbdMirrorPaneProps = {
   loading: boolean;
   mirrorRows: CephRbdMirrorRow[];
   load: (force?: boolean) => Promise<void>;
-  openYamlDrawer: (t: CephBlockYamlTarget & { kind: 'mirror' }) => Promise<void>;
+  openYamlDrawer: (t: CephBlockYamlTarget) => Promise<void>;
 };
 
 const CephBlockRbdMirrorPane: React.FC<CephBlockRbdMirrorPaneProps> = ({

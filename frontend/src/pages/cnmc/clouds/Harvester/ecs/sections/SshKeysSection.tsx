@@ -126,6 +126,7 @@ const SshKeysSection: React.FC<Props> = ({
    * 前端过滤逻辑
    * - 命名空间：精确匹配
    * - 关键字：匹配名称/命名空间/别名
+   * - 按创建时间倒序排序
    */
   const filteredData = useMemo(() => {
     let d = baseData;
@@ -142,6 +143,14 @@ const SshKeysSection: React.FC<Props> = ({
         (x.alias && x.alias.toLowerCase().includes(k))
       );
     }
+
+    // 按创建时间倒序排序
+    d = [...d].sort((a, b) => {
+      const ta = new Date(a.creationTimestamp || 0).getTime();
+      const tb = new Date(b.creationTimestamp || 0).getTime();
+      return tb - ta; // 倒序，最新的在前
+    });
+
     return d;
   }, [baseData, keyword, namespaceFilter]);
 
@@ -181,10 +190,25 @@ const SshKeysSection: React.FC<Props> = ({
   };
 
   const handleOpenOpsinfo = (record: any, tab: string = 'detail') => {
-    // 构造符合 HarvesterResourceDrawer 要求的 record 对象
+    // 参考 ClusterNetworks 的实现，直接使用原始的 K8s 对象
     const raw = record.raw || record;
-    // 确保有 kind 字段，以便抽屉组件正确处理
-    const r = { ...raw, kind: raw.kind || 'KeyPair' };
+    const name = String(raw.metadata?.name || '').trim();
+    const ns = raw.metadata?.namespace || '';
+    
+    // 构造 View Link 用于 YAML 显示
+    const viewLink = name && ns
+      ? `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/keypairs/${encodeURIComponent(name)}`
+      : undefined;
+    
+    // 直接使用原始 K8s 对象，添加必要的元数据
+    const r = {
+      ...raw,
+      kind: raw.kind || 'KeyPair',
+      links: {
+        ...(raw?.links || {}),
+        ...(viewLink ? { view: viewLink } : {}),
+      },
+    };
     
     setDetailRecord(r);
     setDetailActiveTab(tab);
@@ -221,7 +245,21 @@ const SshKeysSection: React.FC<Props> = ({
       render: (text: string) => <span className="std-code">{text}</span>
     },
     ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
-    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', className: 'std-time' },
+    { 
+      title: '创建时间', 
+      key: 'creationTimestamp', 
+      width: 176,
+      ellipsis: true,
+      render: (_: any, record: any) => {
+        const t = record.creationTimestamp;
+        const s = t ? new Date(t).toLocaleString() : "-";
+        return (
+          <span className="std-time" style={{ whiteSpace: "nowrap" }}>
+            {s}
+          </span>
+        );
+      }
+    },
     {
       title: '操作',
       key: 'action',
@@ -234,7 +272,7 @@ const SshKeysSection: React.FC<Props> = ({
           items.push({ 
             key: 'opsinfo', 
             label: '查看YAML', 
-            onClick: () => handleOpenOpsinfo(record, 'yaml')
+            onClick: () => handleOpenOpsinfo(record, 'detail') // 默认显示摘要页
           });
           items.push({ type: 'divider' as const });
         }
@@ -249,8 +287,10 @@ const SshKeysSection: React.FC<Props> = ({
               message.error('无权限执行该操作');
               return;
             }
+            // 显示用户在表格中看到的密钥名称（优先使用别名）
+            const displayName = record.alias || record.name;
             Modal.confirm({
-              title: `确认删除密钥 ${record.name}?`,
+              title: `确认删除密钥 ${displayName}?`,
               content: '此操作不可恢复。',
               okText: '删除',
               cancelText: '取消',
@@ -375,7 +415,10 @@ const SshKeysSection: React.FC<Props> = ({
       {/* 资源详情抽屉 */}
       <HarvesterResourceDrawer
         open={detailVisible}
-        onClose={() => setDetailVisible(false)}
+        onClose={() => {
+          setDetailVisible(false);
+          setDetailActiveTab('detail'); // 关闭时重置为摘要 tab
+        }}
         resourceType="KeyPair"
         record={detailRecord}
         cloudId={cloudId}

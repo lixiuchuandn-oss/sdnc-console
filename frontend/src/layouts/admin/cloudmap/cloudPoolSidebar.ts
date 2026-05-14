@@ -311,6 +311,9 @@ export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: stri
   if (parts[0] === 'storage' && parts[1] === 'block_storage') {
     return `${cloudmapPoolBasePath(cloudId)}/storage/storage_pools`;
   }
+  if (parts[0] === 'storage' && parts[1] === 'rados_namespaces') {
+    return `${cloudmapPoolBasePath(cloudId)}/storage/storage_pools`;
+  }
   return null;
 }
 

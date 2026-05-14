@@ -29,6 +29,7 @@ import {
   fetchHarvesterServices,
   fetchKubeOvnVpcs,
   fetchKubeOvnSubnets,
+  fetchHarvesterNads,
   fetchHarvesterDeployments,
   fetchHarvesterStatefulSets,
   fetchHarvesterDaemonSets,
@@ -174,6 +175,8 @@ const CloudConsolePage: React.FC = () => {
   const [dnatRules, setDnatRules] = useState<any[]>([]);  // DNAT 规则 (Harvester VPC)
   const [vpcs, setVpcs] = useState<any[]>([]);      // VPC 列表
   const [subnets, setSubnets] = useState<any[]>([]); // 子网列表
+  /** 供快速创建 / PaaS 扁平子网 Multus 就绪判断；与资源池详情页一致须拉取真实 NAD 列表 */
+  const [harvesterNads, setHarvesterNads] = useState<any[]>([]);
   const [storageClasses, setStorageClasses] = useState<any[]>([]); // 存储类
 
   // 容器服务（控制台）
@@ -828,19 +831,23 @@ const CloudConsolePage: React.FC = () => {
     if (!ovnVpcEnabled) {
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
       return;
     }
     try {
-      const [vpcsJson, subnetsJson] = await Promise.all([
+      const [vpcsJson, subnetsJson, nadsRes] = await Promise.all([
         fetchKubeOvnVpcs(cid, force, false, 'vpc', mergeTenantPublicScope(false)),
         fetchKubeOvnSubnets(cid, force, false, 'all', mergeTenantPublicScope(mergePublicSubnets)),
+        fetchHarvesterNads(cid, force).catch(() => ({ data: { items: [] } })),
       ]);
       setVpcs(vpcsJson?.data?.items || []);
       setSubnets(subnetsJson?.data?.items || []);
+      setHarvesterNads(Array.isArray(nadsRes?.data?.items) ? nadsRes.data.items : []);
     } catch (e: any) {
       console.error('[CloudConsole] loadVpcsAndSubnets error:', e);
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
     }
   };
 
@@ -1157,6 +1164,7 @@ const CloudConsolePage: React.FC = () => {
       setStorageClasses([]);
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
 
       setCtrDeployments([]);
       setCtrStatefulSets([]);
@@ -1230,6 +1238,7 @@ const CloudConsolePage: React.FC = () => {
     if (!ovnVpcEnabled) {
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
     }
   }, [ovnVpcEnabled]);
 
@@ -1623,6 +1632,7 @@ const CloudConsolePage: React.FC = () => {
                   images={images}
                   storageClasses={storageClasses}
                   subnets={subnets}
+                  harvesterNads={harvesterNads}
                   loading={loading}
                   activeCategory={databaseCategory}
                   setActiveCategory={setDatabaseCategory}
@@ -1661,6 +1671,7 @@ const CloudConsolePage: React.FC = () => {
                   gpus={gpus}
                   vpcs={vpcs}
                   subnets={subnets}
+                  harvesterNads={harvesterNads}
                   eips={eips}
                   snatRules={snatRules}
                   dnatRules={dnatRules}
