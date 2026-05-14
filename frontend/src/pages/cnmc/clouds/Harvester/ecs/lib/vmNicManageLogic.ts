@@ -4,10 +4,19 @@
 import yaml from "js-yaml";
 import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from "../../kube-ovn/lib/kubeOvnSubnetConstants";
 import { expectedMultusNadRefForSubnet } from "./kubeOvnMultusNadRef";
+import { kubeOvnCustomIpEntryName } from "../modals/VmCreateWizard/VmWizardUtils";
 import {
   parseVmCloudInitNetworkData,
   generateMacAddressForStaticNic,
 } from "./vmMutation/vmReconfigureCloudInit";
+
+/** 仅 Pod 管理网通过 Cloud-init networkData；Kube-OVN / NAD / 直通与创建向导一致走 OVN 注解或不经 cloud-init 写网卡。 */
+export function netModeUsesCloudInitEthernet(mode: string | undefined): boolean {
+  return String(mode || "").trim() === "pod";
+}
+
+const TOWER_VM_NETWORK_STATIC_IP_NO_CLOUDINIT =
+  "tower.io/vm-network-static-ip-without-cloudinit";
 
 const SUBNET_TYPE_ANNOTATION = "tower.io/subnet-type";
 
@@ -193,6 +202,60 @@ function readEthernetForIface(
   return { ip, gateway, dns };
 }
 
+/** 解析 VM 根注解 harvesterhci.io/custom-ip（Kube-OVN 静态 IP，与创建向导一致）。 */
+export function parseHarvesterCustomIpList(vmData: any): { name: string; ip: string }[] {
+  const raw = vmData?.metadata?.annotations?.["harvesterhci.io/custom-ip"];
+  if (raw == null || raw === "") return [];
+  try {
+    const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((x: any) => ({
+        name: String(x?.name || "").trim(),
+        ip: String(x?.ip || "").trim(),
+      }))
+      .filter((x) => x.name && x.ip);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 按当前网卡对应的 Subnet / Multus 名，从 custom-ip 列表中取 IPv4（可带掩码）。
+ * 与写入时 kubeOvnCustomIpEntryName(subnet, multus) 规则一致。
+ */
+export function kubeOvnCustomIpLookupForMultusNic(
+  vmData: any,
+  netMode: VmNicNetMode,
+  subnetName: string | undefined,
+  multusNetworkName: string,
+): string {
+  if (netMode !== "vpc" && netMode !== "flat_subnet") return "";
+  const list = parseHarvesterCustomIpList(vmData);
+  if (!list.length) return "";
+  const multus = String(multusNetworkName || "").trim();
+  const sub = String(subnetName || "").trim();
+  const key = kubeOvnCustomIpEntryName(sub, multus);
+  if (key) {
+    const exact = list.find((e) => e.name === key);
+    if (exact) return exact.ip;
+  }
+  if (sub) {
+    const bySub = list.find((e) => e.name === sub);
+    if (bySub) return bySub.ip;
+  }
+  if (multus) {
+    const tail = multus.includes("/")
+      ? String(multus.split("/").pop() || "").trim()
+      : multus;
+    if (tail) {
+      const byTail = list.find((e) => e.name === tail);
+      if (byTail) return byTail.ip;
+    }
+  }
+  return "";
+}
+
 /** 从当前 VM 与单块网卡解析编辑器切片（对齐变配 init / networkNics） */
 export function initNicEditorSlice(
   vmData: any,
@@ -253,7 +316,17 @@ export function initNicEditorSlice(
           ).trim() || KUBE_OVN_FLAT_VPC
         : undefined;
 
-  return {
+  const kubeOvnIp =
+    netMode === "vpc" || netMode === "flat_subnet"
+      ? kubeOvnCustomIpLookupForMultusNic(
+          vmData,
+          netMode,
+          subnetName || undefined,
+          networkName,
+        )
+      : "";
+
+  const base = {
     netMode,
     multusName: networkName,
     vpc: vpcVal,
@@ -262,10 +335,17 @@ export function initNicEditorSlice(
     ifaceType: netMode === "flat" ? "bridge" : type,
     model: iface?.model || "virtio",
     macAddress: mac,
-    ipAddress: eth.ip || "",
+    ipAddress: kubeOvnIp || eth.ip || "",
     gateway: eth.gateway || "",
     dns: eth.dns || "",
   };
+  if (netMode === "vpc" || netMode === "flat_subnet") {
+    return { ...base, gateway: "", dns: "" };
+  }
+  if (netMode === "flat" || netMode === "passthrough") {
+    return { ...base, macAddress: "", ipAddress: "", gateway: "", dns: "" };
+  }
+  return base;
 }
 
 export function applySliceToIfaceNet(
@@ -298,14 +378,96 @@ export function applySliceToIfaceNet(
     slice.netMode === "flat"
       ? "bridge"
       : String(slice.ifaceType || "bridge").toLowerCase();
+  const omitMac =
+    slice.netMode === "flat" || slice.netMode === "passthrough";
   const iface = buildKubevirtIface(
     virtTypeForIface,
     ifaceName,
     slice.model,
-    slice.macAddress,
+    omitMac ? undefined : slice.macAddress,
   );
   const net = buildNetworkEntry(ifaceName, multus);
   return { iface, net };
+}
+
+/** 从变配「主网卡 + secondaryNics」表单值生成与 nicUi 等价的 Kube-OVN 静态 IP 注解（harvesterhci.io/custom-ip）。 */
+export function buildKubeOvnCustomIpVmMetadataAnnotationsFromReconfigureForm(
+  values: any,
+  subnets: any[],
+  nads: any[],
+): Record<string, string | null> {
+  const slices: VmNicEditorSlice[] = [];
+  const netMode = String(values?.netMode || "").trim() as VmNicNetMode;
+  const pn = values?.primaryNic || {};
+  slices.push({
+    netMode: netMode || "flat_subnet",
+    multusName: String(pn.name || "").trim(),
+    vpc: pn.vpc,
+    subnet: pn.subnet ? String(pn.subnet) : undefined,
+    ifaceType: String(pn.type || "managedtap"),
+    model: String(pn.model || "virtio"),
+    macAddress: String(pn.macAddress || ""),
+    ipAddress: String(pn.ipAddress || ""),
+    gateway: "",
+    dns: "",
+  });
+  const sec = Array.isArray(values?.secondaryNics) ? values.secondaryNics : [];
+  sec.forEach((row: any) => {
+    const m = String(row?.mode || "flat").trim() as VmNicNetMode;
+    slices.push({
+      netMode: m,
+      multusName: String(row?.name || "").trim(),
+      vpc: row?.vpc,
+      subnet: row?.subnet ? String(row.subnet) : undefined,
+      ifaceType: String(row?.type || "bridge"),
+      model: String(row?.model || "virtio"),
+      macAddress: String(row?.macAddress || ""),
+      ipAddress: String(row?.ipAddress || ""),
+      gateway: "",
+      dns: "",
+    });
+  });
+  return buildKubeOvnCustomIpVmMetadataAnnotations(slices, subnets, nads);
+}
+
+/**
+ * 根据当前网卡编辑切片生成 VM metadata.annotations 增量（须与 update-spec 的 vmMetadataAnnotations 合并）。
+ * Kube-OVN 静态 IP 使用 harvesterhci.io/custom-ip，不写 Cloud-init networkData。
+ */
+export function buildKubeOvnCustomIpVmMetadataAnnotations(
+  slices: VmNicEditorSlice[],
+  subnets: any[],
+  nads: any[],
+): Record<string, string | null> {
+  const entries: { name: string; ip: string }[] = [];
+  for (const slice of slices || []) {
+    const ip = String(slice.ipAddress || "").trim();
+    if (!ip) continue;
+    if (slice.netMode !== "vpc" && slice.netMode !== "flat_subnet") continue;
+    const pnic = {
+      name: slice.multusName,
+      subnet: slice.subnet,
+      vpc: slice.vpc,
+    };
+    const multus =
+      resolveMultus(slice.netMode, pnic, subnets, nads) ||
+      String(slice.multusName || "").trim();
+    const entryName = kubeOvnCustomIpEntryName(
+      String(slice.subnet || ""),
+      String(multus || ""),
+    );
+    if (!entryName) continue;
+    entries.push({ name: entryName, ip });
+  }
+  const ann: Record<string, string | null> = {};
+  if (entries.length === 0) {
+    ann["harvesterhci.io/custom-ip"] = null;
+    ann[TOWER_VM_NETWORK_STATIC_IP_NO_CLOUDINIT] = null;
+  } else {
+    ann["harvesterhci.io/custom-ip"] = JSON.stringify(entries);
+    ann[TOWER_VM_NETWORK_STATIC_IP_NO_CLOUDINIT] = "true";
+  }
+  return ann;
 }
 
 function ensureNetworkDataShape(parsed: any): any {
@@ -398,6 +560,19 @@ export function mergeNetworkDataForNics(
   ifaceNames.forEach((ifaceName, idx) => {
     const slice = slices[idx];
     if (!slice) return;
+    if (!netModeUsesCloudInitEthernet(slice.netMode)) {
+      const etherKey = pickEthernetKey(
+        nd,
+        ifaceName,
+        String(nextIfaces[idx]?.macAddress || slice.macAddress || "").trim() ||
+          undefined,
+      );
+      const ethernets = nd.network.ethernets;
+      if (ethernets && ethernets[etherKey]) {
+        delete ethernets[etherKey];
+      }
+      return;
+    }
     const etherKey = pickEthernetKey(
       nd,
       ifaceName,

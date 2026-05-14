@@ -358,14 +358,15 @@ const updateHarvesterVMSpecInternal = async (
           } else {
               // [策略分支 B] 标准模式 (Standard Mode)
               // ---------------------------------------------------------
-              // 允许用户自定义 CPU 拓扑结构 (Sockets/Cores/Threads)。
-              // 这种变更通常需要重启虚拟机生效。
+              // KubeVirt：DedicatedCPUPlacement 为 true 时不得同时提供 resources 的 CPU request/limit
+              // 与 domain.cpu.cores（及拓扑）；仅允许改拓扑，不写 resources.cpu。
               // ---------------------------------------------------------
-              
-              // 仅在非热扩容模式下，同步更新 K8s 资源配额
-              ensureResources();
-              domain.resources.requests.cpu = String(spec.cpu);
-              domain.resources.limits.cpu = String(spec.cpu);
+              const dedicatedPlacement = currentCpu.dedicatedCpuPlacement === true;
+              if (!dedicatedPlacement) {
+                  ensureResources();
+                  domain.resources.requests.cpu = String(spec.cpu);
+                  domain.resources.limits.cpu = String(spec.cpu);
+              }
 
               if (spec.cpuSockets && spec.cpuCores && spec.cpuThreads) {
                    // 如果前端传入了完整拓扑，则直接使用
@@ -495,10 +496,18 @@ const updateHarvesterVMSpecInternal = async (
               if (!spec.maxMemory) {
                   throw new Error('maxMemory is required when enabling hot plug');
               }
-              // 同步 resources.limits 为热扩容上限；CPU limit = 总 vCPU = maxSockets×cores×threads（热扩容下已为 cores=1, threads=1）
+              // 同步 resources.limits 为热扩容上限；CPU limit = 总 vCPU（非 CPU 绑定时）。
+              // KubeVirt：DedicatedCPUPlacement=true 时不得与 resources.requests/limits.cpu 并存。
               ensureResources();
-              const maxCpuTotal = targetMaxSockets * (domain.cpu.cores ?? 1) * (domain.cpu.threads ?? 1);
-              (domain.resources.limits as any).cpu = String(maxCpuTotal);
+              const dedicatedPlacement =
+                  current?.spec?.template?.spec?.domain?.cpu?.dedicatedCpuPlacement === true;
+              if (dedicatedPlacement) {
+                  (domain.resources.requests as any).cpu = null;
+                  (domain.resources.limits as any).cpu = null;
+              } else {
+                  const maxCpuTotal = targetMaxSockets * (domain.cpu.cores ?? 1) * (domain.cpu.threads ?? 1);
+                  (domain.resources.limits as any).cpu = String(maxCpuTotal);
+              }
               (domain.resources.limits as any).memory = spec.maxMemory;
           } else {
               // 关闭热扩容：仅移除热扩容注解，不修改 maxSockets/maxGuest/limits，避免 admission 报错
@@ -600,6 +609,8 @@ const updateHarvesterVMSpecInternal = async (
                   // merge-patch 语义：显式置 null 才能清空现有 true 值
                   domain.cpu.dedicatedCpuPlacement = null;
               }
+              // KubeVirt：isolateEmulatorThread 仅允许与 dedicatedCpuPlacement 同时存在
+              (domain.cpu as any).isolateEmulatorThread = null;
           }
       }
 
@@ -608,6 +619,10 @@ const updateHarvesterVMSpecInternal = async (
           ensureCpu();
           const currentIsolate = (current?.spec?.template?.spec?.domain?.cpu as any)?.isolateEmulatorThread;
           if (spec.isolateEmulatorThread) {
+              domain.cpu.dedicatedCpuPlacement = true;
+              ensureResources();
+              (domain.resources.requests as any).cpu = null;
+              (domain.resources.limits as any).cpu = null;
               if (currentIsolate !== true) {
                   (domain.cpu as any).isolateEmulatorThread = true;
               }
@@ -751,6 +766,12 @@ const updateHarvesterVMSpecInternal = async (
   // 4. 发送全量 Spec 更新。
   // ---------------------------------------------------------
   const newSpec = current.spec ? JSON.parse(JSON.stringify(current.spec)) : {};
+
+  /** 与前端变配约定：在 interfaces/networks 等复杂变更时合并 VM 根 metadata.annotations（如 harvesterhci.io/custom-ip）。 */
+  const vmMetadataAnnotationsRaw = spec?.vmMetadataAnnotations;
+  if (vmMetadataAnnotationsRaw !== undefined) {
+    delete spec.vmMetadataAnnotations;
+  }
   
   // Ensure structure exists
   if (!newSpec.template) newSpec.template = {};
@@ -1290,17 +1311,26 @@ const updateHarvesterVMSpecInternal = async (
       } else {
           // [策略分支 B] 标准模式 (Standard Mode)
           // ---------------------------------------------------------
-          // 允许用户自定义 CPU 拓扑结构 (Sockets/Cores/Threads)。
-          // 这种变更通常需要重启虚拟机生效。
+          // KubeVirt：DedicatedCPUPlacement 为 true 时不得同时提供 resources 的 CPU request/limit
+          // 与 domain.cpu.cores（及拓扑）；仅允许改拓扑，不写 resources.cpu。
           // ---------------------------------------------------------
-          ensureResources();
-          domain.resources.requests.cpu = String(spec.cpu);
-          domain.resources.limits.cpu = String(spec.cpu);
-          
-          // Default topology for simple mode to avoid mismatch
-          domain.cpu.sockets = 1;
-          domain.cpu.cores = Number(spec.cpu);
-          domain.cpu.threads = 1;
+          const dedicatedPlacement = currentCpu.dedicatedCpuPlacement === true;
+          if (!dedicatedPlacement) {
+              ensureResources();
+              domain.resources.requests.cpu = String(spec.cpu);
+              domain.resources.limits.cpu = String(spec.cpu);
+          }
+
+          if (spec.cpuSockets && spec.cpuCores && spec.cpuThreads) {
+              domain.cpu.sockets = Number(spec.cpuSockets);
+              domain.cpu.cores = Number(spec.cpuCores);
+              domain.cpu.threads = Number(spec.cpuThreads);
+          } else {
+              // Default topology for simple mode to avoid mismatch
+              domain.cpu.sockets = 1;
+              domain.cpu.cores = Number(spec.cpu);
+              domain.cpu.threads = 1;
+          }
       }
   }
   
@@ -1395,11 +1425,18 @@ const updateHarvesterVMSpecInternal = async (
           if (!spec.maxMemory) {
               throw new Error('maxMemory is required when enabling hot plug');
           }
-          // 同步 resources.limits 为热扩容上限；CPU limit = 总 vCPU = maxSockets×cores×threads（热扩容下已为 cores=1, threads=1）
+          // 同步 resources.limits：CPU 上限（非 CPU 绑定时）；内存上限。DedicatedCPUPlacement 时不得写 resources.cpu。
           {
               ensureResources();
-              const maxCpuTotal = targetMaxSockets * (domain.cpu.cores ?? 1) * (domain.cpu.threads ?? 1);
-              (domain.resources.limits as any).cpu = String(maxCpuTotal);
+              const dedicatedPlacement =
+                  current?.spec?.template?.spec?.domain?.cpu?.dedicatedCpuPlacement === true;
+              if (dedicatedPlacement) {
+                  (domain.resources.requests as any).cpu = null;
+                  (domain.resources.limits as any).cpu = null;
+              } else {
+                  const maxCpuTotal = targetMaxSockets * (domain.cpu.cores ?? 1) * (domain.cpu.threads ?? 1);
+                  (domain.resources.limits as any).cpu = String(maxCpuTotal);
+              }
               (domain.resources.limits as any).memory = spec.maxMemory;
           }
       } else {
@@ -1472,6 +1509,8 @@ const updateHarvesterVMSpecInternal = async (
       } else {
           // merge-patch 语义：显式置 null 才能清空现有 true 值
           (domain.cpu as any).dedicatedCpuPlacement = null;
+          // KubeVirt：isolateEmulatorThread 仅允许与 dedicatedCpuPlacement 同时存在
+          (domain.cpu as any).isolateEmulatorThread = null;
       }
   }
 
@@ -1481,6 +1520,10 @@ const updateHarvesterVMSpecInternal = async (
   if (spec.isolateEmulatorThread !== undefined) {
       ensureCpu();
       if (spec.isolateEmulatorThread) {
+          domain.cpu.dedicatedCpuPlacement = true;
+          ensureResources();
+          (domain.resources.requests as any).cpu = null;
+          (domain.resources.limits as any).cpu = null;
           (domain.cpu as any).isolateEmulatorThread = true;
       } else {
           // merge-patch 语义：显式置 null 才能清空现有 true 值
@@ -1766,8 +1809,22 @@ const updateHarvesterVMSpecInternal = async (
   // 在构建 body 前，再次确认 nodeSelector 的值
   console.log(`🔍 [构建 body 前] newSpec.template.spec.nodeSelector:`, JSON.stringify(newSpec.template.spec.nodeSelector));
   
+  const mergedRootMetadata = current?.metadata
+    ? JSON.parse(JSON.stringify(current.metadata))
+    : {};
+  if (!mergedRootMetadata.annotations) mergedRootMetadata.annotations = {};
+  if (vmMetadataAnnotationsRaw && typeof vmMetadataAnnotationsRaw === 'object') {
+    for (const [k, v] of Object.entries(vmMetadataAnnotationsRaw)) {
+      if (v === null || v === undefined || v === '') {
+        delete mergedRootMetadata.annotations[k];
+      } else {
+        mergedRootMetadata.annotations[k] = String(v);
+      }
+    }
+  }
+
   const body = {
-    metadata: newSpec.metadata,
+    metadata: mergedRootMetadata,
     spec: newSpec,
   };
   // ============================================================================

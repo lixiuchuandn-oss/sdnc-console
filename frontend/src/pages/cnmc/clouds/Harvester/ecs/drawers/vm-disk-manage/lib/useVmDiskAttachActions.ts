@@ -23,6 +23,11 @@ import { harvesterCreatedPvcNameFromResponse } from '../../../lib/harvesterVolum
 import { getMissingNadsFromNetworks } from '../../../lib/harvesterVmNetwork';
 import { applyBootOrderCdromFirst } from '../../../lib/vmDiskBootOrder';
 import { isRestartRequiredFromVm, isVmStopped } from '../../../lib/vmInstanceStatus';
+import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
+import {
+  diskDetachSkipsVmRestartPrompt,
+  effectiveDomainDiskBusRaw,
+} from './vmDiskManageDrawerDiskLogic';
 
 export type VmDiskAttachEnsureNads = () => Promise<any[]>;
 
@@ -88,9 +93,7 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
     }
 
     Modal.confirm({
-      title: options?.cdrom
-        ? '光盘已挂入规格：必须重启虚拟机后生效，是否立即重启'
-        : '规格变更已提交，需要重启实例生效，是否重启实例',
+      title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
       okText: '立即重启',
       cancelText: '手动重启',
       onOk: async () => {
@@ -634,9 +637,7 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
       const diskEntry = (Array.isArray(disks) ? disks : []).find(
         (d: any) => String(d?.name || '') === String(diskName || ''),
       );
-      const diskBus = String(diskEntry?.disk?.bus || diskEntry?.cdrom?.bus || '')
-        .toLowerCase()
-        .trim();
+      const diskBus = effectiveDomainDiskBusRaw(diskEntry);
 
       const instanceId = `${namespace}/${vmName}`;
       await detachHarvesterVolumeFromVm(cloudId, instanceId, {
@@ -657,7 +658,7 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         console.warn('刷新VM数据失败:', refreshErr);
       }
 
-      if (diskBus === 'scsi') {
+      if (diskDetachSkipsVmRestartPrompt(diskBus)) {
         message.success('解绑成功，该卷已从虚拟机移除');
       } else {
         message.success('解绑成功，设置已保存，需要重启虚拟机后生效');

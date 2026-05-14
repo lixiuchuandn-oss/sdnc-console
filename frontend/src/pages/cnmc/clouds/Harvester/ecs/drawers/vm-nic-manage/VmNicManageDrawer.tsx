@@ -35,6 +35,7 @@ import {
   isKubeOvnFlatSubnet,
   mergeNetworkDataForNics,
   nadOptionsWizardShape,
+  buildKubeOvnCustomIpVmMetadataAnnotations,
 } from "../../lib/vmNicManageLogic";
 import { subnetKey } from "../../lib/kubeOvnSubnetNadSelect";
 import SubnetDetailDrawer from "../../../kube-ovn/drawers/subnet-detail-drawer";
@@ -45,6 +46,7 @@ import VmAddNicFlatSubnetDrawer from "./VmAddNicFlatSubnetDrawer";
 import VmAddNicNadDrawer from "./VmAddNicNadDrawer";
 import VmAddNicSriovDrawer from "./VmAddNicSriovDrawer";
 import VmAddNicVpcDrawer from "./VmAddNicVpcDrawer";
+import { showVmNicChangeRestartConfirm } from "./lib/vmNicSaveRestartConfirm";
 
 /* -------------------------------------------------------------------------- */
 /*  静态配置（与渲染无关）                                                      */
@@ -434,13 +436,19 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
       /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/;
     for (let i = 0; i < nicUi.length; i++) {
       const u = nicUi[i];
+      const nm = u.netMode;
+      const showMac = nm !== "flat" && nm !== "passthrough";
       const m = String(u.macAddress || "").trim();
-      if (m && !macRe.test(m)) {
+      if (showMac && m && !macRe.test(m)) {
         message.error(`网卡 #${i + 1}：MAC 格式须如 52:54:00:12:34:56`);
         return false;
       }
       const ip = String(u.ipAddress || "").trim();
-      if (ip && !ipRe.test(ip)) {
+      if (
+        (nm === "vpc" || nm === "flat_subnet" || nm === "pod") &&
+        ip &&
+        !ipRe.test(ip)
+      ) {
         message.error(`网卡 #${i + 1}：静态 IP 格式无效`);
         return false;
       }
@@ -518,6 +526,11 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
     const payload: any = {
       interfaces: nextIfaces,
       networks: nextNets,
+      vmMetadataAnnotations: buildKubeOvnCustomIpVmMetadataAnnotations(
+        nicUi,
+        kubeSubnets,
+        nads,
+      ),
     };
     if (hasNetworkDataChange) {
       payload.networkData = dumpNetworkDataYaml(networkDataObj);
@@ -542,6 +555,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
       await onApplied();
       setBaseline(snapshot(nextIfaces, nextNets, nicUi));
       onClose();
+      showVmNicChangeRestartConfirm({ cloudId, vmNs, vmName, vmData });
     } catch (e: any) {
       message.error(e?.message || "保存失败");
     } finally {
@@ -623,6 +637,10 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
           const mode = slice.netMode;
 
           const runtimeIp = String(findIp(iface.name) || "").trim();
+
+          const showMac = mode !== "flat" && mode !== "passthrough";
+          const showKubeStaticIp = mode === "vpc" || mode === "flat_subnet";
+          const showPodAddrExtras = mode === "pod";
 
           const flatSubnetRec =
             mode === "flat_subnet"
@@ -832,62 +850,70 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                         }
                       />
                     </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="MAC"
-                        placeholder="52:54:00:12:34:56"
-                        value={slice.macAddress || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            macAddress: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="静态IP"
-                        placeholder="192.168.1.10/24"
-                        value={slice.ipAddress || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            ipAddress: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="网关"
-                        placeholder="192.168.1.1"
-                        value={slice.gateway || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            gateway: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="DNS"
-                        placeholder="8.8.8.8"
-                        value={slice.dns || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            dns: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
+                    {showMac ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="MAC"
+                          placeholder="52:54:00:12:34:56"
+                          value={slice.macAddress || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              macAddress: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
+                    {showKubeStaticIp || showPodAddrExtras ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="静态IP"
+                          placeholder="192.168.1.23"
+                          value={slice.ipAddress || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              ipAddress: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
+                    {showPodAddrExtras ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="网关"
+                          placeholder="192.168.1.1"
+                          value={slice.gateway || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              gateway: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
+                    {showPodAddrExtras ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="DNS"
+                          placeholder="8.8.8.8"
+                          value={slice.dns || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              dns: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
                   </Row>
                 </div>
               </div>

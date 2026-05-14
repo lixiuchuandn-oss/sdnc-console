@@ -14,6 +14,8 @@ import {
   generateMacAddressForStaticNic,
 } from "../../../lib/vmMutation/vmReconfigureCloudInit";
 import { computeSecondaryNicsPayload } from "./vmNicReconfigureCompute";
+import { buildKubeOvnCustomIpVmMetadataAnnotationsFromReconfigureForm } from "../../../lib/vmNicManageLogic";
+import { showVmNicChangeRestartConfirm } from "./vmNicSaveRestartConfirm";
 
 export async function submitAppendSecondaryNicRow(opts: {
   cloudId: string;
@@ -46,6 +48,11 @@ export async function submitAppendSecondaryNicRow(opts: {
   const payload: any = {
     networks: computed.networks,
     interfaces: computed.interfaces,
+    vmMetadataAnnotations: buildKubeOvnCustomIpVmMetadataAnnotationsFromReconfigureForm(
+      values,
+      subnets,
+      nads,
+    ),
   };
   if (computed.hasNetworkDataChange) {
     payload.networkData = yaml.dump(computed.networkDataObj);
@@ -63,4 +70,5 @@ export async function submitAppendSecondaryNicRow(opts: {
   }
   await updateHarvesterVmSpec(cloudId, vmNs, vmName, payload);
   message.success("辅助网卡已添加");
+  showVmNicChangeRestartConfirm({ cloudId, vmNs, vmName, vmData });
 }

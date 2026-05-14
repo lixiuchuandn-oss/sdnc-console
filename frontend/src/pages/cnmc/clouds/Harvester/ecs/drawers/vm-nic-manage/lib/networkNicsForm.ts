@@ -1,4 +1,5 @@
 import { KUBE_OVN_FLAT_VPC } from '../../../../kube-ovn/lib/kubeOvnSubnetConstants';
+import { kubeOvnCustomIpLookupForMultusNic } from '../../../lib/vmNicManageLogic';
 import { parseVmCloudInitNetworkData } from '../../../lib/vmMutation/vmReconfigureCloudInit';
 
 export function buildPrimaryNicFormSlice(record: any, loadedSubnets: any[]) {
@@ -45,6 +46,15 @@ export function buildPrimaryNicFormSlice(record: any, loadedSubnets: any[]) {
     if (eth.addresses && eth.addresses.length > 0) ipAddress = eth.addresses[0];
     if (eth.gateway4) gateway = eth.gateway4;
     if (eth.nameservers?.addresses) dns = eth.nameservers.addresses.join(', ');
+  }
+  if (netMode === 'vpc' || netMode === 'flat_subnet') {
+    const kubeIp = kubeOvnCustomIpLookupForMultusNic(
+      record,
+      netMode,
+      subnetName,
+      networkName,
+    );
+    if (kubeIp) ipAddress = kubeIp;
   }
   return {
     netMode,
@@ -112,6 +122,15 @@ export function buildSecondaryNicsFormSlicesFromRecord(record: any, loadedSubnet
       if (eth.addresses && eth.addresses.length > 0) ipAddress = eth.addresses[0];
       if (eth.gateway4) gateway = eth.gateway4;
       if (eth.nameservers?.addresses) dns = eth.nameservers.addresses.join(', ');
+    }
+    if (mode === 'vpc' || mode === 'flat_subnet') {
+      const kubeIp = kubeOvnCustomIpLookupForMultusNic(
+        record,
+        mode,
+        subnetName,
+        networkName,
+      );
+      if (kubeIp) ipAddress = kubeIp;
     }
     return {
       mode,

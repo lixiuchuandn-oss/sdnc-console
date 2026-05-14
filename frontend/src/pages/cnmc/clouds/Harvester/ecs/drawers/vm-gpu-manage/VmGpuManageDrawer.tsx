@@ -5,7 +5,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Drawer, Divider, Empty, Form, message, Popconfirm, Space, Tag, Tooltip } from "antd";
 import { MinusCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { ReactComponent as GpuIcon } from "../../../../../../../assets/clouds/gpu.svg";
-import { fetchHarvesterGpuResources } from "../../../../../../../services/harvesterApi";
+import {
+  fetchHarvesterGpuResources,
+  normalizeHarvesterGpuResourcesResponse,
+} from "../../../../../../../services/harvesterApi";
 import { useVmReconfigureVmDiskActions } from "../vm-disk-manage/lib/useVmDiskAttachActions";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
 import "../shared/styles/vmManageDrawer.css";
@@ -163,7 +166,9 @@ const VmGpuManageDrawer: React.FC<VmGpuManageDrawerProps> = ({
   );
 
   useEffect(() => {
-    setGpuResources(Array.isArray(gpuResourcesProp) ? gpuResourcesProp : []);
+    if (Array.isArray(gpuResourcesProp) && gpuResourcesProp.length > 0) {
+      setGpuResources(gpuResourcesProp);
+    }
   }, [gpuResourcesProp]);
 
   useEffect(() => {
@@ -178,8 +183,7 @@ const VmGpuManageDrawer: React.FC<VmGpuManageDrawerProps> = ({
     try {
       setGpuLoading(true);
       const res = await fetchHarvesterGpuResources(cloudId);
-      const items = Array.isArray(res?.data?.items) ? res.data.items : Array.isArray(res?.items) ? res.items : [];
-      setGpuResources(items);
+      setGpuResources(normalizeHarvesterGpuResourcesResponse(res));
     } catch (e: any) {
       message.error(e?.message || "刷新失败");
     } finally {
@@ -189,7 +193,8 @@ const VmGpuManageDrawer: React.FC<VmGpuManageDrawerProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    if (gpuResourcesProp !== undefined && gpuResourcesProp !== null) return;
+    // 父级传入 [] 常表示预拉失败或未就绪，不能当成「已有完整列表」而跳过请求
+    if (Array.isArray(gpuResourcesProp) && gpuResourcesProp.length > 0) return;
     void reloadGpuResources();
   }, [open, gpuResourcesProp, reloadGpuResources]);
 

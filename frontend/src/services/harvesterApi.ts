@@ -1501,6 +1501,14 @@ export const removeKubeOvnSecurityGroupMember = async (cloudId: string, sgId: st
 };
 
 /**
+ * 解析 GET /resources/harvester/gpus 的 JSON 体，得到 GPU 对象数组（与创建向导等一致）。
+ */
+export function normalizeHarvesterGpuResourcesResponse(res: any): any[] {
+  const items = res?.data?.items ?? res?.items;
+  return Array.isArray(items) ? items : [];
+}
+
+/**
  * 获取 Harvester GPU 资源列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false

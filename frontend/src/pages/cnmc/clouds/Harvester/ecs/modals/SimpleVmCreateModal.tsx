@@ -1,6 +1,7 @@
 /**
  * Cloudmap 资源池「快速创建」使用的极简创建虚拟机弹窗。
- * 命名空间固定 default（不展示）；网络固定为 Kube-OVN 扁平子网，接口类型固定为 managedtap（与创建向导扁平子网一致）。
+ * 命名空间（不展示）：非租户（管理员与平台自定义用户等）固定 `default`；租户优先控制台工作区命名空间，否则按租户绑定命名空间回退。
+ * 网络固定为 Kube-OVN 扁平子网，接口类型固定为 managedtap（与创建向导扁平子网一致）。
  */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
@@ -64,9 +65,9 @@ export type SimpleVmCreateModalProps = {
   onCreated: () => void | Promise<void>;
   /** 命名空间库存对象（metadata.labels.tower.io/scenario） */
   namespaceRecords?: any[];
-  /** 租户控制台页头当前命名空间；优先于按 scenario 推断，避免落到 default 导致无权创建 */
+  /** 租户控制台页头当前命名空间；`isTenant` 为真时优先于此，避免落到 default 导致无权创建 */
   workspaceNamespace?: string;
-  /** 租户创建时仅选 tenant 场景；管理员选 admin；无匹配时回退 default */
+  /** 租户：按工作区 / 绑定命名空间创建；非租户（管理员与平台自定义用户等）：固定 `default` */
   isTenant?: boolean;
 };
 
@@ -358,18 +359,14 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   }, [selectedFlatSubnetWatched, subnetIpSegmentByName]);
 
   const targetNamespace = useMemo(() => {
+    if (!isTenant) return 'default';
     const ws = String(workspaceNamespace || '').trim();
-    if (isTenant && ws) return ws;
-    const picked = pickFirstNamespaceRecordByScenario(
-      namespaceRecords,
-      isTenant ? 'tenant' : 'admin',
-    );
+    if (ws) return ws;
+    const picked = pickFirstNamespaceRecordByScenario(namespaceRecords, 'tenant');
     if (picked) return picked;
-    if (isTenant) {
-      for (const r of namespaceRecords || []) {
-        const name = String(r?.metadata?.name || r?.name || '').trim();
-        if (name && !isSystemNamespace(name)) return name;
-      }
+    for (const r of namespaceRecords || []) {
+      const name = String(r?.metadata?.name || r?.name || '').trim();
+      if (name && !isSystemNamespace(name)) return name;
     }
     return 'default';
   }, [namespaceRecords, isTenant, workspaceNamespace]);

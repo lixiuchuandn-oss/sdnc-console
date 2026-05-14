@@ -80,6 +80,7 @@ export const testHarvesterConnection = async ({
  * 4. [数据标准化] 
  *    - 优先使用 Harvester Host CR 的 networkIps。
  *    - 回退使用 K8s Node Status addresses。
+ *    - 合并 **core/v1 Node** 的 `metadata.annotations`（按节点名对齐）：CPU 管理状态等写在 K8s Node 上，Steve `/v1/nodes` 的 Host 对象常缺此类注解。
  *    - 过滤 device 类型的物理网卡，排除 veth/ovn 等虚拟接口。
  *    - 返回网卡状态映射 (interfaceStatusMap)，供前端过滤使用。
  */
@@ -153,41 +154,66 @@ export const listHarvesterNodesStandard = async ({
   }
   
   const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
+
+  /** Harvester 将 `harvesterhci.io/cpu-manager-update-status` 写在 **core/v1 Node** 上；Steve `/v1/nodes` 常为 Host CR，缺注解会导致「CPU 管理」误判。按节点名合并 api/v1 注解。 */
+  let k8sCoreAnnotationsByNodeName = new Map<string, Record<string, string>>();
+  try {
+    const k8sNodes = await listK8sNodesRaw({ endpoint, token, insecure });
+    (Array.isArray(k8sNodes) ? k8sNodes : []).forEach((kn: any) => {
+      const knName = String(kn?.metadata?.name || '').trim();
+      if (!knName) return;
+      const anns = kn?.metadata?.annotations;
+      if (anns && typeof anns === 'object' && !Array.isArray(anns)) {
+        k8sCoreAnnotationsByNodeName.set(knName, anns as Record<string, string>);
+      }
+    });
+  } catch (e: any) {
+    console.warn('[Harvester-API] listK8sNodesRaw 注解合并失败（忽略）:', e?.message || e);
+  }
   
   // [数据映射] 遍历节点进行标准化处理
   return items.map((n: any) => {
-    // Harvester Host object wraps the Node name in spec.nodeName or metadata.name depending on context
     const name = n?.metadata?.name || n?.name || '';
+    const md = n?.metadata && typeof n.metadata === 'object' ? n.metadata : {};
+    const nAnns =
+      md.annotations && typeof md.annotations === 'object' && !Array.isArray(md.annotations)
+        ? (md.annotations as Record<string, string>)
+        : {};
+    const k8sAnns = k8sCoreAnnotationsByNodeName.get(String(name).trim()) || {};
+    const mergedAnnotations = { ...nAnns, ...k8sAnns };
+    const nMerged = { ...n, metadata: { ...md, annotations: mergedAnnotations } };
+    
+    // Harvester Host object wraps the Node name in spec.nodeName or metadata.name depending on context
     
     // [IP地址解析] 优先使用 networkIps，回退到 K8s addresses
     let internal = '';
     let external = '';
     
-    const networkIps = Array.isArray(n?.status?.networkIps) ? n?.status?.networkIps : [];
+    const networkIps = Array.isArray(nMerged?.status?.networkIps) ? nMerged.status.networkIps : [];
     if (networkIps.length > 0) {
         internal = networkIps[0]; // Assume first is internal
     }
     
     if (!internal) {
-        const addresses = Array.isArray(n?.status?.addresses) ? n?.status?.addresses : [];
+        const addresses = Array.isArray(nMerged?.status?.addresses) ? nMerged.status.addresses : [];
         internal = addresses.find((a: any) => a?.type === 'InternalIP')?.address || '';
         external = addresses.find((a: any) => a?.type === 'ExternalIP')?.address || '';
     }
     
-    const roles = Object.keys(n?.metadata?.labels || {}).filter((k) =>
+    const roles = Object.keys(nMerged?.metadata?.labels || {}).filter((k) =>
       /node-role\.kubernetes\.io/.test(k),
     );
     
-    const conds = Array.isArray(n?.status?.conditions) ? n?.status?.conditions : [];
+    const conds = Array.isArray(nMerged?.status?.conditions) ? nMerged.status.conditions : [];
     const readyCond = conds.find((c: any) => c?.type === 'Ready');
     
-    const cpu = n?.status?.capacity?.cpu || n?.status?.allocatable?.cpu || '';
-    const memory = n?.status?.capacity?.memory || n?.status?.allocatable?.memory || '';
-    const version = n?.status?.nodeInfo?.kubeletVersion || n?.status?.nodeInfo?.kubeProxyVersion || '';
-    const architecture = n?.status?.nodeInfo?.architecture || 'amd64';
+    const cpu = nMerged?.status?.capacity?.cpu || nMerged?.status?.allocatable?.cpu || '';
+    const memory = nMerged?.status?.capacity?.memory || nMerged?.status?.allocatable?.memory || '';
+    const version = nMerged?.status?.nodeInfo?.kubeletVersion || nMerged?.status?.nodeInfo?.kubeProxyVersion || '';
+    const architecture = nMerged?.status?.nodeInfo?.architecture || 'amd64';
     
-    const selfLink = n?.links?.self || `${url}/${name}`;
-    const viewLink = n?.links?.view || selfLink;
+    const selfLink = nMerged?.links?.self || `${url}/${name}`;
+    const viewLink = nMerged?.links?.view || selfLink;
 
     // [物理网卡提取] 从 LinkMonitor 中匹配物理网卡信息
     let physicalInterfaces: string[] = [];
@@ -220,10 +246,10 @@ export const listHarvesterNodesStandard = async ({
     physicalInterfaces = Array.from(interfaceSet).sort();
 
     // [回退逻辑] 如果 LinkMonitor 没有数据，回退到 NodeInfo (旧逻辑)
-    if (physicalInterfaces.length === 0 && n?.status?.nodeInfo?.networkInfo?.links) {
-      physicalInterfaces = n.status.nodeInfo.networkInfo.links.map((l: any) => l.name);
+    if (physicalInterfaces.length === 0 && nMerged?.status?.nodeInfo?.networkInfo?.links) {
+      physicalInterfaces = nMerged.status.nodeInfo.networkInfo.links.map((l: any) => l.name);
       // 尝试从 NodeInfo 中提取状态信息
-      n.status.nodeInfo.networkInfo.links.forEach((l: any) => {
+      nMerged.status.nodeInfo.networkInfo.links.forEach((l: any) => {
         if (l.operState || l.state) {
           interfaceStatusMap[l.name] = String(l.operState || l.state).toLowerCase();
         }
@@ -231,7 +257,7 @@ export const listHarvesterNodesStandard = async ({
     }
 
     return {
-      ...n,
+      ...nMerged,
       name,
       roles,
       internalIP: internal,
@@ -243,7 +269,7 @@ export const listHarvesterNodesStandard = async ({
       architecture,
       physicalInterfaces, // 新增物理网卡字段，供 Provider Network 配置使用
       interfaceStatusMap, // 新增网卡状态映射，用于前端过滤 down 状态的网卡
-      links: { ...n.links, view: viewLink }
+      links: { ...nMerged.links, view: viewLink }
     };
   });
 };

@@ -3,6 +3,7 @@
  */
 import { expectedMultusNadRefForSubnet } from '../../../lib/kubeOvnMultusNadRef';
 import { allocateSecondaryNicNames } from '../../../lib/harvesterVmNetwork';
+import { netModeUsesCloudInitEthernet } from '../../../lib/vmNicManageLogic';
 
 export type NicRecomputeResult = {
   interfaces: any[];
@@ -183,6 +184,10 @@ export function computeSecondaryNicsPayload(
   if (!Array.isArray(curIf) || curIf.length === 0) return null;
 
   const primaryIface = deepClone(curIf[0]);
+  const primaryNetModeEarly = String(values?.netMode || "").trim();
+  if (primaryNetModeEarly === "flat" || primaryNetModeEarly === "passthrough") {
+    delete primaryIface.macAddress;
+  }
   const primaryName = primaryIface.name;
   const primaryNet = deepClone(
     curNet.find((n: any) => n?.name === primaryName) || {
@@ -198,13 +203,14 @@ export function computeSecondaryNicsPayload(
   const secondaryNw: any[] = [];
   secondaryRows.forEach((row: any, idx: number) => {
     const ifaceName = names[idx];
-    const mode = String(row?.mode || 'flat');
+    const mode = String(row?.mode || "flat");
     const multus = resolveMultusForSecondary(mode, row, subnets, nads);
+    const omitMac = mode === "flat" || mode === "passthrough";
     const iface = buildKubevirtIface(
       row.type,
       ifaceName,
       row.model,
-      row.macAddress,
+      omitMac ? undefined : row.macAddress,
     );
     const net = buildNetworkEntry(ifaceName, multus);
     secondaryIf.push(iface);
@@ -218,37 +224,59 @@ export function computeSecondaryNicsPayload(
   const beforeSnap = deepClone(networkDataObj);
 
   const primaryPnic = values?.primaryNic || {};
-  const primaryEtherKey = pickPrimaryEthernetKey(
-    networkDataObj,
-    primaryName,
-    String(primaryPnic.macAddress || primaryIface.macAddress || '').trim(),
-  );
-  const primaryApply = applyNicToEthernet(
-    networkDataObj,
-    primaryEtherKey,
-    primaryPnic,
-    String(primaryPnic.macAddress || primaryIface.macAddress || '').trim() || undefined,
-    generateMacAddress,
-  );
-  networkDataObj = primaryApply.next;
-  if (primaryApply.macAssigned && !interfaces[0].macAddress) {
-    interfaces[0].macAddress = primaryApply.macAssigned;
+  const primaryNetMode = String(values?.netMode || "").trim();
+  if (netModeUsesCloudInitEthernet(primaryNetMode)) {
+    const primaryEtherKey = pickPrimaryEthernetKey(
+      networkDataObj,
+      primaryName,
+      String(primaryPnic.macAddress || primaryIface.macAddress || "").trim(),
+    );
+    const primaryApply = applyNicToEthernet(
+      networkDataObj,
+      primaryEtherKey,
+      primaryPnic,
+      String(primaryPnic.macAddress || primaryIface.macAddress || "").trim() ||
+        undefined,
+      generateMacAddress,
+    );
+    networkDataObj = primaryApply.next;
+    if (primaryApply.macAssigned && !interfaces[0].macAddress) {
+      interfaces[0].macAddress = primaryApply.macAssigned;
+    }
+  } else {
+    const primaryEtherKey = pickPrimaryEthernetKey(
+      networkDataObj,
+      primaryName,
+      String(primaryPnic.macAddress || primaryIface.macAddress || "").trim(),
+    );
+    const ethernets = networkDataObj.network.ethernets;
+    if (ethernets && ethernets[primaryEtherKey]) {
+      delete ethernets[primaryEtherKey];
+    }
   }
 
   secondaryRows.forEach((row: any, idx: number) => {
     const ifaceName = names[idx];
     const iface = secondaryIf[idx];
-    const gen = () => generateMacAddress();
-    const { next, macAssigned } = applyNicToEthernet(
-      networkDataObj,
-      ifaceName,
-      row,
-      String(row?.macAddress || iface.macAddress || '').trim() || undefined,
-      gen,
-    );
-    networkDataObj = next;
-    if (macAssigned && !iface.macAddress) {
-      iface.macAddress = macAssigned;
+    const mode = String(row?.mode || "flat");
+    if (netModeUsesCloudInitEthernet(mode)) {
+      const gen = () => generateMacAddress();
+      const { next, macAssigned } = applyNicToEthernet(
+        networkDataObj,
+        ifaceName,
+        row,
+        String(row?.macAddress || iface.macAddress || "").trim() || undefined,
+        gen,
+      );
+      networkDataObj = next;
+      if (macAssigned && !iface.macAddress) {
+        iface.macAddress = macAssigned;
+      }
+    } else {
+      const ethernets = networkDataObj.network.ethernets;
+      if (ethernets && ethernets[ifaceName]) {
+        delete ethernets[ifaceName];
+      }
     }
   });
 

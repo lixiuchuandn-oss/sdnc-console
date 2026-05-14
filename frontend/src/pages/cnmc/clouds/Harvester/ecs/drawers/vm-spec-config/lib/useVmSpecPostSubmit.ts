@@ -12,6 +12,7 @@ import { fetchHarvesterVMAggregated } from "../../../../../../../../services/har
 import { rebootCloudProviderEcs } from "../../../../../../../../services/api";
 import { translateKnownApiErrorMessage } from "../../../../../../../../utils/k8sErrorMessages";
 import { isVmStopped } from "../../../lib/vmInstanceStatus";
+import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from "../../../lib/vmMutation/vmReconfigureSubmitTypes";
 
 /**
  * 规格（CPU/内存）提交成功后的辅助能力：拉聚合 VM、在需冷生效时弹重启确认。
@@ -33,7 +34,7 @@ export function useVmSpecPostSubmit(p: {
       }
 
       Modal.confirm({
-        title: "规格变更已提交，需要重启实例生效，是否重启实例",
+        title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
         okText: "立即重启",
         cancelText: "手动重启",
         onOk: async () => {

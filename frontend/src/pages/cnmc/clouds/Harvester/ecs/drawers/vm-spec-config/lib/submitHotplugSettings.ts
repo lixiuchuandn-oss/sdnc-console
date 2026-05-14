@@ -20,7 +20,7 @@ export async function submitVmReconfigureHotplugSettings(
   vmName: string,
   namespace: string,
 ): Promise<void> {
-  const { cloudId, activeRecord, setLatestVm, openRestartConfirm } = ctx;
+  const { cloudId, activeRecord, setLatestVm, openRestartConfirm, fetchAggregatedVm } = ctx;
   const conditions = activeRecord?.status?.conditions || [];
   const isHotPlugInProgress = conditions.some(
     (c: any) => (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True',
@@ -90,9 +90,10 @@ export async function submitVmReconfigureHotplugSettings(
 
   await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
   message.success('热扩容设置已提交');
-  if (values.enableHotPlug) {
-    openRestartConfirm(namespace, vmName, false);
-  } else {
-    openRestartConfirm(namespace, vmName, false);
+  try {
+    await fetchAggregatedVm(namespace, vmName);
+  } catch {
+    /* 忽略：重启提示不依赖聚合刷新成功 */
   }
+  openRestartConfirm(namespace, vmName, false);
 }

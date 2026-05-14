@@ -768,16 +768,35 @@ export const syncHarvesterGpus = async (cloud: any, insecure: boolean) => {
   invLog.debug(`${cloud.name}: GPU同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterGpuInventory);
-  await upsertItems(repo, cloud.id, items, (item) => ({
-    uid: item.uid || item.raw?.metadata?.uid || `${item.nodeName}-${item.address}`, // Fallback ID
-    name: item.name || item.productName || item.metadata?.name,
-    nodeName: item.nodeName,
-    address: item.address,
-    vendorId: item.vendorId,
-    deviceId: item.deviceId,
-    labels: item.labels || item.raw?.metadata?.labels,
-    rawData: item,
-  }));
+  await upsertItems(repo, cloud.id, items, (item) => {
+    const rn = String(item.resourceName || '').trim();
+    const nodeName =
+      String(item.nodeName || item.node || '').trim() || '-';
+    const address = String(
+      item.address || item.pciAddress || '',
+    ).trim();
+    const uid =
+      String(item.uid || item.raw?.metadata?.uid || '').trim() ||
+      `${rn || 'gpu'}@${nodeName}@${address || 'na'}`;
+    const name =
+      String(
+        item.name ||
+          item.productName ||
+          item.metadata?.name ||
+          rn ||
+          'GPU',
+      ).trim() || 'GPU';
+    return {
+      uid,
+      name,
+      nodeName,
+      address: address || undefined,
+      vendorId: item.vendorId,
+      deviceId: item.deviceId,
+      labels: item.labels || item.raw?.metadata?.labels,
+      rawData: item,
+    };
+  });
 };
 
 /**

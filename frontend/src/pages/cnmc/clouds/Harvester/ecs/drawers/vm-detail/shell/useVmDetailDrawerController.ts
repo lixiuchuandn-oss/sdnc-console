@@ -6,6 +6,7 @@ import {
   fetchHarvesterScheduleVmBackups,
   fetchHarvesterUsbResources,
   fetchHarvesterVMAggregated,
+  normalizeHarvesterGpuResourcesResponse,
 } from "../../../../../../../../services/harvesterApi";
 import { API_BASE_URL, apiPost } from "../../../../../../../../services/api";
 import { fetchMetricRange } from "../../../../../../../../services/monitoringApi";
@@ -116,14 +117,9 @@ export function useVmDetailDrawerController({
     if (!cloudId) return;
     try {
       const res = await fetchHarvesterGpuResources(cloudId);
-      const items = Array.isArray(res?.data?.items)
-        ? res.data.items
-        : Array.isArray(res?.items)
-          ? res.items
-          : [];
-      setVmDetailGpuResources(items);
+      setVmDetailGpuResources(normalizeHarvesterGpuResourcesResponse(res));
     } catch {
-      setVmDetailGpuResources([]);
+      setVmDetailGpuResources(undefined);
     }
   }, [cloudId]);
 

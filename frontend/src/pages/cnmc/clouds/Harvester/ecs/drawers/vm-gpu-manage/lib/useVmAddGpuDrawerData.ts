@@ -2,7 +2,10 @@
  * 添加 GPU 子抽屉：GPU 列表加载与热扩容提示（对齐 `useVmAddNicDrawerData` 职责）。
  */
 import { useCallback, useMemo, useState } from "react";
-import { fetchHarvesterGpuResources } from "../../../../../../../../services/harvesterApi";
+import {
+  fetchHarvesterGpuResources,
+  normalizeHarvesterGpuResourcesResponse,
+} from "../../../../../../../../services/harvesterApi";
 
 export interface VmAddGpuDrawerBaseProps {
   open: boolean;
@@ -28,7 +31,7 @@ export function useVmAddGpuDrawerData(opts: { vmData: any; cloudId: string }) {
   const reloadGpuResources = useCallback(async () => {
     try {
       const res = await fetchHarvesterGpuResources(cloudId);
-      const items = Array.isArray(res?.data?.items) ? res.data.items : Array.isArray(res?.items) ? res.items : [];
+      const items = normalizeHarvesterGpuResourcesResponse(res);
       setLocalGpus(items);
       return items;
     } catch {

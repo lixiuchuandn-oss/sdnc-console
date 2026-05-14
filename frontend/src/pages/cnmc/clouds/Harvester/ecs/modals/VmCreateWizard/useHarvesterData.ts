@@ -177,13 +177,13 @@ export const useHarvesterData = (
     } catch { }
   }, [getCid]);
 
-  // [数据获取] 刷新节点列表
+  // [数据获取] 刷新节点列表（force：触发库存同步；后端合并 core/v1 Node 注解供 CPU 绑定校验）
   const reloadNodes = useCallback(async (cidArg?: string) => {
     const cid = cidArg || getCid();
     if (!cid) return;
     try {
       setNodesLoading(true);
-      const nd: any = await fetchHarvesterNodes(cid);
+      const nd: any = await fetchHarvesterNodes(cid, true);
       const items: any[] = nd?.data?.items || [];
       setNodes(items);
       setNodesError(null);
