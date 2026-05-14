@@ -9,7 +9,9 @@ import { ensureProvider, normalizeOrigin } from './monitoring-helpers';
 import {
   PAGESIZE,
   ALERTMANAGERCONFIG_BASE,
+  SECRETS_BASE,
   MONITORING_RECEIVER_LABEL_SELECTOR,
+  ALERTMANAGER_TARGET_ANNOTATION,
   EMAIL_RECEIVER,
   DINGTALK_RECEIVER,
   WEBSITE_RECEIVER,
@@ -26,6 +28,93 @@ import {
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
 const DEFAULT_RECEIVER_NAMES = [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER];
+
+function collectEmailReceiverSecretTargets(receivers: any[]): Map<string, Set<string>> {
+  const secretTargets = new Map<string, Set<string>>();
+  const list = Array.isArray(receivers) ? receivers : [];
+  for (const receiver of list) {
+    const targetName = (receiver?.name ?? '').toString().trim();
+    if (!targetName) continue;
+    const emailConfigs = Array.isArray(receiver?.emailConfigs) ? receiver.emailConfigs : [];
+    for (const cfg of emailConfigs) {
+      const secretName = (cfg?.authPassword?.name ?? '').toString().trim();
+      if (!secretName) continue;
+      if (!secretTargets.has(secretName)) secretTargets.set(secretName, new Set<string>());
+      secretTargets.get(secretName)!.add(targetName);
+    }
+  }
+  return secretTargets;
+}
+
+function parseAnnotationTargets(value: string): Set<string> {
+  return new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
+}
+
+async function syncLinkedSecretsAnnotationForReceivers(
+  conn: { origin: string; token: string; insecure: boolean },
+  namespace: string,
+  previousReceivers: any[],
+  nextReceivers: any[]
+): Promise<void> {
+  const previousMap = collectEmailReceiverSecretTargets(previousReceivers);
+  const nextMap = collectEmailReceiverSecretTargets(nextReceivers);
+  const affectedSecrets = new Set<string>([...previousMap.keys(), ...nextMap.keys()]);
+  for (const secretName of affectedSecrets) {
+    const path = `${SECRETS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(secretName)}`;
+    let raw: any;
+    try {
+      raw = await getJsonOnce(`${conn.origin}/${path}`, conn.token, conn.insecure, true);
+    } catch (e: any) {
+      const status = Number((e as any)?.status ?? (e as any)?.statusCode ?? 0);
+      if (status === 404) {
+        return Promise.reject({
+          status: 400,
+          message: `引用的告警密钥 ${namespace}/${secretName} 不存在，无法保存通知对象`,
+        });
+      }
+      throw e;
+    }
+    const secret =
+      (raw as any)?.data != null && typeof (raw as any).data === 'object' && (raw as any).data?.metadata != null
+        ? (raw as any).data
+        : raw;
+    if (!secret?.metadata) {
+      return Promise.reject({
+        status: 400,
+        message: `引用的告警密钥 ${namespace}/${secretName} 数据异常，无法保存通知对象`,
+      });
+    }
+    const annotations = secret.metadata?.annotations && typeof secret.metadata.annotations === 'object'
+      ? secret.metadata.annotations
+      : {};
+    const currentSet = parseAnnotationTargets((annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '').toString().trim());
+    const nextSet = new Set<string>(currentSet);
+    const removedTargets = previousMap.get(secretName) ?? new Set<string>();
+    const addedTargets = nextMap.get(secretName) ?? new Set<string>();
+    for (const targetName of removedTargets) nextSet.delete(targetName);
+    for (const targetName of addedTargets) nextSet.add(targetName);
+    const currentValue = Array.from(currentSet).join(',');
+    const nextValue = Array.from(nextSet).join(',');
+    if (nextValue === currentValue) continue;
+    const nextAnnotations: Record<string, string> = { ...annotations };
+    if (nextValue) {
+      nextAnnotations[ALERTMANAGER_TARGET_ANNOTATION] = nextValue;
+    } else {
+      delete nextAnnotations[ALERTMANAGER_TARGET_ANNOTATION];
+    }
+    const payload = {
+      ...secret,
+      metadata: {
+        ...secret.metadata,
+        name: (secret.metadata?.name ?? secretName).toString().trim(),
+        namespace,
+        resourceVersion: secret.metadata?.resourceVersion,
+        annotations: nextAnnotations,
+      },
+    };
+    await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, payload);
+  }
+}
 
 export async function harvesterMonitoringAlertmanagerConfigsReceiversHandler(req: Request, res: Response) {
   try {
@@ -145,6 +234,16 @@ async function processEmailReceivers(
     .catch((err: any) => (err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)));
   if (!exists) {
     const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : [];
+    if (rawReceivers.length > 0) {
+      try {
+        await syncLinkedSecretsAnnotationForReceivers(conn, ns, [], rawReceivers);
+      } catch (e: any) {
+        const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+        const msg = e?.message || '更新告警密钥关联标记失败';
+        if (status >= 500) console.error('[email-receiver] syncLinkedSecretsAnnotationForReceivers:', e);
+        return res.status(status).json({ message: msg });
+      }
+    }
     const createPayload = {
       ...body,
       spec: { ...(body?.spec || {}), receivers: normalizeReceivers(rawReceivers) },
@@ -162,7 +261,16 @@ async function processEmailReceivers(
   if (!existing?.spec) {
     return res.status(500).json({ message: '通知对象配置异常' });
   }
-  const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : (existing.spec.receivers || []);
+  const oldReceivers = Array.isArray(existing.spec.receivers) ? existing.spec.receivers : [];
+  const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : oldReceivers;
+  try {
+    await syncLinkedSecretsAnnotationForReceivers(conn, ns, oldReceivers, rawReceivers);
+  } catch (e: any) {
+    const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+    const msg = e?.message || '更新告警密钥关联标记失败';
+    if (status >= 500) console.error('[email-receiver] syncLinkedSecretsAnnotationForReceivers:', e);
+    return res.status(status).json({ message: msg });
+  }
   existing.spec.receivers = normalizeReceivers(rawReceivers);
   if (!existing.metadata) existing.metadata = {};
   if (existing.metadata.labels?.['monitoring-receiver'] !== 'true') {

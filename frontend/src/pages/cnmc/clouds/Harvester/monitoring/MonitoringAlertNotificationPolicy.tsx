@@ -529,7 +529,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       setDetailModalOpen(true);
       setDetailLoading(true);
       fetchAlertmanagerconfigDetail(cloudId, ns, name)
-        .then(({ data, ok, error }) => {
+        .then(async ({ data, ok, error }) => {
           setDetailLoading(false);
           if (!ok || !data) {
             message.error(error || '获取策略详情失败');
@@ -565,11 +565,36 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           const alertnameExact = (match.alertname ?? '').toString().trim();
           const matchersFromMatch = alertnameExact ? [alertnameExact] : [];
           const fallbackMatchers = typeof annotations.matchers === 'string' ? annotations.matchers.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-          const resolvedMatchers =
+          const resolvedMatchers: string[] =
             matchersFromRouteMatchers.length ? matchersFromRouteMatchers
               : matchersFromRe.length ? matchersFromRe
               : matchersFromMatch.length ? matchersFromMatch
               : fallbackMatchers;
+          const matcherNameMap = new Map<string, string>();
+          for (const r of rulesList) {
+            const ruleId = (r?.name ?? '').toString().trim();
+            const ruleName = (r?.aliasName ?? '').toString().trim() || ruleId;
+            if (ruleId) matcherNameMap.set(ruleId, ruleName);
+          }
+          for (const o of vmTriggerOptions) {
+            const ruleId = (o?.value ?? '').toString().trim();
+            const ruleName = (o?.label ?? '').toString().trim() || ruleId;
+            if (ruleId && !matcherNameMap.has(ruleId)) matcherNameMap.set(ruleId, ruleName);
+          }
+          const missingMatcherIds = resolvedMatchers.filter((id: string) => !matcherNameMap.has(id));
+          if (missingMatcherIds.length > 0) {
+            const { data: matchedRules, ok: matchedOk } = await fetchPrometheusRules(cloudId, {
+              alertNames: missingMatcherIds,
+            });
+            if (matchedOk && matchedRules?.rules?.length) {
+              for (const r of matchedRules.rules) {
+                const ruleId = (r?.name ?? '').toString().trim();
+                const ruleName = (r?.aliasName ?? '').toString().trim() || ruleId;
+                if (ruleId) matcherNameMap.set(ruleId, ruleName);
+              }
+            }
+          }
+          const matcherDisplayNames = resolvedMatchers.map((id: string) => matcherNameMap.get(id) || id);
           setDetailData({
             name: d.metadata?.name ?? name,
             namespace: d.metadata?.namespace ?? ns,
@@ -577,7 +602,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             creator: d.metadata?.creator ?? undefined,
             creationTimestamp: d.metadata?.creationTimestamp ?? undefined,
             receiverNames: routeReceiverNames.length ? routeReceiverNames : (route.receiver && route.receiver !== 'null-receiver' ? [route.receiver] : receivers.map((r: any) => r.name).filter((n: string) => n !== 'null-receiver')),
-            matchers: resolvedMatchers.length ? resolvedMatchers : undefined,
+            matchers: matcherDisplayNames.length ? matcherDisplayNames : undefined,
             repeatInterval: (detailChildRoutes[0] as any)?.repeatInterval ?? (route as any)?.repeatInterval ?? '4h',
           });
         })
@@ -587,7 +612,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           setDetailData(null);
         });
     },
-    [cloudId]
+    [cloudId, rulesList, vmTriggerOptions]
   );
 
   const handleCloseDetail = useCallback(() => {

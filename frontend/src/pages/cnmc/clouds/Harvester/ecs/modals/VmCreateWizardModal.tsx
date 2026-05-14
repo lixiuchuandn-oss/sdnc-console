@@ -341,7 +341,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
           'useUsbTablet', 
           'installGuestAgent', 
           'sshNames', 
-          'userData', 
           'usbDevices'
         ];
       default:

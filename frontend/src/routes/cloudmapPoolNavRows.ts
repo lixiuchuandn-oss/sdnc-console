@@ -75,7 +75,6 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   { id: 'cloudmap-pool-compute-images', pathSuffix: 'compute/images', title: '云主机镜像', order: 41, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-compute-templates', pathSuffix: 'compute/templates', title: '云主机模板', order: 42, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-compute-ssh', pathSuffix: 'compute/ssh_keys', title: 'SSH 密钥', order: 43, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
-  { id: 'cloudmap-pool-compute-ci', pathSuffix: 'compute/cloud_inits', title: 'Cloud Init', order: 44, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-compute-bin', pathSuffix: 'compute/recycle_bin', title: '回收站', order: 45, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-compute-mig', pathSuffix: 'compute/migrations', title: '迁移记录', order: 46, icon: 'DesktopOutlined', poolNavGroup: '云主机', poolMenuParentKey: COMPUTE },
   { id: 'cloudmap-pool-paas-rds', pathSuffix: 'paas_databases/rds', title: '云数据库', order: 50, icon: 'ConsoleSqlOutlined', poolNavGroup: '云数据库', poolMenuParentKey: PAAS },

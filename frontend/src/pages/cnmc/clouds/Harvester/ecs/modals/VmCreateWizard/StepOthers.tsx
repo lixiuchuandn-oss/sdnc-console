@@ -2,14 +2,13 @@
  * =========================================================================
  * [组件名称] StepOthers (Harvester 虚拟机创建向导 - 高级配置步骤)
  * [文件路径] frontend/src/pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizard/StepOthers.tsx
- * [功能描述] 负责配置虚拟机的运行策略、启动固件、Cloud-Init 以及 USB 设备挂载。
+ * [功能描述] 负责配置虚拟机的运行策略、启动固件以及 USB 设备挂载。
  *            此步骤通常处理非计算/存储/网络类的其他配置项。
  * =========================================================================
  * [核心逻辑]
  * 1. [运行策略] 配置 VM 的生命周期管理 (Always, RerunOnFailure 等)。
  * 2. [固件安全] 支持 EFI/SecureBoot 和 TPM 2.0，满足 Windows 11 合规性要求。
- * 3. [初始化] 通过 Cloud-Init (userData) 注入 SSH 密钥和启动脚本。
- * 4. [硬件透传] 允许挂载宿主机的 USB 设备 (需 KubeVirt 允许列表支持)。
+ * 3. [硬件透传] 允许挂载宿主机的 USB 设备 (需 KubeVirt 允许列表支持)。
  * -------------------------------------------------------------------------
  * [数据交互] (Form Fields -> VM Spec)
  * - runStrategy      -> spec.runStrategy (默认: RerunOnFailure)
@@ -21,7 +20,7 @@
  * =========================================================================
  */
 import React from 'react';
-import { Form, Select, Checkbox, Input, Space, Row, Col, Typography, Button, List } from 'antd';
+import { Form, Select, Checkbox, Space, Row, Col, Typography, Button } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 
 /**
@@ -65,7 +64,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
 }) => {
   return (
     <>
-      <Typography.Paragraph type="secondary">配置新建云主机的启动、Cloud-Init和USB设备参数</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">配置新建云主机的启动与 USB 设备参数</Typography.Paragraph>
       
       {/* ============================== 启动与可用性 ============================== */}
       <div className="wizard-group-title">启动与可用性</div>
@@ -143,9 +142,6 @@ const StepOthers: React.FC<StepOthersProps> = ({
             <Checkbox>安装 QEMU Guest Agent（无 Cloud-Init 时自动生成）</Checkbox>
           </Form.Item>
         </Space>
-      </Form.Item>
-      <Form.Item label="Cloud-Init" name="userData">
-        <Input.TextArea rows={6} placeholder="#cloud-config" />
       </Form.Item>
       
       {/* ============================== USB 设备 ============================== */}
