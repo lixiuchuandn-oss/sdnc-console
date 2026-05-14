@@ -273,7 +273,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
       const target = values?.targetNode === '__AUTO__' ? undefined : values?.targetNode;
       await migrateHarvesterVm(cloudId, instanceId, target);
 
-      message.success('迁移任务已提交');
+      message.success('迁移任务已提交，在迁移记录页面可看到迁移进度');
       onOk();
       onClose();
     } catch (error: any) {
@@ -410,6 +410,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
           <Space size={6}>
             <CloudServerOutlined style={{ color: '#1677ff' }} />
             <span>当前节点</span>
+            {currentNodeName && <span style={{ color: '#8c8c8c', fontSize: '12px' }}>（{currentNodeName}）</span>}
           </Space>
         ),
         dataIndex: 'current',
@@ -421,6 +422,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
           <Space size={6}>
             <AimOutlined style={{ color: '#52c41a' }} />
             <span>目标节点</span>
+            {targetNodeName && <span style={{ color: '#8c8c8c', fontSize: '12px' }}>（{targetNodeName}）</span>}
           </Space>
         ),
         dataIndex: 'target',
@@ -437,7 +439,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
         },
       },
     ],
-    [targetNodeName],
+    [currentNodeName, targetNodeName],
   );
 
   const modalTitle = (

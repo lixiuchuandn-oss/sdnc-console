@@ -624,7 +624,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
   }
 
   if (innerActiveKey === 'migrations') {
-    return <MigrationsSection cloudId={cloudId} />;
+    return <MigrationsSection cloudId={cloudId} vms={ecs} />;
   }
 
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
