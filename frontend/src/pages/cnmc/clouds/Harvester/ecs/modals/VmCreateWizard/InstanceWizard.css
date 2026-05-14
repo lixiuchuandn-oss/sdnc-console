@@ -25,13 +25,62 @@
 .wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
 /* Radio 外观（中间列） */
 .wizard-container .ant-radio-group .ant-radio-button-wrapper { height: 28px; line-height: 26px; padding: 0 10px; font-size: 12px; }
-/* 中间列磁盘卡片状态 */
+/* 中间列磁盘卡片状态（系统盘等若复用 Card 时仍可用） */
 .wizard-disk-card {
   border: 1px solid #d9d9d9;
 }
 .wizard-disk-card.active { border-color: #91caff; }
 .wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
-/* 右侧列（Preview） */
+/* 网络步骤：主网卡 与 本列表、辅助网卡之间、辅助网卡与「添加网卡」按钮 统一 24px（flex gap 显式控制，不靠 margin 折叠） */
+.wizard-net-ifaces-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 24px;
+}
+.wizard-secondary-nic-wrap {
+  flex-shrink: 0;
+}
+/* 添加辅助网卡按钮区：与上方网卡配置块用横线分隔 */
+.wizard-net-ifaces-list .wizard-net-ifaces-actions {
+  border-top: 1px solid #eaeaea;
+  padding-top: 16px;
+  margin-top: 0;
+}
+/* 数据盘列表：与 wizard-net-ifaces-list 同款纵向节奏 */
+.wizard-disks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 24px;
+}
+/* 添加数据盘按钮区 */
+.wizard-disks-list .wizard-disks-actions {
+  border-top: 1px solid #eaeaea;
+  padding-top: 16px;
+  margin-top: 0;
+}
+.wizard-secondary-nic-block {
+  padding: 2px 0 6px;
+  border: none;
+  background: transparent;
+}
+.wizard-secondary-nic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #eaeaea;
+}
+.wizard-secondary-nic-slot-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f1f1f;
+  line-height: 1.4;
+}
 .wizard-preview { background: #ffffff; border: 1px solid #eaeaea; border-radius: 8px; padding: 16px; display: flex; flex-direction: column;  height: 100%; min-height: 0; overflow: hidden; margin-right: 0; }
 .wizard-preview-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f0f0f0; flex: 0 0 var(--preview-header-h, 40px); }
 .wizard-preview-json-btn { padding: 0 !important; font-size: 14px !important; }

@@ -2,17 +2,17 @@
  * StepDisks — Harvester 创建虚拟机向导「存储与磁盘」步骤。
  *
  * 职责：
- * - 系统盘：来源（镜像 / ISO / 现有 PVC）、容量、块设备总线、设备类型、存储类。切换为「现有磁盘」时会复位为块设备 + 默认可编辑总线。
+ * - 系统盘：来源（镜像 / ISO / 现有 PVC）；名称、容量、块设备总线。设备类型与存储类不写 UI，随来源与所选镜像/卷写入表单并提交（镜像/现有卷为 Disk；ISO 固定 CD-ROM）。
  * - 数据盘：Form.List 动态增删；新建卷、已有卷、挂载 ISO；每条的总线与来源子表单。
  *
  * 约定：
- * - 块设备总线可选 VirtIO / SCSI / SATA / IDE / NVMe；CD-ROM 总线由架构固定（见 VmWizardUtils），说明在表单项 label 的 tooltip。
- * - 系统盘为 CD-ROM 时，校验必须存在至少一块非 CD-ROM 数据盘作为安装目标。
+ * - 块设备总线可选 VirtIO / SCSI / SATA / IDE / NVMe；CD-ROM 总线与 VmWizardUtils 提交一致（ARM64→SCSI，否则 SATA）。总线说明统一用 Form.Item `tooltip`。
+ * - 选择 ISO 镜像时在该表单项校验：至少添加一块非光驱数据盘（随数据盘列表联动重新校验）。
  */
 import React from 'react';
-import { Form, Input, Select, Space, Button, Row, Col, Card, Typography, Tooltip } from 'antd';
+import { Form, Input, Select, Space, Button, Row, Col, Typography } from 'antd';
 import type { FormInstance } from 'antd/es/form';
-import { MinusCircleOutlined, InfoCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { MinusCircleOutlined } from '@ant-design/icons';
 import { isHarvesterVmImageReady, isSystemStorageClass, resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from './VmWizardUtils';
 import { OsIcon } from '../../../../../../../components/OsIcon';
@@ -35,24 +35,17 @@ const DISK_BUS_OPTIONS = [
 
 export interface StepDisksProps {
   form: FormInstance;
-  /** 预计算的下拉项（当前步骤内未使用，由父级传入以保持接口稳定） */
-  imageOptions: unknown[];
   imageLoading: boolean;
   reloadImages: () => void;
   images: unknown[];
   defaultStorageClassName: string | undefined;
   reloadStorageClasses: () => void;
-  /** 预留：名称生成等 */
-  initialVmName: string;
   volumeOptions: unknown[];
   reloadVolumes: () => void;
   availableVolumes: unknown[];
   storageClasses: unknown[];
   storageClassLoading: boolean;
-  /** 预留：磁盘卡片高亮 */
-  selectedDiskIdx: number | null;
-  setSelectedDiskIdx: (idx: number | null) => void;
-  /** 与提交时 CD-ROM 总线逻辑一致（x86→SATA，ARM64→SCSI） */
+  /** 与 VmWizardUtils 下发光驱总线一致 */
   isArm64?: boolean;
 }
 
@@ -60,13 +53,14 @@ export interface StepDisksProps {
 // 纯函数与小型展示组件
 // ---------------------------------------------------------------------------
 
-function cdromBusFieldValue(isArm64: boolean): 'sata' {
-  return 'sata';
+function cdromBusFieldValue(isArm64?: boolean): 'scsi' | 'sata' {
+  return isArm64 ? 'scsi' : 'sata';
 }
 
 /** 光驱固定总线说明：写在 Form.Item `tooltip`，与「总线」标签对齐，勿放在控件旁 */
-function cdromBusTooltipText(isArm64: boolean): string {
-  return '光驱设备固定为 SATA，与下发的虚拟机规格一致。';
+function cdromBusTooltipText(isArm64?: boolean): string {
+  const b = cdromBusFieldValue(isArm64).toUpperCase();
+  return `光驱设备固定为 ${b}，与下发的虚拟机规格一致。`;
 }
 
 function generateDiskSuffix(): string {
@@ -132,50 +126,21 @@ function storageClassNameFromItem(x: unknown): string {
 }
 
 /** 光驱总线：禁用 Select（与可编辑总线同边框）；说明由外层 Form.Item `tooltip` 承载 */
-const CDROM_BUS_FIXED_OPTIONS = [
-  { label: 'SATA（固定）', value: 'sata' },
-  { label: 'SCSI（固定）', value: 'scsi' },
-] as const;
-
-function CdromBusReadonly({ isArm64 }: { isArm64: boolean }) {
+function CdromBusReadonly({ isArm64 }: { isArm64?: boolean }) {
+  const v = cdromBusFieldValue(isArm64);
   return (
     <Select
       disabled
       style={{ width: '100%' }}
-      value={cdromBusFieldValue(isArm64)}
-      options={[...CDROM_BUS_FIXED_OPTIONS]}
+      value={v}
+      options={[{ label: `${v.toUpperCase()}（固定）`, value: v }]}
     />
   );
 }
 
-function DiskBusLabel() {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      总线
-      <Tooltip title="VirtIO 性能最好；若客户机无驱动，可改用 SATA 或 SCSI。">
-        <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)', fontSize: 14 }} />
-      </Tooltip>
-    </span>
-  );
-}
+/** 块设备「总线」表单项说明（与 Form.Item tooltip 一致） */
+const DISK_BLOCK_BUS_TOOLTIP = 'VirtIO 性能最好；若客户机无驱动，可改用 SATA 或 SCSI。';
 
-/** 数据盘卡片标题用：从 size 字段解析 GiB（展示） */
-function parseExtraDiskSizeGiB(raw: unknown, sourceType: string): number | '' {
-  if (raw == null || raw === '') return '';
-  const ss = String(raw).toUpperCase();
-  const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0;
-  if (sourceType === 'existing') {
-    if (/GI$/.test(ss)) return num;
-    if (/MI$/.test(ss)) return Math.ceil(num / 1024);
-    return Math.round(num / (1024 * 1024 * 1024));
-  }
-  if (/GI$/.test(ss)) return num;
-  if (/MI$/.test(ss)) return Math.ceil(num / 1024);
-  if (/^[0-9]+$/.test(ss)) return num;
-  return num;
-}
-
-/** 已有卷容量只读展示 */
 function formatExistingPvcSizeDisplay(
   sizeField: unknown,
   pvcKey: string | undefined,
@@ -211,25 +176,20 @@ function formatExistingPvcSizeDisplay(
 
 const StepDisks: React.FC<StepDisksProps> = ({
   form,
-  imageOptions: _imageOptions,
   imageLoading,
   reloadImages,
   images,
   defaultStorageClassName,
   reloadStorageClasses,
-  initialVmName: _initialVmName,
   volumeOptions,
   reloadVolumes,
   availableVolumes,
   storageClasses,
   storageClassLoading,
-  selectedDiskIdx: _selectedDiskIdx,
-  setSelectedDiskIdx: _setSelectedDiskIdx,
   isArm64 = false,
 }) => {
   const watchedRootSource = Form.useWatch('rootSourceType', form);
   const rootSourceType = watchedRootSource || 'image';
-  const watchedRootDeviceType = Form.useWatch('rootDeviceType', form);
 
   const onRootSourceChange = (v: string) => {
     try {
@@ -312,7 +272,6 @@ const StepDisks: React.FC<StepDisksProps> = ({
         reloadStorageClasses();
       }
       const it = findImageBySelectValue(images, val);
-      const dispName = getImageRecordDisplayName(it).toLowerCase();
       const sc =
         (it?.storageClassName as string | undefined) ||
         defaultStorageClassName ||
@@ -349,7 +308,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
       <div className="wizard-group-title">系统盘</div>
       <Row gutter={12}>
         <Col span={8}>
-          <Form.Item label="来源" name="rootSourceType" rules={[{ required: true }]}>
+          <Form.Item label="来源" name="rootSourceType" rules={[{ required: true, message: '请选择来源' }]}>
             <Select
               options={[
                 { label: '镜像', value: 'image' },
@@ -377,7 +336,35 @@ const StepDisks: React.FC<StepDisksProps> = ({
           )}
 
           {rootSourceType === 'iso' && (
-            <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true, message: '请选择 ISO 镜像' }]}>
+            <Form.Item
+              label="选择 ISO 镜像"
+              name="image"
+              dependencies={['extraDisks', 'rootSourceType']}
+              rules={[
+                { required: true, message: '请选择 ISO 镜像' },
+                {
+                  validator: async (_, value) => {
+                    if (String(form.getFieldValue('rootSourceType') || '') !== 'iso') {
+                      return Promise.resolve();
+                    }
+                    if (value == null || value === '') {
+                      return Promise.resolve();
+                    }
+                    const extraDisks = form.getFieldValue('extraDisks') || [];
+                    const hasDataDisk = extraDisks.some(
+                      (d: { type?: string; deviceType?: string }) =>
+                        d?.type !== 'cdrom' && d?.deviceType !== 'cdrom'
+                    );
+                    if (!hasDataDisk) {
+                      return Promise.reject(
+                        new Error('使用 ISO 安装时，须添加一块非光驱数据盘作为安装目标')
+                      );
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
+            >
               <Select
                 options={isoImageOptions}
                 optionFilterProp="labelString"
@@ -392,7 +379,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
           )}
 
           {rootSourceType === 'existing' && (
-            <Form.Item label="选择卷（PVC）" name="rootPvc" rules={[{ required: true }]}>
+            <Form.Item label="选择虚拟磁盘" name="rootPvc" rules={[{ required: true }]}>
               <Select
                 options={volumeOptions as { label?: unknown; value?: string }[]}
                 placeholder="选择现有卷"
@@ -430,12 +417,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
           <Form.Item
             label="容量"
             name="rootSize"
+            tooltip={rootSourceType === 'iso' ? 'ISO 系统盘容量由所选镜像决定，不可修改。' : undefined}
             rules={[
               { required: true, message: '请输入容量' },
               { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' },
             ]}
           >
-            <Input type="number" placeholder="如：40" suffix="GiB" />
+            <Input
+              type={rootSourceType === 'iso' ? 'text' : 'number'}
+              placeholder={rootSourceType === 'iso' ? undefined : '如：40'}
+              suffix="GiB"
+              disabled={rootSourceType === 'iso'}
+            />
           </Form.Item>
         </Col>
         <Col xs={24} sm={12} md={8}>
@@ -457,7 +450,8 @@ const StepDisks: React.FC<StepDisksProps> = ({
               }
               return (
                 <Form.Item
-                  label={<DiskBusLabel />}
+                  label="总线"
+                  tooltip={DISK_BLOCK_BUS_TOOLTIP}
                   name="rootBus"
                   rules={[{ required: true, message: '请选择总线' }]}
                 >
@@ -468,272 +462,260 @@ const StepDisks: React.FC<StepDisksProps> = ({
           </Form.Item>
         </Col>
       </Row>
-      <Row gutter={12}>
-        <Col xs={24} sm={12} md={8}>
-          <Form.Item
-            label={
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                设备类型
-                {watchedRootDeviceType === 'cdrom' && (
-                  <Tooltip title="系统盘为光驱时，须至少添加一块非 ISO 的数据盘作为安装目标磁盘。">
-                    <ExclamationCircleOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
-                  </Tooltip>
-                )}
-              </span>
-            }
-            name="rootDeviceType"
-            dependencies={['extraDisks', 'rootDeviceType']}
-            rules={[
-              {
-                validator: async (_, value) => {
-                  if (value === 'cdrom') {
-                    const extraDisks = form.getFieldValue('extraDisks') || [];
-                    const hasDataDisk = extraDisks.some(
-                      (d: { type?: string; deviceType?: string }) =>
-                        d?.type !== 'cdrom' && d?.deviceType !== 'cdrom'
-                    );
-                    if (!hasDataDisk) {
-                      return Promise.reject(
-                        new Error('系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统')
-                      );
-                    }
-                  }
-                  return Promise.resolve();
-                },
-              },
-            ]}
-          >
-            <Select
-              options={[
-                { label: 'Disk', value: 'disk' },
-                { label: 'CD-ROM', value: 'cdrom' },
-              ]}
-            />
-          </Form.Item>
-        </Col>
-        {rootSourceType !== 'existing' && (
-          <Col xs={24} sm={24} md={16}>
-            <Form.Item label="存储类" name="storageClassName">
-              <Select
-                disabled={['image', 'iso'].includes(rootSourceType)}
-                placeholder="选择存储类"
-                options={(storageClasses || [])
-                  .filter((x) => !isSystemStorageClass(storageClassNameFromItem(x)))
-                  .map((x) => {
-                    const nm = storageClassNameFromItem(x);
-                    return { label: nm, value: nm };
-                  })}
-                loading={storageClassLoading}
-                onOpenChange={(open) => {
-                  if (open) reloadStorageClasses();
-                }}
-              />
-            </Form.Item>
-          </Col>
-        )}
-      </Row>
+      <Form.Item name="rootDeviceType" hidden preserve>
+        <Input />
+      </Form.Item>
+      <Form.Item name="storageClassName" hidden preserve>
+        <Input />
+      </Form.Item>
 
-      <div className="wizard-group-title">数据盘</div>
       <Form.List name="extraDisks">
         {(fields, { add, remove }) => (
-          <div>
+          <div className="wizard-disks-list">
             {fields.map(({ key, name: fieldName }, idx) => {
               const row = form.getFieldValue(['extraDisks', fieldName]) as
                 | { size?: unknown; sourceType?: string; type?: string; name?: string }
                 | undefined;
               const st = row?.sourceType || form.getFieldValue(['extraDisks', fieldName, 'sourceType']) || 'new';
-              const sizeGiB = parseExtraDiskSizeGiB(row?.size, st);
-              const diskType =
-                (form.getFieldValue(['extraDisks', fieldName, 'type']) || row?.type || 'disk') === 'cdrom'
-                  ? 'ISO'
-                  : 'DISK';
-              const sizeTxt = st === 'existing' ? '' : sizeGiB ? ` ${sizeGiB} GiB` : '';
-              const titleText = `${idx + 1}# ${row?.name ? row.name : '未命名'}${sizeTxt} · ${diskType}`;
+              const slotTitle = `数据盘 ${idx + 1}`;
 
               return (
-                <Card
-                  key={key}
-                  size="small"
-                  title={<div>{titleText}</div>}
-                  extra={
-                    <Button
-                      type="text"
-                      icon={<MinusCircleOutlined />}
-                      onClick={(e) => {
-                        e.stopPropagation?.();
-                        remove(fieldName);
-                      }}
-                      danger
-                    />
-                  }
-                  className="wizard-disk-card"
-                  style={{ marginBottom: 12 }}
-                >
-                  <Row gutter={12}>
-                    <Col span={8}>
-                      <Form.Item
-                        label="名称"
-                        name={[fieldName, 'name']}
-                        rules={[
-                          { required: true, message: '请输入名称' },
-                          { pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' },
-                        ]}
-                      >
-                        <Input placeholder="如：win-2012-vm-1" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      {st === 'existing' && (
-                        <Form.Item label="容量">
-                          <Input
-                            disabled
-                            value={formatExistingPvcSizeDisplay(
-                              form.getFieldValue(['extraDisks', fieldName, 'size']),
-                              form.getFieldValue(['extraDisks', fieldName, 'pvc']),
-                              availableVolumes
-                            )}
-                          />
-                        </Form.Item>
-                      )}
-                      {st === 'image' && (
-                        <Form.Item label="容量">
-                          <Input value="自动" disabled />
-                        </Form.Item>
-                      )}
-                      {st === 'new' && (
-                        <Form.Item
-                          label="容量"
-                          name={[fieldName, 'size']}
-                          rules={[
-                            { required: true, message: '请输入容量' },
-                            { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' },
-                          ]}
-                        >
-                          <Input type="number" placeholder="如：100" suffix="GiB" />
-                        </Form.Item>
-                      )}
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item noStyle dependencies={[['extraDisks', fieldName, 'type']]}>
-                        {() => {
-                          const typ =
-                            form.getFieldValue(['extraDisks', fieldName, 'type']) ||
-                            (form.getFieldValue('extraDisks') || [])[fieldName as number]?.type ||
-                            'disk';
-                          const isCdromRow = typ === 'cdrom';
-                          if (isCdromRow) {
-                            return (
-                              <>
-                                <Form.Item name={[fieldName, 'bus']} hidden>
-                                  <Input />
-                                </Form.Item>
-                                <Form.Item label="总线" tooltip={cdromBusTooltipText(isArm64)}>
-                                  <CdromBusReadonly isArm64={isArm64} />
-                                </Form.Item>
-                              </>
-                            );
-                          }
-                          return (
+                <div key={key} className="wizard-secondary-nic-wrap">
+                  <div className="wizard-secondary-nic-block">
+                    <div className="wizard-secondary-nic-head">
+                      <span className="wizard-secondary-nic-slot-title">{slotTitle}</span>
+                      <Button
+                        type="text"
+                        icon={<MinusCircleOutlined />}
+                        onClick={() => {
+                          remove(fieldName);
+                        }}
+                        danger
+                      />
+                    </div>
+                    {st === 'image' ? (
+                      <>
+                        <Row gutter={12}>
+                          <Col span={24}>
                             <Form.Item
-                              label={<DiskBusLabel />}
+                              label="选择 ISO 镜像"
+                              name={[fieldName, 'image']}
+                              rules={[{ required: true, message: '请选择 ISO' }]}
+                            >
+                              <Select
+                                options={(images || [])
+                                  .filter((x) => resolveVmImageKind(x) === 'iso' && isHarvesterVmImageReady(x))
+                                  .map((x) => {
+                                    const rec = x as Record<string, unknown>;
+                                    const meta = rec.metadata as Record<string, unknown> | undefined;
+                                    const imgName = (meta?.name || rec.name) as string | undefined;
+                                    const ns = meta?.namespace as string | undefined;
+                                    const disp =
+                                      (meta?.labels as Record<string, string> | undefined)?.[
+                                        'harvesterhci.io/imageDisplayName'
+                                      ] || imgName;
+                                    return {
+                                      label: (
+                                        <Space>
+                                          <OsIcon osName={String(disp || imgName || '')} />
+                                          {disp || '-'}
+                                        </Space>
+                                      ),
+                                      value: ns && imgName ? `${ns}/${imgName}` : imgName,
+                                      labelString: disp || imgName || '',
+                                    };
+                                  })}
+                                optionFilterProp="labelString"
+                                placeholder="选择 ISO"
+                                loading={imageLoading}
+                                onOpenChange={(open) => {
+                                  if (open) reloadImages();
+                                }}
+                                onChange={(val) => {
+                                  try {
+                                    const it = findImageBySelectValue(images, String(val));
+                                    const raw =
+                                      (it as { spec?: { virtualSize?: unknown } })?.spec?.virtualSize ??
+                                      (it as { virtualSize?: unknown })?.virtualSize ??
+                                      (it as { size?: unknown })?.size;
+                                    const gi = parseSizeToGi(raw);
+                                    const sc =
+                                      (it?.storageClassName as string | undefined) ||
+                                      defaultStorageClassName ||
+                                      form.getFieldValue(['extraDisks', fieldName, 'storageClassName']);
+                                    const curr = [...(form.getFieldValue('extraDisks') || [])] as Record<
+                                      string,
+                                      unknown
+                                    >[];
+                                    const i = fieldName as number;
+                                    curr[i] = {
+                                      ...(curr[i] || {}),
+                                      image: val,
+                                      storageClassName: sc,
+                                      size: gi ? String(gi) : undefined,
+                                    };
+                                    form.setFieldsValue({ extraDisks: curr });
+                                  } catch {
+                                    /* ignore */
+                                  }
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Row gutter={12}>
+                          <Col span={8}>
+                            <Form.Item
+                              label="名称"
+                              name={[fieldName, 'name']}
+                              rules={[
+                                { required: true, message: '请输入名称' },
+                                { pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' },
+                              ]}
+                            >
+                              <Input placeholder="如：win-2012-vm-1" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item
+                              label="容量"
+                              name={[fieldName, 'size']}
+                              tooltip="挂载 ISO 时容量由所选镜像决定，不可修改。"
+                              rules={[
+                                { required: true, message: '请先选择 ISO 镜像以确定容量' },
+                                { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' },
+                              ]}
+                            >
+                              <Input type="text" suffix="GiB" disabled />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item name={[fieldName, 'bus']} hidden>
+                              <Input />
+                            </Form.Item>
+                            <Form.Item label="总线" tooltip={cdromBusTooltipText(isArm64)}>
+                              <CdromBusReadonly isArm64={isArm64} />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </>
+                    ) : st === 'existing' ? (
+                      <>
+                        <Row gutter={12}>
+                          <Col span={24}>
+                            <Form.Item
+                              label="选择虚拟磁盘"
+                              name={[fieldName, 'pvc']}
+                              rules={[{ required: true, message: '请选择PVC' }]}
+                            >
+                              <Select
+                                placeholder="选择现有卷（PVC）"
+                                options={volumeOptions as { label?: unknown; value?: string }[]}
+                                onOpenChange={(open) => {
+                                  if (open) reloadVolumes();
+                                }}
+                                onChange={(val) => {
+                                  try {
+                                    const curr = [...(form.getFieldValue('extraDisks') || [])] as Record<string, unknown>[];
+                                    const it = (availableVolumes || []).find(
+                                      (v) => (v as { pvcName?: string })?.pvcName === val
+                                    );
+                                    const pvcName = String(val || '').toLowerCase();
+                                    const defaultBus = /windows|win/.test(pvcName) ? 'sata' : 'virtio';
+                                    curr[fieldName as number] = {
+                                      ...(curr[fieldName as number] || {}),
+                                      pvc: val,
+                                      size: (it as { size?: unknown } | undefined)?.size || (curr[fieldName as number] as { size?: unknown })?.size,
+                                      volumeMode:
+                                        (it as { volumeMode?: string; VolumeMode?: string } | undefined)?.volumeMode ||
+                                        (it as { volumeMode?: string; VolumeMode?: string } | undefined)?.VolumeMode ||
+                                        '',
+                                      bus: defaultBus,
+                                    };
+                                    form.setFieldsValue({ extraDisks: curr });
+                                  } catch {
+                                    /* ignore */
+                                  }
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Row gutter={12}>
+                          <Col span={8}>
+                            <Form.Item
+                              label="名称"
+                              name={[fieldName, 'name']}
+                              rules={[
+                                { required: true, message: '请输入名称' },
+                                { pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' },
+                              ]}
+                            >
+                              <Input placeholder="如：win-2012-vm-1" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item label="容量">
+                              <Input
+                                disabled
+                                value={formatExistingPvcSizeDisplay(
+                                  form.getFieldValue(['extraDisks', fieldName, 'size']),
+                                  form.getFieldValue(['extraDisks', fieldName, 'pvc']),
+                                  availableVolumes
+                                )}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item
+                              label="总线"
+                              tooltip={DISK_BLOCK_BUS_TOOLTIP}
                               name={[fieldName, 'bus']}
                               rules={[{ required: true, message: '请选择总线' }]}
                             >
                               <Select options={[...DISK_BUS_OPTIONS]} placeholder="VirtIO（推荐）" />
                             </Form.Item>
-                          );
-                        }}
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  {st === 'existing' && (
-                    <Row gutter={12}>
-                      <Col span={24}>
-                        <Form.Item
-                          label="卷（PVC）"
-                          name={[fieldName, 'pvc']}
-                          rules={[{ required: true, message: '请选择PVC' }]}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            placeholder="选择现有卷（PVC）"
-                            options={volumeOptions as { label?: unknown; value?: string }[]}
-                            onOpenChange={(open) => {
-                              if (open) reloadVolumes();
-                            }}
-                            onChange={(val) => {
-                              try {
-                                const curr = [...(form.getFieldValue('extraDisks') || [])] as Record<string, unknown>[];
-                                const it = (availableVolumes || []).find(
-                                  (v) => (v as { pvcName?: string })?.pvcName === val
-                                );
-                                const pvcName = String(val || '').toLowerCase();
-                                const defaultBus = /windows|win/.test(pvcName) ? 'sata' : 'virtio';
-                                curr[fieldName as number] = {
-                                  ...(curr[fieldName as number] || {}),
-                                  pvc: val,
-                                  size: (it as { size?: unknown } | undefined)?.size || (curr[fieldName as number] as { size?: unknown })?.size,
-                                  volumeMode:
-                                    (it as { volumeMode?: string; VolumeMode?: string } | undefined)?.volumeMode ||
-                                    (it as { volumeMode?: string; VolumeMode?: string } | undefined)?.VolumeMode ||
-                                    '',
-                                  bus: defaultBus,
-                                };
-                                form.setFieldsValue({ extraDisks: curr });
-                              } catch {
-                                /* ignore */
-                              }
-                            }}
-                          />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  )}
-
-                  {st === 'image' && (
-                    <Row gutter={12}>
-                      <Col span={24}>
-                        <Form.Item
-                          label="选择 ISO"
-                          name={[fieldName, 'image']}
-                          rules={[{ required: true, message: '请选择 ISO' }]}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            options={(images || [])
-                              .filter((x) => resolveVmImageKind(x) === 'iso' && isHarvesterVmImageReady(x))
-                              .map((x) => {
-                                const rec = x as Record<string, unknown>;
-                                const meta = rec.metadata as Record<string, unknown> | undefined;
-                                const imgName = (meta?.name || rec.name) as string | undefined;
-                                const ns = meta?.namespace as string | undefined;
-                                const disp =
-                                  (meta?.labels as Record<string, string> | undefined)?.[
-                                    'harvesterhci.io/imageDisplayName'
-                                  ] || imgName;
-                                return {
-                                  label: (
-                                    <Space>
-                                      <OsIcon osName={String(disp || imgName || '')} />
-                                      {disp || '-'}
-                                    </Space>
-                                  ),
-                                  value: ns && imgName ? `${ns}/${imgName}` : imgName,
-                                  labelString: disp || imgName || '',
-                                };
-                              })}
-                            optionFilterProp="labelString"
-                            placeholder="选择 ISO"
-                            loading={imageLoading}
-                            onOpenChange={(open) => {
-                              if (open) reloadImages();
-                            }}
-                          />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  )}
+                          </Col>
+                        </Row>
+                      </>
+                    ) : (
+                      <Row gutter={12}>
+                        <Col span={8}>
+                          <Form.Item
+                            label="名称"
+                            name={[fieldName, 'name']}
+                            rules={[
+                              { required: true, message: '请输入名称' },
+                              { pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' },
+                            ]}
+                          >
+                            <Input placeholder="如：win-2012-vm-1" />
+                          </Form.Item>
+                        </Col>
+                        <Col span={8}>
+                          <Form.Item
+                            label="容量"
+                            name={[fieldName, 'size']}
+                            rules={[
+                              { required: true, message: '请输入容量' },
+                              { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' },
+                            ]}
+                          >
+                            <Input type="number" placeholder="如：100" suffix="GiB" />
+                          </Form.Item>
+                        </Col>
+                        <Col span={8}>
+                          <Form.Item
+                            label="总线"
+                            tooltip={DISK_BLOCK_BUS_TOOLTIP}
+                            name={[fieldName, 'bus']}
+                            rules={[{ required: true, message: '请选择总线' }]}
+                          >
+                            <Select options={[...DISK_BUS_OPTIONS]} placeholder="VirtIO（推荐）" />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    )}
 
                   {st === 'new' && (
                     <Row gutter={12}>
@@ -742,7 +724,6 @@ const StepDisks: React.FC<StepDisksProps> = ({
                           label="存储类"
                           name={[fieldName, 'storageClassName']}
                           rules={[{ required: true, message: '请选择存储类' }]}
-                          style={{ marginBottom: 0 }}
                         >
                           <Select
                             placeholder="选择存储类"
@@ -760,7 +741,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                         </Form.Item>
                       </Col>
                       <Col span={8}>
-                        <Form.Item label="卷模式" name={[fieldName, 'volumeMode']} style={{ marginBottom: 0 }}>
+                        <Form.Item label="卷模式" name={[fieldName, 'volumeMode']}>
                           <Select
                             placeholder="选择卷模式"
                             options={[
@@ -780,12 +761,15 @@ const StepDisks: React.FC<StepDisksProps> = ({
                       </Form.Item>
                     </Col>
                   </Row>
-                </Card>
+                  </div>
+                </div>
               );
             })}
 
-            <Space>
+            <Space wrap className="wizard-disks-actions">
               <Button
+                color="primary"
+                variant="filled"
                 onClick={() =>
                   add({
                     type: 'disk',
@@ -798,9 +782,11 @@ const StepDisks: React.FC<StepDisksProps> = ({
                   })
                 }
               >
-                新建空白卷
+                + 新建空白卷
               </Button>
               <Button
+                color="primary"
+                variant="filled"
                 onClick={() =>
                   add({
                     type: 'disk',
@@ -810,9 +796,11 @@ const StepDisks: React.FC<StepDisksProps> = ({
                   })
                 }
               >
-                挂载已有卷
+                + 挂载已有卷
               </Button>
               <Button
+                color="primary"
+                variant="filled"
                 onClick={() =>
                   add({
                     type: 'cdrom',
@@ -822,7 +810,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                   })
                 }
               >
-                挂载 ISO
+                + 挂载 ISO
               </Button>
             </Space>
           </div>

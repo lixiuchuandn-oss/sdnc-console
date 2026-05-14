@@ -5,17 +5,17 @@
  * ==============================================================================
  *
  * [功能描述]
- * 负责配置虚拟机的基础信息，包括资源池、命名空间、运行位置（调度策略）以及虚拟机名称/描述。
+ * 负责配置虚拟机的基础信息，包括资源池、业务项目（K8s namespace）、运行位置（调度策略）以及虚拟机名称/描述。
  * ------------------------------------------------------------------------------
  *
  * [核心逻辑]
- * 1. [资源池选择]: 切换资源池时，重置并重新加载命名空间。
- * 2. [命名空间自动修正]: 默认过滤掉系统命名空间，并自动选中第一个可用命名空间。
+ * 1. [资源池选择]: 切换资源池时，重置并重新加载项目（namespace）列表。
+ * 2. [项目默认选中]: 默认过滤系统/公共项目，并自动选中第一个可用项（租户侧更严）。
  * 3. [调度策略]:
  *    - 自动调度: 让 K8s 调度器决定。
  *    - 指定主机: 强制调度到特定节点 (nodeName)。
  *    - 标签选择: 使用 nodeSelector 匹配节点标签。
- * 4. [能力检测]: 根据资源池 ID 获取 Harvester 集群能力（如架构、推荐机型）。
+ * 4. [能力检测]: 根据资源池 ID 获取 Harvester 集群能力（写入 clusterArch / machineType；表单项隐藏，提交与校验仍注册）。
  * ------------------------------------------------------------------------------
  *
  * [API 接口]
@@ -148,8 +148,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
-  const [capabilities, setCapabilities] = useState<any>({});
-  
+
   // 资源数据状态
   const [metricsMap, setMetricsMap] = useState<Record<string, { cpuUsedCores?: number; memUsedBytes?: number }>>({});
   const [requestsMap, setRequestsMap] = useState<Record<string, { cpuRequestCores?: number; memRequestBytes?: number }>>({});
@@ -255,22 +254,21 @@ const StepBasic: React.FC<StepBasicProps> = ({
     if (cloudId && cloudId !== 'all') {
       fetchHarvesterCapabilities(cloudId).then((res: any) => {
         const data = res.data || {};
-        setCapabilities(data);
         form.setFieldsValue({
           clusterArch: data.architecture,
-          machineType: data.recommendedMachineType
+          machineType: data.recommendedMachineType,
         });
       }).catch((e: any) => console.error(e));
     }
   }, [cloudId]);
 
-  // [业务规则] 命名空间自动选择逻辑
-  // 若为租户，强制过滤系统命名空间和公共命名空间；否则允许选择所有（但默认选中第一个非系统）
+  // [业务规则] 项目（namespace）自动选择逻辑
+  // 租户：过滤系统与公共项；管理员：默认选第一个非系统项
   useEffect(() => {
     const validOptions = visibleNamespaceOptions;
     if (validOptions.length === 0) return;
 
-    // 用 getFieldsValue(true) 读，避免第一步未挂载时 getFieldValue 短暂为空，误把用户已选命名空间覆盖成第一项
+    // 用 getFieldsValue(true) 读，避免第一步未挂载时 getFieldValue 短暂为空，误覆盖已选项目
     const currentVal =
       form.getFieldsValue(true)?.namespace ?? form.getFieldValue('namespace');
     const isValid =
@@ -305,47 +303,54 @@ const StepBasic: React.FC<StepBasicProps> = ({
     return arr;
   }, [filteredNodes, nodeReadyFilter]);
 
+  /** 已由入口上下文选定资源池时不可切换，仅隐藏控件并保留表单字段（与 WizardSummary / 校验一致） */
+  const cloudPoolLocked = Boolean(cloudId && cloudId !== 'all');
+
   return (
     <>
-      <Typography.Paragraph type="secondary">设定新建云主机的基本信息，如名称、所属资源池等</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">
+        设定新建云主机的基本信息，如项目、运行位置与名称等
+      </Typography.Paragraph>
       
       {/* === 1. 基础配置 === */}
       <div className="wizard-group-title">基础配置</div>
+      {cloudPoolLocked ? (
+        <Form.Item name="cloudId" preserve hidden rules={[{ required: true, message: '请选择资源池' }]}>
+          <Input />
+        </Form.Item>
+      ) : (
+        <Row gutter={12}>
+          <Col span={24}>
+            <Form.Item label="资源池" name="cloudId" preserve rules={[{ required: true, message: '请选择资源池' }]}>
+              <Select
+                placeholder="选择资源池"
+                onChange={(v) => {
+                  setCurrentCloudId(v);
+                  try {
+                    reloadNamespaces();
+                    form.resetFields(['namespace']);
+                  } catch {}
+                }}
+                options={cloudOptions}
+                optionFilterProp="label"
+                showSearch
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+      )}
       <Row gutter={12}>
         <Col span={12}>
-          <Form.Item label="资源池" name="cloudId" preserve rules={[{ required: true, message: '请选择资源池' }]}> 
-            <Select 
-              placeholder="选择资源池"
-              onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.resetFields(['namespace']); } catch {} }}
-              disabled={cloudId !== 'all'}
-              options={cloudOptions}
-              optionFilterProp="label"
-              showSearch
-            />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item label="命名空间" name="namespace" preserve rules={[{ required: true, message: '请选择命名空间' }]}> 
+          <Form.Item label="项目" name="namespace" preserve rules={[{ required: true, message: '请选择项目' }]}> 
             <Select 
               options={visibleNamespaceOptions}
-              placeholder="选择命名空间"
+              placeholder="选择项目"
               showSearch
               onOpenChange={(open) => { if (open) reloadNamespaces(); }}
               filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
             />
           </Form.Item>
         </Col>
-      </Row>
-      {isTenant && visibleNamespaceOptions.length === 0 ? (
-        <Alert
-          type="warning"
-          showIcon
-          message="未分配可用命名空间"
-          description="租户不允许在公共/系统命名空间创建云主机，请联系管理员为该租户分配业务命名空间（UserSpace.namespace）。"
-          style={{ marginBottom: 12 }}
-        />
-      ) : null}
-      <Row gutter={12}>
         <Col span={12}>
           <Form.Item label="运行位置" name="hostMode" preserve> 
             <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
@@ -355,23 +360,20 @@ const StepBasic: React.FC<StepBasicProps> = ({
             </Radio.Group>
           </Form.Item>
         </Col>
-        <Col span={6}>
-          <Form.Item label="集群架构" name="clusterArch" preserve> 
-            <Input disabled placeholder="自动获取..." />
-          </Form.Item>
-        </Col>
-        <Col span={6}>
-          <Form.Item label="支持的VM类型" name="machineType" preserve>
-            <Select disabled placeholder="选择VM类型">
-              {capabilities?.recommendedMachineType && (
-                <Select.Option value={capabilities.recommendedMachineType}>
-                  {capabilities.recommendedMachineType}
-                </Select.Option>
-              )}
-            </Select>
-          </Form.Item>
-        </Col>
       </Row>
+      {isTenant && visibleNamespaceOptions.length === 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="未分配到可用项目"
+          description="当前账号不能在公共或集群系统区创建云主机。请联系管理员为您的租户分配可用的业务项目。"
+          style={{ marginBottom: 12 }}
+        />
+      ) : null}
+      {/* 能力接口回填，仅参与提交；machineType 在 StepCompute 中注册（各步同挂载，避免重复 name） */}
+      <Form.Item name="clusterArch" preserve hidden>
+        <Input />
+      </Form.Item>
 
       {/* === 调度策略配置 === */}
       {hostModeState === 'label' && (

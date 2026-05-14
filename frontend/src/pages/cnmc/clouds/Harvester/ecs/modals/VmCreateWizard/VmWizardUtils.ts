@@ -558,6 +558,16 @@ export const applyTemplateToWizardForm = (params: {
 // 4. 核心构造逻辑 (Core)
 // ==========================================
 
+/** Kube-OVN：Harvester 注解 `harvesterhci.io/custom-ip` 中 JSON 项的 `name`，须为 Subnet CR 名；若无则从未带命名空间的 Multus `ns/name` 取末段。不用 Cloud-Init network-config。 */
+export function kubeOvnCustomIpEntryName(subnetNameRaw: string, multusNetNameRaw: string): string {
+  const sn = String(subnetNameRaw || '').trim();
+  if (sn) return sn;
+  const m = String(multusNetNameRaw || '').trim();
+  if (!m) return '';
+  const parts = m.split('/');
+  const last = String(parts[parts.length - 1] || '').trim();
+  return last || m;
+}
 
 /**
  * 构建 Harvester 虚拟机创建请求的 Payload (Manifest)
@@ -718,7 +728,7 @@ export const buildHarvesterVmPayload = (params: {
       networks.push(net);
   });
 
-  // Kube-OVN（VPC / 扁平子网）静态 IP：VM 注解 harvesterhci.io/custom-ip，name 为子网名、ip 为表单静态 IP
+  // Kube-OVN（VPC / 扁平子网）静态 IP：仅写 VM 注解 harvesterhci.io/custom-ip（OVN 侧分配），不向 Cloud-Init 注入 networkData
   const harvesterCustomIpEntries: { name: string; ip: string }[] = [];
   allNics.forEach((nic) => {
     const ip = String(nic.ipAddress || '').trim();
@@ -731,7 +741,7 @@ export const buildHarvesterVmPayload = (params: {
       ? String(v.primaryNic?.subnet || '').trim()
       : String(nic.subnet || '').trim();
     const multusName = String(nic.name || '').trim();
-    const entryName = subnetName || multusName;
+    const entryName = kubeOvnCustomIpEntryName(subnetName, multusName);
     if (!entryName) return;
     harvesterCustomIpEntries.push({ name: entryName, ip });
   });

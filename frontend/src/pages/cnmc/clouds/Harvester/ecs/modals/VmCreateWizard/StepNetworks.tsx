@@ -18,7 +18,7 @@
  * 3. [网络类型过滤]:
  *    - NAD 网络 (flat): 排除 kube-ovn 类型的 NAD。
  *    - 直通 (Passthrough): 仅显示 CNI 为 sriov / macvtap / macvlan 等的 NAD。
- *    - VPC / 扁平子网: 联动 Subnet，接口类型选项见 harvesterVmIfaceTypeOptions.ts。
+ *    - VPC / 扁平子网: 联动 Subnet，接口类型固定为 managedtap（界面不展示）。
  *
  * ------------------------------------------------------------------------------
  * [交互/依赖说明 (Dependencies & Interactions)]
@@ -36,11 +36,12 @@
  *
  * 3. 数据提交映射:
  *    - Form Values -> Harvester VM Spec (spec.template.spec.networks)
+ *    - VPC/扁平子网静态 IP -> metadata.annotations harvesterhci.io/custom-ip（Kube-OVN），非 Cloud-Init network-config
  * ==============================================================================
  */
 import React, { useCallback, useState } from 'react';
-import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
-import { FileSearchOutlined, MinusCircleOutlined } from '@ant-design/icons';
+import { Form, Input, Select, Space, Button, Row, Col, Typography } from 'antd';
+import { FileSearchOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   ifaceTypeOption,
   NAD_MULTUS_INTERFACE_TYPES,
@@ -577,18 +578,25 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     ? NAD_MULTUS_INTERFACE_TYPES
                     : [ifaceTypeOption('bridge')];
             
+            const hideIfaceType = mode === 'vpc' || mode === 'flat_subnet';
             return (
               <>
-                <Col span={8}>
-                  <Form.Item
-                    label={primaryTypeLabel}
-                    name={["primaryNic", 'type']}
-                    preserve
-                    tooltip={mode === 'passthrough' ? PASSTHROUGH_TYPE_TOOLTIP : undefined}
-                  >
-                    <Select options={typeOptions} disabled={mode === 'passthrough'} />
+                {hideIfaceType ? (
+                  <Form.Item name={['primaryNic', 'type']} preserve hidden>
+                    <Input type="hidden" />
                   </Form.Item>
-                </Col>
+                ) : (
+                  <Col span={8}>
+                    <Form.Item
+                      label={primaryTypeLabel}
+                      name={["primaryNic", 'type']}
+                      preserve
+                      tooltip={mode === 'passthrough' ? PASSTHROUGH_TYPE_TOOLTIP : undefined}
+                    >
+                      <Select options={typeOptions} disabled={mode === 'passthrough'} />
+                    </Form.Item>
+                  </Col>
+                )}
                 <Col span={8}>
                   <Form.Item label="模型" name={["primaryNic", 'model']} preserve>
                     <Select disabled={t === 'sriov'} options={NIC_MODELS} />
@@ -631,6 +639,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   label="静态IP"
                   name={['primaryNic', 'ipAddress']}
                   preserve
+                  tooltip="可选。指定该网卡在子网内的固定 IPv4（可带掩码，如 192.168.1.10/24）；不填则由网络侧自动分配。"
                   rules={[
                     {
                       pattern:
@@ -648,53 +657,34 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
       </Row>
 
 
-      {/* 
-        ========================================
-        2. 辅助网卡配置区域 
-        ========================================
-      */}
-      <div className="wizard-group-title">辅助网卡</div>
       <Form.List name="netIfaces">
         {(fields, { add, remove }) => (
-          <div>
-            {/* 遍历渲染所有辅助网卡 */}
+          <div className="wizard-net-ifaces-list">
             {fields.map(({ key, name }, idx) => {
-              const nm = form.getFieldValue(['netIfaces', name, 'name']) || '(未选择)';
-              const tp = form.getFieldValue(['netIfaces', name, 'type']) || 'bridge';
-              
-              // 卡片标题：包含序号、网络名称和类型
-              const title = (
-                <div>
-                  {`#${idx + 2} ${nm} · ${String(tp).toUpperCase()}`}
-                </div>
-              );
               const canRemove = true;
+              const slotTitle = `网卡 ${idx + 2}`;
               return (
-                <Card
-                  key={key}
-                  size="small"
-                  title={title}
-                  extra={canRemove ? (
-                    <Button
-                      type="text"
-                      icon={<MinusCircleOutlined />}
-                      onClick={(e) => { 
-                        e.stopPropagation?.(); 
-                        // [状态更新] 删除网卡时，如果删除的是当前选中项或其前面的项，需更新选中索引
-                        if (selectedNetIdx === idx) {
-                          setSelectedNetIdx(null);
-                        } 
-                        else if (selectedNetIdx !== null && idx < selectedNetIdx) {
-                          setSelectedNetIdx(selectedNetIdx - 1);
-                        }
-                        remove(name); 
-                      }}
-                      danger
-                    />
-                  ) : undefined}
-                  className="wizard-disk-card"
-                  style={{ marginBottom: 12 }}
-                >
+                <div key={key} className="wizard-secondary-nic-wrap">
+                  <div className="wizard-secondary-nic-block">
+                    <div className="wizard-secondary-nic-head">
+                      <span className="wizard-secondary-nic-slot-title">{slotTitle}</span>
+                      {canRemove ? (
+                        <Button
+                          type="text"
+                          icon={<MinusCircleOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation?.();
+                            if (selectedNetIdx === idx) {
+                              setSelectedNetIdx(null);
+                            } else if (selectedNetIdx !== null && idx < selectedNetIdx) {
+                              setSelectedNetIdx(selectedNetIdx - 1);
+                            }
+                            remove(name);
+                          }}
+                          danger
+                        />
+                      ) : null}
+                    </div>
                   <Row gutter={12}>
                     {/* 根据辅助网卡的模式 (flat/vpc) 渲染不同的配置表单 */}
                     {(function () {
@@ -1039,6 +1029,14 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               : mode2 === 'flat'
                                 ? NAD_MULTUS_INTERFACE_TYPES
                                 : [ifaceTypeOption('bridge')];
+                        const hideSecondaryIfaceType = mode2 === 'vpc' || mode2 === 'flat_subnet';
+                        if (hideSecondaryIfaceType) {
+                          return (
+                            <Form.Item name={[name, 'type']} preserve hidden>
+                              <Input type="hidden" />
+                            </Form.Item>
+                          );
+                        }
                         return (
                           <Col span={8}>
                             <Form.Item
@@ -1101,6 +1099,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             <Form.Item
                               label="静态IP"
                               name={[name, 'ipAddress']}
+                              tooltip="可选。指定该网卡在子网内的固定 IPv4（可带掩码，如 192.168.1.10/24）；不填则由网络侧自动分配。"
                               rules={[
                                 {
                                   pattern:
@@ -1123,13 +1122,16 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       </Form.Item>
                     </Col>
                   </Row>
-                </Card>
+                  </div>
+                </div>
               );
             })}
             
-            {/* 按钮区域：添加辅助网卡（顺序：扁平子网 → VPC → 直通 → NAD） */}
-            <Space>
+            {/* 按钮区域：添加辅助网卡（扁平子网 → VPC → 直通 → NAD） */}
+            <Space wrap className="wizard-net-ifaces-actions">
               <Button
+                color="primary"
+                variant="filled"
                 onClick={() => {
                   reloadKubeSubnets();
                   add({
@@ -1140,11 +1142,39 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   });
                 }}
               >
-                添加扁平子网网卡
+                + 扁平子网
               </Button>
-              <Button onClick={() => { reloadKubeVpcs(); reloadKubeSubnets(); add({ mode: 'vpc', type: 'managedtap', model: 'virtio' }); }}>添加VPC网卡</Button>
-              <Button onClick={() => { reloadNads(); add({ mode: 'passthrough', type: 'sriov', model: 'virtio' }); }}>添加直通网卡</Button>
-              <Button onClick={() => { reloadNads(); add({ mode: 'flat', type: 'bridge', model: 'virtio' }); }}>添加NAD网络网卡</Button>
+              <Button
+                color="primary"
+                variant="filled"
+                onClick={() => {
+                  reloadKubeVpcs();
+                  reloadKubeSubnets();
+                  add({ mode: 'vpc', type: 'managedtap', model: 'virtio' });
+                }}
+              >
+                + VPC网
+              </Button>
+              <Button
+                color="primary"
+                variant="filled"
+                onClick={() => {
+                  reloadNads();
+                  add({ mode: 'passthrough', type: 'sriov', model: 'virtio' });
+                }}
+              >
+                + 直通网卡
+              </Button>
+              <Button
+                color="primary"
+                variant="filled"
+                onClick={() => {
+                  reloadNads();
+                  add({ mode: 'flat', type: 'bridge', model: 'virtio' });
+                }}
+              >
+                + NAD网络
+              </Button>
             </Space>
           </div>
         )}
