@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Checkbox, Col, Form, Input, message, Modal, Row, Select, Tooltip } from 'antd';
+import { Checkbox, Form, Input, message, Modal, Select, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { createKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../../../services/harvesterApi';
@@ -80,8 +80,16 @@ export type CreateVpcSubnetModalProps = {
   hasVpcsWrite: boolean;
   vpcPickerRows: BusinessVpcPickerRow[];
   subnets: any[];
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean, opts?: { vpcsAll?: boolean }) => void;
   onRefreshNads?: (force?: boolean, silent?: boolean) => void;
+  /** 创建时预选的 VPC（CR 名）；设置后创建流程下「所属 VPC」不可改（如 VPC 列表页展开行内创建） */
+  presetVpcId?: string | null;
+  /** 创建子网请求体中的 namespace（NAD），与 VpcsSection 展开行创建一致 */
+  createSubnetNamespace?: string | null;
+  /** 追加在标题后的说明，例如 ` (所属VPC: 展示名)` */
+  modalTitleSuffix?: string | null;
+  /** 与 VpcsSection onRefresh 第三参一致，刷新 VPC/子网列表时带上运维开关 */
+  refreshOpts?: { vpcsAll?: boolean };
 };
 
 const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
@@ -95,6 +103,10 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
   subnets,
   onRefresh,
   onRefreshNads,
+  presetVpcId = null,
+  createSubnetNamespace = null,
+  modalTitleSuffix = null,
+  refreshOpts,
 }) => {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
@@ -113,6 +125,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
         alias: generateVmWizardStyleDisplayName('subnet'),
         nat: true,
         allowDhcp: true,
+        ...(presetVpcId ? { vpc: presetVpcId } : {}),
       });
       setIsSubnetInUse(false);
       setUsingVms([]);
@@ -151,7 +164,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
         setIsSubnetInUse(false);
         setUsingVms([]);
       });
-  }, [open, isEditMode, editingRecord, cloudId, form]);
+  }, [open, isEditMode, editingRecord, cloudId, form, presetVpcId]);
 
   const vpcSubnetAliasFormRules = useMemo(
     () => [
@@ -319,6 +332,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
             finalizers: Array.from(
               new Set([...(Array.isArray(values?.finalizers) ? values.finalizers : []), SUBNET_FINALIZER]),
             ),
+            ...(createSubnetNamespace ? { namespace: createSubnetNamespace } : {}),
           };
           await createKubeOvnSubnet(cloudId, createPayload);
           message.success('创建子网成功');
@@ -326,7 +340,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
         }
 
         handleClose();
-        onRefresh?.(true);
+        onRefresh?.(true, true, refreshOpts);
       } catch (e: any) {
         console.error(e);
         if (e?.errorFields) throw e;
@@ -342,12 +356,12 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
         setSubmitting(false);
       }
     },
-    [cloudId, editingRecord, handleClose, hasVpcsWrite, isEditMode, onRefresh, onRefreshNads],
+    [cloudId, createSubnetNamespace, editingRecord, handleClose, hasVpcsWrite, isEditMode, onRefresh, onRefreshNads, refreshOpts],
   );
 
   return (
     <Modal
-      title={isEditMode ? '编辑 VPC 子网' : '新建 VPC 子网'}
+      title={`${isEditMode ? '编辑 VPC 子网' : '新建 VPC 子网'}${modalTitleSuffix ?? ''}`}
       open={open}
       centered
       width={600}
@@ -358,8 +372,12 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
       okButtonProps={{ disabled: !hasVpcsWrite }}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit} className="std-form">
-        <Form.Item name="alias" label="名称" rules={vpcSubnetAliasFormRules}>
-          <Input placeholder="例如 subnet-a3f2-k2z9" style={{ width: '100%' }} />
+        <Form.Item
+          name="alias"
+          label="名称"
+          rules={vpcSubnetAliasFormRules}
+        >
+          <Input placeholder="显示名称（支持中文）" />
         </Form.Item>
 
         <Form.Item name="vpc" label="所属 VPC" rules={[{ required: true, message: '请选择 VPC' }]}>
@@ -368,8 +386,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
             optionFilterProp="data-search"
             optionLabelProp="label"
             placeholder="请选择 VPC"
-            style={{ width: '100%' }}
-            disabled={isEditMode}
+            disabled={isEditMode || !!presetVpcId}
           >
             {vpcPickerRows.map((row) => (
               <Select.Option
@@ -387,69 +404,59 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
           </Select>
         </Form.Item>
 
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              name="cidrBlock"
-              label={
-                <span>
-                  CIDR
-                  {isEditMode && isSubnetInUse && (
-                    <Tooltip title={`当前子网正在被云主机 ${usingVms.slice(0, 3).join('、')}${usingVms.length > 3 ? ' 等' : ''} 使用，无法修改 CIDR`}>
-                      <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', cursor: 'help' }} />
-                    </Tooltip>
-                  )}
-                </span>
-              }
-              rules={[
-                { required: true, message: '请输入 CIDR' },
-                { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$/, message: '格式错误' },
-              ]}
-            >
-              <Input placeholder="10.0.1.0/24" style={{ width: '100%' }} disabled={isEditMode && isSubnetInUse} />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              name="gateway"
-              label={
-                <span>
-                  网关
-                  {isEditMode && isSubnetInUse && (
-                    <Tooltip title={`当前子网正在被云主机 ${usingVms.slice(0, 3).join('、')}${usingVms.length > 3 ? ' 等' : ''} 使用，无法修改网关`}>
-                      <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', cursor: 'help' }} />
-                    </Tooltip>
-                  )}
-                </span>
-              }
-              rules={[
-                { required: true, message: '请输入网关地址' },
-                { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '格式错误' },
-              ]}
-            >
-              <Input placeholder="10.0.1.1" style={{ width: '100%' }} disabled={isEditMode && isSubnetInUse} />
-            </Form.Item>
-          </Col>
-        </Row>
+        <Form.Item
+          name="cidrBlock"
+          label={
+            <span>
+              CIDR
+              {isEditMode && isSubnetInUse && (
+                <Tooltip title={`当前子网正在被云主机 ${usingVms.slice(0, 3).join('、')}${usingVms.length > 3 ? ' 等' : ''} 使用，无法修改 CIDR`}>
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', cursor: 'help' }} />
+                </Tooltip>
+              )}
+            </span>
+          }
+          rules={[
+            { required: true, message: '请输入 CIDR' },
+            { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$/, message: '格式错误' },
+          ]}
+        >
+          <Input placeholder="192.168.1.0/24" disabled={isEditMode && isSubnetInUse} />
+        </Form.Item>
 
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item name="nat" valuePropName="checked" initialValue={true}>
-              <Checkbox>启用 NAT 出网</Checkbox>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="allowDhcp" valuePropName="checked" initialValue={true}>
-              <Checkbox>启用 DHCP 服务</Checkbox>
-            </Form.Item>
-          </Col>
-        </Row>
+        <Form.Item
+          name="gateway"
+          label={
+            <span>
+              网关
+              {isEditMode && isSubnetInUse && (
+                <Tooltip title={`当前子网正在被云主机 ${usingVms.slice(0, 3).join('、')}${usingVms.length > 3 ? ' 等' : ''} 使用，无法修改网关`}>
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', cursor: 'help' }} />
+                </Tooltip>
+              )}
+            </span>
+          }
+          rules={[
+            { required: true, message: '请输入网关地址' },
+            { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '格式错误' },
+          ]}
+        >
+          <Input placeholder="192.168.1.1" disabled={isEditMode && isSubnetInUse} />
+        </Form.Item>
 
-        <Form.Item name="excludeIps" label="排除 IP 范围">
+        <Form.Item name="excludeIps" label="排除 IP">
           <Input.TextArea
-            placeholder="填写需要排除的IP地址或IP范围，虚拟机自动分配IP时将跳过这些地址。支持单IP(如10.0.1.1)或IP范围(如10.0.1.10..10.0.1.20)，用逗号分隔。"
             rows={3}
+            placeholder="每行一个 IPv4 或 IPv4 范围（如 192.168.1.1..192.168.1.10），多行请换行输入。"
           />
+        </Form.Item>
+
+        <Form.Item name="nat" valuePropName="checked" initialValue={true}>
+          <Checkbox>启用 NAT 出网</Checkbox>
+        </Form.Item>
+
+        <Form.Item name="allowDhcp" valuePropName="checked" initialValue={true}>
+          <Checkbox>启用 DHCP 服务</Checkbox>
         </Form.Item>
       </Form>
     </Modal>

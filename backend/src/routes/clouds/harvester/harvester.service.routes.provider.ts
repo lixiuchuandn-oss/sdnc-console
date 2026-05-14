@@ -44,6 +44,40 @@ import {
   harvesterMonitoringAllowedNamespacesHandler,
 } from './handlers/monitoring-overview.handlers';
 import {
+  harvesterMonitoringCephDashboardSummaryHandler,
+  harvesterMonitoringCephDashboardSummaryPostHandler,
+  harvesterMonitoringCephDashboardSyncHandler,
+  harvesterMonitoringCephDashboardCacheHandler,
+  harvesterMonitoringCephDashboardProxyHandler,
+} from './handlers/monitoring-ceph-dashboard.handlers';
+import { harvesterCephRookBundleHandler } from './handlers/ceph-rook.handlers';
+import {
+  harvesterCephRookBlockPoolCreateHandler,
+  harvesterCephRookBlockPoolDeleteHandler,
+  harvesterCephRookBlockPoolGetHandler,
+  harvesterCephRookBlockPoolPatchHandler,
+  harvesterCephRookBlockPoolReplaceHandler,
+  harvesterCephRookClusterGetHandler,
+  harvesterCephRookClusterPatchHandler,
+  harvesterCephRookClusterReplaceHandler,
+  harvesterCephRookFilesystemCreateHandler,
+  harvesterCephRookFilesystemDeleteHandler,
+  harvesterCephRookFilesystemGetHandler,
+  harvesterCephRookFilesystemPatchHandler,
+  harvesterCephRookFilesystemReplaceHandler,
+  harvesterCephRookObjectStoreCreateHandler,
+  harvesterCephRookObjectStoreDeleteHandler,
+  harvesterCephRookObjectStoreGetHandler,
+  harvesterCephRookObjectStorePatchHandler,
+  harvesterCephRookObjectStoreReplaceHandler,
+  harvesterCephRookRadosNamespaceCreateHandler,
+  harvesterCephRookRadosNamespaceDeleteHandler,
+  harvesterCephRookRadosNamespaceGetHandler,
+  harvesterCephRookRadosNamespacePatchHandler,
+  harvesterCephRookRadosNamespaceReplaceHandler,
+  harvesterCephRookRbdMirrorGetHandler,
+} from './handlers/ceph-rook-crud.handlers';
+import {
   harvesterMonitoringAlertsRulesHandler,
   harvesterMonitoringPrometheusRulesHandler,
   harvesterMonitoringPrometheusRulesGroupsHandler,
@@ -316,6 +350,48 @@ export function registerHarvesterServiceRoutesProvider(
     'cloudmap.edge': harvesterMonitoringCephRookBundleHandler,
   };
 
+  const cephRookBundleHandlers = {
+    harvester: harvesterCephRookBundleHandler,
+    cloudmap: harvesterCephRookBundleHandler,
+    'cloudmap.private': harvesterCephRookBundleHandler,
+    'cloudmap.edge': harvesterCephRookBundleHandler,
+  };
+
+  const monitoringCephDashboardSummaryHandlers = {
+    harvester: harvesterMonitoringCephDashboardSummaryHandler,
+    cloudmap: harvesterMonitoringCephDashboardSummaryHandler,
+    'cloudmap.private': harvesterMonitoringCephDashboardSummaryHandler,
+    'cloudmap.edge': harvesterMonitoringCephDashboardSummaryHandler,
+  };
+
+  const monitoringCephDashboardSummaryPostHandlers = {
+    harvester: harvesterMonitoringCephDashboardSummaryPostHandler,
+    cloudmap: harvesterMonitoringCephDashboardSummaryPostHandler,
+    'cloudmap.private': harvesterMonitoringCephDashboardSummaryPostHandler,
+    'cloudmap.edge': harvesterMonitoringCephDashboardSummaryPostHandler,
+  };
+
+  const monitoringCephDashboardSyncHandlers = {
+    harvester: harvesterMonitoringCephDashboardSyncHandler,
+    cloudmap: harvesterMonitoringCephDashboardSyncHandler,
+    'cloudmap.private': harvesterMonitoringCephDashboardSyncHandler,
+    'cloudmap.edge': harvesterMonitoringCephDashboardSyncHandler,
+  };
+
+  const monitoringCephDashboardCacheHandlers = {
+    harvester: harvesterMonitoringCephDashboardCacheHandler,
+    cloudmap: harvesterMonitoringCephDashboardCacheHandler,
+    'cloudmap.private': harvesterMonitoringCephDashboardCacheHandler,
+    'cloudmap.edge': harvesterMonitoringCephDashboardCacheHandler,
+  };
+
+  const monitoringCephDashboardProxyHandlers = {
+    harvester: harvesterMonitoringCephDashboardProxyHandler,
+    cloudmap: harvesterMonitoringCephDashboardProxyHandler,
+    'cloudmap.private': harvesterMonitoringCephDashboardProxyHandler,
+    'cloudmap.edge': harvesterMonitoringCephDashboardProxyHandler,
+  };
+
   const monitoringNodeResourcesHandlers = {
     harvester: harvesterMonitoringNodeResourcesHandler,
     cloudmap: harvesterMonitoringNodeResourcesHandler,
@@ -505,11 +581,166 @@ export function registerHarvesterServiceRoutesProvider(
     'cloudmap.edge': harvesterMonitoringConfigMapsDetailHandler,
   };
 
+  const cephAll = (h: RequestHandler): any => ({
+    harvester: h,
+    cloudmap: h,
+    'cloudmap.private': h,
+    'cloudmap.edge': h,
+  });
+
+  // Ceph（Rook 控制面：只读 bundle + Steve CRUD）
+  router.get('/:id/ceph/rook/bundle', checkAdminPermission, createProviderRouter(cephRookBundleHandlers));
+  router.get(
+    '/:id/ceph/rook/clusters/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookClusterGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/rook/clusters/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookClusterReplaceHandler)),
+  );
+  router.patch(
+    '/:id/ceph/rook/clusters/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookClusterPatchHandler)),
+  );
+  router.post(
+    '/:id/ceph/rook/block-pools',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookBlockPoolCreateHandler)),
+  );
+  router.get(
+    '/:id/ceph/rook/block-pools/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookBlockPoolGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/rook/block-pools/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookBlockPoolReplaceHandler)),
+  );
+  router.patch(
+    '/:id/ceph/rook/block-pools/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookBlockPoolPatchHandler)),
+  );
+  router.delete(
+    '/:id/ceph/rook/block-pools/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookBlockPoolDeleteHandler)),
+  );
+  router.post(
+    '/:id/ceph/rook/filesystems',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookFilesystemCreateHandler)),
+  );
+  router.get(
+    '/:id/ceph/rook/filesystems/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookFilesystemGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/rook/filesystems/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookFilesystemReplaceHandler)),
+  );
+  router.patch(
+    '/:id/ceph/rook/filesystems/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookFilesystemPatchHandler)),
+  );
+  router.delete(
+    '/:id/ceph/rook/filesystems/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookFilesystemDeleteHandler)),
+  );
+  router.post(
+    '/:id/ceph/rook/object-stores',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreCreateHandler)),
+  );
+  router.get(
+    '/:id/ceph/rook/object-stores/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/rook/object-stores/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreReplaceHandler)),
+  );
+  router.patch(
+    '/:id/ceph/rook/object-stores/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStorePatchHandler)),
+  );
+  router.delete(
+    '/:id/ceph/rook/object-stores/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreDeleteHandler)),
+  );
+  router.post(
+    '/:id/ceph/rook/blockpool-rados-namespaces',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookRadosNamespaceCreateHandler)),
+  );
+  router.get(
+    '/:id/ceph/rook/blockpool-rados-namespaces/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookRadosNamespaceGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/rook/blockpool-rados-namespaces/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookRadosNamespaceReplaceHandler)),
+  );
+  router.patch(
+    '/:id/ceph/rook/blockpool-rados-namespaces/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookRadosNamespacePatchHandler)),
+  );
+  router.delete(
+    '/:id/ceph/rook/blockpool-rados-namespaces/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookRadosNamespaceDeleteHandler)),
+  );
+  router.get(
+    '/:id/ceph/rook/rbd-mirrors/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookRbdMirrorGetHandler)),
+  );
+
   // Monitoring Routes
   // Overview
   router.get('/:id/monitoring/storage-nodes', checkAdminPermission, createProviderRouter(monitoringOverviewHandlers));
   router.get('/:id/monitoring/ceph-clusters', checkAdminPermission, createProviderRouter(monitoringCephClustersHandlers));
   router.get('/:id/monitoring/ceph-resources', checkAdminPermission, createProviderRouter(monitoringCephRookBundleHandlers));
+  router.get(
+    '/:id/monitoring/ceph-dashboard/summary',
+    checkAdminPermission,
+    createProviderRouter(monitoringCephDashboardSummaryHandlers),
+  );
+  router.post(
+    '/:id/monitoring/ceph-dashboard/summary',
+    checkAdminPermission,
+    createProviderRouter(monitoringCephDashboardSummaryPostHandlers),
+  );
+  router.post(
+    '/:id/monitoring/ceph-dashboard/sync',
+    checkAdminPermission,
+    createProviderRouter(monitoringCephDashboardSyncHandlers),
+  );
+  router.get(
+    '/:id/monitoring/ceph-dashboard/cache',
+    checkAdminPermission,
+    createProviderRouter(monitoringCephDashboardCacheHandlers),
+  );
+  router.all(
+    '/:id/monitoring/ceph-dashboard/proxy',
+    checkAdminPermission,
+    createProviderRouter(monitoringCephDashboardProxyHandlers),
+  );
   router.get('/:id/monitoring/node-resources', checkAdminPermission, createProviderRouter(monitoringNodeResourcesHandlers));
   router.get('/:id/monitoring/node-metrics', checkAdminPermission, createProviderRouter(monitoringNodeMetricsHandlers));
   router.get('/:id/monitoring/virtualmachines', checkAdminPermission, createProviderRouter(monitoringVirtualMachinesHandlers));

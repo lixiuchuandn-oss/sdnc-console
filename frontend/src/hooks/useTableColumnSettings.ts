@@ -114,6 +114,33 @@ export function useTableColumnSettings<T extends object>(
     setColumnSettingsInitialized(true);
   }, [allColumns, columnSettingsInitialized, settingsKey, defaultHiddenColumns, getColumnKey, mergeWithLocked]);
 
+  /**
+   * 可选列集合变化时（例如列表先空后有数据、或动态列与当前数据集对齐），同步勾选状态：
+   * - 剔除已不在 allColumns 中的 key（避免 Popover 与表格脱节）
+   * - 新增的列 key 默认并入勾选（与初次加载 missingKeys 逻辑一致）
+   */
+  useEffect(() => {
+    if (!columnSettingsInitialized || allColumns.length === 0) return;
+    const allKeys = allColumns.map((col) => getColumnKey(col)).filter(Boolean);
+    setCheckedColumnKeys((prev) => {
+      const pruned = prev.filter((k) => allKeys.includes(k));
+      const missing = allKeys.filter((k) => !pruned.includes(k));
+      if (missing.length === 0 && pruned.length === prev.length) return prev;
+      const next = mergeWithLocked([...pruned, ...missing]);
+      try {
+        localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(next));
+        window.dispatchEvent(
+          new CustomEvent('table-settings-sync', {
+            detail: { key: `table_cols_${settingsKey}`, value: next },
+          }),
+        );
+      } catch (e) {
+        console.warn('Failed to persist column settings after column set change', e);
+      }
+      return next;
+    });
+  }, [allColumns, columnSettingsInitialized, settingsKey, getColumnKey, mergeWithLocked]);
+
   // 监听自定义事件，实现同页面多实例同步（解决 Hook 与 Button 组件状态分离的问题）
   useEffect(() => {
     const handleSync = (e: CustomEvent) => {

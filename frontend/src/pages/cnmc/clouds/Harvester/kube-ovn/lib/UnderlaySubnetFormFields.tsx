@@ -207,17 +207,16 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
       label="VLAN"
       tooltip={
         isFlatMode
-          ? '需要与物理网络对接时选择集群已有 VLAN；不选则仅为 OVN 虚拟二层（overlay），不绑定物理 VLAN。'
-          : '公共子网必须选择 VLAN，请从集群已有 VLAN 中选择。'
+          ? '若要与机房里的物理网互通，请选一个已配置好的 VLAN；不选则表示本子网暂不接到物理网，只在当前集群内使用。'
+          : '请从下方列表中选择一条已创建的 VLAN。'
       }
-      rules={isFlatMode ? undefined : [{ required: true, message: '公共子网必须选择 VLAN' }]}
+      rules={isFlatMode ? undefined : [{ required: true, message: '请选择 VLAN' }]}
     >
       <Select
-        placeholder={isFlatMode ? '可选（不选 = 纯 overlay）' : '请选择 VLAN'}
+        placeholder={isFlatMode ? '可不选；要与物理网互通时再选' : '请选择 VLAN'}
         allowClear
         showSearch={isFlatMode}
         optionFilterProp="label"
-        dropdownStyle={{ minWidth: 280 }}
       >
         {vlans.map((v) => (
           <Option key={v.metadata.name} value={v.metadata.name} label={vlanRecordSearchBlob(v, providers || [])}>
@@ -226,16 +225,11 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
         ))}
       </Select>
     </Form.Item>
-    <Form.Item
-      name="excludeIps"
-      label="排除 IP (可选)"
-      tooltip={
-        isFlatMode
-          ? '单行 IPv4：须落在上方 CIDR 内，且不能与当前云内任意虚拟机正在使用的 IP 相同（含 `..` 区间时由集群校验）。'
-          : undefined
-      }
-    >
-      <Input.TextArea rows={3} placeholder="每行一个 IP 或 IP 范围 (e.g. 192.168.1.1..192.168.1.10)，多 IP 请换行输入。IP 范围支持 IPv4 和 IPv6。" />
+    <Form.Item name="excludeIps" label="排除 IP">
+      <Input.TextArea
+        rows={3}
+        placeholder="每行一个 IPv4 或 IPv4 范围（如 192.168.1.1..192.168.1.10），多行请换行输入。"
+      />
     </Form.Item>
   </>
   );

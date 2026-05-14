@@ -20,6 +20,8 @@ export type CloudmapPoolPanelProps = {
   canViewOniaasNetworkTab: boolean;
   canViewContainersGroup: boolean;
   canViewStorageGroup: boolean;
+  canViewObjectStorageGroup: boolean;
+  canViewCephGroup: boolean;
   canViewBackupsGroup: boolean;
   canViewFlatNetworkGroup: boolean;
   canViewKubeOvnGroup: boolean;
@@ -93,10 +95,6 @@ export type CloudmapPoolPanelProps = {
   rawTemplates: any;
   rawSshKeys: any;
   rawCloudInits: any;
-  vmReconfOpen: boolean;
-  vmReconfTarget: any | null;
-  setVmReconfOpen: (v: boolean) => void;
-  setVmReconfTarget: (v: any | null) => void;
   kubeOvnSubnets: any[];
   capabilities: any;
   setHarvesterImages: Dispatch<SetStateAction<any[]>>;

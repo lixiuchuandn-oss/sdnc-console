@@ -1,0 +1,1 @@
+export const VM_REALTIME_LOGS_TEXT_SECONDARY = 'rgba(255,255,255,0.65)';

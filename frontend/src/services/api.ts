@@ -1506,17 +1506,22 @@ export const proxyApiRequest = async (
   const queryUrl = `/api-proxy${path}${other ? `?${other}` : ''}`;
   
   // 3. 发送请求（使用统一的 API 服务，但需要自定义 headers）
+  // DELETE/GET 无 body 时不带 Content-Type: application/json，避免部分 CSM 网关返回异常
+  const headers: Record<string, string> = {
+    Authorization: authInfo.Authorization,
+    tonce: authInfo.tonce,
+    Accept: 'application/json',
+  };
+  if (body != null && ['POST', 'PUT', 'PATCH'].includes(String(method).toUpperCase())) {
+    headers['Content-Type'] = 'application/json';
+  }
   try {
     return await requestManager(
       {
         method,
         endpoint: queryUrl,
         body: body,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authInfo.Authorization,
-          'tonce': authInfo.tonce,
-        },
+        headers,
         options: {
           enableDeduplication: false, // 代理 API 不去重
           enableCache: false, // 代理 API 不缓存

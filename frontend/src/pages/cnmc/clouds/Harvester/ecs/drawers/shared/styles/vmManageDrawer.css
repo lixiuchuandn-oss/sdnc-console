@@ -1,0 +1,467 @@
+/**
+ * Harvester ECS · 侧栏「资源管理」类抽屉共用样式（网卡 / 磁盘 / Cloud-Init 等）。
+ * 根节点使用 class="vmManageDrawer"；网卡管理另加 vmNicManageDrawer（卡片壳层与磁盘 vmDiskManageDrawer 一致）；网卡表单分节使用 vmNicManageDrawer-*。
+ * 磁盘 / 网卡卡片标题条：.vmManageDrawer-deviceCardHead（VmDiskManageDrawer / VmNicManageDrawer）；设备图标 .vmManageDrawer-panelHeadDeviceIcon。
+ * 磁盘 / 网卡 / GPU / USB / 开机配置 等设备类抽屉列表为空：统一外层 `.vmDeviceManageDrawer-emptyState`（浅灰底 + 边框，见下文）。
+ * 主题色由 `.vmManageDrawer` 根节点上的 --vm-manage-* 注入（见 shared/lib/useVmManageDrawerCssVars）。
+ * 块级垂直间距：`--vm-drawer-gap-vertical` 默认 24px（.vmManageDrawer）；网卡 / 磁盘 / GPU / USB / 开机配置等主抽屉覆写为 12px；子选择器用 var(..., 24px) 兜底。
+ */
+
+/* ---------- 共用（网卡 / 磁盘） ---------- */
+.vmManageDrawer {
+  font-size: 14px;
+  line-height: 1.5715;
+  --vm-drawer-gap-vertical: 24px;
+}
+
+/* 网卡 / 磁盘 / GPU / USB / 开机配置 等资源管理主抽屉：顶栏 / 卡片等与 VmNicManageDrawer 一致的垂直间距 */
+.vmManageDrawer.vmNicManageDrawer,
+.vmManageDrawer.vmDiskManageDrawer,
+.vmManageDrawer.vmGpuManageDrawer,
+.vmManageDrawer.vmUsbManageDrawer,
+.vmManageDrawer.vmCloudInitManageDrawer {
+  --vm-drawer-gap-vertical: 12px;
+}
+
+.vmManageDrawer-pageHead {
+  margin-bottom: var(--vm-drawer-gap-vertical, 24px);
+}
+
+/* 抽屉顶栏：标题与操作区分左右，窄宽时操作区自动换行 */
+.vmManageDrawer-pageHead-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 含副标题时顶栏与操作按钮顶部对齐 */
+.vmManageDrawer-pageHead-row--alignStart {
+  align-items: flex-start;
+}
+
+.vmManageDrawer-pageHead-titleWrap {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.vmManageDrawer-pageHead-actions {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.vmManageDrawer-pageHead-actions.ant-space {
+  row-gap: 4px;
+}
+
+.vmManageDrawer-pageHead-linkWrap {
+  display: inline-block;
+  line-height: 1;
+}
+
+.vmManageDrawer-pageHead-actionLink.ant-btn {
+  height: auto;
+  padding: 2px 0;
+  line-height: 1.4;
+}
+
+.vmManageDrawer-pageHead-main {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--vm-manage-color-text);
+}
+.vmManageDrawer-pageHead-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vm-manage-color-text-secondary);
+}
+
+.vmManageDrawer-panel {
+  margin-bottom: var(--vm-drawer-gap-vertical, 24px);
+  background: var(--vm-manage-color-bg-container);
+  border: 1px solid var(--vm-manage-color-border-secondary);
+  border-radius: 10px;
+  box-shadow: var(--vm-manage-box-shadow-tertiary);
+  overflow: hidden;
+}
+
+/*
+ * 磁盘 / 网卡管理：与详情抽屉内 antd Card（borderless）一致——弱描边 + boxShadowTertiary
+ * （--vm-manage-box-shadow-tertiary 由 useVmManageDrawerCssVars 注入，与 token 一致）
+ */
+.vmDiskManageDrawer .vmManageDrawer-panel,
+.vmNicManageDrawer .vmManageDrawer-panel,
+.vmGpuManageDrawer .vmManageDrawer-panel,
+.vmUsbManageDrawer .vmManageDrawer-panel,
+.vmCloudInitManageDrawer .vmManageDrawer-panel {
+  border: 1px solid #e0e0e0;
+  border-radius: var(--vm-manage-border-radius-lg);
+  box-shadow: var(--vm-manage-box-shadow-tertiary);
+}
+
+/* 网卡 / 磁盘列表卡片：标题条 + 正文统一 14px / 1.5（与根 .vmManageDrawer 一致、略松于纯表单密排） */
+.vmNicManageDrawer .vmManageDrawer-panel,
+.vmDiskManageDrawer .vmManageDrawer-panel,
+.vmGpuManageDrawer .vmManageDrawer-panel,
+.vmUsbManageDrawer .vmManageDrawer-panel,
+.vmCloudInitManageDrawer .vmManageDrawer-panel {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/*
+ * 磁盘 / 网卡 / GPU / USB / 开机配置：列表为空时的统一空状态（描边 + 浅灰底，与卡片区视觉一致）
+ */
+.vmDiskManageDrawer .vmDeviceManageDrawer-emptyState,
+.vmNicManageDrawer .vmDeviceManageDrawer-emptyState,
+.vmGpuManageDrawer .vmDeviceManageDrawer-emptyState,
+.vmUsbManageDrawer .vmDeviceManageDrawer-emptyState,
+.vmCloudInitManageDrawer .vmDeviceManageDrawer-emptyState {
+  margin-bottom: var(--vm-drawer-gap-vertical, 12px);
+  padding: 24px 16px;
+  background: var(--vm-manage-color-fill-alter);
+  border: 1px solid #e0e0e0;
+  border-radius: var(--vm-manage-border-radius-lg);
+  box-shadow: var(--vm-manage-box-shadow-tertiary);
+}
+
+/* 网卡 / 磁盘抽屉：输入框前缀与弱化字同档浅灰 */
+.vmNicManageDrawer .ant-input-prefix,
+.vmDiskManageDrawer .ant-input-prefix,
+.vmGpuManageDrawer .ant-input-prefix,
+.vmUsbManageDrawer .ant-input-prefix {
+  color: var(--vm-manage-color-text-quaternary);
+}
+
+/* 网卡 / 磁盘：顶栏操作区右对齐、与首卡间距收紧（与 VmNicManageDrawer 一致） */
+.vmNicManageDrawer-toolbar,
+.vmDiskManageDrawer-toolbar,
+.vmGpuManageDrawer-toolbar,
+.vmUsbManageDrawer-toolbar,
+.vmCloudInitManageDrawer-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.vmNicManageDrawer-toolbarTitle {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--vm-manage-color-text);
+}
+
+/* 磁盘 / 网卡：顶行链接按钮收紧间距（Space gap + link 内边距） */
+.vmDiskManageDrawer-toolbar .ant-btn.ant-btn-link,
+.vmNicManageDrawer-toolbar .ant-btn.ant-btn-link,
+.vmGpuManageDrawer-toolbar .ant-btn.ant-btn-link,
+.vmUsbManageDrawer-toolbar .ant-btn.ant-btn-link,
+.vmCloudInitManageDrawer-toolbar .ant-btn.ant-btn-link {
+  padding-inline: 6px;
+}
+
+/* 网卡顶栏「新增网卡」下拉触发按钮：去掉 default 描边 */
+.vmNicManageDrawer-toolbar .ant-btn.ant-btn-default {
+  border: none;
+  box-shadow: none;
+}
+
+.vmNicManageDrawer-toolbar .ant-btn.ant-btn-default:hover,
+.vmNicManageDrawer-toolbar .ant-btn.ant-btn-default:focus,
+.vmNicManageDrawer-toolbar .ant-btn.ant-btn-default:active {
+  border: none;
+  box-shadow: none;
+}
+
+.vmNicManageDrawer-toolbar .ant-btn.ant-btn-default:disabled {
+  border: none;
+  box-shadow: none;
+}
+
+/* 「卷（块盘/…）」小标题与上方内容间距 */
+.vmDiskManageDrawer-volumeSectionTitle {
+  font-weight: 500;
+  color: var(--vm-manage-color-text-secondary);
+  margin: var(--vm-drawer-gap-vertical, 24px) 0 10px;
+}
+
+.vmManageDrawer-panel:last-child {
+  margin-bottom: 0;
+}
+
+/* 磁盘 / 网卡：单卡片标题行（左主信息 + 右操作） */
+.vmManageDrawer-deviceCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  line-height: 1.2;
+  font-weight: 400;
+  font-family: inherit;
+  background: var(--vm-manage-color-fill-alter);
+  border-bottom: none;
+}
+
+.vmManageDrawer-deviceCardHead-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--vm-manage-color-text-secondary);
+}
+
+.vmManageDrawer-deviceCardHead-title {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.vmManageDrawer-deviceCardHead-main .ant-tag {
+  margin: 0;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.vmManageDrawer-deviceCardHead-actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 磁盘 / 网卡卡片标题行左侧设备图标（尺寸 + 填充色，随主题 --vm-manage-color-primary） */
+.vmManageDrawer-panelHeadDeviceIcon {
+  display: block;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  fill: var(--vm-manage-color-primary);
+}
+.vmManageDrawer-cardActions.ant-space {
+  margin-right: -4px;
+}
+
+.vmManageDrawer-panel-body {
+  padding: 12px;
+}
+
+/** 与 Ant Design Flex footer 等效；Cloud-Init 等仍用此类名（磁盘 / 网卡主抽屉页脚用 Space） */
+.vmManageDrawer-footerBar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+/* Drawer 页脚内复选框：方框与文案垂直居中（antd 默认 baseline 易与按钮行不齐） */
+.vmManageDrawer-drawerFooterCheckbox.ant-checkbox-wrapper {
+  align-items: center;
+  line-height: 1;
+}
+
+/* ---------- 左标签 + 右控件 表单行（添加磁盘等抽屉复用；主题色见根节点 --vm-manage-*） ---------- */
+.vmManageDrawer-formFieldRow {
+  margin-bottom: var(--vm-drawer-gap-vertical, 24px);
+}
+
+/* 行级已有 margin-bottom；去掉 Form.Item 默认下边距，避免与 Row 叠成约 48px */
+.vmManageDrawer-formFieldRow .ant-form-item {
+  margin-bottom: 0;
+}
+
+.vmManageDrawer-formLabelCell {
+  line-height: 32px;
+}
+
+/** 与 .formLabelCell 同用；行高只保留在基类，避免重复 */
+.vmManageDrawer-formLabelCell--withIcon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vmManageDrawer-formHintIcon {
+  font-size: 12px;
+  color: var(--vm-manage-color-text-tertiary);
+}
+
+/* Alert 与网卡分节：与其它块级垂直间距一致 */
+.vmManageDrawer-stackGap,
+.vmNicManageDrawer-nicSection {
+  margin-bottom: var(--vm-drawer-gap-vertical, 24px);
+}
+
+.vmManageDrawer-formFieldRow .ant-select {
+  width: 100%;
+}
+
+.vmManageDrawer-diskAddSizeInput {
+  width: 200px;
+}
+
+/** 挂载已有磁盘 · PVC 预览容器（主题变量，避免硬编码 #d9d9d9 / #fafafa） */
+.vmManageDrawer-pvcPreviewBox {
+  padding: 12px;
+  border: 1px solid var(--vm-manage-color-border-secondary);
+  border-radius: var(--vm-manage-border-radius-lg);
+  background: var(--vm-manage-color-fill-alter);
+  min-height: 72px;
+}
+
+.vmManageDrawer-pvcPreviewEmpty {
+  display: block;
+  text-align: center;
+  padding: var(--vm-drawer-gap-vertical, 24px) 8px;
+}
+
+.vmManageDrawer .ant-input,
+.vmManageDrawer .ant-select .ant-select-selector,
+.vmManageDrawer .ant-input-number {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+/* ---------- 网卡抽屉专有：表单分节 ---------- */
+.vmNicManageDrawer-nicSection:last-child {
+  margin-bottom: 0;
+}
+
+.vmNicManageDrawer-nicSectionTitle {
+  font-weight: 500;
+  color: var(--vm-manage-color-text-tertiary);
+  margin-bottom: 10px;
+}
+
+/* 网卡抽屉 · 网络信息单行：不单独设字体/字号，沿用系统与面板默认 */
+.vmNicManageDrawer-netInfoLine {
+  min-width: 0;
+  overflow-x: auto;
+}
+.vmNicManageDrawer-netInfoLine > .ant-space {
+  flex-wrap: nowrap;
+  padding: 0;
+}
+.vmNicManageDrawer-netInfoPart {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+.vmNicManageDrawer-netInfoPartLabel {
+  flex-shrink: 0;
+  color: var(--vm-manage-color-text-quaternary);
+}
+.vmNicManageDrawer-netInfoPartValue {
+  word-break: break-word;
+}
+
+/* 网络信息行与「地址设定」之间的分隔线 */
+.vmNicManageDrawer-netInfoDivider.ant-divider-horizontal {
+  margin: 12px 0 0;
+  border-top-color: var(--vm-manage-color-border-secondary);
+}
+
+/* 磁盘卡片 · 只读描述单行（对齐网卡「网络信息」） */
+.vmDiskManageDrawer-diskSection {
+  margin-bottom: var(--vm-drawer-gap-vertical, 24px);
+}
+.vmDiskManageDrawer-diskSection:last-child {
+  margin-bottom: 0;
+}
+.vmDiskManageDrawer-diskInfoLine {
+  min-width: 0;
+  overflow-x: auto;
+}
+.vmDiskManageDrawer-diskInfoLine > .ant-space {
+  flex-wrap: nowrap;
+  padding: 0;
+}
+.vmDiskManageDrawer-diskInfoPart {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+.vmDiskManageDrawer-diskInfoPartLabel {
+  flex-shrink: 0;
+  color: var(--vm-manage-color-text-quaternary);
+}
+.vmDiskManageDrawer-diskInfoPartValue {
+  word-break: break-word;
+}
+.vmDiskManageDrawer-diskInfoImageValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.vmDiskManageDrawer-diskInfoDivider.ant-divider-horizontal {
+  margin: 12px 0 0;
+  border-top-color: var(--vm-manage-color-border-secondary);
+}
+
+/* ChangeNodeScheduling · 指定主机表格：表头/表体及单元格内 Typography 一律常规字重 */
+.changeNodeScheduling-fixedHostTable.ant-table-wrapper .ant-table-thead > tr > th,
+.changeNodeScheduling-fixedHostTable.ant-table-wrapper .ant-table-tbody > tr > td {
+  font-weight: 400;
+}
+
+.changeNodeScheduling-fixedHostTable.ant-table-wrapper .ant-table .ant-typography {
+  font-weight: 400;
+}
+
+/* 节点选择器 / 节点亲和性：分段器与说明文案之间（避免 Form.Item 与相邻 Typography 叠出过大空白） */
+.vmManageDrawer-modeHelpText.ant-typography {
+  margin-top: 0 !important;
+}
+
+/* Cloud-Init 抽屉 · 启用后：Secret 元信息与分键编辑器间距 */
+.vmCloudInitManageDrawer .vmCloudInitManageDrawer-secretMeta {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--vm-manage-color-split);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.vmCloudInitManageDrawer .vmCloudInitManageDrawer-keySection {
+  margin-bottom: var(--vm-drawer-gap-vertical, 12px);
+}
+
+.vmCloudInitManageDrawer .vmCloudInitManageDrawer-keySection:last-child {
+  margin-bottom: 0;
+}
+
+/* 次级查看类抽屉壳（VmSecondaryDrawerShell）：可选 pageHead；默认无标题与「调整规格」一致 */
+.vmManageDrawer.vmSecondaryDrawer {
+  --vm-drawer-gap-vertical: 12px;
+}
+
+.vmSecondaryDrawer-bodyFill {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.vmSecondaryDrawer-toolbarRow {
+  flex-shrink: 0;
+  padding: 0 0 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--vm-manage-color-split);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  justify-content: space-between;
+}

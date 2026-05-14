@@ -16,6 +16,7 @@ import {
   DesktopOutlined,
   FileTextOutlined,
   GlobalOutlined,
+  InboxOutlined,
   NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
@@ -35,6 +36,7 @@ export const CLOUDMAP_POOL_TAB_KEYS = [
   'oniaas_network',
   'containers',
   'storage',
+  'object_storage',
   'backups',
   'flat_network',
   'kube_ovn',
@@ -47,6 +49,8 @@ export const CLOUDMAP_RESOURCE_SUB_KEYS = [
   'overview',
   'datacenter_topology',
   'network_topology',
+  /** Rook/Ceph mgr 仪表盘集群总览（原池内 ceph/overview） */
+  'ceph_storage_overview',
 ] as const;
 
 export type CloudmapResourceSubKey = (typeof CLOUDMAP_RESOURCE_SUB_KEYS)[number];
@@ -159,6 +163,9 @@ export const LEGACY_CLOUDMAP_POOL_TAB_TO_CANONICAL: Record<string, CloudmapPoolT
   storage_group: 'storage',
   backups_group: 'backups',
   flat_network_group: 'flat_network',
+  ceph_group: 'storage',
+  /** 历史「对象存储」曾挂在 ceph 子路径，现独立为 `object_storage` Tab */
+  object_storage_group: 'object_storage',
   kube_ovn_group: 'kube_ovn',
 };
 
@@ -171,6 +178,7 @@ const CLOUDMAP_TAB_LABEL: Record<CloudmapPoolTabKey, string> = {
   oniaas_network: '虚拟网元',
   containers: '容器',
   storage: '云存储',
+  object_storage: '对象存储',
   backups: '云备份',
   flat_network: '扁平网络',
   kube_ovn: 'VPC网络',
@@ -186,6 +194,7 @@ const CLOUDMAP_TAB_ICON: Record<CloudmapPoolTabKey, ReactNode> = {
   oniaas_network: createElement(NodeIndexOutlined),
   containers: createElement(DeploymentUnitOutlined),
   storage: createElement(DatabaseOutlined),
+  object_storage: createElement(InboxOutlined),
   backups: createElement(CloudDownloadOutlined),
   flat_network: createElement(ApartmentOutlined),
   kube_ovn: createElement(GlobalOutlined),
@@ -277,6 +286,34 @@ export function cloudmapPoolBasePath(cloudId: string): string {
   return `/admin/clouds/${encodeURIComponent(cloudId)}`;
 }
 
+/** 书签/旧链仍指向 `/ceph/*` 时统一到云存储或对象存储（须先于 `parseCloudmapPoolPath` 做 replace navigate） */
+export function cloudmapRemapLegacyCephPoolPath(pathname: string, cloudId: string): string | null {
+  const rest = stripCloudmapPoolRest(pathname, cloudId);
+  if (rest == null || rest === '') return null;
+  const parts = rest.split('/').filter(Boolean);
+  if (parts[0] !== 'ceph') return null;
+  const base = cloudmapPoolBasePath(cloudId);
+  const inner = (parts[1] || '').trim();
+  if (inner === 'block_storage') return `${base}/storage/storage_pools`;
+  if (inner === 'storage_pools') return `${base}/storage/storage_pools`;
+  if (inner === 'object_storage') {
+    return `${base}/object_storage/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('object_storage'))}`;
+  }
+  if (inner === 'overview') return `${base}/resource_hub/ceph_storage_overview`;
+  return `${base}/storage/storage_pools`;
+}
+
+/** 已从侧栏摘除的叶子 pathSeg；书签仍指向时统一到云存储现存入口（默认存储池）。 */
+export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: string): string | null {
+  const rest = stripCloudmapPoolRest(pathname, cloudId);
+  if (!rest || rest === '') return null;
+  const parts = rest.split('/').filter(Boolean);
+  if (parts[0] === 'storage' && parts[1] === 'block_storage') {
+    return `${cloudmapPoolBasePath(cloudId)}/storage/storage_pools`;
+  }
+  return null;
+}
+
 export function cloudmapTabUsesPoolInnerPath(tab: CloudmapPoolTabKey): boolean {
   return Boolean(INNER_MENU_BY_TAB[tab]);
 }
@@ -354,10 +391,34 @@ export function cloudmapLegacyQueryToPath(
     return null;
   }
   const rawTab = sp.get('tab');
+  const rawTabStr = String(rawTab || '').trim();
+  if (rawTabStr === 'ceph') {
+    const rawSub = (sp.get('sub') || '').trim();
+    if (rawSub === 'object_storage') {
+      return `${base}/object_storage/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('object_storage'))}`;
+    }
+    if (rawSub === 'overview') {
+      return `${base}/resource_hub/ceph_storage_overview`;
+    }
+    if (rawSub === 'storage_pools') {
+      return `${base}/storage/storage_pools`;
+    }
+    if (rawSub === 'block_storage') {
+      return `${base}/storage/storage_pools`;
+    }
+    return `${base}/storage/storage_pools`;
+  }
+
   const tab = normalizeCloudmapPoolTabParam(rawTab);
   if (tab === 'resource_hub') {
     const sub = normalizeCloudmapResourceSubParam(rawTab, sp.get('sub'));
     return `${base}/resource_hub/${encodeURIComponent(sub)}`;
+  }
+  if (tab === 'storage') {
+    const rawSub = (sp.get('sub') || '').trim();
+    if (rawSub === 'ceph') {
+      return `${base}/storage/storage_pools`;
+    }
   }
   if (tab === 'cluster') {
     const cs = (sp.get('cluster_sub') || '').trim();

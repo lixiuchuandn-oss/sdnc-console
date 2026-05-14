@@ -4,11 +4,11 @@
  */
 
 export const IFACE_TYPE_OPTION_BY_VALUE: Record<string, { label: string; value: string }> = {
-  bridge: { label: 'bridge（桥接）', value: 'bridge' },
-  masquerade: { label: 'masquerade（NAT）', value: 'masquerade' },
-  managedtap: { label: 'managedtap（ManagedTap 绑定）', value: 'managedtap' },
-  sriov: { label: 'sriov（SR-IOV VF 直通）', value: 'sriov' },
-  macvtap: { label: 'macvtap（二层 MAC 转发）', value: 'macvtap' },
+  bridge: { label: '桥接', value: 'bridge' },
+  masquerade: { label: 'NAT', value: 'masquerade' },
+  managedtap: { label: 'ManagedTap', value: 'managedtap' },
+  sriov: { label: 'SR-IOV', value: 'sriov' },
+  macvtap: { label: 'macvtap', value: 'macvtap' },
 };
 
 export type IfaceTypeKey = keyof typeof IFACE_TYPE_OPTION_BY_VALUE;

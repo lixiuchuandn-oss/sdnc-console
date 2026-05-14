@@ -437,6 +437,54 @@ export async function ensureDatacenterTopologyTables() {
   }
 }
 
+/**
+ * Ceph mgr Dashboard 快照表（与实体 CephMgrDashboardSnapshot 一致；无 DB_SYNC 时由启动流程创建）
+ */
+export async function ensureCephMgrDashboardSnapshotTable() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 ceph_mgr_dashboard_snapshot 表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='ceph_mgr_dashboard_snapshot'`,
+    );
+    if (!Array.isArray(exists) || exists.length === 0) {
+      dbLog.info('创建 ceph_mgr_dashboard_snapshot 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "ceph_mgr_dashboard_snapshot" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "namespace" varchar NOT NULL DEFAULT 'rook-ceph',
+          "healthStatus" varchar,
+          "mgrId" varchar,
+          "cephVersion" varchar,
+          "summaryJson" text,
+          "fetchError" text,
+          "lastHttpStatus" integer,
+          "fetchedAt" datetime,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "IDX_ceph_mgr_dash_cloud_ns"
+        ON "ceph_mgr_dashboard_snapshot" ("cloudId", "namespace")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_ceph_mgr_dash_cloudId" ON "ceph_mgr_dashboard_snapshot" ("cloudId")
+      `);
+      dbLog.info('ceph_mgr_dashboard_snapshot 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      'ceph_mgr_dashboard_snapshot 表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
 export async function ensureUsersPasswordChangedAtColumn() {
   try {
     if (!AppDataSource.isInitialized) {

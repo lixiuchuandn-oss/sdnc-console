@@ -180,36 +180,39 @@ export const vrApi = {
   },
   
   /**
-   * 删除虚拟路由器实例（CSM 注册面 vrcontrol，与页面注册一致；非 ctcontrol 的 DELETE /VR1/:id）
-   * @param vmId CSM 侧实例 id（或可与对端约定为 uuid 时传入 uuid）
-   * @returns Promise<any> 删除结果
+   * 注销 VR 虚机（《VR 控制器接口》2026-05-08：DELETE + `?uuid=`；与注册同路径前缀 `/V2/vrcontrol/VR1/`）
+   * 部分已部署 CSM 仅注册 **POST**（对 DELETE 返回 404），故在 404/405 时回退为 **POST** 同路径 + JSON `{ uuid }`（与 `register` 一样走 body 签名）。
    */
-  deleteVRInstance: async (vmId: string) => {
-    const body = { id: vmId };
-    const paths = [
-      '/V2/vrcontrol/VR1/unregister',
-      '/V2/vrcontrol/VR1/delete',
-      '/V2/vrcontrol/VR1/remove',
-      '/V2/vrcontrol/VR1/deregister',
-      '/V2/ctcontrol/VR1/delete',
-      '/V2/ctcontrol/VR1/unregister',
-      '/V2/ctcontrol/VR1/remove',
-    ];
-    let lastErr: unknown = null;
-    for (const path of paths) {
-      try {
-        return await proxyApiRequest(path, 'POST', '', body);
-      } catch (error: any) {
-        lastErr = error;
-        const s = String(error?.message || error?.msg || '');
-        if (/\b404\b|\b405\b|Not Found/i.test(s)) continue;
-        if (error?.code || error?.msg) {
-          throw new Error(`[错误码: ${error.code}] ${error.msg}`);
-        }
-        throw error;
+  deleteVRInstance: async (uuid: string) => {
+    const u = String(uuid || '').trim();
+    if (!u) throw new Error('缺少 uuid：注销接口要求传入注册时的设备 uuid');
+
+    const path = '/V2/vrcontrol/VR1/unregister';
+    const other = `uuid=${encodeURIComponent(u)}`;
+    const body = { uuid: u };
+
+    const assertBizOk = (json: unknown) => {
+      const j = json as { code?: number; msg?: string };
+      if (j && typeof j === 'object' && 'code' in j && j.code !== 200) {
+        throw new Error(j.msg || `注销失败，code=${j.code}`);
       }
+      return json;
+    };
+
+    const isMethodOrRouteMissing = (err: any) => {
+      const st = Number(err?.status ?? err?.response?.status);
+      if (st === 404 || st === 405) return true;
+      const msg = String(err?.message || '');
+      return /\b404\b|\b405\b|\bnot\s*found\b/i.test(msg);
+    };
+
+    try {
+      return assertBizOk(await proxyApiRequest(path, 'DELETE', other));
+    } catch (e: any) {
+      if (!isMethodOrRouteMissing(e)) throw e;
+      logDebug('CSM 对 DELETE unregister 返回 404/405，回退 POST + body uuid');
+      return assertBizOk(await proxyApiRequest(path, 'POST', '', body));
     }
-    throw lastErr instanceof Error ? lastErr : new Error('CSM 未找到可用的 VR 注销接口');
   },
 
   /**

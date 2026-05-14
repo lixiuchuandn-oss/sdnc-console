@@ -36,7 +36,7 @@ import {
   KUBE_OVN_FLAT_VPC,
   isFlatKubeOvnSubnetVpc,
 } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
-import { isKubeOvnSubnetNadReady } from './VmCreateWizard/kubeOvnNadRefForVmWizard';
+import { isKubeOvnSubnetNadReady } from '../lib/kubeOvnMultusNadRef';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import {
   isHarvesterVmImageReady,

@@ -288,12 +288,12 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
             allColumns={allColumns}
             settingsKey="harvester_storageclasses_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </>
       )}
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
+        className="std-table"
         scroll={{ x: true }}
         bordered={false}
         rowKey={(r: any) => r?.metadata?.name || r?.name}

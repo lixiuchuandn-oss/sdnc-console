@@ -49,30 +49,7 @@ import {
 import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { kubeSubnetChoiceLabel } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
 import SubnetDetailDrawer from '../../../kube-ovn/drawers/subnet-detail-drawer';
-import { isKubeOvnSubnetNadReady } from './kubeOvnNadRefForVmWizard';
-
-/**
- * 子网选项：NAD 未同步时置灰，当前已选可保留以提示「同步中」。
- * vpcIdForNad 须与 isKubeOvnSubnetNadReady 的 vpc 入参一致（业务 VPC 或子网自己的 vpc/flat）。
- */
-function kubeOvnSubnetNadOption(
-  x: any,
-  nadOptions: any[],
-  vpcIdForNad: string,
-  currentName: any,
-  buildLabel: (x: any) => string,
-) {
-  const ready = isKubeOvnSubnetNadReady(x, vpcIdForNad, nadOptions);
-  const isCurrent = currentName != null && String(x?.name) === String(currentName);
-  const base = buildLabel(x);
-  let label = base;
-  if (!ready) {
-    label = isCurrent
-      ? `${base}（子网网络未就绪，请稍候重试或刷新后创建）`
-      : `${base}（网络未就绪）`;
-  }
-  return { label, value: x?.name, disabled: !ready && !isCurrent };
-}
+import { kubeOvnSubnetNadOption } from '../../lib/kubeOvnSubnetNadSelect';
 
 /**
  * [接口定义] StepNetworksProps
@@ -298,7 +275,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     key="primary-nic-passthrough"
                   >
                     <Select
-                      placeholder="选择直通网络（SR-IOV / macvlan）"
+                      placeholder="选择直通网络（SR-IOV / macvtap / macvlan）"
                       options={(nadOptions || []).filter((x: any) => {
                           const t = String((x as any)?._type || '').toLowerCase();
                           if (t) return t === 'sriov' || t === 'macvtap' || t === 'macvlan';
@@ -768,7 +745,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                  key={`secondary-nic-passthrough-${name}`}
                                >
                                  <Select
-                                   placeholder="选择直通网络（SR-IOV / macvlan）"
+                                   placeholder="选择直通网络（SR-IOV / macvtap / macvlan）"
                                    options={(nadOptions || []).filter((x: any) => {
                                        const t = String((x as any)?._type || '').toLowerCase();
                                        if (t === 'kube-ovn') return false;

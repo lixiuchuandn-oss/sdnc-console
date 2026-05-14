@@ -39,6 +39,7 @@ import {
   getVRConfig,
   saveVRConfig,
   setVRRole,
+  vrApi,
 } from '../../../../services/virtualRouterApi';
 import { getDomainClass, netClassLabel } from '../../../../utils/netClass';
 import { commonBadgeStyles, commonTableStyles } from '../../../../utils/tableStyles';
@@ -77,7 +78,7 @@ function parseJsonField(val: unknown): unknown {
   return val;
 }
 
-/** 与新增/修改设备一致：`/V2/vrcontrol/VR1/*` + `/api-proxy/api/sign` 后 POST（非 ctcontrol 的 REST DELETE） */
+/** 与新增/修改设备一致：`/V2/vrcontrol/VR1/register` 等为 POST + `/api-proxy/api/sign`；注销见 `vrApi.deleteVRInstance`（规范 DELETE unregister） */
 async function vrcontrolVr1SignedPost(
   path: string,
   body: Record<string, unknown>,
@@ -115,42 +116,6 @@ async function vrcontrolVr1SignedPost(
   });
   const json = await res.json().catch(async () => ({ raw: await res.text() }));
   return { res, json };
-}
-
-/**
- * CSMCTL 各版本注销路径不统一，且与列表用的 ctcontrol、注册用的 vrcontrol 可能不一致。
- * 对 HTTP 404/405 依次尝试常见 POST 路径；其它状态或业务 code≠200 则立即抛出。
- */
-async function tryPostVr1Delete(deleteBody: Record<string, string>): Promise<unknown> {
-  const paths = [
-    '/V2/vrcontrol/VR1/unregister',
-    '/V2/vrcontrol/VR1/delete',
-    '/V2/vrcontrol/VR1/remove',
-    '/V2/vrcontrol/VR1/deregister',
-    '/V2/ctcontrol/VR1/delete',
-    '/V2/ctcontrol/VR1/unregister',
-    '/V2/ctcontrol/VR1/remove',
-  ];
-  let lastDetail = '';
-  for (const path of paths) {
-    const { res, json } = await vrcontrolVr1SignedPost(path, deleteBody);
-    if (res.status === 404 || res.status === 405) {
-      lastDetail = `${path} → HTTP ${res.status}`;
-      continue;
-    }
-    const j = json as { code?: number; msg?: string };
-    const msg = typeof j?.msg === 'string' ? j.msg : '';
-    if (!res.ok) {
-      throw new Error(msg || `HTTP ${res.status}（${path}）`);
-    }
-    if (j && typeof j === 'object' && 'code' in j && j.code !== 200) {
-      throw new Error(msg || `${path} 返回 code=${j.code}`);
-    }
-    return json;
-  }
-  throw new Error(
-    `CSM 未匹配到可用的 VR 注销接口（已尝试：${paths.join('、')}）。${lastDetail ? `最后：${lastDetail}` : ''}`,
-  );
 }
 
 function formatTrafficRateBps(bps: number): string {
@@ -382,25 +347,22 @@ const VRPage: React.FC = () => {
       const rid = String(row.id || '').trim();
       const ruuid = String(row.uuid || row.vr_unique_id || '').trim();
       const rvmid = String(row.vm_id || '').trim();
-      const deleteBody: Record<string, string> = {};
-      if (rid) deleteBody.id = rid;
-      if (ruuid) deleteBody.uuid = ruuid;
-      if (rvmid) deleteBody.vm_id = rvmid;
-      if (Object.keys(deleteBody).length === 0) {
-        message.warning('该行缺少实例标识（id / uuid），无法删除');
+      /** 接口文档：注销仅支持 Query `uuid`（与注册时 uuid 一致），不用 id/vm_id */
+      if (!ruuid) {
+        message.warning('该行缺少 uuid（与 CSM 注册时 uuid 一致），无法按规范注销');
         return;
       }
       const label = String(row.name || rid || ruuid || rvmid).trim();
       Modal.confirm({
         title: '删除 VR 实例',
-        content: `确定从 CSM 控制面删除「${label}」吗？此操作不可恢复。`,
+        content: `确定从 CSM 控制面注销「${label}」吗？将调用 DELETE /V2/vrcontrol/VR1/unregister?uuid=… ，此操作不可恢复。`,
         okText: '删除',
         okType: 'danger',
         cancelText: '取消',
         onOk: async () => {
           try {
             setLoading(true);
-            const json = await tryPostVr1Delete(deleteBody);
+            const json = await vrApi.deleteVRInstance(ruuid);
             const j = json as { msg?: string };
             message.success(j?.msg || '已删除');
             await apiPost('/api/vr-instances/refresh', {});

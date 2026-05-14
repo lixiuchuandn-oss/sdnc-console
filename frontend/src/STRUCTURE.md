@@ -66,7 +66,7 @@
 | 类型 | 约定 | 示例 | 反例 / 避免 |
 |------|------|------|-------------|
 | **React 组件**（含页面壳、Section、Modal、Drawer、Wizard 步骤） | **`PascalCase.tsx`** | `VmSection.tsx`、`CloudDetailHw.tsx`、`RouteTableCreateModalAliyun.tsx` | `vmSection.tsx` |
-| **仅导出 hooks 的文件** | **`use` 前缀 + PascalCase 或 camelCase**，以仓库现有风格为准 | `useTableColumnSettings.ts`、`useVmReconfigureGpuMenuSync.ts` | 与组件同名的 hook 文件避免混在 `components/` 根下无区分 |
+| **仅导出 hooks 的文件** | **`use` 前缀 + PascalCase 或 camelCase**，以仓库现有风格为准 | `useTableColumnSettings.ts`、`useVmDeviceGpuMenuSync.ts` | 与组件同名的 hook 文件避免混在 `components/` 根下无区分 |
 | **非组件 TS**（工具、常量拼装、纯逻辑） | **`camelCase.ts`** | `vmWizardUtils.ts`、`poolDataDeps.ts` | `VmWizardUtils.ts`（除非文件内仅有类型工厂等团队约定例外） |
 | **域内类型 / 模型** | **`camelCase.ts`** 或 **`types.ts`** | `securityDomainModel.ts`、`types.ts` | 巨型单文件可拆 `*Types.ts` 仍用 Pascal 仅用于 **type 别名导出文件** 时需在域内统一 |
 | **测试** | **`*.test.ts` / `*.test.tsx`**，与实现就近或 `__tests__/` | `serviceTopologyUtils.test.ts` | 与实现文件名无关联的模糊命名 |
@@ -239,6 +239,8 @@ frontend/src/pages/
 | `lib/` | 域内纯函数、常量、非 UI 拼装逻辑 |
 | `components/` | 域内复用、但不足以单独成 section 的块 |
 
+**抽屉「壳层 UI」与落位**：与入口一对一的装配层为 **`ecs/drawers/vm-detail/VmDetailDrawerShell.tsx`**（Drawer 骨架、工具栏、Segmented Tab、`VmDetailTab` 与各业务子抽屉挂载；与胶水入口 **`VmDetailDrawer.tsx` 同目录**），其 **大块 JSX/UI 保留在该壳层文件内**。同目录另有 **`useVmDetailMoreMenu.tsx`**（「⋯」下拉项）、**`VmDetailEjectCdromModal.tsx`**（光驱弹出 Modal）。**`shell/`、`lib/`**（含 `tabs/`）侧放数据/控制 hooks、Derived、`types`、各 Tab 拼装等 **非壳层大块 JSX**；**不因「好找」再把同一页 UI 拆成多级 `parts/`、`*Chrome.tsx` 碎片文件**。独立功能的业务子抽屉（磁盘/网卡/规格、`vm-diagnosis` 虚拟机诊断、`vm-realtime-logs` 实时日志「⋯」打开等）仍各占 `ecs/drawers/` 下单目录，与本条不冲突。
+
 **判定**：只服务 **一个** 业务域 → 放在该域对应子目录；**≥2 域** → 该云下的 `shared/`（Harvester）或上浮至 `src/components`（跨平台）。
 
 ---
@@ -322,3 +324,4 @@ npx tsc --noEmit
 | 2026-04-13 | 与 `frontend/README.md` 合并职责：`README` 仅入口；规范与命令统一以本文为准 |
 | 2026-04-27 | 租户管理为独立平台 **`TENANTS`**（与 CNMC 平级）；更正 §5/§7 与 CNMC 混写；注明 `pages/cnmc/tenants/` 为过渡期源码路径 |
 | 2026-05-07 | §4 扩展目录/文件命名与登记例外；§4.3 明确**非穷举**并补充多云后缀、泛名、`services`/`types`、测试命名、禁止异常文件名等；§7 `rancher/`；§11 自检增文件命名项 |
+| 2026-05-13 | §8「抽屉壳层 UI」路径：`vm-detail/VmDetailDrawerShell.tsx`（原 `VmDetailDrawerView`）；`useVmDetailMoreMenu.tsx`、`VmDetailEjectCdromModal.tsx` 同目录；`shell/` 仅存数据/控制 hooks、types 等非壳层大块 JSX |

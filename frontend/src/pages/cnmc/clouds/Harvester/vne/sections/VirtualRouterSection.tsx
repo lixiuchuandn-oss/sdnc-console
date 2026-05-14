@@ -17,7 +17,7 @@ import RdsDatabaseConsoleModal, {
 } from '../../cloud-database/modals/RdsDatabaseConsoleModal';
 import { isTowerPaasVneVm } from '../../shared/harvesterTowerPaas';
 import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
-import HarvesterVmDetailDrawer from '../../shared/components/HarvesterVmDetailDrawer';
+import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 
 type Props = {
   vms: any[];
@@ -567,7 +567,7 @@ const VirtualRouterSection: React.FC<Props> = ({
       />
 
       {vmDetailDrawerOpen && vmDetailRecord ? (
-        <HarvesterVmDetailDrawer
+        <VmDetailDrawer
           open
           onClose={() => {
             setVmDetailDrawerOpen(false);

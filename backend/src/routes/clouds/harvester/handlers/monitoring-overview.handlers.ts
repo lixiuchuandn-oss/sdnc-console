@@ -5,13 +5,18 @@
 
 import { Request, Response } from 'express';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
-import { ensureProvider, normalizeOrigin } from './monitoring-helpers';
+import {
+  fetchCephRookResourceBundle,
+  emptyCephRookBundle,
+} from '../../../../services/clouds/harvester/cephRookBundle';
 import {
   PAGESIZE,
   EXCLUDE,
   PROMETHEUS_QUERY_RANGE_PATH,
-  isUnreachableError,
+  ensureProvider,
   getTenantAccessForMonitoring,
+  isUnreachableError,
+  normalizeOrigin,
 } from './monitoring-helpers';
 
 function parseLonghornDefaultReplicaCount(settingsPayload: any): number | null {
@@ -63,105 +68,24 @@ export async function harvesterMonitoringStorageNodesHandler(req: Request, res: 
   }
 }
 
-/**
- * Rook Ceph：Steve 列表 CephCluster。
- * Steve 资源名常见两种：`cephclusters.ceph.rook.io`（plural.group，与 `kubectl api-resources` 一致）
- * 与 `ceph.rook.io.cephclusters`（旧/另一注册）；依次请求，404 则试下一种。
- */
-/** 从 Steve 列表 JSON 中取出对象数组 */
-function steveListToItems(payload: any): any[] {
-  if (!payload) return [];
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload.data)) return payload.data;
-  if (Array.isArray(payload.items)) return payload.items;
-  if (Array.isArray(payload.data?.items)) return payload.data.items;
-  return [];
-}
-
-/**
- * 依次尝试 plural.group 与 group.singular 两种 Steve 路径，404 试下一个；返回 items[]。
- * 不可达错误向上抛出；其它非 404/403 错误返回空数组（与其它监控列表容错一致）。
- */
-async function fetchSteveRookListItems(
-  origin: string,
-  token: string,
-  insecure: boolean,
-  resourcePaths: string[],
-): Promise<any[]> {
-  for (const p of resourcePaths) {
-    const url = `${origin}/v1/harvester/${p}?${PAGESIZE}&${EXCLUDE}`;
-    try {
-      const data = await getJsonOnce(url, token, insecure, true);
-      return steveListToItems(data);
-    } catch (e: any) {
-      if (isUnreachableError(e)) throw e;
-      const status = (e as any).status;
-      if (status === 404) continue;
-      if (status === 403) continue;
-      return [];
-    }
-  }
-  return [];
-}
-
 /** Rook Ceph 多资源聚合（对齐 Ceph Dashboard 部分模块：集群 / Pool / FS / RGW 抽象） */
 export async function harvesterMonitoringCephRookBundleHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
-    const insecure = !!(cloud.config as any)?.ignoreTls;
-    const origin = normalizeOrigin(cloud.endpoint || '');
-    const token = cloud.secretKey || '';
-
-    type CephBundleKey = 'clusters' | 'blockPools' | 'filesystems' | 'objectStores' | 'radosNamespaces';
-    const jobs: Array<readonly [CephBundleKey, string[]]> = [
-      ['clusters', ['cephclusters.ceph.rook.io', 'ceph.rook.io.cephclusters']],
-      ['blockPools', ['cephblockpools.ceph.rook.io', 'ceph.rook.io.cephblockpools']],
-      ['filesystems', ['cephfilesystems.ceph.rook.io', 'ceph.rook.io.cephfilesystems']],
-      ['objectStores', ['cephobjectstores.ceph.rook.io', 'ceph.rook.io.cephobjectstores']],
-      [
-        'radosNamespaces',
-        ['cephblockpoolradosnamespaces.ceph.rook.io', 'ceph.rook.io.cephblockpoolradosnamespaces'],
-      ],
-    ];
-
-    const out: Record<CephBundleKey, any[]> = {
-      clusters: [],
-      blockPools: [],
-      filesystems: [],
-      objectStores: [],
-      radosNamespaces: [],
-    };
-
-    for (const [key, paths] of jobs) {
-      try {
-        out[key] = await fetchSteveRookListItems(origin, token, insecure, paths);
-      } catch (e: any) {
-        if (isUnreachableError(e)) {
-          return res.status(200).json({
-            clusters: [],
-            blockPools: [],
-            filesystems: [],
-            objectStores: [],
-            radosNamespaces: [],
-          });
-        }
-        out[key] = [];
+    try {
+      const out = await fetchCephRookResourceBundle(cloud);
+      res.json(out);
+    } catch (e: any) {
+      if (isUnreachableError(e)) {
+        return res.status(200).json(emptyCephRookBundle());
       }
+      throw e;
     }
-
-    res.json(out);
   } catch (e: any) {
     if (isUnreachableError(e)) {
-      return res.status(200).json({
-        clusters: [],
-        blockPools: [],
-        filesystems: [],
-        objectStores: [],
-        radosNamespaces: [],
-      });
+      return res.status(200).json(emptyCephRookBundle());
     }
     if (res.headersSent) return;
     const st = (e as any).status || 500;

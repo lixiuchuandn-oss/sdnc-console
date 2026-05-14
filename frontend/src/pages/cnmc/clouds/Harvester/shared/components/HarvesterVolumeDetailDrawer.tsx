@@ -1,14 +1,12 @@
 /**
- * 云盘详情抽屉 - 布局与交互对齐 HarvesterVmDetailDrawer
- * 包含：标题区、Tab 导航（详情 / 事件）、详情卡片与事件列表
+ * 云盘详情抽屉 - 布局与交互对齐 VmDetailDrawer
  * 打开时根据 namespace/name 拉取完整 PVC，避免列表数据不完整导致详情为空。
  */
 import React, { useMemo, useState, useEffect } from 'react';
-import { Drawer, Segmented, Button, Card, Descriptions, Tag, Tooltip, Spin } from 'antd';
-import { CloseOutlined, DesktopOutlined, BellOutlined, HddOutlined } from '@ant-design/icons';
+import { Drawer, Button, Card, Descriptions, Tag, Tooltip, Spin } from 'antd';
+import { CloseOutlined, HddOutlined } from '@ant-design/icons';
 import { ReactComponent as DiskIcon } from '../../../../../../assets/clouds/disk.svg';
 import { fetchHarvesterVolume } from '../../../../../../services/harvesterApi';
-import HarvesterEventsTab from './HarvesterEventsTab';
 
 interface HarvesterVolumeDetailDrawerProps {
   open: boolean;
@@ -24,8 +22,6 @@ const HarvesterVolumeDetailDrawer: React.FC<HarvesterVolumeDetailDrawerProps> = 
   onClose,
   record,
   cloudId,
-  activeTab = 'detail',
-  onTabChange,
 }) => {
   const [fetchedPvc, setFetchedPvc] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -93,10 +89,6 @@ const HarvesterVolumeDetailDrawer: React.FC<HarvesterVolumeDetailDrawerProps> = 
   const imageId = annotations['harvesterhci.io/imageId'];
   const uid = pvc?.metadata?.uid || '-';
   const resourceVersion = pvc?.metadata?.resourceVersion || '-';
-
-  const handleTabChange = (val: string | number) => {
-    onTabChange?.(String(val));
-  };
 
   return (
     <Drawer
@@ -169,41 +161,7 @@ const HarvesterVolumeDetailDrawer: React.FC<HarvesterVolumeDetailDrawerProps> = 
         </Button>
       </div>
 
-      {/* 2. Tab 导航 */}
-      <div
-        style={{
-          background: '#f5f7fa',
-          padding: '0 24px',
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            padding: '0 0 24px 0',
-          }}
-        >
-          <div
-            style={{
-              padding: 4,
-              background: '#fff',
-              borderRadius: 8,
-              border: '1px solid #e0e0e0',
-            }}
-          >
-            <Segmented
-              size="small"
-              value={activeTab}
-              onChange={handleTabChange}
-              options={[
-                { label: '详情', value: 'detail', icon: <DesktopOutlined /> },
-                { label: '事件', value: 'events', icon: <BellOutlined /> },
-              ]}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 3. 内容区域 */}
+      {/* 内容区域 */}
       <style>{`
         .volume-drawer-scroll::-webkit-scrollbar {
           width: 6px;
@@ -228,7 +186,6 @@ const HarvesterVolumeDetailDrawer: React.FC<HarvesterVolumeDetailDrawerProps> = 
           overflowY: 'auto',
         }}
       >
-        {activeTab === 'detail' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             {loading && !pvc ? (
               <div style={{ padding: 48, textAlign: 'center' }}>
@@ -443,26 +400,6 @@ const HarvesterVolumeDetailDrawer: React.FC<HarvesterVolumeDetailDrawerProps> = 
           </>
             )}
           </div>
-        )}
-
-        {activeTab === 'events' && (
-          <Card
-            variant="borderless"
-            styles={{ body: { padding: 0, height: '100%' } }}
-            style={{
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <HarvesterEventsTab
-              cloudId={cloudId}
-              record={pvc ?? (ns && nm ? { metadata: { namespace: ns, name: nm } } : undefined)}
-              active={activeTab === 'events'}
-              kind="PersistentVolumeClaim"
-            />
-          </Card>
-        )}
       </div>
     </Drawer>
   );

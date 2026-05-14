@@ -65,15 +65,15 @@ html, body, #root {
   vertical-align: middle !important;
 }
 
-/* Input / Number 的 prefix：主题蓝（不覆盖更具体作用域，如顶栏/登录卡片的局部覆盖） */
+/* Input / Number 的 prefix：浅灰（不覆盖更具体作用域，如顶栏/登录卡片的局部覆盖） */
 .ant-input-affix-wrapper .ant-input-prefix,
 .ant-input-number-affix-wrapper .ant-input-number-prefix {
-  color: #1890ff;
+  color: #bfbfbf;
 }
 
 /* Select 的 prefix：antd 5 用 CSS-in-JS 后注入会覆盖普通全局色，需 !important 才能压过；顶栏等仍可用更高优先级 + !important 覆盖为浅色 */
 .ant-select .ant-select-prefix {
-  color: #1890ff !important;
+  color: #bfbfbf !important;
 }
 
 .ant-input-affix-wrapper-disabled .ant-input-prefix,
@@ -317,6 +317,24 @@ html, body, #root {
   line-height: 32px;
   color: #1f2329;
   border-bottom: 1px solid #e5e6eb;
+}
+
+/*
+ * Ceph 存储池展开行内「详细信息 / 性能 / 配置」：仍用 std-table 冻结与 scroll，但全局 12px+32px 行高过大；
+ * 与 Table size=small 对齐，收紧 padding 与行高（需叠在上一段 !important 之后）。
+ */
+.ceph-pool-detail-table.ant-table-wrapper .ant-table {
+  font-size: 12px;
+}
+.ceph-pool-detail-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell,
+.ceph-pool-detail-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell {
+  padding-block: 4px !important;
+  padding-inline: 10px !important;
+  line-height: 1.35 !important;
+}
+.ceph-pool-detail-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell:not(:first-child) {
+  white-space: normal !important;
+  vertical-align: top;
 }
 
 /* 多选列：左右与其它列一致，复选框居中 */
@@ -1056,4 +1074,25 @@ html, body, #root {
 .vr-nic-ipv6-cell {
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* ==========================================================================
+   通用抽屉 · 内容区四边等距内边距（与 Ant Design 默认 paddingLG / 24px 对齐）
+   用法：<Drawer classNames={{ body: 'ct-drawer-body-padding-even' }} />
+   ========================================================================== */
+.ct-drawer-body-padding-even {
+  padding: 24px !important;
+}
+
+/* Ceph Rook 存储池抽屉 · 折叠面板内容区等距内边距（覆盖 small 预设不对称 padding） */
+.ceph-rook-pool-drawer-collapse .ant-collapse-content-box {
+  padding: 16px !important;
+}
+
+/* 抽屉内表单：标签与折叠标题不加粗，随系统默认字重 */
+.ceph-rook-pool-drawer-form .ant-form-item-label > label {
+  font-weight: normal;
+}
+.ceph-rook-pool-drawer-form .ant-collapse-header-text {
+  font-weight: normal;
 }

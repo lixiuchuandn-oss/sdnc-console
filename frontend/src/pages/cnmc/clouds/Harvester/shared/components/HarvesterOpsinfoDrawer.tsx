@@ -2,8 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import JsonHighlight from '../../../../../../components/JsonHighlight';
-import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
-import HarvesterEventsTab from './HarvesterEventsTab';
+import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 import ServiceRelatedPodsTab from './ServiceRelatedPodsTab';
 import { ViewLinkTab } from './ViewLinkTab';
 
@@ -23,7 +22,6 @@ export interface HarvesterResourceDrawerProps {
   images?: any[];
   pods?: any[]; // Pod 列表，用于 Service 关联 Pod 展示
   onRefresh?: (force?: boolean) => void;
-  onOpenReconfigure?: (vm: any) => void;
   onBackup?: (vm: any) => void;
   onSnapshot?: (vm: any) => void;
   onClone?: (vm: any) => void;
@@ -75,7 +73,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
   }, [useInternalState, onTabChange]);
 
   if (resourceType === 'VirtualMachine' && !forceOpsMode) {
-    return <HarvesterVmDetailDrawer {...props} />;
+    return <VmDetailDrawer {...props} />;
   }
 
   // 如果 record 没有 links.view，根据 resourceType 和 metadata 自动构造

@@ -2,8 +2,10 @@ import React from 'react';
 import { Empty } from 'antd';
 import VolumesSection from '../../../../Harvester/ebs/sections/VolumesSection';
 import SnapshotsSection from '../../../../Harvester/ebs/sections/SnapshotsSection';
-import CephStorageSection from '../../../../Harvester/ceph/sections/CephStorageSection';
-import LonghornStorageSection from '../../../../Harvester/longhorn/sections/LonghornStorageSection';
+import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
+import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
+import CloudmapStorageCephRadosNamespaces from './CloudmapStorageCephRadosNamespaces';
+import CloudmapStorageCephRbdMirror from './CloudmapStorageCephRbdMirror';
 import { fetchCloudProviderEcs, fetchHarvesterVolumes } from '../../api';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
@@ -27,6 +29,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
 
 export type CloudmapStorageGroupTabsProps = {
   cloudId: string;
+  isTenant: boolean;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
@@ -55,23 +58,23 @@ export type CloudmapStorageGroupTabsProps = {
 };
 
 function canViewStorageInner(key: string, checkPerm: (a: string) => boolean): boolean {
-  if (key === 'volumes') return checkPerm('clouds.disks:read');
-  if (key === 'snapshots') return checkPerm('clouds.snapshots:read');
-  if (key === 'longhorn' || key === 'ceph') {
+  const cephish =
+    checkPerm('clouds.disks:read') || checkPerm('clouds.cluster-nodes:read') || checkPerm('clouds:read');
+  if (key === 'storage_pools' || key === 'rados_namespaces' || key === 'rbd_mirror') return cephish;
+  if (key === 'storage_classes') {
     return (
-      checkPerm('clouds.disks:read') ||
-      checkPerm('clouds.cluster-nodes:read') ||
-      checkPerm('clouds:read')
+      checkPerm('clouds.storage-classes:read') || checkPerm('clouds.ecs:read') || checkPerm('clouds:read')
     );
   }
+  if (key === 'volumes') return checkPerm('clouds.disks:read');
+  if (key === 'snapshots') return checkPerm('clouds.snapshots:read');
   return false;
 }
 
-const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
-  props,
-) => {
+const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (props) => {
   const {
     cloudId,
+    isTenant,
     showLog,
     checkPerm,
     innerActiveKey,
@@ -94,6 +97,26 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
+  if (innerActiveKey === 'storage_pools') {
+    return <CephPoolSection cloudId={cloudId} applicationsScope="cloud" />;
+  }
+  if (innerActiveKey === 'rados_namespaces') {
+    return <CloudmapStorageCephRadosNamespaces cloudId={cloudId} />;
+  }
+  if (innerActiveKey === 'rbd_mirror') {
+    return <CloudmapStorageCephRbdMirror cloudId={cloudId} />;
+  }
+  if (innerActiveKey === 'storage_classes') {
+    return (
+      <StorageClassesSection
+        cloudId={cloudId}
+        storageClasses={harvesterStorageClasses}
+        loading={!!resourceLoading.storageClasses}
+        isTenant={isTenant}
+        onRefresh={(force) => void loadTabResource('storage_classes', force ?? true)}
+      />
+    );
+  }
   if (innerActiveKey === 'volumes') {
     return (
       <>
@@ -125,6 +148,7 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
               },
               true,
             );
+            void loadTabResource('storage_classes', true);
           }}
         />
         <DebugJSON data={rawVolumes} show={showLog} />
@@ -139,17 +163,11 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (
           snapshots={harvesterSnapshots}
           namespaces={harvesterNamespaces}
           loading={resourceLoading.snapshots}
-          onRefresh={() => loadTabResource('snapshots', true)}
+          onRefresh={() => void loadTabResource('snapshots', true)}
         />
         <DebugJSON data={rawSnapshots} show={showLog} />
       </>
     );
-  }
-  if (innerActiveKey === 'longhorn') {
-    return <LonghornStorageSection cloudId={cloudId} />;
-  }
-  if (innerActiveKey === 'ceph') {
-    return <CephStorageSection cloudId={cloudId} />;
   }
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };

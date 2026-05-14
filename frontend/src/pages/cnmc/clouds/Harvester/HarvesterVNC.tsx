@@ -107,17 +107,17 @@ const HarvesterVNCPage: React.FC = () => {
     const fetchStats = async () => {
         if (!cloudId || !namespace || !name) return;
         
-        // Use VMPerformance.tsx query logic exactly
+        // Use ecs/drawers/vm-detail/tabs/VmPerformance.tsx query logic exactly
         // Query last 5 minutes data to ensure we have points
         const end = Math.floor(Date.now() / 1000);
         const start = end - 5 * 60; 
         const step = 60; 
 
-        // CPU Usage: Based on VMPerformance.tsx
+        // CPU Usage: Based on vm-detail/tabs/VmPerformance.tsx
         // sum(avg(rate(kubevirt_vmi_vcpu_seconds_total{namespace="${namespace}", name="${name}"}[5m])) by (domain, name)) / 1000
         const cpuQuery = `sum(avg(rate(kubevirt_vmi_vcpu_seconds_total{namespace="${namespace}", name="${name}"}[5m])) by (domain, name)) / 1000`;
         
-        // Memory Usage: Based on VMPerformance.tsx
+        // Memory Usage: Based on vm-detail/tabs/VmPerformance.tsx
         // sum((kubevirt_vmi_memory_available_bytes - kubevirt_vmi_memory_unused_bytes) / kubevirt_vmi_memory_available_bytes)
         const memQuery = `sum((kubevirt_vmi_memory_available_bytes{namespace="${namespace}", name="${name}"} - kubevirt_vmi_memory_unused_bytes{namespace="${namespace}", name="${name}"}) / kubevirt_vmi_memory_available_bytes{namespace="${namespace}", name="${name}"})`;
 
@@ -142,7 +142,7 @@ const HarvesterVNCPage: React.FC = () => {
             const cpuVal = getVal(cpuRes);
             const memVal = getVal(memRes);
             
-            // VMPerformance.tsx logic: result is 0-1 (or similar), multiply by 100 for display
+            // vm-detail/tabs/VmPerformance.tsx logic: result is 0-1 (or similar), multiply by 100 for display
             setStats({ 
                 cpu: Math.round(Math.max(0, Math.min(100, cpuVal * 100))), 
                 mem: Math.round(Math.max(0, Math.min(100, memVal * 100))) 

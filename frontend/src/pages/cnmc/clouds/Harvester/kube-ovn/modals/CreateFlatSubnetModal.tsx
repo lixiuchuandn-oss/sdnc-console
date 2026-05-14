@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Form, Modal, message } from 'antd';
+import { Checkbox, Form, Modal, message } from 'antd';
 import { createKubeOvnSubnet } from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
@@ -72,6 +72,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
     pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
     form.resetFields();
     form.setFieldsValue({
+      allowDhcp: true,
       ...(initialVlanCrName ? { vlan: initialVlanCrName } : {}),
     });
   }, [open, initialVlanCrName, form]);
@@ -84,7 +85,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
       }
       setSubmitting(true);
       try {
-        const { alias, ...rest } = values;
+        const { alias, allowDhcp, ...rest } = values;
         const aliasTrim = String(alias ?? '').trim();
         const subnetId =
           String(pendingUnderlaySubnetCrNameRef.current || '').trim() ||
@@ -138,7 +139,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           private: false,
           gatewayType: 'distributed',
           disableGatewayCheck: true,
-          allowDhcp: true,
+          allowDhcp: allowDhcp !== false,
           ...(vlanTrim ? { vlan: vlanTrim } : {}),
         };
 
@@ -216,6 +217,9 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           aliasDupCheckItems={aliasDupCheckItems}
           aliasFieldTooltip="展示名称，支持中文。集群内资源 ID（metadata.name）为系统自动生成，格式 id-sn- 加 11 位随机字符。"
         />
+        <Form.Item name="allowDhcp" valuePropName="checked" initialValue={true}>
+          <Checkbox>启用 DHCP 服务</Checkbox>
+        </Form.Item>
       </Form>
     </Modal>
   );

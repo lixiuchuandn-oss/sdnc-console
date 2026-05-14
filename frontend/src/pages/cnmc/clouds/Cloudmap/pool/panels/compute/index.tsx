@@ -1,7 +1,6 @@
 import React from 'react';
 import { Empty, message } from 'antd';
 import VmSection from '../../../../Harvester/ecs/sections/VmSection';
-import VmReconfigureModal from '../../../../Harvester/ecs/modals/VmReconfigureModal';
 import ImagesSection from '../../../../Harvester/ecs/sections/ImagesSection';
 import TemplatesSection from '../../../../Harvester/ecs/sections/TemplatesSection';
 import SshKeysSection from '../../../../Harvester/ecs/sections/SshKeysSection';
@@ -86,15 +85,11 @@ export type CloudmapComputeGroupTabsProps = {
   harvesterSshKeys: any[];
   harvesterCloudInits: any[];
   harvesterGpuResources: any[];
+  harvesterUsbDevices: any[];
   rawImages: any;
   rawTemplates: any;
   rawSshKeys: any;
   rawCloudInits: any;
-  vmReconfOpen: boolean;
-  vmReconfTarget: any;
-  onOpenVmReconfigure: (r: any) => void;
-  onVmReconfigureModalClose: () => void;
-  onVmReconfigureModalOk: () => void;
 };
 
 function canViewComputeInner(
@@ -155,15 +150,11 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
     harvesterSshKeys,
     harvesterCloudInits,
     harvesterGpuResources,
+    harvesterUsbDevices,
     rawImages,
     rawTemplates,
     rawSshKeys,
     rawCloudInits,
-    vmReconfOpen,
-    vmReconfTarget,
-    onOpenVmReconfigure,
-    onVmReconfigureModalClose,
-    onVmReconfigureModalOk,
   } = props;
 
   if (!canViewComputeInner(innerActiveKey, checkPerm)) {
@@ -251,7 +242,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                       );
                     });
                 }}
-                onOpenReconfigure={onOpenVmReconfigure}
                 onStart={async (iid: string) => {
                   try {
                     const vm = ecs.find((v: any) => {
@@ -457,16 +447,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                 images={harvesterImages}
                 namespaces={harvesterNamespaces}
                 volumes={harvesterVolumes}
-              />
-              <VmReconfigureModal
-                open={vmReconfOpen}
-                cloudId={cloudId}
-                record={vmReconfTarget}
-                onClose={onVmReconfigureModalClose}
-                onOk={onVmReconfigureModalOk}
-                storageClasses={harvesterStorageClasses}
-                images={harvesterImages}
-                gpuResources={harvesterGpuResources}
               />
         <DebugJSON data={rawEcs} show={showLog} />
       </>

@@ -69,7 +69,6 @@ import CloudConsoleDatabasePanel, {
   type CloudConsoleDatabaseCategory,
   type CloudConsoleDatabaseResource,
 } from './CloudConsoleDatabasePanel';
-import VmReconfigureModal from '../clouds/Harvester/ecs/modals/VmReconfigureModal';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
 import { useTenantConsoleHeaderSlot } from '../../../contexts/TenantConsoleHeaderSlotContext';
@@ -139,6 +138,12 @@ const CloudConsolePage: React.FC = () => {
   );
 
   const permissions = user?.permissions ?? [];
+  const hasEcsWrite = useMemo(
+    () =>
+      hasPermissionForAction(permissions, 'clouds.ecs:write') ||
+      hasPermissionForAction(permissions, 'clouds:write'),
+    [permissions],
+  );
   const canViewContainersNav = useMemo(
     () => canViewAnyContainerSubPageFromPerms(permissions),
     [permissions],
@@ -215,8 +220,6 @@ const CloudConsolePage: React.FC = () => {
   // VmSection specific state
   const [nsValue, setNsValue] = useState<string | undefined>(undefined);
   const [nodeValue, setNodeValue] = useState<string | undefined>(undefined);
-  const [reconfVisible, setReconfVisible] = useState(false);
-  const [reconfVm, setReconfVm] = useState<any>(null);
 
   const [consoleLeftNavKey, setConsoleLeftNavKey] = useState<ConsoleLeftNavKey>('host');
 
@@ -1696,10 +1699,6 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshDnatRules={(force?: boolean, silent?: boolean) =>
                     loadDnatRules(currentCloudId, force !== false, silent === true)
                   }
-                  onOpenReconfigure={(vm) => {
-                    setReconfVm(vm);
-                    setReconfVisible(true);
-                  }}
                   onStart={handleStart}
                   onStop={handleStop}
                   onReboot={handleReboot}
@@ -1726,19 +1725,6 @@ const CloudConsolePage: React.FC = () => {
                 style={{ maxWidth: 600, margin: '0 auto' }}
               />
             </div>
-          )}
-
-          {reconfVisible && (
-            <VmReconfigureModal
-              open={reconfVisible}
-              onClose={() => setReconfVisible(false)}
-              record={reconfVm}
-              cloudId={currentCloudId || ''}
-              onOk={() => {
-                setReconfVisible(false);
-                loadEcs(currentCloudId, true);
-              }}
-            />
           )}
           </Content>
         </Layout>

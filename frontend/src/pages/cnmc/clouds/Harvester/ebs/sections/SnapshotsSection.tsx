@@ -407,15 +407,6 @@ const SnapshotsSection: React.FC<Props> = ({
   // 5. 渲染视图 (Render) — 与云详情「云盘快照」Tab 页面对应
   // ==============================================================================
 
-  /**
-   * 与 VmSection「云主机」列表一致：有数据时使用 scroll.x 像素下限 + fixed 左/右列。
-   * 不要使用 x: true（含 fixed 时易导致整表被压在视口内裁切右侧列）。
-   */
-  const snapshotsTableScroll = useMemo(
-    () => (filteredData.length > 0 ? ({ x: 2400 } as const) : undefined),
-    [filteredData.length],
-  );
-
   return (
     <PageDetailSection
       asCard={false}
@@ -502,7 +493,7 @@ const SnapshotsSection: React.FC<Props> = ({
         columns={visibleColumns || columns}
         rowKey="key"
         loading={loading}
-        scroll={snapshotsTableScroll}
+        scroll={{ x: true }}
         rowSelection={{
           selectedRowKeys,
           onChange: setSelectedRowKeys,

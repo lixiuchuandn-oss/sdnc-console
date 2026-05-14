@@ -77,7 +77,6 @@ interface Props {
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
   onRefreshVms: (force?: boolean) => void | Promise<void>;
-  onOpenReconfigure: (vm: any) => void;
   onStart: (iid: string) => void;
   onStop: (iid: string) => void;
   onReboot: (iid: string) => void;
@@ -140,7 +139,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   onNsChange,
   onNodeChange,
   onRefreshVms,
-  onOpenReconfigure,
   onStart,
   onStop,
   onReboot,
@@ -327,7 +325,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             onNsChange={onNsChange}
             onNodeChange={onNodeChange}
             onRefresh={onRefreshVms}
-            onOpenReconfigure={onOpenReconfigure}
             onStart={onStart}
             onStop={onStop}
             onReboot={onReboot}
@@ -575,7 +572,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     onNsChange,
     onNodeChange,
     onRefreshVms,
-    onOpenReconfigure,
     onStart,
     onStop,
     onReboot,

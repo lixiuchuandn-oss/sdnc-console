@@ -19,6 +19,8 @@ export type CloudmapPoolNavRow = {
   homePageReplaceParamFrom?: 'favoriteCloudId';
   homePageAllowedRoles?: string[];
   homePageOnlyWithoutFeature?: string;
+  /** `RouteSpec.group`；缺省为「Cloudmap资源池」（见 `RouteSpec.toCloudmapPoolRouteSpec`） */
+  routeSpecGroup?: string;
 };
 
 const RH = 'cloudmap_menu_resource_hub';
@@ -32,6 +34,7 @@ const STOR = 'cloudmap_menu_storage';
 const BAK = 'cloudmap_menu_backups';
 const FLAT = 'cloudmap_menu_flat_network';
 const KUBE = 'cloudmap_menu_kube_ovn';
+const OBJ = 'cloudmap_menu_object_storage';
 const LOGS = 'cloudmap_menu_logs_config';
 
 /** 并入 `routeSpecs` 的唯一表 */
@@ -51,6 +54,16 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   },
   { id: 'cloudmap-pool-rh-datacenter', pathSuffix: 'resource_hub/datacenter_topology', title: '机房拓扑', order: 11, icon: 'DashboardOutlined', poolNavGroup: '资源总览', poolMenuParentKey: RH },
   { id: 'cloudmap-pool-rh-network-topo', pathSuffix: 'resource_hub/network_topology', title: '网络拓扑', order: 12, icon: 'DashboardOutlined', poolNavGroup: '资源总览', poolMenuParentKey: RH },
+  {
+    id: 'cloudmap-pool-rh-ceph-overview',
+    pathSuffix: 'resource_hub/ceph_storage_overview',
+    title: '存储仪表板',
+    order: 13,
+    icon: 'DatabaseOutlined',
+    poolNavGroup: '资源总览',
+    poolMenuParentKey: RH,
+    routeSpecGroup: '资源总览',
+  },
   { id: 'cloudmap-pool-mon-alerts', pathSuffix: 'monitoring_alerts/alerts-list', title: '告警列表', order: 20, icon: 'AlertOutlined', poolNavGroup: '监控告警', poolMenuParentKey: MON },
   { id: 'cloudmap-pool-mon-rules', pathSuffix: 'monitoring_alerts/alert-rules', title: '告警规则', order: 21, icon: 'AlertOutlined', poolNavGroup: '监控告警', poolMenuParentKey: MON },
   { id: 'cloudmap-pool-mon-policy', pathSuffix: 'monitoring_alerts/notification-policy', title: '告警通知策略', order: 22, icon: 'AlertOutlined', poolNavGroup: '监控告警', poolMenuParentKey: MON },
@@ -108,10 +121,58 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   { id: 'cloudmap-pool-cntr-np', pathSuffix: 'containers/networkpolicies', title: '网络策略', order: 68, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.networkpolicies:read' },
   { id: 'cloudmap-pool-cntr-cfg', pathSuffix: 'containers/configs', title: '配置管理', order: 69, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.configs:read' },
   { id: 'cloudmap-pool-cntr-reg', pathSuffix: 'containers/registries', title: '镜像仓库', order: 70, icon: 'DeploymentUnitOutlined', poolNavGroup: '容器', poolMenuParentKey: CONT, poolPageAction: 'clouds.containers.registries:read' },
-  { id: 'cloudmap-pool-stor-vol', pathSuffix: 'storage/volumes', title: '虚拟云盘', order: 80, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
-  { id: 'cloudmap-pool-stor-snap', pathSuffix: 'storage/snapshots', title: '云盘快照', order: 81, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
-  { id: 'cloudmap-pool-stor-longhorn', pathSuffix: 'storage/longhorn', title: '分布式存储', order: 82, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
-  { id: 'cloudmap-pool-stor-ceph', pathSuffix: 'storage/ceph', title: 'Ceph 存储', order: 83, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
+  { id: 'cloudmap-pool-stor-pools', pathSuffix: 'storage/storage_pools', title: '存储池', order: 80, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
+  {
+    id: 'cloudmap-pool-stor-rados-ns',
+    pathSuffix: 'storage/rados_namespaces',
+    title: 'RADOS 命名空间',
+    order: 81,
+    icon: 'DatabaseOutlined',
+    poolNavGroup: '云存储',
+    poolMenuParentKey: STOR,
+  },
+  { id: 'cloudmap-pool-stor-sc', pathSuffix: 'storage/storage_classes', title: '存储类', order: 83, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
+  { id: 'cloudmap-pool-stor-vol', pathSuffix: 'storage/volumes', title: '虚拟云盘', order: 84, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
+  { id: 'cloudmap-pool-stor-snap', pathSuffix: 'storage/snapshots', title: '云盘快照', order: 85, icon: 'DatabaseOutlined', poolNavGroup: '云存储', poolMenuParentKey: STOR },
+  {
+    id: 'cloudmap-pool-stor-rbd-mirror',
+    pathSuffix: 'storage/rbd_mirror',
+    title: 'RBD 镜像',
+    order: 86,
+    icon: 'DatabaseOutlined',
+    poolNavGroup: '云存储',
+    poolMenuParentKey: STOR,
+  },
+  {
+    id: 'cloudmap-pool-obj-gateways',
+    pathSuffix: 'object_storage/object_gateways',
+    title: '对象网关',
+    order: 87,
+    icon: 'GatewayOutlined',
+    poolNavGroup: '对象存储',
+    poolMenuParentKey: OBJ,
+    routeSpecGroup: '对象存储',
+  },
+  {
+    id: 'cloudmap-pool-obj-storage-pools',
+    pathSuffix: 'object_storage/storage_pools',
+    title: '存储池',
+    order: 88,
+    icon: 'DatabaseOutlined',
+    poolNavGroup: '对象存储',
+    poolMenuParentKey: OBJ,
+    routeSpecGroup: '对象存储',
+  },
+  {
+    id: 'cloudmap-pool-obj-cosi',
+    pathSuffix: 'object_storage/cosi',
+    title: 'COSI 驱动',
+    order: 89,
+    icon: 'ApiOutlined',
+    poolNavGroup: '对象存储',
+    poolMenuParentKey: OBJ,
+    routeSpecGroup: '对象存储',
+  },
   { id: 'cloudmap-pool-bak-backups', pathSuffix: 'backups/backups', title: '云主机备份', order: 90, icon: 'CloudDownloadOutlined', poolNavGroup: '云备份', poolMenuParentKey: BAK },
   { id: 'cloudmap-pool-bak-snaps', pathSuffix: 'backups/vm_snapshots', title: '云主机快照', order: 91, icon: 'CloudDownloadOutlined', poolNavGroup: '云备份', poolMenuParentKey: BAK },
   { id: 'cloudmap-pool-bak-sched', pathSuffix: 'backups/schedule_vm_backups', title: '定时策略', order: 92, icon: 'CloudDownloadOutlined', poolNavGroup: '云备份', poolMenuParentKey: BAK },
@@ -121,12 +182,12 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   { id: 'cloudmap-pool-flat-eip', pathSuffix: 'flat_network/flat_kubeovn_eips', title: '弹性公网 IP', order: 102, icon: 'ApartmentOutlined', poolNavGroup: '扁平网络', poolMenuParentKey: FLAT },
   { id: 'cloudmap-pool-flat-snat', pathSuffix: 'flat_network/flat_kubeovn_snat', title: 'SNAT', order: 103, icon: 'ApartmentOutlined', poolNavGroup: '扁平网络', poolMenuParentKey: FLAT },
   { id: 'cloudmap-pool-flat-dnat', pathSuffix: 'flat_network/flat_kubeovn_dnat', title: 'DNAT', order: 104, icon: 'ApartmentOutlined', poolNavGroup: '扁平网络', poolMenuParentKey: FLAT },
-  { id: 'cloudmap-pool-ovn-vpc', pathSuffix: 'kube_ovn/vpcs', title: 'VPC', order: 110, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
-  { id: 'cloudmap-pool-ovn-sub', pathSuffix: 'kube_ovn/subnets', title: '子网', order: 111, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
-  { id: 'cloudmap-pool-ovn-eip', pathSuffix: 'kube_ovn/kubeovn_eips', title: '弹性公网 IP', order: 112, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
+  { id: 'cloudmap-pool-ovn-vpc', pathSuffix: 'kube_ovn/vpcs', title: 'VPC', order: 112, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
+  { id: 'cloudmap-pool-ovn-sub', pathSuffix: 'kube_ovn/subnets', title: '子网', order: 113, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
+  { id: 'cloudmap-pool-ovn-eip', pathSuffix: 'kube_ovn/kubeovn_eips', title: '弹性公网 IP', order: 114, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
   /** VPC 下浮动 IP 入口已隐藏（产品配置）；扁平网络仍保留 flat_kubeovn_fips */
-  { id: 'cloudmap-pool-ovn-snat', pathSuffix: 'kube_ovn/kubeovn_snat', title: 'SNAT', order: 114, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
-  { id: 'cloudmap-pool-ovn-dnat', pathSuffix: 'kube_ovn/kubeovn_dnat', title: 'DNAT', order: 115, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
+  { id: 'cloudmap-pool-ovn-snat', pathSuffix: 'kube_ovn/kubeovn_snat', title: 'SNAT', order: 115, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
+  { id: 'cloudmap-pool-ovn-dnat', pathSuffix: 'kube_ovn/kubeovn_dnat', title: 'DNAT', order: 116, icon: 'GlobalOutlined', poolNavGroup: 'VPC网络', poolMenuParentKey: KUBE, requiredFeature: 'network.ovn.vpc' },
   { id: 'cloudmap-pool-logs-target', pathSuffix: 'logs_config/logs-target', title: '日志采集对象', order: 120, icon: 'FileTextOutlined', poolNavGroup: '日志管理', poolMenuParentKey: LOGS },
   { id: 'cloudmap-pool-logs-out', pathSuffix: 'logs_config/log-outputs', title: '日志接收端', order: 121, icon: 'FileTextOutlined', poolNavGroup: '日志管理', poolMenuParentKey: LOGS },
   { id: 'cloudmap-pool-logs-flow', pathSuffix: 'logs_config/logs-flow-config', title: '日志采集配置', order: 122, icon: 'FileTextOutlined', poolNavGroup: '日志管理', poolMenuParentKey: LOGS },

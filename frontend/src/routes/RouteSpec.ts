@@ -68,7 +68,7 @@ function toCloudmapPoolRouteSpec(
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: 'Cloudmap资源池',
+    group: r.routeSpecGroup ?? 'Cloudmap资源池',
     hidden: true,
     navScope: 'cloudmap-pool',
     poolNavGroup: r.poolNavGroup,

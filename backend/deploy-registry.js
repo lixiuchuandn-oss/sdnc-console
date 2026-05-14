@@ -23,7 +23,7 @@ async function login() {
   } catch (e) {
     console.error('登录失败:', e.response?.data || e.message);
     throw e;
-  }
+  } 
 }
 
 // 获取 Harvester 云环境

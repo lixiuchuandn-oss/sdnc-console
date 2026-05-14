@@ -273,7 +273,14 @@ Compute.Tower/
 - `/api/clouds/harvester/*`: Harvester/KubeVirt 资源
 - `/api/clouds/{id}/monitoring/storage-nodes`: Longhorn 节点（Steve `longhorn.io.nodes`，Cloudmap「分布式存储」）
 - `/api/clouds/{id}/monitoring/ceph-clusters`: Rook `CephCluster` 列表（Steve 优先 `cephclusters.ceph.rook.io`，回退 `ceph.rook.io.cephclusters`；Cloudmap「Ceph 存储」）
-- `/api/clouds/{id}/monitoring/ceph-resources`: Rook Ceph 聚合（`CephCluster`、`CephBlockPool`、`CephFilesystem`、`CephObjectStore` 四类 Steve 列表）
+- `/api/clouds/{id}/monitoring/ceph-resources`: Rook Ceph Steve 多资源聚合（`cephclusters`、`cephblockpools`、`cephblockpoolradosnamespaces`、`cephfilesystems`、`cephfilesystemsubvolumegroups`、`cephfilesystemmirrors`、`cephnfses`、`cephobjectstores`、`cephobjectstoreusers`、`cephobjectrealms`、`cephobjectzones`、`cephobjectzonegroups`、`cephbuckettopics`、`cephbucketnotifications`、`cephclients`、`cephcosidrivers`、`cephrbdmirrors` 等；字段名为 camelCase，与 `GET .../ceph/rook/bundle` 一致）
+- `/api/clouds/{id}/ceph/rook/bundle`: 与上条**同源**；独立 Ceph 路径，响应另含 `_tower.api=ceph`
+- **Rook CR Steve 写读**（`{id}` 为云实例 ID；均须经 Harvester/Cloudmap 且管理员权限；请求/响应体为 Steve/K8s CR JSON；PATCH 使用 `Content-Type: application/merge-patch+json`）：
+  - **CephCluster**：`GET|PUT|PATCH /api/clouds/{id}/ceph/rook/clusters/{namespace}/{name}`（无集群级 POST/DELETE，避免误操作）
+  - **CephBlockPool**：`POST /api/clouds/{id}/ceph/rook/block-pools`，`GET|PUT|PATCH|DELETE /api/clouds/{id}/ceph/rook/block-pools/{namespace}/{name}`
+  - **CephFilesystem**：`POST /api/clouds/{id}/ceph/rook/filesystems`，`GET|PUT|PATCH|DELETE .../filesystems/{namespace}/{name}`
+  - **CephObjectStore**：`POST /api/clouds/{id}/ceph/rook/object-stores`，`GET|PUT|PATCH|DELETE .../object-stores/{namespace}/{name}`
+  - **CephBlockPoolRadosNamespace**：`POST /api/clouds/{id}/ceph/rook/blockpool-rados-namespaces`，`GET|PUT|PATCH|DELETE .../blockpool-rados-namespaces/{namespace}/{name}`
 
 **Harvester 容器管理**：
 - `/api/clouds/{id}/resources/harvester/containers/workloads`: 工作负载

@@ -464,13 +464,14 @@ export const deleteHarvesterLonghornVolume = async (
  * [核心逻辑]
  * 1. [容量解析]: 自动处理数字或带单位字符串 (如 '10Gi') 的容量输入。
  * 2. [默认值]: 默认大小 10Gi，默认模式 ReadWriteOnce。
- * 3. [路径尝试]: 尝试通过标准 API 和 Harvester API 创建。
+ * 3. [命名]: PVC metadata.name 始终由平台生成；payload.name 作为展示别名写入 tower.io/alias（调用方已在 annotations 中指定 tower.io/alias 时不覆盖）。
+ * 4. [路径尝试]: 尝试通过标准 API 和 Harvester API 创建。
  *
  * @param params 连接参数
  * @param payload 创建参数（包含注解 annotations）
  * @returns Promise<any> 创建结果
  */
-/** K8s DNS-1123 label：PVC metadata.name 须满足；否则生成技术名并把用户输入写入 tower.io/alias */
+/** K8s DNS-1123 label：用于克隆等需合法资源名的路径 */
 function isKubernetesDnsLabel(name: string): boolean {
   return !!name && name.length <= 63 && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name);
 }
@@ -523,15 +524,12 @@ export const createHarvesterPVCVolume = async (
   };
 
   const rawDisplayName = String(payload.name || '').trim();
-  let pvcMetaName = rawDisplayName;
+  const pvcMetaName = generatePvcTechnicalName();
   const mergedAnnotations: Record<string, string> = { ...(payload.annotations || {}) };
-  if (!isKubernetesDnsLabel(pvcMetaName)) {
-    pvcMetaName = generatePvcTechnicalName();
-    if (!mergedAnnotations['tower.io/alias']) {
-      mergedAnnotations['tower.io/alias'] = (rawDisplayName || 'volume').slice(0, 512);
-    }
+  if (!mergedAnnotations['tower.io/alias']) {
+    mergedAnnotations['tower.io/alias'] = (rawDisplayName || 'volume').slice(0, 512);
   }
-  
+
   const body = {
     apiVersion: 'v1',
     kind: 'PersistentVolumeClaim',

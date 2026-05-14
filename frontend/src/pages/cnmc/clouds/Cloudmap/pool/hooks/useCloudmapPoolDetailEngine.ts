@@ -57,6 +57,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     canViewOniaasNetworkTab,
     canViewContainersGroup,
     canViewStorageGroup,
+    canViewObjectStorageGroup,
+    canViewCephGroup,
     canViewBackupsGroup,
     canViewFlatNetworkGroup,
     canViewKubeOvnGroup,
@@ -153,8 +155,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [httpRoutes, setHttpRoutes] = useState<any[]>([]);
   const [grpcRoutes, setGrpcRoutes] = useState<any[]>([]);
 
-  const [vmReconfOpen, setVmReconfOpen] = useState(false);
-  const [vmReconfTarget, setVmReconfTarget] = useState<any | null>(null);
   const [nsFilter, setNsFilter] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [showLog] = useState<boolean>(false);
@@ -473,6 +473,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     navigate,
     canViewClusterGroup,
     canViewOniaasNetworkTab,
+    canViewCephGroup,
+    canViewObjectStorageGroup,
     setActiveTabKey,
     setResourceHubSubKey,
     handleTabChangeRef,
@@ -547,6 +549,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     canViewOniaasNetworkTab,
     canViewContainersGroup,
     canViewStorageGroup,
+    canViewObjectStorageGroup,
+    canViewCephGroup,
     canViewBackupsGroup,
     canViewFlatNetworkGroup,
     canViewKubeOvnGroup,
@@ -615,10 +619,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawTemplates,
     rawSshKeys,
     rawCloudInits,
-    vmReconfOpen,
-    vmReconfTarget,
-    setVmReconfOpen,
-    setVmReconfTarget,
     kubeOvnSubnets,
     capabilities,
     setHarvesterImages,

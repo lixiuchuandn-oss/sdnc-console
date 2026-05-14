@@ -848,6 +848,14 @@ const updateHarvesterVMSpecInternal = async (
                if (oldSecret && oldSecret.data) {
                    if (oldSecret.data.userdata) oldUserData = Buffer.from(oldSecret.data.userdata, 'base64').toString();
                    if (oldSecret.data.networkdata) oldNetworkData = Buffer.from(oldSecret.data.networkdata, 'base64').toString();
+                   // 保留 Secret 中其它键（如 meta-data、vendor-data），避免仅改 user/network 时丢失高级内容
+                   for (const [key, val] of Object.entries(oldSecret.data)) {
+                       const lk = String(key).toLowerCase();
+                       if (lk === 'userdata' || lk === 'networkdata') continue;
+                       if (typeof val === 'string' && val.length > 0) {
+                           data[key] = val;
+                       }
+                   }
                }
           } catch (e) {
               console.warn(`[UpdateVM] Failed to fetch old CloudInit secret: ${e}`);

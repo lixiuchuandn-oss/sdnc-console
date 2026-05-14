@@ -345,6 +345,7 @@ AppDataSource.initialize()
         ensureHarvesterAswCtlSwitchInventoryTable,
         ensureImageUploadTaskTable,
         ensureDatacenterTopologyTables,
+        ensureCephMgrDashboardSnapshotTable,
       } = await import('./config/database');
       await ensureRecycleBinTables();
       await ensureKubeOvnSecurityGroupTables();
@@ -352,6 +353,7 @@ AppDataSource.initialize()
       await ensureHarvesterAswCtlSwitchInventoryTable();
       await ensureImageUploadTaskTable();
       await ensureDatacenterTopologyTables();
+      await ensureCephMgrDashboardSnapshotTable();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
     }
