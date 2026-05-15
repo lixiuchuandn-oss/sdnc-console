@@ -135,4 +135,7 @@ export {
   createHarvesterUsbDeviceClaim,
   deleteHarvesterUsbDeviceClaim,
   deleteHarvesterPciDeviceClaim,
+  buildHarvesterPciDeviceClaimIndex,
+  findHarvesterPciClaimForPciRow,
+  harvesterPciDeviceClaimPassthroughEnabled,
 } from './peripherals';

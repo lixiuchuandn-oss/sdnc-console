@@ -3,7 +3,6 @@
  */
 import { KUBE_OVN_FLAT_VPC } from "../../../../kube-ovn/lib/kubeOvnSubnetConstants";
 import type { VmAddNicNadInfo } from "./vmAddNicDrawerNadMeta";
-import { passthroughKubevirtIfaceTypeFromNad } from "./vmAddNicDrawerNadMeta";
 
 const SUBNET_TYPE_ANNOTATION = "tower.io/subnet-type";
 
@@ -172,28 +171,45 @@ export function buildSecondaryRowVpc(
   };
 }
 
-export function buildSecondaryRowPassthrough(
-  nadValue: string,
-  nadInfos: VmAddNicNadInfo[],
-  extras: {
-    model?: string;
-    macAddress?: string;
-    ipAddress?: string;
-    gateway?: string;
-    dns?: string;
-  },
-): Record<string, unknown> | null {
-  const hit = nadInfos.find((x) => String(x.value) === String(nadValue));
-  const ifaceType = passthroughKubevirtIfaceTypeFromNad(hit);
+/** Multus 直通辅卡（与创建向导一致：不写 type/model，由 computeSecondaryNicsPayload 按 NAD 推断） */
+export function buildSecondaryRowPassthroughMultus(nadValue: string): Record<string, unknown> {
+  const v = String(nadValue || "").trim();
+  if (!v) return {};
   return {
     mode: "passthrough",
-    name: nadValue,
-    type: ifaceType,
-    model: extras.model || "virtio",
-    macAddress: extras.macAddress,
-    ipAddress: extras.ipAddress,
-    gateway: extras.gateway,
-    dns: extras.dns,
+    passthroughSource: "multus",
+    name: v,
+    type: undefined,
+    model: undefined,
+  };
+}
+
+/** PCI 直通辅卡（仅 hostDevices + allocation；无 Multus interface） */
+export function buildSecondaryRowPassthroughPci(opts: {
+  pciDeviceName: string;
+  pciResourceName: string;
+  pciNodeName?: string;
+  passthroughPick?: string;
+  /** 与创建向导一致：整卡 PCI vs SR-IOV VF PCI */
+  nicWizardMode?: "passthrough" | "passthrough_sriov";
+}): Record<string, unknown> {
+  const cr = String(opts.pciDeviceName || "").trim();
+  const rn = String(opts.pciResourceName || "").trim();
+  if (!cr || !rn) return {};
+  const mode =
+    String(opts.nicWizardMode || "passthrough").trim() === "passthrough_sriov"
+      ? "passthrough_sriov"
+      : "passthrough";
+  return {
+    mode,
+    passthroughSource: "pci-host",
+    pciDeviceName: cr,
+    pciResourceName: rn,
+    pciNodeName: String(opts.pciNodeName || "").trim() || undefined,
+    passthroughPick: String(opts.passthroughPick || "").trim() || `pci:${cr}`,
+    name: undefined,
+    type: undefined,
+    model: undefined,
   };
 }
 

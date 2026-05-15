@@ -3,6 +3,7 @@ import { message } from "antd";
 import {
   fetchHarvesterBackups,
   fetchHarvesterGpuResources,
+  fetchHarvesterPciDevices,
   fetchHarvesterScheduleVmBackups,
   fetchHarvesterUsbResources,
   fetchHarvesterVMAggregated,
@@ -113,6 +114,11 @@ export function useVmDetailDrawerController({
     undefined,
   );
 
+  /** PCI 设备清单（详情 Tab 物理网卡展示文案） */
+  const [vmDetailPciDevices, setVmDetailPciDevices] = useState<any[] | undefined>(
+    undefined,
+  );
+
   const reloadVmDetailGpuResources = useCallback(async () => {
     if (!cloudId) return;
     try {
@@ -138,15 +144,28 @@ export function useVmDetailDrawerController({
     }
   }, [cloudId]);
 
+  const reloadVmDetailPciDevices = useCallback(async () => {
+    if (!cloudId) return;
+    try {
+      const json: any = await fetchHarvesterPciDevices(cloudId, true);
+      const items: any[] = json?.data?.items || json?.items || [];
+      setVmDetailPciDevices(items);
+    } catch {
+      setVmDetailPciDevices([]);
+    }
+  }, [cloudId]);
+
   React.useEffect(() => {
     if (!open || !cloudId) {
       setVmDetailGpuResources(undefined);
       setVmDetailUsbResources(undefined);
+      setVmDetailPciDevices(undefined);
       return;
     }
     void reloadVmDetailGpuResources();
     void reloadVmDetailUsbResources();
-  }, [open, cloudId, reloadVmDetailGpuResources, reloadVmDetailUsbResources]);
+    void reloadVmDetailPciDevices();
+  }, [open, cloudId, reloadVmDetailGpuResources, reloadVmDetailUsbResources, reloadVmDetailPciDevices]);
 
   React.useEffect(() => {
     setVmData((prev: any) => {
@@ -236,6 +255,7 @@ export function useVmDetailDrawerController({
 
         void reloadVmDetailGpuResources();
         void reloadVmDetailUsbResources();
+        void reloadVmDetailPciDevices();
 
         if (res) {
           const data = res.data && res.data.vm ? res.data : res;
@@ -609,6 +629,7 @@ export function useVmDetailDrawerController({
     setVmData,
     vmDetailGpuResources,
     vmDetailUsbResources,
+    vmDetailPciDevices,
     cpuUsage,
     memUsage,
     vpcs,

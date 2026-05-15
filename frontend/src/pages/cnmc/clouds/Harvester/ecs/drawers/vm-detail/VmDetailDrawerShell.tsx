@@ -150,6 +150,7 @@ export type VmDetailDrawerShellProps = Pick<
   hotPlugCpuError: any;
   vmDisks: any[];
   vmNics: any[];
+  vmPassthroughNics: any[];
   vmGpus: any[];
   vmUsb: any[];
   isStopped: boolean;
@@ -739,6 +740,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
               memUsage={p.memUsage}
               vmDisks={p.vmDisks}
               vmNics={p.vmNics}
+              vmPassthroughNics={p.vmPassthroughNics}
               vmGpus={p.vmGpus}
               vmUsb={p.vmUsb}
             />

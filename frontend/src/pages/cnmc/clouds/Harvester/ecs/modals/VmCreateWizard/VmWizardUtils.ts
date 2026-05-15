@@ -1,6 +1,8 @@
 import { startCloudProviderEcs } from '../../../../../../../services/api';
 import { generateHarvesterCrMetadataName, generateHarvesterEntityId } from '../../../../../../../utils/harvesterUtils';
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
+import { passthroughKubevirtIfaceTypeFromNad } from './harvesterVmIfaceTypeOptions';
+import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOptions';
 
 /**
  * ==============================================================================
@@ -269,7 +271,13 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   evictionStrategy: 'LiveMigrateIfPossible',
   loginMethod: 'later',
   loginAccount: 'root',
-  primaryNic: { name: '', type: 'managedtap', model: 'virtio', vpc: KUBE_OVN_FLAT_VPC },
+  primaryNic: {
+    name: '',
+    type: 'managedtap',
+    model: 'virtio',
+    vpc: KUBE_OVN_FLAT_VPC,
+    passthroughBindNode: undefined,
+  },
   netIfaces: [],
   usbDevices: []
 });
@@ -588,11 +596,19 @@ export const buildHarvesterVmPayload = (params: {
   capabilities?: any; // 集群能力
   isArm64?: boolean; // 架构标识
   vmId?: string; // 预生成的 VM ID
+  /** 直通 Multus 时按 NAD 解析 sriov / macvtap（与 StepNetworks 一致） */
+  nadOptions?: any[];
 }) => {
-  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64, vmId } = params;
+  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64, vmId, nadOptions } = params;
   
   // --- 1. GPU 资源处理 ---
   const gpuMode = String(v.gpuMode || 'none').toLowerCase();
+  const primaryPciHost =
+    isWizardPciPassthroughNetMode(String(v.netMode || '')) &&
+    String(v.primaryNic?.passthroughSource || '') === 'pci-host' &&
+    String(v.primaryNic?.pciResourceName || '').trim() &&
+    String(v.primaryNic?.pciDeviceName || '').trim();
+
   const selectedGpuDeviceName = (function () {
       if (!selectedGpu) return undefined;
       const rawName = selectedGpu?.raw?.metadata?.name;
@@ -657,6 +673,32 @@ export const buildHarvesterVmPayload = (params: {
               }
           } catch {}
       }
+
+      // PCI 直通网卡：固定到设备所在节点（主网卡或任一块辅网卡 PCI 直通）
+      try {
+        let pciNode = '';
+        const prim = v.primaryNic || {};
+        if (
+          isWizardPciPassthroughNetMode(String(v.netMode || '')) &&
+          String(prim.passthroughSource || '') === 'pci-host' &&
+          String(prim.pciNodeName || '').trim()
+        ) {
+          pciNode = String(prim.pciNodeName).trim();
+        } else {
+          (Array.isArray(v.netIfaces) ? v.netIfaces : []).forEach((nic: any) => {
+            if (
+              isWizardPciPassthroughNetMode(String(nic?.mode || '')) &&
+              String(nic?.passthroughSource || '') === 'pci-host' &&
+              String(nic?.pciNodeName || '').trim()
+            ) {
+              pciNode = String(nic.pciNodeName).trim();
+            }
+          });
+        }
+        if (pciNode) {
+          return { 'kubernetes.io/hostname': pciNode };
+        }
+      } catch {}
       
       // 标签选择模式
       if (hostModeState === 'label') {
@@ -698,23 +740,56 @@ export const buildHarvesterVmPayload = (params: {
       });
   }
 
+  let ifaceOrdinal = 0;
   allNics.forEach((nic) => {
-      const nicName = `nic-${nic._idx}`;
+      /** 主网卡 PCI 直通：仅 hostDevices，不生成默认 Pod 网络的 interface/network */
+      if (nic._isPrimary && primaryPciHost) {
+          return;
+      }
+      const secondaryPciHost =
+        !nic._isPrimary &&
+        isWizardPciPassthroughNetMode(String(nic.mode || '')) &&
+        String(nic.passthroughSource || '') === 'pci-host' &&
+        String(nic.pciResourceName || '').trim() &&
+        String(nic.pciDeviceName || '').trim();
+      if (secondaryPciHost) {
+        return;
+      }
+
+      const nicName = `nic-${ifaceOrdinal}`;
+      ifaceOrdinal += 1;
       const netName = nic.name;
       const mac = nic.macAddress;
 
-      // Interface
-      const iface: any = { name: nicName, model: nic.model || 'virtio' };
+      const netModeForNic = nic._isPrimary ? String(v.netMode || '') : String(nic.mode || '');
+      const isPassthroughNic = isWizardPciPassthroughNetMode(netModeForNic);
+
+      // Interface：直通网卡不写 model，接口绑定由 PCI / Multus+NAD 推断，不读表单默认值
+      const iface: any = { name: nicName };
+      let type: string;
+      if (isPassthroughNic) {
+        const ptSrc = String(nic.passthroughSource || '');
+        if (ptSrc === 'pci-host') {
+          type = 'masquerade';
+        } else {
+          const multusName = String(nic.name || '').trim();
+          const hit = (Array.isArray(nadOptions) ? nadOptions : []).find(
+            (x: any) => String(x?.value || '') === multusName,
+          );
+          type = passthroughKubevirtIfaceTypeFromNad(hit);
+        }
+      } else {
+        iface.model = nic.model || 'virtio';
+        type = nic.type || 'bridge';
+      }
       if (mac) iface.macAddress = mac;
-      
-      const type = nic.type || 'bridge';
-      // Kube-OVN 扁平子网：须使用 managedTap 绑定，使 DHCP/RA 由子网侧提供（非 bridge 拦截）
+
       if (type === 'managedtap') iface.binding = { name: 'managedtap' };
       else if (type === 'bridge') iface.bridge = {};
       else if (type === 'masquerade') iface.masquerade = {};
       else if (type === 'sriov') iface.sriov = {};
       else if (type === 'macvtap') iface.macvtap = {};
-      else iface.bridge = {}; 
+      else iface.bridge = {};
       interfaces.push(iface);
 
       // Network
@@ -978,9 +1053,30 @@ export const buildHarvesterVmPayload = (params: {
                         gpus: (gpuMode === 'vgpu' && finalGpuResName) ? [
                             { name: "gpu-0", deviceName: finalGpuResName }
                         ] : [],
-                        hostDevices: (gpuMode !== 'vgpu' && finalGpuResName) ? [
-                            { name: selectedGpuDeviceName || "gpu-0", deviceName: finalGpuResName }
-                        ] : []
+                        hostDevices: (function () {
+                          const list: any[] = [];
+                          if (gpuMode !== 'vgpu' && finalGpuResName) {
+                            list.push({ name: selectedGpuDeviceName || 'gpu-0', deviceName: finalGpuResName });
+                          }
+                          if (primaryPciHost) {
+                            list.push({
+                              name: String(v.primaryNic.pciDeviceName),
+                              deviceName: String(v.primaryNic.pciResourceName),
+                            });
+                          }
+                          (Array.isArray(v.netIfaces) ? v.netIfaces : []).forEach((nic: any) => {
+                            if (
+                              !isWizardPciPassthroughNetMode(String(nic?.mode || '')) ||
+                              String(nic?.passthroughSource || '') !== 'pci-host'
+                            ) {
+                              return;
+                            }
+                            const dn = String(nic?.pciDeviceName || '').trim();
+                            const rn = String(nic?.pciResourceName || '').trim();
+                            if (dn && rn) list.push({ name: dn, deviceName: rn });
+                          });
+                          return list;
+                        })(),
                     },
                     machine: {
                         type: String(v.machineType || (function(){
@@ -1001,12 +1097,34 @@ export const buildHarvesterVmPayload = (params: {
   if (v.sshNames && v.sshNames.length > 0) {
       manifest.spec.template.metadata.annotations["harvesterhci.io/sshNames"] = JSON.stringify(v.sshNames);
   }
-  if (gpuMode !== 'vgpu' && finalGpuResName && selectedGpuDeviceName) {
-      manifest.metadata.annotations["harvesterhci.io/deviceAllocationDetails"] = JSON.stringify({
-          hostdevices: {
-              [finalGpuResName]: [selectedGpuDeviceName],
-          },
+  {
+    const hostAlloc: Record<string, string[]> = {};
+    if (gpuMode !== 'vgpu' && finalGpuResName && selectedGpuDeviceName) {
+      hostAlloc[finalGpuResName] = [selectedGpuDeviceName];
+    }
+    const pushPciAlloc = (crName: string, resName: string) => {
+      const c = String(crName || '').trim();
+      const r = String(resName || '').trim();
+      if (!c || !r) return;
+      if (!hostAlloc[r]) hostAlloc[r] = [];
+      if (!hostAlloc[r].includes(c)) hostAlloc[r].push(c);
+    };
+    if (primaryPciHost) {
+      pushPciAlloc(String(v.primaryNic.pciDeviceName), String(v.primaryNic.pciResourceName));
+    }
+    (Array.isArray(v.netIfaces) ? v.netIfaces : []).forEach((nic: any) => {
+      if (
+        isWizardPciPassthroughNetMode(String(nic?.mode || '')) &&
+        String(nic?.passthroughSource || '') === 'pci-host'
+      ) {
+        pushPciAlloc(String(nic?.pciDeviceName || ''), String(nic?.pciResourceName || ''));
+      }
+    });
+    if (Object.keys(hostAlloc).length > 0) {
+      manifest.metadata.annotations['harvesterhci.io/deviceAllocationDetails'] = JSON.stringify({
+        hostdevices: hostAlloc,
       });
+    }
   }
   // [修复] 创建虚拟机时开启热扩容，需要设置 Annotation 以便列表正确显示
   // 注意：Annotation 必须设置在 VM 顶层的 metadata.annotations，而不是 spec.template.metadata.annotations
