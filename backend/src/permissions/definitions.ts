@@ -121,6 +121,12 @@ const PERMISSION_NAMES: Record<string, string> = {
   'secops.dashboard': '安全态势总览',
   'secops.alerts': '安全告警',
   'secops.rules': '安全规则',
+  
+  // Harbor - 镜像仓库
+  'harbor.registry': 'Harbor 实例',
+  'harbor.project': 'Harbor 项目',
+  'harbor.image': 'Harbor 镜像',
+  'harbor.scan': 'Harbor 漏洞扫描',
 };
 
 /**
@@ -216,6 +222,18 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'networks.ipsec:write': '创建、编辑、删除 IPsec VPN 连接',
   'networks.nat:read': '查看 NAT 网关列表',
   'networks.nat:write': '创建、编辑、删除 NAT 网关规则',
+  
+  // Harbor - 镜像仓库
+  'harbor.registry:read': '查看 Harbor 实例列表',
+  'harbor.registry:create': '创建 Harbor 实例',
+  'harbor.registry:update': '编辑 Harbor 实例配置',
+  'harbor.registry:delete': '删除 Harbor 实例',
+  'harbor.project:create': '创建 Harbor 项目',
+  'harbor.project:update': '编辑 Harbor 项目',
+  'harbor.project:delete': '删除 Harbor 项目',
+  'harbor.image:push': '推送镜像到 Harbor',
+  'harbor.image:delete': '删除 Harbor 镜像',
+  'harbor.scan:trigger': '触发 Harbor 镜像漏洞扫描',
 };
 
 /**

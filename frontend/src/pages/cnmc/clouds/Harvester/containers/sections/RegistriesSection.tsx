@@ -18,6 +18,7 @@ import {
   LinkOutlined, TagOutlined,
   CopyOutlined, GlobalOutlined, LockOutlined, UnlockOutlined, ClockCircleOutlined,
   InfoCircleOutlined, EyeOutlined, EditTwoTone, PlusOutlined, ReloadOutlined,
+  DockerOutlined, ApiOutlined,
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -30,8 +31,19 @@ import {
   addInsecureRegistry,
   patchHarvesterContainerResource,
   fetchHarvesterSecretDetail,
+  getHarborRegistries,
+  testHarborConnection,
+  deleteHarborRegistry,
+  createHarborRegistry,
+  updateHarborRegistry,
+  getRegistryCatalog,
 } from '../../../../../../services/harvesterApi';
 import { RegistryCredentialModal, RegistryBrowserDrawer } from '../components';
+import GenericRegistryDrawer from '../components/GenericRegistryDrawer';
+import HarborDetailDrawer from '../../harbor/components/HarborDetailDrawer';
+import ProjectDetailDrawer from '../../harbor/components/ProjectDetailDrawer';
+import RepositoryDetailDrawer from '../../harbor/components/RepositoryDetailDrawer';
+import type { HarborProject, HarborRepository, HarborArtifact } from '../../harbor/types';
 
 const { Text, Link } = Typography;
 
@@ -52,6 +64,11 @@ interface RegistryConfig {
   password?: string;
   insecure: boolean;
   createdAt: string;
+  // Harbor 扩展字段
+  type?: 'generic' | 'harbor';
+  status?: 'healthy' | 'unhealthy' | 'unknown';
+  harborId?: string;
+  isBuiltIn?: boolean;
 }
 
 /**
@@ -109,6 +126,24 @@ const getRegistryServer = (secret: any) => {
     return '-';
   }
 };
+
+/**
+ * Harbor 图标组件
+ */
+const HarborIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
+  <svg
+    viewBox="0 0 1024 1024"
+    width="1.1em"
+    height="1.1em"
+    style={{ ...style, verticalAlign: '-0.15em' }}
+  >
+    <path d="M512 506.930693m-506.930693 0a506.930693 506.930693 0 1 0 1013.861386 0 506.930693 506.930693 0 1 0-1013.861386 0Z" fill="#696566" />
+    <path d="M512 506.930693m-405.544554 0a405.544554 405.544554 0 1 0 811.089108 0 405.544554 405.544554 0 1 0-811.089108 0Z" fill="#FFFFFF" />
+    <path d="M494.865743 403.303921L798.872079 89.432713c22.994376 15.623604 43.018139 31.328317 60.071287 47.083723 17.053149 15.765545 33.802139 34.065743 50.246971 54.900594L494.865743 403.314059zM512 424.118495l454.524198-140.926733c12.054812 23.633109 21.453307 45.502099 28.185347 65.596832a347.511129 347.511129 0 0 1 14.630019 61.987485L512 424.118495zM503.716752 448.836436l514.788119 39.692673c0.95303 17.306614 0.141941 38.932277-2.402851 64.897267-2.554931 25.96499-6.184554 49.435881-10.89901 70.412674l-501.486258-174.992476z" fill="#83B8E2" />
+    <path d="M293.512871 378.302099v-27.526337l87.496238-87.47596v-7.948673a10.067644 10.067644 0 1 1 20.135287 0v7.948673l87.486099 87.47596v27.526337h-13.991287v97.340832h13.991287v47.590653h-13.991287l29.503366 490.759604c-45.512238-2.382574-85.194772-7.745901-119.047604-16.08998-33.842693-8.333941-67.604277-21.06804-101.264475-38.192158l32.747723-436.467327H293.512871v-47.600792h15.998733v-97.340832H293.512871z" fill="#4FA434" />
+    <path d="M311.782653 586.468119l171.271604 76.749307 1.571486 26.309703-174.586931-79.162297zM307.362218 645.241663l179.625822 80.703367 1.470099 27.100515-182.900594-82.649981zM302.343604 713.210931l188.933069 86.076831 1.926337 27.637862-193.252119-86.725703zM297.051248 782.143366l198.483643 90.030891 1.68301 27.648-202.204515-89.473267zM335.081188 378.44404h115.093545v97.462495h-29.128238v-43.271604a29.33101 29.33101 0 1 0-58.66202 0v43.271604H335.081188v-97.462495z" fill="#FFFFFF" />
+  </svg>
+);
 
 /**
  * 格式化时间
@@ -246,128 +281,8 @@ const RegistryDetailDrawer: React.FC<{
 const message = { success: (msg: string) => console.log(msg) };
 
 /**
- * 仓库详情抽屉组件
- */
-const RegistryInfoDrawer: React.FC<{
-  registry: RegistryConfig | null;
-  visible: boolean;
-  onClose: () => void;
-  onBrowse: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}> = ({ registry, visible, onClose, onBrowse, onEdit, onDelete }) => {
-  if (!registry) return null;
-  
-  const protocol = registry.insecure ? 'HTTP' : 'HTTPS';
-  const hasAuth = !!registry.username;
-  
-  return (
-    <Drawer
-      title={
-        <Space>
-          <DatabaseOutlined style={{ color: '#1890ff' }} />
-          <span>{registry.name}</span>
-        </Space>
-      }
-      placement="right"
-      width={640}
-      open={visible}
-      onClose={onClose}
-      extra={
-        <Space>
-          <Button icon={<FolderOutlined />} onClick={onBrowse}>
-            浏览镜像
-          </Button>
-          <Button icon={<EditOutlined />} onClick={onEdit}>
-            编辑
-          </Button>
-          <Button danger icon={<DeleteOutlined />} onClick={onDelete}>
-            删除
-          </Button>
-        </Space>
-      }
-    >
-      {/* 状态卡片 */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Space split={<Divider type="vertical" />} wrap>
-          <Statistic 
-            title="协议" 
-            value={protocol}
-            prefix={registry.insecure ? <UnlockOutlined /> : <LockOutlined />}
-            valueStyle={{ 
-              fontSize: 16,
-              color: registry.insecure ? '#fa8c16' : '#52c41a'
-            }}
-          />
-          <Statistic 
-            title="认证" 
-            value={hasAuth ? '已配置' : '无需认证'}
-            prefix={hasAuth ? <LockOutlined /> : <UnlockOutlined />}
-            valueStyle={{ 
-              fontSize: 16,
-              color: hasAuth ? '#1890ff' : '#8c8c8c'
-            }}
-          />
-          <Statistic 
-            title="添加时间" 
-            value={formatTime(registry.createdAt).split(' ')[0]}
-            prefix={<ClockCircleOutlined />}
-            valueStyle={{ fontSize: 16 }}
-          />
-        </Space>
-      </Card>
-      
-      <Descriptions column={1} bordered size="small">
-        <Descriptions.Item label="仓库名称">
-          <Text strong>{registry.name}</Text>
-        </Descriptions.Item>
-        <Descriptions.Item label="仓库地址">
-          <Space>
-            <Text code copyable={{ text: registry.server }}>{registry.server}</Text>
-          </Space>
-        </Descriptions.Item>
-        <Descriptions.Item label="协议类型">
-          <Tag color={registry.insecure ? 'orange' : 'green'}>
-            {registry.insecure ? 'HTTP' : 'HTTPS'}
-          </Tag>
-          {registry.insecure && (
-            <Text type="secondary" style={{ marginLeft: 8 }}>
-              (非安全连接)
-            </Text>
-          )}
-        </Descriptions.Item>
-        <Descriptions.Item label="认证信息">
-          {hasAuth ? (
-            <Space>
-              <Tag color="blue" icon={<LockOutlined />}>已配置</Tag>
-              <Text type="secondary">用户名: {registry.username}</Text>
-            </Space>
-          ) : (
-            <Tag icon={<UnlockOutlined />}>公开仓库，无需认证</Tag>
-          )}
-        </Descriptions.Item>
-      </Descriptions>
-      
-      <Divider orientation="left">快速操作</Divider>
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Alert
-          type="info"
-          showIcon
-          message={
-            <Space direction="vertical" size={4}>
-              <Text>推送镜像命令：</Text>
-              <Text code copyable>{`docker tag <image> ${registry.server}/<image-name> && docker push ${registry.server}/<image-name>`}</Text>
-            </Space>
-          }
-        />
-      </Space>
-    </Drawer>
-  );
-};
-
-/**
  * 添加仓库弹窗组件
- * 支持配置 HTTP 仓库到 Harvester containerd-registry
+ * 支持两种类型：generic（通用仓库）和 harbor（Harbor 仓库）
  */
 const AddRegistryModal: React.FC<{
   visible: boolean;
@@ -379,43 +294,184 @@ const AddRegistryModal: React.FC<{
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
+  const [registryType, setRegistryType] = useState<'generic' | 'harbor'>('generic');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
   
+  // 监听 visible 变化，初始化表单
   useEffect(() => {
     if (visible) {
       if (editData) {
         form.setFieldsValue(editData);
+        setRegistryType(editData.type || 'generic');
       } else {
         form.resetFields();
-        form.setFieldsValue({ insecure: true });
+        form.setFieldsValue({ insecure: true, type: 'generic' });
+        setRegistryType('generic');
       }
+      setTestResult(null);
     }
   }, [visible, editData, form]);
   
+  // 类型切换处理
+  const handleTypeChange = useCallback((type: 'generic' | 'harbor') => {
+    setRegistryType(type);
+    setTestResult(null);
+    // 切换类型时重置部分字段
+    form.setFieldsValue({
+      username: undefined,
+      password: undefined,
+    });
+  }, [form]);
+  
+  // 测试连接（Harbor 类型）
+  const handleTestConnection = useCallback(async () => {
+    try {
+      const values = await form.validateFields(['server', 'username', 'password', 'insecure']);
+      setTesting(true);
+      setTestResult(null);
+      
+      // 清理 server 地址
+      let server = values.server?.trim() || '';
+      if (server.startsWith('http://')) {
+        server = server.slice(7);
+      } else if (server.startsWith('https://')) {
+        server = server.slice(8);
+      }
+      
+      // 如果是编辑模式，使用现有 harborId
+      if (editData?.harborId) {
+        const res = await testHarborConnection(editData.harborId);
+        const success = res?.data?.success || res?.success;
+        if (success) {
+          setTestResult({ success: true, message: '连接成功' });
+          message.success('连接测试成功');
+        } else {
+          setTestResult({ success: false, message: res?.data?.message || res?.message || '连接失败' });
+          message.warning('连接测试失败');
+        }
+      } else {
+        // 新建时，先创建临时实例进行测试
+        try {
+          const tempPayload = {
+            name: '__temp_test__',
+            url: server,
+            username: values.username,
+            password: values.password,
+            insecure: values.insecure ?? false,
+          };
+          
+          // 创建临时实例
+          const tempRegistry = await createHarborRegistry(tempPayload);
+          const tempId = tempRegistry?.id || tempRegistry?.data?.id;
+          
+          if (!tempId) {
+            throw new Error('创建临时实例失败');
+          }
+          
+          // 测试连接
+          const res = await testHarborConnection(tempId);
+          const success = res?.data?.success || res?.success;
+          if (success) {
+            setTestResult({ success: true, message: '连接成功' });
+            message.success('连接测试成功');
+          } else {
+            setTestResult({ success: false, message: res?.data?.message || res?.message || '连接失败' });
+            message.warning('连接测试失败');
+          }
+          
+          // 删除临时实例
+          await deleteHarborRegistry(tempId);
+        } catch (err: any) {
+          setTestResult({ success: false, message: err?.message || '测试失败' });
+          message.error(err?.message || '连接测试失败');
+        }
+      }
+    } catch (e: any) {
+      // 表单验证失败
+      if (e?.errorFields?.length) {
+        message.warning('请先填写完整信息');
+      }
+    } finally {
+      setTesting(false);
+    }
+  }, [editData, message, form]);
+  
+  // 提交处理
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
       setLoading(true);
       
-      // 如果是 HTTP 仓库且有 cloudId，则配置到 Harvester containerd-registry
-      if (values.insecure && cloudId && values.server) {
+      if (values.type === 'harbor') {
+        // Harbor 类型：调用后端 API
         try {
-          // 清理 server 地址（去掉协议前缀）
-          let server = values.server.trim();
+          // 清理 server 地址
+          let server = values.server?.trim() || '';
           if (server.startsWith('http://')) {
             server = server.slice(7);
           } else if (server.startsWith('https://')) {
             server = server.slice(8);
           }
           
-          await addInsecureRegistry(cloudId, server);
+          const payload: any = {
+            name: values.name,
+            url: server,
+            username: values.username,
+            insecure: values.insecure ?? false,
+          };
+          
+          // 编辑模式下，只有填写了密码才传递密码字段
+          if (!editData || values.password?.trim()) {
+            payload.password = values.password;
+          }
+          
+          let result;
+          if (editData?.harborId) {
+            // 编辑模式
+            result = await updateHarborRegistry(editData.harborId, payload);
+            message.success('Harbor 仓库已更新');
+          } else {
+            // 新建模式
+            result = await createHarborRegistry(payload);
+            message.success('Harbor 仓库已添加');
+          }
+          
+          // 通知父组件刷新
+          onOk({
+            ...values,
+            server,
+            type: 'harbor',
+            harborId: result?.id || result?.data?.id || editData?.harborId,
+          });
         } catch (e: any) {
-          // 配置失败但继续保存本地记录
-          console.warn('配置 containerd-registry 失败:', e);
-          message.warning(`containerd 配置失败: ${e.message}，但仓库信息已保存到本地`);
+          message.error(e?.message || '保存 Harbor 仓库失败');
+          return;
         }
+      } else {
+        // Generic 类型：保持现有逻辑
+        // 如果是 HTTP 仓库且有 cloudId，则配置到 Harvester containerd-registry
+        if (values.insecure && cloudId && values.server) {
+          try {
+            // 清理 server 地址（去掉协议前缀）
+            let server = values.server.trim();
+            if (server.startsWith('http://')) {
+              server = server.slice(7);
+            } else if (server.startsWith('https://')) {
+              server = server.slice(8);
+            }
+            
+            await addInsecureRegistry(cloudId, server);
+          } catch (e: any) {
+            // 配置失败但继续保存本地记录
+            console.warn('配置 containerd-registry 失败:', e);
+            message.warning(`containerd 配置失败: ${e.message}，但仓库信息已保存到本地`);
+          }
+        }
+        
+        onOk(values);
       }
       
-      onOk(values);
       form.resetFields();
     } catch (e: any) {
       // 表单验证失败
@@ -431,13 +487,38 @@ const AddRegistryModal: React.FC<{
       onOk={handleOk}
       onCancel={() => {
         form.resetFields();
+        setTestResult(null);
         onCancel();
       }}
       confirmLoading={loading}
       destroyOnClose
-      width={480}
+      width={520}
     >
       <Form form={form} layout="vertical">
+        {/* 仓库类型选择 */}
+        <Form.Item
+          name="type"
+          label="仓库类型"
+          rules={[{ required: true, message: '请选择仓库类型' }]}
+          initialValue="generic"
+        >
+          <Select onChange={handleTypeChange}>
+            <Select.Option value="generic">
+              <Space>
+                <DockerOutlined style={{ color: '#2496ED' }} />
+                <span>通用仓库</span>
+              </Space>
+            </Select.Option>
+            <Select.Option value="harbor">
+              <Space>
+                <HarborIcon style={{ color: '#4a00d8' }} />
+                <span>Harbor 仓库</span>
+              </Space>
+            </Select.Option>
+          </Select>
+        </Form.Item>
+        
+        {/* 通用字段 */}
         <Form.Item
           name="name"
           label="仓库名称"
@@ -447,40 +528,105 @@ const AddRegistryModal: React.FC<{
         </Form.Item>
         <Form.Item
           name="server"
-          label="仓库地址"
+          label={registryType === 'harbor' ? 'Harbor 地址' : '仓库地址'}
           rules={[{ required: true, message: '请输入仓库地址' }]}
-          extra="格式: host:port，如 172.16.3.79:30500"
+          extra={registryType === 'harbor' ? '格式: host:port 或完整 URL' : '格式: host:port，如 172.16.3.79:30500'}
         >
-          <Input placeholder="如：172.16.3.79:30500" />
+          <Input placeholder={registryType === 'harbor' ? '如：harbor.example.com' : '如：172.16.3.79:30500'} />
         </Form.Item>
-        <Form.Item
-          name="username"
-          label="用户名"
-          extra="公开仓库可留空"
-        >
-          <Input placeholder="可选" />
-        </Form.Item>
-        <Form.Item
-          name="password"
-          label="密码"
-          extra="公开仓库可留空"
-        >
-          <Input.Password placeholder="可选" />
-        </Form.Item>
+        
+        {/* Harbor 类型：用户名密码必填 */}
+        {registryType === 'harbor' && (
+          <>
+            <Form.Item
+              name="username"
+              label="用户名"
+              rules={[{ required: true, message: 'Harbor 仓库需要用户名' }]}
+            >
+              <Input placeholder="必填" />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="密码"
+              rules={[{ required: !editData, message: 'Harbor 仓库需要密码' }]}
+              extra={editData ? '留空则不修改密码' : undefined}
+            >
+              <Input.Password placeholder={editData ? '留空则不修改' : '必填'} />
+            </Form.Item>
+          </>
+        )}
+        
+        {/* Generic 类型：用户名密码可选 */}
+        {registryType === 'generic' && (
+          <>
+            <Form.Item
+              name="username"
+              label="用户名"
+              extra="公开仓库可留空"
+            >
+              <Input placeholder="可选" />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="密码"
+              extra="公开仓库可留空"
+            >
+              <Input.Password placeholder="可选" />
+            </Form.Item>
+          </>
+        )}
+        
+        {/* 协议选择 */}
         <Form.Item
           name="insecure"
-          label="使用 HTTP"
+          label="协议类型"
           valuePropName="checked"
-          tooltip="私有仓库通常使用 HTTP，勾选后会自动配置 containerd 允许拉取 HTTP 镜像"
+          tooltip={registryType === 'harbor' 
+            ? '选择 HTTP 将使用非安全连接访问 Harbor' 
+            : '私有仓库通常使用 HTTP，勾选后会自动配置 containerd 允许拉取 HTTP 镜像'}
         >
           <Switch checkedChildren="HTTP" unCheckedChildren="HTTPS" />
         </Form.Item>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginTop: 8 }}
-          message="勾选 HTTP 后会自动配置 containerd 允许从此仓库拉取镜像"
-        />
+        
+        {/* Harbor 类型：测试连接按钮 */}
+        {registryType === 'harbor' && (
+          <Form.Item>
+            <Space>
+              <Button 
+                onClick={handleTestConnection}
+                loading={testing}
+                icon={<ApiOutlined />}
+              >
+                测试连接
+              </Button>
+              {testResult && (
+                <Tag color={testResult.success ? 'success' : 'error'}>
+                  {testResult.success ? '✓ 连接成功' : `✗ ${testResult.message || '连接失败'}`}
+                </Tag>
+              )}
+            </Space>
+          </Form.Item>
+        )}
+        
+        {/* Generic 类型：提示信息 */}
+        {registryType === 'generic' && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 8 }}
+            message="勾选 HTTP 后会自动配置 containerd 允许从此仓库拉取镜像"
+          />
+        )}
+        
+        {/* Harbor 类型：提示信息 */}
+        {registryType === 'harbor' && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 8 }}
+            message="Harbor 仓库将保存到系统，支持项目管理、镜像扫描等高级功能"
+          />
+        )}
       </Form>
     </Modal>
   );
@@ -724,9 +870,12 @@ const CredentialTable: React.FC<{
             label: '删除',
             danger: true,
             onClick: () => {
+              const alias = record?.metadata?.annotations?.['tower.io/alias'];
+              const id = record?.metadata?.name || '';
+              const displayName = alias ? `${alias} (${id})` : id;
               modal.confirm({
                 title: '确认删除',
-                content: `确定要删除镜像凭证 "${record?.metadata?.name}" 吗？`,
+                content: `确定要删除镜像凭证 "${displayName}" 吗？`,
                 okType: 'danger',
                 onOk: () => onDelete(record),
               });
@@ -908,20 +1057,78 @@ const RegistriesSection: React.FC<Props> = ({
   const [browserVisible, setBrowserVisible] = useState(false);
   const [browserCredential, setBrowserCredential] = useState<any>(null);
   
-  // 仓库列表状态
-  const [registries, setRegistries] = useState<RegistryConfig[]>([]);
+  // 仓库列表状态（generic + harbor）
+  const [localRegistries, setLocalRegistries] = useState<RegistryConfig[]>([]);
+  const [harborRegistries, setHarborRegistries] = useState<RegistryConfig[]>([]);
+  const [harborLoading, setHarborLoading] = useState(false);
   const [addRegistryVisible, setAddRegistryVisible] = useState(false);
   const [editingRegistry, setEditingRegistry] = useState<RegistryConfig | null>(null);
   const [registryKeyword, setRegistryKeyword] = useState('');
   
-  // 仓库详情抽屉状态
-  const [registryInfoVisible, setRegistryInfoVisible] = useState(false);
-  const [currentRegistry, setCurrentRegistry] = useState<RegistryConfig | null>(null);
+  // 通用仓库管理抽屉状态
+  const [genericDrawerVisible, setGenericDrawerVisible] = useState(false);
+  const [selectedGenericRegistry, setSelectedGenericRegistry] = useState<RegistryConfig | null>(null);
   
-  // 加载仓库列表
+  // Harbor 抽屉状态
+  const [harborDrawerVisible, setHarborDrawerVisible] = useState(false);
+  const [selectedHarborId, setSelectedHarborId] = useState<string | null>(null);
+
+  // 项目抽屉状态
+  const [projectDrawerVisible, setProjectDrawerVisible] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<HarborProject | null>(null);
+
+  // 仓库抽屉状态
+  const [repoDrawerVisible, setRepoDrawerVisible] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState<HarborRepository | null>(null);
+
+  // 制品抽屉状态
+  const [artifactDrawerVisible, setArtifactDrawerVisible] = useState(false);
+  const [selectedArtifact, setSelectedArtifact] = useState<HarborArtifact | null>(null);
+  
+  // 合并后的仓库列表（按添加时间倒序）
+  const allRegistries = useMemo(() => {
+    const merged = [
+      ...localRegistries.map(r => ({ ...r, type: 'generic' as const })),
+      ...harborRegistries,
+    ];
+    return merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [localRegistries, harborRegistries]);
+  
+  // 加载本地仓库列表
   useEffect(() => {
-    setRegistries(loadRegistries());
+    setLocalRegistries(loadRegistries());
   }, []);
+  
+  // 加载 Harbor 仓库列表
+  const loadHarborRegistries = useCallback(async () => {
+    setHarborLoading(true);
+    try {
+      const res = await getHarborRegistries();
+      const harborData = (res?.data || res || []).map((item: any) => ({
+        ...item,
+        id: `harbor-${item.id}`,
+        type: 'harbor' as const,
+        server: item.url || item.server,
+        harborId: item.id,
+        name: item.name || item.url,
+        insecure: item.insecure ?? false,
+        createdAt: item.createdAt || new Date().toISOString(),
+        status: item.status || 'unknown',
+        isBuiltIn: item.isBuiltIn || false,
+      }));
+      setHarborRegistries(harborData);
+    } catch (e: any) {
+      // Harbor API 不存在或失败时，忽略错误，不影响通用仓库
+      console.warn('加载 Harbor 仓库列表失败:', e);
+      setHarborRegistries([]);
+    } finally {
+      setHarborLoading(false);
+    }
+  }, []);
+  
+  useEffect(() => {
+    loadHarborRegistries();
+  }, [loadHarborRegistries]);
   
   // 查看凭证详情
   const handleViewDetail = useCallback((secret: any) => {
@@ -984,75 +1191,223 @@ const RegistriesSection: React.FC<Props> = ({
     setBrowserVisible(true);
   }, []);
   
-  // 浏览仓库（从仓库列表）
-  const handleBrowseRegistry = useCallback((registry: RegistryConfig) => {
-    // 智能推断 insecure：如果用户没有明确勾选过，根据端口推断
-    // 注意：registry.insecure 可能是 false（明确设置为 HTTPS），需要区分
-    // 对于非标准 HTTPS 端口，默认当作 HTTP 仓库处理
-    const port = registry.server.split(':')[1];
-    const httpPorts = ['30500', '5000', '8080', '80', '5001', '5002'];
-    const isHttpPort = httpPorts.includes(port || '');
-    
-    // 如果是 HTTP 端口，强制使用 insecure=true
-    const insecure = isHttpPort ? true : (registry.insecure ?? true);
-    
-    console.log('[handleBrowseRegistry] registry:', registry, 'port:', port, 'isHttpPort:', isHttpPort, 'insecure:', insecure);
-    
-    setBrowserCredential({
-      server: registry.server,
-      username: registry.username,
-      password: registry.password,
-      insecure,
-    });
-    setBrowserVisible(true);
+  // 打开 Harbor 详情
+  const handleOpenHarbor = useCallback((harborId: string) => {
+    setSelectedHarborId(harborId);
+    setHarborDrawerVisible(true);
   }, []);
-  
-  // 查看仓库详情
-  const handleViewRegistry = useCallback((registry: RegistryConfig) => {
-    setCurrentRegistry(registry);
-    setRegistryInfoVisible(true);
+
+  // 打开项目详情
+  const handleOpenProject = useCallback((project: HarborProject) => {
+    setHarborDrawerVisible(false);
+    setSelectedProject(project);
+    setProjectDrawerVisible(true);
+  }, []);
+
+  // 从项目返回 Harbor
+  const handleBackToHarbor = useCallback(() => {
+    setProjectDrawerVisible(false);
+    setSelectedProject(null);
+    setHarborDrawerVisible(true);
+  }, []);
+
+  // 打开仓库详情
+  const handleOpenRepository = useCallback((repo: HarborRepository) => {
+    setProjectDrawerVisible(false);
+    setSelectedRepo(repo);
+    setRepoDrawerVisible(true);
+  }, []);
+
+  // 从仓库返回项目
+  const handleBackToProject = useCallback(() => {
+    setRepoDrawerVisible(false);
+    setSelectedRepo(null);
+    setProjectDrawerVisible(true);
+  }, []);
+
+  // 关闭所有抽屉
+  const handleCloseAll = useCallback(() => {
+    setHarborDrawerVisible(false);
+    setProjectDrawerVisible(false);
+    setRepoDrawerVisible(false);
+    setArtifactDrawerVisible(false);
+    setSelectedHarborId(null);
+    setSelectedProject(null);
+    setSelectedRepo(null);
+    setSelectedArtifact(null);
   }, []);
   
   // 添加/编辑仓库
   const handleSaveRegistry = useCallback((data: Omit<RegistryConfig, 'id' | 'createdAt'>) => {
     const now = new Date().toISOString();
     
-    if (editingRegistry) {
-      // 编辑
-      const updated = registries.map(r => 
+    // Harbor 类型：由 AddRegistryModal 内部处理 API 调用，这里只需要刷新列表
+    if (data.type === 'harbor') {
+      // 刷新 Harbor 列表
+      const reloadHarbor = async () => {
+        try {
+          const res = await getHarborRegistries();
+          const harborData = (res?.data || res || []).map((item: any) => ({
+            ...item,
+            id: `harbor-${item.id}`,
+            type: 'harbor' as const,
+            server: item.url || item.server,
+            harborId: item.id,
+            name: item.name || item.url,
+            insecure: item.insecure ?? false,
+            createdAt: item.createdAt || new Date().toISOString(),
+            status: item.status || 'unknown',
+            isBuiltIn: item.isBuiltIn || false,
+          }));
+          setHarborRegistries(harborData);
+        } catch (e: any) {
+          console.warn('刷新 Harbor 列表失败:', e);
+        }
+      };
+      reloadHarbor();
+      
+      setAddRegistryVisible(false);
+      setEditingRegistry(null);
+      return;
+    }
+    
+    // Generic 类型：保存到 localStorage
+    if (editingRegistry && editingRegistry.type === 'generic') {
+      // 编辑 generic 仓库 - 校验重复（排除自身）
+      const nameExists = localRegistries.some((r: RegistryConfig) => 
+        r.id !== editingRegistry.id && r.name === data.name
+      );
+      const serverExists = localRegistries.some((r: RegistryConfig) => 
+        r.id !== editingRegistry.id && r.server === data.server
+      );
+      if (nameExists) {
+        message.error('仓库名称已存在');
+        return;
+      }
+      if (serverExists) {
+        message.error('仓库地址已存在');
+        return;
+      }
+      
+      const updated = localRegistries.map((r: RegistryConfig) => 
         r.id === editingRegistry.id 
           ? { ...r, ...data }
           : r
       );
-      setRegistries(updated);
+      setLocalRegistries(updated);
       saveRegistries(updated);
       message.success('仓库已更新');
-    } else {
-      // 新增
+    } else if (!editingRegistry || editingRegistry.type === 'generic') {
+      // 新增 generic 仓库 - 校验重复
+      const nameExists = localRegistries.some((r: RegistryConfig) => r.name === data.name);
+      const serverExists = localRegistries.some((r: RegistryConfig) => r.server === data.server);
+      if (nameExists) {
+        message.error('仓库名称已存在');
+        return;
+      }
+      if (serverExists) {
+        message.error('仓库地址已存在');
+        return;
+      }
+      
       const newRegistry: RegistryConfig = {
         ...data,
         id: `registry-${Date.now()}`,
         createdAt: now,
+        type: 'generic',
       };
-      const updated = [...registries, newRegistry];
-      setRegistries(updated);
+      const updated = [...localRegistries, newRegistry];
+      setLocalRegistries(updated);
       saveRegistries(updated);
       message.success('仓库已添加');
     }
     
     setAddRegistryVisible(false);
     setEditingRegistry(null);
-  }, [registries, editingRegistry, message]);
+  }, [localRegistries, editingRegistry, message]);
   
   // 删除仓库
-  const handleDeleteRegistry = useCallback((id: string) => {
-    const updated = registries.filter(r => r.id !== id);
-    setRegistries(updated);
-    saveRegistries(updated);
-    message.success('仓库已删除');
-    setRegistryInfoVisible(false);
-    setCurrentRegistry(null);
-  }, [registries, message]);
+  const handleDeleteRegistry = useCallback(async (record: RegistryConfig) => {
+    if (record.type === 'harbor' && record.harborId) {
+      // 删除 Harbor 仓库
+      try {
+        await deleteHarborRegistry(record.harborId);
+        message.success('Harbor 仓库已删除');
+        // 刷新 Harbor 列表
+        setHarborRegistries(prev => prev.filter(r => r.id !== record.id));
+      } catch (e: any) {
+        message.error(e?.message || '删除 Harbor 仓库失败');
+        return;
+      }
+    } else {
+      // 删除 generic 仓库
+      const updated = localRegistries.filter((r: RegistryConfig) => r.id !== record.id);
+      setLocalRegistries(updated);
+      saveRegistries(updated);
+      message.success('仓库已删除');
+    }
+  }, [cloudId, localRegistries, message]);
+  
+  // 测试通用仓库连接
+  const handleTestGenericConnection = useCallback(async (record: RegistryConfig) => {
+    const hide = message.loading('正在测试连接...');
+    try {
+      await getRegistryCatalog(
+        cloudId,
+        record.server,
+        record.username,
+        record.password,
+        record.insecure,
+        1,
+      );
+      hide();
+      message.success('连接测试成功');
+      // 更新 localStorage 和状态
+      const updated = localRegistries.map(r =>
+        r.id === record.id ? { ...r, status: 'healthy' as const } : r
+      );
+      setLocalRegistries(updated);
+      saveRegistries(updated);
+    } catch (e: any) {
+      hide();
+      message.error(e?.message || '连接测试失败');
+      const updated = localRegistries.map(r =>
+        r.id === record.id ? { ...r, status: 'unhealthy' as const } : r
+      );
+      setLocalRegistries(updated);
+      saveRegistries(updated);
+    }
+  }, [cloudId, localRegistries, message]);
+  
+  // 测试 Harbor 连接
+  const handleTestHarborConnection = useCallback(async (record: RegistryConfig) => {
+    if (!record.harborId) return;
+    
+    const hide = message.loading('正在测试连接...');
+    try {
+      const res = await testHarborConnection(record.harborId);
+      hide();
+      const success = res?.data?.success || res?.success;
+      if (success) {
+        message.success('连接测试成功');
+        // 更新状态
+        setHarborRegistries(prev => prev.map(r => 
+          r.id === record.id ? { ...r, status: 'healthy' } : r
+        ));
+      } else {
+        message.warning('连接测试失败');
+        setHarborRegistries(prev => prev.map(r => 
+          r.id === record.id ? { ...r, status: 'unhealthy' } : r
+        ));
+      }
+    } catch (e: any) {
+      hide();
+      message.error(e?.message || '连接测试失败');
+      setHarborRegistries(prev => prev.map(r => 
+        r.id === record.id ? { ...r, status: 'unhealthy' } : r
+      ));
+    }
+  }, [cloudId, message]);
   
   // 凭证创建成功回调
   const handleCredentialSuccess = useCallback(() => {
@@ -1061,7 +1416,7 @@ const RegistriesSection: React.FC<Props> = ({
     onRefresh(true);
   }, [onRefresh]);
   
-  // 仓库表格列（localStorage 仓库列表，不需要双轨制）
+  // 仓库表格列（支持 generic + harbor）
   const registryColumns = useMemo(() => [
     {
       title: '名称',
@@ -1070,10 +1425,41 @@ const RegistriesSection: React.FC<Props> = ({
       width: 200,
       render: (name: string, record: RegistryConfig) => (
         <Space>
-          <DatabaseOutlined style={{ color: '#1890ff' }} />
-          <Link onClick={() => handleViewRegistry(record)}>{name}</Link>
+          <Link onClick={() => {
+            if (record.type === 'harbor' && record.harborId) {
+              handleOpenHarbor(record.harborId);
+            } else {
+              setSelectedGenericRegistry(record);
+              setGenericDrawerVisible(true);
+            }
+          }}>{name}</Link>
+          {record.isBuiltIn && (
+            <Tag color="blue" style={{ marginLeft: 4 }}>默认</Tag>
+          )}
         </Space>
       ),
+    },
+    {
+      title: '类型',
+      dataIndex: 'type',
+      key: 'type',
+      width: 120,
+      render: (type: string, record: RegistryConfig) => {
+        if (type === 'harbor') {
+          return (
+            <Space>
+              <HarborIcon style={{ color: '#4a00d8' }} />
+              <span>Harbor</span>
+            </Space>
+          );
+        }
+        return (
+          <Space>
+            <DockerOutlined style={{ color: '#2496ED' }} />
+            <span>通用</span>
+          </Space>
+        );
+      },
     },
     {
       title: '仓库地址',
@@ -1086,6 +1472,22 @@ const RegistriesSection: React.FC<Props> = ({
           {server}
         </Text>
       ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: string) => {
+        const statusConfig: Record<string, { icon: string; text: string; color: string }> = {
+          healthy: { icon: '🟢', text: '健康', color: 'success' },
+          unhealthy: { icon: '🔴', text: '异常', color: 'error' },
+          unknown: { icon: '⚪', text: '未知', color: 'default' },
+        };
+        
+        const config = statusConfig[status || 'unknown'];
+        return <Tag color={config.color}>{config.icon} {config.text}</Tag>;
+      },
     },
     {
       title: '协议',
@@ -1121,11 +1523,58 @@ const RegistriesSection: React.FC<Props> = ({
       width: 100,
       fixed: 'right' as const,
       render: (_: any, record: RegistryConfig) => {
+        // Harbor 仓库操作
+        if (record.type === 'harbor') {
+          const items = [
+            {
+              key: 'manage',
+              label: '进入管理',
+              onClick: () => handleOpenHarbor(record.harborId!),
+            },
+            {
+              key: 'test',
+              label: '测试连接',
+              onClick: () => handleTestHarborConnection(record),
+            },
+            {
+              key: 'edit',
+              label: '编辑',
+              onClick: () => {
+                setEditingRegistry(record);
+                setAddRegistryVisible(true);
+              },
+            },
+            {
+              key: 'delete',
+              label: '删除',
+              danger: true,
+              onClick: () => {
+                modal.confirm({
+                  title: '确认删除',
+                  content: `确定要删除 Harbor 仓库 "${record.name}" 吗？`,
+                  okType: 'danger',
+                  onOk: () => handleDeleteRegistry(record),
+                });
+              },
+            },
+          ];
+          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        }
+        
+        // 通用仓库操作
         const items = [
           {
-            key: 'browse',
-            label: '浏览镜像',
-            onClick: () => handleBrowseRegistry(record),
+            key: 'manage',
+            label: '进入管理',
+            onClick: () => {
+              setSelectedGenericRegistry(record);
+              setGenericDrawerVisible(true);
+            },
+          },
+          {
+            key: 'test',
+            label: '测试连接',
+            onClick: () => handleTestGenericConnection(record),
           },
           {
             key: 'edit',
@@ -1144,7 +1593,7 @@ const RegistriesSection: React.FC<Props> = ({
                 title: '确认删除',
                 content: `确定要删除仓库 "${record.name}" 吗？`,
                 okType: 'danger',
-                onOk: () => handleDeleteRegistry(record.id),
+                onOk: () => handleDeleteRegistry(record),
               });
             },
           },
@@ -1152,7 +1601,7 @@ const RegistriesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewRegistry, handleBrowseRegistry, handleDeleteRegistry, modal]);
+  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, cloudId, modal]);
   
   // 使用列设置 Hook（镜像仓库）
   const { displayColumns: registryDisplayColumns } = useTableColumnSettings(
@@ -1169,7 +1618,7 @@ const RegistriesSection: React.FC<Props> = ({
           onChange={setActiveTab}
           options={[
             { label: `镜像凭证 (${secrets.length})`, value: 'credentials' },
-            { label: `镜像仓库 (${registries.length})`, value: 'registries' },
+            { label: `镜像仓库 (${allRegistries.length})`, value: 'registries' },
           ]}
         />
         {activeTab === 'credentials' ? (
@@ -1214,7 +1663,11 @@ const RegistriesSection: React.FC<Props> = ({
                   <Button
                     type="default"
                     icon={<ReloadOutlined />}
-                    onClick={() => setRegistries(loadRegistries())}
+                    loading={harborLoading}
+                    onClick={() => {
+                      setLocalRegistries(loadRegistries());
+                      loadHarborRegistries();
+                    }}
                   />
                 </Tooltip>
               </div>
@@ -1224,12 +1677,13 @@ const RegistriesSection: React.FC<Props> = ({
               bordered={false}
               rowKey="id"
               columns={registryDisplayColumns}
-              dataSource={registries.filter(r => {
+              dataSource={allRegistries.filter((r: RegistryConfig) => {
                 if (!registryKeyword.trim()) return true;
                 const kw = registryKeyword.toLowerCase();
                 return r.name.toLowerCase().includes(kw) || r.server.toLowerCase().includes(kw);
               })}
               scroll={{ x: 'max-content' }}
+              loading={harborLoading}
               pagination={{
                 size: 'small',
                 showTotal: (total) => `共 ${total} 条`,
@@ -1254,39 +1708,6 @@ const RegistriesSection: React.FC<Props> = ({
         onClose={() => {
           setDetailVisible(false);
           setCurrentSecret(null);
-        }}
-      />
-      
-      {/* 仓库详情抽屉 */}
-      <RegistryInfoDrawer
-        registry={currentRegistry}
-        visible={registryInfoVisible}
-        onClose={() => {
-          setRegistryInfoVisible(false);
-          setCurrentRegistry(null);
-        }}
-        onBrowse={() => {
-          if (currentRegistry) {
-            handleBrowseRegistry(currentRegistry);
-            setRegistryInfoVisible(false);
-          }
-        }}
-        onEdit={() => {
-          if (currentRegistry) {
-            setEditingRegistry(currentRegistry);
-            setAddRegistryVisible(true);
-            setRegistryInfoVisible(false);
-          }
-        }}
-        onDelete={() => {
-          if (currentRegistry) {
-            modal.confirm({
-              title: '确认删除',
-              content: `确定要删除仓库 "${currentRegistry.name}" 吗？`,
-              okType: 'danger',
-              onOk: () => handleDeleteRegistry(currentRegistry.id),
-            });
-          }
         }}
       />
       
@@ -1328,6 +1749,59 @@ const RegistriesSection: React.FC<Props> = ({
         editData={editingRegistry}
         cloudId={cloudId}
       />
+      
+      {/* Harbor 详情抽屉 */}
+      {selectedHarborId && (
+        <HarborDetailDrawer
+          visible={harborDrawerVisible}
+          harborId={selectedHarborId}
+          cloudId={cloudId}
+          onClose={handleCloseAll}
+          onOpenProject={handleOpenProject}
+        />
+      )}
+
+      {/* 通用仓库管理抽屉 */}
+      {selectedGenericRegistry && (
+        <GenericRegistryDrawer
+          visible={genericDrawerVisible}
+          registry={selectedGenericRegistry}
+          cloudId={cloudId}
+          onClose={() => {
+            setGenericDrawerVisible(false);
+            setSelectedGenericRegistry(null);
+          }}
+          onRefresh={() => {
+            setLocalRegistries(loadRegistries());
+          }}
+        />
+      )}
+
+      {/* 项目详情抽屉 */}
+      {selectedProject && (
+        <ProjectDetailDrawer
+          visible={projectDrawerVisible}
+          harborId={selectedHarborId!}
+          projectName={selectedProject.name}
+          cloudId={cloudId}
+          onClose={handleCloseAll}
+          onBack={handleBackToHarbor}
+          onOpenRepository={handleOpenRepository}
+        />
+      )}
+
+      {/* 仓库详情抽屉 */}
+      {selectedRepo && (
+        <RepositoryDetailDrawer
+          visible={repoDrawerVisible}
+          harborId={selectedHarborId!}
+          projectName={selectedProject!.name}
+          repository={selectedRepo}
+          cloudId={cloudId}
+          onClose={handleCloseAll}
+          onBack={handleBackToProject}
+        />
+      )}
     </>  );
 };
 

@@ -307,6 +307,28 @@ export const ALL_PERMISSIONS = [
   'clouds.console:read',       // 资源控制台 - 访问
   'clouds.console:write',       // 资源控制台 - 操作（如执行命令）
   
+  // ──────────────────────────────────────────────────────────────────────────
+  // Harbor 镜像仓库管理
+  // ──────────────────────────────────────────────────────────────────────────
+  
+  // Harbor 实例管理
+  'harbor:registry:read',      // Harbor 实例列表 - 查看
+  'harbor:registry:create',    // Harbor 实例 - 创建
+  'harbor:registry:update',    // Harbor 实例 - 编辑
+  'harbor:registry:delete',    // Harbor 实例 - 删除
+  
+  // Harbor 项目管理
+  'harbor:project:create',     // Harbor 项目 - 创建
+  'harbor:project:update',     // Harbor 项目 - 编辑
+  'harbor:project:delete',     // Harbor 项目 - 删除
+  
+  // Harbor 镜像管理
+  'harbor:image:push',         // Harbor 镜像 - 推送
+  'harbor:image:delete',       // Harbor 镜像 - 删除
+  
+  // Harbor 漏洞扫描
+  'harbor:scan:trigger',       // Harbor 漏洞扫描 - 触发
+  
   // ============================================================================
   // TENANTS 平台 · 租户管理 (Tenant Management)
   // ============================================================================
@@ -570,6 +592,21 @@ export const PERMISSION_GROUPS = {
       'secops.rules',
     ],
   },
+  // Harbor 镜像仓库
+  HARBOR: {
+    '实例管理': [
+      'harbor.registry',
+    ],
+    '项目管理': [
+      'harbor.project',
+    ],
+    '镜像管理': [
+      'harbor.image',
+    ],
+    '漏洞扫描': [
+      'harbor.scan',
+    ],
+  },
 } as const;
 
 /**
@@ -611,6 +648,11 @@ export function getPlatformByPermission(permission: string): string | null {
   // CNSOC 平台
   if (prefix.startsWith('secops.')) {
     return 'CNSOC';
+  }
+  
+  // Harbor 镜像仓库
+  if (prefix.startsWith('harbor.')) {
+    return 'HARBOR';
   }
   
   return null;
@@ -668,6 +710,20 @@ export function getGroupByPermission(permission: string): string | null {
   // CNSOC 平台
   if (prefix.startsWith('secops.')) {
     return '态势中心';
+  }
+  
+  // Harbor 镜像仓库
+  if (prefix.startsWith('harbor.registry')) {
+    return '实例管理';
+  }
+  if (prefix.startsWith('harbor.project')) {
+    return '项目管理';
+  }
+  if (prefix.startsWith('harbor.image')) {
+    return '镜像管理';
+  }
+  if (prefix.startsWith('harbor.scan')) {
+    return '漏洞扫描';
   }
   
   return null;

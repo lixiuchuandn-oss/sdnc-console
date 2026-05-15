@@ -504,13 +504,16 @@ const WorkloadTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => {
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除 ${typeLabel} "${record?.metadata?.name}" 吗？`,
-                okType: 'danger',
-                onOk: () => handleDelete(record),
-              });
-            },
+               const alias = record?.metadata?.annotations?.['tower.io/alias'];
+               const id = record?.metadata?.name || '';
+               const displayName = alias ? `${alias}(${id})` : id;
+               modal.confirm({
+                 title: '确认删除',
+                 content: `确定要删除 ${typeLabel} "${displayName}" 吗？`,
+                 okType: 'danger',
+                 onOk: () => handleDelete(record),
+               });
+             },
           },
         ];
         const items = (operationsReadOnly

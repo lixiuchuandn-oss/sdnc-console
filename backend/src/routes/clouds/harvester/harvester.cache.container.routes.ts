@@ -86,9 +86,10 @@ const buildK8sUrl = (
 ): string => {
   let url = base.replace(/\/+$/, '');
 
-  // 处理 endpoint 中可能存在的版本号
+  // 处理 endpoint 中可能存在的版本号，并添加 /k8s/clusters/local/ 路径
   if ((apiPath.startsWith('/api/') || apiPath.startsWith('/apis/')) && !url.includes('/k8s/clusters/')) {
     url = url.replace(/\/v[0-9]+(\/harvester)?$/, '');
+    url += '/k8s/clusters/local';
   }
 
   // 解析 apiPath 获取资源类型
@@ -119,12 +120,18 @@ const buildK8sUrl = (
  */
 const extractOrigin = (base: string): string => {
   let origin = base.replace(/\/+$/, '');
-  try {
-    const u = new URL(origin);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = origin.replace(/\/v[0-9].*$/, '');
+  
+  // 添加 /k8s/clusters/local/ 路径（如果不存在）
+  if (!origin.includes('/k8s/clusters/')) {
+    try {
+      const u = new URL(origin);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = origin.replace(/\/v[0-9].*$/, '');
+    }
+    origin += '/k8s/clusters/local';
   }
+  
   return origin;
 };
 
@@ -141,8 +148,13 @@ const buildCreateUrl = (
   apiPath: string,
   namespace: string,
 ): string => {
-  // 提取 origin（去除版本后缀）
-  const origin = extractOrigin(base);
+  let origin = base.replace(/\/+$/, '');
+  
+  // 添加 /k8s/clusters/local/ 路径（如果不存在）
+  if (!origin.includes('/k8s/clusters/')) {
+    origin = origin.replace(/\/v[0-9].*$/, '');
+    origin += '/k8s/clusters/local';
+  }
   
   // 解析 apiPath 获取资源类型
   const pathParts = apiPath.split('/').filter(Boolean);
@@ -1704,16 +1716,8 @@ export const registerHarvesterContainerRoutes = (
           },
         };
         
-        // 使用原生 K8s API 创建（参照 createHarvesterVM 的实现）
-        // 提取 origin（去除版本后缀）
-        let origin = base.replace(/\/+$/, '');
-        try {
-          const u = new URL(origin);
-          origin = `${u.protocol}//${u.host}`;
-        } catch {
-          origin = origin.replace(/\/v[0-9].*$/, '');
-        }
-        const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets`;
+        // 使用原生 K8s API 创建（使用 buildCreateUrl 统一处理 /k8s/clusters/local/ 路径）
+        const url = buildCreateUrl(base, '/api/v1/secrets', namespace);
         console.log('[镜像凭证创建] URL:', url);
         console.log('[镜像凭证创建] namespace:', namespace);
         console.log('[镜像凭证创建] name:', name);

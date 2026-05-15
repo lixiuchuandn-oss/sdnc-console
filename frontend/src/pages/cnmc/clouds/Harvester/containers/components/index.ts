@@ -14,8 +14,13 @@ export type { RegistryCredentialModalProps } from './RegistryCredentialModal';
 // 镜像仓库浏览器组件
 export { default as RegistryBrowser } from './RegistryBrowser';
 export { default as RegistryBrowserDrawer } from './RegistryBrowserDrawer';
+export { default as GenericRegistryDrawer } from './GenericRegistryDrawer';
 export type { RegistryCredential } from './RegistryBrowser';
 export type { RegistryBrowserDrawerProps } from './RegistryBrowserDrawer';
+
+// Harbor 镜像选择器组件
+export { default as HarborImageSelector } from './HarborImageSelector';
+export type { HarborImageSelectorProps } from './HarborImageSelector';
 
 // Job 和 CronJob 表单组件
 export { default as JobForm } from './JobForm';

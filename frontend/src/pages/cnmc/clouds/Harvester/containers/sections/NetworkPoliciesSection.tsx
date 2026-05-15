@@ -606,15 +606,14 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   const handleDelete = useCallback((record: any) => {
     const name = record?.metadata?.name;
     const namespace = record?.metadata?.namespace;
+    const alias = record?.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias ? `${alias} (${name})` : name;
     
     modal.confirm({
       title: '确认删除',
       content: (
         <div>
-          <p>确定要删除此网络策略吗？</p>
-          <p>
-            <strong>名称:</strong> {name}
-          </p>
+          <p>确定要删除网络策略 "{displayName}" 吗？</p>
           <p>
             <strong>命名空间:</strong> {namespace}
           </p>
@@ -770,12 +769,8 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'created',
-      width: 160,
-      render: (v: string) => (
-        <Tooltip title={formatTime(v)}>
-          {calculateAge(v)}
-        </Tooltip>
-      ),
+      width: 180,
+      render: formatTime,
     },
     {
       title: '操作',

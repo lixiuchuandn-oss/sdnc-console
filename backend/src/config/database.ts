@@ -461,3 +461,81 @@ export async function ensureUsersPasswordChangedAtColumn() {
     throw error;
   }
 }
+
+/**
+ * Harbor 镜像仓库相关表（未开启 synchronize 时由启动逻辑创建）
+ */
+export async function ensureHarborTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 Harbor 表检查');
+      return;
+    }
+
+    // Harbor 实例表
+    const registryExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='harbor_registries'`,
+    );
+    if (registryExists.length === 0) {
+      dbLog.info('创建 harbor_registries 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "harbor_registries" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "name" varchar(100) NOT NULL,
+          "url" varchar(512) NOT NULL,
+          "username" varchar(100) NOT NULL,
+          "password" varchar(255) NOT NULL,
+          "insecure" boolean NOT NULL DEFAULT (0),
+          "is_built_in" boolean NOT NULL DEFAULT (0),
+          "status" varchar(20) NOT NULL DEFAULT ('unknown'),
+          "version" varchar(32),
+          "metadata" text,
+          "tenant_id" varchar,
+          "last_test_at" datetime,
+          "last_sync_at" datetime,
+          "created_by" varchar,
+          "created_at" datetime NOT NULL DEFAULT (datetime('now')),
+          "updated_at" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "IDX_harbor_registries_name" ON "harbor_registries" ("name")
+      `);
+      dbLog.info('harbor_registries 表创建成功');
+    }
+
+    // Harbor 项目缓存表
+    const projectExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='harbor_projects'`,
+    );
+    if (projectExists.length === 0) {
+      dbLog.info('创建 harbor_projects 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "harbor_projects" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "harborId" varchar NOT NULL,
+          "projectId" integer NOT NULL,
+          "name" varchar(255) NOT NULL,
+          "metadata" text,
+          "lastSyncedAt" datetime,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "IDX_harbor_projects_harbor_project" 
+        ON "harbor_projects" ("harborId", "projectId")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_harbor_projects_harborId" ON "harbor_projects" ("harborId")
+      `);
+      dbLog.info('harbor_projects 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      'Harbor 表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
