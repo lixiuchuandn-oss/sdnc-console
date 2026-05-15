@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Empty } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Empty, Switch } from 'antd';
 import {
   WorkloadsSection,
   PodsSection,
@@ -15,6 +15,21 @@ import {
 } from '../../../../Harvester/containers';
 import { canReadContainerTab, canWriteContainerTab } from '../../../../../../../utils/permissionUtils';
 import ServicesSection from '../../../../Harvester/cluster/sections/ServicesSection';
+import {
+  fetchHarvesterDeployments,
+  fetchHarvesterStatefulSets,
+  fetchHarvesterDaemonSets,
+  fetchHarvesterPods,
+  fetchHarvesterJobs,
+  fetchHarvesterCronJobs,
+  fetchHarvesterServices,
+  fetchHarvesterIngresses,
+  fetchHarvesterPDBs,
+  fetchNetworkPolicies,
+  fetchHarvesterConfigMaps,
+  fetchHarvesterSecrets,
+  fetchHarvesterImagePullSecrets,
+} from '../../../../../../../services/harvesterApi';
 
 export type CloudmapContainersTabsProps = {
   cloudId: string;
@@ -26,6 +41,12 @@ export type CloudmapContainersTabsProps = {
     force?: boolean,
     skipSync?: boolean,
   ) => Promise<void>;
+  loadResource: (
+    key: string,
+    fn: () => Promise<any>,
+    cb: (json: any) => void,
+    force?: boolean,
+  ) => Promise<void>;
   resourceLoading: Record<string, boolean>;
   namespacesOptions: string[];
   nodesOptions: string[];
@@ -34,13 +55,21 @@ export type CloudmapContainersTabsProps = {
   nodeFilter: string;
   setNodeFilter: (v: string) => void;
   harvesterDeployments: any[];
+  setHarvesterDeployments: (v: any[]) => void;
   harvesterStatefulSets: any[];
+  setHarvesterStatefulSets: (v: any[]) => void;
   harvesterDaemonSets: any[];
+  setHarvesterDaemonSets: (v: any[]) => void;
   harvesterPods: any[];
+  setHarvesterPods: (v: any[]) => void;
   harvesterJobs: any[];
+  setHarvesterJobs: (v: any[]) => void;
   harvesterCronJobs: any[];
+  setHarvesterCronJobs: (v: any[]) => void;
   harvesterServices: any[];
+  setHarvesterServices: (v: any[]) => void;
   harvesterIngresses: any[];
+  setHarvesterIngresses: (v: any[]) => void;
   gatewayApiStatus: {
     installed: boolean;
     resources: {
@@ -55,10 +84,15 @@ export type CloudmapContainersTabsProps = {
   httpRoutes: any[];
   grpcRoutes: any[];
   harvesterPDBs: any[];
+  setHarvesterPDBs: (v: any[]) => void;
   harvesterNetworkPolicies: any[];
+  setHarvesterNetworkPolicies: (v: any[]) => void;
   harvesterConfigMaps: any[];
+  setHarvesterConfigMaps: (v: any[]) => void;
   harvesterSecrets: any[];
+  setHarvesterSecrets: (v: any[]) => void;
   harvesterImagePullSecrets: any[];
+  setHarvesterImagePullSecrets: (v: any[]) => void;
   harvesterVolumes: any[];
 };
 
@@ -71,6 +105,7 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     checkPerm,
     innerActiveKey,
     loadTabResource,
+    loadResource,
     resourceLoading,
     namespacesOptions,
     nodesOptions,
@@ -79,30 +114,107 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     nodeFilter,
     setNodeFilter,
     harvesterDeployments,
+    setHarvesterDeployments,
     harvesterStatefulSets,
+    setHarvesterStatefulSets,
     harvesterDaemonSets,
+    setHarvesterDaemonSets,
     harvesterPods,
+    setHarvesterPods,
     harvesterJobs,
+    setHarvesterJobs,
     harvesterCronJobs,
+    setHarvesterCronJobs,
     harvesterServices,
+    setHarvesterServices,
     harvesterIngresses,
+    setHarvesterIngresses,
     gatewayApiStatus,
     gatewayClasses,
     gateways,
     httpRoutes,
     grpcRoutes,
     harvesterPDBs,
+    setHarvesterPDBs,
     harvesterNetworkPolicies,
+    setHarvesterNetworkPolicies,
     harvesterConfigMaps,
+    setHarvesterConfigMaps,
     harvesterSecrets,
+    setHarvesterSecrets,
     harvesterImagePullSecrets,
+    setHarvesterImagePullSecrets,
     harvesterVolumes,
   } = props;
+
+  const [workloadsAll, setWorkloadsAll] = useState(false);
+  const [podsAll, setPodsAll] = useState(false);
+  const [jobsAll, setJobsAll] = useState(false);
+  const [servicesAll, setServicesAll] = useState(false);
+  const [ingressesAll, setIngressesAll] = useState(false);
+  const [pdbsAll, setPdbsAll] = useState(false);
+  const [networkPoliciesAll, setNetworkPoliciesAll] = useState(false);
+  const [configsAll, setConfigsAll] = useState(false);
+
+  const loadWorkloads = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : workloadsAll;
+    loadResource('deployments', () => fetchHarvesterDeployments(cloudId, undefined, force, queryAll), (json) => { setHarvesterDeployments(json?.data?.items || []); }, force);
+    loadResource('statefulsets', () => fetchHarvesterStatefulSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterStatefulSets(json?.data?.items || []); }, force);
+    loadResource('daemonsets', () => fetchHarvesterDaemonSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterDaemonSets(json?.data?.items || []); }, force);
+  };
+
+  const loadPods = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : podsAll;
+    loadResource('pods', () => fetchHarvesterPods(cloudId, undefined, force, queryAll), (json) => { setHarvesterPods(json?.data?.items || []); }, force);
+  };
+
+  const loadJobs = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : jobsAll;
+    loadResource('jobs', () => fetchHarvesterJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterJobs(json?.data?.items || []); }, force);
+    loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterCronJobs(json?.data?.items || []); }, force);
+  };
+
+  const loadServices = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : servicesAll;
+    loadResource('services', () => fetchHarvesterServices(cloudId, force, queryAll), (json) => { setHarvesterServices(json?.data?.items || []); }, force);
+  };
+
+  const loadIngresses = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : ingressesAll;
+    loadResource('ingresses', () => fetchHarvesterIngresses(cloudId, force, queryAll), (json) => { setHarvesterIngresses(json?.data?.items || []); }, force);
+  };
+
+  const loadPdbs = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : pdbsAll;
+    loadResource('pdbs', () => fetchHarvesterPDBs(cloudId, undefined, force, queryAll), (json) => { setHarvesterPDBs(json?.data?.items || []); }, force);
+  };
+
+  const loadNetworkPolicies = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : networkPoliciesAll;
+    loadResource('networkpolicies', () => fetchNetworkPolicies(cloudId, undefined, force, queryAll), (json) => { setHarvesterNetworkPolicies(json?.data?.items || []); }, force);
+  };
+
+  const loadConfigs = (force = true, all?: boolean) => {
+    const queryAll = all !== undefined ? all : configsAll;
+    loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force, queryAll), (json) => { setHarvesterConfigMaps(json?.data?.items || []); }, force);
+    loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force, queryAll), (json) => { setHarvesterSecrets(json?.data?.items || []); }, force);
+  };
 
   const operationsReadOnly = useMemo(
     () => !canWriteContainerTab(checkPerm, innerActiveKey),
     [checkPerm, innerActiveKey],
   );
+
+  useEffect(() => {
+    setWorkloadsAll(false);
+    setPodsAll(false);
+    setJobsAll(false);
+    setServicesAll(false);
+    setIngressesAll(false);
+    setPdbsAll(false);
+    setNetworkPoliciesAll(false);
+    setConfigsAll(false);
+  }, [innerActiveKey]);
 
   if (!canReadContainerTab(checkPerm, innerActiveKey)) {
     return (
@@ -134,10 +246,10 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={() => {
-          loadTabResource('workloads', true);
-          loadTabResource('pods', true);
-        }}
+        onRefresh={() => loadWorkloads()}
+        showAllSwitch
+        queryAll={workloadsAll}
+        onQueryAllChange={(checked) => { setWorkloadsAll(checked); loadWorkloads(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'pods') {
@@ -152,10 +264,13 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         nodeValue={nodeFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         onNodeChange={(v) => setNodeFilter(v || '')}
-        onRefresh={() => loadTabResource('pods', true)}
+        onRefresh={() => loadPods()}
         deployments={harvesterDeployments}
         statefulSets={harvesterStatefulSets}
         daemonSets={harvesterDaemonSets}
+        showAllSwitch
+        queryAll={podsAll}
+        onQueryAllChange={(checked) => { setPodsAll(checked); loadPods(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'jobs') {
@@ -168,9 +283,12 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={(force) => loadTabResource('jobs', force ?? true)}
+        onRefresh={() => loadJobs()}
         imagePullSecrets={harvesterImagePullSecrets}
         secretsWithCredentials={harvesterSecrets}
+        showAllSwitch
+        queryAll={jobsAll}
+        onQueryAllChange={(checked) => { setJobsAll(checked); loadJobs(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'services') {
@@ -179,12 +297,15 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         services={harvesterServices}
         loading={resourceLoading.services}
-        onRefresh={() => loadTabResource('services', true)}
+        onRefresh={() => loadServices()}
         isTenant={isTenant}
         namespacesOptions={namespacesOptions}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         pods={harvesterPods}
+        showAllSwitch
+        queryAll={servicesAll}
+        onQueryAllChange={(checked) => { setServicesAll(checked); loadServices(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'ingresses') {
@@ -193,11 +314,14 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         ingresses={harvesterIngresses}
         loading={resourceLoading.ingresses}
-        onRefresh={() => loadTabResource('ingresses', true)}
+        onRefresh={() => loadIngresses()}
         namespacesOptions={namespacesOptions}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         secrets={harvesterSecrets}
+        showAllSwitch
+        queryAll={ingressesAll}
+        onQueryAllChange={(checked) => { setIngressesAll(checked); loadIngresses(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'gateway_api') {
@@ -250,7 +374,10 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={(force) => loadTabResource('containers', force ?? true)}
+        onRefresh={() => loadPdbs()}
+        showAllSwitch
+        queryAll={pdbsAll}
+        onQueryAllChange={(checked) => { setPdbsAll(checked); loadPdbs(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'networkpolicies') {
@@ -262,7 +389,10 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={(force) => loadTabResource('containers', force ?? true)}
+        onRefresh={() => loadNetworkPolicies()}
+        showAllSwitch
+        queryAll={networkPoliciesAll}
+        onQueryAllChange={(checked) => { setNetworkPoliciesAll(checked); loadNetworkPolicies(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'configs') {
@@ -275,10 +405,13 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={(force) => loadTabResource('configs', force)}
+        onRefresh={() => loadConfigs()}
         deployments={harvesterDeployments}
         statefulsets={harvesterStatefulSets}
         daemonsets={harvesterDaemonSets}
+        showAllSwitch
+        queryAll={configsAll}
+        onQueryAllChange={(checked) => { setConfigsAll(checked); loadConfigs(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'registries') {

@@ -73,8 +73,80 @@ export const isSystemNamespaceName = (name: string): boolean => {
     'cluster',
     'local',
     'ingress',
+    'rancher',
+    'calico',
+    'tigera',
+    'cert-manager',
+    'velero',
+    'openebs',
+    'rook',
+    'istio',
+    'knative',
+    'cilium',
+    'linkerd',
+    'keda',
+    'argocd',
+    'vault',
+    'sealed-secrets',
+    'monitoring',
+    'logging',
+    'tracing',
   ];
   return prefixes.some((p) => n.startsWith(p));
+};
+
+/**
+ * 与前端 `harvesterUtils.isSystemResource` 一致
+ * 判断 Kubernetes 资源是否为系统内置资源（应从默认列表中过滤）
+ *
+ * 规则：
+ * 1. 命名空间是系统命名空间（isSystemNamespaceName）
+ * 2. default 命名空间中的 kubernetes Service
+ * 3. 资源名称有系统前缀（kube-, coredns-, etcd- 等，不含 default-）
+ * 4. Secret 类型为 kubernetes.io/service-account-token
+ */
+export const isSystemResource = (resource: any): boolean => {
+  if (!resource) return false;
+
+  const metadata = resource?.metadata || {};
+  const name = String(metadata.name || '').toLowerCase();
+  const namespace = String(metadata.namespace || '').toLowerCase();
+
+  // 1. 系统命名空间
+  if (isSystemNamespaceName(namespace)) return true;
+
+  // 2. Kubernetes 内置 Service（default 命名空间中的 kubernetes Service）
+  if (namespace === 'default' && name === 'kubernetes') return true;
+
+  // 3. 系统资源名称前缀（移除 default-，保留真正的系统组件前缀）
+  const systemNamePrefixes = [
+    'kube-',
+    'coredns-',
+    'etcd-',
+    'kubelet-',
+    'kube-proxy',
+    'kube-apiserver',
+    'kube-controller',
+    'kube-scheduler',
+    'rancher-',
+    'cattle-',
+    'fleet-',
+    'longhorn-',
+    'harvester-',
+    'virt-',
+    'cdi-',
+    'ovn-',
+    'ovs-',
+    'network-policy-',
+  ];
+  if (systemNamePrefixes.some((p) => name.startsWith(p))) return true;
+
+  // 4. ServiceAccount Token Secret（K8s 自动创建，不应删除）
+  const secretType = String(resource?.type || '').toLowerCase();
+  if (secretType === 'kubernetes.io/service-account-token') return true;
+  if (secretType === 'helm.sh/release.v1') return true;
+
+  return false;
 };
 
 /**

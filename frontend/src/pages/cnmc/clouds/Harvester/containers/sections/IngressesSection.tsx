@@ -5,7 +5,7 @@
  * 支持创建和删除 Ingress 资源。
  */
 import React, { useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Button, message, Input, Modal, Select, App, Form, Tooltip } from 'antd';
+import { Table, Tag, Button, message, Input, Modal, Select, App, Form, Tooltip, Switch } from 'antd';
 import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -47,6 +47,9 @@ interface Props {
   onNsChange?: (v?: string) => void;
   secrets?: any[];
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 }
 
 const IngressesSection: React.FC<Props> = ({
@@ -59,6 +62,9 @@ const IngressesSection: React.FC<Props> = ({
   onNsChange,
   secrets,
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const { message: antMessage } = App.useApp();
   const [aliasForm] = Form.useForm<{ alias?: string }>();
@@ -380,6 +386,15 @@ const IngressesSection: React.FC<Props> = ({
       )}
       toolbarRight={
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           <Button
             type="primary"
             icon={<PlusOutlined />}

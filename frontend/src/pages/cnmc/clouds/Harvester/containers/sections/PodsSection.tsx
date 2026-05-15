@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip } from 'antd';
+import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip, Switch } from 'antd';
 import { FileTextOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -47,6 +47,9 @@ type Props = {
   deployments?: any[];
   statefulSets?: any[];
   daemonSets?: any[];
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -664,6 +667,9 @@ const PodsSection: React.FC<Props> = ({
   deployments = [],
   statefulSets = [],
   daemonSets = [],
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
@@ -1145,6 +1151,15 @@ const PodsSection: React.FC<Props> = ({
           </button>
         </div>
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!operationsReadOnly ? (
             <Dropdown
               menu={{

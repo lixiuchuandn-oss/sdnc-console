@@ -28,6 +28,7 @@ import { Router, Response, json } from 'express';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { getJsonOnce, requestJson } from '../../../services/clouds/harvester/utils';
 import { syncHarvesterServices, syncHarvesterIngresses } from '../../../services/clouds/harvester/inventory';
+import { isSystemNamespaceName, isSystemResource } from '../../../services/clouds/harvester/namespace';
 
 /**
  * [内存缓存] 简单的 TTL 缓存，用于优化 Secret 等资源的查询性能
@@ -239,7 +240,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -256,6 +257,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getAllNamespacedResources(base, '/apis/apps/v1/deployments', token, insecure);
         }
         
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
+        }
+        
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询 Deployment 失败', error: error.message });
@@ -266,6 +272,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 StatefulSet 列表
    * GET /:id/resources/harvester/containers/statefulsets
+   * Query: namespace, all
    */
   router.get(
     '/:id/resources/harvester/containers/statefulsets',
@@ -273,7 +280,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -290,6 +297,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getAllNamespacedResources(base, '/apis/apps/v1/statefulsets', token, insecure);
         }
         
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
+        }
+        
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询 StatefulSet 失败', error: error.message });
@@ -300,6 +312,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 DaemonSet 列表
    * GET /:id/resources/harvester/containers/daemonsets
+   * Query: namespace, all
    */
   router.get(
     '/:id/resources/harvester/containers/daemonsets',
@@ -307,7 +320,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -324,6 +337,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getAllNamespacedResources(base, '/apis/apps/v1/daemonsets', token, insecure);
         }
         
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
+        }
+        
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询 DaemonSet 失败', error: error.message });
@@ -337,16 +355,16 @@ export const registerHarvesterContainerRoutes = (
 
   /**
    * [API] 获取 Pod 列表
-   * GET /:id/resources/harvester/containers/pods
-   * Query: namespace, force, labelSelector
-   */
+    * GET /:id/resources/harvester/containers/pods
+    * Query: namespace, force, labelSelector, all
+    */
   router.get(
     '/:id/resources/harvester/containers/pods',
     checkAdminPermission,
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, force, labelSelector } = req.query;
+        const { namespace, force, labelSelector, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -357,7 +375,7 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         // 生成缓存 key
-        const cacheKey = `pods:${id}:${namespace || 'all'}:${labelSelector || 'all'}`;
+        const cacheKey = `pods:${id}:${namespace || 'all'}:${labelSelector || 'all'}:${all || 'false'}`;
         
         // 尝试从缓存获取（force=true 时跳过缓存）
         let items = force === 'true' ? null : getCached<any[]>(cacheKey);
@@ -369,6 +387,11 @@ export const registerHarvesterContainerRoutes = (
             items = await getNamespacedResources(base, '/api/v1/pods', String(namespace), token, insecure, selector);
           } else {
             items = await getAllNamespacedResources(base, '/api/v1/pods', token, insecure, selector);
+          }
+          
+          // all !== 'true' 时过滤系统命名空间
+          if (all !== 'true') {
+            items = items.filter((item: any) => !isSystemResource(item));
           }
           
           // 存入缓存
@@ -506,6 +529,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 Job 列表
    * GET /:id/resources/harvester/containers/jobs
+   * Query: namespace, all
    */
   router.get(
     '/:id/resources/harvester/containers/jobs',
@@ -513,7 +537,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -530,6 +554,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getAllNamespacedResources(base, '/apis/batch/v1/jobs', token, insecure);
         }
         
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
+        }
+        
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询 Job 失败', error: error.message });
@@ -540,6 +569,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 CronJob 列表
    * GET /:id/resources/harvester/containers/cronjobs
+   * Query: namespace, all
    */
   router.get(
     '/:id/resources/harvester/containers/cronjobs',
@@ -547,7 +577,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -562,6 +592,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getNamespacedResources(base, '/apis/batch/v1/cronjobs', String(namespace), token, insecure);
         } else {
           items = await getAllNamespacedResources(base, '/apis/batch/v1/cronjobs', token, insecure);
+        }
+        
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
         }
         
         res.json({ message: '查询成功', data: { items } });
@@ -1013,6 +1048,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 ConfigMap 列表
    * GET /:id/resources/harvester/containers/configmaps
+   * Query: namespace, force, all
    */
   router.get(
     '/:id/resources/harvester/containers/configmaps',
@@ -1020,7 +1056,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, force } = req.query;
+        const { namespace, force, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1031,7 +1067,7 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         // 生成缓存 key
-        const cacheKey = `configmaps:${id}:${namespace || 'all'}`;
+        const cacheKey = `configmaps:${id}:${namespace || 'all'}:${all || 'false'}`;
         
         // 尝试从缓存获取（force=true 时跳过缓存）
         // ConfigMaps 响应较慢，使用更长的缓存时间
@@ -1048,6 +1084,11 @@ export const registerHarvesterContainerRoutes = (
             items = await getAllNamespacedResources(base, '/api/v1/configmaps', token, insecure);
           }
           
+          // all !== 'true' 时过滤系统命名空间
+          if (all !== 'true') {
+            items = items.filter((item: any) => !isSystemResource(item));
+          }
+          
           // 存入缓存
           setCache(cacheKey, items);
         }
@@ -1062,6 +1103,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 Secret 列表
    * GET /:id/resources/harvester/containers/secrets
+   * Query: namespace, type, force, all
    */
   router.get(
     '/:id/resources/harvester/containers/secrets',
@@ -1069,7 +1111,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, type, force } = req.query;
+        const { namespace, type, force, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1080,7 +1122,7 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         // 生成缓存 key
-        const cacheKey = `secrets:${id}:${namespace || 'all'}`;
+        const cacheKey = `secrets:${id}:${namespace || 'all'}:${type || 'all'}:${all || 'false'}`;
         
         // 尝试从缓存获取（force=true 时跳过缓存）
         // Secrets 响应慢，使用更长的缓存时间
@@ -1095,6 +1137,11 @@ export const registerHarvesterContainerRoutes = (
             items = await getNamespacedResources(base, '/api/v1/secrets', String(namespace), token, insecure);
           } else {
             items = await getAllNamespacedResources(base, '/api/v1/secrets', token, insecure);
+          }
+          
+          // all !== 'true' 时过滤系统命名空间
+          if (all !== 'true') {
+            items = items.filter((item: any) => !isSystemResource(item));
           }
           
           // 脱敏处理：不返回 data 字段的内容，但提取有用信息
@@ -1924,7 +1971,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 Service 列表
    * GET /:id/resources/harvester/containers/services
-   * Query: namespace (可选，不传则返回所有命名空间)
+   * Query: namespace, all
    * 说明: Service 是 Kubernetes 核心资源，用于服务发现和负载均衡
    * K8s API: /api/v1/namespaces/{ns}/services 或 /api/v1/services
    */
@@ -1934,7 +1981,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1951,6 +1998,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getAllNamespacedResources(base, '/api/v1/services', token, insecure);
         }
         
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
+        }
+        
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询 Service 失败', error: error.message });
@@ -1961,7 +2013,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 Ingress 列表
    * GET /:id/resources/harvester/containers/ingresses
-   * Query: namespace (可选，不传则返回所有命名空间)
+   * Query: namespace, force, all
    * 说明: Ingress 是 Kubernetes 网络资源，用于 HTTP/HTTPS 路由
    * K8s API: /apis/networking.k8s.io/v1/namespaces/{ns}/ingresses 或 /apis/networking.k8s.io/v1/ingresses
    */
@@ -1971,7 +2023,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, force } = req.query;
+        const { namespace, force, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1982,7 +2034,7 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         // 尝试从缓存获取（force=true 时跳过缓存）
-        const cacheKey = `ingresses:${id}:${namespace || 'all'}`;
+        const cacheKey = `ingresses:${id}:${namespace || 'all'}:${all || 'false'}`;
         let items: any[] | null = null;
         if (force !== 'true' && force !== '1') {
           items = getCached<any[]>(cacheKey);
@@ -1994,6 +2046,12 @@ export const registerHarvesterContainerRoutes = (
           } else {
             items = await getAllNamespacedResources(base, '/apis/networking.k8s.io/v1/ingresses', token, insecure);
           }
+          
+          // all !== 'true' 时过滤系统命名空间
+          if (all !== 'true') {
+            items = items.filter((item: any) => !isSystemResource(item));
+          }
+          
           // 缓存结果（30秒）
           setCache(cacheKey, items);
         }
@@ -2329,7 +2387,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 NetworkPolicy 列表
    * GET /:id/resources/harvester/containers/networkpolicies
-   * Query: namespace (可选，不传则返回所有命名空间)
+   * Query: namespace, all
    * 说明: NetworkPolicy 是 Kubernetes 网络策略资源，用于控制 Pod 之间的网络访问
    * K8s API: /apis/networking.k8s.io/v1/namespaces/{ns}/networkpolicies
    */
@@ -2339,7 +2397,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -2354,6 +2412,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getNamespacedResources(base, '/apis/networking.k8s.io/v1/networkpolicies', String(namespace), token, insecure);
         } else {
           items = await getAllNamespacedResources(base, '/apis/networking.k8s.io/v1/networkpolicies', token, insecure);
+        }
+        
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
         }
         
         // 格式化返回数据
@@ -2554,7 +2617,7 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 PodDisruptionBudget 列表
    * GET /:id/resources/harvester/containers/poddisruptionbudgets
-   * Query: namespace (可选，不传则返回所有命名空间)
+   * Query: namespace, all
    */
   router.get(
     '/:id/resources/harvester/containers/poddisruptionbudgets',
@@ -2562,7 +2625,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -2578,6 +2641,11 @@ export const registerHarvesterContainerRoutes = (
           items = await getNamespacedResources(base, '/apis/policy/v1/poddisruptionbudgets', String(namespace), token, insecure);
         } else {
           items = await getAllNamespacedResources(base, '/apis/policy/v1/poddisruptionbudgets', token, insecure);
+        }
+        
+        // all !== 'true' 时过滤系统命名空间
+        if (all !== 'true') {
+          items = items.filter((item: any) => !isSystemResource(item));
         }
         
         res.json({ message: '查询成功', data: { items } });

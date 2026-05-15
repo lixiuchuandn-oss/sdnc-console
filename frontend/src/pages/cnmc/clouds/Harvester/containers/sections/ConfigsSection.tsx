@@ -50,6 +50,9 @@ type Props = {
   deployments?: any[];
   statefulsets?: any[];
   daemonsets?: any[];
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -533,7 +536,10 @@ const ConfigMapTable: React.FC<{
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
   checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse }) => {
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -812,6 +818,15 @@ const ConfigMapTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           <Button type="primary" onClick={onCreateClick}>
             创建 ConfigMap
           </Button>
@@ -931,7 +946,10 @@ const SecretTable: React.FC<{
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
   checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse }) => {
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -1249,6 +1267,15 @@ const SecretTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           <Button type="primary" onClick={onCreateClick}>
             创建 Secret
           </Button>
@@ -1369,6 +1396,9 @@ const ConfigsSection: React.FC<Props> = ({
   deployments = [],
   statefulsets = [],
   daemonsets = [],
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
@@ -1550,6 +1580,9 @@ const ConfigsSection: React.FC<Props> = ({
             onRefresh={onRefresh}
             onEditClick={handleEditConfigMap}
             checkResourceInUse={checkResourceInUse}
+            showAllSwitch={showAllSwitch}
+            queryAll={queryAll}
+            onQueryAllChange={onQueryAllChange}
           />
         ) : (
           <SecretTable
@@ -1566,6 +1599,9 @@ const ConfigsSection: React.FC<Props> = ({
             onRefresh={onRefresh}
             onEditClick={handleEditSecret}
             checkResourceInUse={checkResourceInUse}
+            showAllSwitch={showAllSwitch}
+            queryAll={queryAll}
+            onQueryAllChange={onQueryAllChange}
           />
         )}
       </PageDetailSection>
