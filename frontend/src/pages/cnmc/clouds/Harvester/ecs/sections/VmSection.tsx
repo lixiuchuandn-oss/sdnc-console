@@ -123,6 +123,40 @@ import { findFirstVmVolumeResizeState } from "../lib/vmVolumePvc";
 import { formatStorageSize } from "../lib/storageSize";
 import { createVmListSafeRead } from "../lib/vmSafeRead";
 
+/** 列展示持久化 key（v5：GPU / 网卡直通 / USB 直通默认不勾选） */
+const HARVESTER_VM_TABLE_SETTINGS_KEY = "harvester_vm_table_v5";
+const HARVESTER_VM_TABLE_DEFAULT_HIDDEN_COLUMNS = [
+  "gpus",
+  "passthrough_nics",
+  "usb_passthrough",
+];
+
+function renderVmDevicePassthroughCell(
+  items: string[] | string | undefined | null,
+): React.ReactNode {
+  const list = Array.isArray(items)
+    ? items.map((x) => String(x || "").trim()).filter(Boolean)
+    : String(items || "").trim()
+      ? [String(items).trim()]
+      : [];
+  if (list.length === 0) return "-";
+  const text = list.join(", ");
+  return (
+    <Tooltip title={text}>
+      <div
+        style={{
+          maxWidth: 240,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {text}
+      </div>
+    </Tooltip>
+  );
+}
+
 /**
  * [类型定义] 组件 Props 接口
  * 定义了父组件传递给 VmSection 的所有属性。
@@ -1368,26 +1402,22 @@ const VmSection: React.FC<Props> = ({
         title: "GPU",
         key: "gpus",
         ellipsis: true,
-        render: (_: any, r: any) => {
-          const items = SafeRead.gpus(r);
-          const list = Array.isArray(items) ? items.filter(Boolean) : [];
-          if (list.length === 0) return "-";
-          const text = list.join(", ");
-          return (
-            <Tooltip title={text}>
-              <div
-                style={{
-                  maxWidth: 240,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {text}
-              </div>
-            </Tooltip>
-          );
-        },
+        render: (_: any, r: any) =>
+          renderVmDevicePassthroughCell(SafeRead.gpus(r)),
+      },
+      {
+        title: "网卡直通",
+        key: "passthrough_nics",
+        ellipsis: true,
+        render: (_: any, r: any) =>
+          renderVmDevicePassthroughCell(SafeRead.passthroughNics(r)),
+      },
+      {
+        title: "USB直通",
+        key: "usb_passthrough",
+        ellipsis: true,
+        render: (_: any, r: any) =>
+          renderVmDevicePassthroughCell(SafeRead.usbPassthrough(r)),
       },
       {
         title: "热扩容",
@@ -1771,7 +1801,8 @@ const VmSection: React.FC<Props> = ({
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(
     allColumns,
-    "harvester_vm_table_v3",
+    HARVESTER_VM_TABLE_SETTINGS_KEY,
+    HARVESTER_VM_TABLE_DEFAULT_HIDDEN_COLUMNS,
   );
 
   // ==========================================
@@ -1979,7 +2010,8 @@ const VmSection: React.FC<Props> = ({
             <TableColumnSettingsButton
               key="col-settings"
               allColumns={allColumns}
-              settingsKey="harvester_vm_table_v3"
+              settingsKey={HARVESTER_VM_TABLE_SETTINGS_KEY}
+              defaultHiddenColumns={HARVESTER_VM_TABLE_DEFAULT_HIDDEN_COLUMNS}
             />
           )}
           <Button

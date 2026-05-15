@@ -5,6 +5,7 @@ import yaml from "js-yaml";
 import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from "../../kube-ovn/lib/kubeOvnSubnetConstants";
 import { expectedMultusNadRefForSubnet } from "./kubeOvnMultusNadRef";
 import { kubeOvnCustomIpEntryName } from "../modals/VmCreateWizard/VmWizardUtils";
+import { isWizardPciPassthroughNetMode } from "./passthroughNicSelectOptions";
 import {
   parseVmCloudInitNetworkData,
   generateMacAddressForStaticNic,
@@ -24,6 +25,7 @@ export type VmNicNetMode =
   | "flat_subnet"
   | "vpc"
   | "passthrough"
+  | "passthrough_sriov"
   | "flat"
   | "pod";
 
@@ -115,10 +117,9 @@ export function buildKubevirtIface(
   model?: string,
   mac?: string,
 ): any {
-  const iface: any = {
-    name: ifaceName,
-    model: model || "virtio",
-  };
+  const iface: any = { name: ifaceName };
+  const mModel = String(model ?? "").trim();
+  if (mModel) iface.model = mModel;
   const m = String(mac || "").trim();
   if (m) iface.macAddress = m;
   const t = String(type || "bridge").toLowerCase();
@@ -154,7 +155,7 @@ function resolveMultus(
     const n = String(p.name || "").trim();
     return n || null;
   }
-  if (netMode === "passthrough") {
+  if (isWizardPciPassthroughNetMode(netMode)) {
     return String(p.name || "").trim() || null;
   }
   const subnetName = String(p.subnet || "").trim();
@@ -342,7 +343,7 @@ export function initNicEditorSlice(
   if (netMode === "vpc" || netMode === "flat_subnet") {
     return { ...base, gateway: "", dns: "" };
   }
-  if (netMode === "flat" || netMode === "passthrough") {
+  if (netMode === "flat" || isWizardPciPassthroughNetMode(netMode)) {
     return { ...base, macAddress: "", ipAddress: "", gateway: "", dns: "" };
   }
   return base;
@@ -379,11 +380,14 @@ export function applySliceToIfaceNet(
       ? "bridge"
       : String(slice.ifaceType || "bridge").toLowerCase();
   const omitMac =
-    slice.netMode === "flat" || slice.netMode === "passthrough";
+    slice.netMode === "flat" || isWizardPciPassthroughNetMode(slice.netMode);
+  const ifaceModel = isWizardPciPassthroughNetMode(slice.netMode)
+    ? undefined
+    : slice.model;
   const iface = buildKubevirtIface(
     virtTypeForIface,
     ifaceName,
-    slice.model,
+    ifaceModel,
     omitMac ? undefined : slice.macAddress,
   );
   const net = buildNetworkEntry(ifaceName, multus);

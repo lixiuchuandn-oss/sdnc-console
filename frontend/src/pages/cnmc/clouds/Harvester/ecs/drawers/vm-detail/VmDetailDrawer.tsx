@@ -82,6 +82,7 @@ const VmDetailDrawer: React.FC<VmDetailDrawerProps> = (props) => {
     SafeRead,
     ctrl.vmDetailGpuResources,
     ctrl.vmDetailUsbResources,
+    ctrl.vmDetailPciDevices,
   );
 
   const actions = useVmDetailDrawerActions({
@@ -199,6 +200,7 @@ const VmDetailDrawer: React.FC<VmDetailDrawerProps> = (props) => {
       hotPlugCpuError={derived.hotPlugCpuError}
       vmDisks={derived.vmDisks}
       vmNics={derived.vmNics}
+      vmPassthroughNics={derived.vmPassthroughNics}
       vmGpus={derived.vmGpus}
       vmUsb={derived.vmUsb}
       isStopped={derived.isStopped}

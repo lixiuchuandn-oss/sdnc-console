@@ -4,6 +4,8 @@
 import { expectedMultusNadRefForSubnet } from '../../../lib/kubeOvnMultusNadRef';
 import { allocateSecondaryNicNames } from '../../../lib/harvesterVmNetwork';
 import { netModeUsesCloudInitEthernet } from '../../../lib/vmNicManageLogic';
+import { passthroughKubevirtIfaceTypeFromNad } from '../../../modals/VmCreateWizard/harvesterVmIfaceTypeOptions';
+import { isWizardPciPassthroughNetMode } from '../../../lib/passthroughNicSelectOptions';
 
 export type NicRecomputeResult = {
   interfaces: any[];
@@ -28,13 +30,12 @@ function nadOptionsFromList(nads: any[]): { value: string }[] {
 function buildKubevirtIface(
   type: string,
   ifaceName: string,
-  model?: string,
+  model: string | undefined,
   mac?: string,
 ): any {
-  const iface: any = {
-    name: ifaceName,
-    model: model || 'virtio',
-  };
+  const iface: any = { name: ifaceName };
+  const mModel = String(model ?? '').trim();
+  if (mModel) iface.model = mModel;
   const m = String(mac || '').trim();
   if (m) iface.macAddress = m;
   const t = String(type || 'bridge').toLowerCase();
@@ -45,6 +46,35 @@ function buildKubevirtIface(
   else if (t === 'macvtap') iface.macvtap = {};
   else iface.bridge = {};
   return iface;
+}
+
+function nadHitForMultusPassthrough(nads: any[], multusName: string): any {
+  const m = String(multusName || '').trim();
+  if (!m) return undefined;
+  const list = Array.isArray(nads) ? nads : [];
+  for (const n of list) {
+    const ns = n?.metadata?.namespace || n?.namespace || '';
+    const nm = n?.metadata?.name || n?.name || '';
+    const v = ns && nm ? `${ns}/${nm}` : String(nm || '');
+    if (v === m) {
+      let type = '';
+      try {
+        const cfg = JSON.parse(n?.spec?.config || '{}');
+        type = String(cfg?.type || '').toLowerCase();
+      } catch {
+        /* ignore */
+      }
+      return { _type: type };
+    }
+  }
+  return undefined;
+}
+
+function passthroughIfaceTypeFromRowOrNad(row: any, nads: any[]): string {
+  const fromRow = String(row?.type || '').trim().toLowerCase();
+  if (fromRow === 'sriov' || fromRow === 'macvtap') return fromRow;
+  const multus = String(row?.name || '').trim();
+  return passthroughKubevirtIfaceTypeFromNad(nadHitForMultusPassthrough(nads, multus));
 }
 
 /** multusName 为 null 时使用 Pod 网络 */
@@ -66,7 +96,7 @@ function resolveMultusForSecondary(
     const n = String(r.name || '').trim();
     return n || null;
   }
-  if (mode === 'passthrough') {
+  if (isWizardPciPassthroughNetMode(mode)) {
     return String(r.name || '').trim() || null;
   }
   const subnetName = String(r.subnet || '').trim();
@@ -170,6 +200,9 @@ function networkDataYamlEquivalent(a: any, b: any): boolean {
 
 /**
  * 保留主网卡，按表单重建其余 interface/network；合并辅卡 networkData。
+ *
+ * 主网卡为整卡 PCI 直通时，KubeVirt 可能仅有 hostDevices、无 domain.devices.interfaces（与创建向导一致），
+ * 此时仍须能合并「仅辅卡行 + 新 Multus/PCI」的计算，不得因 curIf 为空直接失败。
  */
 export function computeSecondaryNicsPayload(
   record: any,
@@ -181,35 +214,67 @@ export function computeSecondaryNicsPayload(
 ): NicRecomputeResult | null {
   const curIf = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
   const curNet = record?.spec?.template?.spec?.networks || [];
-  if (!Array.isArray(curIf) || curIf.length === 0) return null;
+  if (!Array.isArray(curIf)) return null;
 
-  const primaryIface = deepClone(curIf[0]);
-  const primaryNetModeEarly = String(values?.netMode || "").trim();
-  if (primaryNetModeEarly === "flat" || primaryNetModeEarly === "passthrough") {
-    delete primaryIface.macAddress;
+  const hasKubevirtPrimary = curIf.length > 0;
+  let primaryIface: any = null;
+  let primaryNet: any = null;
+  let primaryName = "";
+
+  if (hasKubevirtPrimary) {
+    primaryIface = deepClone(curIf[0]);
+    const primaryNetModeEarly = String(values?.netMode || "").trim();
+    if (primaryNetModeEarly === "flat" || isWizardPciPassthroughNetMode(primaryNetModeEarly)) {
+      delete primaryIface.macAddress;
+    }
+    primaryName = String(primaryIface?.name || "").trim();
+    primaryNet = deepClone(
+      curNet.find((n: any) => n?.name === primaryName) || {
+        name: primaryName,
+        pod: {},
+      },
+    );
   }
-  const primaryName = primaryIface.name;
-  const primaryNet = deepClone(
-    curNet.find((n: any) => n?.name === primaryName) || {
-      name: primaryName,
-      pod: {},
-    },
-  );
 
   const secondaryRows = Array.isArray(values?.secondaryNics) ? values.secondaryNics : [];
-  const names = allocateSecondaryNicNames(primaryName, secondaryRows.length);
+  const rowsWithIface = secondaryRows.filter(
+    (row: any) =>
+      !(
+        isWizardPciPassthroughNetMode(String(row?.mode || "")) &&
+        String(row?.passthroughSource || "") === "pci-host"
+      ),
+  );
+  const names = hasKubevirtPrimary
+    ? allocateSecondaryNicNames(primaryName, rowsWithIface.length)
+    : Array.from({ length: rowsWithIface.length }, (_, i) => `nic-${i}`);
 
   const secondaryIf: any[] = [];
   const secondaryNw: any[] = [];
-  secondaryRows.forEach((row: any, idx: number) => {
-    const ifaceName = names[idx];
+  let nameIdx = 0;
+  secondaryRows.forEach((row: any) => {
     const mode = String(row?.mode || "flat");
+    const isPciPassthrough =
+      isWizardPciPassthroughNetMode(mode) &&
+      String(row?.passthroughSource || "") === "pci-host";
+    if (isPciPassthrough) {
+      return;
+    }
+
+    const ifaceName = names[nameIdx];
+    nameIdx += 1;
     const multus = resolveMultusForSecondary(mode, row, subnets, nads);
-    const omitMac = mode === "flat" || mode === "passthrough";
+    const omitMac = mode === "flat" || isWizardPciPassthroughNetMode(mode);
+    const isPassthroughMultus = isWizardPciPassthroughNetMode(mode);
+    const ifaceType = isPassthroughMultus
+      ? passthroughIfaceTypeFromRowOrNad(row, nads)
+      : String(row.type || "bridge").toLowerCase();
+    const ifaceModel = isPassthroughMultus
+      ? undefined
+      : String(row.model || "virtio").trim() || "virtio";
     const iface = buildKubevirtIface(
-      row.type,
+      ifaceType,
       ifaceName,
-      row.model,
+      ifaceModel,
       omitMac ? undefined : row.macAddress,
     );
     const net = buildNetworkEntry(ifaceName, multus);
@@ -217,48 +282,58 @@ export function computeSecondaryNicsPayload(
     secondaryNw.push(net);
   });
 
-  const interfaces = [primaryIface, ...secondaryIf];
-  const networks = [primaryNet, ...secondaryNw];
+  const interfaces = hasKubevirtPrimary ? [primaryIface, ...secondaryIf] : [...secondaryIf];
+  const networks = hasKubevirtPrimary ? [primaryNet, ...secondaryNw] : [...secondaryNw];
 
   let networkDataObj = ensureNetworkDataShape(getParsedNetworkData(record));
   const beforeSnap = deepClone(networkDataObj);
 
   const primaryPnic = values?.primaryNic || {};
   const primaryNetMode = String(values?.netMode || "").trim();
+  const primaryMacForCloud =
+    String(
+      primaryPnic.macAddress || (hasKubevirtPrimary ? primaryIface?.macAddress : "") || "",
+    ).trim();
+
   if (netModeUsesCloudInitEthernet(primaryNetMode)) {
     const primaryEtherKey = pickPrimaryEthernetKey(
       networkDataObj,
       primaryName,
-      String(primaryPnic.macAddress || primaryIface.macAddress || "").trim(),
+      primaryMacForCloud,
     );
     const primaryApply = applyNicToEthernet(
       networkDataObj,
       primaryEtherKey,
       primaryPnic,
-      String(primaryPnic.macAddress || primaryIface.macAddress || "").trim() ||
-        undefined,
+      primaryMacForCloud || undefined,
       generateMacAddress,
     );
     networkDataObj = primaryApply.next;
-    if (primaryApply.macAssigned && !interfaces[0].macAddress) {
+    if (primaryApply.macAssigned && interfaces[0] && !interfaces[0].macAddress) {
       interfaces[0].macAddress = primaryApply.macAssigned;
     }
   } else {
-    const primaryEtherKey = pickPrimaryEthernetKey(
-      networkDataObj,
-      primaryName,
-      String(primaryPnic.macAddress || primaryIface.macAddress || "").trim(),
-    );
+    const primaryEtherKey = pickPrimaryEthernetKey(networkDataObj, primaryName, primaryMacForCloud);
     const ethernets = networkDataObj.network.ethernets;
     if (ethernets && ethernets[primaryEtherKey]) {
       delete ethernets[primaryEtherKey];
     }
   }
 
-  secondaryRows.forEach((row: any, idx: number) => {
-    const ifaceName = names[idx];
-    const iface = secondaryIf[idx];
+  let ethIdx = 0;
+  secondaryRows.forEach((row: any) => {
     const mode = String(row?.mode || "flat");
+    const isPciPassthrough =
+      isWizardPciPassthroughNetMode(mode) &&
+      String(row?.passthroughSource || "") === "pci-host";
+    if (isPciPassthrough) {
+      return;
+    }
+
+    const ifaceName = names[ethIdx];
+    const iface = secondaryIf[ethIdx];
+    ethIdx += 1;
+
     if (netModeUsesCloudInitEthernet(mode)) {
       const gen = () => generateMacAddress();
       const { next, macAssigned } = applyNicToEthernet(

@@ -772,6 +772,8 @@ const updateHarvesterVMSpecInternal = async (
   if (vmMetadataAnnotationsRaw !== undefined) {
     delete spec.vmMetadataAnnotations;
   }
+  /** VM 根 metadata.annotations 补丁（须写入 mergedRootMetadata，不可写 spec.template.metadata） */
+  const rootVmAnnotationPatches: Record<string, string | null> = {};
   
   // Ensure structure exists
   if (!newSpec.template) newSpec.template = {};
@@ -1744,6 +1746,94 @@ const updateHarvesterVMSpecInternal = async (
       domain.devices.hostDevices = [...hostDevicesOther, ...nextGpuHostDevices, ...nextUsbHostDevices];
   }
 
+  // --- 6.0 [直通 PCI 网卡] 替换非 GPU/USB 的 hostDevices（与前端变配 pciNicHostDevices 约定）
+  if ((spec as any).pciNicHostDevices !== undefined) {
+      const raw = Array.isArray((spec as any).pciNicHostDevices)
+        ? (spec as any).pciNicHostDevices
+        : [];
+      const nextPciNicHost: { name: string; deviceName: string }[] = [];
+      for (const h of raw) {
+          const name = String(h?.name ?? '').trim();
+          const deviceName = String(h?.deviceName ?? '').trim();
+          if (!name || !deviceName) continue;
+          nextPciNicHost.push({ name, deviceName });
+      }
+      if (!domain.devices) domain.devices = {};
+      const curHost = Array.isArray(domain.devices.hostDevices)
+        ? domain.devices.hostDevices
+        : (shouldUpdateHostDevices
+            ? [...hostDevicesOther, ...nextGpuHostDevices, ...nextUsbHostDevices]
+            : currentHostDevices);
+      const keptGpuUsb = (Array.isArray(curHost) ? curHost : []).filter(
+        (d: any) => isGpuLikeHostDevice(d) || isUsbHostDevice(d),
+      );
+      domain.devices.hostDevices = [...nextPciNicHost, ...keptGpuUsb];
+
+      const gpuHostCrNames = new Set(
+        currentHostDevices
+          .filter((d: any) => isGpuLikeHostDevice(d))
+          .map((d: any) => String(d?.name || '').trim())
+          .filter(Boolean),
+      );
+      const prevPciNicCrSet = new Set<string>();
+      for (const d of currentHostDevices) {
+          if (isGpuLikeHostDevice(d) || isUsbHostDevice(d)) continue;
+          const n = String(d?.name || '').trim();
+          if (n) prevPciNicCrSet.add(n);
+      }
+      try {
+          const rawAnn = current?.metadata?.annotations?.['harvesterhci.io/deviceAllocationDetails'];
+          if (rawAnn) {
+              const p = typeof rawAnn === 'string' ? JSON.parse(rawAnn) : rawAnn;
+              const hd = p?.hostdevices;
+              if (hd && typeof hd === 'object') {
+                  for (const arr of Object.values(hd)) {
+                      if (!Array.isArray(arr)) continue;
+                      for (const cr of arr) {
+                          const s = String(cr).trim();
+                          if (s && !gpuHostCrNames.has(s)) prevPciNicCrSet.add(s);
+                      }
+                  }
+              }
+          }
+      } catch {
+          /* ignore */
+      }
+
+      let hostdevicesAlloc: Record<string, string[]> = {};
+      try {
+          const rawAnn = current?.metadata?.annotations?.['harvesterhci.io/deviceAllocationDetails'];
+          if (rawAnn) {
+              const p = typeof rawAnn === 'string' ? JSON.parse(rawAnn) : rawAnn;
+              if (p?.hostdevices && typeof p.hostdevices === 'object') {
+                  hostdevicesAlloc = JSON.parse(JSON.stringify(p.hostdevices));
+              }
+          }
+      } catch {
+          /* ignore */
+      }
+      for (const [rn, arr] of Object.entries(hostdevicesAlloc)) {
+          if (!Array.isArray(arr)) continue;
+          const filtered = arr.filter((cr: unknown) => !prevPciNicCrSet.has(String(cr).trim()));
+          if (filtered.length > 0) hostdevicesAlloc[rn] = filtered;
+          else delete hostdevicesAlloc[rn];
+      }
+      for (const h of nextPciNicHost) {
+          if (!hostdevicesAlloc[h.deviceName]) hostdevicesAlloc[h.deviceName] = [];
+          if (!hostdevicesAlloc[h.deviceName].includes(h.name)) {
+              hostdevicesAlloc[h.deviceName].push(h.name);
+          }
+      }
+      if (Object.keys(hostdevicesAlloc).length === 0) {
+          rootVmAnnotationPatches['harvesterhci.io/deviceAllocationDetails'] = null;
+      } else {
+          rootVmAnnotationPatches['harvesterhci.io/deviceAllocationDetails'] = JSON.stringify({
+              hostdevices: hostdevicesAlloc,
+          });
+      }
+  }
+  delete (spec as any).pciNicHostDevices;
+
   // --- 6. [网络配置] 多网卡 (Multus Networks) ---
   // ---------------------------------------------------------
   // 支持 Multus CNI 多网卡配置。
@@ -1756,6 +1846,23 @@ const updateHarvesterVMSpecInternal = async (
       if (!domain.devices) domain.devices = {};
       domain.devices.interfaces = spec.interfaces;
   }
+
+  // --- 6.1 [直通 PCI 辅网卡] 追加 hostDevices（与前端变配 appendHostDevices 约定；不替换 GPU/USB 逻辑已合并后的列表）
+  if (Array.isArray((spec as any).appendHostDevices) && (spec as any).appendHostDevices.length > 0) {
+      if (!domain.devices) domain.devices = {};
+      const cur = Array.isArray(domain.devices.hostDevices) ? [...domain.devices.hostDevices] : [];
+      for (const h of (spec as any).appendHostDevices as any[]) {
+          const hn = String(h?.name ?? '').trim();
+          const deviceName = String(h?.deviceName ?? '').trim();
+          if (!hn || !deviceName) continue;
+          const dup = cur.some(
+              (x: any) => String(x?.deviceName || '') === deviceName && String(x?.name || '') === hn,
+          );
+          if (!dup) cur.push({ name: hn, deviceName });
+      }
+      domain.devices.hostDevices = cur;
+  }
+  delete (spec as any).appendHostDevices;
 
   // --- 7. [运行策略] RunStrategy 和 EvictionStrategy ---
   // [重要] runStrategy 和 running 字段是互斥的，不能同时设置
@@ -1820,6 +1927,13 @@ const updateHarvesterVMSpecInternal = async (
       } else {
         mergedRootMetadata.annotations[k] = String(v);
       }
+    }
+  }
+  for (const [k, v] of Object.entries(rootVmAnnotationPatches)) {
+    if (v === null || v === undefined || v === '') {
+      delete mergedRootMetadata.annotations[k];
+    } else {
+      mergedRootMetadata.annotations[k] = String(v);
     }
   }
 

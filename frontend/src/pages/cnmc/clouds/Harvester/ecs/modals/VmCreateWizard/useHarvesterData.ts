@@ -23,6 +23,7 @@
  * - GET /api/clouds/{cloudId}/resources/nads                     获取网络附件定义 (NAD) [映射: nadOptions]
  * - GET /api/clouds/{cloudId}/resources/harvester/nodes          获取节点列表 [映射: nodes]
  * - GET /api/clouds/{cloudId}/resources/harvester/gpus           获取 GPU 资源
+ * - GET /api/clouds/{cloudId}/resources/harvester/pci-devices    获取 PCI 设备（直通网卡选项）
  * - GET /api/clouds/{cloudId}/resources/harvester/usb-devices    获取 USB 设备
  * - GET /api/clouds/{cloudId}/resources/harvester/storage-classes 获取存储类 [映射: defaultStorageClassName]
  * - GET /api/clouds/{cloudId}/resources/harvester/sshkeys        获取 SSH 密钥 [映射: sshKeyOptions]
@@ -39,6 +40,7 @@ import {
   fetchHarvesterNodes,
   fetchHarvesterAvailableVolumes,
   fetchHarvesterGpuResources,
+  fetchHarvesterPciDevices,
   fetchHarvesterUsbResources,
   fetchHarvesterStorageClasses,
   fetchHarvesterSshKeys,
@@ -52,6 +54,7 @@ import { useHarvesterPublicNamespaces } from '../../../context/HarvesterPublicNa
 import { parseSizeToGi } from './VmWizardUtils';
 import { kubeVpcOptionsForVmWizard } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
 import { resolveKubeOvnSubnetNadNamespace } from './kubeOvnNadRefForVmWizard';
+import { buildPciNicPassthroughSelectOptions } from '../../lib/passthroughNicSelectOptions';
 
 /**
  * useHarvesterData Hook
@@ -90,6 +93,7 @@ export const useHarvesterData = (
   const [kubeVpcs, setKubeVpcs] = useState<any[]>([]);
   
   const [gpuResources, setGpuResources] = useState<any[]>([]);
+  const [pciDevices, setPciDevices] = useState<any[]>([]);
   const [usbResources, setUsbResources] = useState<any[]>([]);
   
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
@@ -201,11 +205,23 @@ export const useHarvesterData = (
     const cid = getCid();
     if (!cid) return;
     try {
-      const json: any = await fetchHarvesterGpuResources(cid);
+      const json: any = await fetchHarvesterGpuResources(cid, true);
       const items: any[] = json?.data?.items || json?.items || [];
       setGpuResources(items);
     } catch (e: any) {
       message.warning(e?.message || 'GPU 资源列表刷新失败');
+    }
+  }, [getCid]);
+
+  const reloadPciDevices = useCallback(async () => {
+    const cid = getCid();
+    if (!cid) return;
+    try {
+      const json: any = await fetchHarvesterPciDevices(cid, true);
+      const items: any[] = json?.data?.items || json?.items || [];
+      setPciDevices(items);
+    } catch (e: any) {
+      message.warning(e?.message || 'PCI 设备列表刷新失败');
     }
   }, [getCid]);
 
@@ -377,6 +393,14 @@ export const useHarvesterData = (
     return list.map((x: any) => ({ label: x?.metadata?.name || x?.name || '-', value: x?.metadata?.name || x?.name }));
   }, [namespaces, isTenant, isPublicNamespace]);
 
+  /**
+   * 仅展示底层 PCIDeviceClaim 已标记直通就绪的网卡（后端 GET pci-devices 合并 `_tower.passthroughEnabled`）。
+   */
+  const pciNicPassthroughOptions = useMemo(
+    () => buildPciNicPassthroughSelectOptions(pciDevices, 'any'),
+    [pciDevices],
+  );
+
   // [数据处理] 网络 (NAD) 选项
   // [业务规则] 格式化显示 VLAN ID 和网络类型
   const nadOptions = useMemo(() => (nads || []).map((x: any) => {
@@ -470,6 +494,7 @@ export const useHarvesterData = (
     kubeSubnets, reloadKubeSubnets, kubeSubnetOptions,
     kubeVpcs, reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
+    pciDevices, reloadPciDevices, pciNicPassthroughOptions,
     usbResources, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
     sshKeys, reloadSshKeys, sshKeyOptions

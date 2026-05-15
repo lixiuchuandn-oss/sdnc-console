@@ -11,6 +11,7 @@ export function useVmDetailDrawerDerived(
   SafeRead: VmDetailDrawerSafeRead,
   gpuResources: any[] | undefined,
   usbResources: any[] | undefined,
+  pciDevices: any[] | undefined,
 ) {
   const status = String(SafeRead.status(vmData)).toLowerCase();
 
@@ -77,6 +78,11 @@ export function useVmDetailDrawerDerived(
 
   const vmDisks = SafeRead.volumeDetails(vmData);
   const vmNics = SafeRead.interfaces(vmData);
+
+  const vmPassthroughNics = useMemo(
+    () => SafeRead.passthroughNics(vmData, pciDevices ?? []),
+    [vmData, SafeRead, pciDevices],
+  );
 
   const vmDeviceAlloc = useMemo(() => {
     const domain = vmData?.spec?.template?.spec?.domain;
@@ -163,6 +169,7 @@ export function useVmDetailDrawerDerived(
     hotPlugCpuError,
     vmDisks,
     vmNics,
+    vmPassthroughNics,
     vmGpus,
     vmUsb,
     isCdromBoot,

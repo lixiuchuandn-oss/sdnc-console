@@ -42,6 +42,13 @@ import {
   readPvcResizeFlags,
   resolveVmNamespace,
 } from "./vmVolumePvc";
+import {
+  getPciDeviceInventoryLabel,
+  isPciNicSrIovVirtualFunctionPciDevice,
+  isVmHostDeviceGpuLike,
+  isVmHostDeviceUsbLike,
+  listVmPciNicHostBindings,
+} from "./passthroughNicSelectOptions";
 
 // =============================================================================
 // 一、readVm* 开头的函数：只伺候「这一条 r」，列表和详情共用同一套规则
@@ -404,6 +411,63 @@ export function readVmDetailVolumeDetails(
     .sort((a: any, b: any) => (a.bootOrder || 999) - (b.bootOrder || 999));
 }
 
+/** 详情 Tab「物理网卡」：PCI hostDevice + Multus SR-IOV/macvtap */
+export type VmDetailPassthroughNicRow = {
+  key: string;
+  name: string;
+  kindLabel: "物理网卡" | "直通SR-IOV";
+  mountLabel: "hostDevice" | "Multus";
+  deviceLabel: string;
+  resourceName?: string;
+};
+
+export function readVmDetailPassthroughNicRows(
+  r: any,
+  ctx: VmDetailNetworkContext,
+  pciDevices?: any[],
+): VmDetailPassthroughNicRow[] {
+  const rows: VmDetailPassthroughNicRow[] = [];
+  const pciList = Array.isArray(pciDevices) ? pciDevices : [];
+
+  for (const b of listVmPciNicHostBindings(r)) {
+    const raw = pciList.find(
+      (p) => String(p?.metadata?.name || "").trim() === b.pciCrName,
+    );
+    const rn = String(b.deviceResourceName || "").toUpperCase();
+    const isVf =
+      (raw && isPciNicSrIovVirtualFunctionPciDevice(raw)) ||
+      rn.includes("VIRTUAL_FUNCTION") ||
+      rn.includes("VIRT_FN");
+    rows.push({
+      key: `pci:${b.pciCrName}`,
+      name: b.pciCrName,
+      kindLabel: isVf ? "直通SR-IOV" : "物理网卡",
+      mountLabel: "hostDevice",
+      deviceLabel: getPciDeviceInventoryLabel(pciList, b.pciCrName) || b.pciCrName,
+      resourceName: String(b.deviceResourceName || "").trim() || undefined,
+    });
+  }
+
+  const ifaces = r?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+  const ifaceRows = readVmDetailInterfaceRows(r, ctx);
+  for (const row of ifaceRows) {
+    const iface = ifaces.find((i: any) => i?.name === row.name);
+    if (!iface) continue;
+    const isSriov = !!iface.sriov;
+    const isMacvtap = !!iface.macvtap;
+    if (!isSriov && !isMacvtap) continue;
+    rows.push({
+      key: `multus:${row.name}`,
+      name: String(row.name || ""),
+      kindLabel: isSriov ? "直通SR-IOV" : "物理网卡",
+      mountLabel: "Multus",
+      deviceLabel: String(row.networkName || row.name || "").trim() || String(row.name || ""),
+    });
+  }
+
+  return rows;
+}
+
 /**
  * 详情 Tab 里「虚拟网卡」每一行：网卡名、型号、MAC、IP、以及「连的哪段网」那句话（networkName）。
  * IP：优先看 VMI 里跑起来的接口，没有再看 VM 状态里的接口，单网卡时还能从注解里抠。
@@ -577,6 +641,94 @@ export function readVmDetailInterfaceRows(
       ip: filterLinkLocalIpv6FromIpDisplay(ip),
     };
   });
+}
+
+function shortPassthroughResourceLabel(s: unknown): string {
+  const v = String(s || "").trim();
+  if (!v) return "";
+  const parts = v.split("/");
+  return parts[parts.length - 1] || v;
+}
+
+function isPciNicResourceNameLikelyVf(rn: string): boolean {
+  const u = String(rn || "").toUpperCase();
+  return u.includes("VIRTUAL_FUNCTION") || u.includes("VIRT_FN");
+}
+
+/** 列表「GPU」列：仅 vGPU / GPU 类 hostDevices */
+export function readVmListGpuSummary(r: any): string[] {
+  let alloc: any = null;
+  try {
+    const raw =
+      r?.metadata?.annotations?.["harvesterhci.io/deviceAllocationDetails"];
+    if (raw) alloc = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    /* ignore */
+  }
+  const hostAlloc = alloc?.hostdevices && typeof alloc.hostdevices === "object"
+    ? alloc.hostdevices
+    : {};
+  const devices = r?.spec?.template?.spec?.domain?.devices || {};
+  const hostDevices = Array.isArray(devices?.hostDevices) ? devices.hostDevices : [];
+  const gpuDevices = Array.isArray(devices?.gpus) ? devices.gpus : [];
+  const list: string[] = [];
+  hostDevices
+    .filter((d: any) => isVmHostDeviceGpuLike(d))
+    .forEach((d: any) => {
+      const rn = String(d?.deviceName || "").trim();
+      const localName = String(d?.name || "").trim();
+      const mapped = Array.isArray(hostAlloc?.[rn]) ? hostAlloc[rn] : [];
+      const suffix = mapped.length > 0 ? mapped.join(",") : localName || "";
+      const label = shortPassthroughResourceLabel(rn);
+      list.push(suffix ? `${label}:${suffix}` : label);
+    });
+  gpuDevices.forEach((g: any) => {
+    const rn = String(g?.deviceName || "").trim();
+    const localName = String(g?.name || "").trim();
+    const label = shortPassthroughResourceLabel(rn);
+    list.push(localName ? `${label}:${localName}` : label);
+  });
+  return list.filter(Boolean);
+}
+
+/** 列表「网卡直通」列：PCI hostDevice + Multus SR-IOV/macvtap */
+export function readVmListPassthroughNicSummary(r: any): string[] {
+  const rows: string[] = [];
+  for (const b of listVmPciNicHostBindings(r)) {
+    const isVf = isPciNicResourceNameLikelyVf(b.deviceResourceName);
+    const kind = isVf ? "直通SR-IOV" : "直通网卡";
+    rows.push(`${kind} ${b.pciCrName}`);
+  }
+  const ifaces = r?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+  const networks = r?.spec?.template?.spec?.networks || [];
+  for (const i of ifaces) {
+    const isSriov = !!i?.sriov;
+    const isMacvtap = !!i?.macvtap;
+    if (!isSriov && !isMacvtap) continue;
+    const net = networks.find((n: any) => n?.name === i?.name);
+    const nn = String(net?.multus?.networkName || i?.name || "").trim();
+    const short = nn.includes("/") ? nn.split("/").pop() || nn : nn;
+    const kind = isSriov ? "直通SR-IOV" : "直通网卡";
+    rows.push(`${kind} ${short}`);
+  }
+  return rows;
+}
+
+/** 列表「USB直通」列 */
+export function readVmListUsbPassthroughSummary(r: any): string[] {
+  const hostDevices =
+    r?.spec?.template?.spec?.domain?.devices?.hostDevices || [];
+  return (Array.isArray(hostDevices) ? hostDevices : [])
+    .filter((d: any) => isVmHostDeviceUsbLike(d))
+    .map((d: any) => {
+      const rn = String(d?.deviceName || "").trim();
+      const localName = String(d?.name || "").trim();
+      if (rn && localName) {
+        return `${shortPassthroughResourceLabel(rn)}:${localName}`;
+      }
+      return rn || localName || "";
+    })
+    .filter(Boolean);
 }
 
 // =============================================================================
@@ -806,64 +958,14 @@ export function createVmListSafeRead(
         .map((i: any) => `${i.name} (${i.model || "-"})`)
         .join(", ");
     },
-    /** GPU/直通设备在列表里怎么写一行摘要：去掉 USB，带上分配注解里映射到的名字 */
-    gpus: (r: any) => {
-      const short = (s: any) => {
-        const v = String(s || "").trim();
-        if (!v) return "";
-        const parts = v.split("/");
-        return parts[parts.length - 1] || v;
-      };
-      let alloc: any = null;
-      try {
-        const raw =
-          r?.metadata?.annotations?.["harvesterhci.io/deviceAllocationDetails"];
-        if (raw) alloc = typeof raw === "string" ? JSON.parse(raw) : raw;
-      } catch {
-        /* ignore */
-      }
-      const hostAlloc = alloc && alloc.hostdevices ? alloc.hostdevices : {};
-      const devices = r?.spec?.template?.spec?.domain?.devices || {};
-      const hostDevices = Array.isArray(devices?.hostDevices)
-        ? devices.hostDevices
-        : [];
-      const gpuDevices = Array.isArray(devices?.gpus) ? devices.gpus : [];
-      const isUsb = (x: any) => {
-        const dn = String(x?.deviceName || "").toLowerCase();
-        const n = String(x?.name || "").toLowerCase();
-        return dn.includes("usb") || n.startsWith("usb");
-      };
-      const list: string[] = [];
-      hostDevices
-        .filter((d: any) => !isUsb(d))
-        .forEach((d: any) => {
-          const rn = String(d?.deviceName || "").trim();
-          const localName = String(d?.name || "").trim();
-          const mapped = Array.isArray(hostAlloc?.[rn]) ? hostAlloc[rn] : [];
-          const suffix =
-            mapped.length > 0 ? mapped.join(",") : localName || "";
-          const label = short(rn);
-          list.push(suffix ? `${label}:${suffix}` : label);
-        });
-      gpuDevices.forEach((g: any) => {
-        const rn = String(g?.deviceName || "").trim();
-        const localName = String(g?.name || "").trim();
-        const label = short(rn);
-        list.push(localName ? `${label}:${localName}` : label);
-      });
-      return list;
-    },
-    /** USB 设备：hostDevices 里名字像 USB 的挑出来，逗号拼成一行 */
-    usb: (r: any) => {
-      const hostDevices =
-        r?.spec?.template?.spec?.domain?.devices?.hostDevices || [];
-      const usb = hostDevices.filter((d: any) => {
-        const n = String(d?.name || "").toLowerCase();
-        const dn = String(d?.deviceName || "").toLowerCase();
-        return n.startsWith("usb") || dn.includes("usb");
-      });
-      return usb.map((u: any) => u.name).join(", ");
-    },
+    /** GPU 直通（列表列；不含网卡/USB hostDevices） */
+    gpus: (r: any) => readVmListGpuSummary(r),
+    /** 网卡直通：整卡 PCI + SR-IOV VF + Multus 直通 */
+    passthroughNics: (r: any) => readVmListPassthroughNicSummary(r),
+    /** USB 直通设备 */
+    usbPassthrough: (r: any) => readVmListUsbPassthroughSummary(r),
+    /** @deprecated 列表请用 usbPassthrough */
+    usb: (r: any) => readVmListUsbPassthroughSummary(r),
     os: readVmOs,
     kernel: (r: any) => r?.vmi?.status?.guestOSInfo?.kernelRelease || "",
     arch: (r: any) =>
@@ -914,6 +1016,8 @@ export function createVmDetailDrawerSafeRead(
     ip: readVmIp,
     volumeDetails: (r: any) => readVmDetailVolumeDetails(r, volCtx),
     interfaces: (r: any) => readVmDetailInterfaceRows(r, netCtx),
+    passthroughNics: (r: any, pciDevices?: any[]) =>
+      readVmDetailPassthroughNicRows(r, netCtx, pciDevices),
   };
 }
 
