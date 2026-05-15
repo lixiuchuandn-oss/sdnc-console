@@ -443,16 +443,14 @@ export function isSystemResource(resource: any, resourceType?: string): boolean 
   const metadata = resource?.metadata || {};
   const name = String(metadata.name || '').toLowerCase();
   const namespace = String(metadata.namespace || '').toLowerCase();
-  const labels = metadata.labels || {};
-  const annotations = metadata.annotations || {};
 
-  // 1. 系统命名空间
+  // 1. 系统命名空间（与后端 isSystemNamespaceName 一致）
   if (isSystemNamespace(namespace)) return true;
 
   // 2. Kubernetes 内置 Service（如 default 命名空间中的 kubernetes Service）
   if (namespace === 'default' && name === 'kubernetes') return true;
 
-  // 3. 系统资源名称前缀
+  // 3. 系统资源名称前缀（移除 default-，保留真正的系统组件前缀）
   const systemNamePrefixes = [
     'kube-',
     'coredns-',
@@ -472,58 +470,14 @@ export function isSystemResource(resource: any, resourceType?: string): boolean 
     'ovn-',
     'ovs-',
     'network-policy-',
-    'default-',
   ];
   if (systemNamePrefixes.some((p) => name.startsWith(p))) return true;
 
-  // 3. 系统标签
-  const systemLabels = [
-    'app.kubernetes.io/managed-by',
-    'kubernetes.io/cluster-service',
-    'kubernetes.io/name',
-  ];
-  for (const labelKey of systemLabels) {
-    const value = String(labels[labelKey] || '').toLowerCase();
-    if (value && ['kubernetes', 'helm', 'kustomize', 'harvester', 'rancher', 'longhorn', 'kubevirt', 'ovn'].includes(value)) {
-      return true;
-    }
-  }
-
-  // 4. 特定资源类型判断
+  // 4. ServiceAccount Token Secret（K8s 自动创建，不应删除）
   if (resourceType === 'secret' || resource?.type) {
     const secretType = String(resource?.type || '').toLowerCase();
-    const systemSecretTypes = [
-      'kubernetes.io/service-account-token',
-      'kubernetes.io/dockercfg',
-      'kubernetes.io/dockerconfigjson',
-      'bootstrap.kubernetes.io/token',
-    ];
-    if (systemSecretTypes.includes(secretType)) return true;
-
-    // 镜像仓库凭证（由 RegistriesSection 管理）
-    if (secretType === 'kubernetes.io/dockerconfigjson') {
-      // 如果有 harvester 相关的 annotation，视为系统资源
-      if (annotations['harvesterhci.io/'] || labels['harvesterhci.io/']) return true;
-    }
-  }
-
-  // 5. Helm Release Secret
-  if (resource?.type === 'helm.sh/release.v1') return true;
-
-  // 6. Harvester 特定资源
-  if (labels['harvesterhci.io/'] || annotations['harvesterhci.io/']) return true;
-  if (labels['kubevirt.io/'] || annotations['kubevirt.io/']) return true;
-
-  // 7. 有 ownerReferences 的资源（被其他资源管理，如 Deployment 创建的 ReplicaSet）
-  const ownerRefs = metadata.ownerReferences || [];
-  if (ownerRefs.length > 0) {
-    // 如果所有者也是系统资源，则该资源也是系统资源
-    // 这里简化判断：有 ownerReferences 的资源通常是控制器管理的，不建议直接删除
-    // 但为了灵活性，我们只标记明显的系统资源
-    for (const ref of ownerRefs) {
-      const ownerName = String(ref?.name || '').toLowerCase();
-      if (systemNamePrefixes.some((p) => ownerName.startsWith(p))) return true;
-    }
+    if (secretType === 'kubernetes.io/service-account-token') return true;
+    if (secretType === 'helm.sh/release.v1') return true;
   }
 
   return false;

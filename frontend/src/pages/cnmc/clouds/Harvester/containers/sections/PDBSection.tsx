@@ -32,6 +32,7 @@ import {
   Input,
   Dropdown,
   Form,
+  Switch,
 } from 'antd';
 import { SafetyOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
@@ -57,6 +58,9 @@ type Props = {
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -356,6 +360,9 @@ const PDBSection: React.FC<Props> = ({
   onNsChange,
   onRefresh,
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue;
   const { modal, message } = App.useApp();
@@ -806,6 +813,15 @@ const PDBSection: React.FC<Props> = ({
             </button>
           </div>
           <div className="toolbar-actions">
+            {showAllSwitch && (
+              <Switch
+                checkedChildren="全部"
+                unCheckedChildren="默认"
+                checked={queryAll}
+                onChange={onQueryAllChange}
+                style={{ marginRight: 8 }}
+              />
+            )}
             <Button type="primary" onClick={() => setCreateModalVisible(true)}>
               创建保护规则
             </Button>

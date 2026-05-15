@@ -303,8 +303,12 @@ export const fetchHarvesterCloudInits = async (
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterServices = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/services${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
+export const fetchHarvesterServices = async (cloudId: string, force = false, all?: boolean) => {
+  const params: string[] = [];
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/services${query}`, force ? { skipCache: true } : undefined);
 };
 
 /**
@@ -313,8 +317,12 @@ export const fetchHarvesterServices = async (cloudId: string, force = false) => 
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterIngresses = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
+export const fetchHarvesterIngresses = async (cloudId: string, force = false, all?: boolean) => {
+  const params: string[] = [];
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses${query}`, force ? { skipCache: true } : undefined);
 };
 
 /**
@@ -1753,8 +1761,12 @@ export const deleteHarvesterIpPool = async (cloudId: string, name: string) => {
  * @param namespace 命名空间 (可选，不传则返回所有命名空间)
  * @returns Promise<any>
  */
-export const fetchHarvesterDeployments = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterDeployments = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/deployments${query}`, { skipCache: force });
 };
 
@@ -1764,8 +1776,12 @@ export const fetchHarvesterDeployments = async (cloudId: string, namespace?: str
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterStatefulSets = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterStatefulSets = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/statefulsets${query}`, { skipCache: force });
 };
 
@@ -1775,8 +1791,12 @@ export const fetchHarvesterStatefulSets = async (cloudId: string, namespace?: st
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/daemonsets${query}`, { skipCache: force });
 };
 
@@ -1787,13 +1807,16 @@ export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: stri
  * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchHarvesterPods = async (cloudId: string, namespace?: string, force?: boolean) => {
+export const fetchHarvesterPods = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
   const params: string[] = [];
   if (namespace) {
     params.push(`namespace=${encodeURIComponent(namespace)}`);
   }
   if (force) {
     params.push('force=true');
+  }
+  if (all) {
+    params.push('all=true');
   }
   const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(
@@ -1980,8 +2003,12 @@ export const restartHarvesterDeployment = async (cloudId: string, namespace: str
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterJobs = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterJobs = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/jobs${query}`, { skipCache: force });
 };
 
@@ -1991,8 +2018,12 @@ export const fetchHarvesterJobs = async (cloudId: string, namespace?: string, fo
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterCronJobs = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterCronJobs = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs${query}`, { skipCache: force });
 };
 
@@ -2003,10 +2034,11 @@ export const fetchHarvesterCronJobs = async (cloudId: string, namespace?: string
  * @param force 是否强制刷新缓存 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: string, force?: boolean) => {
+export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
   let query = '?';
   if (namespace) query += `namespace=${encodeURIComponent(namespace)}&`;
   if (force) query += `force=true&`;
+  if (all) query += `all=true&`;
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps${query}`, { skipCache: force });
 };
 
@@ -2018,11 +2050,12 @@ export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: stri
  * @param force 是否强制刷新缓存 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterSecrets = async (cloudId: string, namespace?: string, type?: string, force?: boolean) => {
+export const fetchHarvesterSecrets = async (cloudId: string, namespace?: string, type?: string, force?: boolean, all?: boolean) => {
   let query = '?';
   if (namespace) query += `namespace=${encodeURIComponent(namespace)}&`;
   if (type) query += `type=${encodeURIComponent(type)}&`;
   if (force) query += `force=true&`;
+  if (all) query += `all=true&`;
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets${query}`, { skipCache: force });
 };
 
@@ -2223,8 +2256,8 @@ export const triggerHarvesterCronJob = async (cloudId: string, namespace: string
  * @returns Promise<any>
  * @description 镜像凭证是 kubernetes.io/dockerconfigjson 类型的 Secret
  */
-export const fetchHarvesterImagePullSecrets = async (cloudId: string, namespace?: string, force?: boolean) => {
-  return await fetchHarvesterSecrets(cloudId, namespace, 'kubernetes.io/dockerconfigjson', force);
+export const fetchHarvesterImagePullSecrets = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  return await fetchHarvesterSecrets(cloudId, namespace, 'kubernetes.io/dockerconfigjson', force, all);
 };
 
 /**
@@ -2720,8 +2753,12 @@ export const updateHarvesterIngress = async (cloudId: string, namespace: string,
  * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets${query}`, { skipCache: force });
 };
 
@@ -2769,8 +2806,12 @@ export const deleteHarvesterPDB = async (cloudId: string, namespace: string, nam
  * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchNetworkPolicies = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchNetworkPolicies = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies${query}`, { skipCache: force });
 };
 

@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Table, Segmented, Select, Tag, Modal, Input, InputNumber, App, Button, Tooltip, Form } from 'antd';
+import { Table, Segmented, Select, Tag, Modal, Input, InputNumber, App, Button, Tooltip, Form, Switch } from 'antd';
 import { ReloadOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -45,11 +45,9 @@ type Props = {
   loading: boolean;
   namespacesOptions: string[];
   imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
-  secretsWithCredentials?: any[];  // 包含完整凭证信息的 Secret 列表（用于仓库浏览）
-  // ConfigMap 和 Secret 列表（用于环境变量引入和存储卷挂载）
+  secretsWithCredentials?: any[];
   configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
   secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
-  // PVC 列表（用于存储卷挂载）
   persistentVolumeClaims?: Array<{
     metadata: { name: string; namespace: string; annotations?: Record<string, string> };
     raw?: { metadata?: { annotations?: Record<string, string> } };
@@ -62,10 +60,11 @@ type Props = {
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
-  /** 创建表单默认命名空间（如按 tower.io/scenario 解析）；未传则用 nsValue */
   createDefaultNamespace?: string;
-  /** 是否隐藏扁平子网选项（Harvester 资源池不显示，Cloudmap 显示） */
   hideFlatSubnet?: boolean;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -206,7 +205,10 @@ const WorkloadTable: React.FC<{
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onCreateClick: () => void;
-}> = ({ type, data, loading, cloudId, onRefresh, onEdit, namespacesOptions, nsValue, onNsChange, onCreateClick }) => {
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
+}> = ({ type, data, loading, cloudId, onRefresh, onEdit, namespacesOptions, nsValue, onNsChange, onCreateClick, showAllSwitch, queryAll, onQueryAllChange }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -561,6 +563,15 @@ const WorkloadTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!operationsReadOnly ? (
             <Button type="primary" onClick={onCreateClick}>
               创建工作负载
@@ -685,6 +696,9 @@ const WorkloadsSection: React.FC<Props> = ({
   onRefresh,
   createDefaultNamespace,
   hideFlatSubnet = false,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
   const [activeTab, setActiveTab] = useState<'deployment' | 'statefulset' | 'daemonset'>('deployment');
@@ -762,6 +776,9 @@ const WorkloadsSection: React.FC<Props> = ({
           nsValue={nsValue}
           onNsChange={onNsChange}
           onCreateClick={handleOpenCreate}
+          showAllSwitch={showAllSwitch}
+          queryAll={queryAll}
+          onQueryAllChange={onQueryAllChange}
         />
       </PageDetailSection>
       
