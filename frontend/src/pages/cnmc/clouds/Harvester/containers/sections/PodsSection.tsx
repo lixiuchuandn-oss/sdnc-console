@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip } from 'antd';
+import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip, Switch } from 'antd';
 import { FileTextOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -47,6 +47,9 @@ type Props = {
   deployments?: any[];
   statefulSets?: any[];
   daemonSets?: any[];
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -664,6 +667,9 @@ const PodsSection: React.FC<Props> = ({
   deployments = [],
   statefulSets = [],
   daemonSets = [],
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
@@ -1062,13 +1068,13 @@ const PodsSection: React.FC<Props> = ({
             disabled: isSystemResource(record),
             tooltip: getSystemResourceProtectionHint(record),
             onClick: () => {
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除 Pod "${record?.metadata?.name}" 吗？`,
-                okType: 'danger',
-                onOk: () => handleDelete(record),
-              });
-            },
+               modal.confirm({
+                 title: '确认删除',
+                 content: `确定要删除 Pod "${(() => { const alias = record?.metadata?.annotations?.['tower.io/alias']; const id = record?.metadata?.name || ''; return alias ? `${alias}(${id})` : id; })()}" 吗？`,
+                 okType: 'danger',
+                 onOk: () => handleDelete(record),
+               });
+             },
           },
         ];
         const items = operationsReadOnly
@@ -1145,6 +1151,15 @@ const PodsSection: React.FC<Props> = ({
           </button>
         </div>
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!operationsReadOnly ? (
             <Dropdown
               menu={{

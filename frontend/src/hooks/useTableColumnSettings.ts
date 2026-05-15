@@ -154,7 +154,11 @@ export function useTableColumnSettings<T extends object>(
           // 旧版仅存可见 key：无法区分「隐藏」与「当时尚不存在的列」，升级为 v2（snap 取当前可选列全集）
           const validKeys = parsed.filter((k: string) => typeof k === 'string' && allKeys.includes(k));
           if (validKeys.length > 0) {
-            const next = mergeWithLocked(validKeys);
+            const missingKeys = allKeys.filter(
+              (k) => !validKeys.includes(k) && !defaultHiddenColumns.includes(k),
+            );
+            const mergedKeys = [...validKeys, ...missingKeys];
+            const next = mergeWithLocked(mergedKeys);
             setCheckedColumnKeys(next);
             persistV2(next, allKeys);
             prevAllKeysRef.current = [...allKeys];
@@ -179,7 +183,7 @@ export function useTableColumnSettings<T extends object>(
   /**
    * 可选列集合变化时（例如列表先空后有数据、或动态列与当前数据集对齐），同步勾选状态：
    * - 剔除已不在 allColumns 中的 key（避免 Popover 与表格脱节）
-   * - 仅当相对「上一次已处理的可选列」真正新增的 key 才默认并入勾选（避免把用户隐藏的列当成「缺失」又打开）
+   * - 仅当相对「上一次已处理的可选列」真正新增的 key 才默认并入勾选（尊重 hiddenIntent；`defaultHiddenColumns` 中的新列不自动打开）
    */
   useEffect(() => {
     if (!columnSettingsInitialized || allColumns.length === 0) return;
@@ -190,7 +194,9 @@ export function useTableColumnSettings<T extends object>(
     if (sameUniverse) return;
 
     const brandNew = allKeys.filter((k) => !prevSet.has(k));
-    const toShow = brandNew.filter((k) => !hiddenIntentRef.current.has(k));
+    const toShow = brandNew.filter(
+      (k) => !hiddenIntentRef.current.has(k) && !defaultHiddenColumns.includes(k),
+    );
     setCheckedColumnKeys((prevChecked) => {
       const pruned = prevChecked.filter((k) => allKeys.includes(k));
       if (toShow.length === 0 && pruned.length === prevChecked.length) {
@@ -202,7 +208,7 @@ export function useTableColumnSettings<T extends object>(
       prevAllKeysRef.current = [...allKeys];
       return next;
     });
-  }, [allColumns, columnSettingsInitialized, getColumnKey, mergeWithLocked, persistV2]);
+  }, [allColumns, columnSettingsInitialized, getColumnKey, mergeWithLocked, persistV2, defaultHiddenColumns]);
 
   // 监听自定义事件，实现同页面多实例同步（解决 Hook 与 Button 组件状态分离的问题）
   useEffect(() => {

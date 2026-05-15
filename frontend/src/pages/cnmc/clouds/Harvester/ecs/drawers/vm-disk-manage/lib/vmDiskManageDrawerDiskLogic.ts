@@ -142,8 +142,42 @@ export function diskImageMetaText(vol: any, row: any): string {
   return "—";
 }
 
+/** KubeVirt domain 设备：总线可能在 disk / lun / cdrom 上（LUN 块设备常见 lun.bus=scsi）。 */
+export function effectiveDomainDiskBusRaw(diskEntry: any): string {
+  return String(
+    diskEntry?.disk?.bus ||
+      diskEntry?.lun?.bus ||
+      diskEntry?.cdrom?.bus ||
+      "",
+  )
+    .toLowerCase()
+    .trim();
+}
+
+/** 与磁盘管理 UI 一致：优先采当前切片总线，否则采规格上的设备总线。 */
+export function effectiveDiskBusForHotDetachPolicy(
+  diskEntry: any,
+  slice?: VmDiskEditorSlice,
+): string {
+  const fromSlice = String(slice?.bus || "").toLowerCase().trim();
+  if (fromSlice) return fromSlice;
+  const raw = effectiveDomainDiskBusRaw(diskEntry);
+  return raw || "virtio";
+}
+
+/**
+ * 解绑此类总线的磁盘时，可不弹「立即重启 / 手动重启」（SCSI 热解绑常见；iscsi 作拼写兼容）。
+ * 其余总线（virtio、sata 等）解绑后仍提示重启。
+ */
+export function diskDetachSkipsVmRestartPrompt(bus: string): boolean {
+  const b = String(bus || "").toLowerCase().trim();
+  return b === "scsi" || b === "iscsi";
+}
+
 export function initDiskSlice(disk: any): VmDiskEditorSlice {
-  const bus = String(disk?.disk?.bus || disk?.cdrom?.bus || "virtio");
+  const bus = String(
+    disk?.disk?.bus || disk?.lun?.bus || disk?.cdrom?.bus || "virtio",
+  );
   return { bus };
 }
 
@@ -189,6 +223,25 @@ export function isCdromDisk(disk: any): boolean {
 
 export function isVolumeKindWithoutExtraFields(kind: VolumeKind): boolean {
   return kind === "pvc" || kind === "emptyDisk" || kind === "ephemeralPvc";
+}
+
+/**
+ * 从合并模板中移除第 `blockUiIndex` 个块设备槽位（与 `disks`/`volumes` 不含 Cloud-Init 的下标一致）。
+ * 解绑本地行后须调用，否则保存时块槽数量与编辑态不一致。
+ */
+export function removeMergeTemplateBlockAtUiIndex(
+  tpl: DiskMergeTemplateSlot[],
+  blockUiIndex: number,
+): DiskMergeTemplateSlot[] {
+  let bi = 0;
+  for (let i = 0; i < tpl.length; i++) {
+    if (tpl[i].kind !== "block") continue;
+    if (bi === blockUiIndex) {
+      return [...tpl.slice(0, i), ...tpl.slice(i + 1)];
+    }
+    bi++;
+  }
+  return tpl;
 }
 
 export function mergeTemplateDisksAndVolumes(

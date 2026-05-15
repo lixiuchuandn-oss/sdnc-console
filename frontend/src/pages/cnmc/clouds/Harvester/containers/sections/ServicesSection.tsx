@@ -20,7 +20,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Table, Select, Button, Tag, Space, App, Modal, Input, Form, Tooltip } from 'antd';
+import { Table, Select, Button, Tag, Space, App, Modal, Input, Form, Tooltip, Switch } from 'antd';
 import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -44,6 +44,9 @@ type Props = {
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -504,6 +507,9 @@ const ServicesSection: React.FC<Props> = ({
   onNsChange,
   onRefresh,
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -522,7 +528,16 @@ const ServicesSection: React.FC<Props> = ({
 
   return (
     <>
-      <PageDetailSection asCard={false}>
+      <PageDetailSection asCard={false} toolbarRight={
+        showAllSwitch ? (
+          <Switch
+            checkedChildren="全部"
+            unCheckedChildren="默认"
+            checked={queryAll}
+            onChange={onQueryAllChange}
+          />
+        ) : undefined
+      }>
         <ServiceTable
           data={filteredServices}
           loading={loading}

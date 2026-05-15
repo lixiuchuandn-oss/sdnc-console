@@ -31,6 +31,7 @@ import {
   Input,
   Dropdown,
   Form,
+  Switch,
 } from 'antd';
 import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
@@ -56,6 +57,9 @@ type Props = {
   onNsChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -498,6 +502,9 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   onNsChange,
   onRefresh,
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue;
   const { modal, message } = App.useApp();
@@ -600,15 +607,14 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   const handleDelete = useCallback((record: any) => {
     const name = record?.metadata?.name;
     const namespace = record?.metadata?.namespace;
+    const alias = record?.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias ? `${alias} (${name})` : name;
     
     modal.confirm({
       title: '确认删除',
       content: (
         <div>
-          <p>确定要删除此网络策略吗？</p>
-          <p>
-            <strong>名称:</strong> {name}
-          </p>
+          <p>确定要删除网络策略 "{displayName}" 吗？</p>
           <p>
             <strong>命名空间:</strong> {namespace}
           </p>
@@ -757,11 +763,8 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'created',
-      render: (v: string) => (
-        <Tooltip title={formatTime(v)}>
-          {calculateAge(v)}
-        </Tooltip>
-      ),
+      width: 180,
+      render: formatTime,
     },
     {
       title: '操作',
@@ -877,6 +880,15 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             </button>
           </div>
           <div className="toolbar-actions">
+            {showAllSwitch && (
+              <Switch
+                checkedChildren="全部"
+                unCheckedChildren="默认"
+                checked={queryAll}
+                onChange={onQueryAllChange}
+                style={{ marginRight: 8 }}
+              />
+            )}
             <Button type="primary" onClick={() => setCreateModalVisible(true)}>
               创建策略
             </Button>

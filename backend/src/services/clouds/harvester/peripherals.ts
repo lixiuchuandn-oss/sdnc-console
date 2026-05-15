@@ -32,7 +32,7 @@ import { getJsonOnce, requestJson } from './utils';
  * 1. [配置读取]: 优先从 KubeVirt CR (kubevirt/kubevirt) 的 permittedHostDevices 中读取允许透传的设备组。
  * 2. [设备关联]: 结合 pcidevices.harvesterhci.io CRD 获取物理设备的详细信息（节点、地址、状态）。
  * 3. [类型分类]: 区分 PCI 透传 (passthrough) 和 vGPU/MDEV (vgpu) 类型。
- * 4. [过滤规则]: 仅返回显式配置了 resourceName 的可用资源。
+ * 4. [过滤规则]: 直通项仅保留 PCIDevice 中 PCI class 03xx（显示/GPU 控制器）；vGPU 来自 KubeVirt mediatedDevices；不再回退整表 permitted pciHostDevices（避免网卡等混入）。
  *
  * @param params 连接参数
  * @returns Promise<Array> 标准化 GPU 资源数组
@@ -113,19 +113,7 @@ export const listHarvesterGpuResources = async ({
   }
   const permitted =
     kv?.spec?.configuration?.permittedHostDevices || kv?.configuration?.permittedHostDevices || {};
-  const pci: any[] = Array.isArray(permitted?.pciHostDevices) ? permitted.pciHostDevices : [];
   const mdev: any[] = Array.isArray(permitted?.mediatedDevices) ? permitted.mediatedDevices : [];
-  const fromKvPci = pci
-    .map((d: any) => ({
-      resourceName: d?.resourceName || '',
-      type: 'passthrough' as const,
-      name: d?.externalResourceProvider || d?.deviceName || d?.description,
-      raw: d,
-      links: {
-          view: `${origin}/apis/kubevirt.io/v1/namespaces/harvester-system/kubevirts/kubevirt`
-      }
-    }))
-    .filter((x: any) => !!x.resourceName);
   const fromKvMdev = mdev
     .map((d: any) => ({
       resourceName: d?.resourceName || '',
@@ -137,7 +125,6 @@ export const listHarvesterGpuResources = async ({
       }
     }))
     .filter((x: any) => !!x.resourceName);
-  const kvList = [...fromKvPci, ...fromKvMdev];
   const pciDevCandidates = [
     ...(clusterId
       ? [
@@ -214,16 +201,16 @@ export const listHarvesterGpuResources = async ({
       };
     })
     .filter((x: any) => !!x.resourceName);
-  const enriched = enrichedRaw.filter((x: any) => {
-    const cid = String(x?.classId || '');
-    const vendor = String((x as any)?.vendor || '').toLowerCase();
-    const isGpuClass = cid.startsWith('03');
-    const allowedVendors = new Set(['10de', '1002', '8086']);
-    const isGpuVendor = allowedVendors.has(vendor);
-    return isGpuClass && isGpuVendor;
+  /** 直通 GPU：仅 PCI 显示控制器类（class 03xx），不回退到 KubeVirt permitted 全量 pciHostDevices（避免网卡等非 GPU 混入） */
+  const normalizePciClass = (cid: string) =>
+    String(cid || '')
+      .toLowerCase()
+      .replace(/^0x/, '');
+  const gpuClassPciPassthrough = enrichedRaw.filter((x: any) => {
+    const cid = normalizePciClass(String(x?.classId || ''));
+    return cid.startsWith('03');
   });
-  if (Array.isArray(enriched) && enriched.length > 0) return enriched;
-  return kvList;
+  return [...gpuClassPciPassthrough, ...fromKvMdev];
 };
 
 /**
@@ -532,6 +519,80 @@ export const listHarvesterUsbResources = async ({
     })
     .filter((x: any) => !!x.resourceName);
 };
+
+/**
+ * 建立 PCIDeviceClaim 索引（与 harvesterGpuListHandler 内逻辑一致，供 GPU / PCI 列表复用）
+ */
+export function buildHarvesterPciDeviceClaimIndex(claims: any[]): {
+  claimMap: Map<string, any>;
+  claimByKey: Map<string, any>;
+} {
+  const claimMap = new Map<string, any>();
+  const claimByKey = new Map<string, any>();
+  (Array.isArray(claims) ? claims : []).forEach((c: any) => {
+    const cn = String(c?.metadata?.name || c?.name || '').trim();
+    if (cn) claimMap.set(cn, c);
+    const owners = Array.isArray(c?.metadata?.ownerReferences) ? c.metadata.ownerReferences : [];
+    owners.forEach((o: any) => {
+      const on = String(o?.name || '').trim();
+      if (on) claimMap.set(on, c);
+    });
+    const pciDeviceName = String(
+      c?.status?.pciDeviceName || c?.spec?.pciDeviceName || c?.spec?.pciDevice || c?.spec?.deviceName || '',
+    ).trim();
+    if (pciDeviceName) claimMap.set(pciDeviceName, c);
+    const rn = String(c?.spec?.resourceName || c?.resourceName || '').trim();
+    const node = String(c?.spec?.nodeName || c?.nodeName || '').trim();
+    const addr = String(c?.spec?.pciAddress || c?.spec?.address || c?.pciAddress || c?.address || '').trim();
+    if (rn && node && addr) claimByKey.set(`${node}|${rn}|${addr}`, c);
+  });
+  return { claimMap, claimByKey };
+}
+
+/**
+ * 将库存中的 PCI 行（或原始 PCIDevice）匹配到 PCIDeviceClaim
+ */
+export function findHarvesterPciClaimForPciRow(
+  r: any,
+  claimMap: Map<string, any>,
+  claimByKey: Map<string, any>,
+): any | null {
+  const raw = r?.raw || r;
+  const rn = String(
+    raw?.status?.resourceName || raw?.spec?.resourceName || r?.resourceName || '',
+  ).trim();
+  const node = String(r?.nodeName || r?.node || raw?.status?.nodeName || raw?.spec?.nodeName || '').trim();
+  const addr = String(
+    r?.pciAddress ||
+      r?.address ||
+      raw?.status?.pciAddress ||
+      raw?.status?.address ||
+      raw?.spec?.pciAddress ||
+      raw?.spec?.address ||
+      '',
+  ).trim();
+  const devName = String(raw?.metadata?.name || r?.name || '').trim();
+  if (devName && claimMap.has(devName)) return claimMap.get(devName) || null;
+  if (node && rn && addr && claimByKey.has(`${node}|${rn}|${addr}`)) {
+    return claimByKey.get(`${node}|${rn}|${addr}`) || null;
+  }
+  return null;
+}
+
+/** Harvester：Claim 上直通已就绪（与集群「启用直通」语义对齐） */
+export function harvesterPciDeviceClaimPassthroughEnabled(claim: any): boolean {
+  if (!claim) return false;
+  const s = claim?.status || {};
+  if (s.passthroughEnabled === true || String(s.passthroughEnabled).toLowerCase() === 'true') return true;
+  const conds = Array.isArray(s.conditions) ? s.conditions : [];
+  for (const c of conds) {
+    const t = String(c?.type || '').replace(/\s+/g, '').toLowerCase();
+    if ((t === 'passthroughenabled' || t === 'enabled') && String(c?.status || '').toLowerCase() === 'true') {
+      return true;
+    }
+  }
+  return false;
+}
 
 export const listHarvesterPciDeviceClaims = async ({
   endpoint,

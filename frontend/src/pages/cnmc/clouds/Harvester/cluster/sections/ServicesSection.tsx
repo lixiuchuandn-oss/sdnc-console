@@ -8,7 +8,7 @@
  * - 打开 HarvesterResourceDrawer 查看 Service 详情
  */
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { Table, Button, Input, Select, App, Modal, Drawer, Descriptions, Tabs, Tag, Space, Form, Tooltip } from 'antd';
+import { Table, Button, Input, Select, App, Modal, Drawer, Descriptions, Tabs, Tag, Space, Form, Tooltip, Switch } from 'antd';
 import { ReloadOutlined, SearchOutlined, PlusOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -97,11 +97,13 @@ interface Props {
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
   namespacesOptions?: string[];
-  /** 与其它容器 Tab 共用的命名空间筛选 */
   nsValue?: string;
   onNsChange?: (v?: string) => void;
   pods?: any[];
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 }
 
 const ServicesSection: React.FC<Props> = ({
@@ -115,6 +117,9 @@ const ServicesSection: React.FC<Props> = ({
   onNsChange,
   pods,
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const hasOpsView = useCloudmapOpsViewWrite();
   const formDefaultNs = createDefaultNamespace ?? nsValue;
@@ -558,6 +563,15 @@ const ServicesSection: React.FC<Props> = ({
       }
       toolbarRight={
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!isTenant && (
             <Button
               type="primary"

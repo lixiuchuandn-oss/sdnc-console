@@ -317,6 +317,7 @@ const ContainersRoute: React.FC = () => {
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('containers')}
       loadTabResource={p.loadTabResource}
+      loadResource={p.loadResource}
       resourceLoading={p.resourceLoading}
       namespacesOptions={p.namespacesOptions}
       nodesOptions={p.nodesOptions}
@@ -325,23 +326,36 @@ const ContainersRoute: React.FC = () => {
       nodeFilter={p.nodeFilter}
       setNodeFilter={p.setNodeFilter}
       harvesterDeployments={p.harvesterDeployments}
+      setHarvesterDeployments={p.setHarvesterDeployments}
       harvesterStatefulSets={p.harvesterStatefulSets}
+      setHarvesterStatefulSets={p.setHarvesterStatefulSets}
       harvesterDaemonSets={p.harvesterDaemonSets}
+      setHarvesterDaemonSets={p.setHarvesterDaemonSets}
       harvesterPods={p.harvesterPods}
+      setHarvesterPods={p.setHarvesterPods}
       harvesterJobs={p.harvesterJobs}
+      setHarvesterJobs={p.setHarvesterJobs}
       harvesterCronJobs={p.harvesterCronJobs}
+      setHarvesterCronJobs={p.setHarvesterCronJobs}
       harvesterServices={p.harvesterServices}
+      setHarvesterServices={p.setHarvesterServices}
       harvesterIngresses={p.harvesterIngresses}
+      setHarvesterIngresses={p.setHarvesterIngresses}
       gatewayApiStatus={p.gatewayApiStatus}
       gatewayClasses={p.gatewayClasses}
       gateways={p.gateways}
       httpRoutes={p.httpRoutes}
       grpcRoutes={p.grpcRoutes}
       harvesterPDBs={p.harvesterPDBs}
+      setHarvesterPDBs={p.setHarvesterPDBs}
       harvesterNetworkPolicies={p.harvesterNetworkPolicies}
+      setHarvesterNetworkPolicies={p.setHarvesterNetworkPolicies}
       harvesterConfigMaps={p.harvesterConfigMaps}
+      setHarvesterConfigMaps={p.setHarvesterConfigMaps}
       harvesterSecrets={p.harvesterSecrets}
+      setHarvesterSecrets={p.setHarvesterSecrets}
       harvesterImagePullSecrets={p.harvesterImagePullSecrets}
+      setHarvesterImagePullSecrets={p.setHarvesterImagePullSecrets}
       harvesterVolumes={p.harvesterVolumes}
     />
   );

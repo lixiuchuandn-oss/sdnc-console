@@ -200,7 +200,7 @@ const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
             name="ipAddress"
             rules={[VM_ADD_NIC_STATIC_IP_RULE]}
           >
-            <Input placeholder="可选" />
+            <Input placeholder="192.168.1.23" />
           </Form.Item>
           <Form.Item label="网关" name="gateway">
             <Input placeholder="可选" />

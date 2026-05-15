@@ -95,6 +95,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     kubeSubnets, reloadKubeSubnets,
     reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
+    pciDevices, reloadPciDevices,
     usbResources, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
     sshKeyOptions, reloadSshKeys
@@ -236,6 +237,16 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     }
   }, [step, reloadUsbResources, reloadSshKeys]);
 
+  useEffect(() => {
+    if (step === 3) {
+      try {
+        void reloadPciDevices();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [step, reloadPciDevices]);
+
   // 进入“计算资源”步骤时，如有需要刷新 GPU 资源
   useEffect(() => {
     if (step === 1) { try { reloadGpuResources(); } catch {} }
@@ -364,6 +375,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         const netMode = String(form.getFieldValue('netMode') || '');
         if (netMode === 'vpc' || netMode === 'flat_subnet') {
           extraNetPaths.push(['primaryNic', 'macAddress'], ['primaryNic', 'ipAddress']);
+        }
+        if (netMode === 'passthrough' || netMode === 'passthrough_sriov') {
+          extraNetPaths.push(['primaryNic', 'passthroughBindNode'], ['primaryNic', 'passthroughPick']);
         }
         const netIfaces = form.getFieldValue('netIfaces');
         if (Array.isArray(netIfaces)) {
@@ -532,12 +546,51 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         } catch (e: any) { throw new Error(e?.message || 'GPU 资源不可用'); }
       }
 
+      const pciNodes = new Set<string>();
+      const primNic = v.primaryNic || {};
+      if (
+        (String(v.netMode) === 'passthrough' || String(v.netMode) === 'passthrough_sriov') &&
+        String(primNic.passthroughSource || '') === 'pci-host' &&
+        String(primNic.pciNodeName || '').trim()
+      ) {
+        pciNodes.add(String(primNic.pciNodeName).trim());
+      }
+      (Array.isArray(v.netIfaces) ? v.netIfaces : []).forEach((nic: any) => {
+        if (
+          (String(nic?.mode || '') === 'passthrough' || String(nic?.mode || '') === 'passthrough_sriov') &&
+          String(nic?.passthroughSource || '') === 'pci-host' &&
+          String(nic?.pciNodeName || '').trim()
+        ) {
+          pciNodes.add(String(nic.pciNodeName).trim());
+        }
+      });
+      if (pciNodes.size > 1) {
+        message.error('多块 PCI 直通网卡须位于同一节点。');
+        return;
+      }
+      if (pciNodes.size === 1 && hostModeState === 'node' && selectedNodeName) {
+        const only = [...pciNodes][0];
+        if (only && String(selectedNodeName) !== only) {
+          message.error('所选主机与 PCI 直通网卡所在节点不一致，请将调度改为「自动」或选择与网卡相同的节点。');
+          return;
+        }
+      }
+      if (selectedGpu && pciNodes.size === 1) {
+        const gn = String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
+        const pn = [...pciNodes][0];
+        if (gn && pn && gn !== pn) {
+          message.error('GPU 与 PCI 直通网卡不在同一节点，请调整 GPU 或网卡选择。');
+          return;
+        }
+      }
+
       // ...
       // 生成唯一ID
       const vmId = await generateUniqueVmId(cid, v.namespace || 'default');
 
       const payload = constructVmPayload({
         v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities, vmId, // 传入 vmId
+        nadOptions: nadOptions || [],
         isArm64: (function() {
             if (nodes && nodes.length > 0) {
                  const n = nodes[0];
@@ -713,6 +766,13 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   reloadKubeVpcs={reloadKubeVpcs}
                   kubeSubnets={kubeSubnets}
                   reloadKubeSubnets={reloadKubeSubnets}
+                  pciDevices={pciDevices}
+                  nodes={nodes}
+                  nodesLoading={nodesLoading}
+                  reloadNodes={reloadNodes}
+                  scheduleHostMode={hostModeState}
+                  scheduleSelectedNode={selectedNodeName}
+                  reloadPciDevices={reloadPciDevices}
                   selectedNetIdx={selectedNetIdx}
                   setSelectedNetIdx={setSelectedNetIdx}
                   cloudId={currentCloudId || (cloudId !== 'all' ? cloudId : undefined)}

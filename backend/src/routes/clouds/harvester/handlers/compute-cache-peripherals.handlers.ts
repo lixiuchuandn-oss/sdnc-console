@@ -24,9 +24,13 @@ import {
   deleteHarvesterUsbDeviceClaim, 
   listHarvesterPciDeviceClaims, 
   listHarvesterUsbDeviceClaims, 
-  listK8sNodesRaw 
+  listK8sNodesRaw,
+  buildHarvesterPciDeviceClaimIndex,
+  findHarvesterPciClaimForPciRow,
+  harvesterPciDeviceClaimPassthroughEnabled,
 } from '../../../../services/clouds/harvester/client';
 import { listKubevirtVMsRaw } from '../../../../services/clouds/harvester/vm';
+import { collectAllocatedPciDeviceCrNamesFromVms } from '../../../../services/clouds/harvester/pciVmAllocation';
 
 /**
  * GET /:id/resources/harvester/gpus - 获取 GPU 资源列表
@@ -58,23 +62,7 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
     try {
       claims = await listHarvesterPciDeviceClaims({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
     } catch {}
-    const claimMap = new Map<string, any>();
-    const claimByKey = new Map<string, any>();
-    (Array.isArray(claims) ? claims : []).forEach((c: any) => {
-      const cn = String(c?.metadata?.name || c?.name || '').trim();
-      if (cn) claimMap.set(cn, c);
-      const owners = Array.isArray(c?.metadata?.ownerReferences) ? c.metadata.ownerReferences : [];
-      owners.forEach((o: any) => {
-        const on = String(o?.name || '').trim();
-        if (on) claimMap.set(on, c);
-      });
-      const pciDeviceName = String(c?.status?.pciDeviceName || c?.spec?.pciDeviceName || c?.spec?.pciDevice || c?.spec?.deviceName || '').trim();
-      if (pciDeviceName) claimMap.set(pciDeviceName, c);
-      const rn = String(c?.spec?.resourceName || c?.resourceName || '').trim();
-      const node = String(c?.spec?.nodeName || c?.nodeName || '').trim();
-      const addr = String(c?.spec?.pciAddress || c?.spec?.address || c?.pciAddress || c?.address || '').trim();
-      if (rn && node && addr) claimByKey.set(`${node}|${rn}|${addr}`, c);
-    });
+    const { claimMap, claimByKey } = buildHarvesterPciDeviceClaimIndex(claims);
 
     let nodes: any[] = [];
     try {
@@ -106,13 +94,7 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
       const raw = r?.raw || r;
       const rn = String(r?.resourceName || raw?.status?.resourceName || raw?.spec?.resourceName || '').trim();
       const node = String(r?.nodeName || r?.node || raw?.status?.nodeName || raw?.spec?.nodeName || '').trim();
-      const addr = String(r?.pciAddress || r?.address || raw?.status?.pciAddress || raw?.status?.address || raw?.spec?.pciAddress || raw?.spec?.address || '').trim();
-      const devName = String(raw?.metadata?.name || r?.name || '').trim();
-      const claim = (devName && claimMap.has(devName))
-        ? claimMap.get(devName)
-        : (node && rn && addr && claimByKey.has(`${node}|${rn}|${addr}`))
-          ? claimByKey.get(`${node}|${rn}|${addr}`)
-          : null;
+      const claim = findHarvesterPciClaimForPciRow(r, claimMap, claimByKey);
       return { claim, rn, node };
     };
 
@@ -211,7 +193,7 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
       usedByNodeResource.set(key, (usedByNodeResource.get(key) || 0) + count);
     });
 
-    const enriched = (Array.isArray(items) ? items.map((i) => i.rawData) : []).map((r: any) => {
+    let enriched = (Array.isArray(items) ? items.map((i) => i.rawData) : []).map((r: any) => {
       const { claim, rn, node } = findClaimForRow(r);
       let vmInfo = undefined;
       if (rn && node) {
@@ -277,6 +259,26 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
         } : undefined,
         quota: quota ? { ...quota, used, free } : undefined,
       };
+    });
+
+    const normalizeGpuPciClass = (row: any) => {
+      const raw = row?.raw || row;
+      return String(
+        row?.classId ??
+          raw?.status?.classId ??
+          raw?.spec?.classId ??
+          '',
+      )
+        .toLowerCase()
+        .replace(/^0x/, '');
+    };
+    enriched = enriched.filter((row: any) => {
+      const t = String(row?.type || '').toLowerCase();
+      if (t === 'vgpu' || t === 'sriov') return true;
+      const cid = normalizeGpuPciClass(row);
+      if (!cid.startsWith('03')) return false;
+      const claim = findHarvesterPciClaimForPciRow(row, claimMap, claimByKey);
+      return harvesterPciDeviceClaimPassthroughEnabled(claim);
     });
 
     res.json({ message: '查询成功', data: { items: enriched } });
@@ -602,7 +604,46 @@ export async function harvesterPciDeviceListHandler(req: Request, res: Response)
     }
 
     const items = await repo.find({ where: { cloudId: id } });
-    const list = items.map((i) => i.rawData);
+
+    let claims: any[] = [];
+    try {
+      claims = await listHarvesterPciDeviceClaims({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      } as any);
+    } catch {
+      /* 无 Claim 列表权限或集群无该 API 时仍返回 PCI 列表，由 _tower.passthroughEnabled 为 false 标识 */
+    }
+    const { claimMap, claimByKey } = buildHarvesterPciDeviceClaimIndex(claims);
+
+    let busyPciCrNames = new Set<string>();
+    try {
+      const vms = await listKubevirtVMsRaw({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      } as any);
+      busyPciCrNames = collectAllocatedPciDeviceCrNamesFromVms(vms);
+    } catch (e: any) {
+      console.warn('[harvesterPciDeviceListHandler] list VMs for pci allocation scan failed:', e?.message || e);
+    }
+
+    const list = items.map((i) => {
+      const raw = i.rawData;
+      const claim = findHarvesterPciClaimForPciRow(raw, claimMap, claimByKey);
+      const passthroughEnabled = harvesterPciDeviceClaimPassthroughEnabled(claim);
+      const cr = String(raw?.metadata?.name ?? '').trim();
+      const pciAllocated = !!(cr && busyPciCrNames.has(cr));
+      return {
+        ...raw,
+        _tower: {
+          passthroughEnabled,
+          pciDeviceClaimName: claim?.metadata?.name || claim?.name || null,
+          pciAllocated,
+        },
+      };
+    });
 
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {

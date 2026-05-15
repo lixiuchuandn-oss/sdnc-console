@@ -24,7 +24,7 @@ import {
   MinusCircleOutlined,
 } from "@ant-design/icons";
 import { ReactComponent as NicIcon } from "../../../../../../../assets/clouds/nic.svg";
-import { updateHarvesterVmSpec } from "../../../../../../../services/harvesterApi";
+import { fetchHarvesterPciDevices, updateHarvesterVmSpec } from "../../../../../../../services/harvesterApi";
 import { getMissingNadsFromNetworks } from "../../lib/harvesterVmNetwork";
 import {
   type VmNicEditorSlice,
@@ -35,7 +35,16 @@ import {
   isKubeOvnFlatSubnet,
   mergeNetworkDataForNics,
   nadOptionsWizardShape,
+  buildKubeOvnCustomIpVmMetadataAnnotations,
 } from "../../lib/vmNicManageLogic";
+import {
+  buildPciNicHostDevicesSpecPayload,
+  collectVmNicManagePassthroughExclusions,
+  isWizardPciPassthroughNetMode,
+  listVmPciNicHostBindings,
+  pciNicHostBindingsSnapshot,
+  type VmPciNicHostBinding,
+} from "../../lib/passthroughNicSelectOptions";
 import { subnetKey } from "../../lib/kubeOvnSubnetNadSelect";
 import SubnetDetailDrawer from "../../../kube-ovn/drawers/subnet-detail-drawer";
 import { TOWER_ALIAS_ANNOTATION } from "../../../kube-ovn/lib/kubeOvnSubnetConstants";
@@ -45,6 +54,10 @@ import VmAddNicFlatSubnetDrawer from "./VmAddNicFlatSubnetDrawer";
 import VmAddNicNadDrawer from "./VmAddNicNadDrawer";
 import VmAddNicSriovDrawer from "./VmAddNicSriovDrawer";
 import VmAddNicVpcDrawer from "./VmAddNicVpcDrawer";
+import {
+  VmPciPassthroughNicCards,
+} from "./VmPciPassthroughNicCards";
+import { showVmNicChangeRestartConfirm } from "./lib/vmNicSaveRestartConfirm";
 
 /* -------------------------------------------------------------------------- */
 /*  静态配置（与渲染无关）                                                      */
@@ -82,6 +95,7 @@ const NET_MODE_OPTIONS: ReadonlyArray<{ label: string; value: VmNicNetMode }> =
     { label: "扁平子网", value: "flat_subnet" },
     { label: "VPC网络", value: "vpc" },
     { label: "直通网卡", value: "passthrough" },
+    { label: "直通SR-IOV", value: "passthrough_sriov" },
     { label: "NAD网络", value: "flat" },
     { label: "管理网络（Pod）", value: "pod" },
   ];
@@ -95,6 +109,7 @@ export type VmNicManageToolbarQuickAdd =
   | "flat_subnet"
   | "vpc"
   | "sriov"
+  | "sriov_vf"
   | "nad";
 
 export interface VmNicManageDrawerProps {
@@ -127,8 +142,18 @@ function orderNetworksForInterfaces(interfaces: any[], networks: any[]): any[] {
   });
 }
 
-function snapshot(ifaces: any[], nets: any[], nicUi: VmNicEditorSlice[]) {
-  return JSON.stringify({ ifaces, nets, nicUi });
+function snapshot(
+  ifaces: any[],
+  nets: any[],
+  nicUi: VmNicEditorSlice[],
+  pciBindings: VmPciNicHostBinding[],
+) {
+  return JSON.stringify({
+    ifaces,
+    nets,
+    nicUi,
+    pciBindings: pciNicHostBindingsSnapshot(pciBindings),
+  });
 }
 
 function netModeLabel(mode: VmNicNetMode): string {
@@ -237,7 +262,25 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
   const [addNicFlatOpen, setAddNicFlatOpen] = useState(false);
   const [addNicVpcOpen, setAddNicVpcOpen] = useState(false);
   const [addNicSriovOpen, setAddNicSriovOpen] = useState(false);
+  const [addNicSriovKind, setAddNicSriovKind] = useState<"passthrough" | "passthrough_sriov">(
+    "passthrough",
+  );
   const [addNicNadOpen, setAddNicNadOpen] = useState(false);
+  const [pciDevices, setPciDevices] = useState<any[]>([]);
+  const [pciBindings, setPciBindings] = useState<VmPciNicHostBinding[]>([]);
+
+  const reloadPciDevices = useCallback(async () => {
+    if (!cloudId) return;
+    try {
+      const json: any = await fetchHarvesterPciDevices(cloudId, true);
+      const items: any[] = json?.data?.items || json?.items || [];
+      setPciDevices(items);
+    } catch {
+      setPciDevices([]);
+    }
+  }, [cloudId]);
+
+  const pciHostBindingCount = pciBindings.length;
 
   /* ········································································ */
   /*  虚拟机标识（保存 API 用）                                                 */
@@ -268,7 +311,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
   );
 
   const openAddNicDrawer = useCallback(
-    (kind: "flat_subnet" | "vpc" | "sriov" | "nad") => {
+    (kind: "flat_subnet" | "vpc" | "sriov" | "sriov_vf" | "nad") => {
       if (!hasEcsWrite) return;
       switch (kind) {
         case "flat_subnet":
@@ -278,6 +321,11 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
           setAddNicVpcOpen(true);
           break;
         case "sriov":
+          setAddNicSriovKind("passthrough");
+          setAddNicSriovOpen(true);
+          break;
+        case "sriov_vf":
+          setAddNicSriovKind("passthrough_sriov");
           setAddNicSriovOpen(true);
           break;
         case "nad":
@@ -289,6 +337,13 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
     },
     [hasEcsWrite],
   );
+
+  const vmResourceVersion = String(vmData?.metadata?.resourceVersion ?? "").trim();
+
+  useEffect(() => {
+    if (!open || !cloudId) return;
+    void reloadPciDevices();
+  }, [open, cloudId, vmResourceVersion, reloadPciDevices]);
 
   useEffect(() => {
     if (!open || !toolbarQuickAdd || !hasEcsWrite) return;
@@ -311,10 +366,12 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
     const ui = ifaces.map((iface: any, i: number) =>
       initNicEditorSlice(vmData, iface, nets[i] || { name: iface.name }, kubeSubnets),
     );
+    const pci = listVmPciNicHostBindings(vmData);
     setInterfaces(ifaces);
     setNetworks(nets);
     setNicUi(ui);
-    setBaseline(snapshot(ifaces, nets, ui));
+    setPciBindings(pci);
+    setBaseline(snapshot(ifaces, nets, ui, pci));
   }, [vmData, kubeSubnets]);
 
   /* 打开且 vm 在：从 vm 同步本地编辑态 */
@@ -336,8 +393,18 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
   /*  与上次同步基线比较，控制「保存」可用                                     */
   /* ········································································ */
   const dirty = useMemo(
-    () => snapshot(interfaces, networks, nicUi) !== baseline,
-    [interfaces, networks, nicUi, baseline],
+    () => snapshot(interfaces, networks, nicUi, pciBindings) !== baseline,
+    [interfaces, networks, nicUi, pciBindings, baseline],
+  );
+
+  const passthroughExclude = useMemo(
+    () =>
+      collectVmNicManagePassthroughExclusions({
+        pciBindings,
+        interfaces,
+        networks,
+      }),
+    [pciBindings, interfaces, networks],
   );
 
   /* ········································································ */
@@ -428,19 +495,42 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
     setNicUi((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const unbindPciAt = useCallback((pciCrName: string) => {
+    const cr = String(pciCrName || "").trim();
+    if (!cr) return;
+    setPciBindings((prev) => prev.filter((b) => b.pciCrName !== cr));
+  }, []);
+
+  const movePciAt = useCallback((idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    setPciBindings((prev) => {
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      const [row] = next.splice(idx, 1);
+      next.splice(j, 0, row);
+      return next;
+    });
+  }, []);
+
   const validateBeforeSave = (): boolean => {
     const macRe = /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/;
     const ipRe =
       /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/;
     for (let i = 0; i < nicUi.length; i++) {
       const u = nicUi[i];
+      const nm = u.netMode;
+      const showMac = nm !== "flat" && !isWizardPciPassthroughNetMode(nm);
       const m = String(u.macAddress || "").trim();
-      if (m && !macRe.test(m)) {
+      if (showMac && m && !macRe.test(m)) {
         message.error(`网卡 #${i + 1}：MAC 格式须如 52:54:00:12:34:56`);
         return false;
       }
       const ip = String(u.ipAddress || "").trim();
-      if (ip && !ipRe.test(ip)) {
+      if (
+        (nm === "vpc" || nm === "flat_subnet" || nm === "pod") &&
+        ip &&
+        !ipRe.test(ip)
+      ) {
         message.error(`网卡 #${i + 1}：静态 IP 格式无效`);
         return false;
       }
@@ -448,7 +538,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
         message.error(`网卡 #${i + 1}：请选择 NAD 网络`);
         return false;
       }
-      if (u.netMode === "passthrough" && !String(u.multusName || "").trim()) {
+      if (isWizardPciPassthroughNetMode(u.netMode) && !String(u.multusName || "").trim()) {
         message.error(`网卡 #${i + 1}：请选择直通网络`);
         return false;
       }
@@ -518,9 +608,19 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
     const payload: any = {
       interfaces: nextIfaces,
       networks: nextNets,
+      vmMetadataAnnotations: buildKubeOvnCustomIpVmMetadataAnnotations(
+        nicUi,
+        kubeSubnets,
+        nads,
+      ),
     };
     if (hasNetworkDataChange) {
       payload.networkData = dumpNetworkDataYaml(networkDataObj);
+    }
+
+    const baselinePci = listVmPciNicHostBindings(vmData);
+    if (pciNicHostBindingsSnapshot(pciBindings) !== pciNicHostBindingsSnapshot(baselinePci)) {
+      payload.pciNicHostDevices = buildPciNicHostDevicesSpecPayload(pciBindings);
     }
 
     const missing = getMissingNadsFromNetworks(
@@ -540,8 +640,9 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
       await updateHarvesterVmSpec(cloudId, vmNs, vmName, payload);
       message.success("网卡配置已保存");
       await onApplied();
-      setBaseline(snapshot(nextIfaces, nextNets, nicUi));
+      setBaseline(snapshot(nextIfaces, nextNets, nicUi, pciBindings));
       onClose();
+      showVmNicChangeRestartConfirm({ cloudId, vmNs, vmName, vmData });
     } catch (e: any) {
       message.error(e?.message || "保存失败");
     } finally {
@@ -603,6 +704,13 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
             <Button
               type="link"
               disabled={!hasEcsWrite}
+              onClick={() => openAddNicDrawer("sriov_vf")}
+            >
+              + 直通SR-IOV
+            </Button>
+            <Button
+              type="link"
+              disabled={!hasEcsWrite}
               onClick={() => openAddNicDrawer("nad")}
             >
               + NAD 网络
@@ -610,7 +718,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
           </Space>
         </div>
 
-        {interfaces.length === 0 ? (
+        {interfaces.length === 0 && pciHostBindingCount === 0 ? (
           <div className="vmDeviceManageDrawer-emptyState">
             <Empty description="当前无网卡。请使用顶部「添加」入口进行配置；修改后需保存方可生效。" />
           </div>
@@ -623,6 +731,10 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
           const mode = slice.netMode;
 
           const runtimeIp = String(findIp(iface.name) || "").trim();
+
+          const showMac = mode !== "flat" && !isWizardPciPassthroughNetMode(mode);
+          const showKubeStaticIp = mode === "vpc" || mode === "flat_subnet";
+          const showPodAddrExtras = mode === "pod";
 
           const flatSubnetRec =
             mode === "flat_subnet"
@@ -651,7 +763,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
           let netLineNet = "";
           let netLineSub = "";
           let netLineCidr = "";
-          if (mode === "flat" || mode === "passthrough") {
+          if (mode === "flat" || isWizardPciPassthroughNetMode(mode)) {
             netLineNet = nadOptionLabel(slice.multusName, nadWizardOptions);
           } else if (mode === "flat_subnet") {
             netLineSub = flatKubeSubnetDisplayName(flatSubnetRec);
@@ -713,7 +825,9 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                       }`}
                     </span>
                     <Tag color="blue">{netModeLabel(mode)}</Tag>
-                    <Tag color="blue">{nicModelDisplayLabel(slice.model)}</Tag>
+                    {isWizardPciPassthroughNetMode(mode) ? null : (
+                      <Tag color="blue">{nicModelDisplayLabel(slice.model)}</Tag>
+                    )}
                     {runtimeIp ? (
                       <span>{`运行态 IP ${runtimeIp}`}</span>
                     ) : null}
@@ -832,68 +946,85 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                         }
                       />
                     </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="MAC"
-                        placeholder="52:54:00:12:34:56"
-                        value={slice.macAddress || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            macAddress: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="静态IP"
-                        placeholder="192.168.1.10/24"
-                        value={slice.ipAddress || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            ipAddress: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="网关"
-                        placeholder="192.168.1.1"
-                        value={slice.gateway || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            gateway: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Input
-                        prefix="DNS"
-                        placeholder="8.8.8.8"
-                        value={slice.dns || ""}
-                        disabled={!hasEcsWrite}
-                        onChange={(e) =>
-                          applySliceAt(idx, {
-                            ...slice,
-                            dns: e.target.value,
-                          })
-                        }
-                      />
-                    </Col>
+                    {showMac ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="MAC"
+                          placeholder="52:54:00:12:34:56"
+                          value={slice.macAddress || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              macAddress: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
+                    {showKubeStaticIp || showPodAddrExtras ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="静态IP"
+                          placeholder="192.168.1.23"
+                          value={slice.ipAddress || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              ipAddress: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
+                    {showPodAddrExtras ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="网关"
+                          placeholder="192.168.1.1"
+                          value={slice.gateway || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              gateway: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
+                    {showPodAddrExtras ? (
+                      <Col span={8}>
+                        <Input
+                          prefix="DNS"
+                          placeholder="8.8.8.8"
+                          value={slice.dns || ""}
+                          disabled={!hasEcsWrite}
+                          onChange={(e) =>
+                            applySliceAt(idx, {
+                              ...slice,
+                              dns: e.target.value,
+                            })
+                          }
+                        />
+                      </Col>
+                    ) : null}
                   </Row>
                 </div>
               </div>
             </div>
           );
         })}
+
+        <VmPciPassthroughNicCards
+          bindings={pciBindings}
+          pciDevices={pciDevices}
+          kubevirtInterfaceCount={interfaces.length}
+          hasEcsWrite={hasEcsWrite}
+          onMove={movePciAt}
+          onRemove={unbindPciAt}
+        />
       </div>
       {/* ===== 新增网卡向导（各类型独立抽屉）+ 子网只读详情 ===== */}
       <VmAddNicFlatSubnetDrawer
@@ -922,8 +1053,12 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
         vmData={vmData}
         cloudId={cloudId || ""}
         hasEcsWrite={hasEcsWrite}
+        passthroughWizardNetMode={addNicSriovKind}
+        passthroughExclude={passthroughExclude}
+        pciBindings={pciBindings}
         onApplied={async () => {
           await onApplied();
+          void reloadPciDevices();
         }}
       />
       <VmAddNicNadDrawer

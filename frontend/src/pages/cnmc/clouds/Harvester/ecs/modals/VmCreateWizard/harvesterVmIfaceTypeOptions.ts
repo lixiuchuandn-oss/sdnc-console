@@ -28,3 +28,11 @@ export const NAD_MULTUS_INTERFACE_TYPES = [
 
 /** 直通模式（仅 SR-IOV / MacVTap 与 NAD 配套） */
 export const PASSTHROUGH_VIRT_IFACE_OPTIONS = [ifaceTypeOption('sriov'), ifaceTypeOption('macvtap')];
+
+/** NAD 选项（与 StepNetworks / useHarvesterData 中 `_type` 一致）→ KubeVirt domain 接口绑定 */
+export function passthroughKubevirtIfaceTypeFromNad(nadOpt: any): 'sriov' | 'macvtap' {
+  const t = String(nadOpt?._type || '').toLowerCase();
+  if (t === 'sriov') return 'sriov';
+  if (t === 'macvtap' || t === 'macvlan') return 'macvtap';
+  return 'sriov';
+}

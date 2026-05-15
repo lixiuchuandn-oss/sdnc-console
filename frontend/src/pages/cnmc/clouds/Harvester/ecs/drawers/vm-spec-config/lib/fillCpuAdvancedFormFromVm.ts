@@ -29,14 +29,17 @@ export function fillCpuAdvancedFormFromVm(form: FormInstance<any>, activeRecord:
   const reqGi = reqMem ? storageQuantityToGiB(reqMem) : undefined;
   const limGi = limMem ? storageQuantityToGiB(limMem) : undefined;
 
+  const dedicated = !!cpuSpec?.dedicatedCpuPlacement;
+  /** KubeVirt：isolateEmulatorThread 仅允许与 dedicatedCpuPlacement 同时存在 */
+  const isolate = dedicated && !!cpuSpec?.isolateEmulatorThread;
   form.setFieldsValue({
     cpuSockets: cpuSpec?.sockets || 1,
     cpuCores: cpuSpec?.cores || 1,
     cpuThreads: cpuSpec?.threads || 1,
     cpuModel: cpuSpec?.mode || 'host-passthrough',
     cpuModelCustom: cpuSpec?.mode === 'custom' ? cpuSpec?.model : '',
-    dedicatedCPUPlacement: !!cpuSpec?.dedicatedCpuPlacement,
-    isolateEmulatorThread: !!cpuSpec?.isolateEmulatorThread,
+    dedicatedCPUPlacement: dedicated,
+    isolateEmulatorThread: isolate,
     cpuRequest: parseCpu(resources?.requests?.cpu),
     cpuLimit: limit,
     memoryRequestGi: reqGi,

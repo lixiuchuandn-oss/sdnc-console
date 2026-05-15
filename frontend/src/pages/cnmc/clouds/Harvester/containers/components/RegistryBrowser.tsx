@@ -204,8 +204,8 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
         
         const tagNodes: ExtendedTreeDataNode[] = tags.map((tag) => ({
           key: `tag:${repository}:${tag}`,
-          title: <Text>{tag}</Text>,
-          icon: <TagOutlined style={{ color: '#52c41a' }} />,
+          title: tag,
+          icon: null,
           nodeType: 'tag' as NodeType,
           server: credential.server,
           repository,
@@ -456,7 +456,7 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
           titleRender={(node) => {
             const extNode = node as ExtendedTreeDataNode;
             
-            // 标签节点：显示复制按钮和选择状态
+            // 标签节点：显示图标、tag名称和复制按钮
             if (extNode.nodeType === 'tag' && extNode.repository && extNode.tag) {
               return (
                 <div 
@@ -465,16 +465,16 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
                     alignItems: 'center', 
                     justifyContent: 'space-between',
                     width: '100%',
-                    paddingRight: 8,
                   }}
                 >
-                  <span>{node.title as React.ReactNode}</span>
                   <Space size={4}>
-                    {/* 选择模式下显示"已选择"标签 */}
+                    <TagOutlined style={{ color: '#52c41a' }} />
+                    <span>{extNode.tag}</span>
+                  </Space>
+                  <Space size={4}>
                     {isSelectMode && selectedTag === node.key && (
                       <Tag color="green" style={{ marginLeft: 8 }}>已选择</Tag>
                     )}
-                    {/* 复制按钮 */}
                     <Tooltip title="复制镜像地址">
                       <Button
                         type="text"

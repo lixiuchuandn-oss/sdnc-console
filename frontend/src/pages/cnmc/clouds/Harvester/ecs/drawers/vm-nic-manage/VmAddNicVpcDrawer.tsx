@@ -24,7 +24,6 @@ import { buildVmAddNicNadInfos } from "./lib/vmAddNicDrawerNadMeta";
 import { buildSecondaryRowVpc } from "./lib/vmAddNicDrawerRowBuild";
 import { submitAppendSecondaryNicRow } from "./lib/vmAddNicDrawerSubmit";
 import {
-  VM_ADD_NIC_MAC_RULE,
   VM_ADD_NIC_MODEL_OPTIONS,
   VM_ADD_NIC_STATIC_IP_RULE,
   VM_ADD_NIC_SUBNET_CIDR_PLACEHOLDER,
@@ -107,10 +106,7 @@ const VmAddNicVpcDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
         nadInfos,
         {
           model: v.model,
-          macAddress: v.macAddress,
           ipAddress: v.ipAddress,
-          gateway: v.gateway,
-          dns: v.dns,
         },
       );
       if (!row) {
@@ -257,24 +253,22 @@ const VmAddNicVpcDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
             <Segmented options={VM_ADD_NIC_MODEL_OPTIONS} />
           </Form.Item>
           <Form.Item
-            label="MAC 地址"
-            name="macAddress"
-            rules={[VM_ADD_NIC_MAC_RULE]}
-          >
-            <Input placeholder="留空则按 cloud-init 规则处理" />
-          </Form.Item>
-          <Form.Item
             label="静态 IP"
             name="ipAddress"
-            rules={[VM_ADD_NIC_STATIC_IP_RULE]}
+            rules={[
+              {
+                validator: async (_: unknown, val: unknown) => {
+                  const s = String(val ?? "").trim();
+                  if (!s) return;
+                  const re = VM_ADD_NIC_STATIC_IP_RULE.pattern;
+                  if (!re.test(s)) {
+                    throw new Error(VM_ADD_NIC_STATIC_IP_RULE.message);
+                  }
+                },
+              },
+            ]}
           >
-            <Input placeholder="192.168.1.10/24" />
-          </Form.Item>
-          <Form.Item label="网关" name="gateway">
-            <Input placeholder="192.168.1.1" />
-          </Form.Item>
-          <Form.Item label="DNS" name="dns">
-            <Input placeholder="8.8.8.8" />
+            <Input placeholder="192.168.1.23" />
           </Form.Item>
         </Form>
       </div>

@@ -74,10 +74,15 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
     const nm = String(v.netMode || netModeState || 'flat');
     const prim = v.primaryNic || {};
     const netExtras: any[] = Array.isArray(v.netIfaces) ? v.netIfaces : [];
+    const isPtWizardNic = nm === 'passthrough' || nm === 'passthrough_sriov';
     const primaryTxt =
       nm === 'vpc' || nm === 'flat_subnet'
         ? `${prim.vpc || '-'} / ${prim.subnet || '-'}`
-        : `${prim.name || '-'} · ${(prim.type || 'bridge')}/${(prim.model || 'virtio')}`;
+        : isPtWizardNic && String(prim.passthroughSource || '') === 'pci-host'
+          ? `${prim.pciDeviceName || '-'}（${nm === 'passthrough_sriov' ? 'PCI VF 直通' : 'PCI 直通'}）/ 管理 Pod`
+          : isPtWizardNic
+            ? `${prim.name || prim.passthroughPick || '-'}（${nm === 'passthrough_sriov' ? '直通 SR-IOV' : '直通'}）`
+            : `${prim.name || '-'} · ${(prim.type || 'bridge')}/${(prim.model || 'virtio')}`;
     const extraNames = netExtras.map((x: any) => x?.name || x?.subnet || '').filter(Boolean).join(', ');
     const macTxt = String(prim?.macAddress || '').trim();
     const subnetCidr = (function () {
@@ -205,9 +210,11 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             ? 'VPC网络'
             : nm === 'flat_subnet'
               ? '扁平子网'
-              : nm === 'passthrough'
-                ? '直通网卡'
-                : 'NAD网络',
+              : nm === 'passthrough_sriov'
+                ? '直通SR-IOV'
+                : nm === 'passthrough'
+                  ? '直通网卡'
+                  : 'NAD网络',
         primary: primaryTxt,
         extras: netExtras.length ? `${netExtras.length} 个辅助网卡：${extraNames || '-'}` : undefined,
       },

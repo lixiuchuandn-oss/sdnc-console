@@ -32,7 +32,10 @@ import { initChangeOsMenu } from "./lib/initChangeOsMenu";
 import type { VmReconfigureMenuInitCtx } from "../../lib/vmMutation/vmReconfigureMenuInitContext";
 import { submitVmReconfigureChangeOs } from "./lib/submitChangeOs";
 import type { VmReconfigureSubmitCtx } from "../../lib/vmMutation/vmReconfigureSubmitContext";
-import { VmReconfigureSubmitSkipFinalize } from "../../lib/vmMutation/vmReconfigureSubmitTypes";
+import {
+  VmReconfigureSubmitSkipFinalize,
+  VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
+} from "../../lib/vmMutation/vmReconfigureSubmitTypes";
 import { getVmRootImageIdFromVm } from "../../lib/vmImageStatus";
 import {
   getVmChangeSystemDiskEligibility,
@@ -191,9 +194,7 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
       }
 
       Modal.confirm({
-        title: options?.cdrom
-          ? "光盘已挂入规格：必须重启虚拟机后生效，是否立即重启"
-          : "规格变更已提交，需要重启实例生效，是否重启实例",
+        title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
         okText: "立即重启",
         cancelText: "手动重启",
         onOk: async () => {

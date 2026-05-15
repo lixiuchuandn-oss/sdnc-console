@@ -303,8 +303,12 @@ export const fetchHarvesterCloudInits = async (
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterServices = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/services${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
+export const fetchHarvesterServices = async (cloudId: string, force = false, all?: boolean) => {
+  const params: string[] = [];
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/services${query}`, force ? { skipCache: true } : undefined);
 };
 
 /**
@@ -313,8 +317,12 @@ export const fetchHarvesterServices = async (cloudId: string, force = false) => 
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterIngresses = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses${force ? '?force=true' : ''}`, force ? { skipCache: true } : undefined);
+export const fetchHarvesterIngresses = async (cloudId: string, force = false, all?: boolean) => {
+  const params: string[] = [];
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses${query}`, force ? { skipCache: true } : undefined);
 };
 
 /**
@@ -1501,6 +1509,14 @@ export const removeKubeOvnSecurityGroupMember = async (cloudId: string, sgId: st
 };
 
 /**
+ * 解析 GET /resources/harvester/gpus 的 JSON 体，得到 GPU 对象数组（与创建向导等一致）。
+ */
+export function normalizeHarvesterGpuResourcesResponse(res: any): any[] {
+  const items = res?.data?.items ?? res?.items;
+  return Array.isArray(items) ? items : [];
+}
+
+/**
  * 获取 Harvester GPU 资源列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
@@ -1745,8 +1761,12 @@ export const deleteHarvesterIpPool = async (cloudId: string, name: string) => {
  * @param namespace 命名空间 (可选，不传则返回所有命名空间)
  * @returns Promise<any>
  */
-export const fetchHarvesterDeployments = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterDeployments = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/deployments${query}`, { skipCache: force });
 };
 
@@ -1756,8 +1776,12 @@ export const fetchHarvesterDeployments = async (cloudId: string, namespace?: str
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterStatefulSets = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterStatefulSets = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/statefulsets${query}`, { skipCache: force });
 };
 
@@ -1767,8 +1791,12 @@ export const fetchHarvesterStatefulSets = async (cloudId: string, namespace?: st
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/daemonsets${query}`, { skipCache: force });
 };
 
@@ -1779,13 +1807,16 @@ export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: stri
  * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchHarvesterPods = async (cloudId: string, namespace?: string, force?: boolean) => {
+export const fetchHarvesterPods = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
   const params: string[] = [];
   if (namespace) {
     params.push(`namespace=${encodeURIComponent(namespace)}`);
   }
   if (force) {
     params.push('force=true');
+  }
+  if (all) {
+    params.push('all=true');
   }
   const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(
@@ -1972,8 +2003,12 @@ export const restartHarvesterDeployment = async (cloudId: string, namespace: str
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterJobs = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterJobs = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/jobs${query}`, { skipCache: force });
 };
 
@@ -1983,8 +2018,12 @@ export const fetchHarvesterJobs = async (cloudId: string, namespace?: string, fo
  * @param namespace 命名空间 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterCronJobs = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterCronJobs = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/cronjobs${query}`, { skipCache: force });
 };
 
@@ -1995,10 +2034,11 @@ export const fetchHarvesterCronJobs = async (cloudId: string, namespace?: string
  * @param force 是否强制刷新缓存 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: string, force?: boolean) => {
+export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
   let query = '?';
   if (namespace) query += `namespace=${encodeURIComponent(namespace)}&`;
   if (force) query += `force=true&`;
+  if (all) query += `all=true&`;
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps${query}`, { skipCache: force });
 };
 
@@ -2010,11 +2050,12 @@ export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: stri
  * @param force 是否强制刷新缓存 (可选)
  * @returns Promise<any>
  */
-export const fetchHarvesterSecrets = async (cloudId: string, namespace?: string, type?: string, force?: boolean) => {
+export const fetchHarvesterSecrets = async (cloudId: string, namespace?: string, type?: string, force?: boolean, all?: boolean) => {
   let query = '?';
   if (namespace) query += `namespace=${encodeURIComponent(namespace)}&`;
   if (type) query += `type=${encodeURIComponent(type)}&`;
   if (force) query += `force=true&`;
+  if (all) query += `all=true&`;
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets${query}`, { skipCache: force });
 };
 
@@ -2215,8 +2256,8 @@ export const triggerHarvesterCronJob = async (cloudId: string, namespace: string
  * @returns Promise<any>
  * @description 镜像凭证是 kubernetes.io/dockerconfigjson 类型的 Secret
  */
-export const fetchHarvesterImagePullSecrets = async (cloudId: string, namespace?: string, force?: boolean) => {
-  return await fetchHarvesterSecrets(cloudId, namespace, 'kubernetes.io/dockerconfigjson', force);
+export const fetchHarvesterImagePullSecrets = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  return await fetchHarvesterSecrets(cloudId, namespace, 'kubernetes.io/dockerconfigjson', force, all);
 };
 
 /**
@@ -2712,8 +2753,12 @@ export const updateHarvesterIngress = async (cloudId: string, namespace: string,
  * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets${query}`, { skipCache: force });
 };
 
@@ -2761,8 +2806,12 @@ export const deleteHarvesterPDB = async (cloudId: string, namespace: string, nam
  * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchNetworkPolicies = async (cloudId: string, namespace?: string, force?: boolean) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+export const fetchNetworkPolicies = async (cloudId: string, namespace?: string, force?: boolean, all?: boolean) => {
+  const params: string[] = [];
+  if (namespace) params.push(`namespace=${encodeURIComponent(namespace)}`);
+  if (force) params.push('force=true');
+  if (all) params.push('all=true');
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies${query}`, { skipCache: force });
 };
 
@@ -2813,4 +2862,97 @@ export const updateNetworkPolicy = async (cloudId: string, namespace: string, na
  */
 export const deleteNetworkPolicy = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+// ========================================
+// Harbor 镜像仓库管理
+// ========================================
+
+/**
+ * 获取 Harbor 仓库列表
+ * @returns Promise<any>
+ */
+export const getHarborRegistries = async () => {
+  return await apiRequest('/api/harbor/registries');
+};
+
+/**
+ * 测试 Harbor 仓库连接
+ * @param harborId Harbor 仓库 ID
+ * @returns Promise<any>
+ */
+export const testHarborConnection = async (harborId: string) => {
+  return await apiPost(`/api/harbor/registries/${harborId}/test`, {});
+};
+
+/**
+ * 创建 Harbor 仓库
+ * @param payload Harbor 仓库配置
+ * @returns Promise<any>
+ */
+export const createHarborRegistry = async (payload: any) => {
+  return await apiPost('/api/harbor/registries', payload);
+};
+
+/**
+ * 更新 Harbor 仓库
+ * @param harborId Harbor 仓库 ID
+ * @param payload 更新的配置数据
+ * @returns Promise<any>
+ */
+export const updateHarborRegistry = async (harborId: string, payload: any) => {
+  return await apiPut(`/api/harbor/registries/${harborId}`, payload);
+};
+
+/**
+ * 删除 Harbor 仓库
+ * @param harborId Harbor 仓库 ID
+ * @returns Promise<any>
+ */
+export const deleteHarborRegistry = async (harborId: string) => {
+  return await apiDelete(`/api/harbor/registries/${harborId}`);
+};
+
+// ========================================
+// Harbor 镜像选择器 API
+// ========================================
+
+/**
+ * 获取 Harbor 项目列表（用于镜像选择器）
+ * @param harborId Harbor 仓库 ID
+ * @returns Promise<any>
+ */
+export const getHarborSelectorProjects = async (harborId: string) => {
+  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects`);
+};
+
+/**
+ * 获取 Harbor 项目下的仓库列表（用于镜像选择器）
+ * @param harborId Harbor 仓库 ID
+ * @param project 项目名称
+ * @returns Promise<any>
+ */
+export const getHarborSelectorRepositories = async (harborId: string, project: string) => {
+  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories`);
+};
+
+/**
+ * 获取 Harbor 仓库的标签列表（用于镜像选择器）
+ * @param harborId Harbor 仓库 ID
+ * @param project 项目名称
+ * @param repo 仓库名称
+ * @returns Promise<any>
+ */
+export const getHarborSelectorTags = async (harborId: string, project: string, repo: string) => {
+  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories/${encodeURIComponent(repo)}/tags`);
+};
+
+/**
+ * 同步 Harbor 凭证到 K8s Secret
+ * @param harborId Harbor 仓库 ID
+ * @param params 同步参数
+ * @returns Promise<any>
+ */
+export const syncHarborSecret = async (harborId: string, params: { cloudId: string; namespace: string }) => {
+  return await apiPost(`/api/harbor/registries/${harborId}/sync-secret`, params);
 };

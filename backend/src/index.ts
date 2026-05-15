@@ -62,6 +62,9 @@ import licenseRoutes from './routes/tools/license';
 import threatRoutes from './routes/aisoc';
 // import standardResourceRoutes from './routes/standardResources';
 import apiProxyRoutes from './routes/apiProxy';
+// Harbor 镜像仓库路由：
+// - harborRoutes：Harbor 实例管理、项目浏览、镜像管理等
+import { harborRoutes } from './routes/harbor';
 
 import path from 'path';
 import fs from 'fs';
@@ -271,6 +274,10 @@ app.use('/api/system', authMiddleware, systemRoutes);
 app.use('/api/threats', threatRoutes);
 // app.use('/api/standard', authMiddleware, standardResourceRoutes);
 
+// Harbor 镜像仓库路由：
+// - /api/harbor/registries：Harbor 实例管理
+app.use('/api/harbor', harborRoutes);
+
 // 健康检查：
 // - 简单返回服务状态与时间戳，供负载均衡或监控系统探活使用
 app.get('/health', (req, res) => {
@@ -345,6 +352,7 @@ AppDataSource.initialize()
         ensureHarvesterAswCtlSwitchInventoryTable,
         ensureImageUploadTaskTable,
         ensureDatacenterTopologyTables,
+        ensureHarborTables,
         ensureCephMgrDashboardSnapshotTable,
       } = await import('./config/database');
       await ensureRecycleBinTables();
@@ -353,6 +361,7 @@ AppDataSource.initialize()
       await ensureHarvesterAswCtlSwitchInventoryTable();
       await ensureImageUploadTaskTable();
       await ensureDatacenterTopologyTables();
+      await ensureHarborTables();
       await ensureCephMgrDashboardSnapshotTable();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
@@ -405,6 +414,14 @@ AppDataSource.initialize()
       }, 20000);
     } catch (e) {
       logger.error('启动审计日志清理任务失败:', e);
+    }
+
+    // 启动 Harbor 项目同步任务
+    try {
+      const { harborProjectSyncService } = await import('./services/harbor/HarborProjectSyncService');
+      harborProjectSyncService.startSync();
+    } catch (e) {
+      logger.error('启动 Harbor 项目同步任务失败:', e);
     }
 
     // WebSocket 服务实例

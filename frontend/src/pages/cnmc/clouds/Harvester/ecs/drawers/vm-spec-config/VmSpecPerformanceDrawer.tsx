@@ -47,7 +47,10 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
     !!vmCpuState?.cpu?.dedicatedCpuPlacement,
   );
   const [isolateChecked, setIsolateChecked] = useState<boolean>(
-    !!vmCpuState?.cpu?.isolateEmulatorThread,
+    !!(
+      vmCpuState?.cpu?.dedicatedCpuPlacement &&
+      vmCpuState?.cpu?.isolateEmulatorThread
+    ),
   );
 
   useEffect(() => {
@@ -80,7 +83,8 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
     };
 
     const nextDedicated = !!vmCpuState?.cpu?.dedicatedCpuPlacement;
-    const nextIsolate = !!vmCpuState?.cpu?.isolateEmulatorThread;
+    const nextIsolateRaw = !!vmCpuState?.cpu?.isolateEmulatorThread;
+    const nextIsolate = nextDedicated && nextIsolateRaw;
     const nextMemReq = quantityToGi(vmCpuState?.resources?.requests?.memory);
     const nextMemLim = quantityToGi(vmCpuState?.resources?.limits?.memory);
     setDedicatedChecked(nextDedicated);
@@ -156,7 +160,11 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
                   const v = e.target.checked;
                   if (!v) {
                     setDedicatedChecked(false);
-                    form?.setFieldsValue?.({ dedicatedCPUPlacement: false });
+                    setIsolateChecked(false);
+                    form?.setFieldsValue?.({
+                      dedicatedCPUPlacement: false,
+                      isolateEmulatorThread: false,
+                    });
                     return;
                   }
 
@@ -176,7 +184,7 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
 
                   try {
                     if (!cloudId) throw new Error("missing cloudId");
-                    const res: any = await fetchHarvesterNodes(cloudId);
+                    const res: any = await fetchHarvesterNodes(cloudId, true);
                     const items: any[] = res?.data?.items || res?.items || [];
                     const ok = (items || []).some((node: any) => checkCpuManager(node));
                     if (!ok) {
@@ -227,6 +235,12 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
                 checked={isolateChecked}
                 onChange={(e) => {
                   const v = e.target.checked;
+                  if (v && !dedicatedChecked) {
+                    message.warning(
+                      "CPU 隔离须与「CPU 绑定」同时启用（独占物理 CPU，KubeVirt 要求）。请先勾选 CPU 绑定。",
+                    );
+                    return;
+                  }
                   setIsolateChecked(v);
                   form?.setFieldsValue?.({ isolateEmulatorThread: v });
                 }}
@@ -234,7 +248,7 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
                 启用
               </Checkbox>
               <Typography.Text type="secondary">
-                启用后与其他虚拟机的 QEMU 线程隔离，降低干扰
+                须先启用 CPU 绑定；与其他虚拟机的 QEMU 线程隔离，降低干扰
               </Typography.Text>
             </Space>
           </Form.Item>
@@ -331,9 +345,10 @@ const VmSpecPerformanceDrawer: React.FC<VmSpecPerformanceDrawerProps> = ({
     }
     form.resetFields();
     fillCpuAdvancedFormFromVm(form, latestVm || vmData);
-    queueMicrotask(() => {
+    const raf = requestAnimationFrame(() => {
       cpuAdvancedBaselineRef.current = form.getFieldsValue(true);
     });
+    return () => cancelAnimationFrame(raf);
   }, [open, vmIdentity, cloudId, latestVm, vmData, form]);
 
   const domain = activeRecord?.spec?.template?.spec?.domain;

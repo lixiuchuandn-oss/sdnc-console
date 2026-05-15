@@ -6,19 +6,19 @@
  *
  * [功能描述]
  * 负责配置虚拟机的网络接口，包含主网卡 (Primary NIC) 和辅助网卡 (Secondary NICs)。
- * 支持多种网络模式：NAD 网络（Multus NAD，排除 kube-ovn）、VPC 网络 (Kube-OVN)、直通（SR-IOV/Macvtap）。
+ * 支持多种网络模式：NAD 网络（Multus NAD，排除 kube-ovn）、VPC 网络 (Kube-OVN)、直通整卡 PCI、直通 SR-IOV（VF PCI）、Multus 直通（SR-IOV/macvtap/macvlan）。
  *
  * [核心逻辑]
  * 1. [主网卡 (Primary NIC)]:
  *    - 必须存在，作为虚拟机的默认网关接口。
- *    - 模式切换：切换 Flat/VPC/Passthrough 时，会自动重置关联字段 (VPC/Subnet/NAD)。
+ *    - 模式切换：切换 Flat/VPC/直通类模式时，会自动重置关联字段 (VPC/Subnet/NAD)。
  * 2. [辅助网卡 (Secondary NICs)]:
  *    - 支持动态添加多块网卡，每块网卡可独立配置模式。
  *    - 支持混合使用不同类型的网络接口。
  * 3. [网络类型过滤]:
  *    - NAD 网络 (flat): 排除 kube-ovn 类型的 NAD。
- *    - 直通 (Passthrough): 仅显示 CNI 为 sriov / macvtap / macvlan 等的 NAD。
- *    - VPC / 扁平子网: 联动 Subnet，接口类型固定为 managedtap（界面不展示）。
+ *    - 直通整卡 (passthrough): PCI 组仅展示非 SR-IOV VF 的网卡类设备；另含 Multus（sriov/macvtap/macvlan）NAD。
+ *    - 直通 SR-IOV (passthrough_sriov): PCI 组仅展示启发式识别为 SR-IOV 虚拟功能（VF）的设备；另含同上 Multus 直通项。
  *
  * ------------------------------------------------------------------------------
  * [交互/依赖说明 (Dependencies & Interactions)]
@@ -32,21 +32,31 @@
  *    - [GET] /k8s/apis/k8s.cni.cncf.io/v1/network-attachment-definitions (NAD列表)
  *    - [GET] /k8s/apis/kube-ovn.io/v1/vpcs (VPC列表)
  *    - [GET] /k8s/apis/kube-ovn.io/v1/subnets (Subnet列表)
- *    - [外部回调] reloadNads, reloadKubeVpcs, reloadKubeSubnets
+ *    - [GET] /api/clouds/{cloudId}/resources/harvester/pci-devices（PCI 网卡直通选项）
+ *    - [外部回调] reloadNads, reloadKubeVpcs, reloadKubeSubnets, reloadPciDevices
  *
  * 3. 数据提交映射:
  *    - Form Values -> Harvester VM Spec (spec.template.spec.networks)
  *    - VPC/扁平子网静态 IP -> metadata.annotations harvesterhci.io/custom-ip（Kube-OVN），非 Cloud-Init network-config
  * ==============================================================================
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Typography } from 'antd';
 import { FileSearchOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   ifaceTypeOption,
   NAD_MULTUS_INTERFACE_TYPES,
-  PASSTHROUGH_VIRT_IFACE_OPTIONS,
 } from './harvesterVmIfaceTypeOptions';
+import {
+  PT_PREFIX_MULTUS,
+  PT_PREFIX_PCI,
+  buildGroupedPassthroughSelectOptions,
+  buildPciNicPassthroughSelectOptions,
+  collectWizardPassthroughExclusions,
+  isWizardPciPassthroughNetMode,
+  passthroughExclusionToFilterOpts,
+  pciPassthroughSelectScopeFromWizardNetMode,
+} from '../../lib/passthroughNicSelectOptions';
 import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { kubeSubnetChoiceLabel } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
 import SubnetDetailDrawer from '../../../kube-ovn/drawers/subnet-detail-drawer';
@@ -83,7 +93,7 @@ interface StepNetworksProps {
   /** Form 实例，用于数据绑定和操作 (Ant Design FormInstance) */
   form: any;
   /** 
-   * 当前主网卡网络模式状态 ('flat' | 'vpc' | 'passthrough')
+   * 当前主网卡网络类型状态（含直通整卡 / 直通 SR-IOV VF）
    * 用于控制 UI 布局显示不同的配置表单 (NAD 选择 vs VPC/Subnet 选择)
    */
   netModeState: string;
@@ -104,6 +114,17 @@ interface StepNetworksProps {
   kubeSubnets: any[];
   /** 触发重新加载子网数据的回调 */
   reloadKubeSubnets: () => void;
+  /** 原始 PCI 清单（用于按「直通绑定节点」再过滤） */
+  pciDevices?: any[];
+  /** 集群节点列表（直通模式下先选节点） */
+  nodes?: any[];
+  nodesLoading?: boolean;
+  reloadNodes?: () => void | Promise<void>;
+  /** 与基础信息步一致：指定节点调度时预填直通绑定节点 */
+  scheduleHostMode?: string;
+  scheduleSelectedNode?: string | null;
+  /** 刷新 PCI 设备缓存 */
+  reloadPciDevices: () => void | Promise<void>;
   /** 当前选中的网卡索引 (用于高亮显示或定位，暂未深度使用) */
   selectedNetIdx: number | null;
   /** 设置当前选中网卡索引的函数 */
@@ -119,7 +140,6 @@ const DEFAULT_PRIMARY_NIC_TYPE_BY_NET_MODE: Record<string, string> = {
   flat: 'bridge',
   vpc: 'managedtap',
   flat_subnet: 'managedtap',
-  passthrough: 'sriov',
 };
 
 /**
@@ -143,17 +163,6 @@ function isKubeOvnFlatSubnet(s: any): boolean {
   return t === 'flat';
 }
 
-/** NAD spec.config.type → KubeVirt domain 接口类型（与 VmWizardUtils 中 sriov / macvtap 一致） */
-function passthroughKubevirtIfaceTypeFromNad(nadOpt: any): 'sriov' | 'macvtap' {
-  const t = String(nadOpt?._type || '').toLowerCase();
-  if (t === 'sriov') return 'sriov';
-  if (t === 'macvtap' || t === 'macvlan') return 'macvtap';
-  return 'sriov';
-}
-
-const PASSTHROUGH_TYPE_TOOLTIP =
-  '须与所选「直通网络」NAD 的 CNI 类型一致；选择 NAD 后自动设置，不可与 NAD 类型冲突。';
-
 const StepNetworks: React.FC<StepNetworksProps> = ({
   form,
   netModeState,
@@ -164,10 +173,68 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
   reloadKubeVpcs,
   kubeSubnets,
   reloadKubeSubnets,
+  pciDevices,
+  nodes,
+  nodesLoading,
+  reloadNodes,
+  scheduleHostMode,
+  scheduleSelectedNode,
+  reloadPciDevices,
   selectedNetIdx,
   setSelectedNetIdx,
   cloudId,
 }) => {
+  const passthroughBindNode = Form.useWatch(['primaryNic', 'passthroughBindNode'], form);
+  const netModeWatch = Form.useWatch('netMode', form);
+  const primaryNicWatch = Form.useWatch('primaryNic', form);
+  const netIfacesWatch = Form.useWatch('netIfaces', form);
+
+  const primaryPassthroughFilter = useMemo(() => {
+    const ex = collectWizardPassthroughExclusions({
+      netMode: netModeWatch,
+      primaryNic: primaryNicWatch,
+      netIfaces: netIfacesWatch,
+      skipPrimary: true,
+    });
+    return passthroughExclusionToFilterOpts(
+      ex,
+      String(primaryNicWatch?.passthroughPick || ''),
+    );
+  }, [netModeWatch, primaryNicWatch, netIfacesWatch]);
+
+  const pciPassthroughOptsForBindNode = useMemo(() => {
+    const bn = String(passthroughBindNode || '').trim();
+    const list = Array.isArray(pciDevices) ? pciDevices : [];
+    const filtered =
+      bn
+        ? list.filter((raw: any) => {
+            const n = String(raw?.status?.nodeName ?? raw?.spec?.nodeName ?? '').trim();
+            return n === bn;
+          })
+        : [];
+    const nm = String(netModeWatch || '');
+    const pciScope = isWizardPciPassthroughNetMode(nm)
+      ? pciPassthroughSelectScopeFromWizardNetMode(nm)
+      : 'any';
+    return buildPciNicPassthroughSelectOptions(filtered, pciScope, primaryPassthroughFilter);
+  }, [pciDevices, passthroughBindNode, netModeWatch, primaryPassthroughFilter]);
+
+  const groupedPassthroughForPrimary = useMemo(() => {
+    const nm = String(netModeWatch || '');
+    const pciScope = isWizardPciPassthroughNetMode(nm)
+      ? pciPassthroughSelectScopeFromWizardNetMode(nm)
+      : 'any';
+    const pciGroupLabel =
+      pciScope === 'sriov_vf' ? 'SR-IOV 虚拟网卡（VF，物理口启用 SR-IOV 后生成）' : undefined;
+    return buildGroupedPassthroughSelectOptions(
+      pciPassthroughOptsForBindNode,
+      nadOptions || [],
+      {
+        ...(pciGroupLabel ? { pciGroupLabel } : {}),
+        ...primaryPassthroughFilter,
+      },
+    );
+  }, [pciPassthroughOptsForBindNode, nadOptions, netModeWatch, primaryPassthroughFilter]);
   const [subnetDrawerOpen, setSubnetDrawerOpen] = useState(false);
   const [subnetDrawerRecord, setSubnetDrawerRecord] = useState<any | null>(null);
   const [subnetDrawerKindLabel, setSubnetDrawerKindLabel] = useState('扁平子网');
@@ -191,6 +258,30 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
     }
   }, [form]);
 
+  /** 直通模式：从 legacy 字段补齐 passthroughPick（Multus 值带 multus: 前缀） */
+  React.useEffect(() => {
+    if (!isWizardPciPassthroughNetMode(String(netModeState || ''))) return;
+    try {
+      const p = form.getFieldValue('primaryNic') || {};
+      if (p.passthroughPick) return;
+      if (String(p.passthroughSource || '') === 'pci-host' && p.pciDeviceName) {
+        form.setFieldsValue({
+          primaryNic: { ...p, passthroughPick: `${PT_PREFIX_PCI}${p.pciDeviceName}` },
+        });
+      } else if (p.name) {
+        form.setFieldsValue({
+          primaryNic: {
+            ...p,
+            passthroughPick: `${PT_PREFIX_MULTUS}${p.name}`,
+            passthroughSource: p.passthroughSource || 'multus',
+          },
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [form, netModeState, pciPassthroughOptsForBindNode]);
+
   const handleNetModeChange = (v: string) => {
     // [状态重置] 切换网络模式时，重置主网卡并同步该模式下的默认网桥类型（须每次 onChange 都执行：
     // Form 往往在触发 onChange 前已写入 netMode，若用「v !== getFieldValue(netMode)」判断会跳过，导致 type 不随模式变）
@@ -198,24 +289,46 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
     const initialType = DEFAULT_PRIMARY_NIC_TYPE_BY_NET_MODE[v] ?? 'bridge';
 
     try {
+      const isPt = v === 'passthrough' || v === 'passthrough_sriov';
+      const preBindNode =
+        isPt &&
+        String(scheduleHostMode || '').trim() === 'node' &&
+        String(scheduleSelectedNode || '').trim()
+          ? String(scheduleSelectedNode).trim()
+          : undefined;
       form.setFieldsValue({
         netMode: v,
         primaryNic: {
-          type: initialType,
-          model: 'virtio',
           name: undefined,
+          passthroughPick: undefined,
+          passthroughSource: undefined,
+          pciDeviceName: undefined,
+          pciResourceName: undefined,
+          pciNodeName: undefined,
+          passthroughBindNode: isPt ? preBindNode : undefined,
           vpc: v === 'flat_subnet' ? KUBE_OVN_FLAT_VPC : undefined,
           subnet: undefined,
           macAddress: undefined,
           ipAddress: undefined,
+          ...(isPt
+            ? { type: undefined, model: undefined }
+            : { type: initialType, model: 'virtio' }),
         },
       });
     } catch {
       /* ignore */
     }
 
-    if (v === 'vpc' || v === 'flat_subnet' || v === 'flat' || v === 'passthrough') {
+    if (v === 'vpc' || v === 'flat_subnet' || v === 'flat' || v === 'passthrough' || v === 'passthrough_sriov') {
       reloadNads();
+    }
+    if (v === 'passthrough' || v === 'passthrough_sriov') {
+      try {
+        void reloadPciDevices();
+        if (reloadNodes) void reloadNodes();
+      } catch {
+        /* ignore */
+      }
     }
     if (v === 'vpc') {
       reloadKubeVpcs();
@@ -240,6 +353,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 { label: '扁平子网', value: 'flat_subnet' },
                 { label: 'VPC网络', value: 'vpc' },
                 { label: '直通网卡', value: 'passthrough' },
+                { label: '直通SR-IOV', value: 'passthrough_sriov' },
                 { label: 'NAD网络', value: 'flat' },
               ]}
               placeholder="选择网络类型"
@@ -285,44 +399,139 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
               );
             }
 
-            if (mode === 'passthrough') {
-              // --- 直通网络 (Passthrough) ---
+            if (isWizardPciPassthroughNetMode(mode)) {
+              const nodeOpts = (Array.isArray(nodes) ? nodes : [])
+                .map((node: any) => {
+                  const nm = String(node?.metadata?.name || node?.name || '').trim();
+                  if (!nm) return null;
+                  return { label: nm, value: nm };
+                })
+                .filter(Boolean) as { label: string; value: string }[];
               return (
-                <Col span={8}>
-                  <Form.Item
-                    label="直通网络"
-                    name={["primaryNic", 'name']}
-                    preserve
-                    rules={[{ required: true, message: '请选择直通网络' }]}
-                    key="primary-nic-passthrough"
-                  >
-                    <Select
-                      placeholder="选择直通网络（SR-IOV / macvtap / macvlan）"
-                      options={(nadOptions || []).filter((x: any) => {
-                          const t = String((x as any)?._type || '').toLowerCase();
-                          if (t) return t === 'sriov' || t === 'macvtap' || t === 'macvlan';
-                          const lbl = String(x?.label || '').toLowerCase();
-                          return (
-                            lbl.includes('sriov') ||
-                            lbl.includes('macvtap') ||
-                            lbl.includes('macvlan')
-                          );
-                        })}
-                      onOpenChange={async (open) => { if (open) reloadNads(); }}
-                      onChange={(val) => {
-                         try {
-                           const curr = form.getFieldValue('primaryNic') || {};
-                           const hit = (nadOptions || []).find((x: any) => String(x?.value) === String(val));
-                           const ifaceType = passthroughKubevirtIfaceTypeFromNad(hit);
-                           form.setFieldsValue({
-                             primaryNic: { ...curr, name: val, type: ifaceType },
-                           });
-                         } catch {}
-                      }}
-                      allowClear={false}
-                    />
-                  </Form.Item>
-                </Col>
+                <>
+                  <Col span={8}>
+                    <Form.Item
+                      label="节点"
+                      name={['primaryNic', 'passthroughBindNode']}
+                      preserve
+                      rules={[
+                        ({ getFieldValue }) => ({
+                          validator(_, val) {
+                            if (!isWizardPciPassthroughNetMode(String(getFieldValue('netMode') || ''))) {
+                              return Promise.resolve();
+                            }
+                            if (!String(val || '').trim()) {
+                              return Promise.reject(new Error('请选择节点'));
+                            }
+                            return Promise.resolve();
+                          },
+                        }),
+                      ]}
+                      key="primary-nic-passthrough-node"
+                    >
+                      <Select
+                        showSearch
+                        optionFilterProp="label"
+                        placeholder="选择宿主机节点"
+                        loading={!!nodesLoading}
+                        allowClear
+                        options={nodeOpts}
+                        onOpenChange={(open) => {
+                          if (open && reloadNodes) void reloadNodes();
+                        }}
+                        onChange={() => {
+                          try {
+                            const curr = form.getFieldValue('primaryNic') || {};
+                            form.setFieldsValue({
+                              primaryNic: {
+                                ...curr,
+                                passthroughPick: undefined,
+                                passthroughSource: undefined,
+                                pciDeviceName: undefined,
+                                pciResourceName: undefined,
+                                pciNodeName: undefined,
+                              },
+                            });
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      label="直通网络"
+                      name={['primaryNic', 'passthroughPick']}
+                      preserve
+                      rules={[{ required: true, message: '请选择直通网络' }]}
+                      key="primary-nic-passthrough"
+                    >
+                      <Select
+                        placeholder={
+                          String(passthroughBindNode || '').trim()
+                            ? '选择 PCI 网卡或 Multus 直通网络'
+                            : '请先选择节点，再选择本节点 PCI 直通网卡（Multus 可不依赖节点）'
+                        }
+                        options={groupedPassthroughForPrimary}
+                        onOpenChange={async (open) => {
+                          if (open) {
+                            reloadNads();
+                            try {
+                              void reloadPciDevices();
+                              if (reloadNodes) void reloadNodes();
+                            } catch {
+                              /* ignore */
+                            }
+                          }
+                        }}
+                        onChange={(val) => {
+                          try {
+                            const s = String(val || '');
+                            const curr = form.getFieldValue('primaryNic') || {};
+                            if (s.startsWith(PT_PREFIX_PCI)) {
+                              const cr = s.slice(PT_PREFIX_PCI.length);
+                              const hit = (pciPassthroughOptsForBindNode || []).find(
+                                (x: any) => String(x?.value) === s,
+                              );
+                              form.setFieldsValue({
+                                primaryNic: {
+                                  ...curr,
+                                  passthroughPick: val,
+                                  passthroughSource: 'pci-host',
+                                  pciDeviceName: cr,
+                                  pciResourceName: String(hit?._pciResourceName || '').trim(),
+                                  pciNodeName: String(hit?._pciNodeName || '').trim(),
+                                  name: undefined,
+                                  type: undefined,
+                                  model: undefined,
+                                },
+                              });
+                            } else if (s.startsWith(PT_PREFIX_MULTUS)) {
+                              const multusVal = s.slice(PT_PREFIX_MULTUS.length);
+                              form.setFieldsValue({
+                                primaryNic: {
+                                  ...curr,
+                                  passthroughPick: val,
+                                  passthroughSource: 'multus',
+                                  pciDeviceName: undefined,
+                                  pciResourceName: undefined,
+                                  pciNodeName: undefined,
+                                  name: multusVal,
+                                  type: undefined,
+                                  model: undefined,
+                                },
+                              });
+                            }
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                        allowClear={false}
+                      />
+                    </Form.Item>
+                  </Col>
+                </>
               );
             }
 
@@ -559,26 +768,33 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             return null;
           }}
         </Form.Item>
+      </Row>
 
+      <Row gutter={12}>
         {/* 3. 通用物理属性配置 (类型、模型、MAC、静态IP) */}
-        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode || prev.primaryNic?.type !== curr.primaryNic?.type || prev.primaryNic?.name !== curr.primaryNic?.name}>
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, curr) =>
+            prev.netMode !== curr.netMode ||
+            prev.primaryNic?.type !== curr.primaryNic?.type ||
+            prev.primaryNic?.name !== curr.primaryNic?.name
+          }
+        >
           {({ getFieldValue }) => {
             const mode = getFieldValue('netMode') || 'flat_subnet';
-            const t = getFieldValue(['primaryNic','type']);
-            const primaryTypeLabel = '接口类型';
-            
-            // [选项逻辑] 根据模式生成可用的网卡类型选项（文案均来自 harvesterVmIfaceTypeOptions）
-            const typeOptions = mode === 'passthrough'
-              ? PASSTHROUGH_VIRT_IFACE_OPTIONS
-              : mode === 'vpc'
+            if (isWizardPciPassthroughNetMode(mode)) return null;
+
+            const t = getFieldValue(['primaryNic', 'type']);
+            const hideIfaceType = mode === 'vpc' || mode === 'flat_subnet';
+            const typeOptions =
+              mode === 'vpc'
                 ? [ifaceTypeOption('managedtap')]
                 : mode === 'flat_subnet'
                   ? [ifaceTypeOption('managedtap')]
                   : mode === 'flat'
                     ? NAD_MULTUS_INTERFACE_TYPES
                     : [ifaceTypeOption('bridge')];
-            
-            const hideIfaceType = mode === 'vpc' || mode === 'flat_subnet';
+
             return (
               <>
                 {hideIfaceType ? (
@@ -587,18 +803,13 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   </Form.Item>
                 ) : (
                   <Col span={8}>
-                    <Form.Item
-                      label={primaryTypeLabel}
-                      name={["primaryNic", 'type']}
-                      preserve
-                      tooltip={mode === 'passthrough' ? PASSTHROUGH_TYPE_TOOLTIP : undefined}
-                    >
-                      <Select options={typeOptions} disabled={mode === 'passthrough'} />
+                    <Form.Item label="接口类型" name={['primaryNic', 'type']} preserve>
+                      <Select options={typeOptions} />
                     </Form.Item>
                   </Col>
                 )}
                 <Col span={8}>
-                  <Form.Item label="模型" name={["primaryNic", 'model']} preserve>
+                  <Form.Item label="模型" name={['primaryNic', 'model']} preserve>
                     <Select disabled={t === 'sriov'} options={NIC_MODELS} />
                   </Form.Item>
                 </Col>
@@ -609,7 +820,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
         <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
           {({ getFieldValue }) => {
             const nm = getFieldValue('netMode') || 'flat_subnet';
-            if (nm === 'flat' || nm === 'passthrough') return null;
+            if (nm === 'flat' || isWizardPciPassthroughNetMode(nm)) return null;
             return (
               <Col span={8}>
                 <Form.Item
@@ -723,39 +934,119 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           );
                        }
                        
-                       if (mode === 'passthrough') {
-                          // --- 辅助网卡：直通网络 ---
+                       if (isWizardPciPassthroughNetMode(mode)) {
+                          const pciScope = pciPassthroughSelectScopeFromWizardNetMode(mode);
+                          const bn = String(
+                            form.getFieldValue(['primaryNic', 'passthroughBindNode']) || '',
+                          ).trim();
+                          const list = Array.isArray(pciDevices) ? pciDevices : [];
+                          const filtered = bn
+                            ? list.filter((raw: any) => {
+                                const n = String(
+                                  raw?.status?.nodeName ?? raw?.spec?.nodeName ?? '',
+                                ).trim();
+                                return n === bn;
+                              })
+                            : [];
+                          const pciOptsForSecondary = buildPciNicPassthroughSelectOptions(
+                            filtered,
+                            pciScope,
+                            passthroughExclusionToFilterOpts(
+                              collectWizardPassthroughExclusions({
+                                netMode: netModeWatch,
+                                primaryNic: primaryNicWatch,
+                                netIfaces: netIfacesWatch,
+                                skipSecondaryIndex: name,
+                              }),
+                              String(
+                                form.getFieldValue(['netIfaces', name, 'passthroughPick']) || '',
+                              ),
+                            ),
+                          );
+                          const pciGroupLabel =
+                            pciScope === 'sriov_vf'
+                              ? 'SR-IOV 虚拟网卡（VF，物理口启用 SR-IOV 后生成）'
+                              : undefined;
+                          const grouped = buildGroupedPassthroughSelectOptions(
+                            pciOptsForSecondary,
+                            nadOptions || [],
+                            {
+                              ...(pciGroupLabel ? { pciGroupLabel } : {}),
+                              ...passthroughExclusionToFilterOpts(
+                                collectWizardPassthroughExclusions({
+                                  netMode: netModeWatch,
+                                  primaryNic: primaryNicWatch,
+                                  netIfaces: netIfacesWatch,
+                                  skipSecondaryIndex: name,
+                                }),
+                                String(
+                                  form.getFieldValue(['netIfaces', name, 'passthroughPick']) ||
+                                    '',
+                                ),
+                              ),
+                            },
+                          );
                           return (
                             <Col span={8}>
                               <Form.Item
                                  label="直通网络"
-                                 name={[name, 'name']}
+                                 name={[name, 'passthroughPick']}
                                  rules={[{ required: true, message: '请选择直通网络' }]}
                                  key={`secondary-nic-passthrough-${name}`}
                                >
                                  <Select
-                                   placeholder="选择直通网络（SR-IOV / macvtap / macvlan）"
-                                   options={(nadOptions || []).filter((x: any) => {
-                                       const t = String((x as any)?._type || '').toLowerCase();
-                                       if (t === 'kube-ovn') return false;
-                                       if (t) return t === 'sriov' || t === 'macvtap' || t === 'macvlan';
-                                       const lbl = String(x?.label || '').toLowerCase();
-                                       return (
-                                         lbl.includes('sriov') ||
-                                         lbl.includes('macvtap') ||
-                                         lbl.includes('macvlan')
-                                       );
-                                     })}
-                                   onOpenChange={async (open) => { if (open) reloadNads(); }}
+                                   placeholder="选择 PCI 网卡或 Multus 直通网络"
+                                   options={grouped}
+                                   onOpenChange={async (open) => {
+                                     if (open) {
+                                       reloadNads();
+                                       try {
+                                         void reloadPciDevices();
+                                       } catch {
+                                         /* ignore */
+                                       }
+                                     }
+                                   }}
                                    onChange={(val) => {
                                      try {
+                                       const s = String(val || '');
                                        const curr = form.getFieldValue('netIfaces') || [];
                                        const next = [...curr];
-                                       const hit = (nadOptions || []).find((x: any) => String(x?.value) === String(val));
-                                       const ifaceType = passthroughKubevirtIfaceTypeFromNad(hit);
-                                       next[name] = { ...next[name], name: val, type: ifaceType };
+                                       const entry = { ...(next[name] || {}) };
+                                       if (s.startsWith(PT_PREFIX_PCI)) {
+                                         const cr = s.slice(PT_PREFIX_PCI.length);
+                                         const hit = (pciOptsForSecondary || []).find(
+                                           (x: any) => String(x?.value) === s,
+                                         );
+                                        next[name] = {
+                                          ...entry,
+                                          passthroughPick: val,
+                                          passthroughSource: 'pci-host',
+                                          pciDeviceName: cr,
+                                          pciResourceName: String(hit?._pciResourceName || '').trim(),
+                                          pciNodeName: String(hit?._pciNodeName || '').trim(),
+                                          name: undefined,
+                                          type: undefined,
+                                          model: undefined,
+                                        };
+                                      } else if (s.startsWith(PT_PREFIX_MULTUS)) {
+                                        const multusVal = s.slice(PT_PREFIX_MULTUS.length);
+                                        next[name] = {
+                                          ...entry,
+                                          passthroughPick: val,
+                                          passthroughSource: 'multus',
+                                          pciDeviceName: undefined,
+                                          pciResourceName: undefined,
+                                          pciNodeName: undefined,
+                                          name: multusVal,
+                                          type: undefined,
+                                          model: undefined,
+                                        };
+                                       }
                                        form.setFieldsValue({ netIfaces: next });
-                                     } catch {}
+                                     } catch {
+                                       /* ignore */
+                                     }
                                    }}
                                  />
                                </Form.Item>
@@ -1014,51 +1305,49 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       return null;
                     })()}
 
-                    {/* --- 通用物理属性 (类型/模型/MAC/静态IP) --- */}
-                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode || prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type || prev.netIfaces?.[name]?.name !== curr.netIfaces?.[name]?.name}>
+                    {/* --- 通用物理属性 (类型/模型/MAC/静态IP)；直通模式不展示类型与模型 --- */}
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, curr) =>
+                        prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode ||
+                        prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type ||
+                        prev.netIfaces?.[name]?.name !== curr.netIfaces?.[name]?.name
+                      }
+                    >
                       {({ getFieldValue }) => {
                         const mode2 = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
-                        const secondaryTypeLabel = '接口类型';
-                        // [选项逻辑] 根据模式生成可用的网卡类型选项（与主网卡、harvesterVmIfaceTypeOptions 同源）
-                        const opts = mode2 === 'passthrough'
-                          ? PASSTHROUGH_VIRT_IFACE_OPTIONS
-                          : mode2 === 'vpc'
+                        if (isWizardPciPassthroughNetMode(mode2)) return null;
+
+                        const typ = getFieldValue(['netIfaces', name, 'type']);
+                        const hideSecondaryIfaceType = mode2 === 'vpc' || mode2 === 'flat_subnet';
+                        const opts =
+                          mode2 === 'vpc'
                             ? [ifaceTypeOption('managedtap')]
                             : mode2 === 'flat_subnet'
                               ? [ifaceTypeOption('managedtap')]
                               : mode2 === 'flat'
                                 ? NAD_MULTUS_INTERFACE_TYPES
                                 : [ifaceTypeOption('bridge')];
-                        const hideSecondaryIfaceType = mode2 === 'vpc' || mode2 === 'flat_subnet';
-                        if (hideSecondaryIfaceType) {
-                          return (
-                            <Form.Item name={[name, 'type']} preserve hidden>
-                              <Input type="hidden" />
-                            </Form.Item>
-                          );
-                        }
+
                         return (
-                          <Col span={8}>
-                            <Form.Item
-                              label={secondaryTypeLabel}
-                              name={[name, 'type']}
-                              tooltip={mode2 === 'passthrough' ? PASSTHROUGH_TYPE_TOOLTIP : undefined}
-                            >
-                              <Select options={opts} disabled={mode2 === 'passthrough'} />
-                            </Form.Item>
-                          </Col>
-                        );
-                      }}
-                    </Form.Item>
-                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type}>
-                      {({ getFieldValue }) => {
-                        const typ = getFieldValue(['netIfaces', name, 'type']);
-                        return (
-                          <Col span={8}>
-                            <Form.Item label="模型" name={[name, 'model']}>
-                              <Select disabled={typ === 'sriov'} options={NIC_MODELS} />
-                            </Form.Item>
-                          </Col>
+                          <>
+                            {hideSecondaryIfaceType ? (
+                              <Form.Item name={[name, 'type']} preserve hidden>
+                                <Input type="hidden" />
+                              </Form.Item>
+                            ) : (
+                              <Col span={8}>
+                                <Form.Item label="接口类型" name={[name, 'type']}>
+                                  <Select options={opts} />
+                                </Form.Item>
+                              </Col>
+                            )}
+                            <Col span={8}>
+                              <Form.Item label="模型" name={[name, 'model']}>
+                                <Select disabled={typ === 'sriov'} options={NIC_MODELS} />
+                              </Form.Item>
+                            </Col>
+                          </>
                         );
                       }}
                     </Form.Item>
@@ -1068,7 +1357,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     >
                       {({ getFieldValue }) => {
                         const m = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
-                        if (m === 'flat' || m === 'passthrough') return null;
+                        if (m === 'flat' || isWizardPciPassthroughNetMode(m)) return null;
                         return (
                           <Col span={8}>
                             <Form.Item
@@ -1160,7 +1449,35 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 variant="filled"
                 onClick={() => {
                   reloadNads();
-                  add({ mode: 'passthrough', type: 'sriov', model: 'virtio' });
+                  add({
+                    mode: 'passthrough_sriov',
+                    type: undefined,
+                    model: undefined,
+                    passthroughPick: undefined,
+                    passthroughSource: undefined,
+                    pciDeviceName: undefined,
+                    pciResourceName: undefined,
+                    pciNodeName: undefined,
+                  });
+                }}
+              >
+                + 直通SR-IOV
+              </Button>
+              <Button
+                color="primary"
+                variant="filled"
+                onClick={() => {
+                  reloadNads();
+                  add({
+                    mode: 'passthrough',
+                    type: undefined,
+                    model: undefined,
+                    passthroughPick: undefined,
+                    passthroughSource: undefined,
+                    pciDeviceName: undefined,
+                    pciResourceName: undefined,
+                    pciNodeName: undefined,
+                  });
                 }}
               >
                 + 直通网卡

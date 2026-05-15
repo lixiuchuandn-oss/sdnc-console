@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Modal, Tooltip, Alert, Spin, Divider, Typography, Form } from 'antd';
+import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Modal, Tooltip, Alert, Spin, Divider, Typography, Form, Switch } from 'antd';
 import yaml from 'js-yaml';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { ReloadOutlined, ClockCircleOutlined, FileTextOutlined, ExclamationCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, SearchOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
@@ -74,6 +74,9 @@ type Props = {
   imagePullSecrets?: Array<{ metadata: { name: string; namespace: string } }>;
   secretsWithCredentials?: any[];
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 };
 
 /**
@@ -974,7 +977,10 @@ const JobTable: React.FC<{
   defaultNamespace?: string;
   createModalVisible: boolean;
   onCreateModalChange: (visible: boolean) => void;
-}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange }) => {
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
+}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange, showAllSwitch, queryAll, onQueryAllChange }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -1234,12 +1240,15 @@ const JobTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => {
-              modal.confirm({
-                title: '确认重试',
-                content: `确定要重新创建 Job "${record?.metadata?.name}" 吗？这将先删除原 Job 并使用相同配置重新创建。`,
-                onOk: () => handleRetry(record),
-              });
-            },
+               const alias = record?.metadata?.annotations?.['tower.io/alias'];
+               const id = record?.metadata?.name || '';
+               const displayName = alias ? `${alias}(${id})` : id;
+               modal.confirm({
+                 title: '确认重试',
+                 content: `确定要重新创建 Job "${displayName}" 吗？这将先删除原 Job 并使用相同配置重新创建。`,
+                 onOk: () => handleRetry(record),
+               });
+             },
           }] : []),
           {
             key: 'delete',
@@ -1248,13 +1257,16 @@ const JobTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => {
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除 Job "${record?.metadata?.name}" 吗？`,
-                okType: 'danger',
-                onOk: () => handleDelete(record),
-              });
-            },
+               const alias = record?.metadata?.annotations?.['tower.io/alias'];
+               const id = record?.metadata?.name || '';
+               const displayName = alias ? `${alias}(${id})` : id;
+               modal.confirm({
+                 title: '确认删除',
+                 content: `确定要删除 Job "${displayName}" 吗？`,
+                 okType: 'danger',
+                 onOk: () => handleDelete(record),
+               });
+             },
           },
         ];
         const items = operationsReadOnly
@@ -1306,6 +1318,15 @@ const JobTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!operationsReadOnly ? (
             <Button type="primary" onClick={() => onCreateModalChange(true)}>
               创建 Job
@@ -1457,7 +1478,10 @@ const CronJobTable: React.FC<{
   defaultNamespace?: string;
   createModalVisible: boolean;
   onCreateModalChange: (visible: boolean) => void;
-}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange }) => {
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
+}> = ({ data, loading, cloudId, onRefresh, namespacesOptions, nsValue, onNsChange, imagePullSecrets, secretsWithCredentials, defaultNamespace, createModalVisible, onCreateModalChange, showAllSwitch, queryAll, onQueryAllChange }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -1727,37 +1751,40 @@ const CronJobTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => {
-              modal.confirm({
-                title: '确认执行',
-                content: `确定要立即触发 CronJob "${record?.metadata?.name}" 吗？`,
-                onOk: () => handleTrigger(record),
-              });
-            },
+               const alias = record?.metadata?.annotations?.['tower.io/alias'];
+               const id = record?.metadata?.name || '';
+               const displayName = alias ? `${alias}(${id})` : id;
+               modal.confirm({
+                 title: '确认执行',
+                 content: `确定要立即触发 CronJob "${displayName}" 吗？`,
+                 onOk: () => handleTrigger(record),
+               });
+             },
           },
           isSuspended ? {
             key: 'resume',
             label: '恢复',
             disabled: isSystem,
             tooltip: systemHint,
-            onClick: () => {
-              modal.confirm({
-                title: '确认恢复',
-                content: `确定要恢复 CronJob "${record?.metadata?.name}" 吗？`,
-                onOk: () => handleResume(record),
-              });
-            },
+             onClick: () => {
+               modal.confirm({
+                 title: '确认恢复',
+                 content: `确定要恢复 CronJob "${(() => { const alias = record?.metadata?.annotations?.['tower.io/alias']; const id = record?.metadata?.name || ''; return alias ? `${alias}(${id})` : id; })()}" 吗？`,
+                 onOk: () => handleResume(record),
+               });
+             },
           } : {
             key: 'suspend',
             label: '暂停',
             disabled: isSystem,
             tooltip: systemHint,
-            onClick: () => {
-              modal.confirm({
-                title: '确认暂停',
-                content: `确定要暂停 CronJob "${record?.metadata?.name}" 吗？`,
-                onOk: () => handleSuspend(record),
-              });
-            },
+             onClick: () => {
+               modal.confirm({
+                 title: '确认暂停',
+                 content: `确定要暂停 CronJob "${(() => { const alias = record?.metadata?.annotations?.['tower.io/alias']; const id = record?.metadata?.name || ''; return alias ? `${alias}(${id})` : id; })()}" 吗？`,
+                 onOk: () => handleSuspend(record),
+               });
+             },
           },
           {
             key: 'delete',
@@ -1766,13 +1793,16 @@ const CronJobTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => {
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除 CronJob "${record?.metadata?.name}" 吗？`,
-                okType: 'danger',
-                onOk: () => handleDelete(record),
-              });
-            },
+               const alias = record?.metadata?.annotations?.['tower.io/alias'];
+               const id = record?.metadata?.name || '';
+               const displayName = alias ? `${alias}(${id})` : id;
+               modal.confirm({
+                 title: '确认删除',
+                 content: `确定要删除 CronJob "${displayName}" 吗？`,
+                 okType: 'danger',
+                 onOk: () => handleDelete(record),
+               });
+             },
           },
         ];
         const items = operationsReadOnly
@@ -1824,6 +1854,15 @@ const CronJobTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!operationsReadOnly ? (
             <Button type="primary" onClick={() => onCreateModalChange(true)}>
               创建 CronJob
@@ -1974,6 +2013,9 @@ const JobsSection: React.FC<Props> = ({
   imagePullSecrets = [],
   secretsWithCredentials = [],
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue;
   const [activeTab, setActiveTab] = useState<'job' | 'cronjob'>('job');
@@ -2017,6 +2059,9 @@ const JobsSection: React.FC<Props> = ({
           defaultNamespace={formDefaultNs}
           createModalVisible={jobCreateVisible}
           onCreateModalChange={setJobCreateVisible}
+          showAllSwitch={showAllSwitch}
+          queryAll={queryAll}
+          onQueryAllChange={onQueryAllChange}
         />
       ) : (
         <CronJobTable
@@ -2033,6 +2078,9 @@ const JobsSection: React.FC<Props> = ({
           defaultNamespace={formDefaultNs}
           createModalVisible={cronjobCreateVisible}
           onCreateModalChange={setCronjobCreateVisible}
+          showAllSwitch={showAllSwitch}
+          queryAll={queryAll}
+          onQueryAllChange={onQueryAllChange}
         />
       )}
     </PageDetailSection>

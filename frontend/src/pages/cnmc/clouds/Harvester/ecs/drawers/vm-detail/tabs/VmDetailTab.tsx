@@ -50,6 +50,7 @@ export interface VmDetailTabProps {
   memUsage: number | null;
   vmDisks: any[];
   vmNics: any[];
+  vmPassthroughNics: any[];
   vmGpus: any[];
   vmUsb: any[];
 }
@@ -62,6 +63,7 @@ const VmDetailTab: React.FC<VmDetailTabProps> = ({
   memUsage,
   vmDisks,
   vmNics,
+  vmPassthroughNics,
   vmGpus,
   vmUsb,
 }) => {
@@ -510,6 +512,109 @@ const VmDetailTab: React.FC<VmDetailTabProps> = ({
                   />
                 </Card>
               </div>
+
+              {vmPassthroughNics.length > 0 ? (
+                <div>
+                  <div style={VM_DETAIL_DRAWER_SECTION_TITLE_ROW_STYLE}>
+                    <span style={VM_DETAIL_DRAWER_SECTION_TITLE_LABEL_STYLE}>
+                      物理网卡
+                    </span>
+                  </div>
+                  <Card
+                    variant="borderless"
+                    styles={{ body: { padding: 16 } }}
+                    style={VM_DETAIL_DRAWER_DETAIL_TAB_BLOCK_CARD_STYLE}
+                  >
+                    <List
+                      dataSource={vmPassthroughNics}
+                      renderItem={(item: any, index: number) => (
+                        <List.Item
+                          style={{
+                            paddingLeft: 0,
+                            paddingRight: 0,
+                            paddingTop: index === 0 ? 0 : 12,
+                            paddingBottom:
+                              index === vmPassthroughNics.length - 1 ? 0 : 12,
+                          }}
+                        >
+                          <List.Item.Meta
+                            avatar={
+                              <div
+                                style={{
+                                  width: 48,
+                                  height: 48,
+                                  borderRadius: 8,
+                                  background: "#ffffff",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <NicIcon
+                                  width={38}
+                                  height={38}
+                                  style={{ fill: "#1890ff" }}
+                                />
+                              </div>
+                            }
+                            title={
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 8,
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <span style={{ wordBreak: "break-word" }}>
+                                  {item.name || "-"}
+                                </span>
+                                <Tag
+                                  color={
+                                    item.kindLabel === "直通SR-IOV"
+                                      ? "geekblue"
+                                      : "blue"
+                                  }
+                                  style={{ fontSize: 12, margin: 0 }}
+                                >
+                                  {item.kindLabel}
+                                </Tag>
+                                <Tag color="default" style={{ fontSize: 12, margin: 0 }}>
+                                  {item.mountLabel}
+                                </Tag>
+                              </div>
+                            }
+                            description={
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: VM_DETAIL_DRAWER_TEXT_SECONDARY,
+                                }}
+                              >
+                                <span>{item.deviceLabel || "—"}</span>
+                                {item.resourceName ? (
+                                  <>
+                                    <span
+                                      style={{
+                                        margin: "0 8px",
+                                        color: VM_DETAIL_DRAWER_TEXT_SPLIT,
+                                      }}
+                                    >
+                                      |
+                                    </span>
+                                    <span>{item.resourceName}</span>
+                                  </>
+                                ) : null}
+                              </div>
+                            }
+                          />
+                        </List.Item>
+                      )}
+                    />
+                  </Card>
+                </div>
+              ) : null}
 
               {vmGpus.length > 0 && (
                 <div>
