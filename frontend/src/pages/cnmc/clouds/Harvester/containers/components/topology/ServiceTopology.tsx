@@ -99,6 +99,7 @@ const ServiceTopology: React.FC<ServiceTopologyProps> = ({
         minZoom={0.3}
         maxZoom={1.5}
         defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+        proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e8e8e8" />
         <Controls position="top-left" showInteractive={false} />

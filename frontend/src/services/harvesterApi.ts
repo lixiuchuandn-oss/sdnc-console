@@ -2822,3 +2822,96 @@ export const updateNetworkPolicy = async (cloudId: string, namespace: string, na
 export const deleteNetworkPolicy = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/networkpolicies/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
+
+// ========================================
+// Harbor 镜像仓库管理
+// ========================================
+
+/**
+ * 获取 Harbor 仓库列表
+ * @returns Promise<any>
+ */
+export const getHarborRegistries = async () => {
+  return await apiRequest('/api/harbor/registries');
+};
+
+/**
+ * 测试 Harbor 仓库连接
+ * @param harborId Harbor 仓库 ID
+ * @returns Promise<any>
+ */
+export const testHarborConnection = async (harborId: string) => {
+  return await apiPost(`/api/harbor/registries/${harborId}/test`, {});
+};
+
+/**
+ * 创建 Harbor 仓库
+ * @param payload Harbor 仓库配置
+ * @returns Promise<any>
+ */
+export const createHarborRegistry = async (payload: any) => {
+  return await apiPost('/api/harbor/registries', payload);
+};
+
+/**
+ * 更新 Harbor 仓库
+ * @param harborId Harbor 仓库 ID
+ * @param payload 更新的配置数据
+ * @returns Promise<any>
+ */
+export const updateHarborRegistry = async (harborId: string, payload: any) => {
+  return await apiPut(`/api/harbor/registries/${harborId}`, payload);
+};
+
+/**
+ * 删除 Harbor 仓库
+ * @param harborId Harbor 仓库 ID
+ * @returns Promise<any>
+ */
+export const deleteHarborRegistry = async (harborId: string) => {
+  return await apiDelete(`/api/harbor/registries/${harborId}`);
+};
+
+// ========================================
+// Harbor 镜像选择器 API
+// ========================================
+
+/**
+ * 获取 Harbor 项目列表（用于镜像选择器）
+ * @param harborId Harbor 仓库 ID
+ * @returns Promise<any>
+ */
+export const getHarborSelectorProjects = async (harborId: string) => {
+  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects`);
+};
+
+/**
+ * 获取 Harbor 项目下的仓库列表（用于镜像选择器）
+ * @param harborId Harbor 仓库 ID
+ * @param project 项目名称
+ * @returns Promise<any>
+ */
+export const getHarborSelectorRepositories = async (harborId: string, project: string) => {
+  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories`);
+};
+
+/**
+ * 获取 Harbor 仓库的标签列表（用于镜像选择器）
+ * @param harborId Harbor 仓库 ID
+ * @param project 项目名称
+ * @param repo 仓库名称
+ * @returns Promise<any>
+ */
+export const getHarborSelectorTags = async (harborId: string, project: string, repo: string) => {
+  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories/${encodeURIComponent(repo)}/tags`);
+};
+
+/**
+ * 同步 Harbor 凭证到 K8s Secret
+ * @param harborId Harbor 仓库 ID
+ * @param params 同步参数
+ * @returns Promise<any>
+ */
+export const syncHarborSecret = async (harborId: string, params: { cloudId: string; namespace: string }) => {
+  return await apiPost(`/api/harbor/registries/${harborId}/sync-secret`, params);
+};

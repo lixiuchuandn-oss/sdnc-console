@@ -1062,13 +1062,13 @@ const PodsSection: React.FC<Props> = ({
             disabled: isSystemResource(record),
             tooltip: getSystemResourceProtectionHint(record),
             onClick: () => {
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除 Pod "${record?.metadata?.name}" 吗？`,
-                okType: 'danger',
-                onOk: () => handleDelete(record),
-              });
-            },
+               modal.confirm({
+                 title: '确认删除',
+                 content: `确定要删除 Pod "${(() => { const alias = record?.metadata?.annotations?.['tower.io/alias']; const id = record?.metadata?.name || ''; return alias ? `${alias}(${id})` : id; })()}" 吗？`,
+                 okType: 'danger',
+                 onOk: () => handleDelete(record),
+               });
+             },
           },
         ];
         const items = operationsReadOnly

@@ -754,9 +754,12 @@ const ConfigMapTable: React.FC<{
             disabled: deleteDisabled,
             tooltip: deleteTooltip,
             onClick: () => {
+              const alias = record?.metadata?.annotations?.['tower.io/alias'];
+              const id = record?.metadata?.name || '';
+              const displayName = alias ? `${alias} (${id})` : id;
               modal.confirm({
                 title: '确认删除',
-                content: `确定要删除 ConfigMap "${record?.metadata?.name}" 吗？`,
+                content: `确定要删除 ConfigMap "${displayName}" 吗？`,
                 okType: 'danger',
                 onOk: () => handleDelete(record),
               });
@@ -1177,9 +1180,12 @@ const SecretTable: React.FC<{
             disabled: deleteDisabled,
             tooltip: deleteTooltip,
             onClick: () => {
+              const alias = record?.metadata?.annotations?.['tower.io/alias'];
+              const id = record?.metadata?.name || '';
+              const displayName = alias ? `${alias} (${id})` : id;
               modal.confirm({
                 title: '确认删除',
-                content: `确定要删除 Secret "${record?.metadata?.name}" 吗？`,
+                content: `确定要删除 Secret "${displayName}" 吗？`,
                 okType: 'danger',
                 onOk: () => handleDelete(record),
               });

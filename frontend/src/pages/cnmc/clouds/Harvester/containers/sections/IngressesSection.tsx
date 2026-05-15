@@ -323,9 +323,12 @@ const IngressesSection: React.FC<Props> = ({
                 disabled: isSystem,
                 tooltip: systemHint,
                 onClick: () => {
+                  const alias = record?.metadata?.annotations?.['tower.io/alias'];
+                  const id = record?.metadata?.name || '';
+                  const displayName = alias ? `${alias}(${id})` : id;
                   Modal.confirm({
                     title: '确认删除',
-                    content: `确定要删除 Ingress "${record.name}" 吗？`,
+                    content: `确定要删除 Ingress "${displayName}" 吗？`,
                     okText: '删除',
                     okType: 'danger',
                     cancelText: '取消',

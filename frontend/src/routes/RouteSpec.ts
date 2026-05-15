@@ -1088,5 +1088,25 @@ export const routeSpecs: RouteSpec[] = [
     requiredFeature: 'platform.aisoc'
   },
 
+  // ============================================================================
+  // Harbor 详情页路由
+  // ============================================================================
+
+  {
+    id: 'harbor-detail',
+    path: '/admin/clouds/:cloudId/harbor/:harborId',
+    element: 'HarborDetailPage',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '镜像仓库',
+    title: 'Harbor 详情',
+    hidden: true,
+    requiredActions: {
+      page: 'clouds.containers:read',
+      read: 'clouds.containers:read',
+      write: 'clouds.containers:write'
+    }
+  },
+
   ...cloudmapPoolRouteSpecs,
 ];
