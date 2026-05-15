@@ -529,7 +529,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       setDetailModalOpen(true);
       setDetailLoading(true);
       fetchAlertmanagerconfigDetail(cloudId, ns, name)
-        .then(({ data, ok, error }) => {
+        .then(async ({ data, ok, error }) => {
           setDetailLoading(false);
           if (!ok || !data) {
             message.error(error || '获取策略详情失败');
@@ -565,11 +565,36 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           const alertnameExact = (match.alertname ?? '').toString().trim();
           const matchersFromMatch = alertnameExact ? [alertnameExact] : [];
           const fallbackMatchers = typeof annotations.matchers === 'string' ? annotations.matchers.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-          const resolvedMatchers =
+          const resolvedMatchers: string[] =
             matchersFromRouteMatchers.length ? matchersFromRouteMatchers
               : matchersFromRe.length ? matchersFromRe
               : matchersFromMatch.length ? matchersFromMatch
               : fallbackMatchers;
+          const matcherNameMap = new Map<string, string>();
+          for (const r of rulesList) {
+            const ruleId = (r?.name ?? '').toString().trim();
+            const ruleName = (r?.aliasName ?? '').toString().trim() || ruleId;
+            if (ruleId) matcherNameMap.set(ruleId, ruleName);
+          }
+          for (const o of vmTriggerOptions) {
+            const ruleId = (o?.value ?? '').toString().trim();
+            const ruleName = (o?.label ?? '').toString().trim() || ruleId;
+            if (ruleId && !matcherNameMap.has(ruleId)) matcherNameMap.set(ruleId, ruleName);
+          }
+          const missingMatcherIds = resolvedMatchers.filter((id: string) => !matcherNameMap.has(id));
+          if (missingMatcherIds.length > 0) {
+            const { data: matchedRules, ok: matchedOk } = await fetchPrometheusRules(cloudId, {
+              alertNames: missingMatcherIds,
+            });
+            if (matchedOk && matchedRules?.rules?.length) {
+              for (const r of matchedRules.rules) {
+                const ruleId = (r?.name ?? '').toString().trim();
+                const ruleName = (r?.aliasName ?? '').toString().trim() || ruleId;
+                if (ruleId) matcherNameMap.set(ruleId, ruleName);
+              }
+            }
+          }
+          const matcherDisplayNames = resolvedMatchers.map((id: string) => matcherNameMap.get(id) || id);
           setDetailData({
             name: d.metadata?.name ?? name,
             namespace: d.metadata?.namespace ?? ns,
@@ -577,7 +602,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             creator: d.metadata?.creator ?? undefined,
             creationTimestamp: d.metadata?.creationTimestamp ?? undefined,
             receiverNames: routeReceiverNames.length ? routeReceiverNames : (route.receiver && route.receiver !== 'null-receiver' ? [route.receiver] : receivers.map((r: any) => r.name).filter((n: string) => n !== 'null-receiver')),
-            matchers: resolvedMatchers.length ? resolvedMatchers : undefined,
+            matchers: matcherDisplayNames.length ? matcherDisplayNames : undefined,
             repeatInterval: (detailChildRoutes[0] as any)?.repeatInterval ?? (route as any)?.repeatInterval ?? '4h',
           });
         })
@@ -587,7 +612,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           setDetailData(null);
         });
     },
-    [cloudId]
+    [cloudId, rulesList, vmTriggerOptions]
   );
 
   const handleCloseDetail = useCallback(() => {
@@ -793,13 +818,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         loadConfigList();
       } else message.error(error || '更新失败');
     } else {
-      const { data: created, ok, error } = await createAlertmanagerconfig(cloudId, payload);
+      const { ok, error } = await createAlertmanagerconfig(cloudId, payload);
       setFormLoading(false);
       if (ok) {
         message.success('创建成功');
-        const raw = (created as any) || {};
-        setConfigList((prev) => [...prev, { ...raw, id: raw.id ?? `${namespace}/${name}`, metadata: { ...raw.metadata, name, namespace }, spec: (raw.spec ?? payload.spec) as AlertmanagerConfigItem['spec'] }]);
         handleCloseForm();
+        await loadConfigList();
       } else message.error(error || '创建失败');
     }
   }, [editingRecord, form, handleCloseForm, loadConfigList, specReceiverNameToSpecByType, cloudId, canWritePolicies]);
@@ -827,13 +851,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
 
   const allConfigColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
     () => [
-      { title: '数据源', key: 'dataSource', width: 100, render: () => 'Prometheus' },
-      { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', width: 180, render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
-      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', width: 140, render: (ns: string) => ns || '-' },
+      { title: '数据源', key: 'dataSource', fixed: 'left', render: () => 'Prometheus' },
+      { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
+      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', render: (ns: string) => ns || '-' },
       {
         title: <span style={{ fontWeight: 600, color: '#000' }}>通知对象</span>,
         key: 'receivers',
-        width: 120,
         render: (_, row) => {
           const receivers = row.spec?.receivers;
           if (!Array.isArray(receivers)) return '-';
@@ -852,12 +875,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           );
         },
       },
-      { title: '创建人', dataIndex: ['metadata', 'creator'], key: 'creator', width: 100, ellipsis: true, render: (v: string | undefined) => v || '-' },
-      { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'createdAt', width: 172, ellipsis: true, render: (v: string | undefined) => (v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
+      { title: '创建人', dataIndex: ['metadata', 'creator'], key: 'creator', ellipsis: true, render: (v: string | undefined) => v || '-' },
+      { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'createdAt', ellipsis: true, render: (v: string | undefined) => (v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       {
         title: '操作',
         key: 'action',
-        width: 80,
         fixed: 'right',
         render: (_, row) => (
           <ResourceActionsDropdown
@@ -996,7 +1018,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }
           toolbarRight={
             <>
-              <Button type="primary" icon={<PlusOutlined />} disabled={!canWritePolicies} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
+              <Button type="primary" disabled={!canWritePolicies} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
               <TableColumnSettingsButton allColumns={allConfigColumns} settingsKey="monitoring_alert_notification_policy_table" />
               <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>
@@ -1009,7 +1031,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             loading={configLoading}
             columns={configColumns}
             dataSource={filteredConfigList}
-            scroll={{ x: 1000 }}
+            scroll={{ x: true }}
             pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
           />
         </PageDetailSection>

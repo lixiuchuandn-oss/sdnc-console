@@ -5,7 +5,7 @@
  * - `runPathResourceLoad`：随路由内层段按需补拉（与 `panels/<域>/` 视图配套）。
  *
  * 业务域命名以 `layouts/admin/cloudmap/cloudPoolSidebar` 的 `CLOUDMAP_POOL_TAB_KEYS` 为准；
- * 实现按域拆在 `pathResource/*PathLoads.ts`，与 `panels/` 子目录同名对应。
+ * 实现按域拆在 `pathResource/*PathLoads.ts`，与池内视图按需拉取的 pathSeg / 路由内层一致。
  */
 export type { PoolEssentialsDeps, PoolPathResourceDeps } from './poolDataDeps';
 export { runPoolEssentials } from './runPoolEssentials';

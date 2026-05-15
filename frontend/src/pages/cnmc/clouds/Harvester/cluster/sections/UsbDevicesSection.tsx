@@ -228,7 +228,6 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
       {
         title: '操作',
         key: 'actions',
-        width: 80,
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const enabled = r?.enabled ?? r?.raw?.status?.enabled ?? r?.rawData?.status?.enabled;
@@ -299,17 +298,16 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
       >
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           rowKey={(r: any) => String(r?.resourceName || `${r?.vendorId || ''}:${r?.productId || ''}:${r?.name || ''}`)}
           loading={!!loading || refreshing}
           columns={tableColumns as any}
           dataSource={filtered}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
           locale={{ emptyText: '暂无数据' }}
-          scroll={{ x: 1400 }}
         />
       </PageDetailSection>
 

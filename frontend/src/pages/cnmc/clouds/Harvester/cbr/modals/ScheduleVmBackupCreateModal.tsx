@@ -151,10 +151,21 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
     return namespaces.filter(ns => ns.metadata?.name === vmNamespace || ns.name === vmNamespace);
   }, [namespaces, vms, initialVmName]);
 
+  // 判断虚拟机是否在回收站中
+  const isInRecycleBin = (vm: any) => {
+    const finalizers = vm?.metadata?.finalizers || [];
+    const labels = vm?.metadata?.labels || {};
+    return finalizers.includes('tower.io/recycle-bin') || labels['tower.io/recycle-bin'] === 'true';
+  };
+
   // 根据选中的命名空间过滤可选 VM
   const filteredVms = useMemo(() => {
     if (!selectedNamespace) return [];
-    let filtered = vms.filter(v => v.namespace === selectedNamespace || v.metadata?.namespace === selectedNamespace);
+    let filtered = vms.filter(v => {
+      const inNamespace = v.namespace === selectedNamespace || v.metadata?.namespace === selectedNamespace;
+      const notInRecycleBin = !isInRecycleBin(v);
+      return inNamespace && notInRecycleBin;
+    });
     // 如果指定了初始虚拟机，只显示该虚拟机
     if (initialVmName) {
       filtered = filtered.filter(v => v.name === initialVmName || v.metadata?.name === initialVmName);

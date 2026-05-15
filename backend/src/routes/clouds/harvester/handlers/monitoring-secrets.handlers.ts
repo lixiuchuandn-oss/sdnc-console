@@ -11,6 +11,7 @@ import {
   SECRETS_BASE,
   CONFIGMAPS_BASE,
   MONITORING_RECEIVER_SECRET_LABEL,
+  ALERTMANAGER_TARGET_ANNOTATION,
   DINGTALK_CONFIGMAP_NS,
   DINGTALK_CONFIGMAP_NAME,
   isUnreachableError,
@@ -228,6 +229,12 @@ export async function harvesterMonitoringSecretsDeleteHandler(req: Request, res:
         : existingRaw;
     if (existing?.metadata && existing?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true') {
       return res.status(400).json({ message: '该密钥不是告警接收器密钥，无法通过此接口删除' });
+    }
+    const targetBinding = (existing?.metadata?.annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '').toString().trim();
+    if (targetBinding) {
+      return res.status(400).json({
+        message: `该告警密钥已被通知对象引用（${targetBinding}），请先解除关联后再删除`,
+      });
     }
     await requestJson('DELETE', `${origin}/${getPath}`, cloud.secretKey || '', insecure);
     res.status(204).send();

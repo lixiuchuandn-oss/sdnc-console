@@ -258,7 +258,6 @@ const IngressesSection: React.FC<Props> = ({
     {
       title: '名称',
       key: 'name',
-      width: 180,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -287,7 +286,6 @@ const IngressesSection: React.FC<Props> = ({
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -297,7 +295,6 @@ const IngressesSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'action',
-      width: 120,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
@@ -396,13 +393,13 @@ const IngressesSection: React.FC<Props> = ({
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"
         loading={loading}
         pagination={{
-          size: 'small',
           showQuickJumper: false,
         }}
       />

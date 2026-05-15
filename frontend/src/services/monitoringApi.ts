@@ -6,13 +6,17 @@ import { API_BASE_URL, getAuthHeaders } from './api';
 
 const base = (cloudId: string) => `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/monitoring`;
 
-async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal }): Promise<{ data: T | null; ok: boolean; error?: string }> {
+async function apiGet<T = unknown>(
+  url: string,
+  options?: { signal?: AbortSignal; cache?: RequestCache },
+): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
     const res = await fetch(url, {
       method: 'GET',
       headers: getAuthHeaders(),
       credentials: 'include',
       signal: options?.signal,
+      cache: options?.cache ?? 'default',
     });
     if (!res.ok) {
       const text = await res.text();
@@ -83,6 +87,273 @@ async function apiDelete(url: string): Promise<{ ok: boolean; error?: string }> 
 export function fetchStorageNodes(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiGet(`${base(cloudId)}/storage-nodes`, options);
+}
+
+/** Rook CephCluster 列表（Steve：`cephclusters.ceph.rook.io` 等，由后端选择路径） */
+export function fetchCephClusters(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/ceph-clusters`, options);
+}
+
+/** Rook Ceph 聚合：CephCluster、CephBlockPool、CephBlockPoolRadosNamespace、CephFilesystem、CephObjectStore */
+export function fetchCephResources(cloudId: string, options?: { signal?: AbortSignal; force?: boolean }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = options?.force ? `?_=${Date.now()}` : '';
+  return apiGet(`${base(cloudId)}/ceph-resources${q}`, { signal: options?.signal, cache: options?.force ? 'no-store' : 'default' });
+}
+
+/** 经 K8s Service proxy 调用 Ceph mgr Dashboard REST（默认 GET api/summary） */
+export interface CephDashboardSummaryEnvelope {
+  data: unknown | null;
+  _tower?: {
+    source?: string;
+    proxyPath?: string;
+    namespace?: string;
+    /** 为 request-body 时表示本次使用 POST 提交的 Kube Token / Dashboard 账号 */
+    credentialMode?: string;
+    cephDashboardError?: boolean | string;
+    status?: number;
+    message?: string;
+  };
+}
+
+export function fetchCephDashboardSummary(
+  cloudId: string,
+  options?: { signal?: AbortSignal; force?: boolean; namespace?: string; path?: string },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const sp = new URLSearchParams();
+  if (options?.force) sp.set('_', String(Date.now()));
+  if (options?.namespace) sp.set('namespace', options.namespace);
+  if (options?.path) sp.set('path', options.path);
+  const qs = sp.toString();
+  const suffix = qs ? `?${qs}` : '';
+  return apiGet<CephDashboardSummaryEnvelope>(`${base(cloudId)}/ceph-dashboard/summary${suffix}`, {
+    signal: options?.signal,
+    cache: options?.force ? 'no-store' : 'default',
+  });
+}
+
+/** 页面填写 Kube Token / Dashboard 账号时使用（POST body，避免出现在 URL） */
+export function postCephDashboardSummary(
+  cloudId: string,
+  body: {
+    kubeToken?: string;
+    dashboardUsername?: string;
+    dashboardPassword?: string;
+    namespace?: string;
+    path?: string;
+  },
+  options?: { force?: boolean },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const sp = new URLSearchParams();
+  if (options?.force) sp.set('_', String(Date.now()));
+  const qs = sp.toString();
+  const suffix = qs ? `?${qs}` : '';
+  const payload: Record<string, string> = {};
+  const kt = body.kubeToken?.trim();
+  if (kt) payload.kubeToken = kt;
+  const du = body.dashboardUsername?.trim();
+  if (du) payload.dashboardUsername = du;
+  if (body.dashboardPassword != null && body.dashboardPassword !== '') {
+    payload.dashboardPassword = body.dashboardPassword;
+  }
+  const ns = body.namespace?.trim();
+  if (ns) payload.namespace = ns;
+  const p = body.path?.trim();
+  if (p) payload.path = p;
+  return apiPostPut<CephDashboardSummaryEnvelope>(
+    `${base(cloudId)}/ceph-dashboard/summary${suffix}`,
+    'POST',
+    payload,
+  );
+}
+
+/**
+ * 通用 Ceph mgr Dashboard REST 代理（后端经 K8s Service → mgr）。
+ * `path` 须以 `api/` 开头，与 Ceph OpenAPI 路径一致，例如：`api/summary`、`api/health/full`、`api/docs`。
+ */
+/** Ceph Dashboard `GET /api/pool?stats=true`：与 UI 一致的 RADOS 池列表（含 pg_status、stats） */
+export function fetchCephDashboardPools(
+  cloudId: string,
+  options?: { signal?: AbortSignal; namespace?: string; force?: boolean },
+) {
+  if (!cloudId) {
+    return Promise.resolve({ ok: false, status: 0, data: null, rawText: '', error: '缺少 cloudId' });
+  }
+  // 勿在 path 上追加 &_= 缓存破坏参数：Ceph mgr Dashboard 的 api/pool 对多余 query 可能直接 500。
+  // 强制刷新用 fetch cache: 'no-store'（见 cephDashboardProxy.skipBrowserCache）。
+  return cephDashboardProxy(cloudId, {
+    path: 'api/pool?stats=true',
+    accept: 'application/vnd.ceph.api.v1.0+json',
+    signal: options?.signal,
+    namespace: options?.namespace,
+    skipBrowserCache: !!options?.force,
+  });
+}
+
+/** Ceph Dashboard `GET /api/pool/{pool_name}`：单池详情（可选 stats；含 configuration 等，与官方编辑前拉取一致） */
+export function fetchCephDashboardPoolByName(
+  cloudId: string,
+  poolName: string,
+  options?: { signal?: AbortSignal; namespace?: string; stats?: boolean },
+) {
+  if (!cloudId || !poolName.trim()) {
+    return Promise.resolve({ ok: false, status: 0, data: null, rawText: '', error: '缺少 cloudId 或池名称' });
+  }
+  const enc = encodeURIComponent(poolName);
+  const st = options?.stats !== false;
+  const path = st ? `api/pool/${enc}?stats=true` : `api/pool/${enc}`;
+  return cephDashboardProxy(cloudId, {
+    path,
+    accept: 'application/vnd.ceph.api.v1.0+json',
+    signal: options?.signal,
+    namespace: options?.namespace,
+  });
+}
+
+/** Ceph Dashboard `POST /api/pool`：创建 RADOS 池（异步任务时可能返回 202） */
+export function createCephDashboardPool(
+  cloudId: string,
+  body: Record<string, unknown>,
+  options?: { signal?: AbortSignal; namespace?: string },
+) {
+  if (!cloudId) {
+    return Promise.resolve({ ok: false, status: 0, data: null, rawText: '', error: '缺少 cloudId' });
+  }
+  return cephDashboardProxy(cloudId, {
+    method: 'POST',
+    path: 'api/pool',
+    body,
+    accept: 'application/vnd.ceph.api.v1.0+json',
+    signal: options?.signal,
+    namespace: options?.namespace,
+  });
+}
+
+/** Ceph Dashboard `PUT /api/pool/{pool_name}`：更新池（副本、PG、配额、应用、重命名等） */
+export function updateCephDashboardPool(
+  cloudId: string,
+  poolName: string,
+  body: Record<string, unknown>,
+  options?: { signal?: AbortSignal; namespace?: string },
+) {
+  if (!cloudId || !poolName.trim()) {
+    return Promise.resolve({ ok: false, status: 0, data: null, rawText: '', error: '缺少 cloudId 或池名称' });
+  }
+  const enc = encodeURIComponent(poolName);
+  return cephDashboardProxy(cloudId, {
+    method: 'PUT',
+    path: `api/pool/${enc}`,
+    body,
+    accept: 'application/vnd.ceph.api.v1.0+json',
+    signal: options?.signal,
+    namespace: options?.namespace,
+  });
+}
+
+/** Ceph Dashboard `GET ui/pool/info`：创建池对话框用（CRUSH 规则、压缩枚举、PG 自动伸缩默认值等，非公开 REST 但只读） */
+export function fetchCephPoolUiInfo(
+  cloudId: string,
+  options?: { signal?: AbortSignal; namespace?: string },
+) {
+  if (!cloudId) {
+    return Promise.resolve({ ok: false, status: 0, data: null, rawText: '', error: '缺少 cloudId' });
+  }
+  return cephDashboardProxy(cloudId, {
+    path: 'ui/pool/info',
+    accept: 'application/json, application/vnd.ceph.api.v1.0+json',
+    signal: options?.signal,
+    namespace: options?.namespace,
+  });
+}
+
+/** Ceph Dashboard `GET /api/pool/{pool_name}/configuration`：RBD 池级配置（官方 Pools 页「配置」Tab，主要为 QoS） */
+export function fetchCephPoolRbdConfiguration(
+  cloudId: string,
+  poolName: string,
+  options?: { signal?: AbortSignal; namespace?: string },
+) {
+  if (!cloudId || !poolName.trim()) {
+    return Promise.resolve({ ok: false, status: 0, data: null, rawText: '', error: '缺少 cloudId 或池名称' });
+  }
+  const enc = encodeURIComponent(poolName);
+  return cephDashboardProxy(cloudId, {
+    path: `api/pool/${enc}/configuration`,
+    accept: 'application/vnd.ceph.api.v1.0+json',
+    signal: options?.signal,
+    namespace: options?.namespace,
+  });
+}
+
+export async function cephDashboardProxy(
+  cloudId: string,
+  options: {
+    method?: string;
+    path: string;
+    namespace?: string;
+    body?: unknown;
+    accept?: string;
+    contentType?: string;
+    signal?: AbortSignal;
+    /** 为 true 时 fetch 使用 no-store，避免改 path 触发 Dashboard 对未知 query 的 500 */
+    skipBrowserCache?: boolean;
+  },
+): Promise<{
+  ok: boolean;
+  status: number;
+  data: unknown | null;
+  rawText: string;
+  error?: string;
+}> {
+  if (!cloudId) {
+    return { ok: false, status: 0, data: null, rawText: '', error: '缺少 cloudId' };
+  }
+  const path = String(options.path || '').replace(/^\/+/, '');
+  const sp = new URLSearchParams();
+  sp.set('path', path);
+  if (options.namespace) sp.set('namespace', options.namespace);
+  const url = `${base(cloudId)}/ceph-dashboard/proxy?${sp.toString()}`;
+  const headers: Record<string, string> = { ...getAuthHeaders() };
+  if (options.accept) headers.Accept = options.accept;
+  const method = (options.method || 'GET').toUpperCase();
+  let body: string | undefined;
+  if (options.body != null && !['GET', 'HEAD'].includes(method)) {
+    headers['Content-Type'] = options.contentType?.trim() || 'application/json';
+    body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+  }
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      credentials: 'include',
+      body,
+      signal: options.signal,
+      cache: options.skipBrowserCache ? 'no-store' : 'default',
+    });
+    const rawText = await res.text();
+    let data: unknown = null;
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('json') || /^\s*[\[{]/.test(rawText)) {
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = null;
+      }
+    }
+    if (!res.ok) {
+      const msg =
+        typeof data === 'object' && data && (data as { detail?: string }).detail
+          ? String((data as { detail?: string }).detail)
+          : rawText.slice(0, 400);
+      return { ok: false, status: res.status, data, rawText, error: msg || res.statusText };
+    }
+    return { ok: true, status: res.status, data, rawText };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : '请求失败';
+    return { ok: false, status: 0, data: null, rawText: '', error: msg };
+  }
 }
 
 export function fetchNodeResources(cloudId: string, options?: { signal?: AbortSignal }) {

@@ -18,8 +18,10 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
-
-const TOWER_IO_VPC_ANNOTATION = 'tower.io/vpc';
+import {
+  buildPublicSubnetNameToVpcNameMap,
+  getOvnEipBoundVpcName,
+} from '../lib/kubeOvnEipVpcHelpers';
 
 function ipv4ToInt(ip: string): number | null {
   const m = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -181,26 +183,14 @@ export const EipSection: React.FC<EipSectionProps> = ({
     return m;
   }, [externalSubnets]);
 
-  const publicSubnetToVpcName = useMemo(() => {
-    const m: Record<string, string> = {};
-    if (networkScope !== 'vpc') return m;
-    for (const v of vpcs || []) {
-      const vpcName = String(v?.name || v?.metadata?.name || '').trim();
-      if (!vpcName || isBuiltInKubeOvnVpc(vpcName)) continue;
-      const extraRaw = (v?.spec?.extraExternalSubnets || v?.extraExternalSubnets || []) as any[];
-      const extra = (Array.isArray(extraRaw) ? extraRaw : [])
-        .map((x) => String(x ?? '').trim())
-        .filter(Boolean);
-      for (const subnetName of extra) {
-        if (!m[subnetName]) m[subnetName] = vpcName;
-      }
-    }
-    return m;
-  }, [networkScope, vpcs]);
+  const publicSubnetToVpcName = useMemo(
+    () => buildPublicSubnetNameToVpcNameMap(vpcs ?? []),
+    [vpcs],
+  );
 
-  // 筛选数据
+  // 筛选数据并按创建时间倒序排序
   const filteredData = useMemo(() => {
-    return eips.filter((item: any) => {
+    const filtered = eips.filter((item: any) => {
       const ip = item.spec?.v4Ip || '';
       const type = item.spec?.type || '';
       const ready = item.status?.ready;
@@ -226,6 +216,13 @@ export const EipSection: React.FC<EipSectionProps> = ({
       
       return true;
     });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
+    });
   }, [eips, keyword, statusFilter, typeFilter]);
 
   const typeOptions = useMemo(() => {
@@ -242,8 +239,16 @@ export const EipSection: React.FC<EipSectionProps> = ({
       message.error('无权限执行该操作');
       return;
     }
+    setCreateLoading(true);
     try {
-      const values = await form.validateFields();
+      const values = await form.validateFields().catch(() => {
+        // 表单验证失败，不显示顶部错误消息，由表单自动显示验证提示
+        setCreateLoading(false);
+        return null;
+      });
+      if (!values) {
+        return;
+      }
       const v4 = String(values.v4Ip ?? '').trim();
       if (v4) {
         const owner = (Array.isArray(eips) ? eips : []).find((ex: any) => {
@@ -256,7 +261,6 @@ export const EipSection: React.FC<EipSectionProps> = ({
           return;
         }
       }
-      setCreateLoading(true);
       const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
       const displayName = String(values.displayName ?? '').trim();
       const vpc = String(values.vpc ?? '').trim();
@@ -346,6 +350,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
     {
       title: '名称',
       key: 'alias',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const a = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
         const text = a || '—';
@@ -377,9 +382,10 @@ export const EipSection: React.FC<EipSectionProps> = ({
             title: 'VPC',
             key: 'vpc',
             render: (_: any, r: any) => {
-              const ext = String(r?.spec?.externalSubnet ?? '').trim();
-              const annVpc = String(r?.metadata?.annotations?.[TOWER_IO_VPC_ANNOTATION] ?? '').trim();
-              const vpcName = annVpc || (ext ? publicSubnetToVpcName[ext] : '');
+              const vpcName =
+                networkScope !== 'vpc'
+                  ? ''
+                  : getOvnEipBoundVpcName(r, publicSubnetToVpcName);
               const display = vpcName ? (vpcDisplayByName[vpcName] || vpcName) : '-';
               return <span title={vpcName || undefined}>{display}</span>;
             },
@@ -428,9 +434,25 @@ export const EipSection: React.FC<EipSectionProps> = ({
       ) 
     },
     {
-      title: '操作', 
-      key: 'action', 
-      width: 80, 
+      title: '创建时间',
+      key: 'createdAt',
+      render: (_: any, r: any) => {
+        const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+        try {
+          if (!c) return '-';
+          const d = new Date(c);
+          if (!isNaN(d.getTime())) {
+            const txt = d.toLocaleString('zh-CN', { hour12: false });
+            return txt;
+          }
+        } catch { }
+        return c || '-';
+      },
+    },
+    {
+      title: '操作',
+      key: 'action',
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const menuItems: MenuProps['items'] = [
           { key: 'metadata', label: '查看元数据' },
@@ -530,9 +552,9 @@ export const EipSection: React.FC<EipSectionProps> = ({
           columns={columns} 
           loading={loading} 
           bordered={false}
+          scroll={{ x: true }}
           rowKey={r => r.metadata?.uid}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
@@ -564,7 +586,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
           {externalSubnets.length === 0 && (
             <Alert
               type="warning"
-              message="没有可选的公共子网。EIP 需使用注解 tower.io/subnet-type=public、且挂在内置 VPC ovn-cluster 下的子网；请先在「公共子网」入口创建。"
+              message='没有可选的公共子网，请先在「公共子网」入口创建'
               style={{ marginBottom: 16 }}
             />
           )}
@@ -703,10 +725,11 @@ export const EipSection: React.FC<EipSectionProps> = ({
                   if (!ipv4InCidr(raw, cidr)) {
                     throw new Error(`IP 须落在公共子网网段 ${cidr} 内`);
                   }
-                  const excluded = s ? normalizeExcludeIps(s) : [];
-                  if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
-                    throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
-                  }
+                  // 排除列表仅限制自动分配，不限制用户手动指定的 IP
+                  // const excluded = s ? normalizeExcludeIps(s) : [];
+                  // if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
+                  //   throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
+                  // }
                 },
               }),
             ]}

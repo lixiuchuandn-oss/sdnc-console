@@ -28,6 +28,7 @@ const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'));
 
 const LicenseSettingsPage = lazy(() => import('./pages/settings/LicenseSettings'));
+const OfflineUpgradeSettings = lazy(() => import('./pages/settings/OfflineUpgradeSettings'));
 const SRv6Page = lazy(() => import('./pages/sdncc/interconnect/srv6/index'));
 const SRv6CreatePage = lazy(() => import('./pages/sdncc/interconnect/srv6/Create'));
 const IPsecVPNPage = lazy(() => import('./pages/sdncc/interconnect/ipsec-vpn/index'));
@@ -42,7 +43,6 @@ const SASEWizard = lazy(() => import('./pages/sdncc/interconnect/vr/wizards/SASE
 const ACLPage = lazy(() => import('./pages/sdncc/interconnect/acl/index'));
 const NATPage = lazy(() => import('./pages/sdncc/interconnect/nat/index'));
 const SecurityDomainPage = lazy(() => import('./pages/sdncc/sec-mgr-plane/SecurityDomain/index'));
-const SecurityDomainWizardPage = lazy(() => import('./pages/sdncc/sec-mgr-plane/SecurityDomain/Wizard'));
 const SecurityDomainDetail = lazy(() => import('./pages/sdncc/sec-mgr-plane/SecurityDomain/Detail'));
 const CENPage = lazy(() => import('./pages/sdncc/sec-mgr-plane/cascade-channels/index'));
 const CENDetailPage = lazy(() => import('./pages/sdncc/sec-mgr-plane/cascade-channels/detail'));
@@ -51,18 +51,13 @@ const SecurityApps = lazy(() => import('./pages/sdncc/sec-mgr-plane/Applications
 const SecurityServices = lazy(() => import('./pages/sdncc/sec-mgr-plane/SecurityServices/index'));
 const AccessRolesPage = lazy(() => import('./pages/settings/Roles/Index'));
 const AccessUsersPage = lazy(() => import('./pages/settings/Users/Index'));
-const ProtectedObjects = lazy(() => import('./pages/sdncc/traffic/ProtectedObjects'));
-const ServiceChains = lazy(() => import('./pages/sdncc/traffic/ServiceChains'));
 const CreateServiceChainWizard = lazy(() => import('./pages/sdncc/traffic/ServiceChains/CreateWizard'));
-const Policies = lazy(() => import('./pages/sdncc/traffic/Policies'));
 const CsmPoolsPage = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolsPage'));
 const CsmPoolDetailPage = lazy(() =>
   import('./pages/sdncc/traffic/CsmPools/CloudDetailCsm').then((m) => ({ default: m.CsmPoolDetailPage })),
 );
 const WebSSHPage = lazy(() => import('./pages/cnmc/pools/WebSSH'));
 const CloudConsolePage = lazy(() => import('./pages/cnmc/console/CloudConsole'));
-const PaasDatabasesPage = lazy(() => import('./pages/cnmc/paas/PaasDatabasesPage'));
-const PaasSecurityHub = lazy(() => import('./pages/cnmc/paas/PaasSecurityHub'));
 const HarvesterVNCPage = lazy(() => import('./pages/cnmc/clouds/Harvester/HarvesterVNC'));
 const OrgManagePage = lazy(() => import('./pages/cnmc/tenants/OrgManage'));
 const VmCreateWizardModal = lazy(() => import('./pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizardModal'));
@@ -131,9 +126,6 @@ const AppRoutes: React.FC = () => {
           <Route path="clouds" element={<Clouds />} />
           <Route path="clouds/:poolId/clusters/:clusterId" element={<RancherClusterWorkspace />} />
           <Route path="clouds/:id/*" element={<CloudDetailGate />} />
-          <Route path="paas/databases" element={<PaasDatabasesPage />} />
-          <Route path="paas/security" element={<PaasSecurityHub />} />
-
           <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
           <Route path="clouds/ecs" element={<Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />} />
@@ -157,7 +149,10 @@ const AppRoutes: React.FC = () => {
           <Route path="interconnect/acl" element={<ACLPage />} />
           <Route path="interconnect/nat" element={<NATPage />} />
           <Route path="sec-mgr-plane/security-domain" element={<SecurityDomainPage />} />
-          <Route path="sec-mgr-plane/security-domain/new" element={<SecurityDomainWizardPage />} />
+          <Route
+            path="sec-mgr-plane/security-domain/new"
+            element={<Navigate to="/admin/sec-mgr-plane/security-domain" replace />}
+          />
           <Route path="sec-mgr-plane/security-domain/:id" element={<SecurityDomainDetail />} />
           <Route path="sec-mgr-plane/cascade-channels" element={<CENPage />} />
           <Route path="sec-mgr-plane/cascade-channels/:id" element={<CENDetailPage />} />
@@ -180,6 +175,7 @@ const AppRoutes: React.FC = () => {
           <Route path="settings/audit-logs" element={<AuditLogs />} />
           <Route path="settings/advanced" element={<AdvancedSettings />} />
 
+          <Route path="settings/offline-upgrade" element={<OfflineUpgradeSettings />} />
           <Route path="settings/license" element={<LicenseSettingsPage />} />
           
           <Route path="coming-soon" element={<ComingSoon />} />
@@ -189,11 +185,31 @@ const AppRoutes: React.FC = () => {
           
           {/* SSLO Traffic Orchestration */}
           <Route path="security/traffic/csm-pools" element={<CsmPoolsPage />} />
+          <Route
+            path="security/traffic/csm-pools/protected-objects"
+            element={<Navigate to="/admin/security/traffic/csm-pools" replace />}
+          />
+          <Route
+            path="security/traffic/csm-pools/:cloudId/service-chains/create"
+            element={<CreateServiceChainWizard />}
+          />
           <Route path="security/traffic/csm-pools/:cloudId" element={<CsmPoolDetailPage />} />
-          <Route path="security/traffic/protected-objects" element={<ProtectedObjects />} />
-          <Route path="security/traffic/service-chains" element={<ServiceChains />} />
-          <Route path="security/traffic/service-chains/create" element={<CreateServiceChainWizard />} />
-          <Route path="security/traffic/policies" element={<Policies />} />
+          <Route
+            path="security/traffic/protected-objects"
+            element={<Navigate to="/admin/security/traffic/csm-pools" replace />}
+          />
+          <Route
+            path="security/traffic/service-chains"
+            element={<Navigate to="/admin/security/traffic/csm-pools" replace />}
+          />
+          <Route
+            path="security/traffic/service-chains/create"
+            element={<Navigate to="/admin/security/traffic/csm-pools" replace />}
+          />
+          <Route
+            path="security/traffic/policies"
+            element={<Navigate to="/admin/security/traffic/csm-pools" replace />}
+          />
 
           {/* other admin routes ... reuse components */}
         </Route>

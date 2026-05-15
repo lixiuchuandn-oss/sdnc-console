@@ -114,7 +114,8 @@ const CloudInitsSection: React.FC<Props> = ({
     { 
       title: '名称', 
       dataIndex: 'name', 
-      key: 'name', 
+      key: 'name',
+      fixed: 'left' as const,
       render: (text: string) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
           <TagTwoTone twoToneColor={['#1890ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
@@ -122,13 +123,12 @@ const CloudInitsSection: React.FC<Props> = ({
         </span>
       ),
     },
-    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 }] : []),
+    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
-    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180, className: 'std-time' },
+    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', className: 'std-time' },
     {
       title: '操作',
       key: 'action',
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
@@ -219,13 +219,13 @@ const CloudInitsSection: React.FC<Props> = ({
     >
       <Table
         className={!isTenant ? "std-table" : "std-table no-border"}
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

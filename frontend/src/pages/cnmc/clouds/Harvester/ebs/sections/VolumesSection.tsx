@@ -67,7 +67,7 @@
  * - `PageDetailSection` 子节点        → 主表格 `Table`（行选用于批量删）
  * - `VolumeCreateModal`               → `ebs/modals`，创建 PVC
  * - `VolumeAttachModal` / `VolumeCloneModal` → `ebs/modals`，挂载 VM、克隆卷
- * - 其余 `StdFormModal` / `Drawer`    → 导出镜像、快照、扩容等（见 JSX 注释）
+ * - 其余 `Modal` / `Drawer`           → 导出镜像、快照、扩容等（见 JSX 注释）
  * 
  * ==============================================================================
  */
@@ -76,10 +76,9 @@
 // 依赖（顺序：React → antd → icons → 远程 API → 通用组件 → hooks → Harvester 域内）
 // -----------------------------------------------------------------------------
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App, Badge, Button, Dropdown, Form, Input, InputNumber, Select, Table, Tag, Tooltip } from 'antd';
+import { App, Badge, Button, Dropdown, Form, Input, InputNumber, Modal, Select, Table, Tag, Tooltip } from 'antd';
 import { EllipsisOutlined, ExclamationCircleOutlined, HddTwoTone, ReloadOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
 import { rebootCloudProviderEcs } from '../../../../../../services/api';
-import StdFormModal from '../../../../../../components/StdFormModal';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
@@ -771,7 +770,7 @@ const VolumesSection: React.FC<Props> = ({
 
     modal.confirm({
       title: '批量删除确认',
-      content: `即将删除 ${targets.length} 个卷：${targets.map(displayLabel).join(', ')}`,
+      content: `即将删除 ${targets.length} 个云盘：${targets.map(displayLabel).join(', ')}`,
       okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
       onOk: async () => {
         try {
@@ -783,8 +782,8 @@ const VolumesSection: React.FC<Props> = ({
             return status === 404 || msg.includes('not found') || msg.includes('未找到');
           }).length;
           const fail = Math.max(0, results.length - ok);
-          if (ok > 0) message.success(`成功删除 ${ok} 个卷`);
-          if (fail > 0) message.error(`${fail} 个卷删除失败`);
+          if (ok > 0) message.success(`成功删除 ${ok} 个云盘`);
+          if (fail > 0) message.error(`${fail} 个云盘删除失败`);
           setSelectedRowKeys([]);
           burstRefreshVolumes();
         } catch (e: any) {
@@ -876,7 +875,7 @@ const VolumesSection: React.FC<Props> = ({
       const iid = String(vm.InstanceId || '');
       modal.confirm({
         title: '无法确定挂载的磁盘名称',
-        content: '请先在虚机内卸载该卷（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
+        content: '请先在虚机内卸载该云盘（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
         okText: '重启虚拟机',
         cancelText: '取消',
         onOk: async () => {
@@ -904,7 +903,7 @@ const VolumesSection: React.FC<Props> = ({
 
     modal.confirm({
       title: '确认卸载',
-      content: `将从云主机 ${vm.InstanceName || vm.InstanceId} 卸载卷 ${r.name}`,
+      content: `将从云主机 ${vm.InstanceName || vm.InstanceId} 卸载云盘 ${r.name}`,
       onOk: async () => {
         try {
           // 先试全名 ID，不行再试短 ID
@@ -934,21 +933,22 @@ const VolumesSection: React.FC<Props> = ({
     { 
       title: '云盘名称 (PVC)', 
       dataIndex: 'name',
-      key: 'name', 
+      key: 'name',
+      fixed: 'left' as const,
       render: (_: string, r: VolumeView) => {
         const vm = SafeRead.attachedVm(r);
         const isSystemDisk = checkIsSystemDisk(r, vm);
         return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
-            <HddTwoTone/>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%', whiteSpace: 'nowrap' }}>
+            <HddTwoTone style={{ display: 'inline-block', verticalAlign: 'middle' }}/>
             <span
               className="cell-link"
               onClick={() => handleOpenVolumeDetail(r, 'detail')}
-              style={{ cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+              style={{ cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
             >
               {r.alias || r.name}
             </span>
-            {isSystemDisk && <Tag color="blue">系统盘</Tag>}
+            {isSystemDisk && <Tag color="blue" style={{ display: 'inline-block', verticalAlign: 'middle' }}>系统盘</Tag>}
           </span>
         );
       }
@@ -1021,7 +1021,7 @@ const VolumesSection: React.FC<Props> = ({
       }
     },
     { 
-      title: '卷类型', 
+      title: '云盘类型', 
       dataIndex: 'volumeMode',
       key: 'volumeMode',
       render: (v: string) => <span className="text-secondary">{v || '-'}</span>
@@ -1061,7 +1061,6 @@ const VolumesSection: React.FC<Props> = ({
     { 
       title: '操作', 
       key: 'actions', 
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: VolumeView) => {
         const vm = SafeRead.attachedVm(r);
@@ -1070,7 +1069,7 @@ const VolumesSection: React.FC<Props> = ({
         const items: any[] = [
           // 1. 资源详情 / 运维信息
           ...(!isTenant && !isStandardView ? [
-            { key: 'volume_detail', label: '卷详情', onClick: () => handleOpenVolumeDetail(r, 'detail') },
+            { key: 'volume_detail', label: '云盘详情', onClick: () => handleOpenVolumeDetail(r, 'detail') },
             { key: 'detail', label: '查看YAML', onClick: () => handleOpenOpsDrawer(r, 'detail') },
           ] : []),
           
@@ -1131,7 +1130,7 @@ const VolumesSection: React.FC<Props> = ({
           },
           { 
             key: 'clone', 
-            label: '克隆虚拟卷', 
+            label: '克隆云盘', 
             disabled: !hasDisksWrite,
             onClick: () => { 
               if (!ensureDisksWrite()) return;
@@ -1168,12 +1167,17 @@ const VolumesSection: React.FC<Props> = ({
                   <div>
                     <div style={{ marginBottom: 8 }}>云盘：{diskLabel}</div>
                     {vm ? (
-                      <div style={{ color: '#d48806' }}>该卷仍挂载在云主机：{vmLabel}。删除可能失败，请先卸载。</div>
+                      <div style={{ color: '#d48806' }}>该云盘仍挂载在云主机：{vmLabel}，请先卸载后再删除。</div>
                     ) : null}
                     <div>删除后无法恢复。</div>
                   </div>
                 ),
-                okText: '确认', cancelText: '取消', okButtonProps: { danger: true },
+                okText: '确认', cancelText: '取消', 
+                okButtonProps: { 
+                  danger: true,
+                  disabled: !!vm,
+                  title: vm ? `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除` : undefined
+                },
                 onOk: async () => { 
                   try { 
                     await deleteHarvesterVolume(cloudId, r.namespace, r.name); 
@@ -1257,7 +1261,7 @@ const VolumesSection: React.FC<Props> = ({
             setVolumeCreateSeed(null);
             setCreateModalNonce((n) => n + 1);
             setCreateOpen(true); 
-          }}>创建卷</Button>
+          }}>创建云盘</Button>
           <Tooltip
             title={
               !hasDisksWrite
@@ -1318,6 +1322,7 @@ const VolumesSection: React.FC<Props> = ({
       {/* 主内容：云盘列表 */}
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey="key"
         rowSelection={{
@@ -1327,9 +1332,7 @@ const VolumesSection: React.FC<Props> = ({
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />
@@ -1364,75 +1367,110 @@ const VolumesSection: React.FC<Props> = ({
       />
 
       {/* 从卷导出为 VirtualMachineImage */}
-      <StdFormModal
-        title="导出为镜像" open={exportOpen} onCancel={() => setExportOpen(false)}
+      <Modal
+        title="导出为镜像"
+        open={exportOpen}
+        onCancel={() => setExportOpen(false)}
+        onOk={() => exportForm.submit()}
         okText="导出"
-        form={exportForm}
-        onFinish={async (v: any) => {
-          try {
-            if (!currentRecord) return;
-            await exportHarvesterImageFromVolume(cloudId, currentRecord.namespace, currentRecord.name, {
-              displayName: v.displayName,
-              targetStorageClassName: v.targetStorageClassName
-            });
-            message.success('任务已提交');
-            setExportOpen(false);
-            // 刷新镜像列表（导出后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
-            // 静默刷新，不显示提示信息
-            onRefreshImages?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
-          } catch (e: any) { message.error(e.message || '导出失败'); }
-        }}
+        centered
+        destroyOnHidden
+        width={600}
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
       >
+        <Form
+          form={exportForm}
+          layout="vertical"
+          onFinish={async (v: any) => {
+            try {
+              if (!currentRecord) return;
+              await exportHarvesterImageFromVolume(cloudId, currentRecord.namespace, currentRecord.name, {
+                displayName: v.displayName,
+                targetStorageClassName: v.targetStorageClassName
+              });
+              message.success('导出镜像任务已提交，在云主机镜像列表能看到导出的镜像数据');
+              setExportOpen(false);
+              onRefreshImages?.(true, true);
+            } catch (e: any) {
+              message.error(e.message || '导出失败');
+            }
+          }}
+        >
           <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item label="存储类" name="targetStorageClassName">
             <Select allowClear options={createVolumeStorageClassOptions} style={{ width: '100%' }} />
           </Form.Item>
-      </StdFormModal>
+        </Form>
+      </Modal>
 
       {/* 创建 VolumeSnapshot */}
-      <StdFormModal
-        title="创建快照" open={snapshotOpen} onCancel={() => setSnapshotOpen(false)}
+      <Modal
+        title="创建快照"
+        open={snapshotOpen}
+        onCancel={() => setSnapshotOpen(false)}
+        onOk={() => snapshotForm.submit()}
         okText="创建"
-        form={snapshotForm}
-        onFinish={async (v: any) => {
-          try {
-            if (!currentRecord) return;
-            const id = `id-vs-${Math.random().toString(36).substring(2, 13)}`;
-            await createHarvesterVolumeSnapshot(cloudId, currentRecord.namespace, currentRecord.name, {
-              name: id,
-              snapshotClassName: 'longhorn-snapshot',
-              alias: v.name 
-            });
-            message.success('创建成功');
-            setSnapshotOpen(false);
-            // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
-            // 静默刷新，不显示提示信息
-            onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
-          } catch (e: any) { message.error(e.message || '创建失败'); }
-        }}
+        centered
+        destroyOnHidden
+        width={600}
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
       >
-          <Form.Item  rules={[{ required: true, message: '请输入快照名称' }]} label="快照名称" name="name"><Input placeholder="留空自动生成" /></Form.Item>
-      </StdFormModal>
+        <Form
+          form={snapshotForm}
+          layout="vertical"
+          onFinish={async (v: any) => {
+            try {
+              if (!currentRecord) return;
+              const id = `id-vs-${Math.random().toString(36).substring(2, 13)}`;
+              await createHarvesterVolumeSnapshot(cloudId, currentRecord.namespace, currentRecord.name, {
+                name: id,
+                snapshotClassName: 'longhorn-snapshot',
+                alias: v.name
+              });
+              message.success('创建成功');
+              setSnapshotOpen(false);
+              onRefresh?.(true, true);
+            } catch (e: any) {
+              message.error(e.message || '创建失败');
+            }
+          }}
+        >
+          <Form.Item rules={[{ required: true, message: '请输入快照名称' }]} label="快照名称" name="name"><Input placeholder="留空自动生成" /></Form.Item>
+        </Form>
+      </Modal>
 
       {/* 扩容（仅 Bound 等允许状态下可用） */}
-      <StdFormModal
-        title="编辑配置" open={editOpen} onCancel={() => setEditOpen(false)}
+      <Modal
+        title="编辑配置"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={() => editForm.submit()}
         okText="保存"
-        form={editForm}
-        onFinish={async (v: any) => {
-          try {
-            if (!currentRecord) return;
-            await updateHarvesterVolume(cloudId, currentRecord.namespace, currentRecord.name, {
-              sizeGi: Number(v.sizeGi)
-            });
-            message.success('更新成功');
-            setEditOpen(false);
-            onRefresh?.();
-          } catch (e: any) { message.error(e.message || '更新失败'); }
-        }}
+        centered
+        destroyOnHidden
+        width={600}
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
       >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={async (v: any) => {
+            try {
+              if (!currentRecord) return;
+              await updateHarvesterVolume(cloudId, currentRecord.namespace, currentRecord.name, {
+                sizeGi: Number(v.sizeGi)
+              });
+              message.success('更新成功');
+              setEditOpen(false);
+              onRefresh?.(true, true);
+            } catch (e: any) {
+              message.error(e.message || '更新失败');
+            }
+          }}
+        >
           <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
-      </StdFormModal>
+        </Form>
+      </Modal>
 
       <VolumeCloneModal
         open={cloneOpen}

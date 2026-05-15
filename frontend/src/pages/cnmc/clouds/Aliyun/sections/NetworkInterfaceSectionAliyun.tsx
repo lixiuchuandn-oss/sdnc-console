@@ -4,7 +4,6 @@ import { ReloadOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import { createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis, updateCloudProviderEni, associateAliyunEip, unassociateAliyunEip } from '../../../../../services/aliyunApi';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
-import StdFormModal from '../../../../../components/StdFormModal';
 
 type Props = {
   cloudId: string;
@@ -417,33 +416,42 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
         dataSource={filteredEniList}
         pagination={false}
       />
-      <StdFormModal
+      <Modal
         open={createOpen}
         title="创建弹性网卡"
-        form={createForm}
-        initialValues={initialCreateValues}
+        centered
+        destroyOnHidden
+        width={600}
         onCancel={() => setCreateOpen(false)}
-        onFinish={async (values) => {
-          try {
-            setCreateLoading(true);
-            await createCloudProviderEni(cloudId, {
-              vSwitchId: values.vSwitchId,
-              securityGroupId: values.securityGroupId,
-              name: values.name,
-              description: values.description,
-              ipv4Address: values.ipv4Address
-            });
-            message.success('网卡创建成功');
-            setCreateOpen(false);
-            if (onRefreshAll) await onRefreshAll();
-          } catch (e: any) {
-            message.error(e?.message || '创建网卡失败');
-          } finally {
-            setCreateLoading(false);
-          }
-        }}
+        onOk={() => createForm.submit()}
+        okText="保存"
         confirmLoading={createLoading}
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
       >
+        <Form
+          form={createForm}
+          layout="vertical"
+          initialValues={initialCreateValues}
+          onFinish={async (values) => {
+            try {
+              setCreateLoading(true);
+              await createCloudProviderEni(cloudId, {
+                vSwitchId: values.vSwitchId,
+                securityGroupId: values.securityGroupId,
+                name: values.name,
+                description: values.description,
+                ipv4Address: values.ipv4Address
+              });
+              message.success('网卡创建成功');
+              setCreateOpen(false);
+              if (onRefreshAll) await onRefreshAll();
+            } catch (e: any) {
+              message.error(e?.message || '创建网卡失败');
+            } finally {
+              setCreateLoading(false);
+            }
+          }}
+        >
         <Form.Item
           name="vSwitchId"
           label="VSwitch ID"
@@ -467,7 +475,8 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
         <Form.Item name="ipv4Address" label="私有IPv4">
           <Input placeholder="私有IPv4（可选）" />
         </Form.Item>
-      </StdFormModal>
+        </Form>
+      </Modal>
       <Modal
         open={bindOpen}
         title="绑定弹性公网IP到网卡"

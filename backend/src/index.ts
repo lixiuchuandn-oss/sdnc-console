@@ -353,6 +353,7 @@ AppDataSource.initialize()
         ensureImageUploadTaskTable,
         ensureDatacenterTopologyTables,
         ensureHarborTables,
+        ensureCephMgrDashboardSnapshotTable,
       } = await import('./config/database');
       await ensureRecycleBinTables();
       await ensureKubeOvnSecurityGroupTables();
@@ -361,8 +362,16 @@ AppDataSource.initialize()
       await ensureImageUploadTaskTable();
       await ensureDatacenterTopologyTables();
       await ensureHarborTables();
+      await ensureCephMgrDashboardSnapshotTable();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
+    }
+
+    try {
+      const { mergeSecurityDomainCategoryLegacy } = await import('./utils/mergeSecurityDomainCategoryLegacy');
+      await mergeSecurityDomainCategoryLegacy(AppDataSource);
+    } catch (e) {
+      logger.warn('安全域 category 历史数据合并失败:', e);
     }
 
     // 启动云资源同步任务

@@ -15,6 +15,45 @@ html, body, #root {
   font-family: 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
 }
 
+/* --------------------------------------------------------------------------
+   全局滚动条（浅色系，WebKit / Firefox）
+   更具体的选择器或 scrollbar-width: none 仍可覆盖本段。
+   -------------------------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  /* Firefox：滑块色 / 轨道无底色 */
+  scrollbar-color: #eceef2 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #eceef2;
+  border-radius: 4px;
+  border: 2px solid transparent; /* 留白，不显轨道底色 */
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #dfe3ea;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 /* 让图标按钮中的 SVG 垂直居中 */
 .ant-btn-icon-only .ant-btn-icon {
   display: flex;
@@ -26,15 +65,15 @@ html, body, #root {
   vertical-align: middle !important;
 }
 
-/* Input / Number 的 prefix：主题蓝（不覆盖更具体作用域，如顶栏/登录卡片的局部覆盖） */
+/* Input / Number 的 prefix：浅灰（不覆盖更具体作用域，如顶栏/登录卡片的局部覆盖） */
 .ant-input-affix-wrapper .ant-input-prefix,
 .ant-input-number-affix-wrapper .ant-input-number-prefix {
-  color: #1890ff;
+  color: #bfbfbf;
 }
 
 /* Select 的 prefix：antd 5 用 CSS-in-JS 后注入会覆盖普通全局色，需 !important 才能压过；顶栏等仍可用更高优先级 + !important 覆盖为浅色 */
 .ant-select .ant-select-prefix {
-  color: #1890ff !important;
+  color: #bfbfbf !important;
 }
 
 .ant-input-affix-wrapper-disabled .ant-input-prefix,
@@ -205,6 +244,57 @@ html, body, #root {
   width: 100%;
 }
 
+/*
+ * .std-table：全站版式 A，首列左冻、行操作列右冻，须 scroll.x。表头/单元格默认 nowrap，多行在子节点设 white-space: normal。
+ * 无数据时根节点带 .ant-table-empty；对空表不套下段 max(100%, max-content)，由再下一节空表规则单独收，避免空表误出横条。
+ */
+.std-table.ant-table-wrapper .ant-table:not(.ant-table-empty) table {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: max(100%, max-content);
+}
+
+/*
+ * 无数据（.ant-table-empty）：不再套用上一段 max(100%, max-content)；关横向溢出层，内联 minWidth 须 !important 才压得住。
+ * 有行后 div 无 ant-table-empty 类，自动回到上一段。
+ */
+.std-table.ant-table-wrapper .ant-table.ant-table-empty table,
+.std-table .ant-table.ant-table-empty table {
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.std-table .ant-table.ant-table-empty .ant-table-content,
+.std-table .ant-table.ant-table-empty .ant-table-header,
+.std-table .ant-table.ant-table-empty .ant-table-body,
+.std-table .ant-table.ant-table-empty .ant-table-container {
+  overflow-x: hidden !important;
+}
+
+/*
+ * 少列 + 固定列 + 纵向滚动时，经典竖向滚动条占宽，若未预留「竖条槽」，主区域宽度与 table 的 100% / min-width 会差 1~若干像素，易误出「幽灵」横向滚动条，Harvester/监控等场景尤其明显。
+ * 表头/表体同步预留，避免列错位。
+ * https://developer.mozilla.org/en-US/docs/Web/CSS/scrollbar-gutter
+ */
+.std-table .ant-table-header,
+.std-table .ant-table-body {
+  scrollbar-gutter: stable;
+}
+
+/*
+ * 上层常为 flex 子项；子项默认可小宽度为 `min-width: auto`（受内容/内部 table 影响），
+ * 少列时仍被撑出可滚动外缘，与固定列+scroll 叠加后易出现「几乎无列仍横滚」的观感。
+ * 在容器层允许收束到父级给定的宽度，真实列过多时仍由内部 `overflow` 与 col minWidth 出横滚。
+ */
+.std-table.ant-table-wrapper,
+.std-table .ant-table,
+.std-table .ant-table-container,
+.std-table .ant-table-content {
+  min-width: 0;
+}
+
 /* 表头 / 单元格：统一 .ant-table-cell（含多选列、名称列）
  * antd 多选列默认 padding-inline 为 paddingXS(8px)，与数据列 16px 不一致；
  * 需用 padding-inline / padding-block 覆盖逻辑属性，避免与全局 padding 简写冲突。 */
@@ -213,6 +303,7 @@ html, body, #root {
   padding: 12px 16px !important;
   padding-inline: 16px !important;
   padding-block: 12px !important;
+  white-space: nowrap;
 }
 
 .std-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell {
@@ -226,6 +317,24 @@ html, body, #root {
   line-height: 32px;
   color: #1f2329;
   border-bottom: 1px solid #e5e6eb;
+}
+
+/*
+ * Ceph 存储池展开行内「详细信息 / 性能 / 配置」：仍用 std-table 冻结与 scroll，但全局 12px+32px 行高过大；
+ * 与 Table size=small 对齐，收紧 padding 与行高（需叠在上一段 !important 之后）。
+ */
+.ceph-pool-detail-table.ant-table-wrapper .ant-table {
+  font-size: 12px;
+}
+.ceph-pool-detail-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell,
+.ceph-pool-detail-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell {
+  padding-block: 4px !important;
+  padding-inline: 10px !important;
+  line-height: 1.35 !important;
+}
+.ceph-pool-detail-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell:not(:first-child) {
+  white-space: normal !important;
+  vertical-align: top;
 }
 
 /* 多选列：左右与其它列一致，复选框居中 */
@@ -965,4 +1074,25 @@ html, body, #root {
 .vr-nic-ipv6-cell {
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* ==========================================================================
+   通用抽屉 · 内容区四边等距内边距（与 Ant Design 默认 paddingLG / 24px 对齐）
+   用法：<Drawer classNames={{ body: 'ct-drawer-body-padding-even' }} />
+   ========================================================================== */
+.ct-drawer-body-padding-even {
+  padding: 24px !important;
+}
+
+/* Ceph Rook 存储池抽屉 · 折叠面板内容区等距内边距（覆盖 small 预设不对称 padding） */
+.ceph-rook-pool-drawer-collapse .ant-collapse-content-box {
+  padding: 16px !important;
+}
+
+/* 抽屉内表单：标签与折叠标题不加粗，随系统默认字重 */
+.ceph-rook-pool-drawer-form .ant-form-item-label > label {
+  font-weight: normal;
+}
+.ceph-rook-pool-drawer-form .ant-collapse-header-text {
+  font-weight: normal;
 }

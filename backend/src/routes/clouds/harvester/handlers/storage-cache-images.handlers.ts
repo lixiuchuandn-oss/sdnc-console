@@ -61,12 +61,19 @@ function mapImageInventoryToListItem(
   const size = r.status?.size || i.size || 0;
   const progress = r.status?.progress || i.progress || 0;
   const conditions = r.status?.conditions || [];
+  const sourceType = r.spec?.sourceType || r.sourceType || '';
   let state = 'Unknown';
   const imported = conditions.find((c: { type?: string }) => c.type === 'Imported');
   if (imported?.status === 'True') state = 'Active';
   else if (imported?.status === 'False') state = 'Failed';
   // progress 为 0 且尚无 Imported 结论时勿标成 Downloading（缓存缺 conditions 时易全员误判）
-  else if (progress > 0 && progress < 100) state = 'Downloading';
+  else if (progress > 0 && progress < 100) {
+    // 根据 sourceType 区分不同的状态
+    if (sourceType === 'upload') state = 'Uploading';
+    else if (sourceType === 'download') state = 'Importing';
+    else if (sourceType === 'export') state = 'Exporting';
+    else state = 'Downloading';
+  }
 
   return {
     ...r,
@@ -78,6 +85,7 @@ function mapImageInventoryToListItem(
     size,
     progress,
     state,
+    sourceType,
     createdAt: r.metadata?.creationTimestamp,
     conditions,
   };
@@ -269,6 +277,20 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     if (!namespace || !(name || displayName))
       return res.status(400).json({ message: '缺少必填参数：namespace、name 或 displayName' });
     
+    const displayStr = displayName || name || 'image';
+    
+    const existingRepo = AppDataSource.getRepository(HarvesterImageInventory);
+    const existingImage = await existingRepo.findOne({
+      where: {
+        cloudId: cloud.id,
+        displayName: displayStr,
+      },
+    });
+    
+    if (existingImage) {
+      return res.status(500).json({ message: `创建镜像失败:镜像名称${displayStr}已存在，请更换镜像名称再试` });
+    }
+    
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
@@ -284,7 +306,6 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     const urlV1 = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
       namespace,
     )}/virtualmachineimages`;
-    const displayStr = displayName || name || 'image';
     const diskFmtLower = String(diskFormat || '').toLowerCase();
     const imageTypeLabel: 'iso' | 'disk' | undefined =
       diskFmtLower === 'iso' ? 'iso' : diskFmtLower === 'qcow2' || diskFmtLower === 'raw' ? 'disk' : undefined;
@@ -373,9 +394,23 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     res.json({ message: '创建成功', data: json });
   } catch (error: any) {
     if (res.headersSent) return;
-    res.status(500).json({ message: '创建镜像失败', error: error.message });
+    const body = (req.body || {}) as any;
+    const displayStr = body.displayName || body.name || 'image';
+    
+    console.error('[Image-Create] 创建镜像失败，详细错误:', JSON.stringify(error, null, 2));
+    
+    const errorMsg = error.message || String(error);
+    const errorBody = error.body ? (typeof error.body === 'object' ? JSON.stringify(error.body) : String(error.body)) : '';
+    const combinedError = (errorMsg + ' ' + errorBody).toLowerCase();
+    
+    if (combinedError.includes('already exists') || combinedError.includes('镜像名称') || (combinedError.includes('name') && combinedError.includes('exist'))) {
+      res.status(500).json({ message: `创建镜像失败:镜像名称${displayStr}已存在，请更换镜像名称再试` });
+    } else {
+      res.status(500).json({ message: '创建镜像失败', error: errorMsg });
+    }
   }
 }
+// restart trigger
 
 /**
  * PATCH /:id/resources/harvester/images/:namespace/:name/patch - Patch 镜像
@@ -487,6 +522,11 @@ export async function harvesterImageDeleteHandler(req: Request, res: Response) {
       namespace,
     )}/${encodeURIComponent(name)}`;
     await requestJson('DELETE', url, cloud.secretKey || '', insecure, undefined);
+    
+    // 同步删除本地数据库中的镜像记录
+    const repo = AppDataSource.getRepository(HarvesterImageInventory);
+    await repo.delete({ cloudId: id, namespace, name });
+    
     res.json({ message: '删除成功' });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -676,7 +716,22 @@ async function updateTaskProgress(
   if (!t) return null;
   Object.assign(t, patch);
   t.updatedAt = new Date();
-  return await repo.save(t);
+  const saved = await repo.save(t);
+  
+  // 同步更新镜像库存记录的进度
+  if (patch.progress !== undefined && t.cloudId && t.namespace && t.createdImageName) {
+    try {
+      const imageRepo = AppDataSource.getRepository(HarvesterImageInventory);
+      await imageRepo.update(
+        { cloudId: t.cloudId, namespace: t.namespace, name: t.createdImageName },
+        { progress: patch.progress }
+      );
+    } catch (e) {
+      console.warn('Failed to update image inventory progress', e);
+    }
+  }
+  
+  return saved;
 }
 
 /** 磁盘文件或 HTTP 请求体 → Harvester 的统一字节源描述 */
@@ -812,6 +867,13 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     // 兼容不同 Harvester 版本：创建响应可能没有立即返回 upload URL，需要轮询详情
     const createdImageName = created?.metadata?.name || '';
     const createdImageNamespace = created?.metadata?.namespace || task.namespace;
+    
+    // 保存创建的镜像名称到任务记录，以便后续同步进度
+    if (createdImageName) {
+      task.createdImageName = createdImageName;
+      task.createdImageNamespace = createdImageNamespace;
+      await repo.save(task);
+    }
     if (!uploadUrl) {
       const imageName = createdImageName;
       const imageNamespace = created?.metadata?.namespace || task.namespace;

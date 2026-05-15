@@ -72,7 +72,7 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { cnVmStatus, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../../../components/OsIcon';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import RecycleBinTaskConfigModal from '../../ecs/modals/RecycleBinTaskConfigModal';
@@ -80,6 +80,7 @@ import RecycleBinRecordsSection from './RecycleBinRecordsSection';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { formatStorageSize, parseStorageSize } from '../lib/storageSize';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -97,7 +98,7 @@ interface Props {
   vms: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: (force?: boolean) => void | Promise<void>;
   namespaces?: any[];
   volumes?: any[];
   images?: any[];
@@ -143,8 +144,6 @@ const RecycleBinSection: React.FC<Props> = ({
   // [运维信息抽屉状态] 控制资源详情抽屉的显示
   const [drawerVisible, setDrawerVisible] = useState(false); // 抽屉是否可见
   const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null); // 当前查看的 VM 记录
-  const [drawerActiveTab, setDrawerActiveTab] = useState('detail'); // 抽屉当前激活的标签页
-
   // [配置模态框状态] 控制任务配置模态框的显示
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [recordsDrawerVisible, setRecordsDrawerVisible] = useState(false);
@@ -176,65 +175,6 @@ const RecycleBinSection: React.FC<Props> = ({
   // [工具函数] 3. 辅助函数 (Utility Functions)
   // ==========================================
   
-  /**
-   * 解析存储大小字符串，转换为 GiB 数值
-   * 
-   * 支持的格式:
-   * - 纯数字: 视为字节数，转换为 GiB
-   * - 带单位: 如 "10Gi", "500Mi", "2Ti" 等
-   * - 支持二进制单位 (Ki, Mi, Gi, Ti) 和十进制单位 (K, KB, M, MB, G, GB, T, TB)
-   * 
-   * @param sizeStr - 存储大小字符串，如 "10Gi", "500Mi", "10737418240" 等
-   * @returns 以 GiB 为单位的数值
-   * 
-   * @example
-   * parseStorageSize("10Gi") => 10
-   * parseStorageSize("500Mi") => 0.48828125
-   * parseStorageSize("10737418240") => 10
-   */
-  const parseStorageSize = (sizeStr: string): number => {
-    if (!sizeStr) return 0;
-    const str = String(sizeStr).trim();
-    if (/^\d+$/.test(str)) {
-      const bytes = parseFloat(str);
-      return bytes / (1024 ** 3);
-    }
-    const units: Record<string, number> = {
-      ki: 1024, mi: 1024 ** 2, gi: 1024 ** 3, ti: 1024 ** 4,
-      k: 1000, kb: 1000, m: 1000 ** 2, mb: 1000 ** 2, g: 1000 ** 3, gb: 1000 ** 3, t: 1000 ** 4, tb: 1000 ** 4,
-    };
-    const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
-    if (!match) return parseFloat(str) || 0;
-    const val = parseFloat(match[1]);
-    const unit = match[2].toLowerCase();
-    const mul = units[unit];
-    if (!mul) return val;
-    return (val * mul) / (1024 ** 3);
-  };
-
-  /**
-   * 格式化存储大小为可读字符串
-   * 
-   * 根据大小自动选择合适的单位:
-   * - < 1 GiB: 显示为 MiB
-   * - >= 1024 GiB: 显示为 TiB
-   * - 其他: 显示为 GiB
-   * 
-   * @param sizeGiB - 以 GiB 为单位的存储大小
-   * @returns 格式化后的字符串，如 "500 MiB", "10 GiB", "2.5 TiB"
-   * 
-   * @example
-   * formatStorageSize(0.5) => "512 MiB"
-   * formatStorageSize(10) => "10 GiB"
-   * formatStorageSize(2048) => "2.0 TiB"
-   */
-  const formatStorageSize = (sizeGiB: number): string => {
-    if (sizeGiB === 0) return '-';
-    if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
-    if (sizeGiB >= 1024) return `${(sizeGiB / 1024).toFixed(1)} TiB`;
-    return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
-  };
-
   /**
    * 获取虚拟机的唯一标识符
    * 
@@ -601,7 +541,7 @@ const RecycleBinSection: React.FC<Props> = ({
     try {
       await restoreHarvesterVm(cloudId, instanceId);
       message.success('恢复成功');
-      onRefresh(true);
+      await Promise.resolve(onRefresh(true));
     } catch (e: any) {
       message.error(`恢复失败: ${e.message}`);
     }
@@ -610,15 +550,11 @@ const RecycleBinSection: React.FC<Props> = ({
   /**
    * 显示运维信息抽屉
    * 
-   * 打开 HarvesterResourceDrawer 查看虚拟机的详细信息
+   * 打开 CRD / 注解 / 标签 抽屉
    * 在租户模式下，此功能会被隐藏
-   * 
-   * @param record - 要查看的虚拟机对象
-   * @param tab - 初始激活的标签页（默认为 'detail'）
    */
-  const handleShowOpsinfo = useCallback((record: any, tab: string = 'detail') => {
+  const handleShowOpsinfo = useCallback((record: any) => {
     setCurrentDrawerRecord(record);
-    setDrawerActiveTab(tab);
     setDrawerVisible(true);
   }, []);
 
@@ -697,7 +633,7 @@ const RecycleBinSection: React.FC<Props> = ({
         try {
           await forceDeleteHarvesterVm(cloudId, instanceId, shouldDeleteVolumes);
           message.success('虚拟机已彻底删除');
-          onRefresh(true);
+          await Promise.resolve(onRefresh(true));
         } catch (e: any) {
           message.error(`彻底删除失败: ${e.message}`);
         }
@@ -743,7 +679,7 @@ const RecycleBinSection: React.FC<Props> = ({
         const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
         const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
         return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <OsIcon osName={osName} style={{ flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{text}</span>
             {isImportant && (
@@ -941,7 +877,6 @@ const RecycleBinSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const hasAnyPermission = hasRecycleBinWrite;
@@ -956,7 +891,7 @@ const RecycleBinSection: React.FC<Props> = ({
             {
               key: 'opsinfo',
               label: '查看YAML',
-              onClick: () => handleShowOpsinfo(r, 'detail'),
+              onClick: () => handleShowOpsinfo(r),
             },
           ] : []),
           { type: 'divider' },
@@ -1064,28 +999,32 @@ const RecycleBinSection: React.FC<Props> = ({
          * 工具栏右侧: 操作按钮
          * 
          * 包含:
-         * 1. 设定清理间隔 - 打开配置对话框，设置自动清理任务的执行间隔
+         * 1. 设定清理间隔 - 管理员/运维可见；租户端不展示
          * 2. 列设置按钮 - 使用 TableColumnSettingsButton 组件，管理列的显示/隐藏
          * 3. 刷新按钮 - 手动刷新数据列表
          */
         <div className="toolbar-actions">
-          <Tooltip title={undefined}>
-            <span>
-              <Button
-                type="primary"
-                disabled={!hasRecycleBinWrite}
-                onClick={() => {
-                  if (!hasRecycleBinWrite) {
-                    message.error('当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）');
-                    return;
-                  }
-                  setConfigModalVisible(true);
-                }}
-              >
-                任务配置
-              </Button>
-            </span>
-          </Tooltip>
+          {!isTenant && (
+            <Tooltip title={undefined}>
+              <span>
+                <Button
+                  type="primary"
+                  disabled={!hasRecycleBinWrite}
+                  onClick={() => {
+                    if (!hasRecycleBinWrite) {
+                      message.error(
+                        '当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）',
+                      );
+                      return;
+                    }
+                    setConfigModalVisible(true);
+                  }}
+                >
+                  任务配置
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Button onClick={() => setRecordsDrawerVisible(true)}>
             回收站记录
           </Button>
@@ -1093,20 +1032,19 @@ const RecycleBinSection: React.FC<Props> = ({
             allColumns={allColumns}
             settingsKey="harvester_recycle_bin_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh()} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading} />
         </div>
       }
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredVms}
         columns={displayColumns}
         loading={loading}
         rowKey={(r: any) => SafeRead.uid(r)}
-        scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         locale={{
@@ -1119,40 +1057,31 @@ const RecycleBinSection: React.FC<Props> = ({
         运维信息抽屉 (Resource Detail Drawer)
         ========================================
         
-        用于显示虚拟机的详细信息，包括:
-        - 基本信息
-        - YAML 配置
-        - 事件日志
-        - 关联资源等
+        用于显示虚拟机的 CRD（YAML）、注解与标签编辑（HarvesterCrdMetadataDrawer）。
         
         注意: 在租户模式下，此抽屉不会显示（isTenant 控制）
       */}
       {drawerRecord && (
-        <HarvesterResourceDrawer
+        <HarvesterCrdMetadataDrawer
           open={drawerVisible}
           onClose={() => {
             setDrawerVisible(false);
             setCurrentDrawerRecord(null);
           }}
-          resourceType="VirtualMachine"
-          forceOpsMode={true}
-          record={drawerRecord}
-          activeTab={drawerActiveTab}
-          onTabChange={setDrawerActiveTab}
           cloudId={cloudId}
-          namespaces={namespaces}
-          volumes={volumes}
-          images={images}
-          onRefresh={onRefresh}
+          record={drawerRecord}
+          onSuccess={() => void onRefresh(true)}
         />
       )}
-      <RecycleBinTaskConfigModal
-        open={configModalVisible}
-        onClose={() => setConfigModalVisible(false)}
-        onSuccess={() => {
-          console.log('回收站任务配置已更新');
-        }}
-      />
+      {!isTenant && (
+        <RecycleBinTaskConfigModal
+          open={configModalVisible}
+          onClose={() => setConfigModalVisible(false)}
+          onSuccess={() => {
+            console.log('回收站任务配置已更新');
+          }}
+        />
+      )}
       <Drawer
         title="回收站记录"
         width={1200}

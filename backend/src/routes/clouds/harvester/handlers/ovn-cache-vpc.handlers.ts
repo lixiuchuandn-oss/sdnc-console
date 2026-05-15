@@ -37,6 +37,7 @@ import { KubeOvnVpcInventory } from '../../../../entities/kubeovn/KubeOvnVpcInve
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubeOvnVpcs } from '../../../../services/clouds/harvester/inventory';
 import { createKubeOvnVpc, deleteKubeOvnVpc, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
+import { listKubeOvnSubnets, listKubeOvnEips, listKubeOvnFips } from '../../../../services/clouds/harvester/network';
 import { licenseService } from '../../../../services/LicenseService';
 import { checkTenantAccess } from '../harvester.direct.helpers';
 import {
@@ -237,15 +238,111 @@ export async function harvesterVpcDeleteHandler(req: Request, res: Response) {
     const cloud = (req as any).cloud;
     const { name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+    const nameTrim = String(name || '').trim();
+    if (!nameTrim) {
+      return res.status(400).json({ message: '缺少 VPC 名称' });
+    }
+
+    let subnetItems: any[] = [];
+    try {
+      subnetItems = await listKubeOvnSubnets({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      });
+    } catch (e: any) {
+      return res.status(503).json({
+        message: '暂时无法枚举子网，无法在删除 VPC 前完成校验，请稍后重试。',
+        error: e?.message || String(e),
+      });
+    }
+    const subnetsOnVpc = subnetItems.filter(
+      (s: any) => String(s?.spec?.vpc ?? '').trim() === nameTrim,
+    );
+    if (subnetsOnVpc.length > 0) {
+      const sample = subnetsOnVpc
+        .slice(0, 8)
+        .map((s: any) => String(s?.metadata?.name || '').trim())
+        .filter(Boolean);
+      const ellipsis = subnetsOnVpc.length > 8 ? '…' : '';
+      return res.status(409).json({
+        message: `该 VPC 下仍存在子网，请先删除这些子网后再删除 VPC。（当前 ${subnetsOnVpc.length} 个，示例：${sample.join('、') || subnetsOnVpc.length}${ellipsis}）`,
+      });
+    }
+
+    const TOWER_IO_VPC = 'tower.io/vpc';
+    const TOWER_IO_ALIAS = 'tower.io/alias';
+
+    let eipItems: any[] = [];
+    try {
+      eipItems = await listKubeOvnEips({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      });
+    } catch (e: any) {
+      return res.status(503).json({
+        message: '暂时无法枚举弹性公网IP，无法在删除 VPC 前完成校验，请稍后重试。',
+        error: e?.message || String(e),
+      });
+    }
+    const eipsOnVpc = eipItems.filter(
+      (e: any) => String(e?.metadata?.annotations?.[TOWER_IO_VPC] || '').trim() === nameTrim,
+    );
+    if (eipsOnVpc.length > 0) {
+      const sample = eipsOnVpc
+        .slice(0, 5)
+        .map((e: any) => {
+          const alias = String(e?.metadata?.annotations?.[TOWER_IO_ALIAS] || '').trim();
+          const name = String(e?.metadata?.name || '').trim();
+          return alias || name;
+        })
+        .filter(Boolean);
+      const ellipsis = eipsOnVpc.length > 5 ? '…' : '';
+      return res.status(409).json({
+        message: `当前VPC被弹性公网IP（${sample.join('、')}${ellipsis}）使用`,
+      });
+    }
+
+    let fipItems: any[] = [];
+    try {
+      fipItems = await listKubeOvnFips({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      });
+    } catch (e: any) {
+      return res.status(503).json({
+        message: '暂时无法枚举弹性公网IP绑定，无法在删除 VPC 前完成校验，请稍后重试。',
+        error: e?.message || String(e),
+      });
+    }
+    const fipsOnVpc = fipItems.filter(
+      (f: any) => String(f?.spec?.vpc || '').trim() === nameTrim,
+    );
+    if (fipsOnVpc.length > 0) {
+      const sample = fipsOnVpc
+        .slice(0, 5)
+        .map((f: any) => {
+          const alias = String(f?.metadata?.annotations?.[TOWER_IO_ALIAS] || '').trim();
+          const name = String(f?.metadata?.name || '').trim();
+          return alias || name;
+        })
+        .filter(Boolean);
+      const ellipsis = fipsOnVpc.length > 5 ? '…' : '';
+      return res.status(409).json({
+        message: `当前VPC被弹性公网IP绑定（${sample.join('、')}${ellipsis}）使用`,
+      });
+    }
 
     await deleteKubeOvnVpc(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      name
+      nameTrim,
     );
 
     // 从数据库删除
     const repo = AppDataSource.getRepository(KubeOvnVpcInventory);
-    await repo.delete({ cloudId: cloud.id, name });
+    await repo.delete({ cloudId: cloud.id, name: nameTrim });
 
     res.json({ message: '删除成功' });
   } catch (error: any) {

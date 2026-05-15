@@ -9,9 +9,8 @@
  * - 提交时调用 migrateHarvesterVm，携带 instanceId 与目标节点。
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { Form, Select, message, Typography, Table, Space, Progress } from 'antd';
+import { Form, Modal, Select, message, Typography, Table, Space, Progress } from 'antd';
 import { CloudServerOutlined, AimOutlined } from '@ant-design/icons';
-import StdFormModal from '../../../../../../components/StdFormModal';
 import {
   migrateHarvesterVm,
   fetchHarvesterResourceByLink,
@@ -274,7 +273,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
       const target = values?.targetNode === '__AUTO__' ? undefined : values?.targetNode;
       await migrateHarvesterVm(cloudId, instanceId, target);
 
-      message.success('迁移任务已提交');
+      message.success('迁移任务已提交，在迁移记录页面可看到迁移进度');
       onOk();
       onClose();
     } catch (error: any) {
@@ -411,6 +410,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
           <Space size={6}>
             <CloudServerOutlined style={{ color: '#1677ff' }} />
             <span>当前节点</span>
+            {currentNodeName && <span style={{ color: '#8c8c8c', fontSize: '12px' }}>（{currentNodeName}）</span>}
           </Space>
         ),
         dataIndex: 'current',
@@ -422,6 +422,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
           <Space size={6}>
             <AimOutlined style={{ color: '#52c41a' }} />
             <span>目标节点</span>
+            {targetNodeName && <span style={{ color: '#8c8c8c', fontSize: '12px' }}>（{targetNodeName}）</span>}
           </Space>
         ),
         dataIndex: 'target',
@@ -438,7 +439,7 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
         },
       },
     ],
-    [targetNodeName],
+    [currentNodeName, targetNodeName],
   );
 
   const modalTitle = (
@@ -452,18 +453,19 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
   );
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title={modalTitle}
-      form={form}
       onCancel={onClose}
-      onFinish={handleFinish}
+      onOk={() => form.submit()}
       okText="开始迁移"
       confirmLoading={loading}
       width={760}
       destroyOnHidden
       centered
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form form={form} layout="vertical" onFinish={handleFinish}>
       <Form.Item
         name="targetNode"
         label="迁移目标"
@@ -492,7 +494,8 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
       <style>{`
         .vm-migrate-compare-table .ant-table-cell { vertical-align: top; }
       `}</style>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

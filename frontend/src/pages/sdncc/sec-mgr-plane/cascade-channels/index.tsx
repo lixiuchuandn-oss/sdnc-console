@@ -26,7 +26,7 @@ interface Cen {
   privateIp?: string;
 }
 
-interface SecurityDomainOption { id:string; name:string; type?:string; category?:string; subType?:string; vpcId?:string; provider?:string; region?:string; cloudId?:string; cidr?:string; cidr6?:string; vrName?:string; vrUuid?:string; vrInstanceIds?:string; vrPublicEniIds?:string; vrPrivateEniIds?:string; vrPublicIp?:string; vrPublicEip?:string; vrPrivateIp?:string; vrPublicSubnetCidr?:string; vrPrivateSubnetCidr?:string }
+interface SecurityDomainOption { id:string; name:string; type?:string; category?:string; vpcId?:string; provider?:string; region?:string; cloudId?:string; cidr?:string; cidr6?:string; vrName?:string; vrUuid?:string; vrInstanceIds?:string; vrPublicEniIds?:string; vrPrivateEniIds?:string; vrPublicIp?:string; vrPublicEip?:string; vrPrivateIp?:string; vrPublicSubnetCidr?:string; vrPrivateSubnetCidr?:string }
 
 const CenPage: React.FC = () => {
   const navigate = useNavigate();
@@ -184,7 +184,6 @@ const CenPage: React.FC = () => {
         name: d.name,
         type: d.type,
         category: d.category,
-        subType: d.subType,
         vpcId: d.vpcId,
         provider: d.provider,
         region: d.region,

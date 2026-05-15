@@ -102,8 +102,8 @@ import {
   apiPost,
 } from "../../../../../../services/api";
 import { fetchMetricRange } from "../../../../../../services/monitoringApi";
-import { VMPerformance } from "./VMPerformance";
-import HarvesterVmBackupTab from "./HarvesterVmBackupTab";
+import { VmPerformance as VMPerformance } from "../../ecs/drawers/vm-detail/tabs/VmPerformance";
+import VmBackupTab from "../../ecs/drawers/vm-detail/tabs/VmBackupTab";
 import { ReactComponent as CpuIcon } from "../../../../../../assets/clouds/cpu.svg";
 import { ReactComponent as MemIcon } from "../../../../../../assets/clouds/mem.svg";
 import { ReactComponent as DiskIcon } from "../../../../../../assets/clouds/disk.svg";
@@ -115,14 +115,13 @@ import HarvesterVmLogsTab from "./HarvesterVmLogsTab";
 import HarvesterVmDiagnosisTab from "./HarvesterVmDiagnosisTab";
 import { OsIcon } from "../../../../../../components/OsIcon";
 import VmSaveAsTemplateModal from "../../ecs/modals/VmSaveAsTemplateModal";
+import { formatStorageSize, parseStorageSize } from "../../ecs/lib/storageSize";
 import { getToken } from "../../../../../../utils/tokenStorage";
 import { useAuth } from "../../../../../../contexts/AuthContext";
 import { hasPermissionForAction } from "../../../../../../utils/accessMapping";
 
-/** 延迟加载，避免与 HarvesterOpsinfoDrawer 的静态循环依赖（其内会再引用本抽屉） */
-const LazyHarvesterResourceDrawer = React.lazy(
-  () => import("./HarvesterOpsinfoDrawer"),
-);
+/** 延迟加载：CRD + 注解/标签 运维抽屉（与 VmDetailDrawer 无循环依赖） */
+const LazyHarvesterCrdMetadataDrawer = React.lazy(() => import("./HarvesterCrdMetadataDrawer"));
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -188,7 +187,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [opsYamlDrawerOpen, setOpsYamlDrawerOpen] = useState(false);
-  const [opsYamlActiveTab, setOpsYamlActiveTab] = useState("detail");
   const { user } = useAuth();
 
   React.useEffect(() => {
@@ -633,39 +631,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // ==============================================================================
   // 8. 展示辅助函数 (Format Helpers)
   // ==============================================================================
-  // [单位换算] 统一处理 K8s 资源量字符串（Ki/Mi/Gi/Ti 与 KB/MB/GB 等）并转换为 GiB 口径显示
-  const parseStorageSize = (sizeStr: string): number => {
-    if (!sizeStr) return 0;
-    const str = String(sizeStr).trim();
-    if (/^\d+$/.test(str)) return parseFloat(str) / 1024 ** 3;
-    const units: Record<string, number> = {
-      ki: 1024,
-      mi: 1024 ** 2,
-      gi: 1024 ** 3,
-      ti: 1024 ** 4,
-      k: 1000,
-      kb: 1000,
-      m: 1000 ** 2,
-      mb: 1000 ** 2,
-      g: 1000 ** 3,
-      gb: 1000 ** 3,
-      t: 1000 ** 4,
-      tb: 1000 ** 4,
-    };
-    const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
-    if (!match) return parseFloat(str) || 0;
-    const val = parseFloat(match[1]);
-    const unit = match[2].toLowerCase();
-    const mul = units[unit];
-    return mul ? (val * mul) / 1024 ** 3 : val;
-  };
-
-  const formatStorageSize = (sizeGiB: number): string => {
-    if (sizeGiB === 0) return "-";
-    if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
-    if (sizeGiB >= 1024) return `${(sizeGiB / 1024).toFixed(1)} TiB`;
-    return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
-  };
+  // 存储量 parse/format 见 ../../ecs/lib/storageSize
 
   const formatMemoryParts = (val: any): [string, string] => {
     if (!val) return ["-", ""];
@@ -1179,12 +1145,35 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       );
       return;
     }
+
+    // [资源检查] 启动前检查 CPU/内存资源是否足够（使用共享的资源数据，同步检查）
+    const cpuRequest = Number(SafeRead.cpu(vmData)) || 0;
+    const memoryStr = String(SafeRead.memory(vmData));
+    
+    // 解析内存字符串为 GiB
+    const parseMemoryToGiB = (s: string): number => {
+      const t = s.trim();
+      const m = t.match(/^(\d+(?:\.\d+)?)([KMG]i?)?$/i);
+      if (!m) return 0;
+      const val = Number(m[1]);
+      const unit = (m[2] || '').toLowerCase();
+      if (unit === 'ki') return val / (1024 * 1024);
+      if (unit === 'mi') return val / 1024;
+      if (unit === 'gi') return val;
+      return val / (1024 * 1024 * 1024);
+    };
+    
+    const memoryRequest = parseMemoryToGiB(memoryStr);
+
+    // 获取目标节点名称（如果虚拟机已绑定到特定节点）
+    const targetNodeName = vmData?.nodeName || vmData?.spec?.template?.spec?.nodeName;
+
     try {
       const ns = SafeRead.namespace(vmData);
       const name = SafeRead.vmId(vmData);
       await startCloudProviderEcs(cloudId, `${ns}/${name}`);
       message.success("启动指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "启动失败");
     }
@@ -1202,7 +1191,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const name = SafeRead.vmId(vmData);
       await stopCloudProviderEcs(cloudId, `${ns}/${name}`, force);
       message.success("停止指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "停止失败");
     }
@@ -1222,7 +1211,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const instanceId = `${ns}/${name}`;
       await rebootCloudProviderEcs(cloudId, instanceId);
       message.success("重启指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "重启失败");
     }
@@ -1240,7 +1229,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const name = SafeRead.vmId(vmData);
       await pauseHarvesterVm(cloudId, ns, name);
       message.success("暂停指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "暂停失败");
     }
@@ -1258,7 +1247,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       const name = SafeRead.vmId(vmData);
       await unpauseHarvesterVm(cloudId, ns, name);
       message.success("恢复指令已发送");
-      onRefresh && onRefresh();
+      onRefresh && onRefresh(true);
     } catch (e: any) {
       message.error(e.message || "恢复失败");
     }
@@ -1426,7 +1415,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           message.success(
             isRunning ? "弹出CD-ROM成功，等待完成重启" : "弹出CD-ROM成功",
           );
-          onRefresh && onRefresh();
+          onRefresh && onRefresh(true);
         } catch (e: any) {
           message.error(`弹出失败: ${e.message}`);
         } finally {
@@ -1777,7 +1766,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       icon: <FileTextOutlined />,
       title: undefined,
       onClick: () => {
-        setOpsYamlActiveTab("detail");
         setOpsYamlDrawerOpen(true);
       },
     },
@@ -1813,7 +1801,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     },
   ];
 
-  // 根节点为 Fragment：主详情 Drawer + 条件渲染的 YAML 运维抽屉（React.lazy 加载 HarvesterOpsinfoDrawer，forceOpsMode 避免递归回到本组件）
+  // 根节点为 Fragment：主详情 Drawer + 条件渲染的 CRD/注解/标签 抽屉（React.lazy 加载 HarvesterCrdMetadataDrawer）
   return (
     <>
       <Drawer
@@ -3335,14 +3323,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
           {activeTab === "backup_snapshot" && (
             <div style={{ padding: "0 0 24px" }}>
-              <HarvesterVmBackupTab
+              <VmBackupTab
                 cloudId={cloudId}
                 record={vmData}
                 backups={backups}
                 schedules={schedules}
                 backupsLoading={backupsLoading}
                 schedulesLoading={schedulesLoading}
-                onRefresh={(force, silent) => {
+                onRefresh={(force?: boolean, silent?: boolean) => {
                   const skipSync = silent || false;
                   fetchBackups(force, skipSync);
                   fetchSchedules(force, skipSync);
@@ -3411,15 +3399,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       </Drawer>
       {opsYamlDrawerOpen ? (
         <Suspense fallback={null}>
-          <LazyHarvesterResourceDrawer
+          <LazyHarvesterCrdMetadataDrawer
             open={opsYamlDrawerOpen}
             onClose={() => setOpsYamlDrawerOpen(false)}
-            resourceType="VirtualMachine"
-            record={vmData}
-            activeTab={opsYamlActiveTab}
-            onTabChange={setOpsYamlActiveTab}
             cloudId={cloudId}
-            forceOpsMode
+            record={vmData}
+            onSuccess={() => onRefresh?.(true)}
           />
         </Suspense>
       ) : null}

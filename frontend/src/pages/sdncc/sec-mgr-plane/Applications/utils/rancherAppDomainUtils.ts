@@ -3,7 +3,7 @@
  */
 export function isRancherLikeSecurityDomain(d: any): boolean {
   if (!d) return false;
-  if (String(d.category || '').toLowerCase() === 'container') return true;
+  if (String(d.category || '').toLowerCase().startsWith('container:') || String(d.category || '').toLowerCase() === 'container') return true;
   if (String(d.tags || '').toLowerCase().includes('rancher')) return true;
   return false;
 }

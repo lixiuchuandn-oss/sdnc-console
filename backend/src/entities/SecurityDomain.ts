@@ -89,23 +89,14 @@ export class SecurityDomain {
 
   // 其他展示字段
   @Column({ type: 'text', nullable: true })
-  purpose?: string;
-
-  @Column({ type: 'text', nullable: true })
   tags?: string; // 用逗号分隔的标签
-
-  @Column({ type: 'text', nullable: true })
-  description?: string;
 
   @Column({ type: 'text', nullable: true })
   status?: string; // active/disabled 等
 
-  // 业务维度：网络分类（创建向导中的大类/子类），用于统计/权限/报表
+  /** 类型单字段：`kind:子类`（如 vpc:公有云VPC网络 / flat:IDC网络 / container:Rancher容器网络），兼容旧值纯 kind */
   @Column({ type: 'text', nullable: true })
-  category?: string; // vpc | flat
-
-  @Column({ type: 'text', nullable: true })
-  subType?: string; // 公有云VPC网络/私有云VPC网络/虚拟化网络/IDC网络/办公网络 等
+  category?: string;
 
   @Index()
   @Column({ type: 'text', nullable: true })

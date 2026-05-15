@@ -112,6 +112,10 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       return a.length ? a.join('，') : '-';
     })();
 
+    const primIp = String(prim?.ipAddress || '').trim();
+    const staticOvnIp =
+      primIp && (nm === 'vpc' || nm === 'flat_subnet') ? primIp : undefined;
+
     // [存储详情] 系统来源：镜像/现有磁盘；安装目标（预留位，当前未使用）；Cloud-Init 状态
     const rootSrc = String(v.rootSourceType || 'image');
     const rootDetail = (function () {
@@ -164,7 +168,9 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
     return {
       // 位置与主机调度：按模式生成对应文案
       location: {
-        pool: poolName, host: (function () {
+        pool: poolName,
+        project: String(v.namespace || '').trim() || '-',
+        host: (function () {
           if (hostModeState === 'node' && selectedNodeName) return `指定主机：${selectedNodeName}`;
           if (hostModeState === 'label') {
             const arr: any[] = Array.isArray((v as any).nodeSelectorPairs) ? (v as any).nodeSelectorPairs : [];
@@ -215,6 +221,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       // 附加信息：MAC、CIDR（仅当有值时显示）
       mac: macTxt || undefined,
       cidr: subnetCidr || undefined,
+      staticOvnIp,
 
       // Cloud-Init：当 userData 非空时显示“启用”
       cloudInit: (function () { const enabled = String(v.userData || '').trim().length > 0; return enabled ? cloudInit : undefined; })(),
@@ -254,6 +261,10 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
           <div className="wizard-summary-item">
             <span className="wizard-summary-label" title="主机调度">主机调度</span>
             <span className="wizard-summary-value" title={summary.location.host}>{summary.location.host}</span>
+          </div>
+          <div className="wizard-summary-item">
+            <span className="wizard-summary-label" title="项目">项目</span>
+            <span className="wizard-summary-value" title={summary.location.project}>{summary.location.project}</span>
           </div>
 
           {/* 基础信息：名称、分组 */}
@@ -341,6 +352,16 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <div className="wizard-summary-item">
               <span className="wizard-summary-label" title="子网CIDR">子网CIDR</span>
               <span className="wizard-summary-value" title={summary.cidr}>{summary.cidr}</span>
+            </div>
+          ) : null}
+          {summary.staticOvnIp ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="为 VPC/扁平子网指定的固定地址">
+                静态 IP
+              </span>
+              <span className="wizard-summary-value" title={summary.staticOvnIp}>
+                {summary.staticOvnIp}
+              </span>
             </div>
           ) : null}
           {summary.network.extras ? (

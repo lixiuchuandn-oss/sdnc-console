@@ -1,16 +1,17 @@
 {
   "name": "compute-tower-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Compute Tower 多云管理平台后端API",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "set \"PORT=5001\" && set \"DB_SYNC=true\" && nodemon --exec ts-node --transpile-only src/index.ts",
+    "dev": "set \"NODE_ENV=development\" && set \"PORT=5001\" && set \"DB_SYNC=true\" && nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",
     "start": "set \"PORT=5001\" && node dist/src/index.js",
     "db:init": "ts-node --transpile-only src/scripts/dbInit.ts",
     "db:init-users": "ts-node --transpile-only src/scripts/initUsers.ts",
     "db:check-user": "ts-node --transpile-only src/scripts/checkUser.ts",
     "asw-ctl:self-test": "ts-node --transpile-only src/scripts/aswCtlSelfTest.ts",
+    "ceph:dashboard-self-test": "ts-node --transpile-only src/scripts/cephDashboardSummarySelfTest.ts",
     "test": "jest",
     "plan:sync-routes": "node -r ts-node/register/transpile-only ../deployment/plan/scripts/sync-routespec.js",
     "plan:deploy-remote": "node ../deployment/plan/scripts/deploy-remote.js"
@@ -24,6 +25,7 @@
     "@huaweicloud/huaweicloud-sdk-evs": "^3.1.174",
     "@huaweicloud/huaweicloud-sdk-nat": "^3.1.174",
     "@huaweicloud/huaweicloud-sdk-vpc": "^3.1.174",
+    "adm-zip": "^0.5.17",
     "archiver": "^7.0.1",
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
@@ -51,6 +53,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "@types/archiver": "^7.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/compression": "^1.8.1",

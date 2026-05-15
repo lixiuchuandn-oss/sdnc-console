@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import JsonHighlight from '../../../../../../components/JsonHighlight';
-import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
-import HarvesterEventsTab from './HarvesterEventsTab';
+import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 import ServiceRelatedPodsTab from './ServiceRelatedPodsTab';
 import { ViewLinkTab } from './ViewLinkTab';
 
@@ -23,7 +22,6 @@ export interface HarvesterResourceDrawerProps {
   images?: any[];
   pods?: any[]; // Pod 列表，用于 Service 关联 Pod 展示
   onRefresh?: (force?: boolean) => void;
-  onOpenReconfigure?: (vm: any) => void;
   onBackup?: (vm: any) => void;
   onSnapshot?: (vm: any) => void;
   onClone?: (vm: any) => void;
@@ -75,7 +73,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
   }, [useInternalState, onTabChange]);
 
   if (resourceType === 'VirtualMachine' && !forceOpsMode) {
-    return <HarvesterVmDetailDrawer {...props} />;
+    return <VmDetailDrawer {...props} />;
   }
 
   // 如果 record 没有 links.view，根据 resourceType 和 metadata 自动构造
@@ -99,6 +97,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
       'CronJob': `/apis/batch/v1/namespaces/${ns}/cronjobs/${name}`,
       'ConfigMap': `/api/v1/namespaces/${ns}/configmaps/${name}`,
       'Secret': `/api/v1/namespaces/${ns}/secrets/${name}`,
+      'KeyPair': `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/keypairs/${name}`,
     };
     
     return typeToPath[resourceType] || null;
@@ -111,22 +110,22 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
 
   return (
     <Drawer
-      title={
-        <Space>
-          {onBack && (
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
-              返回
-            </Button>
-          )}
-          <span>{drawerTitle}</span>
-        </Space>
-      }
-      open={open}
-      onClose={onClose}
-      placement="right"
-      width="60%"
-      styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}
-    >
+        title={
+          <Space>
+            {onBack && (
+              <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
+                返回
+              </Button>
+            )}
+            <span>{drawerTitle}</span>
+          </Space>
+        }
+        open={open}
+        onClose={onClose}
+        placement="right"
+        width="60%"
+        styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}
+      >
       <style>{`
         .full-height-drawer-tabs { height: 100%; display: flex; flex-direction: column; }
         .full-height-drawer-tabs .ant-tabs-nav { margin-bottom: 0; padding: 0 16px; }
@@ -485,11 +484,17 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
               </div>
             ),
           },
-          ...(viewLink ? [{
-            key: 'view_link',
-            label: '实时数据 (View Link)',
-            children: <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />,
-          }] : []),
+          ...(viewLink
+            ? [
+                {
+                  key: 'view_link',
+                  label: '实时数据 (View Link)',
+                  children: (
+                    <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />
+                  ),
+                },
+              ]
+            : []),
           // Service 类型显示关联 Pod Tab（除非 hideRelatedPods 为 true）
           ...(resourceType === 'Service' && !hideRelatedPods ? [{
             key: 'related_pods',

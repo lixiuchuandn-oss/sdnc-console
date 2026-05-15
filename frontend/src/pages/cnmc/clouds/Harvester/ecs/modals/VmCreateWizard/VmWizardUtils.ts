@@ -558,6 +558,16 @@ export const applyTemplateToWizardForm = (params: {
 // 4. 核心构造逻辑 (Core)
 // ==========================================
 
+/** Kube-OVN：Harvester 注解 `harvesterhci.io/custom-ip` 中 JSON 项的 `name`，须为 Subnet CR 名；若无则从未带命名空间的 Multus `ns/name` 取末段。不用 Cloud-Init network-config。 */
+export function kubeOvnCustomIpEntryName(subnetNameRaw: string, multusNetNameRaw: string): string {
+  const sn = String(subnetNameRaw || '').trim();
+  if (sn) return sn;
+  const m = String(multusNetNameRaw || '').trim();
+  if (!m) return '';
+  const parts = m.split('/');
+  const last = String(parts[parts.length - 1] || '').trim();
+  return last || m;
+}
 
 /**
  * 构建 Harvester 虚拟机创建请求的 Payload (Manifest)
@@ -676,16 +686,8 @@ export const buildHarvesterVmPayload = (params: {
   const interfaces: any[] = [];
   const volumeClaimTemplates: any[] = [];
   
-  // 辅助：随机后缀与 MAC 生成
+  // 辅助：随机后缀
   const randSuffix = () => Math.random().toString(36).substring(2, 7);
-  const generateMacAddress = () => {
-    const hex = '0123456789ABCDEF';
-    let mac = '52:54:00'; 
-    for (let i = 0; i < 3; i++) {
-      mac += ':' + hex[Math.floor(Math.random() * 16)] + hex[Math.floor(Math.random() * 16)];
-    }
-    return mac;
-  };
 
   // --- 5. 网络配置 (Networks) ---
   const allNics: any[] = [];
@@ -696,17 +698,11 @@ export const buildHarvesterVmPayload = (params: {
       });
   }
 
-  const hasStaticIP = allNics.some(n => n.ipAddress);
-  const networkDataEthernets: any = {};
-
   allNics.forEach((nic) => {
       const nicName = `nic-${nic._idx}`;
       const netName = nic.name;
-      let mac = nic.macAddress;
-      
-      // 静态 IP 必须有 MAC
-      if (hasStaticIP && !mac) mac = generateMacAddress();
-      
+      const mac = nic.macAddress;
+
       // Interface
       const iface: any = { name: nicName, model: nic.model || 'virtio' };
       if (mac) iface.macAddress = mac;
@@ -730,45 +726,25 @@ export const buildHarvesterVmPayload = (params: {
            else net.multus = { networkName: 'default' };
       }
       networks.push(net);
-
-      // NetworkData (Static IP)
-      if (hasStaticIP) {
-           const ethConfig: any = {
-               match: { macaddress: mac },
-               dhcp4: !nic.ipAddress,
-           };
-           if (nic.ipAddress) {
-               ethConfig.addresses = [nic.ipAddress];
-               if (nic.gateway) ethConfig.gateway4 = nic.gateway;
-               if (nic.dns) {
-                   const dnsList = nic.dns.split(/[,;\s]+/).filter((d: string) => d.trim());
-                   if (dnsList.length > 0) ethConfig.nameservers = { addresses: dnsList };
-               }
-           }
-           networkDataEthernets[nicName] = ethConfig;
-      }
   });
 
-  // 构建 NetworkData YAML
-  let networkDataYaml = '';
-  if (hasStaticIP && Object.keys(networkDataEthernets).length > 0) {
-      networkDataYaml = 'version: 2\nethernets:\n';
-      Object.keys(networkDataEthernets).forEach(key => {
-          const conf = networkDataEthernets[key];
-          networkDataYaml += `  ${key}:\n`;
-          networkDataYaml += `    match:\n      macaddress: "${conf.match.macaddress}"\n`;
-          networkDataYaml += `    dhcp4: ${conf.dhcp4}\n`;
-          if (conf.addresses) {
-              networkDataYaml += `    addresses:\n`;
-              conf.addresses.forEach((addr: string) => networkDataYaml += `      - ${addr}\n`);
-          }
-          if (conf.gateway4) networkDataYaml += `    gateway4: ${conf.gateway4}\n`;
-          if (conf.nameservers && conf.nameservers.addresses) {
-              networkDataYaml += `    nameservers:\n      addresses:\n`;
-              conf.nameservers.addresses.forEach((addr: string) => networkDataYaml += `        - ${addr}\n`);
-          }
-      });
-  }
+  // Kube-OVN（VPC / 扁平子网）静态 IP：仅写 VM 注解 harvesterhci.io/custom-ip（OVN 侧分配），不向 Cloud-Init 注入 networkData
+  const harvesterCustomIpEntries: { name: string; ip: string }[] = [];
+  allNics.forEach((nic) => {
+    const ip = String(nic.ipAddress || '').trim();
+    if (!ip) return;
+    const netMode = nic._isPrimary
+      ? String(v.netMode || '')
+      : String(nic.mode || '');
+    if (netMode !== 'vpc' && netMode !== 'flat_subnet') return;
+    const subnetName = nic._isPrimary
+      ? String(v.primaryNic?.subnet || '').trim()
+      : String(nic.subnet || '').trim();
+    const multusName = String(nic.name || '').trim();
+    const entryName = kubeOvnCustomIpEntryName(subnetName, multusName);
+    if (!entryName) return;
+    harvesterCustomIpEntries.push({ name: entryName, ip });
+  });
 
   // --- 6. 磁盘配置 (Disks) ---
   // 6.1 系统盘
@@ -828,13 +804,12 @@ export const buildHarvesterVmPayload = (params: {
       return ud || undefined; 
   })();
 
-  if (userData || (v.sshNames && v.sshNames.length > 0) || networkDataYaml) {
+  if (userData || (v.sshNames && v.sshNames.length > 0)) {
        const ciName = 'cloudinitdisk';
        disks.push({ name: ciName, disk: { bus: 'virtio' } });
        
        const ciConfig: any = {};
        if (userData) ciConfig.userData = userData;
-       if (networkDataYaml) ciConfig.networkData = networkDataYaml;
        
        volumes.push({ name: ciName, cloudInitNoCloud: ciConfig });
   }
@@ -896,7 +871,10 @@ export const buildHarvesterVmPayload = (params: {
         },
         annotations: {
              "harvesterhci.io/volumeClaimTemplates": JSON.stringify(volumeClaimTemplates),
-             ...(v.name ? { "tower.io/alias": String(v.name) } : {})
+             ...(v.name ? { "tower.io/alias": String(v.name) } : {}),
+             ...(harvesterCustomIpEntries.length > 0
+               ? { 'harvesterhci.io/custom-ip': JSON.stringify(harvesterCustomIpEntries) }
+               : {}),
         }
     },
     spec: {

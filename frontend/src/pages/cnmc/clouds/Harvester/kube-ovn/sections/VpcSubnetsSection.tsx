@@ -83,6 +83,13 @@ function collectVmDisplayNamesUsingSubnet(subnetName: string, vms: any[]): strin
     .filter(Boolean) as string[];
 }
 
+function kubeResourceCreatedMs(record: any): number {
+  const raw = record?.createdAt || record?.metadata?.creationTimestamp;
+  if (raw == null || raw === '') return 0;
+  const t = new Date(String(raw)).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 const VpcSubnetsSection: React.FC<Props> = ({
   subnets,
   vpcList = [],
@@ -160,7 +167,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
     const kw = String(keyword || '')
       .toLowerCase()
       .trim();
-    return vpcOnlySubnets.filter((r: any) => {
+    const rows = vpcOnlySubnets.filter((r: any) => {
       const vpcVal = String(r?.vpc || r?.spec?.vpc || KUBE_OVN_PUBLIC_VPC);
       const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
       const cidr = String(r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '').toLowerCase();
@@ -179,6 +186,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       }
       return true;
     });
+    return [...rows].sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
   }, [vpcOnlySubnets, keyword, vpc, nat, dhcp]);
 
   const openCreateVpcSubnetModal = useCallback(() => {
@@ -377,6 +385,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       {
         title: '名称',
         key: 'subnetAlias',
+        fixed: 'left' as const,
         ellipsis: true,
         render: (_: any, r: any) => {
           const id = String(r?.name || r?.metadata?.name || '').trim();
@@ -483,13 +492,28 @@ const VpcSubnetsSection: React.FC<Props> = ({
           );
         },
       },
+      {
+        title: '创建时间',
+        key: 'createdAt',
+        render: (_: any, r: any) => {
+          const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+          try {
+            if (!c) return '-';
+            const d = new Date(c);
+            if (!isNaN(d.getTime())) {
+              const txt = d.toLocaleString('zh-CN', { hour12: false });
+              return txt;
+            }
+          } catch { }
+          return c || '-';
+        },
+      },
       ...(isStandardView
         ? []
         : [
             {
               title: 'ACL',
               key: 'acls',
-              width: 72,
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
                 const n = Array.isArray(acls) ? acls.length : 0;
@@ -511,7 +535,6 @@ const VpcSubnetsSection: React.FC<Props> = ({
         title: '操作',
         key: 'actions',
         fixed: 'right' as const,
-        width: 80,
         render: (_: any, r: any) => {
           const name = r?.name || r?.metadata?.name;
           return (
@@ -638,9 +661,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        scroll={{ x: 'max-content' }}
+        scroll={{ x: true }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

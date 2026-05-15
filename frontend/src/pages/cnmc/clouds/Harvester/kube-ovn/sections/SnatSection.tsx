@@ -4,13 +4,14 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
+  isFlatKubeOvnSubnetForFlatNatSelector,
 } from '../lib/kubeOvnSubnetConstants';
 import {
   buildBusinessVpcPickerRows,
   kubeSubnetChoiceLabel,
   vpcDisplayMapFromVpcs,
 } from '../lib/kubeOvnUiHelpers';
-import { Table, Space, Modal, Form, Input, Select, message, MenuProps, Button, Tooltip } from 'antd';
+import { Table, Space, Modal, Form, Input, Select, message, Alert, MenuProps, Button, Tooltip } from 'antd';
 import { InteractionTwoTone, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
@@ -22,6 +23,10 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
+import {
+  buildPublicSubnetNameToVpcNameMap,
+  getOvnEipBoundVpcName,
+} from '../lib/kubeOvnEipVpcHelpers';
 
 function subnetCidrOf(s: any): string {
   return String(s?.spec?.cidrBlock ?? s?.spec?.cidr ?? s?.cidr ?? '').trim();
@@ -98,9 +103,9 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     return map;
   }, [eips]);
 
-  // 筛选数据
+  // 筛选数据并按创建时间倒序排序
   const filteredData = useMemo(() => {
-    return snatRules.filter((item: any) => {
+    const filtered = snatRules.filter((item: any) => {
       const eipName = String(item?.spec?.ovnEip || '').trim();
       const eip = String(
         item?.status?.v4Eip ||
@@ -128,6 +133,13 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       }
       
       return true;
+    });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
     });
   }, [snatRules, keyword, vpcFilter, eipIpv4ByName, networkScope]);
 
@@ -161,16 +173,10 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
   const subnetChoices = useMemo(() => {
     if (!networkScope) return subnets;
     return subnets.filter((s: any) => {
-      const vpc = String(s.spec?.vpc || s.vpc || '').trim();
-      const onFlatBuiltinVpc = !vpc || isBuiltInKubeOvnVpc(vpc);
       if (networkScope === 'flat') {
-        const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
-          .trim()
-          .toLowerCase();
-        const hasVlan = !!String(s?.spec?.vlan || '').trim();
-        const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
-        return t === 'flat' && onFlatBuiltinVpc && !hasVlan && vpcNorm === KUBE_OVN_FLAT_VPC;
+        return isFlatKubeOvnSubnetForFlatNatSelector(s);
       }
+      const vpc = String(s.spec?.vpc || s.vpc || '').trim();
       return vpc && !isBuiltInKubeOvnVpc(vpc);
     });
   }, [subnets, networkScope]);
@@ -200,6 +206,17 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
 
   const vpcDisplayById = useMemo(() => vpcDisplayMapFromVpcs(vpcs), [vpcs]);
 
+  const publicSubnetToVpcForEip = useMemo(() => buildPublicSubnetNameToVpcNameMap(vpcs), [vpcs]);
+
+  const eipsForCreateInSelectedVpc = useMemo(() => {
+    if (networkScope !== 'vpc') return eipsForCreate;
+    const vpcId = String(selectedVpcWatch ?? '').trim();
+    if (!vpcId) return [];
+    return eipsForCreate.filter(
+      (e: any) => getOvnEipBoundVpcName(e, publicSubnetToVpcForEip) === vpcId,
+    );
+  }, [eipsForCreate, networkScope, selectedVpcWatch, publicSubnetToVpcForEip]);
+
   const handleCreate = async () => {
     if (!hasNatWrite) {
       message.error('无权限执行该操作');
@@ -207,6 +224,32 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     }
     try {
       const values = await form.validateFields();
+      if (!cloudId) {
+        message.error('缺少云平台 ID');
+        return;
+      }
+      if (networkScope === 'vpc') {
+        const vpcSel = String(values.vpc ?? '').trim();
+        if (vpcSel) {
+          const avail = eipsForCreate.filter(
+            (e: any) => getOvnEipBoundVpcName(e, publicSubnetToVpcForEip) === vpcSel,
+          );
+          if (avail.length === 0) {
+            message.error(
+              '当前所选 VPC 下没有可用的弹性公网 IP（EIP）。请先到「VPC 网络 → 弹性公网 IP」中为该 VPC 创建 EIP，再创建 SNAT。',
+            );
+            return;
+          }
+          const picked = String(values.ovnEip ?? '').trim();
+          if (
+            picked &&
+            !avail.some((e: any) => String(e?.metadata?.name || e?.name || '').trim() === picked)
+          ) {
+            message.error('所选公网 IP 不属于当前 VPC，请重新选择');
+            return;
+          }
+        }
+      }
       if (networkScope === 'vpc') {
         const selVpc = String(values.vpc ?? '').trim();
         const snName = String(values.vpcSubnet ?? '').trim();
@@ -214,6 +257,19 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         const snVpc = String(sn?.spec?.vpc || sn?.vpc || '').trim();
         if (selVpc && snVpc && selVpc !== snVpc) {
           message.error('所选子网不属于当前 VPC，请重新选择');
+          return;
+        }
+      }
+      const eipName = String(values.ovnEip ?? '').trim();
+      const subnetCrName = String(values.vpcSubnet ?? '').trim();
+      if (eipName && subnetCrName) {
+        const duplicate = (Array.isArray(snatRules) ? snatRules : []).some((r: any) => {
+          const exEip = String(r?.spec?.ovnEip ?? '').trim();
+          const exSubnet = String(r?.spec?.vpcSubnet ?? '').trim();
+          return exEip === eipName && exSubnet === subnetCrName;
+        });
+        if (duplicate) {
+          message.error('该公网 IP 与所选子网的组合已存在 SNAT 规则，请勿重复创建');
           return;
         }
       }
@@ -233,6 +289,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       form.resetFields();
       onRefresh(true);
     } catch (e: any) {
+      if (e?.errorFields?.length) return;
       let errMsg = e?.message || '创建失败';
       let parsed: Record<string, unknown> | null = null;
       if (typeof errMsg === 'string') {
@@ -295,6 +352,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
     {
       title: '名称',
       key: 'alias',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
         const text = alias || '—';
@@ -371,9 +429,25 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       } 
     },
     {
-      title: '操作', 
-      key: 'action', 
-      width: 80, 
+      title: '创建时间',
+      key: 'createdAt',
+      render: (_: any, r: any) => {
+        const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+        try {
+          if (!c) return '-';
+          const d = new Date(c);
+          if (!isNaN(d.getTime())) {
+            const txt = d.toLocaleString('zh-CN', { hour12: false });
+            return txt;
+          }
+        } catch { }
+        return c || '-';
+      },
+    },
+    {
+      title: '操作',
+      key: 'action',
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const menuItems: MenuProps['items'] = [
           { key: 'metadata', label: '查看元数据' },
@@ -459,9 +533,9 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           columns={columns} 
           loading={loading} 
           bordered={false}
+          scroll={{ x: true }}
           rowKey={r => r.metadata?.uid}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
@@ -501,15 +575,6 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           >
             <Input placeholder="可选，支持中文；留空则列表仅显示自动生成的资源名" />
           </Form.Item>
-          <Form.Item name="ovnEip" label="选择公网IP" rules={[{ required: true, message: '请选择公网IP' }]}>
-            <Select placeholder="请选择公网IP">
-              {eipsForCreate.map((e) => (
-                <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
-                  {ovnDisplayName(e)} ({eipIpv4Of(e) || '-'})
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
           {networkScope === 'vpc' && (
             <Form.Item name="vpc" label="选择VPC" rules={[{ required: true, message: '请选择VPC' }]}>
               <Select
@@ -518,7 +583,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
                 allowClear
                 optionFilterProp="data-search"
                 optionLabelProp="label"
-                onChange={() => form.setFieldsValue({ vpcSubnet: undefined })}
+                onChange={() => form.setFieldsValue({ vpcSubnet: undefined, ovnEip: undefined })}
               >
                 {vpcPickerRows.map((v) => (
                   <Select.Option key={v.id} value={v.id} label={v.display} data-search={v.searchLabel}>
@@ -531,6 +596,41 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
               </Select>
             </Form.Item>
           )}
+          {networkScope === 'vpc' &&
+            String(selectedVpcWatch ?? '').trim() &&
+            eipsForCreateInSelectedVpc.length === 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="当前 VPC 下暂无可用 EIP"
+                description="请先到「VPC 网络 → 弹性公网 IP」中为该 VPC 创建弹性公网 IP，再创建 SNAT。"
+              />
+            )}
+          <Form.Item
+            name="ovnEip"
+            label="选择公网IP"
+            rules={[{ required: true, message: '请选择公网IP' }]}
+          >
+            <Select
+              placeholder={
+                networkScope === 'flat'
+                  ? '请选择公网IP'
+                  : !String(selectedVpcWatch || '').trim()
+                    ? '请先选择 VPC'
+                    : eipsForCreateInSelectedVpc.length > 0
+                      ? '请选择公网IP'
+                      : '当前 VPC 下暂无 EIP，请先创建'
+              }
+              disabled={networkScope === 'vpc' && !String(selectedVpcWatch || '').trim()}
+            >
+              {(networkScope === 'vpc' ? eipsForCreateInSelectedVpc : eipsForCreate).map((e) => (
+                <Select.Option key={e.metadata?.name} value={e.metadata?.name}>
+                  {ovnDisplayName(e)} ({eipIpv4Of(e) || '-'})
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
           <Form.Item
             name="vpcSubnet"
             label={networkScope === 'flat' ? '选择扁平子网' : '选择 VPC 子网'}

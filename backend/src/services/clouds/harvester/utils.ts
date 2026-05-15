@@ -100,6 +100,23 @@ const translateErrorMessage = (error: any): string => {
 };
 
 /**
+ * 资源池（Cloud）维度的 Harvester / Rancher Kube Bearer。
+ * 与 `clouds.ts` 中 Cloudmap 连接测试一致：Cloudmap 常将 API 令牌放在 config.apiToken / config.token，
+ * secretKey 可能与其它用途共存或为空；优先使用配置中的令牌，再回退 secretKey。
+ */
+export function resolveHarvesterCloudKubeToken(cloud: {
+  secretKey?: string | null;
+  config?: { apiToken?: string; token?: string } | null;
+}): string {
+  const cfg = (cloud?.config || {}) as { apiToken?: unknown; token?: unknown };
+  const fromApi = typeof cfg.apiToken === 'string' ? cfg.apiToken.trim() : '';
+  if (fromApi) return fromApi;
+  const fromTok = typeof cfg.token === 'string' ? cfg.token.trim() : '';
+  if (fromTok) return fromTok;
+  return String(cloud?.secretKey || '').trim();
+}
+
+/**
  * [探针请求]
  * 仅做一次 GET 请求，用于健康检查或连通性探测，不关心响应体。
  */

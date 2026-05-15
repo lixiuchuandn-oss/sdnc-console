@@ -27,8 +27,14 @@ export type CloudmapPoolPermissions = {
   canViewClusterGroup: boolean;
   canViewComputeGroup: boolean;
   canViewCloudDatabaseTab: boolean;
+  /** 虚拟网元（Cloudmap 侧栏：虚拟路由、负载均衡等池内网络能力） */
+  canViewOniaasNetworkTab: boolean;
   canViewContainersGroup: boolean;
   canViewStorageGroup: boolean;
+  /** Rook 对象网关 / COSI（与云存储同级池内 Tab） */
+  canViewObjectStorageGroup: boolean;
+  /** Rook-Ceph 总览（原云存储子 Tab，现独立池内域） */
+  canViewCephGroup: boolean;
   canViewBackupsGroup: boolean;
   canViewFlatNetworkGroup: boolean;
   canViewKubeOvnGroup: boolean;
@@ -113,6 +119,9 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
   const canViewCloudDatabaseTab =
     checkPerm('clouds.ecs:read') || checkPerm('clouds:read');
 
+  const canViewOniaasNetworkTab =
+    checkPerm('clouds.ecs:read') || checkPerm('clouds:read') || canReadLoadBalancers;
+
   const canViewContainersGroup =
     checkPerm(CLOUD_CONTAINERS_READ) ||
     checkPerm('clouds:read') ||
@@ -121,7 +130,16 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
   const canViewStorageGroup =
     checkPerm('clouds.disks:read') ||
     checkPerm('clouds.snapshots:read') ||
+    checkPerm('clouds.storage-classes:read') ||
+    checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds:read');
+
+  const canViewCephGroup =
+    checkPerm('clouds.disks:read') ||
+    checkPerm('clouds.cluster-nodes:read') ||
+    checkPerm('clouds:read');
+
+  const canViewObjectStorageGroup = canViewCephGroup;
 
   const canViewBackupsGroup =
     checkPerm('clouds.backups:read') ||
@@ -164,8 +182,11 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     canViewClusterGroup,
     canViewComputeGroup,
     canViewCloudDatabaseTab,
+    canViewOniaasNetworkTab,
     canViewContainersGroup,
     canViewStorageGroup,
+    canViewObjectStorageGroup,
+    canViewCephGroup,
     canViewBackupsGroup,
     canViewFlatNetworkGroup,
     canViewKubeOvnGroup,

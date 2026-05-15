@@ -312,28 +312,23 @@ export const fetchRancherClustersForPool = async (
 
 
 
-// 获取用户数据
+// 获取用户数据（不启用 GET 内存缓存，避免与设置页等写操作后列表不同步）
 export const fetchUsers = async () => {
-  return await apiRequest('/api/users', { enableCache: true });
+  return await apiRequest('/api/users');
 };
 
-
-
-
-
-
-// 获取租户数据
+// 获取租户数据（不启用 GET 内存缓存，避免多入口写租户后其它页仍见旧列表）
 export const fetchTenants = async () => {
-  return await apiRequest('/api/tenants', { enableCache: true });
+  return await apiRequest('/api/tenants');
 };
 
 export const fetchAvailableResourcePools = async () => {
-  return await apiRequest('/api/tenants/available-resource-pools', { enableCache: true });
+  return await apiRequest('/api/tenants/available-resource-pools');
 };
 
 // User Spaces
 export const fetchUserSpaces = async () => {
-  return await apiRequest('/api/user-spaces', { enableCache: true });
+  return await apiRequest('/api/user-spaces');
 };
 
 export const createUserSpace = async (payload: any) => {
@@ -1511,17 +1506,22 @@ export const proxyApiRequest = async (
   const queryUrl = `/api-proxy${path}${other ? `?${other}` : ''}`;
   
   // 3. 发送请求（使用统一的 API 服务，但需要自定义 headers）
+  // DELETE/GET 无 body 时不带 Content-Type: application/json，避免部分 CSM 网关返回异常
+  const headers: Record<string, string> = {
+    Authorization: authInfo.Authorization,
+    tonce: authInfo.tonce,
+    Accept: 'application/json',
+  };
+  if (body != null && ['POST', 'PUT', 'PATCH'].includes(String(method).toUpperCase())) {
+    headers['Content-Type'] = 'application/json';
+  }
   try {
     return await requestManager(
       {
         method,
         endpoint: queryUrl,
         body: body,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authInfo.Authorization,
-          'tonce': authInfo.tonce,
-        },
+        headers,
         options: {
           enableDeduplication: false, // 代理 API 不去重
           enableCache: false, // 代理 API 不缓存

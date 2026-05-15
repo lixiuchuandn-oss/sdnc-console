@@ -15,6 +15,7 @@ import {
   mergePublicScenarioNamespacesFromQuery,
 } from '../../../../services/clouds/harvester/publicNamespaces';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
+import { buildHarvesterVmRowIps } from '../../../../services/clouds/harvester/vmIpMerge';
 
 /**
  * 检查克隆目标 VM 所用 PVC 是否全部 Bound，用于克隆任务结束状态判断。
@@ -212,27 +213,18 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
 
       const status = vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
 
-      const ips: string[] = [];
-      const macs: string[] = [];
-      const addIp = (s: any) => {
-        const v = String(s || '').trim();
-        if (v && !ips.includes(v)) ips.push(v);
-      };
+      const ips = buildHarvesterVmRowIps(vm, vmi);
 
-      if (vm?.status?.vmIp) addIp(vm.status.vmIp);
+      const macs: string[] = [];
       if (Array.isArray(vm?.status?.interfaces)) {
         vm.status.interfaces.forEach((i: any) => {
-          addIp(i.ipAddress || i.ip);
           if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
         });
       }
-      if (vmi) {
-        if (Array.isArray(vmi.status?.interfaces)) {
-          vmi.status.interfaces.forEach((i: any) => {
-            if (i.ipAddress || i.ip) addIp(i.ipAddress || i.ip);
-            if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
-          });
-        }
+      if (vmi && Array.isArray(vmi.status?.interfaces)) {
+        vmi.status.interfaces.forEach((i: any) => {
+          if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
+        });
       }
 
       const nodeName = vm?.status?.nodeName || vmi?.status?.nodeName || '';

@@ -701,13 +701,12 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           message.warning('该名称已存在，请使用其他名称');
           return;
         }
-        const { data, ok, error } = await createClusteroutput(cloudId, payload);
+        const { ok, error } = await createClusteroutput(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as ClusterOutputItem) || {};
-          setList((prev) => [...prev, { ...raw, id: raw.metadata?.name, metadata: raw.metadata, spec: raw.spec }]);
           handleCloseForm();
+          await loadList();
         } else message.error(error || '创建失败');
       } else {
         const { data: existing, ok: hasExisting } = await fetchOutputDetail(cloudId, namespace, name);
@@ -716,13 +715,12 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           message.warning('该命名空间下名称已存在，请使用其他名称');
           return;
         }
-        const { data, ok, error } = await createOutput(cloudId, payload);
+        const { ok, error } = await createOutput(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as ClusterOutputItem) || {};
-          setList((prev) => [...prev, { ...raw, id: `${namespace}/${name}`, metadata: raw.metadata ?? { name, namespace }, spec: raw.spec }]);
           handleCloseForm();
+          await loadList();
         } else message.error(error || '创建失败');
       }
     }
@@ -810,7 +808,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           </Space>
         ),
         key: 'logType',
-        width: 180,
+        fixed: 'left',
         render: (_, row) => {
           const value = parseLogTypeFromSpec(row.spec as any, row.metadata?.annotations ?? {});
           return LOG_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value ?? '-';
@@ -820,18 +818,16 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         title: '名称',
         dataIndex: ['metadata', 'name'],
         key: 'name',
-        width: 220,
         render: (v: string, row) => (
           <Button type="link" style={{ padding: 0 }} onClick={() => handleOpenForm(row)}>
             {v || '-'}
           </Button>
         ),
       },
-      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', width: 200, render: (v: string) => v || '-' },
+      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', render: (v: string) => v || '-' },
       {
         title: '描述',
         key: 'description',
-        width: 180,
         render: (_, row) => {
           const text =
             (row as ClusterOutputItem).description ??
@@ -846,7 +842,6 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
       {
         title: '提供商',
         key: 'provider',
-        width: 120,
         render: (_, row) => {
           const p = getProviderFromSpec(row.spec);
           const isNullout = p === NULLOUT_PROVIDER;
@@ -857,7 +852,6 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
       {
         title: '创建时间',
         key: 'creationTimestamp',
-        width: 200,
         render: (_, row) => {
           const t = row.metadata?.creationTimestamp;
           return t
@@ -871,7 +865,6 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
       {
         title: '操作',
         key: 'actions',
-        width: 72,
         fixed: 'right',
         render: (_, row) => (
           <ResourceActionsDropdown
@@ -978,7 +971,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           loading={loading}
           columns={displayColumns}
           dataSource={filteredList}
-          scroll={{ x: 900 }}
+          scroll={{ x: true }}
           pagination={{
             pageSize: 10,
             showSizeChanger: true,

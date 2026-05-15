@@ -36,9 +36,20 @@ import {
   listKubeOvnFips,
   listKubeOvnSnatRules,
 } from '../../../../services/clouds/harvester/network';
-import { upsertVpcPolicyDstRouteForExternalSubnet } from './ovnInternalPublicSubnetSync';
+import {
+  eipsReferencingSubnetExcludingLrp,
+  hasAnyUnderlayEipReferencingPublicOvnSubnet,
+  hasAnyVpcScopedEipWithExternalSubnet,
+  isPublicSubnetOnOvnCluster,
+  ovnInternalRouteCidrFromSubnet,
+  removeOvnInternalForPublicSubnet,
+  removeVpcExternalSubnetRegistration,
+  TOWER_IO_VPC_ANNOTATION,
+  upsertOvnInternalForPublicSubnet,
+  upsertVpcPolicyDstRouteForExternalSubnet,
+} from './ovnInternalPublicSubnetSync';
 
-function getOriginFromEndpoint(endpoint: string): string {
+export function getOriginFromEndpoint(endpoint: string): string {
   const base = (endpoint || '').replace(/\/+$/, '');
   try {
     const u = new URL(base);
@@ -49,7 +60,6 @@ function getOriginFromEndpoint(endpoint: string): string {
 }
 
 const TOWER_IO_ALIAS = 'tower.io/alias';
-const TOWER_IO_VPC = 'tower.io/vpc';
 
 /** 库存/API 列表：同 uid 优先，避免并发同步导致的重复行 */
 function dedupeOvnNatRules(list: any[]): any[] {
@@ -84,6 +94,16 @@ function assertOvnVpcLicenseForList(req: any, res: Response, scope: OvnNetworkSc
 /** POST 创建：`underlay` 不校验 VPC License */
 function assertOvnVpcLicenseForCreate(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
   if (scope === 'underlay') return true;
+  if (!licenseService.hasFeature('network.ovn.vpc')) {
+    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    return false;
+  }
+  return true;
+}
+
+/** DELETE 等：根据资源 scope 判断是否需要 VPC License */
+function assertOvnVpcLicenseForDelete(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
+  if (scope === 'underlay' || scope === null || scope === undefined) return true;
   if (!licenseService.hasFeature('network.ovn.vpc')) {
     res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
     return false;
@@ -296,6 +316,19 @@ async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next:
       }
 
       try {
+        let setEnableExternal: boolean | undefined;
+        try {
+          const existingForVpc = await listKubeOvnEips({
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey || '',
+            insecure,
+          } as any);
+          if (!hasAnyVpcScopedEipWithExternalSubnet(existingForVpc, vpcName)) {
+            setEnableExternal = true;
+          }
+        } catch {
+          /* 列表失败则不调整 enableExternal */
+        }
         await upsertVpcPolicyDstRouteForExternalSubnet({
           harvesterParams: {
             endpoint: cloud.endpoint,
@@ -306,6 +339,7 @@ async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next:
           externalSubnetName: subnetName,
           gateway: gw,
           routeCidr: routeCidrIn,
+          setEnableExternal,
         });
       } catch (syncErr: any) {
         if (!res.headersSent) {
@@ -316,6 +350,79 @@ async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next:
           });
         }
         return;
+      }
+    }
+
+    /** 扁平网络（underlay）创建 EIP：将所选公共外网子网登记到 ovn-internal（extraExternalSubnets + policyDst 路由） */
+    if (routeScope === 'underlay' && subnetName) {
+      const extSubnetUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnetName)}`;
+      let extSubnet: any = null;
+      try {
+        extSubnet = await getJsonOnce(extSubnetUrl, cloud.secretKey || '', insecure);
+      } catch (e: any) {
+        const st = Number(e?.status ?? 0);
+        if (!res.headersSent) {
+          if (st === 404) {
+            res.status(400).json({
+              message: `未找到外网子网 ${subnetName}，无法同步 ovn-internal`,
+              code: 'EIP_EXTERNAL_SUBNET_NOT_FOUND',
+            });
+          } else {
+            res.status(500).json({
+              message: '读取外网子网失败，无法同步 ovn-internal',
+              error: e?.message || String(e),
+              code: 'EIP_EXTERNAL_SUBNET_READ_FAILED',
+            });
+          }
+        }
+        return;
+      }
+      if (isPublicSubnetOnOvnCluster(extSubnet)) {
+        const gw = String(extSubnet?.spec?.gateway ?? '').trim();
+        if (!gw) {
+          if (!res.headersSent) {
+            res.status(400).json({
+              message: '所选公共外网子网未配置网关，无法写入 ovn-internal 静态路由',
+              code: 'EIP_EXTERNAL_SUBNET_GATEWAY_REQUIRED',
+            });
+          }
+          return;
+        }
+        const rc = ovnInternalRouteCidrFromSubnet(extSubnet);
+        let setEnableExternal: boolean | undefined;
+        try {
+          const existingForCount = await listKubeOvnEips({
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey || '',
+            insecure,
+          } as any);
+          const refs = eipsReferencingSubnetExcludingLrp(existingForCount, subnetName);
+          if (refs.length === 0) setEnableExternal = true;
+        } catch {
+          /* 列表失败则不调整 enableExternal */
+        }
+        try {
+          await upsertOvnInternalForPublicSubnet({
+            harvesterParams: {
+              endpoint: cloud.endpoint,
+              token: cloud.secretKey || '',
+              insecure,
+            } as any,
+            subnetName,
+            gateway: gw,
+            routeCidr: rc,
+            setEnableExternal,
+          });
+        } catch (syncErr: any) {
+          if (!res.headersSent) {
+            res.status(500).json({
+              message: '同步 ovn-internal（扁平域外网）失败',
+              error: syncErr?.message || String(syncErr),
+              code: 'OVN_INTERNAL_UNDERLAY_EIP_SYNC_FAILED',
+            });
+          }
+          return;
+        }
       }
     }
 
@@ -334,7 +441,7 @@ async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next:
         [TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION]: eipOvnScope,
       });
       const ann = { ...(base.annotations || {}) };
-      if (vpcName) ann[TOWER_IO_VPC] = vpcName;
+      if (vpcName) ann[TOWER_IO_VPC_ANNOTATION] = vpcName;
       return { name: base.name, ...(Object.keys(ann).length ? { annotations: ann } : {}) };
     })();
 
@@ -367,7 +474,7 @@ async function harvesterOvnEipCreateHandlerScoped(req: any, res: Response, next:
 }
 
 /** 集群级 OVN CR 删除：兼容两种 API 路径；双 404 视为已删除 */
-async function deleteKubeOvnClusterCr(
+export async function deleteKubeOvnClusterCr(
   origin: string,
   token: string,
   insecure: boolean,
@@ -397,7 +504,6 @@ async function deleteKubeOvnClusterCr(
 
 export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -409,6 +515,22 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先拉 EIP 列表：判断删除是否需 VPC License（spec.vpc），后续 FIP/SNAT/DNAT 校验仍全量拉取
+    const eipsPrefetch = await listKubeOvnEips({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey || '',
+      insecure,
+    } as any);
+    const eipObjPrefetch = (Array.isArray(eipsPrefetch) ? eipsPrefetch : []).find(
+      (e: any) => String(e?.metadata?.name || '').trim() === nameStr,
+    );
+    const eipVpc = String(eipObjPrefetch?.spec?.vpc || '').trim();
+    const eipScope = eipVpc ? 'vpc' : 'underlay';
+    if (!assertOvnVpcLicenseForDelete(req, res, eipScope)) return;
+
+    let eipSnap: any | null = null;
+    let allEipsSnap: any[] = [];
 
     /** 展示名：有 tower.io/alias 则用别名，否则用 metadata.name */
     const toAliasLabel = (obj: any): string | null => {
@@ -427,10 +549,10 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
         listKubeOvnDnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any),
       ]);
 
+      allEipsSnap = Array.isArray(eips) ? eips : [];
       const eipObj =
-        (Array.isArray(eips) ? eips : []).find(
-          (e: any) => String(e?.metadata?.name || '').trim() === nameStr,
-        ) || null;
+        allEipsSnap.find((e: any) => String(e?.metadata?.name || '').trim() === nameStr) || null;
+      eipSnap = eipObj;
       const eipLabel = eipObj ? String(toAliasLabel(eipObj) || nameStr) : nameStr;
 
       const usingFips = fips.filter((r: any) => ovnEipNameFromRule(r) === nameStr).map(toAliasLabel).filter(Boolean) as string[];
@@ -465,6 +587,111 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     } catch (e: any) {
       console.warn('[EIP-Delete] 本地库存删除失败:', e?.message || e);
     }
+
+    /**
+     * 仅「纯扁平」EIP 才允许动 ovn-internal：scope=underlay 且（未写 tower.io/vpc，或 vpc 仅为 ovn-internal/ovn-cluster）。
+     * 若 EIP 挂了业务 VPC 名（tower.io/vpc），即使 scope 误标为 underlay 也不回收 ovn-internal，避免删除 VPC 域最后一条 EIP 时误改扁平 VPC。
+     */
+    try {
+      const ann = eipSnap?.metadata?.annotations || {};
+      const scopeAnn = String(ann[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '')
+        .trim()
+        .toLowerCase();
+      const extSub = String(eipSnap?.spec?.externalSubnet ?? '').trim();
+      const vpcAnnOnEip = String(ann[TOWER_IO_VPC_ANNOTATION] ?? '').trim();
+      const pureFlatEipForOvnInternal =
+        scopeAnn === 'underlay' &&
+        extSub &&
+        extSub !== 'external' &&
+        (!vpcAnnOnEip || isUnderlayVpcName(vpcAnnOnEip));
+      if (pureFlatEipForOvnInternal) {
+        const othersPreDelete = allEipsSnap.filter(
+          (e: any) => String(e?.metadata?.name || '').trim() !== nameStr,
+        );
+        const refs = eipsReferencingSubnetExcludingLrp(othersPreDelete, extSub);
+        if (refs.length === 0 && eipSnap) {
+          const subUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(extSub)}`;
+          const snObj = await getJsonOnce(subUrl, cloud.secretKey || '', insecure);
+          if (isPublicSubnetOnOvnCluster(snObj)) {
+            const hp = {
+              endpoint: cloud.endpoint,
+              token: cloud.secretKey || '',
+              insecure,
+            } as any;
+            const stillHas = await hasAnyUnderlayEipReferencingPublicOvnSubnet(hp, othersPreDelete);
+            await removeOvnInternalForPublicSubnet({
+              harvesterParams: hp,
+              subnetName: extSub,
+              gateway: String(snObj?.spec?.gateway ?? '').trim(),
+              routeCidr: ovnInternalRouteCidrFromSubnet(snObj),
+              setEnableExternal: stillHas ? undefined : false,
+            });
+          }
+        }
+      }
+    } catch (cleanupErr: any) {
+      console.warn('[EIP-Delete] 从 ovn-internal 收回外网路由失败（可稍后手工核对）:', cleanupErr?.message || cleanupErr);
+    }
+
+    /** VPC 网络 EIP（annotations 所选业务 VPC，非 ovn-internal）：删除「该 VPC + 该外网子网」最后一条时收回登记；若该 VPC 已无其它 VPC 域外网 EIP 则 enableExternal=false 且 extraExternalSubnets 置空 */
+    try {
+      const annVpc = eipSnap?.metadata?.annotations || {};
+      const scopeVpcDel = String(annVpc[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '')
+        .trim()
+        .toLowerCase();
+      const vpcChosen = String(annVpc[TOWER_IO_VPC_ANNOTATION] ?? '').trim();
+      const extSubVpc = String(eipSnap?.spec?.externalSubnet ?? '').trim();
+      if (
+        scopeVpcDel === 'vpc' &&
+        vpcChosen &&
+        !isUnderlayVpcName(vpcChosen) &&
+        extSubVpc &&
+        extSubVpc !== 'external' &&
+        eipSnap
+      ) {
+        const othersVpc = allEipsSnap.filter(
+          (e: any) => String(e?.metadata?.name || '').trim() !== nameStr,
+        );
+        const vpcSubnetRefs = eipsReferencingSubnetExcludingLrp(othersVpc, extSubVpc).filter(
+          (e: any) => {
+            const a = e?.metadata?.annotations || {};
+            return (
+              String(a[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '').trim().toLowerCase() === 'vpc' &&
+              String(a[TOWER_IO_VPC_ANNOTATION] ?? '').trim() === vpcChosen
+            );
+          },
+        );
+        if (vpcSubnetRefs.length === 0) {
+          const subUrlVpc = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(extSubVpc)}`;
+          let snVpc: any = null;
+          try {
+            snVpc = await getJsonOnce(subUrlVpc, cloud.secretKey || '', insecure);
+          } catch {
+            snVpc = null;
+          }
+          const gwVpc = snVpc ? String(snVpc?.spec?.gateway ?? '').trim() : '';
+          const hpVpc = {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey || '',
+            insecure,
+          } as any;
+          const stillVpcEips = hasAnyVpcScopedEipWithExternalSubnet(othersVpc, vpcChosen);
+          await removeVpcExternalSubnetRegistration({
+            harvesterParams: hpVpc,
+            vpcName: vpcChosen,
+            externalSubnetName: extSubVpc,
+            subnetGateway: gwVpc,
+            setEnableExternal: stillVpcEips ? undefined : false,
+          });
+        }
+      }
+    } catch (cleanupVpcErr: any) {
+      console.warn(
+        '[EIP-Delete] 从业务 VPC 收回外网登记失败（可稍后手工核对）:',
+        cleanupVpcErr?.message || cleanupVpcErr,
+      );
+    }
+
     res.json({ message: '删除成功' });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -474,7 +701,6 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -486,6 +712,17 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先获取 FIP 列表，从中找到要删除的 FIP 并判断其类型
+    const fips = await listKubeOvnFips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const fipObj = (Array.isArray(fips) ? fips : []).find(
+      (f: any) => String(f?.metadata?.name || '').trim() === nameStr,
+    );
+    // FIP 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const fipVpc = String(fipObj?.spec?.vpc || '').trim();
+    const fipScope = fipVpc ? 'vpc' : 'underlay';
+
+    if (!assertOvnVpcLicenseForDelete(req, res, fipScope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnfips', 'ovn-fips', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnFipInventory).delete({ cloudId: cloud.id, name: nameStr });
@@ -501,7 +738,6 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
 
 export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -513,6 +749,16 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先获取 SNAT 规则列表，从中找到要删除的规则并判断其类型
+    const snats = await listKubeOvnSnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const snatObj = (Array.isArray(snats) ? snats : []).find(
+      (s: any) => String(s?.metadata?.name || '').trim() === nameStr,
+    );
+    // SNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const snatVpc = String(snatObj?.spec?.vpc || '').trim();
+    const scope = snatVpc ? 'vpc' : 'underlay';
+    if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnsnatrules', 'ovn-snat-rules', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnNatRuleInventory).delete({
@@ -532,7 +778,6 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
 
 export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, next: any) {
   try {
-    if (!assertOvnVpcLicenseStrict(req, res)) return;
     const { id, name } = req.params;
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ message: '缺少资源名称' });
@@ -544,6 +789,16 @@ export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, nex
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getOriginFromEndpoint(cloud.endpoint || '');
+
+    // 先获取 DNAT 规则列表，从中找到要删除的规则并判断其类型
+    const dnats = await listKubeOvnDnatRules({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+    const dnatObj = (Array.isArray(dnats) ? dnats : []).find(
+      (d: any) => String(d?.metadata?.name || '').trim() === nameStr,
+    );
+    // DNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
+    const dnatVpc = String(dnatObj?.spec?.vpc || '').trim();
+    const scope = dnatVpc ? 'vpc' : 'underlay';
+    if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovndnatrules', 'ovn-dnat-rules', nameStr);
     try {
       await AppDataSource.getRepository(KubeOvnNatRuleInventory).delete({

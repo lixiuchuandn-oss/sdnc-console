@@ -73,6 +73,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
     return (
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         columns={[
           { 
@@ -161,7 +162,6 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
     {
       title: '操作',
       key: 'action',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
@@ -222,13 +222,13 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
     >
       <Table
         className={!isTenant ? 'std-table' : 'std-table no-border'}
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r) => r.metadata?.uid || r.metadata?.name}
         dataSource={filtered}
         columns={tableColumns}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         expandable={{ expandedRowRender }}

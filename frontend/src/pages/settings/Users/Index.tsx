@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Checkbox, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
-import StdFormModal from '../../../components/StdFormModal';
 import PageContainer from '../../../components/PageContainer';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
@@ -413,7 +412,18 @@ const AccessUsersPage: React.FC = () => {
         bordered={false}
       />
 
-      <StdFormModal title="新建系统用户" open={createOpen} onCancel={()=> setCreateOpen(false)} okText="创建" width={600} form={createForm} onFinish={handleCreate}>
+      <Modal
+        title="新建系统用户"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={() => createForm.submit()}
+        okText="创建"
+        width={600}
+        centered
+        destroyOnHidden
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
+      >
+        <Form form={createForm} layout="vertical" onFinish={handleCreate}>
         <Form.Item name="fullName" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}><Input placeholder="例如：运维管理员" /></Form.Item>
         <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}><Input placeholder="例如：ops_admin" /></Form.Item>
         <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱' }, { type:'email', message: '请输入有效邮箱' }]}><Input placeholder="例如：ops@example.com" /></Form.Item>
@@ -429,23 +439,39 @@ const AccessUsersPage: React.FC = () => {
             optionFilterProp="label"
           />
         </Form.Item>
-      </StdFormModal>
+        </Form>
+      </Modal>
 
-      <StdFormModal title="编辑用户" open={editOpen} onCancel={()=> { setEditOpen(false); setEditingUser(null); setIsEditingAdmin(false); }} okText="保存" width={600} form={editForm} onFinish={async (vals)=> {
-        if (!editingUser) return;
-        try {
-          const statusChanged = String(vals.status ?? '') !== String(editingUser.status ?? '');
-          if (editingUser.builtIn && statusChanged) {
-            pendingEditValsRef.current = vals;
-            setBuiltInStatusAck(false);
-            setBuiltInStatusConfirmOpen(true);
-            return;
-          }
-          await performUserEdit(vals);
-        } catch (error: any) {
-          message.error(error?.message || '更新失败');
-        }
-      }}>
+      <Modal
+        title="编辑用户"
+        open={editOpen}
+        onCancel={() => { setEditOpen(false); setEditingUser(null); setIsEditingAdmin(false); }}
+        onOk={() => editForm.submit()}
+        okText="保存"
+        width={600}
+        centered
+        destroyOnHidden
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={async (vals) => {
+            if (!editingUser) return;
+            try {
+              const statusChanged = String(vals.status ?? '') !== String(editingUser.status ?? '');
+              if (editingUser.builtIn && statusChanged) {
+                pendingEditValsRef.current = vals;
+                setBuiltInStatusAck(false);
+                setBuiltInStatusConfirmOpen(true);
+                return;
+              }
+              await performUserEdit(vals);
+            } catch (error: any) {
+              message.error(error?.message || '更新失败');
+            }
+          }}
+        >
         {isEditingAdmin ? (
           <>
             <Form.Item name="fullName" label="姓名"><Input disabled /></Form.Item>
@@ -507,7 +533,8 @@ const AccessUsersPage: React.FC = () => {
             ) : null}
           </>
         )}
-      </StdFormModal>
+        </Form>
+      </Modal>
 
       <SecuritySettingsDrawer
         open={securityDrawerOpen}

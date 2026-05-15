@@ -5,6 +5,7 @@ import PageContainer from '../../../../components/PageContainer';
 import { fetchClouds, fetchCsmElementGroups } from '../../../../services/api';
 import { listSecurityDomains, getSecurityDomain, updateSecurityDomain } from '../../../../services/securityDomainApi';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import { formatCategoryLabel } from '../../../../utils/securityDomainKind';
 
 const { Text } = Typography;
 
@@ -255,14 +256,10 @@ const SecurityServices: React.FC = () => {
       },
     },
     {
-      title: '分类',
+      title: '类型',
       dataIndex: 'category',
       key: 'category',
-    },
-    {
-      title: '标签',
-      dataIndex: 'subType',
-      key: 'subType',
+      render: (v: string) => formatCategoryLabel(v) || v || '—',
     },
   ];
 

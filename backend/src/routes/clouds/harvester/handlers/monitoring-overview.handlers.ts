@@ -5,13 +5,18 @@
 
 import { Request, Response } from 'express';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
-import { ensureProvider, normalizeOrigin } from './monitoring-helpers';
+import {
+  fetchCephRookResourceBundle,
+  emptyCephRookBundle,
+} from '../../../../services/clouds/harvester/cephRookBundle';
 import {
   PAGESIZE,
   EXCLUDE,
   PROMETHEUS_QUERY_RANGE_PATH,
-  isUnreachableError,
+  ensureProvider,
   getTenantAccessForMonitoring,
+  isUnreachableError,
+  normalizeOrigin,
 } from './monitoring-helpers';
 
 function parseLonghornDefaultReplicaCount(settingsPayload: any): number | null {
@@ -60,6 +65,81 @@ export async function harvesterMonitoringStorageNodesHandler(req: Request, res: 
     if (res.headersSent) return;
     const status = (e as any).status || 500;
     res.status(status).json({ message: e?.message || '请求存储节点失败' });
+  }
+}
+
+/** Rook Ceph 多资源聚合（对齐 Ceph Dashboard 部分模块：集群 / Pool / FS / RGW 抽象） */
+export async function harvesterMonitoringCephRookBundleHandler(req: Request, res: Response) {
+  try {
+    const cloud = (req as any).cloud;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+
+    try {
+      const out = await fetchCephRookResourceBundle(cloud);
+      res.json(out);
+    } catch (e: any) {
+      if (isUnreachableError(e)) {
+        return res.status(200).json(emptyCephRookBundle());
+      }
+      throw e;
+    }
+  } catch (e: any) {
+    if (isUnreachableError(e)) {
+      return res.status(200).json(emptyCephRookBundle());
+    }
+    if (res.headersSent) return;
+    const st = (e as any).status || 500;
+    res.status(st).json({ message: e?.message || '请求 Ceph 资源聚合失败' });
+  }
+}
+
+export async function harvesterMonitoringCephClustersHandler(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const cloud = (req as any).cloud;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const origin = normalizeOrigin(cloud.endpoint || '');
+    const steveResourcePaths = ['cephclusters.ceph.rook.io', 'ceph.rook.io.cephclusters'];
+    let data: any = null;
+    let last403: any = null;
+    for (const p of steveResourcePaths) {
+      const url = `${origin}/v1/harvester/${p}?${PAGESIZE}&${EXCLUDE}`;
+      try {
+        data = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
+        break;
+      } catch (e: any) {
+        if (isUnreachableError(e)) {
+          return res.status(200).json({ data: [] });
+        }
+        const status = (e as any).status;
+        if (status === 404) continue;
+        if (status === 403) {
+          last403 = e;
+          continue;
+        }
+        throw e;
+      }
+    }
+    if (data == null) {
+      if (last403) {
+        return res.status(200).json({
+          data: [],
+          _tower: { cephHint: 'forbidden' },
+        });
+      }
+      return res.status(200).json({
+        data: [],
+        _tower: { cephHint: 'resource_not_found' },
+      });
+    }
+    res.json(data);
+  } catch (e: any) {
+    if (isUnreachableError(e)) return res.status(200).json({ data: [] });
+    if (res.headersSent) return;
+    const st = (e as any).status || 500;
+    res.status(st).json({ message: e?.message || '请求 Ceph 集群列表失败' });
   }
 }
 

@@ -200,7 +200,9 @@ const StepCompute: React.FC<StepComputeProps> = ({
       <Form.Item name="cpu" hidden rules={[{ required: true, message: '请选择或输入 vCPU' }, { type: 'number', min: 1, max: 512 }]}> 
         <InputNumber />
       </Form.Item>
-      <Form.Item name="machineType" hidden><Input /></Form.Item>
+      <Form.Item name="machineType" hidden preserve>
+        <Input />
+      </Form.Item>
 
       <Form.Item label="内存分配" required>
         <Space>

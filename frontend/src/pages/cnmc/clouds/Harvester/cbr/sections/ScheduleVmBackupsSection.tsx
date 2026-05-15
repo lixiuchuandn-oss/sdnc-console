@@ -496,7 +496,6 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
     { 
       title: '操作', 
       key: 'action', 
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
@@ -622,13 +621,13 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         <Table
         key="table"
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

@@ -109,13 +109,56 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return 'mac地址和已有虚拟机重复';
   }
 
-  // --- Harvester / Multus：虚拟机网卡引用的 NetworkAttachmentDefinition（NAD）不存在（新建 VPC/子网或扁平子网未同步时常见）---
+  // --- Harvester / Multus：NAD 不存在；完整 JSON 或 admission webhook 文案也匹配 ---
+  if (
+    lower.includes('admission webhook') &&
+    lower.includes('denied the request') &&
+    (lower.includes('network-attachment-definitions') ||
+      lower.includes('networkattachmentdefinition') ||
+      lower.includes('network-attachment')) &&
+    lower.includes('not found')
+  ) {
+    return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在子网/网络已就绪后重新选择网卡。';
+  }
   if (
     (lower.includes('network-attachment-definitions') ||
       lower.includes('networkattachmentdefinitions.k8s.cni.cncf.io')) &&
     lower.includes('not found')
   ) {
-    return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在网络页面刷新子网后重新选择网卡。';
+    return '子网网络尚未就绪：集群中找不到所选子网对应的网络附加资源（NAD）。常见于刚创建 VPC/子网或扁平子网尚未同步完成，请稍候再创建虚拟机，或在子网/网络已就绪后重新选择网卡。';
+  }
+
+  // --- KubeVirt：启动顺序冲突（已为其他设备设置了启动顺序）---
+  if (
+    lower.includes('bootorder') &&
+    lower.includes('already set') &&
+    lower.includes('different device')
+  ) {
+    return '启动顺序配置冲突：已为其他设备设置了启动顺序。请取消当前设备的「优先启动」设置，或先清除其他设备的启动顺序后再重试。';
+  }
+
+  // --- Harvester：定时备份冲突（虚拟机已存在备份计划）---
+  if (
+    lower.includes('already has backup schedule')
+  ) {
+    return '定时备份创建失败：该虚拟机已存在备份计划。一台虚拟机只能配置一个定时备份任务，请先删除已有的备份计划后再创建新的。';
+  }
+
+  // --- Harvester：定时备份时间粒度冲突（与已有计划时间间隔过短）---
+  if (
+    lower.includes('same granularity as schedule') &&
+    lower.includes('offset less than')
+  ) {
+    return '定时备份创建失败：新创建的备份计划与已存在的计划时间粒度相同，但执行时间间隔过短（需至少间隔10分钟）。请调整执行时间或删除冲突的计划后再试。';
+  }
+
+  // --- Harvester：Cloud-init 配置缺少数据源 ---
+  if (
+    lower.includes('cloudinitnocloud') &&
+    lower.includes('userdatasource') &&
+    lower.includes('networkdatasource')
+  ) {
+    return 'Cloud-init 配置不完整：请在「高级设置」中为 Cloud-init 配置至少一个用户数据源（userDataSource）或网络数据源（networkDataSource）。';
   }
 
   return msg;

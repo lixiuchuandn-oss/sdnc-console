@@ -412,7 +412,6 @@ const TemplatesSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       render: (_: any, r: any) => {
         const items: any[] = [
           {
@@ -634,6 +633,7 @@ const TemplatesSection: React.FC<Props> = ({
       >
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           rowKey={(r) => r.metadata?.uid || r.metadata?.name}
           rowSelection={{
@@ -644,7 +644,6 @@ const TemplatesSection: React.FC<Props> = ({
           dataSource={filteredData}
           loading={loading}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />

@@ -115,7 +115,7 @@ const CodeEditor: React.FC<Props> = ({
   placeholder,
   height,
   minHeight = 200,
-  maxHeight = 500,
+  maxHeight,
   style,
   className,
   tabSize = 2,
@@ -148,32 +148,83 @@ const CodeEditor: React.FC<Props> = ({
     }
   }, [resolvedLanguage]);
 
-  // 处理内容变化
   const handleChange = (val: string) => {
     onChange?.(val);
   };
 
-  // 处理高度值，支持数字和字符串
-  const formatHeight = (height: number | string | undefined): string => {
-    if (!height) return 'auto';
-    if (typeof height === 'string') return height;
-    return `${height}px`;
+  const parsePx = (raw: number | string | undefined): number | undefined => {
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw === 'number' && Number.isFinite(raw)) return Math.max(0, raw);
+    if (typeof raw === 'string') {
+      const t = raw.trim();
+      const px = /^(\d+(?:\.\d+)?)\s*px$/i.exec(t);
+      if (px) return Math.max(0, parseFloat(px[1]));
+      const n = /^(\d+(?:\.\d+)?)$/.exec(t);
+      if (n) return Math.max(0, parseFloat(n[1]));
+    }
+    return undefined;
   };
 
+  const minPx = parsePx(minHeight) ?? 200;
+
+  let maxPx: number | undefined;
+  let maxHeightRawCss: string | undefined;
+  if (typeof maxHeight === 'number' && Number.isFinite(maxHeight)) {
+    maxPx = Math.max(minPx, maxHeight);
+  } else if (typeof maxHeight === 'string') {
+    const p = parsePx(maxHeight);
+    if (p !== undefined) maxPx = Math.max(minPx, p);
+    else if (maxHeight.trim()) maxHeightRawCss = maxHeight.trim();
+  }
+
+  const explicitH = parsePx(height);
+  const viewportUncapped =
+    explicitH !== undefined ? Math.max(minPx, explicitH) : minPx;
+  const viewportPx =
+    maxPx !== undefined
+      ? Math.min(viewportUncapped, maxPx)
+      : viewportUncapped;
+
+  const fillsParent =
+    typeof style?.flex === 'number' ||
+    (typeof style?.height === 'string' && /%|vh|auto/i.test(style.height));
+
+  const mergedStyle: React.CSSProperties = {
+    border: '1px solid #d9d9d9',
+    borderRadius: 4,
+    boxSizing: 'border-box',
+    minHeight: minPx,
+    ...style,
+  };
+
+  if (maxPx !== undefined && mergedStyle.maxHeight === undefined) {
+    mergedStyle.maxHeight = maxPx;
+  } else if (maxHeightRawCss && mergedStyle.maxHeight === undefined) {
+    mergedStyle.maxHeight = maxHeightRawCss;
+  }
+  if (mergedStyle.maxHeight !== undefined) {
+    mergedStyle.overflowY ??= 'auto';
+  } else if (!fillsParent || mergedStyle.height === undefined) {
+    mergedStyle.overflow ??= 'hidden';
+  }
+
+  if (explicitH !== undefined && mergedStyle.height === undefined) {
+    mergedStyle.height = explicitH;
+  }
+
+  /** 显式传入的 height（数值）一律交给 CodeMirror 像素高度，避免与 style.height 组合误判为 fillsParent→100% 导致无法滚动 */
+  const cmHeight =
+    explicitH !== undefined && Number.isFinite(explicitH)
+      ? `${Math.max(minPx, viewportPx)}px`
+      : fillsParent
+        ? '100%'
+        : `${viewportPx}px`;
+
   return (
-    <div 
-      className={className} 
-      style={{ 
-        border: '1px solid #d9d9d9', 
-        borderRadius: 4, 
-        overflow: 'hidden',
-        height: style?.height || (style?.flex ? '100%' : undefined),
-        ...style 
-      }}
-    >
+    <div className={className} style={mergedStyle}>
       <CodeMirror
         value={value || ''}
-        height="100%"
+        height={cmHeight}
         extensions={extensions}
         onChange={handleChange}
         editable={!readOnly}
@@ -208,7 +259,6 @@ const CodeEditor: React.FC<Props> = ({
         style={{
           fontSize: 13,
           fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-          height: '100%',
         }}
         theme={cmTheme}
       />

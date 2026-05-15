@@ -857,8 +857,9 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    *   - 公共命名空间（租户）：删除按钮禁用
    */
   const allColumns = useMemo(() => [
-    { 
-      title: '网络名称', 
+    {
+      fixed: 'left' as const,
+      title: '网络名称',
       key: 'name', 
       render: (_: any, r: any) => {
         // 优先显示别名，如果没有别名则显示 ID
@@ -992,7 +993,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     { 
       title: '操作', 
       key: 'actions', 
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
@@ -1121,6 +1121,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r: any) => r?.metadata?.uid || `${r?._namespace ?? ''}/${r?._name ?? ''}` || 'unknown'}
         rowSelection={rowSelection}
@@ -1128,7 +1129,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         dataSource={filteredData}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

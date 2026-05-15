@@ -100,6 +100,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'system.rbac': 'RBAC管理',
   'system.audit': '操作审计',
   'system.settings': '界面设置',
+  'system.upgrade': '离线版本升级',
   'system.license': '授权管理',
   'system.integration': '高级集成',
   
@@ -214,6 +215,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'users:write': '创建、编辑、删除系统用户，重置密码',
   'system.roles:read': '查看角色列表',
   'system.roles:write': '创建、编辑、删除角色',
+  'system.upgrade:read': '查看当前运行版本与最近一次离线升级记录',
+  'system.upgrade:write': '上传离线 zip 包并合并 public/server 进行版本更新',
   
   // SDNCC - 跨域互联
   'networks.vr-config:read': '查看 VR 实例列表',

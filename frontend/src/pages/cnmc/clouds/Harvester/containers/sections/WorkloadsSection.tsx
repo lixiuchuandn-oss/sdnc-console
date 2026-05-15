@@ -200,7 +200,7 @@ const WorkloadTable: React.FC<{
   data: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   onEdit?: (record: any) => void;
   namespacesOptions: string[];
   nsValue?: string;
@@ -289,7 +289,7 @@ const WorkloadTable: React.FC<{
       setAliasModalVisible(false);
       setAliasRecord(null);
       aliasForm.resetFields();
-      onRefresh();
+      onRefresh(true);
       return true;
     } catch (e: any) {
       console.error(e);
@@ -337,7 +337,7 @@ const WorkloadTable: React.FC<{
         try {
           await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
           message.success('扩缩容指令已下发');
-          onRefresh();
+          onRefresh(true);
         } catch (e: any) {
           message.error(e?.message || '扩缩容失败');
         }
@@ -353,7 +353,7 @@ const WorkloadTable: React.FC<{
     try {
       await restartHarvesterDeployment(cloudId, namespace, name);
       message.success('重启指令已下发');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '重启失败');
     }
@@ -367,7 +367,7 @@ const WorkloadTable: React.FC<{
     try {
       await deleteHarvesterContainerResource(cloudId, apiPath, namespace, name);
       message.success('删除成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -378,7 +378,7 @@ const WorkloadTable: React.FC<{
     {
       title: '名称',
       key: 'name',
-      width: 180,
+      fixed: 'left' as const,
       ellipsis: true,
       render: (_: any, record: any) => {
         const alias = record?.metadata?.annotations?.['tower.io/alias'];
@@ -407,7 +407,6 @@ const WorkloadTable: React.FC<{
       title: 'ID',
       dataIndex: ['metadata', 'name'],
       key: 'id',
-      width: 200,
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
@@ -415,20 +414,17 @@ const WorkloadTable: React.FC<{
       title: '命名空间',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
-      width: 150,
       ellipsis: true,
       render: (ns: string) => <Tag>{ns}</Tag>,
     },
     {
       title: 'Pod状态',
       key: 'status',
-      width: 140,
       render: (_: any, record: any) => renderWorkloadStatus(record, type),
     },
     {
       title: '副本数',
       key: 'replicas',
-      width: 100,
       render: (_: any, record: any) => {
         if (type === 'daemonset') {
           const desired = record?.status?.desiredNumberScheduled || 0;
@@ -443,7 +439,6 @@ const WorkloadTable: React.FC<{
     {
       title: '镜像',
       key: 'image',
-      width: 200,
       ellipsis: true,
       render: (_: any, record: any) => {
         const containers = record?.spec?.template?.spec?.containers || [];
@@ -455,7 +450,6 @@ const WorkloadTable: React.FC<{
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'creationTimestamp',
-      width: 180,
       render: formatTime,
       sorter: (a: any, b: any) => new Date(a?.metadata?.creationTimestamp || 0).getTime() - new Date(b?.metadata?.creationTimestamp || 0).getTime(),
       defaultSortOrder: 'descend' as const,
@@ -463,7 +457,6 @@ const WorkloadTable: React.FC<{
     {
       title: '操作',
       key: 'actions',
-      width: 120,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const isSystem = isSystemResource(record);
@@ -581,7 +574,7 @@ const WorkloadTable: React.FC<{
             <Button
               type="default"
               icon={<ReloadOutlined />}
-              onClick={() => onRefresh()}
+              onClick={() => onRefresh(true)}
             />
           </Tooltip>
         </div>
@@ -594,7 +587,7 @@ const WorkloadTable: React.FC<{
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        scroll={{ x: 'max-content' }}
+        scroll={{ x: true }}
         pagination={{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,

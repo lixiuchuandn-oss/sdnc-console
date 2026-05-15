@@ -191,7 +191,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       });
 
       if (!response.ok) {
-        throw new Error('登录失败');
+        let errMsg = '登录失败';
+        try {
+          const errJson = await response.json();
+          if (typeof errJson?.message === 'string' && errJson.message.trim()) {
+            errMsg = errJson.message.trim();
+          }
+        } catch {
+          if (response.status === 401) {
+            errMsg = '用户名或密码错误';
+          }
+        }
+        throw new Error(errMsg);
       }
 
       const data = await response.json();

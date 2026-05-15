@@ -177,8 +177,8 @@ export interface PageContainerProps<T = any> {
   }>;
   /** 操作按钮尺寸，默认 'middle' */
   actionsSize?: 'small' | 'middle' | 'large';
-  /** 刷新操作回调（将显示刷新按钮） */
-  onRefresh?: () => void;
+  /** 刷新操作回调（将显示刷新按钮）；点击时始终传入 `true` 作为第一参，与 `PageDetailSection`/`SharedToolbar` 一致，便于与「强制拉列表」约定对齐；无参包装函数会忽略该实参。 */
+  onRefresh?: (force?: boolean) => void;
   
   // ========== 表格相关 ==========
   /** 标准表格属性，传入此属性将自动渲染标准样式的表格 */
@@ -565,7 +565,13 @@ const PageContainer = <T extends Record<string, any> = any>({
         
         {/* 刷新按钮（仅在提供 onRefresh 时显示） */}
         {onRefresh && (
-          <Button size={actionsSize} icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button
+            size={actionsSize}
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              (onRefresh as (force?: boolean) => void)(true);
+            }}
+          />
         )}
       </Space>
     ) : null

@@ -239,6 +239,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           networkScope="vpc"
           onRefresh={(force = true, silent = false) => {
             const skipSync = silent;
+            void loadTabResource('eips', force, skipSync);
             setResourceLoading((prev) => ({
               ...prev,
               snatRules: true,
@@ -248,7 +249,6 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
                 const list: any[] = (json as any)?.data?.items || [];
                 setKubeOvnSnatRules(Array.isArray(list) ? list : []);
                 setRawSnatRules(json || null);
-                if (force && !silent) message.success('刷新成功');
               })
               .catch((e) => {
                 if (!silent)
@@ -279,6 +279,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           networkScope="vpc"
           onRefresh={(force = true, silent = false) => {
             const skipSync = silent;
+            void loadTabResource('eips', force, skipSync);
             setResourceLoading((prev) => ({
               ...prev,
               dnatRules: true,
@@ -288,7 +289,6 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
                 const list: any[] = (json as any)?.data?.items || [];
                 setKubeOvnDnatRules(Array.isArray(list) ? list : []);
                 setRawDnatRules(json || null);
-                if (force && !silent) message.success('刷新成功');
               })
               .catch((e) => {
                 if (!silent)

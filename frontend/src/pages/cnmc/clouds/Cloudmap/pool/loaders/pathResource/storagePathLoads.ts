@@ -1,11 +1,12 @@
 import {
   fetchCloudProviderEcs,
   fetchHarvesterSnapshots,
+  fetchHarvesterStorageClasses,
   fetchHarvesterVolumes,
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 云存储域（`panels/storage`）：`CLOUDMAP_STORAGE_INNER_MENU`（volumes / snapshots） */
+/** 云存储域：`storage/storage_pools | storage_classes | volumes | snapshots | rbd_mirror` */
 export async function tryLoadStorageTab(
   key: string,
   force: boolean,
@@ -22,9 +23,30 @@ export async function tryLoadStorageTab(
     setRawVolumes,
     setHarvesterSnapshots,
     setRawSnapshots,
+    setHarvesterStorageClasses,
   } = deps;
 
   switch (key) {
+    case 'storage_pools':
+    case 'rbd_mirror':
+      return true;
+    case 'storage_classes':
+      if (checkPerm('clouds.storage-classes:read') || checkPerm('clouds.ecs:read')) {
+        loadResource(
+          'storageClasses',
+          () => fetchHarvesterStorageClasses(cloudId, force),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : Array.isArray((json as any)?.items)
+                ? (json as any).items
+                : [];
+            setHarvesterStorageClasses(Array.isArray(list) ? list : []);
+          },
+          force,
+        );
+      }
+      return true;
     case 'volumes':
       if (checkPerm('clouds.disks:read')) {
         loadResource(

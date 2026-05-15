@@ -1,6 +1,5 @@
 import React from 'react';
-import { App, Form, Select } from 'antd';
-import StdFormModal from '../../../../../components/StdFormModal';
+import { App, Form, Modal, Select } from 'antd';
 import { fetchCloudProviderRouteTables, associateCloudProviderRouteTable } from '../../../../../services/aliyunApi';
 
 type Props = {
@@ -17,23 +16,35 @@ const RouteTableAssociateModalAliyun: React.FC<Props> = ({ open, cloudId, target
   const [form] = Form.useForm();
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="挂载子网"
-      form={form}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onClose}
-      onFinish={async (values: any) => {
-        try {
-          const id0 = target?.RouteTableId || target?.id; if (!id0) return;
-          await associateCloudProviderRouteTable(cloudId, id0, values.subnetIds || []);
-          const json = await fetchCloudProviderRouteTables(cloudId);
-          const rtList: any[] = (json?.RouteTables?.RouteTable) || (json?.data?.route_tables) || (json?.route_tables) || [];
-          onSuccess(Array.isArray(rtList) ? rtList : []);
-          message.success('挂载成功');
-          onClose();
-        } catch (e: any) { message.error(e?.message || '挂载失败'); }
-      }}
+      onOk={() => form.submit()}
+      okText="保存"
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={async (values: any) => {
+          try {
+            const id0 = target?.RouteTableId || target?.id;
+            if (!id0) return;
+            await associateCloudProviderRouteTable(cloudId, id0, values.subnetIds || []);
+            const json = await fetchCloudProviderRouteTables(cloudId);
+            const rtList: any[] = (json?.RouteTables?.RouteTable) || (json?.data?.route_tables) || (json?.route_tables) || [];
+            onSuccess(Array.isArray(rtList) ? rtList : []);
+            message.success('挂载成功');
+            onClose();
+          } catch (e: any) {
+            message.error(e?.message || '挂载失败');
+          }
+        }}
+      >
       <Form.Item name="subnetIds" label="子网" rules={[{ required: true }]}>
         <Select
           mode="multiple"
@@ -44,7 +55,8 @@ const RouteTableAssociateModalAliyun: React.FC<Props> = ({ open, cloudId, target
           }).map((s: any) => ({ label: `${s?.VSwitchName || s?.name || s?.VSwitchId || s?.id || '-'}`, value: s?.VSwitchId || s?.id }))}
         />
       </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

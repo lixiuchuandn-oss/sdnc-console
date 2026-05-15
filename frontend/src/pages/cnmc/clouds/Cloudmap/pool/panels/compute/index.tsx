@@ -1,7 +1,6 @@
 import React from 'react';
 import { Empty, message } from 'antd';
 import VmSection from '../../../../Harvester/ecs/sections/VmSection';
-import VmReconfigureModal from '../../../../Harvester/ecs/modals/VmReconfigureModal';
 import ImagesSection from '../../../../Harvester/ecs/sections/ImagesSection';
 import TemplatesSection from '../../../../Harvester/ecs/sections/TemplatesSection';
 import SshKeysSection from '../../../../Harvester/ecs/sections/SshKeysSection';
@@ -86,15 +85,11 @@ export type CloudmapComputeGroupTabsProps = {
   harvesterSshKeys: any[];
   harvesterCloudInits: any[];
   harvesterGpuResources: any[];
+  harvesterUsbDevices: any[];
   rawImages: any;
   rawTemplates: any;
   rawSshKeys: any;
   rawCloudInits: any;
-  vmReconfOpen: boolean;
-  vmReconfTarget: any;
-  onOpenVmReconfigure: (r: any) => void;
-  onVmReconfigureModalClose: () => void;
-  onVmReconfigureModalOk: () => void;
 };
 
 function canViewComputeInner(
@@ -155,15 +150,11 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
     harvesterSshKeys,
     harvesterCloudInits,
     harvesterGpuResources,
+    harvesterUsbDevices,
     rawImages,
     rawTemplates,
     rawSshKeys,
     rawCloudInits,
-    vmReconfOpen,
-    vmReconfTarget,
-    onOpenVmReconfigure,
-    onVmReconfigureModalClose,
-    onVmReconfigureModalOk,
   } = props;
 
   if (!canViewComputeInner(innerActiveKey, checkPerm)) {
@@ -251,7 +242,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                       );
                     });
                 }}
-                onOpenReconfigure={onOpenVmReconfigure}
                 onStart={async (iid: string) => {
                   try {
                     const vm = ecs.find((v: any) => {
@@ -261,6 +251,42 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                           : v?.InstanceId || v?.id;
                       return vId === iid;
                     });
+
+                    // [资源检查] 启动前检查 CPU/内存资源是否足够（使用共享的资源数据）
+                    if (vm) {
+                      const parseMemoryToGiB = (s: string): number => {
+                        const t = s.trim();
+                        const m = t.match(/^(\d+(?:\.\d+)?)([KMG]i?)?$/i);
+                        if (!m) return 0;
+                        const val = Number(m[1]);
+                        const unit = (m[2] || '').toLowerCase();
+                        if (unit === 'ki') return val / (1024 * 1024);
+                        if (unit === 'mi') return val / 1024;
+                        if (unit === 'gi') return val;
+                        return val / (1024 * 1024 * 1024);
+                      };
+
+                      // 获取 VM 的 CPU 和内存配置
+                      const cpu = vm?.spec?.template?.spec?.domain?.cpu;
+                      let cpuRequest = 0;
+                      if (cpu?.sockets !== undefined && cpu?.cores !== undefined && cpu?.threads !== undefined) {
+                        cpuRequest = Number(cpu.sockets) * Number(cpu.cores) * Number(cpu.threads);
+                      } else if (cpu?.sockets !== undefined && cpu?.cores !== undefined) {
+                        cpuRequest = Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
+                      } else if (vm?.cpu !== undefined && vm?.cpu !== null) {
+                        cpuRequest = Number(vm.cpu);
+                      } else {
+                        cpuRequest = Number(cpu?.cores || cpu?.sockets || vm?.vmi?.spec?.domain?.cpu?.cores || 0);
+                      }
+
+                      const memoryStr = String(vm?.spec?.template?.spec?.domain?.memory?.guest || vm?.memoryGb || vm?.vmi?.spec?.domain?.memory?.guest || '');
+                      const memoryRequest = parseMemoryToGiB(memoryStr);
+
+                      // 获取目标节点名称
+                      const targetNodeName = vm?.nodeName || vm?.spec?.template?.spec?.nodeName;
+
+                      // 移除资源检查逻辑，允许直接启动虚拟机
+                    }
 
                     if (vm && harvesterVolumes.length > 0) {
                       const vmVolumes =
@@ -386,7 +412,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                     message.error(e?.message || '恢复失败');
                   }
                 }}
-                onDelete={async (iid: string, deleteVolumes?: boolean) => {
+                onDelete={async (iid: string, deleteVolumes?: boolean, isBatch?: boolean) => {
                   try {
                     const [namespace, name] = iid.split('/');
                     if (!namespace || !name) {
@@ -444,7 +470,9 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                       iid,
                       deleteVolumes,
                     );
-                    message.success('虚拟机已移入回收站，到期后自动删除');
+                    if (!isBatch) {
+                      message.success('虚拟机已移入回收站，到期后自动删除');
+                    }
                     apiPost(`/api/clouds/${cloudId}/sync`)
                       .catch(console.warn)
                       .finally(() => void refreshVms());
@@ -455,16 +483,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                 images={harvesterImages}
                 namespaces={harvesterNamespaces}
                 volumes={harvesterVolumes}
-              />
-              <VmReconfigureModal
-                open={vmReconfOpen}
-                cloudId={cloudId}
-                record={vmReconfTarget}
-                onClose={onVmReconfigureModalClose}
-                onOk={onVmReconfigureModalOk}
-                storageClasses={harvesterStorageClasses}
-                images={harvesterImages}
-                gpuResources={harvesterGpuResources}
               />
         <DebugJSON data={rawEcs} show={showLog} />
       </>
@@ -479,12 +497,12 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           images={harvesterImages}
           loading={resourceLoading.images}
           vms={ecs}
-          onRefresh={() =>
+          onRefresh={(force?: boolean) =>
             loadResource(
               'images',
-              () => fetchHarvesterImages(cloudId, true),
+              () => fetchHarvesterImages(cloudId, force ?? true),
               (json) => setHarvesterImages(json?.data?.items || []),
-              true,
+              force ?? true,
             )
           }
           isTenant={isTenant}
@@ -546,10 +564,10 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           loading={resourceLoading.ecs}
           cloudId={cloudId}
           isTenant={isTenant}
-          onRefresh={() => {
-            apiPost(`/api/clouds/${cloudId}/sync`)
-              .catch(console.warn)
-              .finally(() => void refreshVms());
+          onRefresh={(force?: boolean) => {
+            // 必须与 useCloudmapPoolEcs.refreshVms(force) 对齐：recover/彻底删除等需 skipCache，
+            // 否则 fetchCloudProviderEcs(cloudId, false) 易返回缓存，列表不更新。
+            void refreshVms(force !== false);
           }}
           namespaces={harvesterNamespaces}
           volumes={harvesterVolumes}
@@ -586,7 +604,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
   }
 
   if (innerActiveKey === 'migrations') {
-    return <MigrationsSection cloudId={cloudId} />;
+    return <MigrationsSection cloudId={cloudId} vms={ecs} />;
   }
 
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;

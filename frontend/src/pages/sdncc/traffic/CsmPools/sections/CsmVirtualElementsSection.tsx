@@ -13,7 +13,7 @@ type Props = {
   cloudId: string;
   virtualElements: any[];
   loading: boolean;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void | Promise<void>;
 };
 
 const CsmVirtualElementsSection: React.FC<Props> = ({ cloudId, virtualElements, loading, onRefresh }) => {
@@ -33,7 +33,7 @@ const CsmVirtualElementsSection: React.FC<Props> = ({ cloudId, virtualElements, 
       try {
         await operateCsmVm(cloudId, vmId, action);
         message.success('指令已发送');
-        onRefresh();
+        onRefresh(true);
       } catch (e: any) {
         message.error(`操作失败: ${e.message}`);
       }
@@ -82,7 +82,7 @@ const CsmVirtualElementsSection: React.FC<Props> = ({ cloudId, virtualElements, 
           } else {
             message.warning(`操作完成: 成功 ${successCount} 个, 失败 ${failCount} 个`);
           }
-          onRefresh();
+          onRefresh(true);
           setSelectedRowKeys([]);
         } catch (e) {
           message.error('操作异常');

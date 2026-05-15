@@ -7,7 +7,6 @@ import {
   Button,
   Card,
   Col,
-  Divider,
   Dropdown,
   Form,
   Input,
@@ -19,38 +18,31 @@ import {
   Select,
   Space,
   Tabs,
-  Tag,
   Tooltip,
-  TreeSelect,
   Typography,
 } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
 import PageContainer from '../../../../components/PageContainer';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import StdFormModal from '../../../../components/StdFormModal';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import {
   apiPost,
-  bindTenantVR,
-  fetchAvailableResourcePools,
-  fetchCloudProviderEcs,
-  fetchCloudVpcs,
   fetchOrganizationsByTenant,
-  fetchOrganizationResourcePools,
   fetchTenants,
 } from '../../../../services/api';
 import { listSecurityDomains } from '../../../../services/securityDomainApi';
 import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
 import {
-  fetchVrCachePageList,
+  fetchVrCacheMergedAll,
   getVRConfig,
   saveVRConfig,
   setVRRole,
+  vrApi,
 } from '../../../../services/virtualRouterApi';
-import { getDomainClass, netClassColor, netClassLabel } from '../../../../utils/netClass';
-import { commonBadgeStyles, commonTableStyles, commonTagStyles } from '../../../../utils/tableStyles';
+import { getDomainClass, netClassLabel } from '../../../../utils/netClass';
+import { commonBadgeStyles, commonTableStyles } from '../../../../utils/tableStyles';
 
 import { VrDetailDrawer } from './VrDetailDrawer';
 
@@ -86,6 +78,46 @@ function parseJsonField(val: unknown): unknown {
   return val;
 }
 
+/** 与新增/修改设备一致：`/V2/vrcontrol/VR1/register` 等为 POST + `/api-proxy/api/sign`；注销见 `vrApi.deleteVRInstance`（规范 DELETE unregister） */
+async function vrcontrolVr1SignedPost(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<{ res: Response; json: unknown }> {
+  const accesskey = 'Cloudmap#123';
+  const secretkey = 'Cloudmap#123';
+  const method = 'POST';
+  const other = '';
+  const bodyStr = JSON.stringify(body);
+  const authUrl =
+    `/api-proxy/api/sign?` +
+    `url=${encodeURIComponent(path)}&` +
+    `method=${method}&` +
+    `other=${encodeURIComponent(other)}&` +
+    `accessKey=${encodeURIComponent(accesskey)}&` +
+    `secretKey=${encodeURIComponent(secretkey)}`;
+  const signResp = await fetch(authUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: bodyStr,
+  });
+  const signJson = await signResp.json();
+  const info = signJson && signJson.data ? signJson.data : signJson;
+  if (!info || !info.Authorization || !info.tonce) {
+    throw new Error('认证响应数据缺少 Authorization 或 tonce');
+  }
+  const res = await fetch(`/api-proxy${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: info.Authorization,
+      tonce: String(info.tonce),
+    },
+    body: bodyStr,
+  });
+  const json = await res.json().catch(async () => ({ raw: await res.text() }));
+  return { res, json };
+}
+
 function formatTrafficRateBps(bps: number): string {
   if (!bps) return '0 bps';
   if (bps >= 1000 * 1000) return `${(bps / 1000 / 1000).toFixed(2)} Mbps`;
@@ -104,15 +136,7 @@ function getVrHealthStatusKey(raw: unknown): VrHealthStatusKey {
 }
 
 /** 与 useTableColumnSettings / TableColumnSettingsButton 的默认隐藏列一致 */
-const VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN = [
-  'mac',
-  'type',
-  'pool_name',
-  'pool_id',
-  'vm_id',
-  'tenant_id',
-  'org_id',
-];
+const VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN = ['mac', 'type'];
 
 const VRPage: React.FC = () => {
   const navigate = useNavigate();
@@ -155,25 +179,14 @@ const VRPage: React.FC = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editForm] = Form.useForm();
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+  /** 打开弹窗时从当前行快照，提交时与名称一并发往注册接口 */
+  const editRegisterPayloadRef = useRef<Record<string, unknown>>({});
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsForm] = Form.useForm();
   const [settingsLoading, setSettingsLoading] = useState(false);
-  const [bindModalOpen, setBindModalOpen] = useState(false);
-  const [bindForm] = Form.useForm();
-  const [currentBindVr, setCurrentBindVr] = useState<VRRow | null>(null);
-  const [orgTreeData, setOrgTreeData] = useState<any[]>([]);
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [selectedRoleType, setSelectedRoleType] = useState('标准');
   const [roleVrUuid, setRoleVrUuid] = useState<string | null>(null);
-  const [resourcePoolOptions, setResourcePoolOptions] = useState<any[]>([]);
-  const [vmOptions, setVmOptions] = useState<any[]>([]);
-  const [editLoading, setEditLoading] = useState(false);
-  const [editMode, setEditMode] = useState<string>('manual');
-  const [selectedSyncPool, setSelectedSyncPool] = useState<string | undefined>();
-  const [selectedSyncVpc, setSelectedSyncVpc] = useState<string | undefined>();
-  const [selectedSyncVm, setSelectedSyncVm] = useState<string | undefined>();
-  const [vpcOptions, setVpcOptions] = useState<any[]>([]);
-  const [rawVms, setRawVms] = useState<any[]>([]);
 
   const loadTenants = async () => {
     setTenantLoading(true);
@@ -196,14 +209,6 @@ const VRPage: React.FC = () => {
   useEffect(() => {
     loadTenants();
   }, []);
-
-  useEffect(() => {
-    tenantOptionsRef.current = tenantOptions;
-  }, [tenantOptions]);
-
-  useEffect(() => {
-    orgNameMapRef.current = orgNameMap;
-  }, [orgNameMap]);
 
   useEffect(() => {
     (async () => {
@@ -244,64 +249,14 @@ const VRPage: React.FC = () => {
     })();
   }, [tenantOptions]);
 
-  const loadResourcePools = async (orgId?: string) => {
-    try {
-      let res;
-      if (orgId) {
-        res = await fetchOrganizationResourcePools(orgId);
-      } else {
-        res = await fetchAvailableResourcePools();
-      }
-      const list = Array.isArray(res) ? res : (res?.data || []);
-      setResourcePoolOptions(list.map((p: any) => {
-        const pool = p.cloud || p;
-        return { 
-          label: `${pool.name} (${pool.id})`, 
-          value: pool.id,
-          originalName: pool.name
-        };
-      }));
-    } catch (e) {
-      console.error('Failed to load resource pools', e);
-      setResourcePoolOptions([]);
-    }
-  };
-
-  const loadVms = async (poolId: string) => {
-    try {
-      const res = await fetchCloudProviderEcs(poolId);
-      const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-      setRawVms(list);
-      setVmOptions(list.map((v: any) => ({ label: v.name || v.id, value: v.id })));
-    } catch (e) {
-      console.error('Failed to load VMs', e);
-      setRawVms([]);
-      setVmOptions([]);
-    }
-  };
-
-  const loadVpcs = async (poolId: string) => {
-    try {
-      const res = await fetchCloudVpcs(poolId);
-      // Harvester/KubeOVN returns { data: { items: [] } } or { items: [] }
-      const list = Array.isArray(res?.data?.items) ? res.data.items : (Array.isArray(res?.data) ? res.data : (Array.isArray(res?.items) ? res.items : []));
-      setVpcOptions(list.map((v: any) => ({
-         label: v.spec?.name || v.metadata?.name || v.name || v.id,
-         value: v.metadata?.name || v.name || v.id
-      })));
-    } catch (e) {
-      console.error('Failed to load VPCs', e);
-      setVpcOptions([]);
-    }
-  };
-
   const getActionMenu = (row: VRRow): MenuProps['items'] => ([
     { key: 'metadata', label: '查看详情' },
-    { key: 'editDevice', label: '编辑设备信息' },
-    { key: 'bindOrg', label: '绑定组织' },
+    { key: 'editDevice', label: '修改名称' },
     { type: 'divider' },
     { key: 'role', label: '设置角色', danger: true },
     { key: 'editConfig', label: '专家模式', danger: true },
+    { type: 'divider' },
+    { key: 'delete', label: '删除实例', danger: true },
   ]);
 
   const handleSettingsOpen = async () => {
@@ -367,114 +322,59 @@ const VRPage: React.FC = () => {
       }
       setRoleModalOpen(true);
     } else if (key === 'editDevice') {
-      // 仅展示接口返回的设备 ID（与 uuid 区分开）
       const onlyId = row.id;
       setCurrentEditId(onlyId || null);
-      // 预填当前行的设备信息
-      editForm.setFieldsValue({
-        name: row.name || '',
-        uuid: row.uuid || row.id || row.vm_id || '',
-        mac: row.mac || '',
-        version: row.version || '',
-        type: (row as any).type || 'VR',
-        pool_id: (row.pool_id !== undefined && row.pool_id !== null) ? String(row.pool_id) : undefined,
-        pool_name: row.pool_name || undefined,
-        vm_id: row.vm_id || undefined,
-      });
+      const uuid = String(row.uuid || row.id || row.vm_id || '').trim();
+      const mac = String(row.mac || '').trim();
+      const version = String(row.version || '').trim();
+      const type = String((row as any).type || 'VR');
+      editRegisterPayloadRef.current = {
+        uuid,
+        mac,
+        version,
+        type,
+        ...((row.pool_id !== undefined && row.pool_id !== null && String(row.pool_id).trim() !== '')
+          ? { pool_id: String(row.pool_id) }
+          : {}),
+        ...(row.pool_name != null && String(row.pool_name).trim() !== ''
+          ? { pool_name: String(row.pool_name) }
+          : {}),
+        ...(row.vm_id != null && String(row.vm_id).trim() !== '' ? { vm_id: String(row.vm_id) } : {}),
+      };
+      editForm.setFieldsValue({ name: row.name || '' });
       setEditModalOpen(true);
-      // 默认选中 "manual"
-      setEditMode('manual');
-      // 重置同步相关状态
-      setSelectedSyncPool(undefined);
-      setSelectedSyncVpc(undefined);
-      setSelectedSyncVm(undefined);
-      setVpcOptions([]);
-      setVmOptions([]);
-      
-      // 如果已有 pool_id，尝试自动匹配 Sync 模式的初始值（可选，暂时不自动切换）
-      // Async load options
-      (async () => {
-         setEditLoading(true);
-         try {
-             await loadResourcePools(row.org_id);
-         } finally {
-             setEditLoading(false);
-         }
-      })();
-    } else if (key === 'bindOrg') {
-      setCurrentBindVr(row);
-      const tid = row.tenant_id;
-      const oid = row.org_id;
-      
-      bindForm.setFieldsValue({
-        tenant_id: tid ? String(tid) : undefined,
-        org_id: oid ? String(oid) : undefined,
-        vr_type: row.role || undefined,
-      });
-
-      if (tid) {
-        handleBindTenantChange(String(tid), false); // 加载组织树但不重置 org_id
-      } else {
-        setOrgTreeData([]);
+    } else if (key === 'delete') {
+      const rid = String(row.id || '').trim();
+      const ruuid = String(row.uuid || row.vr_unique_id || '').trim();
+      const rvmid = String(row.vm_id || '').trim();
+      /** 接口文档：注销仅支持 Query `uuid`（与注册时 uuid 一致），不用 id/vm_id */
+      if (!ruuid) {
+        message.warning('该行缺少 uuid（与 CSM 注册时 uuid 一致），无法按规范注销');
+        return;
       }
-      setBindModalOpen(true);
-    }
-  };
-
-  const handleBindTenantChange = async (tenantId: string, resetOrg: boolean = true) => {
-    if (resetOrg) {
-      bindForm.setFieldsValue({ org_id: undefined });
-    }
-    if (!tenantId) {
-      setOrgTreeData([]);
-      return;
-    }
-    try {
-      const tree = await fetchOrganizationsByTenant(tenantId);
-      const list = Array.isArray(tree) ? tree : (Array.isArray((tree as any)?.data) ? (tree as any).data : []);
-      
-      const mapTree = (nodes: any[]): any[] => {
-        return nodes.map(n => ({
-          value: String(n.id),
-          title: n.name || n.id,
-          children: (n.children && n.children.length) ? mapTree(n.children) : undefined,
-        }));
-      };
-      
-      setOrgTreeData(mapTree(list));
-    } catch (e) {
-      console.error('加载组织失败', e);
-      setOrgTreeData([]);
-    }
-  };
-
-  const submitBind = async () => {
-    try {
-      const values = await bindForm.validateFields();
-      if (!currentBindVr) return;
-      
-      setLoading(true);
-      const vrUuid = currentBindVr.uuid || currentBindVr.id || currentBindVr.vm_id;
-      if (!vrUuid) throw new Error('无法识别VR UUID');
-
-      const payload = {
-        vr_uuid: vrUuid,
-        vm_id: currentBindVr.vm_id,
-        tenant_id: values.tenant_id,
-        org_id: values.org_id,
-        display_name: currentBindVr.name,
-        vr_type: values.vr_type,
-      };
-
-      await bindTenantVR(payload);
-      
-      message.success('绑定组织成功');
-      setBindModalOpen(false);
-      fetchVRInstances(); // 刷新列表
-    } catch (e: any) {
-      message.error(`绑定失败: ${e.message || e}`);
-    } finally {
-      setLoading(false);
+      const label = String(row.name || rid || ruuid || rvmid).trim();
+      Modal.confirm({
+        title: '删除 VR 实例',
+        content: `确定从 CSM 控制面注销「${label}」吗？将调用 DELETE /V2/vrcontrol/VR1/unregister?uuid=… ，此操作不可恢复。`,
+        okText: '删除',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            setLoading(true);
+            const json = await vrApi.deleteVRInstance(ruuid);
+            const j = json as { msg?: string };
+            message.success(j?.msg || '已删除');
+            await apiPost('/api/vr-instances/refresh', {});
+            await fetchVRInstances(true);
+          } catch (e: any) {
+            message.error(e?.message || '删除失败');
+            throw e;
+          } finally {
+            setLoading(false);
+          }
+        },
+      });
     }
   };
 
@@ -514,6 +414,7 @@ const VRPage: React.FC = () => {
       message.success({ content: '同步完成', key: 'vr_sync' });
     } catch (e) {
       message.error({ content: '同步失败，请稍后重试', key: 'vr_sync' });
+    } finally {
       setLoading(false);
     }
   };
@@ -521,9 +422,7 @@ const VRPage: React.FC = () => {
   const fetchVRInstances = async (forceList?: boolean) => {
     setLoading(true);
     try {
-      const cacheRes = await fetchVrCachePageList(1000, 1, { skipCache: !!forceList });
-      const cacheData = cacheRes?.data || cacheRes;
-      const mergedList = Array.isArray(cacheData?.page) ? cacheData.page : Array.isArray(cacheData?.list) ? cacheData.list : [];
+      const mergedList = await fetchVrCacheMergedAll({ skipCache: !!forceList });
       
       setVrs(mergedList);
 
@@ -569,16 +468,11 @@ const VRPage: React.FC = () => {
         {
           title: 'UUID',
           key: 'uuid',
-          fixed: 'left',
           ellipsis: { showTitle: false },
           render: (_: any, row: VRRow) => {
             const id = String(row.uuid || row.id || row.vm_id || '').trim();
-            if (!id) return <span style={commonTableStyles.secondaryText}>—</span>;
-            return (
-              <Typography.Text copyable={{ text: id }} style={commonTableStyles.secondaryText}>
-                {id}
-              </Typography.Text>
-            );
+            if (!id) return '—';
+            return <Typography.Text copyable={{ text: id }}>{id}</Typography.Text>;
           },
         },
         { 
@@ -595,67 +489,52 @@ const VRPage: React.FC = () => {
             const id = row.uuid || row.id || row.vm_id;
             const m = rolesMapRef.current;
             const role = id && m[id] ? m[id] : '未设置';
-            if (role === '未设置') {
-              return <Typography.Text type="secondary">{role}</Typography.Text>;
-            }
-            return <Typography.Text>{role}</Typography.Text>;
+            return role;
           },
         },
         {
             title: '归属信息',
             key: 'affiliation',
             render: (_: any, row: VRRow) => {
-               // 1. 租户与组织
                const tid = row.tenant_id;
                const oid = row.org_id;
-               const tName = tid ? (tenantOptionsRef.current.find(t => String(t.value) === String(tid))?.label || tid) : '未绑定租户';
-               const oName = oid ? (orgNameMapRef.current[String(oid)] || oid) : '未绑定组织';
-               
-               // 2. 安全域
-               const id = row.uuid || row.id || row.vm_id;
-               const domain = id ? netClassMapRef.current[String(id)] : undefined;
-               const cls = domain ? getDomainClass(domain) : 'unbound';
-               const label = domain?.name || netClassLabel(cls);
-               
-               // 3. 组合显示
-               // 格式：
-               // Cloudmap / Cloudmap-根组织
-               // [底层密基安全域] (或者 <a>无安全域 绑定</a>)
-               
-               return (
-                 <div style={commonTableStyles.cellContainer}>
-                   <div style={commonTableStyles.primaryText}>
-                     {tid ? `${tName} / ${oName}` : <span style={commonTableStyles.secondaryText}>{tName}</span>}
-                   </div>
-                   <div>
-                      {cls === 'unbound' ? (
-                        <span>
-                          <span style={commonTableStyles.secondaryText}>无安全域 </span>
-                          <Button
-                            type="link"
-                            size="small"
-                            style={{ ...commonTableStyles.linkText, fontSize: '12px', padding: 0, height: 'auto' }}
-                            onClick={(e) => {
-                            e.stopPropagation();
-                            // 触发绑定组织/安全域的逻辑，这里暂时复用绑定组织弹窗
-                            const menu = getActionMenu(row) as any[];
-                            const bindItem = menu.find((i: any) => i.key === 'bindOrg');
-                            if (bindItem) {
-                                const action = handleRowActionClick(row);
-                                if (action) {
-                                    action({ key: 'bindOrg', domEvent: e } as any);
-                                }
-                            }
-                          }}
-                          >
-                            绑定
-                          </Button>
-                        </span>
-                      ) : (
-                        <Tag color={netClassColor(cls)} style={{ ...commonTagStyles.base, margin: 0 }}>{label}</Tag>
-                      )}
-                    </div>
+               const tidTrim = String(tid ?? '').trim();
+               const oidTrim = String(oid ?? '').trim();
+               const hasAffiliation = Boolean(tidTrim && oidTrim);
+
+               const tName = tidTrim
+                 ? tenantOptionsRef.current.find((t) => String(t.value) === String(tid))?.label || tidTrim
+                 : '—';
+               const oName = oidTrim ? orgNameMapRef.current[String(oid)] || oidTrim : '—';
+
+               const vrKey = row.uuid || row.id || row.vm_id;
+               const domain = vrKey ? netClassMapRef.current[String(vrKey)] : undefined;
+               const domainLine = domain
+                 ? String(domain?.name || '').trim() || netClassLabel(getDomainClass(domain))
+                 : '无安全域';
+
+               const tidStr = tidTrim || '—';
+               const oidStr = oidTrim || '—';
+               const bindStatus =
+                 row.bind_status != null && String(row.bind_status).trim() !== ''
+                   ? String(row.bind_status)
+                   : '—';
+
+               const affiliationTooltip = (
+                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                   <div>租户：{tName}</div>
+                   <div>租户ID：{tidStr}</div>
+                   <div>组织：{oName}</div>
+                   <div>组织ID：{oidStr}</div>
+                   <div>安全域：{domainLine}</div>
+                   <div>绑定状态：{bindStatus}</div>
                  </div>
+               );
+
+               return (
+                 <Tooltip title={affiliationTooltip}>
+                   <span style={{ cursor: 'pointer' }}>{hasAffiliation ? '已归属' : '未归属'}</span>
+                 </Tooltip>
                );
             }
           },
@@ -850,12 +729,6 @@ const VRPage: React.FC = () => {
         { title: 'MAC', dataIndex: 'mac', key: 'mac'},
         { title: '版本', dataIndex: 'version', key: 'version'},
         { title: '类型', dataIndex: 'type', key: 'type'},
-        { title: '资源池', dataIndex: 'pool_name', key: 'pool_name'},
-        { title: '资源池ID', dataIndex: 'pool_id', key: 'pool_id'},
-        { title: '虚拟机ID', dataIndex: 'vm_id', key: 'vm_id' },
-        { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id'},
-
-        { title: '组织ID', dataIndex: 'org_id', key: 'org_id'},
         {
           title: '操作',
           key: 'actions',
@@ -901,7 +774,13 @@ const VRPage: React.FC = () => {
         `accessKey=${encodeURIComponent(accesskey)}&` +
         `secretKey=${encodeURIComponent(secretkey)}`;
 
-      const bodyStr = JSON.stringify(values);
+      const bodyStr = JSON.stringify({
+        name: values.name,
+        uuid: values.uuid,
+        mac: values.mac,
+        version: values.version,
+        type: values.type,
+      });
 
       const signResp = await fetch(authUrl, {
         method: 'POST',
@@ -945,9 +824,9 @@ const VRPage: React.FC = () => {
   const submitEditVR = async () => {
     try {
       const values = await editForm.validateFields();
-      // 将设备 ID 一并提交（与 uuid 区分开）
       const payload = {
-        ...values,
+        ...editRegisterPayloadRef.current,
+        name: values.name,
         ...(currentEditId ? { id: currentEditId } : {}),
       };
       setLoading(true);
@@ -992,7 +871,7 @@ const VRPage: React.FC = () => {
       if (!res.ok || (json && typeof json === 'object' && 'code' in json && (json as any).code !== 200)) {
         throw new Error((json as any)?.msg || `HTTP ${res.status}`);
       }
-      message.success((json as any)?.msg || '设备信息更新成功');
+      message.success((json as any)?.msg || '设备名称已更新');
       setEditModalOpen(false);
       editForm.resetFields();
       await fetchVRInstances();
@@ -1107,6 +986,10 @@ const VRPage: React.FC = () => {
       // 表单校验失败不处理
     }
   };
+
+  /** 列表「归属信息」等列读 ref；若仅用 useEffect 从 state 写 ref，会晚当前渲染一拍，组织名会一直回退为 org_id */
+  tenantOptionsRef.current = tenantOptions;
+  orgNameMapRef.current = orgNameMap;
 
   return (
       <PageContainer
@@ -1320,305 +1203,66 @@ const VRPage: React.FC = () => {
         onCancel={() => { setAddModalOpen(false); addForm.resetFields(); }}
         confirmLoading={loading}
         destroyOnHidden
-        width={640}
+        width={600}
       >
         <Form form={addForm} layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}
-                extra="名称需唯一，用于区分资源池">
-                <Input placeholder="例如：VR1" />
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：VR1" />
+          </Form.Item>
+          <Form.Item label="UUID" required>
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item name="uuid" noStyle rules={[{ required: true, message: '请输入UUID' }]}>
+                <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" style={{ width: '100%' }} />
               </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="uuid" label="UUID" rules={[{ required: true, message: '请输入UUID' }]}>
-                <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" addonAfter={<Button size="small" onClick={() => addForm.setFieldsValue({ uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).slice(2)) })}>生成</Button>} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="mac" label="MAC地址" rules={[
-                { required: true, message: '请输入MAC地址' },
-                { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
-                  message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
-              ]}>
-                <Input placeholder="例如：00-50-56-C0-00-08" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}> 
-                <Input placeholder="例如：V1.0" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="type" label="类型" initialValue="VR">
-                <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Divider orientation="left">资源池（可选）</Divider>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="pool_id" label="资源池ID">
-                <Input placeholder="例如：f1c3dc08-..." />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="pool_name" label="资源池名称">
-                <Input placeholder="例如：资源池名称" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="vm_id" label="虚机ID">
-                <Input placeholder="例如：e1c3dc08-..." />
-              </Form.Item>
-            </Col>
-          </Row>
+              <Button
+                type="default"
+                htmlType="button"
+                onClick={() =>
+                  addForm.setFieldsValue({
+                    uuid: window.crypto?.randomUUID
+                      ? window.crypto.randomUUID()
+                      : Math.random().toString(36).slice(2),
+                  })
+                }
+              >
+                生成
+              </Button>
+            </Space.Compact>
+          </Form.Item>
+          <Form.Item name="mac" label="MAC地址" rules={[
+            { required: true, message: '请输入MAC地址' },
+            { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
+              message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
+          ]}>
+            <Input placeholder="例如：00-50-56-C0-00-08" />
+          </Form.Item>
+          <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}>
+            <Input placeholder="例如：V1.0" />
+          </Form.Item>
+          <Form.Item name="type" label="类型" initialValue="VR">
+            <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
+          </Form.Item>
         </Form>
       </Modal>
 
-      {/* 设备信息编辑弹窗 */}
-      <StdFormModal
-        title="设备信息编辑"
-        open={editModalOpen}
-        form={editForm}
-        onFinish={submitEditVR}
-        onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
-        confirmLoading={loading}
-        destroyOnHidden
-        width={720}
-      >
-        <div style={{ overflowX: 'hidden' }}>
-        <Row gutter={24}>
-          <Col span={12}>
-            <Form.Item label="ID">
-              <Input value={currentEditId || ''} disabled placeholder="当前设备ID" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-              <Input placeholder="例如：VR1" />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={24}>
-          <Col span={12}>
-            <Form.Item name="uuid" label="UUID" rules={[{ required: true, message: '请输入UUID' }]}>
-              <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" addonAfter={<Button size="small" onClick={() => editForm.setFieldsValue({ uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).slice(2)) })}>生成</Button>} />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="mac" label="MAC地址" rules={[
-              { required: true, message: '请输入MAC地址' },
-              { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
-                message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
-            ]}>
-              <Input placeholder="例如：00-50-56-C0-00-08" />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={24}>
-          <Col span={12}>
-            <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}> 
-              <Input placeholder="例如：V1.0" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="type" label="类型" initialValue="VR">
-              <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
-            </Form.Item>
-          </Col>
-        </Row>
-
-          <Divider orientation="left" style={{ margin: '12px 0', fontSize: '14px', fontWeight: 'normal', color: '#666' }}>资源设定</Divider>
-          
-          <Row gutter={24} style={{ marginBottom: 16 }}>
-            <Col span={24}>
-              <Radio.Group 
-                value={editMode} 
-                onChange={(e) => {
-                  setEditMode(e.target.value);
-                  if (e.target.value === 'sync') {
-                    setSelectedSyncPool(undefined);
-                    setSelectedSyncVpc(undefined);
-                    setSelectedSyncVm(undefined);
-                    setVpcOptions([]);
-                    setVmOptions([]);
-                    setRawVms([]);
-                  }
-                }}
-                buttonStyle="solid"
-              >
-                <Radio value="manual">编辑配置</Radio>
-                <Radio value="sync">从现有资源池同步</Radio>
-              </Radio.Group>
-            </Col>
-          </Row>
-          
-          {editMode === 'manual' ? (
-            <>
-              <Row gutter={24}>
-                <Col span={12}>
-                  <Form.Item name="pool_id" label="资源池ID">
-                    <Input placeholder="例如：f1c3dc08-..." />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="pool_name" label="资源池名称">
-                    <Input placeholder="例如：资源池名称" />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Row gutter={24}>
-                <Col span={24}>
-                  <Form.Item name="vm_id" label="虚机ID">
-                    <Input placeholder="例如：e1c3dc08-..." />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </>
-          ) : (
-            <>
-              <Row gutter={24}>
-                <Col span={12}>
-                  <Form.Item label="选择资源池" required>
-                    <Select
-                      placeholder="选择资源池"
-                      options={resourcePoolOptions}
-                      loading={editLoading}
-                      value={selectedSyncPool}
-                      onChange={(val, opt: any) => {
-                        setSelectedSyncPool(val);
-                        setSelectedSyncVpc(undefined);
-                        setSelectedSyncVm(undefined);
-                        setVpcOptions([]);
-                        setVmOptions([]);
-                        setRawVms([]);
-                        if (val) {
-                          loadVpcs(val);
-                          loadVms(val);
-                        }
-                      }}
-                      allowClear
-                      showSearch
-                      optionFilterProp="label"
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item label="选择 VPC" >
-                    <Select
-                      placeholder="选择 VPC (可选)"
-                      options={vpcOptions}
-                      loading={editLoading}
-                      value={selectedSyncVpc}
-                      onChange={(val) => {
-                        setSelectedSyncVpc(val);
-                        setSelectedSyncVm(undefined);
-                        if (val && rawVms.length > 0) {
-                          // 宽松匹配：匹配 VpcId 或 VpcName
-                          const filtered = rawVms.filter(v => {
-                            const vId = v.VpcId || v.vpcId || v.vpc_id;
-                            const vName = v.VpcName || v.vpcName || v.vpc_name;
-                            return vId === val || vName === val;
-                          });
-                          setVmOptions(filtered.map((v: any) => ({ 
-                            label: v.name && v.id ? `${v.name} (${v.id})` : (v.name || v.id), 
-                            value: v.id 
-                          })));
-                        } else if (!val && rawVms.length > 0) {
-                           setVmOptions(rawVms.map((v: any) => ({ 
-                             label: v.name && v.id ? `${v.name} (${v.id})` : (v.name || v.id), 
-                             value: v.id 
-                           })));
-                        } else {
-                           setVmOptions([]);
-                        }
-                      }}
-                      allowClear
-                      showSearch
-                      optionFilterProp="label"
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Row gutter={24}>
-                <Col span={24}>
-                  <Form.Item label="选择虚拟机" required>
-                    <Select
-                      placeholder="选择虚拟机"
-                      options={vmOptions}
-                      loading={editLoading}
-                      value={selectedSyncVm}
-                      onChange={(val) => {
-                         setSelectedSyncVm(val);
-                         if (val) {
-                           const poolOpt = resourcePoolOptions.find(p => p.value === selectedSyncPool);
-                           editForm.setFieldsValue({
-                             pool_id: selectedSyncPool,
-                             pool_name: poolOpt?.originalName || poolOpt?.label?.split('(')[0]?.trim(),
-                             vm_id: val
-                           });
-                         }
-                      }}
-                      allowClear
-                      showSearch
-                      optionFilterProp="label"
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </>
-          )}
-        </div>
-      </StdFormModal>
-
-      {/* 绑定组织弹窗 */}
       <Modal
-        title="绑定组织"
-        open={bindModalOpen}
-        onOk={submitBind}
-        onCancel={() => { setBindModalOpen(false); bindForm.resetFields(); }}
+        title="修改名称"
+        open={editModalOpen}
+        onOk={submitEditVR}
+        onCancel={() => {
+          setEditModalOpen(false);
+          editForm.resetFields();
+        }}
         confirmLoading={loading}
         destroyOnHidden
         width={480}
       >
-        <Form form={bindForm} layout="vertical">
-          <Form.Item name="tenant_id" label="租户" rules={[{ required: true, message: '请选择租户' }]}>
-            <Select
-              showSearch
-              placeholder="选择租户"
-              optionFilterProp="label"
-              options={tenantOptions}
-              onChange={(val) => handleBindTenantChange(val, true)}
-            />
-          </Form.Item>
-          <Form.Item name="org_id" label="组织" rules={[{ required: true, message: '请选择组织' }]}>
-            <TreeSelect
-              showSearch
-              style={{ width: '100%' }}
-              dropdownStyle={{ maxHeight: 400, overflow: 'auto' }}
-              placeholder="选择组织"
-              allowClear
-              treeDefaultExpandAll
-              treeData={orgTreeData}
-              treeNodeFilterProp="title"
-            />
-          </Form.Item>
-          <Form.Item name="vr_type" label="VR类型">
-            <Select placeholder="选择VR类型（可选）" allowClear>
-              <Select.Option value="标准">标准</Select.Option>
-              <Select.Option value="PE">PE</Select.Option>
-              <Select.Option value="CE">CE</Select.Option>
-              <Select.Option value="SASE">SASE</Select.Option>
-            </Select>
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="name" label="设备名称" rules={[{ required: true, message: '请输入设备名称' }]}>
+            <Input  placeholder="请输入设备名称" allowClear />
           </Form.Item>
         </Form>
       </Modal>
-
 
       {/* CE配置弹窗 */}
       <Modal

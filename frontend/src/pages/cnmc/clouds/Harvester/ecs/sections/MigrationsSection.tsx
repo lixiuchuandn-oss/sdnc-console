@@ -11,7 +11,11 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Table, Badge, Input, Button, Select, message, Space, Popconfirm } from 'antd';
 import { ReloadOutlined, SearchOutlined, CloudServerOutlined, ClockCircleTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import { fetchHarvesterMigrations, fetchHarvesterMigrationsDirect, abortHarvesterMigration } from '../../../../../../services/harvesterApi';
+import { 
+  fetchHarvesterMigrations, 
+  fetchHarvesterMigrationsDirect, 
+  abortHarvesterMigration
+} from '../../../../../../services/harvesterApi';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
@@ -36,6 +40,12 @@ const SafeMig = {
   vmName: (r: any) => {
     const x = SafeMig.base(r);
     return x?.spec?.vmiName || r?.vmiName || x?.VmiName || x?.spec?.vmi || r?.vmName || '-';
+  },
+  vmDisplayName: (r: any) => {
+    const x = SafeMig.base(r);
+    const alias = x?.metadata?.annotations?.['tower.io/alias'] || r?.alias || '';
+    const name = SafeMig.vmName(r);
+    return alias || name || '-';
   },
   sourceNode: (r: any) => {
     const x = SafeMig.base(r);
@@ -67,13 +77,15 @@ const SafeMig = {
  * 组件入参说明
  * - cloudId: 当前云 ID，用于调用迁移相关 API
  * - onRefresh: 外层可选回调，在列表手动刷新时一并触发
+ * - vms: 虚拟机列表，用于查找别名（参考备份页面实现方式）
  */
 interface Props {
   cloudId: string;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
+  vms?: any[];
 }
 
-const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
+const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms }) => {
   const hasOpsView = useCloudmapOpsViewWrite();
   // 加载状态与数据源
   const [loading, setLoading] = useState(false);
@@ -90,9 +102,46 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
   /**
+   * 获取虚拟机显示名称（参考备份页面实现方式）
+   * 优先从 vms 列表中查找别名，其次从记录本身获取，最后使用 vmName
+   */
+  const getVmDisplayName = (r: any): string => {
+    const x = SafeMig.base(r);
+    const ns = x?.metadata?.namespace || r?.namespace;
+    const vmName = SafeMig.vmName(r);
+    
+    // [参考备份页面的别名查找逻辑] 拿着 VM 的 ID 去 vms 列表里查它的别名
+    if (ns && vmName && vms && vms.length > 0) {
+      try {
+        const vm = vms.find((vmItem: any) => {
+          const vmNs = vmItem?.metadata?.namespace || vmItem?.namespace;
+          const vmItemName = vmItem?.metadata?.name || vmItem?.name;
+          return vmNs === ns && vmItemName === vmName;
+        });
+        if (vm) {
+          return vm?.metadata?.annotations?.['tower.io/alias'] || 
+                 vm?.alias || 
+                 (vm?.name || vm?.metadata?.name) || 
+                 vmName || '-';
+        }
+      } catch {}
+    }
+    
+    // 其次从迁移记录本身的 annotations 获取
+    const alias = x?.metadata?.annotations?.['tower.io/alias'] || r?.alias || '';
+    if (alias) {
+      return alias;
+    }
+    
+    // 最后使用 vmName
+    return vmName || '-';
+  };
+
+  /**
    * 从后端加载迁移记录
    * - 优先调用通过平台封装的接口
    * - 若无数据则尝试直接透传调用 Harvester API 作为兜底
+   * - 虚拟机名称通过 vms prop 获取（参考备份页面实现方式）
    */
   const loadData = async (force = false) => {
     setLoading(true);
@@ -143,7 +192,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
    */
   const handleRefresh = () => {
     loadData(true);
-    if (onRefresh) onRefresh();
+    if (onRefresh) onRefresh(true);
   };
 
   /**
@@ -170,25 +219,66 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
   };
 
   /**
+   * 迁移状态翻译
+   * KubeVirt VirtualMachineInstanceMigration 的状态包括：
+   * - Pending: 等待调度
+   * - Scheduling: 正在调度
+   * - Scheduled: 已调度
+   * - Preparing: 准备中
+   * - Running: 迁移中
+   * - Succeeded: 迁移成功
+   * - Failed: 迁移失败
+   * - Unknown: 未知状态
+   */
+  const translatePhase = (phase: string): string => {
+    const phaseMap: Record<string, string> = {
+      'Pending': '等待中',
+      'Scheduling': '调度中',
+      'Scheduled': '已调度',
+      'Preparing': '准备中',
+      'Running': '迁移中',
+      'Succeeded': '成功',
+      'Failed': '失败',
+      'Unknown': '未知'
+    };
+    return phaseMap[phase] || phase;
+  };
+
+  /**
    * 关键字过滤
-   * - 匹配迁移任务名称或关联虚拟机名称
+   * - 匹配迁移任务名称、关联虚拟机名称、虚拟机显示名称（别名）
    */
   const filteredData = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    return data.filter((item: any) => {
+    const filtered = data.filter((item: any) => {
       const ns = String(SafeMig.namespace(item) || '');
       const phase = String(SafeMig.phase(item) || '');
       if (namespaceFilter && ns !== namespaceFilter) return false;
       if (statusFilter && phase !== statusFilter) return false;
       if (!k) return true;
-      const taskId = String(item?.metadata?.name || '').toLowerCase();
-      const vmName = String(item?.spec?.vmiName || '').toLowerCase();
-      return taskId.includes(k) || vmName.includes(k);
+      // 使用 SafeMig.taskId 获取任务ID，兼容多种数据结构
+      const taskId = String(SafeMig.taskId(item) || '').toLowerCase();
+      const vmName = String(SafeMig.vmName(item) || '').toLowerCase();
+      // 同时匹配虚拟机的显示名称（别名）
+      const vmDisplayName = String(getVmDisplayName(item) || '').toLowerCase();
+      return taskId.includes(k) || vmName.includes(k) || vmDisplayName.includes(k);
     });
-  }, [data, keyword, statusFilter, namespaceFilter]);
+    // 按创建时间倒序排列
+    return filtered.sort((a, b) => {
+      const timeA = SafeMig.createdAt(a);
+      const timeB = SafeMig.createdAt(b);
+      if (!timeA && !timeB) return 0;
+      if (!timeA) return 1;
+      if (!timeB) return -1;
+      return dayjs(timeB).valueOf() - dayjs(timeA).valueOf();
+    });
+  }, [data, keyword, statusFilter, namespaceFilter, vms]);
 
   const statusOptions = useMemo(
-    () => Array.from(new Set(data.map((item: any) => String(SafeMig.phase(item) || '').trim()).filter(Boolean))).sort(),
+    () => Array.from(new Set(data.map((item: any) => String(SafeMig.phase(item) || '').trim()).filter(Boolean))).sort().map(phase => ({
+      value: phase,
+      label: translatePhase(phase)
+    })),
     [data]
   );
   const namespaceOptions = useMemo(
@@ -225,24 +315,27 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
         if (phase === 'Succeeded') status = 'success';
         else if (phase === 'Failed') status = 'error';
         else if (isRunning) status = 'processing';
-        return <Badge status={status} text={phase || 'Unknown'} />;
+        return <Badge status={status} text={translatePhase(phase)} />;
       }
     },
     {
       title: '虚拟机',
       key: 'vmName',
-      render: (_: any, r: any) => (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-          <CloudServerOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
-          <span
-            className="cell-link"
-            style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, fontWeight: 600 }}
-            onClick={() => handleOpenDrawer(r, 'detail')}
-          >
-            {SafeMig.vmName(r)}
+      render: (_: any, r: any) => {
+        const displayName = getVmDisplayName(r);
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <CloudServerOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span
+              className="cell-link"
+              style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, fontWeight: 600 }}
+              onClick={() => handleOpenDrawer(r, 'detail')}
+            >
+              {displayName}
+            </span>
           </span>
-        </span>
-      ),
+        );
+      },
     },
     {
       title: '源节点',
@@ -271,7 +364,6 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     {
       title: '操作',
       key: 'actions',
-      width: 100,
       render: (_: any, r: any) => {
         const phase = r.status?.phase;
         const isRunning = phase === 'Running' || phase === 'Scheduled' || phase === 'Scheduling' || phase === 'Preparing';
@@ -326,7 +418,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
             value={statusFilter || undefined}
             onChange={(v) => setStatusFilter(v || '')}
             className="toolbar-filter-sm"
-            options={statusOptions.map((v) => ({ value: v, label: v }))}
+            options={statusOptions}
           />
           <button
             type="button"
@@ -350,13 +442,13 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r) => SafeMig.uidOrKey(r)}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

@@ -15,14 +15,14 @@
  * - 选文件后根据文件名自动填充显示名（去扩展名）与类型（扩展名 → iso | disk，与后端 imageType 一致）。
  */
 import React, { useCallback, useEffect, useState, type MutableRefObject } from 'react';
-import { Button, Col, Form, Input, message, Row, Select, Tabs, Typography, Upload } from 'antd';
+import { Button, Col, Form, Input, message, Modal, Row, Select, Tabs, Typography, Upload } from 'antd';
 import { DownloadOutlined, PaperClipOutlined } from '@ant-design/icons';
-import StdFormModal from '../../../../../../components/StdFormModal';
 import { API_BASE_URL } from '../../../../../../services/api';
 import {
   createHarvesterImage,
   createHarvesterImageUploadTask,
   fetchHarvesterImageUploadTask,
+  fetchHarvesterImages,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
 import { getToken } from '../../../../../../utils/tokenStorage';
@@ -40,6 +40,8 @@ export type ImageCreateModalProps = {
   /** 与列表页权限校验一致，无写权限时直接 return */
   ensureWrite: () => boolean;
   onUrlImportSuccess?: () => void;
+  /** 浏览器上传任务创建成功后调用，用于刷新镜像列表 */
+  onBrowserUploadSuccess?: () => void;
   /** 合并/更新侧边栏「上传任务」列表中的单条记录 */
   onUploadTaskUpsert: (task: HarvesterImageUploadTask) => void;
   /** 与 ImagesSection 共用，取消任务时可 abort 浏览器直传 fetch */
@@ -79,18 +81,21 @@ function inferBrowserUploadFromFilename(filename: string): BrowserUploadInferenc
   return { displayName, imageType };
 }
 
-/** 从下载 URL 的路径最后一段推导显示名与类型（与浏览器上传推断规则一致） */
-/** 浏览器直传单请求体上限（MiB），与 Nginx `client_max_body_size` 对齐；可用 REACT_APP_CLIENT_MAX_BODY_MB 覆盖 */
-function getClientMaxBodyBytes(): number {
-  const mb = Number(String(process.env.REACT_APP_CLIENT_MAX_BODY_MB || '90').trim());
-  const safe = Number.isFinite(mb) && mb > 0 ? mb : 90;
-  return Math.floor(safe * 1024 * 1024);
+/**
+ * 仅当构建时配置了 REACT_APP_CLIENT_MAX_BODY_MB 为正数（MiB）时，浏览器上传前做一次预检；
+ * 未配置则不在前端拦截（仍以反向代理等的请求体上限为准）。
+ */
+function getOptionalClientMaxBodyBytes(): number | null {
+  const raw = process.env.REACT_APP_CLIENT_MAX_BODY_MB;
+  if (raw === undefined || String(raw).trim() === '') return null;
+  const mb = Number(String(raw).trim());
+  if (!Number.isFinite(mb) || mb <= 0) return null;
+  return Math.floor(mb * 1024 * 1024);
 }
 
+/** 网关/反向代理返回 413 等非成功时的通用说明 */
 function formatGatewayBodyTooLargeHint(): string {
-  const mb = Number(String(process.env.REACT_APP_CLIENT_MAX_BODY_MB || '90').trim());
-  const label = Number.isFinite(mb) && mb > 0 ? String(mb) : '90';
-  return `文件超过网关单次请求体大小限制（当前前端按约 ${label} MiB 预检，与 Nginx client_max_body_size 对齐）。请联系管理员调大网关限制，或改用 URL 导入 / 桌面上传工具。`;
+  return '上传请求被拒绝（常为反向代理或对请求体大小有限制）。请管理员调大 Nginx client_max_body_size 等网关限制；或改用 URL 导入 / 桌面上传工具。';
 }
 
 function inferUrlImportFromUrl(urlStr: string): BrowserUploadInference {
@@ -126,6 +131,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   variant,
   ensureWrite,
   onUrlImportSuccess,
+  onBrowserUploadSuccess,
   onUploadTaskUpsert,
   uploadControllersRef,
 }) => {
@@ -184,7 +190,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   };
 
   /**
-   * 浏览器上传 Tab：StdFormModal 触发 form.submit → 本函数。
+   * 浏览器上传 Tab：确定触发 form.submit → 本函数。
    * 镜像显示名为可选；最终以表单值为准，空则再次用 inferBrowserUploadFromFilename(file.name)。
    */
   const handleStartTaskUpload = async () => {
@@ -201,12 +207,26 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
     const imageType =
       String(form.getFieldValue('toolImageType') || '').trim() || inferred.imageType || undefined;
     const file = toolFile;
-    const maxBytes = getClientMaxBodyBytes();
-    if (file.size > maxBytes) {
+    const maxBytes = getOptionalClientMaxBodyBytes();
+    if (maxBytes !== null && file.size > maxBytes) {
       const approxMi = (file.size / (1024 * 1024)).toFixed(1);
+      const limitMi = (maxBytes / (1024 * 1024)).toFixed(0);
       message.error(
-        `所选镜像约 ${approxMi} MiB，${formatGatewayBodyTooLargeHint()}（无需先创建上传任务。）`,
+        `所选镜像约 ${approxMi} MiB，超过构建配置 REACT_APP_CLIENT_MAX_BODY_MB（${limitMi} MiB）的前端预检上限。仍可调环境变量或直接依赖网关放行。`,
       );
+      return;
+    }
+
+    try {
+      const imagesRes = await fetchHarvesterImages(cloudId, true);
+      const images = imagesRes?.data?.items || [];
+      const exists = images.some((img: any) => img?.spec?.displayName === displayName);
+      if (exists) {
+        message.error(`创建镜像失败:镜像名称${displayName}已存在，请更换镜像名称再试`);
+        return;
+      }
+    } catch (e) {
+      message.error('检查镜像名称失败');
       return;
     }
 
@@ -225,6 +245,8 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       setToolFile(null);
       form.setFieldsValue({ toolDisplayName: '', toolImageType: undefined });
       message.success('任务已创建，开始上传，可在「上传任务」查看/取消');
+      // 触发镜像列表刷新
+      onBrowserUploadSuccess?.();
 
       const controller = new AbortController();
       uploadControllersRef.current.set(task.id, controller);
@@ -304,7 +326,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
           </Form.Item>
         </Col>
       </Row>
-      <Form.Item label="镜像显示名" name="displayName" rules={[{ required: true }]}>
+      <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}>
         <Input placeholder="如：ubuntu_20.04_200G.qcow2" />
       </Form.Item>
       <Form.Item
@@ -352,7 +374,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
         </Col>
       </Row>
       <Form.Item
-        label="镜像显示名"
+        label="镜像名称"
         name="toolDisplayName"
         tooltip="选择文件后将用文件名（去掉扩展名）自动填充，可修改"
       >
@@ -375,10 +397,21 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
               const f = file as File;
               setToolFile(f);
               const inferred = inferBrowserUploadFromFilename(f.name);
-              form.setFieldsValue({
-                toolDisplayName: inferred.displayName,
-                toolImageType: inferred.imageType,
-              });
+              // 检查用户是否已经填写了镜像名称，如果已填写则不替换
+              const currentDisplayName = String(form.getFieldValue('toolDisplayName') || '').trim();
+              const currentImageType = form.getFieldValue('toolImageType');
+              const patch: Record<string, unknown> = {};
+              // 只有当用户没有填写镜像名称时，才自动填充
+              if (!currentDisplayName && inferred.displayName) {
+                patch.toolDisplayName = inferred.displayName;
+              }
+              // 只有当用户没有选择镜像类型时，才自动填充
+              if ((currentImageType === undefined || currentImageType === null || currentImageType === '') && inferred.imageType) {
+                patch.toolImageType = inferred.imageType;
+              }
+              if (Object.keys(patch).length) {
+                form.setFieldsValue(patch);
+              }
               return false;
             }}
             maxCount={1}
@@ -415,46 +448,54 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   const isUrlCreateTab = createTab === 'url';
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="新增镜像"
       onCancel={onClose}
-      onFinish={isUrlCreateTab ? handleCreate : handleStartTaskUpload}
-      form={form}
+      onOk={() => form.submit()}
       okText={isUrlCreateTab ? '创建' : '提交任务'}
       confirmLoading={uploadingTask}
       okButtonProps={createTab === 'desktop' ? { style: { display: 'none' } } : undefined}
       width={600}
+      centered
+      destroyOnHidden
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
-      {variant === 'standard' ? (
-        renderBrowserUploadPanel()
-      ) : (
-        <Tabs
-          activeKey={createTab}
-          destroyInactiveTabPane
-          onChange={(k) => {
-            setCreateTab(k as 'browser' | 'desktop' | 'url');
-          }}
-          items={[
-            {
-              key: 'browser',
-              label: '浏览器上传',
-              children: renderBrowserUploadPanel(),
-            },
-            {
-              key: 'url',
-              label: 'URL 导入',
-              children: renderUrlImportPanel(),
-            },
-            {
-              key: 'desktop',
-              label: 'Windows 桌面工具',
-              children: renderDesktopToolPanel(),
-            },
-          ]}
-        />
-      )}
-    </StdFormModal>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={isUrlCreateTab ? handleCreate : handleStartTaskUpload}
+      >
+        {variant === 'standard' ? (
+          renderBrowserUploadPanel()
+        ) : (
+          <Tabs
+            activeKey={createTab}
+            destroyInactiveTabPane
+            onChange={(k) => {
+              setCreateTab(k as 'browser' | 'desktop' | 'url');
+            }}
+            items={[
+              {
+                key: 'browser',
+                label: '浏览器上传',
+                children: renderBrowserUploadPanel(),
+              },
+              {
+                key: 'url',
+                label: 'URL 导入',
+                children: renderUrlImportPanel(),
+              },
+              {
+                key: 'desktop',
+                label: 'Windows 桌面工具',
+                children: renderDesktopToolPanel(),
+              },
+            ]}
+          />
+        )}
+      </Form>
+    </Modal>
   );
 };
 

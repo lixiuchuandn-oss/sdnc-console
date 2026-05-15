@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Form, message, Select, Tooltip, Row, Col } from 'antd';
+import { Table, Input, Tag, Button, Form, message, Modal, Select, Tooltip, Row, Col } from 'antd';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import { API_BASE_URL, getAuthHeaders } from '../../../../../services/api';
 import { createHarvesterNamespace, updateHarvesterNamespace } from '../../../../../services/harvesterApi';
 import { FolderOpenTwoTone, MinusCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../shared/components/HarvesterOpsinfoDrawer';
-import StdFormModal from '../../../../../components/StdFormModal';
-
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { isSystemNamespace, namespaceSectionType } from '../../../../../utils/harvesterUtils';
@@ -383,7 +381,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
@@ -504,31 +501,34 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       {/* === 主表格 === */}
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey={(r: any) => r?.metadata?.name || r?.name || Math.random().toString(36).slice(2)}
         loading={loading}
         dataSource={filtered}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         columns={tableColumns}
       />
       
       {/* === 创建/编辑 模态框 === */}
-      <StdFormModal
+      <Modal
         open={creating}
         title={editingNamespace ? "编辑命名空间" : "创建管理员命名空间"}
         width={720}
+        centered
+        destroyOnHidden
         onCancel={() => {
           setCreating(false);
           setEditingNamespace(null);
           form.resetFields();
         }}
-        onFinish={handleCreate}
+        onOk={() => form.submit()}
         okText={editingNamespace ? "保存" : "创建"}
-        form={form}
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
       >
+        <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item
             label="命名空间名称"
             name="name"
@@ -592,7 +592,8 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
               )}
             </Form.List>
           </Form.Item>
-      </StdFormModal>
+        </Form>
+      </Modal>
 
       {/* === 详情侧边抽屉 === */}
       <HarvesterResourceDrawer

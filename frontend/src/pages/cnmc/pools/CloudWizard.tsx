@@ -227,7 +227,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
       const values = formData || form.getFieldsValue();
       
       // [数据标准化] 构造 Endpoint
-      // - 阿里云/华为云: 根据 Region 自动构造
+      // - 阿里云/华为云: 根据地域代码自动构造
       // - 私有云/Harvester: 使用用户输入的 Endpoint
       const endpoint =
         selectedProvider?.id === 'aliyun'
@@ -378,7 +378,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
         message.error(`请填写完整的配置信息。缺少字段: ${[
           !cloudData.name ? '名称' : '',
           !cloudData.type ? '资源类型' : '',
-          !cloudData.region ? 'Region' : '',
+          !cloudData.region ? '地域' : '',
           !cloudData.endpoint ? '端点' : ''
         ].filter(Boolean).join('、')}`);
         setLoading(false);
@@ -697,68 +697,75 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                 const isCloudmapPrivateEndpoint = selectedProvider?.id === 'cloudmap.private' && field.key === 'endpoint';
                 const isCloudmapPrivateToken = selectedProvider?.id === 'cloudmap.private' && field.key === 'apiToken';
 
+                const cloudmapFieldExtra =
+                  isCloudmapPrivateEndpoint ? (
+                    <div style={{ marginTop: 8 }}>
+                      <Image
+                        src={cloudmapApiImage}
+                        alt="如何获取 Cloudmap API 地址"
+                        preview={{
+                          mask: '点击放大',
+                        }}
+                        style={{
+                          maxWidth: '100%',
+                          height: 'auto',
+                          border: '1px solid #eaeaea',
+                          borderRadius: 8,
+                          display: 'block',
+                          cursor: 'pointer',
+                        }}
+                      />
+                      <div
+                        style={{
+                          color: '#777777',
+                          fontSize: 12,
+                          lineHeight: '1',
+                          marginTop: 8,
+                        }}
+                      >
+                        在Cloudmap控制台中，进入账号和API密钥页面，复制端点地址
+                      </div>
+                    </div>
+                  ) : isCloudmapPrivateToken ? (
+                    <div style={{ marginTop: 8 }}>
+                      <Image
+                        src={cloudmapKeyImage}
+                        alt="如何获取 Cloudmap API 令牌"
+                        preview={{
+                          mask: '点击放大',
+                        }}
+                        style={{
+                          maxWidth: '100%',
+                          height: 'auto',
+                          border: '1px solid #eaeaea',
+                          borderRadius: 8,
+                          display: 'block',
+                          cursor: 'pointer',
+                        }}
+                      />
+                      <div
+                        style={{
+                          color: '#777777',
+                          fontSize: 12,
+                          lineHeight: '1',
+                          marginTop: 8,
+                        }}
+                      >
+                        创建令牌时，是唯一查看令牌的机会。如果丢失则需要重新创建API密钥
+                      </div>
+                    </div>
+                  ) : undefined;
+
                 return (
-                  <React.Fragment key={field.key}>
-                    <Form.Item
-                      name={field.key}
-                      label={field.label}
-                      rules={rules}
-                    >
-                      {inputElement}
-                    </Form.Item>
-                    {isCloudmapPrivateEndpoint && (
-                      <div style={{ marginTop: -16, marginBottom: 24 }}>
-                        <Image
-                          src={cloudmapApiImage}
-                          alt="如何获取 Cloudmap API 地址"
-                          preview={{
-                            mask: '点击放大',
-                          }}
-                          style={{
-                            maxWidth: '100%',
-                            height: 'auto',
-                            border: '1px solid #eaeaea',
-                            borderRadius: 8,
-                            display: 'block',
-                            cursor: 'pointer'
-                          }}
-                        />
-                        <div style={{ 
-                          color: '#777777', 
-                          fontSize: 12,
-                          lineHeight: '1'
-                        }}>
-                          在Cloudmap控制台中，进入账号和API密钥页面，复制端点地址
-                        </div>
-                      </div>
-                    )}
-                    {isCloudmapPrivateToken && (
-                      <div style={{ marginTop: -16, marginBottom: 24 }}>
-                        <Image
-                          src={cloudmapKeyImage}
-                          alt="如何获取 Cloudmap API 令牌"
-                          preview={{
-                            mask: '点击放大',
-                          }}
-                          style={{
-                            maxWidth: '100%',
-                            height: 'auto',
-                            border: '1px solid #eaeaea',
-                            borderRadius: 8,
-                            display: 'block',
-                            cursor: 'pointer'
-                          }}
-                        />
-                        <div style={{ 
-                          color: '#777777', 
-                          fontSize: 12,
-                          lineHeight: '1'
-                        }}>
-                          创建令牌时，是唯一查看令牌的机会。如果丢失则需要重新创建API密钥
-                        </div>
-                      </div>
-                    )}
-                  </React.Fragment>
+                  <Form.Item
+                    key={field.key}
+                    name={field.key}
+                    label={field.label}
+                    rules={rules}
+                    extra={cloudmapFieldExtra}
+                  >
+                    {inputElement}
+                  </Form.Item>
                 );
               })}
 
@@ -934,7 +941,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
               <div className="wizard-summary-list">
                 <div className="wizard-summary-item"><span className="wizard-summary-label">云平台</span><span className="wizard-summary-value" title={summary.providerName}>{summary.providerName}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">资源类型</span><span className="wizard-summary-value" title={summary.typeTxt}>{summary.typeTxt}</span></div>
-                <div className="wizard-summary-item"><span className="wizard-summary-label">Region</span><span className="wizard-summary-value" title={summary.regionTxt}>{summary.regionTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">地域</span><span className="wizard-summary-value" title={summary.regionTxt}>{summary.regionTxt}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">端点</span><span className="wizard-summary-value" title={summary.endpointTxt}>{summary.endpointTxt}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">TLS</span><span className="wizard-summary-value" title={summary.tlsTxt}>{summary.tlsTxt}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">测试状态</span><span className="wizard-summary-value" title={summary.testTxt}>{summary.testTxt}</span></div>

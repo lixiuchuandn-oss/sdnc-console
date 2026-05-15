@@ -169,6 +169,7 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
         networkScope="flat"
         onRefresh={(force = true, silent = false) => {
           const skipSync = silent;
+          void loadTabResource('flat_kubeovn_eips', force, skipSync);
           setResourceLoading((prev) => ({
             ...prev,
             flatSnatRules: true,
@@ -177,7 +178,6 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
             .then((json) => {
               const list: any[] = (json as any)?.data?.items || [];
               setKubeOvnFlatSnatRules(Array.isArray(list) ? list : []);
-              if (force && !silent) message.success('刷新成功');
             })
             .catch((e) => {
               if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
@@ -204,6 +204,7 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
         networkScope="flat"
         onRefresh={(force = true, silent = false) => {
           const skipSync = silent;
+          void loadTabResource('flat_kubeovn_eips', force, skipSync);
           setResourceLoading((prev) => ({
             ...prev,
             flatDnatRules: true,
@@ -212,7 +213,6 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
             .then((json) => {
               const list: any[] = (json as any)?.data?.items || [];
               setKubeOvnFlatDnatRules(Array.isArray(list) ? list : []);
-              if (force && !silent) message.success('刷新成功');
             })
             .catch((e) => {
               if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));

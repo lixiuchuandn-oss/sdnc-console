@@ -93,13 +93,12 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
   }, [rules, dataSourceFilter, groupFilter, levelFilter, keyword]);
 
   const columns: ColumnsType<PrometheusRuleItem> = useMemo(() => [
-    { title: '数据源', dataIndex: 'datasource', key: 'datasource', width: 100, render: (v: string) => (v ? String(v).charAt(0).toUpperCase() + String(v).slice(1).toLowerCase() : '-') },
-    { title: '规则名称', dataIndex: 'aliasName', key: 'aliasName', width: 220, ellipsis: true, render: (v: string) => <Typography.Text strong ellipsis>{v || '-'}</Typography.Text> },
+    { title: '数据源', dataIndex: 'datasource', key: 'datasource', fixed: 'left', render: (v: string) => (v ? String(v).charAt(0).toUpperCase() + String(v).slice(1).toLowerCase() : '-') },
+    { title: '规则名称', dataIndex: 'aliasName', key: 'aliasName', ellipsis: true, render: (v: string) => <Typography.Text strong ellipsis>{v || '-'}</Typography.Text> },
     {
       title: '等级',
       dataIndex: 'severity',
       key: 'severity',
-      width: 100,
       render: (severity: string) => {
         const s = String(severity ?? '').toLowerCase();
         const isCritical = s === SEVERITY_CRITICAL;
@@ -122,9 +121,9 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
         );
       },
     },
-    { title: '告警分组', dataIndex: 'groupAliasName', key: 'groupAliasName', width: 180, ellipsis: true },
-    { title: '规则标识', dataIndex: 'name', key: 'name', width: 180, ellipsis: true },
-    { title: '持续时间', dataIndex: 'interval', key: 'interval', width: 80 },
+    { title: '告警分组', dataIndex: 'groupAliasName', key: 'groupAliasName', ellipsis: true },
+    { title: '规则标识', dataIndex: 'name', key: 'name', ellipsis: true },
+    { title: '持续时间', dataIndex: 'interval', key: 'interval' },
   ], []);
 
   // 列显示设置（需要在 columns 定义之后）
@@ -201,7 +200,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
         loading={loading}
         columns={displayColumns}
         dataSource={filteredRules}
-        scroll={{ x: 1200 }}
+        scroll={{ x: true }}
         pagination={{
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条`,

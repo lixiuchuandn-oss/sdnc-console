@@ -223,7 +223,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     { title: '驱动', key: 'driver', render: (_: any, r: any) => r?.raw?.status?.kernelDriverInUse || r?.status?.kernelDriverInUse || '-' },
     { title: 'IOMMU组', key: 'iommu', render: (_: any, r: any) => r?.raw?.status?.iommuGroup || r?.status?.iommuGroup || '-' },
     {
-      title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_: any, r: any) => {
+      title: '操作', key: 'actions', align: 'left' as const, fixed: 'right' as const, render: (_: any, r: any) => {
         const items = [
           ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
           ...(r?.claimRaw ? [{ key: 'binding', label: '查看绑定', onClick: () => handleOpenYaml(r.claimRaw) }] : []),
@@ -321,10 +321,10 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
       >
         <Table
           className="std-table"
+          scroll={{ x: true }}
           bordered={false}
           loading={loading || refreshing}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
           rowKey={(r: any) => {

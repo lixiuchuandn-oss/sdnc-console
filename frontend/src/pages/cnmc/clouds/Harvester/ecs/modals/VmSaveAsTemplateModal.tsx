@@ -49,7 +49,7 @@ const VmSaveAsTemplateModal: React.FC<Props> = ({
       }
 
       await saveHarvesterVmAsTemplate(cloudId, vmNamespace, vmName, payload);
-      message.success('已根据当前实例配置创建模板');
+      message.success('已根据当前实例配置创建模板。在云主机模板页面能看到模板数据');
       onSuccess?.();
       onClose();
     } catch (e: any) {

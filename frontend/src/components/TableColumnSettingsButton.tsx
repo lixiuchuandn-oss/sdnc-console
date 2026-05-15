@@ -39,6 +39,7 @@ export function TableColumnSettingsButton<T extends object>({
     columnOptions,
     handleColumnSettingsChange,
     columnSettingsInitialized,
+    lockedColumnKeys,
   } = useTableColumnSettings(allColumns, settingsKey, defaultHiddenColumns);
 
   // 通知父组件列变化
@@ -50,32 +51,49 @@ export function TableColumnSettingsButton<T extends object>({
 
   const [visible, setVisible] = React.useState(false);
 
-  const handleCheckAll = (e: any) => {
-    const allValues = columnOptions.map((o) => o.value);
-    handleColumnSettingsChange(e.target.checked ? allValues : []);
+  const allOptionsSelected = columnOptions.length > 0 && columnOptions.every((o) => checkedColumnKeys.includes(o.value));
+  const someOptionsSelected = columnOptions.some((o) => checkedColumnKeys.includes(o.value));
+
+  const handleCheckAll = (e: { target: { checked: boolean } }) => {
+    if (e.target.checked) {
+      handleColumnSettingsChange(columnOptions.map((o) => o.value));
+    } else {
+      // 全关时仅保留固定列，不可全空
+      handleColumnSettingsChange(lockedColumnKeys);
+    }
   };
 
-  const content = useMemo(() => (
-    <div style={{ minWidth: 150 }}>
-      <div style={{ padding: '4px 8px 8px', borderBottom: '1px solid #f0f0f0' }}>
-        <Checkbox
-          indeterminate={checkedColumnKeys.length > 0 && checkedColumnKeys.length < columnOptions.length}
-          onChange={handleCheckAll}
-          checked={checkedColumnKeys.length === columnOptions.length}
-        >
-          列展示
-        </Checkbox>
+  const content = useMemo(
+    () => (
+      <div style={{ minWidth: 150 }}>
+        <div style={{ padding: '4px 8px 8px', borderBottom: '1px solid #f0f0f0' }}>
+          <Checkbox
+            indeterminate={!allOptionsSelected && someOptionsSelected}
+            onChange={handleCheckAll}
+            checked={allOptionsSelected}
+          >
+            列展示
+          </Checkbox>
+        </div>
+        <div style={{ padding: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+          <Checkbox.Group
+            style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+            options={columnOptions}
+            value={checkedColumnKeys}
+            onChange={(list) => handleColumnSettingsChange(list as string[])}
+          />
+        </div>
       </div>
-      <div style={{ padding: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-        <Checkbox.Group
-          style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-          options={columnOptions}
-          value={checkedColumnKeys}
-          onChange={(list) => handleColumnSettingsChange(list as string[])}
-        />
-      </div>
-    </div>
-  ), [checkedColumnKeys, columnOptions, handleColumnSettingsChange]);
+    ),
+    [
+      allOptionsSelected,
+      someOptionsSelected,
+      checkedColumnKeys,
+      columnOptions,
+      handleColumnSettingsChange,
+      handleCheckAll,
+    ]
+  );
 
   return (
     <Popover

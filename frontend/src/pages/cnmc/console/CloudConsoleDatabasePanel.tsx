@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
-import { PaasSection } from '../paas/cloud-database';
+import { PaasSection } from '../clouds/Harvester/cloud-database';
 
 type NavResource = { key: string; label: string; paasType: string };
 
@@ -47,6 +47,7 @@ interface Props {
   images: any[];
   storageClasses: any[];
   subnets: any[];
+  harvesterNads?: any[];
   loading: boolean;
 
   activeCategory: CloudConsoleDatabaseCategory;
@@ -62,6 +63,8 @@ interface Props {
   isTenant?: boolean;
   namespacesOptions?: string[];
   namespaceRecords?: any[];
+  /** Harvester 集群能力，与主控制台拉取一致；用于云数据库创建 VM 的 machine 类型等 */
+  harvesterClusterCapabilities?: any;
 }
 
 function resourceMeta(
@@ -78,6 +81,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   images,
   storageClasses,
   subnets,
+  harvesterNads = [],
   loading,
   activeCategory,
   setActiveCategory,
@@ -91,6 +95,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   isTenant = false,
   namespacesOptions = [],
   namespaceRecords = [],
+  harvesterClusterCapabilities,
 }) => {
   const getDefaultResource = useCallback((catKey: CloudConsoleDatabaseCategory) => {
     const cat = DB_TAB_CONFIG.find((c) => c.key === catKey);
@@ -126,7 +131,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
         images={images}
         storageClasses={storageClasses}
         kubeSubnets={subnets}
-        harvesterNads={[]}
+        harvesterNads={harvesterNads}
         onReloadImages={onReloadImages}
         onReloadSubnets={onReloadSubnets}
         onReloadStorageClasses={onReloadStorageClasses}
@@ -135,6 +140,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
         sectionTitle={`${currentMeta.label} 实例`}
         namespacesOptions={namespacesOptions}
         namespaceRecords={namespaceRecords}
+        clusterCapabilities={harvesterClusterCapabilities}
       />
     );
   }, [
@@ -144,6 +150,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
     images,
     storageClasses,
     subnets,
+    harvesterNads,
     onRefreshVms,
     onForceRefreshVms,
     onReloadImages,
@@ -153,6 +160,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
     currentMeta,
     namespacesOptions,
     namespaceRecords,
+    harvesterClusterCapabilities,
   ]);
 
   const tabItems = useMemo(() => {

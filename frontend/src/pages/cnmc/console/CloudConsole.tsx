@@ -29,6 +29,7 @@ import {
   fetchHarvesterServices,
   fetchKubeOvnVpcs,
   fetchKubeOvnSubnets,
+  fetchHarvesterNads,
   fetchHarvesterDeployments,
   fetchHarvesterStatefulSets,
   fetchHarvesterDaemonSets,
@@ -69,7 +70,6 @@ import CloudConsoleDatabasePanel, {
   type CloudConsoleDatabaseCategory,
   type CloudConsoleDatabaseResource,
 } from './CloudConsoleDatabasePanel';
-import VmReconfigureModal from '../clouds/Harvester/ecs/modals/VmReconfigureModal';
 import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
 import { useTenantConsoleHeaderSlot } from '../../../contexts/TenantConsoleHeaderSlotContext';
@@ -139,6 +139,12 @@ const CloudConsolePage: React.FC = () => {
   );
 
   const permissions = user?.permissions ?? [];
+  const hasEcsWrite = useMemo(
+    () =>
+      hasPermissionForAction(permissions, 'clouds.ecs:write') ||
+      hasPermissionForAction(permissions, 'clouds:write'),
+    [permissions],
+  );
   const canViewContainersNav = useMemo(
     () => canViewAnyContainerSubPageFromPerms(permissions),
     [permissions],
@@ -169,6 +175,8 @@ const CloudConsolePage: React.FC = () => {
   const [dnatRules, setDnatRules] = useState<any[]>([]);  // DNAT 规则 (Harvester VPC)
   const [vpcs, setVpcs] = useState<any[]>([]);      // VPC 列表
   const [subnets, setSubnets] = useState<any[]>([]); // 子网列表
+  /** 供快速创建 / PaaS 扁平子网 Multus 就绪判断；与资源池详情页一致须拉取真实 NAD 列表 */
+  const [harvesterNads, setHarvesterNads] = useState<any[]>([]);
   const [storageClasses, setStorageClasses] = useState<any[]>([]); // 存储类
 
   // 容器服务（控制台）
@@ -215,8 +223,6 @@ const CloudConsolePage: React.FC = () => {
   // VmSection specific state
   const [nsValue, setNsValue] = useState<string | undefined>(undefined);
   const [nodeValue, setNodeValue] = useState<string | undefined>(undefined);
-  const [reconfVisible, setReconfVisible] = useState(false);
-  const [reconfVm, setReconfVm] = useState<any>(null);
 
   const [consoleLeftNavKey, setConsoleLeftNavKey] = useState<ConsoleLeftNavKey>('host');
 
@@ -825,29 +831,33 @@ const CloudConsolePage: React.FC = () => {
     if (!ovnVpcEnabled) {
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
       return;
     }
     try {
-      const [vpcsJson, subnetsJson] = await Promise.all([
+      const [vpcsJson, subnetsJson, nadsRes] = await Promise.all([
         fetchKubeOvnVpcs(cid, force, false, 'vpc', mergeTenantPublicScope(false)),
         fetchKubeOvnSubnets(cid, force, false, 'all', mergeTenantPublicScope(mergePublicSubnets)),
+        fetchHarvesterNads(cid, force).catch(() => ({ data: { items: [] } })),
       ]);
       setVpcs(vpcsJson?.data?.items || []);
       setSubnets(subnetsJson?.data?.items || []);
+      setHarvesterNads(Array.isArray(nadsRes?.data?.items) ? nadsRes.data.items : []);
     } catch (e: any) {
       console.error('[CloudConsole] loadVpcsAndSubnets error:', e);
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
     }
   };
 
-  // 加载 EIP 列表
-  const loadEips = async (cloudId?: string) => {
+  // 加载 EIP 列表；force=true 时跳过服务端/客户端缓存（删除、创建成功后需立即反映）
+  const loadEips = async (cloudId?: string, forceRefresh = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchCloudProviderOvnEips(cid, false, 'legacy', mergeTenantPublicScope(false));
+      const res = await fetchCloudProviderOvnEips(cid, !!forceRefresh, 'legacy', mergeTenantPublicScope(false));
       setEips(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadEips error:', e);
@@ -857,35 +867,49 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
-  // 加载 SNAT 规则
-  const loadSnatRules = async (cloudId?: string) => {
+  // 加载 SNAT 规则（同时拉 EIP，创建 SNAT 下拉依赖公网 IP 列表；仅进 SNAT 页时此前可能未请求过 EIP）
+  const loadSnatRules = async (cloudId?: string, forceRefresh = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
+    const fr = !!forceRefresh;
     setLoading(true);
     try {
-      const res = await fetchCloudProviderOvnSnatRules(cid, false, false, 'legacy', mergeTenantPublicScope(false));
-      setSnatRules(res?.data?.items || []);
+      const mergePublicNs = mergeTenantPublicScope(false);
+      const [snatRes, eipRes] = await Promise.all([
+        fetchCloudProviderOvnSnatRules(cid, fr, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnEips(cid, fr, 'legacy', mergePublicNs),
+      ]);
+      setSnatRules(snatRes?.data?.items || []);
+      setEips(eipRes?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadSnatRules error:', e);
       setSnatRules([]);
+      setEips([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // 加载 DNAT 规则
-  const loadDnatRules = async (cloudId?: string) => {
+  // 加载 DNAT 规则（同上，创建 DNAT 需选公网 IP）
+  const loadDnatRules = async (cloudId?: string, forceRefresh = false, silent = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
-    setLoading(true);
+    const fr = !!forceRefresh;
+    if (!silent) setLoading(true);
     try {
-      const res = await fetchCloudProviderOvnDnatRules(cid, false, false, 'legacy', mergeTenantPublicScope(false));
-      setDnatRules(res?.data?.items || []);
+      const mergePublicNs = mergeTenantPublicScope(false);
+      const [dnatRes, eipRes] = await Promise.all([
+        fetchCloudProviderOvnDnatRules(cid, fr, false, 'legacy', mergePublicNs),
+        fetchCloudProviderOvnEips(cid, fr, 'legacy', mergePublicNs),
+      ]);
+      setDnatRules(dnatRes?.data?.items || []);
+      setEips(eipRes?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadDnatRules error:', e);
       setDnatRules([]);
+      setEips([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1140,6 +1164,7 @@ const CloudConsolePage: React.FC = () => {
       setStorageClasses([]);
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
 
       setCtrDeployments([]);
       setCtrStatefulSets([]);
@@ -1213,6 +1238,7 @@ const CloudConsolePage: React.FC = () => {
     if (!ovnVpcEnabled) {
       setVpcs([]);
       setSubnets([]);
+      setHarvesterNads([]);
     }
   }, [ovnVpcEnabled]);
 
@@ -1606,6 +1632,7 @@ const CloudConsolePage: React.FC = () => {
                   images={images}
                   storageClasses={storageClasses}
                   subnets={subnets}
+                  harvesterNads={harvesterNads}
                   loading={loading}
                   activeCategory={databaseCategory}
                   setActiveCategory={setDatabaseCategory}
@@ -1621,6 +1648,7 @@ const CloudConsolePage: React.FC = () => {
                   isTenant={isTenantUser}
                   namespacesOptions={namespacesOptions}
                   namespaceRecords={namespaces}
+                  harvesterClusterCapabilities={harvesterCapabilities}
                 />
               )}
               {(consoleLeftNavKey === 'host' ||
@@ -1643,6 +1671,7 @@ const CloudConsolePage: React.FC = () => {
                   gpus={gpus}
                   vpcs={vpcs}
                   subnets={subnets}
+                  harvesterNads={harvesterNads}
                   eips={eips}
                   snatRules={snatRules}
                   dnatRules={dnatRules}
@@ -1658,9 +1687,10 @@ const CloudConsolePage: React.FC = () => {
                   setActiveCategory={setHarvesterCategory}
                   activeResource={harvesterResource}
                   setActiveResource={setHarvesterResource}
-                  onRefreshVms={() => {
-                    loadEcs(currentCloudId, true);
-                    loadPvcs(currentCloudId, true);
+                  onRefreshVms={async (force?: boolean) => {
+                    const f = force !== false;
+                    await loadEcs(currentCloudId, f);
+                    await loadPvcs(currentCloudId, f);
                   }}
                   onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) =>
                     loadStorageClasses(currentCloudId, !!force, !!skipSync)
@@ -1668,20 +1698,18 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                   onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                   onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
-                  onRefreshImages={() => loadImages(currentCloudId, true)}
+                  onRefreshImages={(force?: boolean) => loadImages(currentCloudId, force ?? true)}
                   onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
                   onRefreshBackups={() => loadBackups(currentCloudId, true)}
                   onRefreshSchedules={() => loadSchedules(currentCloudId)}
                   onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                   onRefreshGpus={() => loadGpus(currentCloudId)}
                   onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
-                  onRefreshEips={() => loadEips(currentCloudId)}
-                  onRefreshSnatRules={() => loadSnatRules(currentCloudId)}
-                  onRefreshDnatRules={() => loadDnatRules(currentCloudId)}
-                  onOpenReconfigure={(vm) => {
-                    setReconfVm(vm);
-                    setReconfVisible(true);
-                  }}
+                  onRefreshEips={(force?: boolean) => loadEips(currentCloudId, force !== false)}
+                  onRefreshSnatRules={(force?: boolean) => loadSnatRules(currentCloudId, force !== false)}
+                  onRefreshDnatRules={(force?: boolean, silent?: boolean) =>
+                    loadDnatRules(currentCloudId, force !== false, silent === true)
+                  }
                   onStart={handleStart}
                   onStop={handleStop}
                   onReboot={handleReboot}
@@ -1708,19 +1736,6 @@ const CloudConsolePage: React.FC = () => {
                 style={{ maxWidth: 600, margin: '0 auto' }}
               />
             </div>
-          )}
-
-          {reconfVisible && (
-            <VmReconfigureModal
-              open={reconfVisible}
-              onClose={() => setReconfVisible(false)}
-              record={reconfVm}
-              cloudId={currentCloudId || ''}
-              onOk={() => {
-                setReconfVisible(false);
-                loadEcs(currentCloudId, true);
-              }}
-            />
           )}
           </Content>
         </Layout>

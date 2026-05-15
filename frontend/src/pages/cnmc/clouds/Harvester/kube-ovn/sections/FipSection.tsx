@@ -366,6 +366,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
     {
       title: '名称',
       key: 'alias',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
         const text = alias || '—';
@@ -464,9 +465,9 @@ export const FipSection: React.FC<FipSectionProps> = ({
       render: (_: any, r: any) => r.spec?.vpc || '-' 
     },
     {
-      title: '操作', 
-      key: 'action', 
-      width: 80, 
+      title: '操作',
+      key: 'action',
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const menuItems: MenuProps['items'] = [
           { key: 'metadata', label: '查看元数据' },
@@ -562,9 +563,9 @@ export const FipSection: React.FC<FipSectionProps> = ({
           columns={columns} 
           loading={loading} 
           bordered={false}
+          scroll={{ x: true }}
           rowKey={r => r.metadata?.uid}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />

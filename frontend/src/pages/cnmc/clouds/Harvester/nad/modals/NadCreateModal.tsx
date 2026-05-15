@@ -7,8 +7,7 @@
  * - 可选配置 VLAN ID，用于为业务网络打 tag。
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Select, InputNumber, message } from 'antd';
-import StdFormModal from '../../../../../../components/StdFormModal';
+import { Form, Input, Modal, Select, InputNumber, message } from 'antd';
 import { createHarvesterNad, fetchHarvesterNamespaces, fetchHarvesterClusterNetworks } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
@@ -159,16 +158,19 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
   };
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="创建网络"
       onCancel={onCancel}
-      onFinish={handleFinish}
+      onOk={() => form.submit()}
       confirmLoading={loading}
-      form={form}
       width={600}
       okText="创建"
+      centered
+      destroyOnHidden
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form form={form} layout="vertical" onFinish={handleFinish}>
       <Form.Item
         name="name"
         label="别名"
@@ -235,7 +237,8 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
            )}
         </Select>
       </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

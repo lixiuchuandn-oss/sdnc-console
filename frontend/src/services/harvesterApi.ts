@@ -394,7 +394,10 @@ export const fetchHarvesterNads = (cloudId: string, force = false, skipSync = fa
   if (force) params.append('force', 'true');
   void skipSync;
   const queryString = params.toString();
-  return apiRequest(`/api/clouds/${cloudId}/resources/harvester/nads${queryString ? `?${queryString}` : ''}`);
+  const mustBypassCache = !!force;
+  return apiRequest(`/api/clouds/${cloudId}/resources/harvester/nads${queryString ? `?${queryString}` : ''}`, {
+    skipCache: mustBypassCache,
+  });
 };
 
 /**
@@ -638,7 +641,10 @@ export const fetchCloudProviderOvnEips = async (
   if (mergePublicScenarioNamespaces !== undefined) {
     extra.mergePublicScenarioNamespaces = mergePublicScenarioNamespaces;
   }
-  return await apiRequest(ovnListUrl(cloudId, 'ovneips', scope, extra));
+  const mustBypassCache = !!force;
+  return await apiRequest(ovnListUrl(cloudId, 'ovneips', scope, extra), {
+    skipCache: mustBypassCache,
+  });
 };
 
 /**
@@ -1397,7 +1403,10 @@ export const fetchKubeOvnVpcs = async (
   void skipSync;
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const query = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs?${query}`);
+  const mustBypassCache = !!force;
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs?${query}`, {
+    skipCache: mustBypassCache,
+  });
 };
 
 /**
@@ -1490,6 +1499,14 @@ export const removeKubeOvnSecurityGroupMember = async (cloudId: string, sgId: st
     `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}/members/${encodeURIComponent(memberId)}`,
   );
 };
+
+/**
+ * 解析 GET /resources/harvester/gpus 的 JSON 体，得到 GPU 对象数组（与创建向导等一致）。
+ */
+export function normalizeHarvesterGpuResourcesResponse(res: any): any[] {
+  const items = res?.data?.items ?? res?.items;
+  return Array.isArray(items) ? items : [];
+}
 
 /**
  * 获取 Harvester GPU 资源列表

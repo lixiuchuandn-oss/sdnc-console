@@ -22,7 +22,6 @@ export interface SecurityDomainOption {
   name: string;
   type?: string;
   category?: string;
-  subType?: string;
   vpcId?: string;
   provider?: string;
   region?: string;

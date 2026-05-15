@@ -5,6 +5,7 @@ import { KubevirtNadInventory } from '../../../../entities/kubevirt/KubevirtNadI
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 import { updateHarvesterSubnet, listKubeOvnEips } from '../../../../services/clouds/harvester/client';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
+import { deleteKubeOvnClusterCr, getOriginFromEndpoint } from './ovn-direct-eip-fip-nat.handlers';
 import {
   checkTenantAccess,
   fetchCloudOr404,
@@ -26,6 +27,7 @@ import {
 import {
   OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
   eipsReferencingSubnetExcludingLrp,
+  hasAnyUnderlayEipReferencingPublicOvnSubnet,
   isPublicSubnetOnOvnCluster,
   ovnInternalRouteCidrFromSubnet,
   removeOvnInternalForPublicSubnet,
@@ -878,49 +880,7 @@ export async function harvesterSubnetDirectCreateHandler(
     try {
       const result = await requestJson('POST', url, cloud.secretKey || '', insecure, payload);
       if (result && result.metadata) {
-        const syncPublicOvn = subnetTypeAnn === 'public' && targetVpc === KUBE_OVN_PUBLIC_VPC;
-        if (syncPublicOvn) {
-          const gw = String(result.spec?.gateway ?? gateway ?? '').trim();
-          const rc = ovnInternalRouteCidrFromSubnet(result);
-          if (!gw) {
-            try {
-              await requestJson('DELETE', url, cloud.secretKey || '', insecure);
-            } catch {}
-            await rollbackNewNad();
-            if (!res.headersSent) {
-              res.status(422).json({
-                message: '公共子网需填写网关后才能同步 ovn-internal',
-                code: 'GATEWAY_REQUIRED_FOR_OVN_INTERNAL',
-              });
-            }
-            return;
-          }
-          try {
-            await upsertOvnInternalForPublicSubnet({
-              harvesterParams: {
-                endpoint: cloud.endpoint,
-                token: cloud.secretKey || '',
-                insecure,
-              } as any,
-              subnetName: name,
-              gateway: gw,
-              routeCidr: rc,
-            });
-          } catch (ovnErr: any) {
-            try {
-              await requestJson('DELETE', url, cloud.secretKey || '', insecure);
-            } catch {}
-            await rollbackNewNad();
-            if (!res.headersSent) {
-              res.status(500).json({
-                message: '同步 ovn-internal 失败，已回滚子网创建',
-                error: ovnErr?.message || String(ovnErr),
-                code: 'OVN_INTERNAL_SYNC_FAILED',
-              });
-            }
-            return;
-          }
-        }
+        /** ovn-internal 的 extraExternalSubnets/staticRoutes 改在扁平域创建 EIP（underlay）时写入，参见 ovn-direct-eip-fip-nat.handlers.ts */
         try {
           const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
           const entity = repo.create({
@@ -1234,6 +1194,7 @@ export async function harvesterSubnetDirectDeleteHandler(
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const apiBase = resolveHarvesterK8sApiBase(cloud.endpoint || '');
+    const origin = getOriginFromEndpoint(cloud.endpoint || '');
 
     const url = `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
 
@@ -1295,9 +1256,11 @@ export async function harvesterSubnetDirectDeleteHandler(
     }
 
     // 校验 EIP：仅非 lrp 占用时禁止删除
+    let snapshotEips: any[] = [];
+    let lrpEipsToDelete: any[] = [];
     try {
-      const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
-      const blocking = eipsReferencingSubnetExcludingLrp(eips, name);
+      snapshotEips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      const blocking = eipsReferencingSubnetExcludingLrp(snapshotEips, name);
       if (blocking.length > 0) {
         const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
         const labels = kubeOvnEipPublicDisplayLabels(blocking);
@@ -1307,17 +1270,42 @@ export async function harvesterSubnetDirectDeleteHandler(
           eips: names,
         });
       }
+      // 收集需要删除的 LRP EIP（这些是系统自动创建的，删除子网时应一并清理）
+      lrpEipsToDelete = (Array.isArray(snapshotEips) ? snapshotEips : []).filter((eip) => {
+        const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
+        if (String(sub || '').trim() !== name) return false;
+        const t = String(eip?.spec?.type ?? eip?.type ?? '').trim().toLowerCase();
+        return t === 'lrp';
+      });
     } catch (e) {
       console.warn('[DeleteSubnet] EIP usage check failed:', e);
     }
 
+    // 删除公共子网时，自动清理关联的 LRP EIP
+    if (lrpEipsToDelete.length > 0 && isPublicSubnetOnOvnCluster(subnetBefore)) {
+      for (const lrpEip of lrpEipsToDelete) {
+        const eipName = String(lrpEip?.metadata?.name || lrpEip?.name || '').trim();
+        if (eipName) {
+          try {
+            await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovneips', 'ovn-eips', eipName);
+            console.info('[DeleteSubnet] Deleted LRP EIP:', eipName);
+          } catch (delErr) {
+            console.warn('[DeleteSubnet] Failed to delete LRP EIP:', eipName, delErr);
+          }
+        }
+      }
+    }
+
     if (isPublicSubnetOnOvnCluster(subnetBefore)) {
       try {
+        const hp = { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any;
+        const stillHas = await hasAnyUnderlayEipReferencingPublicOvnSubnet(hp, snapshotEips);
         await removeOvnInternalForPublicSubnet({
-          harvesterParams: { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          harvesterParams: hp,
           subnetName: name,
           gateway: String(subnetBefore.spec?.gateway ?? '').trim(),
           routeCidr: ovnInternalRouteCidrFromSubnet(subnetBefore),
+          setEnableExternal: stillHas ? undefined : false,
         });
       } catch (ovnErr: any) {
         return res.status(500).json({

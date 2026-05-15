@@ -58,6 +58,8 @@ interface Props {
   gpus?: any[];
   vpcs?: any[];
   subnets?: any[];
+  /** NAD 列表：快速创建虚拟机判断扁平子网 Multus 是否就绪（勿长期传空数组） */
+  harvesterNads?: any[];
   eips?: any[];
   snatRules?: any[];
   dnatRules?: any[];
@@ -76,8 +78,7 @@ interface Props {
   nodeValue?: string;
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
-  onRefreshVms: () => void;
-  onOpenReconfigure: (vm: any) => void;
+  onRefreshVms: (force?: boolean) => void | Promise<void>;
   onStart: (iid: string) => void;
   onStop: (iid: string) => void;
   onReboot: (iid: string) => void;
@@ -90,16 +91,16 @@ interface Props {
   onRefreshSshKeys: () => void;
   onRefreshVolumes?: () => void;
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
-  onRefreshImages?: () => void;
+  onRefreshImages?: (force?: boolean) => void;
   onRefreshSnapshots?: () => void;
   onRefreshBackups?: () => void;
   onRefreshSchedules?: () => void;
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
   onRefreshVpcs?: () => void;
-  onRefreshEips?: () => void;
-  onRefreshSnatRules?: () => void;
-  onRefreshDnatRules?: () => void;
+  onRefreshEips?: (force?: boolean) => void;
+  onRefreshSnatRules?: (force?: boolean) => void;
+  onRefreshDnatRules?: (force?: boolean, silent?: boolean) => void;
 
   bordered?: boolean;
   showYaml?: boolean;
@@ -121,6 +122,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   gpus = [],
   vpcs = [],
   subnets = [],
+  harvesterNads = [],
   eips = [],
   snatRules = [],
   dnatRules = [],
@@ -140,7 +142,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   onNsChange,
   onNodeChange,
   onRefreshVms,
-  onOpenReconfigure,
   onStart,
   onStop,
   onReboot,
@@ -327,7 +328,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             onNsChange={onNsChange}
             onNodeChange={onNodeChange}
             onRefresh={onRefreshVms}
-            onOpenReconfigure={onOpenReconfigure}
             onStart={onStart}
             onStop={onStop}
             onReboot={onReboot}
@@ -339,7 +339,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             bordered={bordered}
             storageClasses={storageClasses}
             kubeSubnets={subnets}
-            harvesterNads={[]}
+            harvesterNads={harvesterNads}
             capabilities={harvesterCapabilities}
             onReloadQuickCreateSubnets={onRefreshVpcs}
             onReloadQuickCreateImages={onRefreshImages}
@@ -575,7 +575,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     onNsChange,
     onNodeChange,
     onRefreshVms,
-    onOpenReconfigure,
     onStart,
     onStop,
     onReboot,

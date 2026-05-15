@@ -1,6 +1,6 @@
 {
   "name": "compute-tower-frontend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Compute Tower 多云管理平台前端",
   "private": true,
   "dependencies": {

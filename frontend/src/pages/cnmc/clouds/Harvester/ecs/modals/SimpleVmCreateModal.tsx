@@ -1,6 +1,7 @@
 /**
  * Cloudmap 资源池「快速创建」使用的极简创建虚拟机弹窗。
- * 命名空间固定 default（不展示）；网络固定为 Kube-OVN 扁平子网，接口类型固定为 managedtap（与创建向导扁平子网一致）。
+ * 命名空间（不展示）：非租户（管理员与平台自定义用户等）固定 `default`；租户优先控制台工作区命名空间，否则按租户绑定命名空间回退。
+ * 网络固定为 Kube-OVN 扁平子网，接口类型固定为 managedtap（与创建向导扁平子网一致）。
  */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
@@ -37,6 +38,11 @@ import {
   isFlatKubeOvnSubnetVpc,
 } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
 import {
+  isKubeOvnSubnetNadReady,
+  resolveMultusNetNameForKubeOvnSubnetNic,
+} from './VmCreateWizard/kubeOvnNadRefForVmWizard';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
+import {
   isHarvesterVmImageReady,
   isSystemNamespace,
   isSystemStorageClass,
@@ -59,9 +65,9 @@ export type SimpleVmCreateModalProps = {
   onCreated: () => void | Promise<void>;
   /** 命名空间库存对象（metadata.labels.tower.io/scenario） */
   namespaceRecords?: any[];
-  /** 租户控制台页头当前命名空间；优先于按 scenario 推断，避免落到 default 导致无权创建 */
+  /** 租户控制台页头当前命名空间；`isTenant` 为真时优先于此，避免落到 default 导致无权创建 */
   workspaceNamespace?: string;
-  /** 租户创建时仅选 tenant 场景；管理员选 admin；无匹配时回退 default */
+  /** 租户：按工作区 / 绑定命名空间创建；非租户（管理员与平台自定义用户等）：固定 `default` */
   isTenant?: boolean;
 };
 
@@ -93,7 +99,6 @@ function resolveFlatSubnetPrimaryNic(
   kubeSubnets: any[],
   nadOptions: { value: string }[],
 ) {
-  let netName = subnetName;
   const subnet = (kubeSubnets || []).find((x: any) => {
     const nm = subnetDisplayName(x);
     return (
@@ -102,29 +107,7 @@ function resolveFlatSubnetPrimaryNic(
       isKubeOvnFlatSubnet(x)
     );
   });
-  let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
-  if (!subnetNs && subnet) {
-    const provider = subnet?.provider || subnet?.spec?.provider;
-    if (provider) {
-      const parts = String(provider).split('.');
-      if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-    }
-  }
-  if (subnetNs) {
-    netName = `${subnetNs}/${subnetName}`;
-  } else {
-    try {
-      const found = (nadOptions || []).find((x: any) => {
-        const vv = String(x?.value || '');
-        const parts = vv.split('/');
-        const name = parts.length > 1 ? parts[1] : parts[0];
-        return name === subnetName;
-      });
-      if (found) netName = found.value;
-    } catch {
-      /* ignore */
-    }
-  }
+  const netName = resolveMultusNetNameForKubeOvnSubnetNic(subnet, subnetName, nadOptions);
   return {
     type: 'managedtap',
     model: 'virtio',
@@ -196,8 +179,13 @@ function generateDefaultVmAlias() {
   return `vm-${Math.random().toString(36).slice(2, 6)}-${Date.now().toString(36).slice(-4)}`;
 }
 
-/** 选中镜像后回填系统盘容量与启动相关字段（与向导 StepDisks 一致） */
-function applyImageDerivedFieldsToForm(form: any, imageList: any[], imageValue: string) {
+/** 选中镜像后回填系统盘容量与启动相关字段（与向导 StepDisks / ChangeOs 一致；含 ISO 光驱根盘） */
+function applyImageDerivedFieldsToForm(
+  form: any,
+  imageList: any[],
+  imageValue: string,
+  opts?: { isArm64?: boolean },
+) {
   const it = findImageByValue(imageList, String(imageValue));
   const minGi = imageMinDiskGi(it);
   const dispName = String(
@@ -209,14 +197,25 @@ function applyImageDerivedFieldsToForm(form: any, imageList: any[], imageValue: 
       it?.name ||
       '',
   );
-  const isWindows = /windows|win/.test(dispName.toLowerCase());
+  const kind = resolveImageKind(it);
+  const arm = !!opts?.isArm64;
   try {
-    form.setFieldsValue({
-      rootSizeGi: minGi,
-      bootUseEfi: false,
-      rootBus: isWindows ? 'sata' : 'virtio',
-      rootDeviceType: 'disk',
-    });
+    if (kind === 'iso') {
+      form.setFieldsValue({
+        rootSizeGi: minGi,
+        bootUseEfi: false,
+        rootBus: arm ? 'scsi' : 'sata',
+        rootDeviceType: 'cdrom',
+      });
+    } else {
+      const isWindows = /windows|win/.test(dispName.toLowerCase());
+      form.setFieldsValue({
+        rootSizeGi: minGi,
+        bootUseEfi: false,
+        rootBus: isWindows ? 'sata' : 'virtio',
+        rootDeviceType: 'disk',
+      });
+    }
   } catch {
     /* ignore */
   }
@@ -299,6 +298,8 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     [harvesterNads],
   );
 
+  const selectedFlatSubnetWatched = Form.useWatch('flatSubnet', form);
+
   const flatSubnetOptions = useMemo(() => {
     return (kubeSubnets || [])
       .filter(
@@ -306,18 +307,27 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       )
       .map((x: any) => {
         const n = subnetDisplayName(x);
+        const flatVpcId = String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
+        const ready = isKubeOvnSubnetNadReady(x, flatVpcId, nadOptions);
+        const isCurrent = selectedFlatSubnetWatched && String(n) === String(selectedFlatSubnetWatched);
+        const disabled = !ready && !isCurrent;
         const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-        const vpcDisp =
-          String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
+        const vpcDisp = String(x?.spec?.vpc || x?.vpc || KUBE_OVN_FLAT_VPC).trim() || KUBE_OVN_FLAT_VPC;
         const cidr = subnetCidrBlock(x);
-        // 展示层不暴露 metadata.name（仍用作 value），优先展示别名；网段用 Tag
         const shownName = alias || n;
         const shownVpc = alias ? '' : ` (${vpcDisp})`;
-        const titleLine = `${shownName}${shownVpc}`.trim();
-        const searchText = [titleLine, alias, n, vpcDisp, cidr].filter(Boolean).join(' ').toLowerCase();
+        const titleLine0 = `${shownName}${shownVpc}`.trim();
+        let titleLine = titleLine0;
+        if (!ready) {
+          titleLine = isCurrent
+            ? `${titleLine0}（子网网络未就绪，请稍候重试或刷新后创建）`
+            : `${titleLine0}（网络未就绪）`;
+        }
+        const searchText = [titleLine0, alias, n, vpcDisp, cidr, titleLine].filter(Boolean).join(' ').toLowerCase();
         return {
           value: n,
           searchText,
+          disabled,
           label: (
             <Space size={6} wrap>
               <span>{titleLine}</span>
@@ -326,7 +336,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           ),
         };
       });
-  }, [kubeSubnets]);
+  }, [kubeSubnets, nadOptions, selectedFlatSubnetWatched]);
 
   /** 按 Subnet metadata.name 缓存其 CIDR 段（用于快速创建网络选择展示/回填） */
   const subnetIpSegmentCacheRef = useRef<Record<string, string>>({});
@@ -342,41 +352,34 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     subnetIpSegmentCacheRef.current = { ...subnetIpSegmentCacheRef.current, ...m };
     return subnetIpSegmentCacheRef.current;
   }, [kubeSubnets]);
-  const selectedFlatSubnet = Form.useWatch('flatSubnet', form);
   const selectedFlatSubnetSegment = useMemo(() => {
-    const n = String(selectedFlatSubnet ?? '').trim();
+    const n = String(selectedFlatSubnetWatched ?? '').trim();
     if (!n) return '';
     return subnetIpSegmentByName[n] || '';
-  }, [selectedFlatSubnet, subnetIpSegmentByName]);
+  }, [selectedFlatSubnetWatched, subnetIpSegmentByName]);
 
   const targetNamespace = useMemo(() => {
+    if (!isTenant) return 'default';
     const ws = String(workspaceNamespace || '').trim();
-    if (isTenant && ws) return ws;
-    const picked = pickFirstNamespaceRecordByScenario(
-      namespaceRecords,
-      isTenant ? 'tenant' : 'admin',
-    );
+    if (ws) return ws;
+    const picked = pickFirstNamespaceRecordByScenario(namespaceRecords, 'tenant');
     if (picked) return picked;
-    if (isTenant) {
-      for (const r of namespaceRecords || []) {
-        const name = String(r?.metadata?.name || r?.name || '').trim();
-        if (name && !isSystemNamespace(name)) return name;
-      }
+    for (const r of namespaceRecords || []) {
+      const name = String(r?.metadata?.name || r?.name || '').trim();
+      if (name && !isSystemNamespace(name)) return name;
     }
     return 'default';
   }, [namespaceRecords, isTenant, workspaceNamespace]);
 
-  const diskImages = useMemo(
-    () =>
-      (images || []).filter(
-        (x: any) => resolveImageKind(x) !== 'iso' && isHarvesterVmImageReady(x),
-      ),
+  /** 快速创建：下拉展示集群内所有就绪镜像（含 ISO / qcow2 等各类型）；提交时按类型设置 disk / cdrom 根盘 */
+  const allReadyVmImages = useMemo(
+    () => (images || []).filter((x: any) => isHarvesterVmImageReady(x)),
     [images],
   );
 
   const imageSelectOptions = useMemo(
     () =>
-      diskImages.map((x: any) => {
+      allReadyVmImages.map((x: any) => {
         const name = x?.metadata?.name || x?.name;
         const ns = x?.metadata?.namespace || x?.namespace;
         const disp =
@@ -386,18 +389,24 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
           x?.displayName ||
           name;
+        const isoMark = resolveImageKind(x) === 'iso';
         return {
           label: (
             <Space>
               <OsIcon osName={disp || name} />
-              {disp || '-'}
+              <span>{disp || '-'}</span>
+              {isoMark ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  (ISO)
+                </Typography.Text>
+              ) : null}
             </Space>
           ),
-          labelString: disp || name,
+          labelString: `${disp || name}${isoMark ? ' iso' : ''}`,
           value: ns && name ? `${ns}/${name}` : name,
         };
       }),
-    [diskImages],
+    [allReadyVmImages],
   );
 
   useEffect(() => {
@@ -432,13 +441,21 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   useEffect(() => {
     if (!open || flatSubnetOptions.length === 0) return;
     const cur = form.getFieldValue('flatSubnet');
+    const curOpt = flatSubnetOptions.find((o) => o.value === cur);
     const valid =
       cur != null &&
       String(cur).trim() !== '' &&
-      flatSubnetOptions.some((o) => o.value === cur);
+      curOpt &&
+      !(curOpt as { disabled?: boolean }).disabled;
     if (valid) return;
-    form.setFieldValue('flatSubnet', flatSubnetOptions[0].value);
+    const firstOk = flatSubnetOptions.find((o) => !(o as { disabled?: boolean }).disabled);
+    if (firstOk) form.setFieldValue('flatSubnet', firstOk.value);
   }, [open, flatSubnetOptions, form]);
+
+  const isArm64 = useMemo(() => {
+    const arch = String(capabilities?.architecture || '').toLowerCase();
+    return arch === 'arm64' || arch === 'aarch64';
+  }, [capabilities]);
 
   useEffect(() => {
     if (!open || imageSelectOptions.length === 0) return;
@@ -450,19 +467,14 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
     if (valid) return;
     const firstVal = imageSelectOptions[0].value;
     form.setFieldValue('image', firstVal);
-    applyImageDerivedFieldsToForm(form, images, String(firstVal));
-  }, [open, imageSelectOptions, form, images]);
+    applyImageDerivedFieldsToForm(form, images, String(firstVal), { isArm64 });
+  }, [open, imageSelectOptions, form, images, isArm64]);
 
   const applyPreset = (key: string) => {
     if (key === 'custom') return;
     const p = SPEC_PRESETS.find((x) => x.key === key);
     if (p) form.setFieldsValue({ cpu: p.cpu, memoryGi: p.mem });
   };
-
-  const isArm64 = useMemo(() => {
-    const arch = String(capabilities?.architecture || '').toLowerCase();
-    return arch === 'arm64' || arch === 'aarch64';
-  }, [capabilities]);
 
   const handleOk = async () => {
     try {
@@ -560,7 +572,10 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       onClose();
     } catch (e: any) {
       if (e?.errorFields) return;
-      Modal.error({ title: '创建失败', content: e?.message || String(e) });
+      Modal.error({
+        title: '创建失败',
+        content: translateKnownApiErrorMessage(String(e?.message || e || '创建失败')),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -692,7 +707,9 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                 onOpenChange={(o) => {
                   if (o && onReloadImages) onReloadImages();
                 }}
-                onChange={(val) => applyImageDerivedFieldsToForm(form, images, String(val))}
+                onChange={(val) =>
+                  applyImageDerivedFieldsToForm(form, images, String(val), { isArm64 })
+                }
               />
             </Form.Item>
           </Col>
@@ -814,7 +831,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                           allowClear
                           placeholder={`存储类（默认 ${defaultStorageClassName || 'longhorn'}）`}
                           options={userSelectableStorageClassOptions}
-                          prefix="存储池"
+                          prefix="存储类"
                         />
                       </Form.Item>
                     </Col>
@@ -849,7 +866,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                     })
                   }
                 >
-                  + 添加数据盘
+                  + 添加磁盘
                 </Button>
               </>
             )}

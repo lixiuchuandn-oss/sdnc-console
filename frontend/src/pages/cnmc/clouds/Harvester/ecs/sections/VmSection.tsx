@@ -15,9 +15,9 @@
  *   ⑤ [逻辑处理] 4 过滤 — filtered、租户/组织级联、命名空间与租户视图规则。
  *   ⑥ [事件处理] 5 / 6 — 行内操作（详情/VNC/重要实例/删除等）与批量停、重启、回收站。
  *   ⑦ [配置] 7 表格列 — allColumns、运维扩展列（hasCloudmapOpsViewWrite）、useTableColumnSettings 持久化 key。
- *   ⑧ [UI渲染] 8 — 工具栏、Table、HarvesterVmDetailDrawer 与各弹窗 JSX。
+ *   ⑧ [UI渲染] 8 — 工具栏、Table、VmDetailDrawer 与各弹窗 JSX。
  *
- * 抽离组件：`HarvesterVmDetailDrawer` 负责详情 Tab、终端、电源工具条及「⋯ → 查看YAML」（内部懒加载嵌套运维抽屉）；
+ * 抽离组件：`VmDetailDrawer` 负责详情 Tab、终端、电源工具条及「⋯ → 查看YAML」（内部懒加载嵌套运维抽屉）；
  * 本文件不再挂载 `HarvesterResourceDrawer`。
  *
  * 快速检索（关键词）：`SafeRead` · `filtered` · `allColumns` · `handleShowVmDetail` · `ResourceActionsDropdown` · `batchStop` / `batchReboot` / `batchDelete`
@@ -98,7 +98,7 @@ import {
 } from "../../../../../../services/harvesterApi";
 import { useTableColumnSettings } from "../../../../../../hooks/useTableColumnSettings";
 import TableColumnSettingsButton from "../../../../../../components/TableColumnSettingsButton";
-import HarvesterVmDetailDrawer from "../../shared/components/HarvesterVmDetailDrawer";
+import VmDetailDrawer from "../drawers/vm-detail";
 import VmMigrateModal from "../modals/VmMigrateModal";
 import VmBackupCreateModal from "../../cbr/modals/VmBackupCreateModal";
 import VmCloneModal from "../../ecs/modals/VmCloneModal";
@@ -118,6 +118,10 @@ import {
 import { useCloudmapOpsViewWrite } from "../../hooks/useCloudmapOpsViewWrite";
 import SimpleVmCreateModal from "../../ecs/modals/SimpleVmCreateModal";
 import VmAliasEditModal from "../modals/VmAliasEditModal";
+import { isTowerPaasInventoryExcludedVm } from "../../shared/harvesterTowerPaas";
+import { findFirstVmVolumeResizeState } from "../lib/vmVolumePvc";
+import { formatStorageSize } from "../lib/storageSize";
+import { createVmListSafeRead } from "../lib/vmSafeRead";
 
 /**
  * [类型定义] 组件 Props 接口
@@ -144,14 +148,13 @@ type Props = {
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
-  onOpenReconfigure: (vm: any) => void;
   onStart: (iid: string) => void;
   onStop: (iid: string) => void;
   onReboot: (iid: string) => void;
   onSoftReboot?: (iid: string) => void;
   onPause?: (iid: string) => void;
   onUnpause?: (iid: string) => void;
-  onDelete: (iid: string, deleteVolumes?: boolean) => void;
+  onDelete: (iid: string, deleteVolumes?: boolean, isBatch?: boolean) => void;
   images?: any[];
   namespaces?: any[];
   volumes?: any[];
@@ -189,7 +192,6 @@ const VmSection: React.FC<Props> = ({
   onNsChange,
   onNodeChange,
   onRefresh,
-  onOpenReconfigure,
   onStart,
   onStop,
   onReboot,
@@ -317,614 +319,19 @@ const VmSection: React.FC<Props> = ({
     return String(r?.InstanceId || r?.id || "");
   };
 
-  /**
-   * [函数] 解析存储大小字符串
-   * 将 "10Gi", "500Mi", "1024" 等不同格式的存储字符串统一转换为 GiB 数值。
-   */
-  const parseStorageSize = (sizeStr: string): number => {
-    if (!sizeStr) return 0;
-    const str = String(sizeStr).trim();
-
-    // 纯数字 => 视为字节 (Bytes)
-    if (/^\d+$/.test(str)) {
-      const bytes = parseFloat(str);
-      return bytes / 1024 ** 3; // 转换为 GiB
-    }
-
-    // 支持二进制单位 (Ki, Mi, Gi, Ti) 和十进制单位 (k, KB, ...)
-    const units: Record<string, number> = {
-      ki: 1024,
-      mi: 1024 ** 2,
-      gi: 1024 ** 3,
-      ti: 1024 ** 4,
-      k: 1000,
-      kb: 1000,
-      m: 1000 ** 2,
-      mb: 1000 ** 2,
-      g: 1000 ** 3,
-      gb: 1000 ** 3,
-      t: 1000 ** 4,
-      tb: 1000 ** 4,
-    };
-
-    const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
-    if (!match) return parseFloat(str) || 0;
-
-    const val = parseFloat(match[1]);
-    const unit = match[2].toLowerCase();
-    const mul = units[unit];
-    if (!mul) return val; // 默认为 GiB
-    return (val * mul) / 1024 ** 3; // 转换为 GiB
-  };
-
-  /**
-   * [函数] 格式化存储大小
-   * 将 GiB 数值格式化为人类可读的字符串 (MiB, GiB, TiB)。
-   */
-  const formatStorageSize = (sizeGiB: number): string => {
-    if (sizeGiB === 0) return "-";
-    if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
-    if (sizeGiB >= 1024) return `${(sizeGiB / 1024).toFixed(1)} TiB`;
-    return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
-  };
-
   // ==========================================
   // [核心逻辑] 3. 数据读取器 (SafeRead)
   // ==========================================
   /**
-   * [逻辑说明] SafeRead 对象
-   * 这是一个核心的数据访问层。由于 Kubernetes/Harvester 对象的嵌套层级极深（例如 r.spec.template.spec.domain.cpu.cores），
-   * 直接访问极易出现 "Cannot read property of undefined" 错误。
-   * SafeRead 封装了所有的空值检查和 Fallback 逻辑，确保 UI 渲染层始终能拿到有效数据。
-   * 使用 useMemo 缓存该对象，仅当依赖数据变化时才重建。
+   * [逻辑说明] SafeRead 由 `createVmListSafeRead` 组装（见 ../lib/vmSafeRead.ts）。
    */
   const SafeRead = useMemo(
-    () => ({
-      // ------------------------------------------
-      // 3.1 基础标识 (Identity)
-      // ------------------------------------------
-
-      // [字段] 显示名称：优先使用 alias 注解（用户自定义别名），其次是 metadata.name
-      name: (r: any) =>
-        r?.metadata?.annotations?.["tower.io/alias"] ||
-        r?.InstanceName ||
-        r?.name ||
-        r?.metadata?.name ||
-        "",
-
-      // [字段] 真实资源 ID (Kubernetes Name)
-      vmId: (r: any) => r?.metadata?.name || "",
-
-      // [字段] 全局唯一 ID (UID)
-      uid: (r: any) => r?.metadata?.uid || r?.InstanceId || r?.id || "",
-
-      // [字段] 命名空间
-      namespace: (r: any) => r?.metadata?.namespace || r?.namespace || "",
-
-      // [字段] 租户信息 (从 Namespace 的 Annotation 中解析)
-      tenant: (r: any) => {
-        const nsName = r?.metadata?.namespace || r?.namespace || "";
-        const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
-        if (nsObj?.metadata?.annotations?.["tower.io/tenant"]) {
-          return nsObj.metadata.annotations["tower.io/tenant"];
-        }
-        return "";
-      },
-
-      // [字段] 组织信息
-      organization: (r: any) => {
-        const nsName = r?.metadata?.namespace || r?.namespace || "";
-        const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
-        if (nsObj?.metadata?.annotations?.["tower.io/organization"]) {
-          return nsObj.metadata.annotations["tower.io/organization"];
-        }
-        return "";
-      },
-
-      // [字段] 创建时间
-      creationTimestamp: (r: any) =>
-        r?.createdAt || r?.metadata?.creationTimestamp,
-
-      // ------------------------------------------
-      // 3.2 状态与生命周期 (Status & Lifecycle)
-      // ------------------------------------------
-
-      // [字段] 状态字符串 (Running, Stopped 等)
-      status: (r: any) => {
-        // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
-        // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
-        // 也可能在 status.migrationState 中（不同版本可能不同）
-        // 注意：如果 migrationState.Completed === true，说明迁移已完成，不应该返回 'Migrating'
-        const vmi = r?.vmi || r?.vmiRaw;
-        const migrationState = vmi?.status?.migrationState;
-        const migrationAnnotation =
-          vmi?.metadata?.annotations?.["harvesterhci.io/migrationState"];
-
-        // 检查是否真的在迁移中（排除已完成的迁移）
-        if (migrationState) {
-          // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
-          // 注意：JSON 中的字段名是小写的 "completed"，但代码中可能有大写的情况
-          const isCompleted =
-            migrationState.completed === true ||
-            migrationState.Completed === true;
-          if (!isCompleted) {
-            return "Migrating";
-          }
-        } else if (migrationAnnotation) {
-          // 如果只有注解但没有 migrationState，也认为在迁移中
-          // 但需要排除已完成的状态（Harvester 会在完成后删除注解，但可能有延迟）
-          return "Migrating";
-        }
-
-        // [优先级2] 检查 VM 的状态字段
-        if (typeof r?.status === "string") return r.status;
-        // Harvester 的状态字段可能在 printableStatus, phase 或 Status 中
-        return (
-          r?.status?.printableStatus ||
-          r?.status?.phase ||
-          r?.Status ||
-          "Unknown"
-        );
-      },
-
-      // [字段] 运行节点
-      node: (r: any) =>
-        r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || "",
-
-      // [字段] 运行策略 (Always, RerunOnFailure 等)
-      runStrategy: (r: any) => r?.spec?.runStrategy || "",
-
-      // [字段] 驱逐策略
-      evictionStrategy: (r: any) =>
-        r?.spec?.evictionStrategy ||
-        r?.spec?.template?.spec?.evictionStrategy ||
-        "",
-
-      // ------------------------------------------
-      // 3.3 计算资源 (Compute)
-      // ------------------------------------------
-
-      // [字段] CPU 核心数
-      // 逻辑：Harvester CPU = Sockets * Cores * Threads
-      // [统一] 与详情视图保持一致的计算顺序和回退逻辑
-      cpu: (r: any) => {
-        const cpu = r?.spec?.template?.spec?.domain?.cpu;
-
-        // 优先：使用完整的拓扑信息计算（sockets * cores * threads）
-        if (
-          cpu?.sockets !== undefined &&
-          cpu?.cores !== undefined &&
-          cpu?.threads !== undefined
-        ) {
-          return Number(cpu.sockets) * Number(cpu.cores) * Number(cpu.threads);
-        }
-
-        // 如果只有部分拓扑信息，尝试计算
-        if (cpu?.sockets !== undefined && cpu?.cores !== undefined) {
-          return Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
-        }
-        if (cpu?.sockets !== undefined && cpu?.threads !== undefined) {
-          return Number(cpu.sockets) * (cpu?.cores || 1) * Number(cpu.threads);
-        }
-        if (cpu?.cores !== undefined && cpu?.threads !== undefined) {
-          return (cpu?.sockets || 1) * Number(cpu.cores) * Number(cpu.threads);
-        }
-
-        // 回退：使用后端计算的Extra.CPU（如果可用）
-        if (r?.cpu !== undefined && r?.cpu !== null) {
-          return Number(r.cpu);
-        }
-
-        // 最后回退：使用cores或VMI的cores
-        return (
-          cpu?.cores || cpu?.sockets || r?.vmi?.spec?.domain?.cpu?.cores || 0
-        );
-      },
-
-      // [字段] CPU 拓扑描述
-      cpuSpec: (r: any) => {
-        const cpu = r?.spec?.template?.spec?.domain?.cpu;
-        if (cpu)
-          return `${cpu.cores} Cores, ${cpu.sockets} Sockets, ${cpu.threads} Threads`;
-        return "";
-      },
-
-      // [字段] 内存大小
-      // [统一] 与详情视图保持一致：优先展示 Guest Memory（规格），这是用户在 VM 配置中显式设置的值
-      // 优先级：guest > limits > memoryGb > vmi guest
-      memory: (r: any) => {
-        // [展示口径] 优先展示 Guest Memory（规格），这是用户在 VM 配置中显式设置的值
-        const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
-        if (guest) return guest;
-
-        const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
-        if (lim) return lim;
-
-        return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest || "";
-      },
-
-      // [字段] 内存规格描述 (Request / Limit)
-      memSpec: (r: any) => {
-        const req = r?.spec?.template?.spec?.domain?.resources?.requests;
-        const lim = r?.spec?.template?.spec?.domain?.resources?.limits;
-        return `Request: ${req?.memory || "-"} / Limit: ${lim?.memory || "-"}`;
-      },
-
-      // [字段] 是否开启热扩容
-      // [Harvester 兼容] 复刻 Harvester 逻辑：通过 Annotation harvesterhci.io/enableCPUAndMemoryHotplug 判断
-      // 同时需要排除 RestartRequired 和 HotPlugInProgress 状态
-      isHotPlugEnabled: (r: any) => {
-        // [Harvester 兼容] 使用 Annotation 判断，而不是 maxSockets
-        const annotations = r?.metadata?.annotations || {};
-        const isConfigured =
-          annotations[
-            "harvesterhci.io/enableCPUAndMemoryHotplug"
-          ]?.toLowerCase() === "true";
-
-        if (!isConfigured) return false;
-
-        // 检查状态条件：如果存在 RestartRequired 或 HotPlugInProgress，视为未启用
-        const conditions = r?.status?.conditions || [];
-        const isRestartRequired = conditions.some(
-          (c: any) => c.type === "RestartRequired" && c.status === "True",
-        );
-        const isHotPlugInProgress = conditions.some(
-          (c: any) =>
-            (c.type === "HotVCPUChange" || c.type === "HotMemoryChange") &&
-            c.status === "True",
-        );
-
-        // 如果存在 RestartRequired 或 HotPlugInProgress，返回 false
-        if (isRestartRequired || isHotPlugInProgress) return false;
-
-        return true;
-      },
-
-      // ------------------------------------------
-      // 3.4 存储与镜像 (Storage & Image)
-      // ------------------------------------------
-
-      // [字段] 基础镜像 ID
-      // 逻辑：尝试从多个 Annotation 位置查找关联的 Image ID
-      image: (r: any) => {
-        // 1. 优先：spec.template annotations (最准确，代表当前配置)
-        const specImg =
-          r?.spec?.template?.metadata?.annotations?.["harvesterhci.io/imageId"];
-        if (specImg) return specImg;
-
-        // 2. 次选：metadata annotations
-        const metaImg = r?.metadata?.annotations?.["harvesterhci.io/imageId"];
-        if (metaImg) return metaImg;
-
-        // 3. 兜底：从 volumeClaimTemplates 中解析
-        try {
-          const annot =
-            r?.metadata?.annotations?.["harvesterhci.io/volumeClaimTemplates"];
-          if (annot) {
-            const arr = JSON.parse(annot);
-            for (const item of arr) {
-              const img =
-                item?.metadata?.annotations?.["harvesterhci.io/imageId"];
-              if (img) return img;
-            }
-          }
-        } catch (e) {}
-        return "";
-      },
-
-      // [字段] 镜像显示名称
-      // 逻辑：拿到 Image ID 后，去 images 列表里查找对应的 displayName
-      imageDisplayName: (r: any) => {
-        const imgId = SafeRead.image(r);
-        if (!imgId) return "";
-
-        const found = images.find((i: any) => {
-          const id = i?.metadata?.name;
-          const ns = i?.metadata?.namespace;
-          const fullId = `${ns}/${id}`;
-          return fullId === imgId || id === imgId || i.id === imgId;
-        });
-        if (found) {
-          const labels = found.metadata?.labels || {};
-          const ann = found.metadata?.annotations || {};
-          // 尝试多个字段获取名称
-          const labelName = labels["harvesterhci.io/imageDisplayName"];
-          if (labelName) return labelName;
-          const imageName = ann["harvesterhci.io/image-name"];
-          if (imageName) return imageName;
-          const displayName = ann["field.cattle.io/displayName"];
-          if (displayName) return displayName;
-          if (found.spec?.displayName) return found.spec.displayName;
-          if (found.displayName) return found.displayName;
-        }
-        return "";
-      },
-
-      // [字段] 镜像大小 (从 volumeClaimTemplates 获取)
-      imageSize: (r: any) => {
-        try {
-          const annot =
-            r?.metadata?.annotations?.["harvesterhci.io/volumeClaimTemplates"];
-          if (annot) {
-            const arr = JSON.parse(annot);
-            for (const item of arr) {
-              const img =
-                item?.metadata?.annotations?.["harvesterhci.io/imageId"];
-              if (img) {
-                return item?.spec?.resources?.requests?.storage || "";
-              }
-            }
-          }
-        } catch (e) {}
-        return "";
-      },
-
-      // [字段] 卷详情 (Volume Details)
-      // 逻辑：合并 VM 的 Volumes 定义和系统中 PVC 的实时状态
-      volumeDetails: (r: any) => {
-        const vols = r?.spec?.template?.spec?.volumes || [];
-
-        // 解析 VM 所在的 Namespace
-        let vmNs = r?.metadata?.namespace || r?.namespace;
-        if (!vmNs) {
-          const iid = r?.id || r?.metadata?.uid || "";
-          if (iid && iid.includes("/")) {
-            vmNs = iid.split("/")[0];
-          }
-        }
-
-        // 确定启动盘 (Boot Volume)
-        const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
-        let bootVolumeName = "";
-        let minOrder = Number.POSITIVE_INFINITY;
-        for (const d of disks) {
-          const order =
-            typeof d?.bootOrder === "number"
-              ? d.bootOrder
-              : Number.POSITIVE_INFINITY;
-          if (order < minOrder) {
-            minOrder = order;
-            bootVolumeName = d?.name || "";
-          }
-        }
-        if (!bootVolumeName && disks.length > 0)
-          bootVolumeName = disks[0]?.name || "";
-
-        return vols.map((v: any) => {
-          const claimName = v?.persistentVolumeClaim?.claimName;
-          let capacity = "";
-          let capacityBytes = 0;
-          let status = "";
-          let isResizing = false;
-          let isFsPending = false;
-          let message = "";
-          let phase = "";
-
-          // 在全局 volumes 列表中查找对应的 PVC
-          if (claimName && volumes && volumes.length > 0) {
-            const pvc = volumes.find((p: any) => {
-              const pName = p?.metadata?.name || p?.name;
-              const pNs = p?.metadata?.namespace || p?.namespace;
-              if (pName === claimName && pNs === vmNs) return true;
-              const pId = p?.id;
-              if (pId && pId === `${vmNs}/${claimName}`) return true;
-              if (p?.name === claimName && p?.namespace === vmNs) return true;
-              return false;
-            });
-
-            if (pvc) {
-              const actualPvc = pvc?.rawData || pvc;
-              const capStr =
-                actualPvc?.status?.capacity?.storage ||
-                actualPvc?.spec?.resources?.requests?.storage ||
-                pvc?.size ||
-                "";
-              if (capStr) {
-                capacityBytes = parseStorageSize(capStr);
-                capacity = capStr;
-              }
-              phase = actualPvc?.status?.phase || pvc?.state || "Bound";
-
-              // 检查扩容相关的 Conditions
-              const conditions = actualPvc?.status?.conditions || [];
-              const fsPendingCond = conditions.find(
-                (c: any) =>
-                  c.type === "FileSystemResizePending" && c.status === "True",
-              );
-              const resizingCond = conditions.find(
-                (c: any) => c.type === "Resizing" && c.status === "True",
-              );
-
-              if (fsPendingCond) {
-                status = "FileSystemResizePending";
-                isFsPending = true;
-                message = fsPendingCond.message;
-              } else if (resizingCond) {
-                status = "Resizing";
-                isResizing = true;
-                message = resizingCond.message;
-              } else {
-                status = phase;
-              }
-            }
-          }
-          const isCloudInit = v?.cloudInitNoCloud || v?.cloudInitConfigDrive;
-          // 区分系统盘、数据盘、CloudInit盘
-          const kind = isCloudInit
-            ? "cloudinit"
-            : claimName
-              ? v?.name === bootVolumeName
-                ? "system"
-                : "data"
-              : "data";
-          return {
-            name: v.name,
-            claimName,
-            capacity,
-            capacityBytes,
-            status,
-            phase,
-            isResizing,
-            isFsPending,
-            message,
-            kind,
-          };
-        });
-      },
-
-      // ------------------------------------------
-      // 3.5 网络 (Network)
-      // ------------------------------------------
-
-      // [字段] IP 地址
-      ip: (r: any) => {
-        if (Array.isArray(r?.ips) && r.ips.length > 0) return r.ips.join(", ");
-        try {
-          // 尝试从 Annotation 获取 (Harvester Agent 上报)
-          const annot =
-            r?.metadata?.annotations?.["network.harvesterhci.io/ips"];
-          if (annot) {
-            const arr = JSON.parse(annot);
-            if (Array.isArray(arr) && arr.length > 0) return arr.join(", ");
-          }
-          // 尝试从 status.interfaces 获取 (KubeVirt 状态)
-          if (r?.vmi?.status?.interfaces) {
-            const ips = r.vmi.status.interfaces
-              .flatMap((i: any) => i.ipAddress || i.ipAddresses || [])
-              .filter(Boolean);
-            if (ips.length > 0) return ips.join(", ");
-          }
-        } catch (e) {}
-        return "";
-      },
-
-      // [字段] MAC 地址
-      macAddress: (r: any) => {
-        if (Array.isArray(r?.macAddresses) && r.macAddresses.length > 0)
-          return r.macAddresses.join(", ");
-        try {
-          if (r?.status?.interfaces && r.status.interfaces.length > 0) {
-            const macs = r.status.interfaces
-              .map((i: any) => i.mac)
-              .filter(Boolean);
-            if (macs.length > 0) return macs.join(", ");
-          }
-          const annot =
-            r?.metadata?.annotations?.["harvesterhci.io/mac-address"];
-          if (annot) {
-            const json = JSON.parse(annot);
-            return Object.values(json).join(", ");
-          }
-        } catch (e) {}
-        return "";
-      },
-
-      // [字段] 网络名称列表
-      networks: (r: any) => {
-        if (
-          Array.isArray(r?.networks) &&
-          r.networks.length > 0 &&
-          typeof r.networks[0] === "string"
-        )
-          return r.networks;
-        const nets =
-          r?.spec?.template?.spec?.networks || r?.vmi?.spec?.networks || [];
-        const list = nets.map(
-          (n: any) => `${n.name} (${n.multus?.networkName || "default"})`,
-        );
-        if (list.length > 0) return list;
-        return [];
-      },
-
-      // [字段] 网卡接口列表
-      interfaces: (r: any) => {
-        const ifaces =
-          r?.spec?.template?.spec?.domain?.devices?.interfaces || [];
-        return ifaces
-          .map((i: any) => `${i.name} (${i.model || "-"})`)
-          .join(", ");
-      },
-
-      // ------------------------------------------
-      // 3.6 硬件设备 (Hardware)
-      // ------------------------------------------
-
-      // [字段] GPU 列表
-      gpus: (r: any) => {
-        const short = (s: any) => {
-          const v = String(s || "").trim();
-          if (!v) return "";
-          const parts = v.split("/");
-          return parts[parts.length - 1] || v;
-        };
-        let alloc: any = null;
-        try {
-          const raw =
-            r?.metadata?.annotations?.[
-              "harvesterhci.io/deviceAllocationDetails"
-            ];
-          if (raw) alloc = typeof raw === "string" ? JSON.parse(raw) : raw;
-        } catch {}
-        const hostAlloc = alloc && alloc.hostdevices ? alloc.hostdevices : {};
-        const devices = r?.spec?.template?.spec?.domain?.devices || {};
-        const hostDevices = Array.isArray(devices?.hostDevices)
-          ? devices.hostDevices
-          : [];
-        const gpus = Array.isArray(devices?.gpus) ? devices.gpus : [];
-        const isUsb = (x: any) => {
-          const dn = String(x?.deviceName || "").toLowerCase();
-          const n = String(x?.name || "").toLowerCase();
-          return dn.includes("usb") || n.startsWith("usb");
-        };
-        const list: string[] = [];
-        hostDevices
-          .filter((d: any) => !isUsb(d))
-          .forEach((d: any) => {
-            const rn = String(d?.deviceName || "").trim();
-            const localName = String(d?.name || "").trim();
-            const mapped = Array.isArray(hostAlloc?.[rn]) ? hostAlloc[rn] : [];
-            const suffix =
-              mapped.length > 0 ? mapped.join(",") : localName || "";
-            const label = short(rn);
-            list.push(suffix ? `${label}:${suffix}` : label);
-          });
-        gpus.forEach((g: any) => {
-          const rn = String(g?.deviceName || "").trim();
-          const localName = String(g?.name || "").trim();
-          const label = short(rn);
-          list.push(localName ? `${label}:${localName}` : label);
-        });
-        return list;
-      },
-
-      // [字段] USB 设备
-      usb: (r: any) => {
-        const hostDevices =
-          r?.spec?.template?.spec?.domain?.devices?.hostDevices || [];
-        const usb = hostDevices.filter((d: any) => {
-          const n = String(d?.name || "").toLowerCase();
-          const dn = String(d?.deviceName || "").toLowerCase();
-          return n.startsWith("usb") || dn.includes("usb");
-        });
-        return usb.map((u: any) => u.name).join(", ");
-      },
-
-      // ------------------------------------------
-      // 3.7 操作系统 (Guest OS)
-      // ------------------------------------------
-
-      // [字段] OS 名称 (通过 Guest Agent 上报)
-      os: (r: any) =>
-        r?.vmi?.status?.guestOSInfo?.name ||
-        r?.vmi?.status?.guestOSInfo?.prettyName ||
-        "",
-      kernel: (r: any) => r?.vmi?.status?.guestOSInfo?.kernelRelease || "",
-      arch: (r: any) =>
-        r?.vmi?.status?.guestOSInfo?.architecture ||
-        r?.spec?.template?.spec?.architecture ||
-        "",
-      hostname: (r: any) => r?.spec?.template?.spec?.hostname || "",
-    }),
+    () =>
+      createVmListSafeRead(
+        namespaces || [],
+        volumes || [],
+        images || [],
+      ),
     [namespaces, volumes, images],
   );
 
@@ -939,85 +346,7 @@ const VmSection: React.FC<Props> = ({
    * 此函数遍历 VM 的所有 PVC，检测并返回当前的扩容阶段，以便 UI 给出准确提示。
    */
   const checkResizeStatus = useCallback(
-    (r: any) => {
-      if (!volumes || volumes.length === 0)
-        return {
-          isResizing: false,
-          isFsPending: false,
-          pvcName: "",
-          message: "",
-        };
-
-      const vmVolumes = r?.spec?.template?.spec?.volumes || [];
-
-      // 解析 VM Namespace
-      let vmNs = r?.metadata?.namespace || r?.namespace;
-      if (!vmNs) {
-        const iid = r?.id || r?.metadata?.uid || "";
-        if (iid && iid.includes("/")) {
-          vmNs = iid.split("/")[0];
-        }
-      }
-
-      for (const v of vmVolumes) {
-        const claimName = v?.persistentVolumeClaim?.claimName;
-        if (!claimName) continue;
-
-        // 查找对应的 PVC 对象
-        const pvc = volumes.find((p: any) => {
-          // 策略 1: 标准 Metadata 匹配
-          const pName = p?.metadata?.name || p?.name;
-          const pNs = p?.metadata?.namespace || p?.namespace;
-          if (pName === claimName && pNs === vmNs) return true;
-
-          // 策略 2: ID 匹配
-          const pId = p?.id;
-          if (pId && pId === `${vmNs}/${claimName}`) return true;
-
-          // 策略 3: 扁平结构
-          if (p?.name === claimName && p?.namespace === vmNs) return true;
-
-          return false;
-        });
-        if (!pvc) continue;
-
-        const actualPvc = pvc?.rawData || pvc;
-        const conditions = actualPvc?.status?.conditions || [];
-
-        // 阶段 2: 等待文件系统扩容
-        const fsPendingCond = conditions.find(
-          (c: any) =>
-            c.type === "FileSystemResizePending" && c.status === "True",
-        );
-        if (fsPendingCond) {
-          return {
-            isResizing: false,
-            isFsPending: true,
-            pvcName: claimName,
-            message: fsPendingCond.message,
-          };
-        }
-
-        // 阶段 1: 正在扩容物理卷
-        const resizingCond = conditions.find(
-          (c: any) => c.type === "Resizing" && c.status === "True",
-        );
-        if (resizingCond) {
-          return {
-            isResizing: true,
-            isFsPending: false,
-            pvcName: claimName,
-            message: resizingCond.message || "等待存储后端...",
-          };
-        }
-      }
-      return {
-        isResizing: false,
-        isFsPending: false,
-        pvcName: "",
-        message: "",
-      };
-    },
+    (r: any) => findFirstVmVolumeResizeState(r, volumes),
     [volumes],
   );
 
@@ -1067,6 +396,11 @@ const VmSection: React.FC<Props> = ({
         finalizers.includes("tower.io/recycle-bin") ||
         labels["tower.io/recycle-bin"] === "true"
       ) {
+        return false;
+      }
+
+      // PaaS / 托管工作负载（云数据库、虚拟网元等）：见 `shared/harvesterTowerPaas.ts`
+      if (isTowerPaasInventoryExcludedVm(r)) {
         return false;
       }
 
@@ -1130,17 +464,6 @@ const VmSection: React.FC<Props> = ({
     isPublicNamespace,
   ]);
 
-  /**
-   * 有数据时才开启 scroll.x。
-   * 不要使用 x: true：含 fixed 列时 Ant Design 要求可解析的最小表格宽度；
-   * true + 绝大部分列未定宽会导致整表被压在视口宽度内裁切右侧列（只能缩小浏览器才「看见」）。
-   * 使用足够大的像素下限以触发表格内部横向滚动（见 antd Table scroll.x / fixed columns 说明）。
-   */
-  const vmTableScroll = useMemo(
-    () => (filtered.length > 0 ? ({ x: 2400 } as const) : undefined),
-    [filtered.length],
-  );
-
   // 计算当前详情抽屉需要显示的记录（与列表选中 VM 对齐）
   const drawerRecord = useMemo(() => {
     if (!currentMetadata) return null;
@@ -1153,7 +476,7 @@ const VmSection: React.FC<Props> = ({
   // [事件处理] 5. 单个操作事件 (Single Actions)
   // ==========================================
 
-  // [事件] 显示虚拟机详情抽屉（HarvesterVmDetailDrawer）
+  // [事件] 显示虚拟机详情抽屉（VmDetailDrawer）
   const handleShowVmDetail = useCallback(
     (record: any, tab: string = "detail") => {
       setCurrentMetadata(record);
@@ -1301,7 +624,7 @@ const VmSection: React.FC<Props> = ({
               ? "已取消重要实例标记 (防删锁已移除)"
               : "已设为重要实例 (防删锁已启用)",
           );
-          onRefresh();
+          onRefresh(true);
         }
       } catch (e: any) {
         console.error(e);
@@ -1413,7 +736,7 @@ const VmSection: React.FC<Props> = ({
         ),
         okText: "移入回收站",
         okType: "default",
-        onOk: () => onDelete(iid, deleteVolumes),
+        onOk: () => onDelete(iid, deleteVolumes, false),
       });
     },
     [onDelete, SafeRead, modal],
@@ -1761,30 +1084,39 @@ const VmSection: React.FC<Props> = ({
             (r: any) => !protectedTargets.includes(r),
           );
 
-          const results: Array<{ ok: boolean; iid: string; err?: string }> = [];
+          const results: Array<{ ok: boolean; iid: string; err?: string; name?: string }> = [];
           for (const r of deletableTargets) {
             const iid = getIid(r);
+            const name = SafeRead.name(r);
             try {
-              await onDelete(iid, false);
-              results.push({ ok: true, iid });
+              await onDelete(iid, false, true);
+              results.push({ ok: true, iid, name });
             } catch (e: any) {
-              results.push({ ok: false, iid, err: e?.message || String(e) });
+              results.push({ ok: false, iid, err: e?.message || String(e), name });
             }
           }
 
-          const ok = results.filter((x) => x.ok).length;
-          const fail = results.filter((x) => !x.ok);
+          const okResults = results.filter((x) => x.ok);
+          const failResults = results.filter((x) => !x.ok);
 
-          if (ok > 0) message.success(`已成功将 ${ok} 台虚拟机移入回收站`);
-          if (protectedTargets.length > 0)
-            message.warning(
-              `已跳过重要虚拟机 ${protectedTargets.length} 台（受防删保护）`,
-            );
-          if (fail.length > 0) {
-            console.error("Batch recycle-bin errors:", fail);
-            message.error(
-              `移入回收站失败 ${fail.length} 台：${fail.map((f) => f.iid).join(", ")}`,
-            );
+          const okNames = okResults.map((r) => r.name || r.iid).join(", ");
+          const protectedNames = protectedTargets.map((r: any) => SafeRead.name(r)).join(", ");
+          
+          let summaryMsg = "";
+          if (okResults.length > 0) {
+            summaryMsg += `成功移入 ${okResults.length} 个（${okNames}）虚拟机到回收站，到期后自动删除`;
+          }
+          if (protectedTargets.length > 0) {
+            if (summaryMsg) summaryMsg += "，";
+            summaryMsg += `跳过 ${protectedTargets.length} 个（受防删保护）：${protectedNames}`;
+          }
+          if (summaryMsg) {
+            message.success(summaryMsg);
+          }
+          if (failResults.length > 0) {
+            console.error("Batch recycle-bin errors:", failResults);
+            const failNames = failResults.map((r) => r.name || r.iid).join(", ");
+            message.error(`移入回收站失败 ${failResults.length} 台：${failNames}`);
           }
 
           setSelectedKeys([]);
@@ -1916,7 +1248,6 @@ const VmSection: React.FC<Props> = ({
       {
         title: "状态",
         key: "status",
-        fixed: "left" as any,
         render: (_: any, r: any) => {
           const s = String(SafeRead.status(r));
           const k = s.toLowerCase();
@@ -1936,13 +1267,14 @@ const VmSection: React.FC<Props> = ({
           const hasExtra = isResizing || isFsPending || cloneStatus;
 
           return (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  flexWrap: "wrap",
+                  flexWrap: "nowrap",
                   gap: 6,
+                  whiteSpace: "nowrap",
                 }}
               >
                 <Badge status={statusColor as any} text={cnVmStatus(s)} />
@@ -1958,12 +1290,12 @@ const VmSection: React.FC<Props> = ({
                 >
                   {isResizing && (
                     <Tag style={tagStyle} color="processing">
-                      系统盘扩容中
+                      磁盘扩容中
                     </Tag>
                   )}
                   {isFsPending && (
                     <Tag style={tagStyle} color="warning">
-                      系统盘待扩容
+                      磁盘待扩容
                     </Tag>
                   )}
                   {cloneStatus && (
@@ -2028,7 +1360,9 @@ const VmSection: React.FC<Props> = ({
       {
         title: "内存",
         key: "memory",
-        render: (_: any, r: any) => SafeRead.memory(r) || "-",
+        render: (_: any, r: any) => (
+          <span style={{ whiteSpace: "nowrap" }}>{SafeRead.memory(r) || "-"}</span>
+        ),
       },
       {
         title: "GPU",
@@ -2058,7 +1392,6 @@ const VmSection: React.FC<Props> = ({
       {
         title: "热扩容",
         key: "hotplug",
-        width: 80,
         render: (_: any, r: any) => {
           const isEnabled = SafeRead.isHotPlugEnabled(r);
           return isEnabled ? (
@@ -2153,56 +1486,102 @@ const VmSection: React.FC<Props> = ({
       {
         title: "存储卷",
         key: "volumes",
-        ellipsis: false,
+        /** 定宽 + minWidth:0，避免长标签在 scroll.x+固定列布局下溢出盖住「创建时间」 */
+        width: 280,
         render: (_: any, r: any) => {
           const details = SafeRead.volumeDetails(r);
           if (!details || details.length === 0) return "-";
 
-          const content = (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {details.map((v: any, i: number) =>
-                v.kind !== "cloudinit" ? (
-                  <Tooltip title={v.claimName || v.name} key={i}>
+          const badges = details
+            .map((v: any, i: number) => {
+              if (v.kind === "cloudinit") return null;
+              const line = [
+                v.kind === "system"
+                  ? "系统卷"
+                  : v.kind === "data"
+                    ? "数据卷"
+                    : "",
+                formatStorageSize(v.capacityBytes),
+                v.phase,
+                v.isResizing
+                  ? "Resizing"
+                  : v.isFsPending
+                    ? "FileSystemResizePending"
+                    : "",
+              ]
+                .filter(Boolean)
+                .join(" | ");
+              return { line, claim: v.claimName || v.name, kind: v.kind, key: i };
+            })
+            .filter(Boolean) as {
+            line: string;
+            claim: string;
+            kind: string;
+            key: number;
+          }[];
+
+          const tip = badges.map((b) => b.line).join("\n");
+
+          return (
+            <Tooltip title={tip}>
+              <div
+                style={{
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    minWidth: 0,
+                    rowGap: 6,
+                  }}
+                >
+                  {badges.map((b) => (
                     <span
-                      className={`std-badge ${v.kind === "data" ? "std-badge-success" : "std-badge-info"}`}
+                      key={b.key}
+                      className={`std-badge ${b.kind === "data" ? "std-badge-success" : "std-badge-info"}`}
+                      style={{
+                        maxWidth: "100%",
+                        display: "inline-block",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        verticalAlign: "top",
+                        boxSizing: "border-box",
+                      }}
+                      title={b.claim}
                     >
-                      {[
-                        v.kind === "system"
-                          ? "系统卷"
-                          : v.kind === "data"
-                            ? "数据卷"
-                            : "",
-                        formatStorageSize(v.capacityBytes),
-                        v.phase,
-                        v.isResizing
-                          ? "Resizing"
-                          : v.isFsPending
-                            ? "FileSystemResizePending"
-                            : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" | ")}
+                      {b.line}
                     </span>
-                  </Tooltip>
-                ) : null,
-              )}
-            </div>
+                  ))}
+                </div>
+              </div>
+            </Tooltip>
           );
-          return content;
         },
       },
       {
         title: "创建时间",
         key: "created",
+        width: 176,
+        ellipsis: true,
         render: (_: any, r: any) => {
           const t = SafeRead.creationTimestamp(r);
-          return t ? new Date(t).toLocaleString() : "-";
+          const s = t ? new Date(t).toLocaleString() : "-";
+          return (
+            <span className="std-time" style={{ whiteSpace: "nowrap" }}>
+              {s}
+            </span>
+          );
         },
       },
       {
         title: "操作",
         key: "actions",
-        width: 80,
         align: "left" as const,
         fixed: "right" as const,
         render: (_: any, r: any) => {
@@ -2634,7 +2013,7 @@ const VmSection: React.FC<Props> = ({
         }
         dataSource={filtered}
         loading={loading}
-        scroll={vmTableScroll}
+        scroll={{ x: true }}
         pagination={{
           size: "small",
           showTotal: (total) => `共 ${total} 条`,
@@ -2648,7 +2027,7 @@ const VmSection: React.FC<Props> = ({
       */}
 
       {/* 虚拟机详情抽屉（实例详情） */}
-      <HarvesterVmDetailDrawer
+      <VmDetailDrawer
         open={metadataModalVisible}
         onClose={() => setMetadataModalVisible(false)}
         record={drawerRecord}
@@ -2659,7 +2038,6 @@ const VmSection: React.FC<Props> = ({
         activeTab={metadataActiveTab}
         onTabChange={setMetadataActiveTab}
         onRefresh={onRefresh}
-        onOpenReconfigure={onOpenReconfigure}
         onBackup={handleBackup}
         onSnapshot={handleSnapshot}
         onClone={handleClone}

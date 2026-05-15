@@ -305,7 +305,8 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
    * - 操作列支持单个删除
    */
   const columns = [
-    { 
+    {
+      fixed: 'left' as const,
       title: '地址池名称', 
       dataIndex: 'name', 
       key: 'name', 
@@ -333,7 +334,6 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
     {
       title: '操作',
       key: 'action',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
@@ -411,13 +411,13 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         rowSelection={rowSelection}

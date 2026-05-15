@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { App, Form, Input } from 'antd';
-import StdFormModal from '../../../../../components/StdFormModal';
+import { App, Form, Input, Modal } from 'antd';
 import { fetchCloudProviderRouteTables, updateCloudProviderRouteTable } from '../../../../../services/api';
 import { normalizeErr } from '../utils/net';
 
@@ -27,26 +26,39 @@ const RouteTableEditModal: React.FC<Props> = ({ open, cloudId, target, onClose, 
   }, [open, target, form]);
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="编辑路由表"
-      form={form}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onClose}
-      onFinish={async (values: any) => {
-        try {
-          const id0 = target?.id || target?.RouteTableId; if (!id0) return;
-          await updateCloudProviderRouteTable(cloudId, id0, { name: values.name, description: values.description });
-          const json = await fetchCloudProviderRouteTables(cloudId);
-          const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || [];
-          onSuccess(Array.isArray(rtList) ? rtList : []);
-          message.success('更新成功');
-          onClose();
-        } catch (e: any) { message.error(normalizeErr(e, '更新失败')); }
-      }}
+      onOk={() => form.submit()}
+      okText="保存"
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={async (values: any) => {
+          try {
+            const id0 = target?.id || target?.RouteTableId;
+            if (!id0) return;
+            await updateCloudProviderRouteTable(cloudId, id0, { name: values.name, description: values.description });
+            const json = await fetchCloudProviderRouteTables(cloudId);
+            const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || [];
+            onSuccess(Array.isArray(rtList) ? rtList : []);
+            message.success('更新成功');
+            onClose();
+          } catch (e: any) {
+            message.error(normalizeErr(e, '更新失败'));
+          }
+        }}
+      >
       <Form.Item name="name" label="名称"> <Input placeholder="请输入名称" /> </Form.Item>
       <Form.Item name="description" label="描述"> <Input placeholder="请输入描述" /> </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

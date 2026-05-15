@@ -35,6 +35,8 @@ import {
   TOWER_ALIAS_ANNOTATION,
   OVN_INTERNAL_ROUTE_CIDR_ANNOTATION,
   resolveTowerUnderlaySubnetCategory,
+  KUBE_OVN_PUBLIC_VPC,
+  TOWER_IO_NAMESPACES_ANNOTATION,
 } from '../lib/kubeOvnSubnetConstants';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
 import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
@@ -50,6 +52,9 @@ import {
 } from '../lib/flatSubnetExcludeIpValidation';
 import { getFlatSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+
+/** subnet 注解：曾绑 VLAN/物理网下由集群或控制台写入；无 VLAN overlay 应与新建扁平子网一致并清除 */
+const TOWER_PROVIDER_NETWORK_ANNOTATION = 'tower.io/provider-network';
 
 const { Option } = Select;
 
@@ -166,7 +171,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
 
   const filteredData = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    return data.filter((item: any) => {
+    const filtered = data.filter((item: any) => {
       const idName = String(item?.metadata?.name ?? '').toLowerCase();
       const alias = String(item?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').toLowerCase();
       const cidr = String(item?.spec?.cidrBlock ?? '').toLowerCase();
@@ -176,6 +181,13 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         if (v !== vlanFilter) return false;
       }
       return true;
+    });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
     });
   }, [data, keyword, vlanFilter]);
 
@@ -380,12 +392,19 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       const hasVlan =
         vlanRaw !== undefined && vlanRaw !== null && String(vlanRaw).trim() !== '';
       const annotations: Record<string, string | null> = {
-        ...(isFlatMode ? {} : (editRecord?.metadata?.annotations || {})),
+        ...(editRecord?.metadata?.annotations || {}),
         [TOWER_ALIAS_ANNOTATION]: aliasTrim,
       };
       if (isFlatMode) {
+        annotations[SUBNET_TYPE_ANNOTATION_KEY] = 'flat';
         annotations[SUBNET_TYPE_FLAT_UNDERLAY_ANNOTATION_KEY] = hasVlan ? 'true' : null;
         annotations[SUBNET_TYPE_FLAT_OVERLAY_ANNOTATION_KEY] = hasVlan ? null : 'true';
+        if (!hasVlan) {
+          annotations[TOWER_PROVIDER_NETWORK_ANNOTATION] = null;
+          if (!String(annotations[TOWER_IO_NAMESPACES_ANNOTATION] ?? '').trim()) {
+            annotations[TOWER_IO_NAMESPACES_ANNOTATION] = 'default';
+          }
+        }
       }
       const payload: Record<string, unknown> = {
         cidrBlock: String(rest.cidrBlock ?? '').trim(),
@@ -395,7 +414,9 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       };
       if (hasVlan) {
         payload.vlan = vlanRaw;
+        payload.vpc = KUBE_OVN_PUBLIC_VPC;
       } else {
+        // 仅清 VLAN：不要在同一 PATCH 里强改 vpc/provider，Kube-OVN admission 常驳回
         payload.vlan = null;
       }
       await updateKubeOvnSubnet(cloudId, name, payload);
@@ -518,6 +539,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       {
         title: '名称',
         key: 'displayName',
+        fixed: 'left' as const,
         ellipsis: true,
         render: (_: any, record: any) => {
           const alias = String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
@@ -562,7 +584,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       {
         title: '子网分类',
         key: 'towerUnderlayCategory',
-        width: 148,
         render: (_: any, record: any) => {
           const { category, label, detail } = resolveTowerUnderlaySubnetCategory(record, isFlatMode ? 'flat' : 'public');
           const color =
@@ -573,11 +594,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                 : category === 'flat-overlay'
                   ? 'cyan'
                   : 'default';
-          return (
-            <Tooltip title={detail}>
-              <Tag color={color}>{label}</Tag>
-            </Tooltip>
-          );
+          return <Tag color={color}>{label}</Tag>;
         },
       },
       { title: 'CIDR', dataIndex: ['spec', 'cidrBlock'], key: 'cidr' },
@@ -586,7 +603,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
             {
               title: '可访问范围',
               key: 'ovnInternalRouteCidr',
-              width: 132,
               ellipsis: true,
               render: (_: any, record: any) => {
                 const v = String(
@@ -689,6 +705,22 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           );
         },
       },
+      {
+        title: '创建时间',
+        key: 'createdAt',
+        render: (_: any, r: any) => {
+          const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+          try {
+            if (!c) return '-';
+            const d = new Date(c);
+            if (!isNaN(d.getTime())) {
+              const txt = d.toLocaleString('zh-CN', { hour12: false });
+              return txt;
+            }
+          } catch { }
+          return c || '-';
+        },
+      },
 
       ...(isStandardView
         ? []
@@ -696,7 +728,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
             {
               title: 'ACL',
               key: 'acls',
-              width: 72,
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
                 const n = Array.isArray(acls) ? acls.length : 0;
@@ -719,7 +750,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
             {
               title: '排除 IP',
               key: 'excludeIps',
-              width: 120,
               ellipsis: true,
               render: (_: any, record: any) => {
                 const ex = record?.spec?.excludeIps;
@@ -739,16 +769,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                 }
                 const allText = parts.join('\n');
                 const first = parts[0];
-                return (
-                  <Tooltip
-                    title={<span style={{ whiteSpace: 'pre-line' }}>{allText}</span>}
-                    overlayStyle={{ maxWidth: 480 }}
-                  >
-                    <Typography.Text ellipsis style={{ maxWidth: '100%' }}>
-                      {first}
-                    </Typography.Text>
-                  </Tooltip>
-                );
+                return <span title={allText}>{first}</span>;
               },
             },
           ]
@@ -756,7 +777,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       {
         title: '操作',
         key: 'action',
-        width: 80,
         align: 'left' as const,
         fixed: 'right' as const,
         render: (_: any, record: any) => {
@@ -805,13 +825,13 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                     }
                   }
                   const disp =
-                    String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || name;
-                  Modal.confirm({
-                    title: '确认删除',
-                    okType: 'danger',
-                    content: `确定删除该${subnetKindLabel}「${disp}」吗？`,
-                    onOk: () => handleDelete(name),
-                  });
+                      String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || name;
+                    Modal.confirm({
+                      title: '确认删除',
+                      okType: 'danger',
+                      content: `确定删除该${subnetKindLabel}「${disp}」吗？`,
+                      onOk: () => handleDelete(name),
+                    });
                 })();
               },
             },
@@ -909,8 +929,8 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         dataSource={filteredData}
         rowKey={(r) => r.metadata.name}
         loading={loading}
-        scroll={{ x: 'max-content' }}
-        pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
+        scroll={{ x: true }}
+        pagination={{ showTotal: (total) => `共 ${total} 条` }}
       />
 
       <SubnetDetailDrawer

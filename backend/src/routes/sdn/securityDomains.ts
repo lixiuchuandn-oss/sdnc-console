@@ -23,6 +23,7 @@ import { huaweiListVpcs } from '../../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../../services/clouds/tencentcloud/client';
 import { listCsmElementGroups } from '../../services/clouds/csm/client';
 import { vrController } from '../../services/vrouter/vrController';
+import { isContainerCategory } from '../../utils/securityDomainKind';
 
 const router = Router();
 const repo = () => AppDataSource.getRepository(SecurityDomain);
@@ -876,13 +877,9 @@ router.post('/', async (req, res) => {
       ? (payload as any).vrPrivateSubnetCidr.join(',')
       : (payload as any).vrPrivateSubnetCidr;
     entity.resourcePool = payload.resourcePool;
-    entity.purpose = payload.purpose;
     entity.tags = payload.tags;
-    entity.description = payload.description;
     entity.status = payload.status || 'active';
-    // 业务维度分类
-    (entity as any).category = (payload as any).category;
-    (entity as any).subType = (payload as any).subType;
+    (entity as any).category = (payload as any).category != null ? String((payload as any).category).trim() : undefined;
     entity.securityServiceIds = payload.securityServiceIds;
 
     if (ctx) {
@@ -1047,8 +1044,7 @@ router.post('/', async (req, res) => {
               // ignore
             }
           };
-          const isContainerSd =
-            String((entity as any).category || '').toLowerCase().trim() === 'container';
+          const isContainerSd = isContainerCategory((entity as any).category);
           try {
             const vrRepo = AppDataSource.getRepository(VRConfig);
             const vr = await vrRepo.findOne({ where: { uuid: entity.vrUuid } });
@@ -1085,6 +1081,16 @@ router.post('/', async (req, res) => {
         // Auto-fill Aliyun details
         if (entity.provider === 'aliyun') {
           await fillAliyunDetails(entity, cloud);
+        }
+      }
+    }
+
+    {
+      const u = String((entity as any).vrUuid || '').trim();
+      if (u) {
+        const other = await repo().findOne({ where: { vrUuid: u } });
+        if (other) {
+          return res.status(409).json({ message: `该 VR 已绑定安全域「${other.name}」` });
         }
       }
     }
@@ -1192,6 +1198,9 @@ router.patch('/:id', async (req, res) => {
 
     // 忽略历史字段更新：type 不再作为分类依据
     delete (partial as any).type;
+    delete (partial as any).subType;
+    delete (partial as any).purpose;
+    delete (partial as any).description;
     if (ctx) {
       delete (partial as any).tenantId;
       delete (partial as any).organizationId;
@@ -1310,6 +1319,16 @@ router.patch('/:id', async (req, res) => {
         // Auto-fill Aliyun details
         if (existing.provider === 'aliyun') {
           await fillAliyunDetails(existing, cloud);
+        }
+      }
+    }
+
+    {
+      const u = String((existing as any).vrUuid || '').trim();
+      if (u) {
+        const other = await repo().findOne({ where: { vrUuid: u } });
+        if (other && other.id !== id) {
+          return res.status(409).json({ message: `该 VR 已绑定安全域「${other.name}」` });
         }
       }
     }

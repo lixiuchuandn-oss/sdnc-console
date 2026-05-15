@@ -3,7 +3,7 @@ import { Button, Card, Space, Select, Switch, Popover, Checkbox } from 'antd';
 import { ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { fetchAliyunEcsMetrics } from '../../../../../services/aliyunApi';
-type Props = { cloudId: string; instance: any; metrics?: any[]; onRefresh?: () => void | Promise<void>; };
+type Props = { cloudId: string; instance: any; metrics?: any[]; onRefresh?: (force?: boolean) => void | Promise<void>; };
 const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics, onRefresh }) => {
   const iid = String(instance?.InstanceId || instance?.id || '');
   const [loading, setLoading] = useState<boolean>(false);
@@ -118,7 +118,7 @@ const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics
           options={[{ value: 60, label: '周期 60s' }, { value: 300, label: '周期 300s' }, { value: 900, label: '周期 900s' }]}
           style={{ width: 140 }}
         />
-        <Button loading={loading} icon={<ReloadOutlined />} onClick={async () => { await loadAll(); if (onRefresh) await onRefresh(); }} />
+        <Button loading={loading} icon={<ReloadOutlined />} onClick={async () => { await loadAll(); if (onRefresh) await onRefresh(true); }} />
         <Switch checked={autoRefresh} onChange={setAutoRefresh} checkedChildren="自动刷新" unCheckedChildren="手动刷新" />
       </Space>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>

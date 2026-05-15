@@ -1,6 +1,5 @@
 import React from 'react';
-import { App, Form, Input, Select } from 'antd';
-import StdFormModal from '../../../../../components/StdFormModal';
+import { App, Form, Input, Modal, Select } from 'antd';
 import { fetchCloudProviderRouteTables, createCloudProviderRouteTable } from '../../../../../services/api';
 import { normalizeErr } from '../utils/net';
 
@@ -17,26 +16,38 @@ const RouteTableCreateModal: React.FC<Props> = ({ open, cloudId, vpcs, onClose, 
   const [form] = Form.useForm();
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="创建路由表"
-      form={form}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onClose}
-      onFinish={async (values: any) => {
-        try {
-          await createCloudProviderRouteTable(cloudId, { vpcId: values.vpcId, name: values.name, description: values.description });
-          const json = await fetchCloudProviderRouteTables(cloudId);
-          const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || [];
-          onSuccess(Array.isArray(rtList) ? rtList : []);
-          message.success('创建成功');
-          onClose();
-        } catch (e: any) { message.error(normalizeErr(e, '创建失败')); }
-      }}
+      onOk={() => form.submit()}
+      okText="保存"
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={async (values: any) => {
+          try {
+            await createCloudProviderRouteTable(cloudId, { vpcId: values.vpcId, name: values.name, description: values.description });
+            const json = await fetchCloudProviderRouteTables(cloudId);
+            const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || [];
+            onSuccess(Array.isArray(rtList) ? rtList : []);
+            message.success('创建成功');
+            onClose();
+          } catch (e: any) {
+            message.error(normalizeErr(e, '创建失败'));
+          }
+        }}
+      >
       <Form.Item name="vpcId" label="VPC" rules={[{ required: true }]}> <Select placeholder="选择VPC" options={(vpcs||[]).map((v:any)=> ({ label: `${v?.name || v?.id || '-'}`, value: v?.id }))} /> </Form.Item>
       <Form.Item name="name" label="名称"> <Input placeholder="请输入名称" /> </Form.Item>
       <Form.Item name="description" label="描述"> <Input placeholder="请输入描述" /> </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

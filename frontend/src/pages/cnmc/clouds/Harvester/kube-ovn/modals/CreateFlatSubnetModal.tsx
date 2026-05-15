@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Form, Modal, message } from 'antd';
+import { Checkbox, Form, Modal, message } from 'antd';
 import { createKubeOvnSubnet } from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
@@ -52,6 +52,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
   title = '创建扁平子网',
 }) => {
   const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
   /** 打开弹窗时预生成，与 CreateVpcSubnetModal / CreatePublicSubnetModal 一致，避免多次提交产生不同 CR 名 */
   const pendingUnderlaySubnetCrNameRef = useRef<string>('');
   const { user } = useAuth();
@@ -71,6 +72,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
     pendingUnderlaySubnetCrNameRef.current = generateHarvesterCrMetadataName('subnetUnderlay');
     form.resetFields();
     form.setFieldsValue({
+      allowDhcp: true,
       ...(initialVlanCrName ? { vlan: initialVlanCrName } : {}),
     });
   }, [open, initialVlanCrName, form]);
@@ -81,8 +83,9 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
         message.error('当前账号没有扁平子网操作权限（租户角色仅允许查看）');
         return;
       }
+      setSubmitting(true);
       try {
-        const { alias, ...rest } = values;
+        const { alias, allowDhcp, ...rest } = values;
         const aliasTrim = String(alias ?? '').trim();
         const subnetId =
           String(pendingUnderlaySubnetCrNameRef.current || '').trim() ||
@@ -136,7 +139,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           private: false,
           gatewayType: 'distributed',
           disableGatewayCheck: true,
-          allowDhcp: true,
+          allowDhcp: allowDhcp !== false,
           ...(vlanTrim ? { vlan: vlanTrim } : {}),
         };
 
@@ -183,6 +186,8 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           }
         }
         message.error(`创建扁平子网失败：${formatKubeOvnFriendlyError(detail)}`);
+      } finally {
+        setSubmitting(false);
       }
     },
     [canSubmit, cloudId, form, onClose, onSuccess, vlans],
@@ -201,6 +206,7 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
       okButtonProps={{ disabled: !canSubmit }}
       width={600}
       destroyOnHidden
+      confirmLoading={submitting}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit} className="std-form">
         <UnderlaySubnetFormFields
@@ -211,6 +217,9 @@ const CreateFlatSubnetModal: React.FC<CreateFlatSubnetModalProps> = ({
           aliasDupCheckItems={aliasDupCheckItems}
           aliasFieldTooltip="展示名称，支持中文。集群内资源 ID（metadata.name）为系统自动生成，格式 id-sn- 加 11 位随机字符。"
         />
+        <Form.Item name="allowDhcp" valuePropName="checked" initialValue={true}>
+          <Checkbox>启用 DHCP 服务</Checkbox>
+        </Form.Item>
       </Form>
     </Modal>
   );

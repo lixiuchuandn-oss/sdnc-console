@@ -204,7 +204,7 @@ const BackupsSection: React.FC<Props> = ({
         try {
           await deleteHarvesterBackup(cloudId, record.namespace, record.name);
           message.success('删除成功');
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -273,7 +273,6 @@ const BackupsSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'action',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
@@ -403,13 +402,13 @@ const BackupsSection: React.FC<Props> = ({
       <Table
         key="table"
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
         loading={loading}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />

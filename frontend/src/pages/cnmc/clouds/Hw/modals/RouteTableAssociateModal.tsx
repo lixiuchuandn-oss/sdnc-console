@@ -1,6 +1,5 @@
 import React from 'react';
-import { App, Form, Select } from 'antd';
-import StdFormModal from '../../../../../components/StdFormModal';
+import { App, Form, Modal, Select } from 'antd';
 import { fetchCloudProviderRouteTables, associateCloudProviderRouteTable } from '../../../../../services/api';
 import { normalizeErr } from '../utils/net';
 
@@ -18,30 +17,43 @@ const RouteTableAssociateModal: React.FC<Props> = ({ open, cloudId, target, subn
   const [form] = Form.useForm();
 
   return (
-    <StdFormModal
+    <Modal
       open={open}
       title="挂载子网"
-      form={form}
+      centered
+      destroyOnHidden
+      width={600}
       onCancel={onClose}
-      onFinish={async (values: any) => {
-        try {
-          const id0 = target?.id || target?.RouteTableId; if (!id0) return;
-          await associateCloudProviderRouteTable(cloudId, id0, values.subnetIds || []);
-          const json = await fetchCloudProviderRouteTables(cloudId);
-          const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || [];
-          onSuccess(Array.isArray(rtList) ? rtList : []);
-          message.success('挂载成功');
-          onClose();
-        } catch (e:any) { message.error(normalizeErr(e, '挂载失败')); }
-      }}
+      onOk={() => form.submit()}
+      okText="保存"
+      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
-      <Form.Item name="subnetIds" label="子网" rules={[{ required: true }]}> 
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={async (values: any) => {
+          try {
+            const id0 = target?.id || target?.RouteTableId;
+            if (!id0) return;
+            await associateCloudProviderRouteTable(cloudId, id0, values.subnetIds || []);
+            const json = await fetchCloudProviderRouteTables(cloudId);
+            const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || [];
+            onSuccess(Array.isArray(rtList) ? rtList : []);
+            message.success('挂载成功');
+            onClose();
+          } catch (e: any) {
+            message.error(normalizeErr(e, '挂载失败'));
+          }
+        }}
+      >
+      <Form.Item name="subnetIds" label="子网" rules={[{ required: true }]}>
         <Select mode="multiple" placeholder="选择子网" options={(subnets||[]).filter((s:any)=>{
           const vpcId = target?.vpc_id || target?.VpcId;
           return vpcId ? (String(s?.vpc_id||'') === String(vpcId)) : true;
         }).map((s:any)=> ({ label: `${s?.name || s?.id || '-'}`, value: s?.id }))} />
       </Form.Item>
-    </StdFormModal>
+      </Form>
+    </Modal>
   );
 };
 

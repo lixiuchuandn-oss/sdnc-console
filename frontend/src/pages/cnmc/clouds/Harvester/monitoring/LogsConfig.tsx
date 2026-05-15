@@ -548,22 +548,20 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
       }
     } else {
       if (isClusterFlow) {
-        const { data, ok, error } = await createClusterflow(cloudId, payload);
+        const { ok, error } = await createClusterflow(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as any) || {};
-          setConfigList((prev) => [...prev, { ...raw, id: raw.metadata?.name, metadata: raw.metadata, spec: raw.spec }]);
           handleCloseForm();
+          await loadConfigList();
         } else message.error(error || '创建失败');
       } else {
-        const { data, ok, error } = await createFlow(cloudId, payload);
+        const { ok, error } = await createFlow(cloudId, payload);
         setFormLoading(false);
         if (ok) {
           message.success('创建成功');
-          const raw = (data as any) || {};
-          setConfigList((prev) => [...prev, { ...raw, id: raw.metadata?.name ?? `${namespace}/${name}`, metadata: raw.metadata ?? { name, namespace }, spec: raw.spec }]);
           handleCloseForm();
+          await loadConfigList();
         } else message.error(error || '创建失败');
       }
     }
@@ -848,6 +846,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
           </>
         }
       >
+        {/* 仅本页：首列左固定 + 操作列右固定，须搭配 scroll.x（与 VmSection 冻结列一致） */}
         <Table
           className="std-table"
           bordered={false}
@@ -855,7 +854,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
           loading={configLoading}
           columns={displayColumns}
           dataSource={filteredList}
-          scroll={{ x: 1400 }}
+          scroll={{ x: true }}
           pagination={{
             pageSize: 10,
             showSizeChanger: true,

@@ -8,6 +8,7 @@ import {
   Descriptions,
   Drawer,
   Empty,
+  message,
   Space,
   Spin,
   Table,
@@ -15,6 +16,7 @@ import {
   Typography,
 } from 'antd';
 import { SyncOutlined } from '@ant-design/icons';
+import { apiPost } from '../../../../../services/api';
 import {
   fetchVrCacheMerged,
   fetchVrTowerLocalConfigCache,
@@ -286,6 +288,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
   const [towerLocalConfigCacheError, setTowerLocalConfigCacheError] = useState<
     string | null
   >(null);
+  const [towerLocalLoading, setTowerLocalLoading] = useState(false);
 
   const vrUuid = useMemo(
     () => String(row?.uuid || row?.vr_unique_id || row?.vm_id || '').trim(),
@@ -293,43 +296,38 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
   );
 
   /** 拉取聚合缓存 + Tower 本地 vr_config，供 Descriptions 与各 JSON Tab 展示 */
-  const loadMetadata = useCallback(async () => {
+  const loadMetadata = useCallback(
+    async (opts?: { useRowPlaceholder?: boolean }) => {
     if (!row || !vrUuid) {
       setCurrentMetadata(null);
       return;
     }
     const id = vrUuid;
+    const useRowPlaceholder = opts?.useRowPlaceholder !== false;
 
-    // 先用列表行上的合并字段占位，再以 GET /api/vr-instances/:uuid 刷新（VR1 + VR3 + 本地设备 + 可选 VR2）
-    const r = row as any;
-    const rowLooksMerged =
-      r &&
-      (Array.isArray(r.interfaces) || r.resourceIndicators || r.health_status);
-    setCurrentMetadata({
-      csmctl: r._raw_csmctl_info ?? {},
-      vr3: r.vr3_info ?? null,
-      vr2: r.vr2_info ?? null,
-      mergedFull: rowLooksMerged ? r : null,
-    });
+    // 首次打开：可用列表行占位；用户点「刷新」须以本次后端响应为准，不得先用列表行覆盖已合并详情（见 AGENTS.md「数据展示与刷新」）
+    if (useRowPlaceholder) {
+      const r = row as any;
+      const rowLooksMerged =
+        r &&
+        (Array.isArray(r.interfaces) || r.resourceIndicators || r.health_status);
+      setCurrentMetadata({
+        csmctl: r._raw_csmctl_info ?? {},
+        vr3: r.vr3_info ?? null,
+        vr2: r.vr2_info ?? null,
+        mergedFull: rowLooksMerged ? r : null,
+      });
+    }
 
     setMetadataLoading(true);
-    setTowerLocalConfigCache(null);
-    setTowerLocalConfigCacheError(null);
     try {
-      const [merged, towerCached] = await Promise.all([
-        fetchVrCacheMerged(id).catch((e) => {
-          console.warn(
-            '[VrDetailDrawer] fetchVrCacheMerged failed, keeping list row snapshot:',
-            e,
-          );
-          return null;
-        }),
-        fetchVrTowerLocalConfigCache(id, { skipCache: true }).catch((e) => {
-          const msg = e instanceof Error ? e.message : String(e);
-          setTowerLocalConfigCacheError(msg);
-          return null;
-        }),
-      ]);
+      const merged = await fetchVrCacheMerged(id).catch((e) => {
+        console.warn(
+          '[VrDetailDrawer] fetchVrCacheMerged failed, keeping previous detail state:',
+          e,
+        );
+        return null;
+      });
       if (merged && typeof merged === 'object') {
         const m = merged as Record<string, any>;
         setCurrentMetadata({
@@ -339,20 +337,73 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
           vr2: m.vr2_info ?? null,
         });
       }
-      if (towerCached) setTowerLocalConfigCache(towerCached);
     } finally {
       setMetadataLoading(false);
     }
-  }, [row, vrUuid]);
+  },
+    [row, vrUuid],
+  );
+
+  /** 「本地配置」Tab：仅读 Tower 库，按需加载；不在整页刷新里默认请求（避免与「对端同步刷新」混淆） */
+  const loadTowerLocalConfigOnly = useCallback(async () => {
+    if (!vrUuid) return;
+    setTowerLocalLoading(true);
+    setTowerLocalConfigCacheError(null);
+    try {
+      const towerCached = await fetchVrTowerLocalConfigCache(vrUuid, {
+        skipCache: true,
+      });
+      setTowerLocalConfigCache(towerCached);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setTowerLocalConfigCacheError(msg);
+      setTowerLocalConfigCache(null);
+    } finally {
+      setTowerLocalLoading(false);
+    }
+  }, [vrUuid]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await loadMetadata();
+      let syncPostFailed = false;
+      try {
+        await apiPost('/api/vr-instances/refresh', {});
+      } catch {
+        syncPostFailed = true;
+        message.warning('从对端同步 VR 缓存失败，仍将尝试拉取当前合并数据');
+      }
+      await loadMetadata({ useRowPlaceholder: false });
+      if (activeTab === 'towerConfig') {
+        await loadTowerLocalConfigOnly();
+      }
+      if (syncPostFailed) {
+        message.info({
+          content: '已更新抽屉展示数据（对端同步未成功，列表可能仍偏旧）',
+          key: 'vr_drawer_refresh',
+          duration: 3,
+        });
+      } else {
+        message.success({ content: '已同步并刷新详情', key: 'vr_drawer_refresh', duration: 2 });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      message.error({ content: `刷新失败：${msg}`, key: 'vr_drawer_refresh' });
     } finally {
       setRefreshing(false);
     }
-  }, [loadMetadata]);
+  }, [loadMetadata, activeTab, loadTowerLocalConfigOnly]);
+
+  useEffect(() => {
+    setTowerLocalConfigCache(null);
+    setTowerLocalConfigCacheError(null);
+    setTowerLocalLoading(false);
+  }, [vrUuid]);
+
+  useEffect(() => {
+    if (!open || !vrUuid || activeTab !== 'towerConfig') return;
+    void loadTowerLocalConfigOnly();
+  }, [open, vrUuid, activeTab, loadTowerLocalConfigOnly]);
 
   // 关闭抽屉时回到默认 Tab
   useEffect(() => {
@@ -400,10 +451,13 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
       const m = currentMetadata;
       if (sub === 'csmctl') return JSON.stringify(m?.csmctl ?? {}, null, 2);
       if (sub === 'towerConfig') {
+        if (towerLocalLoading) {
+          return '正在从 Tower 数据库加载本地已保存配置…';
+        }
         if (towerLocalConfigCacheError)
           return `加载 Tower 本地配置缓存失败：${towerLocalConfigCacheError}`;
         if (!towerLocalConfigCache) {
-          return 'Tower 本地尚未保存该 VR 的配置（数据库无 vr_config 缓存记录）';
+          return 'Tower 本地尚未保存该 VR 的配置（数据库无 vr_config 记录）';
         }
         return JSON.stringify(
           {
@@ -428,7 +482,12 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
       }
       return m?.vr3 ? JSON.stringify(m.vr3, null, 2) : '暂无扩展信息或获取失败';
     },
-    [currentMetadata, towerLocalConfigCache, towerLocalConfigCacheError],
+    [
+      currentMetadata,
+      towerLocalConfigCache,
+      towerLocalConfigCacheError,
+      towerLocalLoading,
+    ],
   );
 
   const drawerTitle = overview?.name || row?.name || 'VR 实例详情';
@@ -443,7 +502,11 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
       children: (
         <div style={TAB_PANEL_DEVICE}>
           <DeviceJsonViewer
-            loading={metadataLoading && key !== 'csmctl'}
+            loading={
+              key === 'towerConfig'
+                ? towerLocalLoading
+                : metadataLoading && key !== 'csmctl'
+            }
             text={getDeviceJsonText(key)}
           />
         </div>
@@ -622,7 +685,14 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
       jsonPane('towerConfig', '本地配置 (Cache)'),
       jsonPane('saseConfig', '租户配置 (Sase)'),
     ];
-  }, [row, overview, statusCell, getDeviceJsonText, metadataLoading]);
+  }, [
+    row,
+    overview,
+    statusCell,
+    getDeviceJsonText,
+    metadataLoading,
+    towerLocalLoading,
+  ]);
 
   return (
     <Drawer

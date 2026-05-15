@@ -295,7 +295,10 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         refreshLoading={loading}
         primaryAction={{
           label: '创建服务链',
-          onClick: () => navigate('/admin/security/traffic/service-chains/create'),
+          onClick: () =>
+            navigate(
+              `/admin/security/traffic/csm-pools/${encodeURIComponent(cloudId)}/service-chains/create`,
+            ),
         }}
         columnsConfig={{
           value: visibleColumnKeys,

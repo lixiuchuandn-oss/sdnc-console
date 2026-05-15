@@ -229,7 +229,7 @@ export const cloudProviders: CloudProvider[] = [
       { key: 'name', label: '资源名称', type: 'input', required: true, placeholder: '请输入资源名称' },
       { key: 'accessKeyId', label: 'AccessKeyId', type: 'input', required: true, placeholder: '请输入 AccessKeyId' },
       { key: 'accessKeySecret', label: 'AccessKeySecret', type: 'password', required: true, placeholder: '请输入 AccessKeySecret' },
-      { key: 'region', label: 'RegionId', type: 'select', required: true, options: [
+      { key: 'region', label: '地域', type: 'select', required: true, options: [
         { value: 'cn-hangzhou', label: 'cn-hangzhou（华东1 杭州）' },
         { value: 'cn-shanghai', label: 'cn-shanghai（华东2 上海）' },
         { value: 'cn-beijing', label: 'cn-beijing（华北2 北京）' },
@@ -367,7 +367,7 @@ export const cloudProviders: CloudProvider[] = [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
       { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入Cloudmap API端点：https://10.0.0.1/v3', help: '请输入端点'},
       { key: 'apiToken', label: 'Cloudmap API 令牌', type: 'password', required: true, placeholder: '请输入 Cloudmap API 令牌', help: '请输入API令牌'},
-      { key: 'region', label: 'Region', type: 'cascader', required: false, placeholder: '请选择省份/城市，默认为default' },
+      { key: 'region', label: '地域', type: 'cascader', required: false, placeholder: '请选择省份/城市，默认为default' },
     ]
   },
   {
@@ -556,6 +556,13 @@ export const cloudProviders: CloudProvider[] = [
     ]
   }
 ];
+
+/** 创建向导 / 编辑弹窗共用：按厂商读取「地域」字段元数据 */
+export function getCloudProviderRegionField(providerId?: string): CloudProviderField | undefined {
+  if (!providerId) return undefined;
+  const p = cloudProviders.find((x) => x.id === providerId);
+  return p?.fields?.find((f) => f.key === 'region');
+}
 
 /**
  * [工具函数] 获取云平台图标 (Icon)

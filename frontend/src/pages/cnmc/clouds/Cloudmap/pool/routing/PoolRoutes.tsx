@@ -4,10 +4,12 @@
  */
 import React from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { cloudmapPoolBasePath } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { Empty } from 'antd';
 import {
   CloudmapBackupsGroupTabs,
   CloudmapCloudDatabaseTabs,
+  CloudmapOniaasNetworkTabs,
   CloudmapClusterTabs,
   CloudmapComputeGroupTabs,
   CloudmapContainersTabs,
@@ -15,6 +17,7 @@ import {
   CloudmapKubeOvnGroupTabs,
   CloudmapLogsConfigTab,
   CloudmapMonitoringAlertsTab,
+  CloudmapObjectStorageGroupTabs,
   CloudmapStorageGroupTabs,
   ResourceOverviewDatacenterTopologyPanel,
   ResourceOverviewMonitoringPanel,
@@ -28,6 +31,7 @@ import {
   fetchKubeOvnSubnets,
 } from '../api';
 import { useCloudmapPoolDetail } from './PoolDetailContext';
+import CephStorageSection from '../../../Harvester/ceph/sections/CephStorageSection';
 
 const RESOURCE_SUB_SET = new Set<string>(CLOUDMAP_RESOURCE_SUB_KEYS);
 
@@ -53,6 +57,12 @@ const ResourceHubRoute: React.FC = () => {
           cloudId={p.cloudId}
           canReadNetworkScope={p.canReadNetworkScope}
         />
+      );
+    case 'ceph_storage_overview':
+      return p.canViewCephGroup ? (
+        <CephStorageSection cloudId={p.cloudId} />
+      ) : (
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
     default:
       return <Empty description="未知页面" style={{ marginTop: 48 }} />;
@@ -175,31 +185,11 @@ const ComputeRoute: React.FC = () => {
       harvesterSshKeys={p.harvesterSshKeys}
       harvesterCloudInits={p.harvesterCloudInits}
       harvesterGpuResources={p.harvesterGpuResources}
+      harvesterUsbDevices={p.harvesterUsbDevices}
       rawImages={p.rawImages}
       rawTemplates={p.rawTemplates}
       rawSshKeys={p.rawSshKeys}
       rawCloudInits={p.rawCloudInits}
-      vmReconfOpen={p.vmReconfOpen}
-      vmReconfTarget={p.vmReconfTarget}
-      onOpenVmReconfigure={(r: any) => {
-        p.setVmReconfTarget(r);
-        p.setVmReconfOpen(true);
-      }}
-      onVmReconfigureModalClose={() => {
-        p.setVmReconfOpen(false);
-        p.setVmReconfTarget(null);
-      }}
-      onVmReconfigureModalOk={() => {
-        p.refreshVms();
-        if (p.vmReconfTarget) {
-          setTimeout(() => {
-            p.setVmReconfTarget({
-              ...p.vmReconfTarget,
-              _refreshTrigger: Date.now(),
-            });
-          }, 300);
-        }
-      }}
     />
   );
 };
@@ -269,6 +259,45 @@ const PaasDatabasesRoute: React.FC = () => {
       }
       isTenant={p.isTenant}
       namespacesOptions={p.namespacesOptions}
+      capabilities={p.capabilities}
+    />
+  );
+};
+
+const OniaasNetworkRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewOniaasNetworkTab) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapOniaasNetworkTabs
+      cloudId={p.cloudId}
+      innerActiveKey={p.poolInnerActive('oniaas_network')}
+      ecs={p.ecs}
+      ecsLoading={!!p.resourceLoading.ecs}
+      onRefreshVms={() => p.refreshVms(true)}
+      onForceRefreshVms={() => p.refreshVms(true)}
+      canReadLoadBalancers={p.canReadLoadBalancers}
+      isTenant={p.isTenant}
+      harvesterLoadBalancers={p.harvesterLoadBalancers}
+      loadTabResource={p.loadTabResource}
+      resourceLoading={p.resourceLoading}
+      namespacesForLb={p.harvesterNamespaces}
+      checkPerm={p.checkPerm}
+      canReadFlatSubnets={p.canReadFlatSubnets}
+      canReadVpcSubnets={p.canReadVpcSubnets}
+      harvesterImages={p.harvesterImages}
+      harvesterStorageClasses={p.harvesterStorageClasses}
+      kubeOvnSubnets={p.kubeOvnSubnets}
+      harvesterNads={p.harvesterNads}
+      loadResource={p.loadResource}
+      setHarvesterImages={p.setHarvesterImages}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setHarvesterNads={p.setHarvesterNads}
+      setHarvesterStorageClasses={p.setHarvesterStorageClasses}
+      namespacesOptions={p.namespacesOptions}
+      harvesterNamespaces={p.harvesterNamespaces}
+      capabilities={p.capabilities}
     />
   );
 };
@@ -315,6 +344,45 @@ const ContainersRoute: React.FC = () => {
   );
 };
 
+const StorageCephLegacyRedirect: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  return (
+    <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/resource_hub/ceph_storage_overview`} replace />
+  );
+};
+
+const CephLegacyPoolRedirect: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  const { poolInnerSeg } = useParams<{ poolInnerSeg?: string }>();
+  const inner = String(poolInnerSeg ?? '').trim();
+  const base = cloudmapPoolBasePath(p.cloudId);
+  let to = `${base}/storage/storage_pools`;
+  if (inner === 'object_storage') {
+    to = `${base}/object_storage/object_gateways`;
+  } else if (inner === 'overview') {
+    to = `${base}/resource_hub/ceph_storage_overview`;
+  } else if (inner === 'storage_pools') {
+    to = `${base}/storage/storage_pools`;
+  } else if (inner === 'block_storage') {
+    to = `${base}/storage/storage_pools`;
+  }
+  return <Navigate to={to} replace />;
+};
+
+const ObjectStorageRoute: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  if (!p.canViewObjectStorageGroup) {
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  return (
+    <CloudmapObjectStorageGroupTabs
+      cloudId={p.cloudId}
+      checkPerm={p.checkPerm}
+      innerActiveKey={p.poolInnerActive('object_storage')}
+    />
+  );
+};
+
 const StorageRoute: React.FC = () => {
   const p = useCloudmapPoolDetail();
   if (!p.canViewStorageGroup) {
@@ -323,6 +391,7 @@ const StorageRoute: React.FC = () => {
   return (
     <CloudmapStorageGroupTabs
       cloudId={p.cloudId}
+      isTenant={p.isTenant}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('storage')}
@@ -341,6 +410,11 @@ const StorageRoute: React.FC = () => {
       rawSnapshots={p.rawSnapshots}
     />
   );
+};
+
+const StorageLonghornLegacyRedirect: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  return <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/storage/storage_pools`} replace />;
 };
 
 const BackupsRoute: React.FC = () => {
@@ -465,8 +539,14 @@ const CloudmapPoolRoutes: React.FC = () => {
         <Route path="cluster/:poolInnerSeg?" element={<ClusterRoute />} />
         <Route path="compute/:poolInnerSeg?" element={<ComputeRoute />} />
         <Route path="paas_databases/:poolInnerSeg?" element={<PaasDatabasesRoute />} />
+        <Route path="oniaas_network/:poolInnerSeg?" element={<OniaasNetworkRoute />} />
         <Route path="containers/:poolInnerSeg?" element={<ContainersRoute />} />
+        <Route path="storage/ceph" element={<StorageCephLegacyRedirect />} />
+        <Route path="storage/longhorn" element={<StorageLonghornLegacyRedirect />} />
         <Route path="storage/:poolInnerSeg?" element={<StorageRoute />} />
+        <Route path="ceph" element={<CephLegacyPoolRedirect />} />
+        <Route path="ceph/:poolInnerSeg" element={<CephLegacyPoolRedirect />} />
+        <Route path="object_storage/:poolInnerSeg?" element={<ObjectStorageRoute />} />
         <Route path="backups/:poolInnerSeg?" element={<BackupsRoute />} />
         <Route path="flat_network/:poolInnerSeg?" element={<FlatNetworkRoute />} />
         <Route path="kube_ovn/:poolInnerSeg?" element={<KubeOvnRoute />} />

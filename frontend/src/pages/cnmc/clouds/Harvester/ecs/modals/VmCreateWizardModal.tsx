@@ -44,6 +44,7 @@ import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../../../constants/cloudPermissions';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
 type Props = {
   isTenant?: boolean;
@@ -62,13 +63,12 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const isTenant = propIsTenant || stateIsTenant || false;
 
   const [form] = Form.useForm();
-  /** 订阅命名空间，供 useHarvesterData 过滤卷选项；避免在 Form 未挂载时调用 form.getFieldValue 触发 antd 警告 */
+  /** 订阅表单 `namespace` 字段（业务上称「项目」），供 useHarvesterData 过滤卷选项；避免在 Form 未挂载时调用 form.getFieldValue 触发 antd 警告 */
   const watchNamespace = Form.useWatch('namespace', form);
   // 当前步骤索引、提交状态（表单值由单一 Form 持有，方案 A 各步同挂）
   const [step, setStep] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [currentCloudId, setCurrentCloudId] = useState<string | undefined>(cloudId !== 'all' ? cloudId : undefined);
-  const [selectedDiskIdx, setSelectedDiskIdx] = useState<number | null>(null);
   const [selectedNetIdx, setSelectedNetIdx] = useState<number | null>(null);
   const [hostModeState, setHostModeState] = useState<string>('auto');
   const [netModeState, setNetModeState] = useState<string>('flat_subnet');
@@ -324,10 +324,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
           ['primaryNic', 'subnet'], 
           ['primaryNic', 'type'], 
           ['primaryNic', 'model'], 
-          ['primaryNic', 'macAddress'], 
-          ['primaryNic', 'ipAddress'], 
-          ['primaryNic', 'gateway'], 
-          ['primaryNic', 'dns'],
           'netIfaces'
         ];
       case 4: // Login
@@ -344,7 +340,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
           'useUsbTablet', 
           'installGuestAgent', 
           'sshNames', 
-          'userData', 
           'usbDevices'
         ];
       default:
@@ -362,6 +357,27 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     try {
       lastValidationErrorTypeRef.current = null;
       await form.validateFields(fields);
+
+      // 网络步骤：MAC / 静态IP 仅在 VPC / 扁平子网展示，须单独按模式校验
+      if (targetStep === 3) {
+        const extraNetPaths: (string | number)[][] = [];
+        const netMode = String(form.getFieldValue('netMode') || '');
+        if (netMode === 'vpc' || netMode === 'flat_subnet') {
+          extraNetPaths.push(['primaryNic', 'macAddress'], ['primaryNic', 'ipAddress']);
+        }
+        const netIfaces = form.getFieldValue('netIfaces');
+        if (Array.isArray(netIfaces)) {
+          netIfaces.forEach((row: any, i: number) => {
+            const m = String(row?.mode || '');
+            if (m === 'vpc' || m === 'flat_subnet') {
+              extraNetPaths.push(['netIfaces', i, 'macAddress'], ['netIfaces', i, 'ipAddress']);
+            }
+          });
+        }
+        if (extraNetPaths.length > 0) {
+          await form.validateFields(extraNetPaths);
+        }
+      }
       
       // Step 0 额外校验：若选择指定主机模式，必须选中主机
       if (targetStep === 0 && hostModeState === 'node' && !selectedNodeName) {
@@ -461,7 +477,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       const resolvedNamespace =
         pickNs(v.namespace) || pickNs(watchNamespace) || pickNs((formSnapshot as any)?.namespace);
       if (!resolvedNamespace) {
-        message.error('未能读取命名空间，请返回第一步确认「命名空间」已选择');
+        message.error('未能读取项目，请返回第一步确认「项目」已选择');
         setStep(0);
         return;
       }
@@ -544,7 +560,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         navigate(-1);
       }
     } catch (e: any) {
-      message.error(e?.message || '创建失败');
+      message.error(translateKnownApiErrorMessage(String(e?.message || e || '创建失败')));
     } finally {
       submitInFlightRef.current = false;
       setSubmitting(false);
@@ -670,20 +686,16 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
               >
                 <StepDisks
                   form={form}
-                  imageOptions={imageOptions}
                   imageLoading={imageLoading}
                   reloadImages={reloadImages}
                   images={images}
                   defaultStorageClassName={defaultStorageClassName}
                   reloadStorageClasses={reloadStorageClasses}
-                  initialVmName={initialVmName}
                   volumeOptions={volumeOptions}
                   reloadVolumes={reloadVolumes}
                   availableVolumes={availableVolumes}
                   storageClasses={storageClasses}
                   storageClassLoading={storageClassLoading}
-                  selectedDiskIdx={selectedDiskIdx}
-                  setSelectedDiskIdx={setSelectedDiskIdx}
                   isArm64={isArm64}
                 />
               </div>

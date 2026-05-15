@@ -178,11 +178,14 @@ const CEWizard: React.FC = () => {
   const prevWanNameRef = useRef<string | undefined>(undefined);
   const prevLanNameRef = useRef<string | undefined>(undefined);
   const hadVr3InfoRef = useRef(false);
+  /** 已拿到过 vr3：若仅因「刷新设备回读」替换 vr3Info 而网口名未变，不覆盖右翼编辑表 */
+  const prevVr3InfoSnapshotRef = useRef<any>(null);
 
   useEffect(() => {
     hadVr3InfoRef.current = false;
     prevWanNameRef.current = undefined;
     prevLanNameRef.current = undefined;
+    prevVr3InfoSnapshotRef.current = null;
   }, [uuid]);
 
   const watchedWanName = Form.useWatch('wanName', form);
@@ -190,8 +193,18 @@ const CEWizard: React.FC = () => {
   const wanIfaceTrim = watchedWanName ? String(watchedWanName).trim() : '';
   const lanIfaceTrim = watchedLanName ? String(watchedLanName).trim() : '';
   useEffect(() => {
+    const wan0 = watchedWanName != null && watchedWanName !== '' ? String(watchedWanName) : '';
+    const lan0 = watchedLanName != null && watchedLanName !== '' ? String(watchedLanName) : '';
+    const nameUnchanged =
+      (prevWanNameRef.current ?? '') === wan0 && (prevLanNameRef.current ?? '') === lan0;
+    if (prevVr3InfoSnapshotRef.current != null && vr3Info != null && nameUnchanged) {
+      prevVr3InfoSnapshotRef.current = vr3Info;
+      return;
+    }
+
     const vr3JustArrived = !!vr3Info && !hadVr3InfoRef.current;
     if (vr3Info) hadVr3InfoRef.current = true;
+    if (vr3Info) prevVr3InfoSnapshotRef.current = vr3Info;
 
     const wan = watchedWanName ? String(watchedWanName) : '';
     if (wan) {
@@ -475,14 +488,32 @@ const CEWizard: React.FC = () => {
     [watchedValues, form],
   );
 
+  const CE_STEP0_FIELDS: string[] = ['wanName', 'wanIpv4', 'wanIpv6', 'bgpAsn', 'bgpRouterId'];
+  const CE_STEP1_FIELDS: string[] = ['lanName', 'lanIpv4', 'lanIpv6'];
+
   const next = async () => {
-    try { await form.validateFields(); setCurrent((c) => Math.min(2, c + 1)); } catch {}
+    try {
+      if (current === 0) {
+        await form.validateFields(CE_STEP0_FIELDS);
+      } else if (current === 1) {
+        await form.validateFields(CE_STEP1_FIELDS);
+      }
+      setCurrent((c) => Math.min(2, c + 1));
+    } catch {
+      /* 校验失败由表单项展示 */
+    }
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
   const handleDispatch = async () => {
     if (!uuid) {
       message.error('缺少 VR 的 UUID，无法下发');
+      return;
+    }
+    try {
+      await form.validateFields();
+    } catch {
+      message.warning('请先修正表单校验错误后再下发');
       return;
     }
     try {
@@ -508,13 +539,14 @@ const CEWizard: React.FC = () => {
         message.warning('拼装结果为空，请检查第1、2步是否已填写必要字段');
         return;
       }
+      if (uuid) (cfg as any).uuid = uuid;
       setLoading(true);
 
       // 1. 同步保存到本地数据库（与专家模式一致，保留非向导配置）
       let finalCfg = cfg;
       try {
         const existing = await getVRConfig(uuid);
-        
+
         // Remove existing ce/role to ensure they are sorted correctly
         const cleanExisting = { ...(existing || {}) };
         delete cleanExisting.ce;
@@ -527,15 +559,15 @@ const CEWizard: React.FC = () => {
         console.warn('保存到本地数据库失败:', e);
       }
 
+      // 2. 与 PE/Standard/SASE 及 vrController.updateVRConfig 一致：必须带 ?uuid= 与签名中 other
       const path = '/V2/ctcontrol/VR2/VRConfig';
       const method = 'POST';
-      const other = '';
-      const bodyRaw = JSON.stringify({ uuid, ...cfg });
-      const data = await proxyApiRequest(path, method, other, JSON.parse(bodyRaw));
+      const other = `uuid=${uuid}`;
+      const data = await proxyApiRequest(path, method, other, cfg);
       if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
-      message.success(data?.msg || '配置已下发');
+      message.success(data?.msg || '配置已下发到设备');
     } catch (err: any) {
       message.error(`下发失败：${err?.message || '请稍后重试'}`);
     } finally {
@@ -544,88 +576,99 @@ const CEWizard: React.FC = () => {
   };
 
   const renderCoreContent = () => {
-    if (current === 0) {
-      return (
-        <Form form={form} layout="vertical">
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定外网口</div>
-          <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口设备</span>} rules={[{ required: true, message: '请选择外网口设备' }]} preserve> 
-            <Select
-              placeholder="请选择网卡"
-              showSearch
-              loading={ifaceLoading}
-              options={ifaceOptions.map((n) => ({
-                value: n,
-                label: renderIfaceWizardSelectLabel(n, lanIfaceTrim && n === lanIfaceTrim ? '内网口' : undefined),
-              }))}
-              filterOption={(input: string, option?: { value?: string }) =>
-                String(option?.value || '')
-                  .toLowerCase()
-                  .includes(input.toLowerCase())
-              }
-              onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
-            />
-          </Form.Item>
-          <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>} preserve>
-            <Input placeholder="例如：200.1.1.2/24（可选）" />
-          </Form.Item>
-          <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv6 地址</span>} preserve>
-            <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
-          </Form.Item>
-          <div style={{ height: 12 }} />
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定BGP路由(CE to PE)</div>
-          <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]} preserve> 
-            <InputNumber style={{ width: '100%' }} placeholder="例如：100" min={1} max={4294967295} />
-          </Form.Item>
-          <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={[{ required: true, message: '请输入 Router-ID' }, { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入合法的 IPv4 地址' }]} preserve> 
-            <Input placeholder="例如：200.1.1.2" />
-          </Form.Item>
-        </Form>
-      );
-    }
-    if (current === 1) {
-      return (
-        <Form form={form} layout="vertical">
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定内网口</div>
-          <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>接口名称</span>} rules={[{ required: true, message: '请选择接口名称' }]} preserve> 
-            <Select
-              placeholder="请选择网卡"
-              showSearch
-              loading={ifaceLoading}
-              options={ifaceOptions.map((n) => ({
-                value: n,
-                label: renderIfaceWizardSelectLabel(n, wanIfaceTrim && n === wanIfaceTrim ? '外网口' : undefined),
-              }))}
-              filterOption={(input: string, option?: { value?: string }) =>
-                String(option?.value || '')
-                  .toLowerCase()
-                  .includes(input.toLowerCase())
-              }
-              onChange={(val) => autoFillFromIface('lan', String(val || ''), { force: true })}
-            />
-          </Form.Item>
-          <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>} preserve>
-            <Input placeholder="例如：130.1.1.1/24（可选）" />
-          </Form.Item>
-          <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>} preserve>
-            <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
-          </Form.Item>
-        </Form>
-      );
-    }
-    const values = form.getFieldsValue(true);
+    // 单 Form 实例 + 显隐切换步，避免第 0/1 步各包一层 <Form> 在切步时卸载导致同 form 上字段/值丢失
+    const summaryValues = form.getFieldsValue(true);
     return (
-      <div>
-        <Descriptions column={1} bordered size="small">
-          <Descriptions.Item label="外网口设备">{values.wanName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="外网口 IPv4">{values.wanIpv4 || '-'}</Descriptions.Item>
-          <Descriptions.Item label="外网口 IPv6">{values.wanIpv6 || '-'}</Descriptions.Item>
-          <Descriptions.Item label="BGP ASN">{values.bgpAsn || '-'}</Descriptions.Item>
-          <Descriptions.Item label="BGP Router-ID">{values.bgpRouterId || '-'}</Descriptions.Item>
-          <Descriptions.Item label="内网接口">{values.lanName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="内网 IPv4">{values.lanIpv4 || '-'}</Descriptions.Item>
-          <Descriptions.Item label="内网 IPv6">{values.lanIpv6 || '-'}</Descriptions.Item>
-        </Descriptions>
-      </div>
+      <>
+        <Form
+          form={form}
+          layout="vertical"
+          style={{ display: current === 2 ? 'none' : undefined }}
+        >
+          <div style={{ display: current === 0 ? 'block' : 'none' }}>
+            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定外网口</div>
+            <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口设备</span>} rules={[{ required: true, message: '请选择外网口设备' }]} preserve>
+              <Select
+                placeholder="请选择网卡"
+                showSearch
+                loading={ifaceLoading}
+                options={ifaceOptions.map((n) => ({
+                  value: n,
+                  label: renderIfaceWizardSelectLabel(n, lanIfaceTrim && n === lanIfaceTrim ? '内网口' : undefined),
+                }))}
+                filterOption={(input: string, option?: { value?: string }) =>
+                  String(option?.value || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+                onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
+              />
+            </Form.Item>
+            <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv4 地址</span>} preserve>
+              <Input placeholder="例如：200.1.1.2/24（可选）" />
+            </Form.Item>
+            <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>外网口 IPv6 地址</span>} preserve>
+              <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
+            </Form.Item>
+            <div style={{ height: 12 }} />
+            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定BGP路由(CE to PE)</div>
+            <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]} preserve>
+              <InputNumber style={{ width: '100%' }} placeholder="例如：100" min={1} max={4294967295} />
+            </Form.Item>
+            <Form.Item
+              name="bgpRouterId"
+              label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}
+              rules={[
+                { required: true, message: '请输入 Router-ID' },
+                { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入合法的 IPv4 地址' },
+              ]}
+              preserve
+            >
+              <Input placeholder="例如：200.1.1.2" />
+            </Form.Item>
+          </div>
+          <div style={{ display: current === 1 ? 'block' : 'none' }}>
+            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定内网口</div>
+            <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>接口名称</span>} rules={[{ required: true, message: '请选择接口名称' }]} preserve>
+              <Select
+                placeholder="请选择网卡"
+                showSearch
+                loading={ifaceLoading}
+                options={ifaceOptions.map((n) => ({
+                  value: n,
+                  label: renderIfaceWizardSelectLabel(n, wanIfaceTrim && n === wanIfaceTrim ? '外网口' : undefined),
+                }))}
+                filterOption={(input: string, option?: { value?: string }) =>
+                  String(option?.value || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+                onChange={(val) => autoFillFromIface('lan', String(val || ''), { force: true })}
+              />
+            </Form.Item>
+            <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>} preserve>
+              <Input placeholder="例如：130.1.1.1/24（可选）" />
+            </Form.Item>
+            <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>} preserve>
+              <Input placeholder="例如：2408:3333:1002::1/64（可选）" />
+            </Form.Item>
+          </div>
+        </Form>
+        {current === 2 && (
+          <div>
+            <Descriptions column={1} bordered size="small">
+              <Descriptions.Item label="外网口设备">{summaryValues.wanName || '-'}</Descriptions.Item>
+              <Descriptions.Item label="外网口 IPv4">{summaryValues.wanIpv4 || '-'}</Descriptions.Item>
+              <Descriptions.Item label="外网口 IPv6">{summaryValues.wanIpv6 || '-'}</Descriptions.Item>
+              <Descriptions.Item label="BGP ASN">{summaryValues.bgpAsn || '-'}</Descriptions.Item>
+              <Descriptions.Item label="BGP Router-ID">{summaryValues.bgpRouterId || '-'}</Descriptions.Item>
+              <Descriptions.Item label="内网接口">{summaryValues.lanName || '-'}</Descriptions.Item>
+              <Descriptions.Item label="内网 IPv4">{summaryValues.lanIpv4 || '-'}</Descriptions.Item>
+              <Descriptions.Item label="内网 IPv6">{summaryValues.lanIpv6 || '-'}</Descriptions.Item>
+            </Descriptions>
+          </div>
+        )}
+      </>
     );
   };
 

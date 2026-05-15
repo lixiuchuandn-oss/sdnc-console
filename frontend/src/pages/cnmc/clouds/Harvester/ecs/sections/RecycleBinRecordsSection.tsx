@@ -30,6 +30,7 @@ interface ShutdownRecord {
   cloudName: string;
   namespace: string;
   name: string;
+  displayName?: string;
   instanceId: string;
   uid: string;
   shutdownAt: string;
@@ -112,6 +113,7 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
     return data.filter((record) => {
       return (
         record.cloudName?.toLowerCase().includes(kw) ||
+        record.displayName?.toLowerCase().includes(kw) ||
         record.name?.toLowerCase().includes(kw) ||
         record.namespace?.toLowerCase().includes(kw) ||
         record.instanceId?.toLowerCase().includes(kw)
@@ -125,27 +127,26 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
       key: 'namespace',
       dataIndex: 'namespace',
       ellipsis: true,
-      width: 120,
     },
     {
-      title: '虚拟机名称',
+      title: '云主机名称',
       key: 'name',
       dataIndex: 'name',
       ellipsis: true,
-      width: 150,
+      render: (name: string, record: ShutdownRecord) => {
+        return record.displayName || name;
+      },
     },
     {
-      title: '实例ID',
+      title: '云主机ID',
       key: 'instanceId',
       dataIndex: 'instanceId',
       ellipsis: true,
-      width: 200,
     },
     {
       title: '关机时间',
       key: 'shutdownAt',
       dataIndex: 'shutdownAt',
-      width: 180,
       render: (time: string) => {
         if (!time) return '-';
         return dayjs(time).format('YYYY-MM-DD HH:mm:ss');
@@ -160,7 +161,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
       title: '状态',
       key: 'status',
       dataIndex: 'status',
-      width: 100,
       render: (status: string) => {
         if (status === 'success') {
           return <Badge status="success" text="成功" />;
@@ -175,7 +175,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
       title: '原状态',
       key: 'previousStatus',
       dataIndex: 'previousStatus',
-      width: 110,
       render: (previous: string) => (previous ? cnVmStatus(previous) : '-'),
     },
     {
@@ -183,7 +182,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
       key: 'errorMessage',
       dataIndex: 'errorMessage',
       ellipsis: true,
-      width: 200,
       render: (msg: string) => {
         if (!msg) return '-';
         return <span style={{ color: '#ff4d4f' }}>{msg}</span>;
@@ -208,7 +206,7 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
         <>
           <Input
             allowClear
-            placeholder="虚拟机/实例ID"
+            placeholder="云主机/实例ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
@@ -251,6 +249,7 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
     >
       <Table
         className="std-table"
+        scroll={{ x: true }}
         bordered={false}
         rowKey="id"
         columns={columns}
@@ -260,7 +259,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
           current: pagination.page,
           pageSize: pagination.pageSize,
           total: pagination.total,
-          size: 'small',
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100'],

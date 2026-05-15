@@ -16,6 +16,7 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
+  isFlatKubeOvnSubnetForFlatNatSelector,
 } from '../lib/kubeOvnSubnetConstants';
 import {
   buildBusinessVpcPickerRows,
@@ -23,6 +24,10 @@ import {
   vpcDisplayMapFromVpcs,
 } from '../lib/kubeOvnUiHelpers';
 import { ovnDisplayName, ovnKeywordMatches } from '../lib/ovnResourceDisplay';
+import {
+  buildPublicSubnetNameToVpcNameMap,
+  getOvnEipBoundVpcName,
+} from '../lib/kubeOvnEipVpcHelpers';
 import {
   buildVmNicIpOptions,
   subnetCidrOf,
@@ -108,21 +113,26 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   const subnetChoicesForDnat = useMemo(() => {
     if (!networkScope) return subnets;
     return subnets.filter((s: any) => {
-      const vpc = String(s?.spec?.vpc || s?.vpc || '').trim();
-      const onFlatBuiltinVpc = !vpc || isBuiltInKubeOvnVpc(vpc);
       if (networkScope === 'flat') {
-        const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] ?? '')
-          .trim()
-          .toLowerCase();
-        const hasVlan = !!String(s?.spec?.vlan || '').trim();
-        const vpcNorm = vpc || KUBE_OVN_FLAT_VPC;
-        return t === 'flat' && onFlatBuiltinVpc && !hasVlan && vpcNorm === KUBE_OVN_FLAT_VPC;
+        return isFlatKubeOvnSubnetForFlatNatSelector(s);
       }
+      const vpc = String(s?.spec?.vpc || s?.vpc || '').trim();
       return vpc && !isBuiltInKubeOvnVpc(vpc);
     });
   }, [subnets, networkScope]);
 
   const vpcNameWatch = Form.useWatch('vpcName', form);
+  const publicSubnetToVpcForEip = useMemo(() => buildPublicSubnetNameToVpcNameMap(vpcs), [vpcs]);
+
+  const eipsForCreateByVpcSelection = useMemo(() => {
+    if (networkScope !== 'vpc') return eipsForCreate;
+    const vpcId = String(vpcNameWatch ?? '').trim();
+    if (!vpcId) return [];
+    return eipsForCreate.filter(
+      (e: any) => getOvnEipBoundVpcName(e, publicSubnetToVpcForEip) === vpcId,
+    );
+  }, [eipsForCreate, networkScope, vpcNameWatch, publicSubnetToVpcForEip]);
+
   const subnetChoicesForDnatByVpc = useMemo(() => {
     if (networkScope !== 'vpc') return subnetChoicesForDnat;
     const vpc = String(vpcNameWatch ?? '').trim();
@@ -267,9 +277,9 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   const [vpcFilter, setVpcFilter] = useState<string>('');
   const [protocolFilter, setProtocolFilter] = useState<string>('');
 
-  // 筛选数据
+  // 筛选数据并按创建时间倒序排序
   const filteredData = useMemo(() => {
-    return dnatRules.filter((item: any) => {
+    const filtered = dnatRules.filter((item: any) => {
       const eipName = String(item?.spec?.ovnEip || item?.status?.ovnEip || '').trim();
       const eip =
         String(
@@ -305,6 +315,13 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       
       return true;
     });
+    
+    // 按创建时间倒序排序
+    return filtered.sort((a: any, b: any) => {
+      const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
+      const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
+      return timeB.localeCompare(timeA);
+    });
   }, [dnatRules, keyword, vpcFilter, protocolFilter, eipIpv4ByName, networkScope]);
 
   // 筛选选项
@@ -333,6 +350,28 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
     }
     try {
       const values = await form.validateFields();
+      if (networkScope === 'vpc') {
+        const vpcSel = String(values.vpcName ?? '').trim();
+        if (vpcSel) {
+          const avail = eipsForCreate.filter(
+            (e: any) => getOvnEipBoundVpcName(e, publicSubnetToVpcForEip) === vpcSel,
+          );
+          if (avail.length === 0) {
+            message.error(
+              '当前所选 VPC 下没有可用的弹性公网 IP（EIP）。请先到「VPC 网络 → 弹性公网 IP」中为该 VPC 创建 EIP，再创建 DNAT。',
+            );
+            return;
+          }
+          const picked = String(values.ovnEip ?? '').trim();
+          if (
+            picked &&
+            !avail.some((e: any) => String(e?.metadata?.name || e?.name || '').trim() === picked)
+          ) {
+            message.error('所选公网 IP 不属于当前 VPC，请重新选择');
+            return;
+          }
+        }
+      }
       const eipName = String(values.ovnEip ?? '').trim();
       const proto = String(values.protocol || 'tcp').trim().toLowerCase();
       const extPort = String(values.externalPort ?? '').trim();
@@ -463,6 +502,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
     {
       title: '名称',
       key: 'alias',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
         const text = alias || '—';
@@ -536,9 +576,25 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           },
         ]),
     {
-      title: '操作', 
-      key: 'action', 
-      width: 80, 
+      title: '创建时间',
+      key: 'createdAt',
+      render: (_: any, r: any) => {
+        const c = r?.metadata?.creationTimestamp || r?.createdAt || '';
+        try {
+          if (!c) return '-';
+          const d = new Date(c);
+          if (!isNaN(d.getTime())) {
+            const txt = d.toLocaleString('zh-CN', { hour12: false });
+            return txt;
+          }
+        } catch { }
+        return c || '-';
+      },
+    },
+    {
+      title: '操作',
+      key: 'action',
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const menuItems: MenuProps['items'] = [
           { key: 'metadata', label: '查看元数据' },
@@ -637,9 +693,9 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           columns={columns} 
           loading={loading} 
           bordered={false}
+          scroll={{ x: true }}
           rowKey={r => r.metadata?.uid}
           pagination={{
-            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
@@ -684,11 +740,67 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           >
             <Input placeholder="可选，支持中文；留空则列表仅显示自动生成的资源名" />
           </Form.Item>
+          {networkScope === 'vpc' && (
+            <Row gutter={12}>
+              <Col span={24}>
+                <Form.Item name="vpcName" label="VPC" rules={[{ required: true, message: '请选择 VPC' }]}>
+                  <Select
+                    showSearch
+                    placeholder="请选择 VPC"
+                    allowClear
+                    optionFilterProp="data-search"
+                    optionLabelProp="label"
+                    onChange={() => {
+                      form.setFieldsValue({
+                        ovnEip: undefined,
+                        subnetName: undefined,
+                        vmKey: undefined,
+                        nicAttach: undefined,
+                      });
+                    }}
+                  >
+                    {vpcChoicesForDnat.map((v) => (
+                      <Select.Option key={v.id} value={v.id} label={v.display} data-search={v.searchLabel}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span>{v.display}</span>
+                          <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>{`命名空间: ${v.namespacesDisplay}`}</span>
+                        </div>
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+          {networkScope === 'vpc' &&
+            String(vpcNameWatch ?? '').trim() &&
+            eipsForCreateByVpcSelection.length === 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="当前 VPC 下暂无可用 EIP"
+                description='请先到「VPC 网络 → 弹性公网 IP」中为该 VPC 创建弹性公网 IP，再创建 DNAT。'
+              />
+            )}
           <Row gutter={12}>
             <Col span={9}>
               <Form.Item name="ovnEip" label="公网IP" rules={[{ required: true, message: '请选择公网IP' }]}>
-                <Select placeholder="请选择公网IP" allowClear optionLabelProp="label">
-                  {eipsForCreate.map((e) => {
+                <Select
+                  placeholder={
+                    networkScope !== 'vpc'
+                      ? '请选择公网IP'
+                      : !String(vpcNameWatch || '').trim()
+                        ? '请先选择 VPC'
+                        : eipsForCreateByVpcSelection.length > 0
+                          ? '请选择公网IP'
+                          : '当前 VPC 下暂无 EIP，请先创建'
+                  }
+                  allowClear
+                  optionLabelProp="label"
+                  disabled={networkScope === 'vpc' && !String(vpcNameWatch || '').trim()}
+                >
+                  {(networkScope === 'vpc' ? eipsForCreateByVpcSelection : eipsForCreate).map((e) => {
                     const nm = String(e?.metadata?.name ?? '').trim();
                     const alias = String(e?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
                     const v4 = String(
@@ -731,38 +843,9 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               </Form.Item>
             </Col>
           </Row>
-          {networkScope === 'vpc' ? (
-            <Row gutter={12}>
-              <Col span={12}>
-                <Form.Item name="vpcName" label="VPC" rules={[{ required: true, message: '请选择 VPC' }]}>
-                  <Select
-                    showSearch
-                    placeholder="请选择 VPC"
-                    allowClear
-                    optionFilterProp="data-search"
-                    optionLabelProp="label"
-                    onChange={() => {
-                      form.setFieldsValue({ subnetName: undefined, vmKey: undefined, nicAttach: undefined });
-                    }}
-                  >
-                    {vpcChoicesForDnat.map((v) => (
-                      <Select.Option key={v.id} value={v.id} label={v.display} data-search={v.searchLabel}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span>{v.display}</span>
-                          <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>{`命名空间: ${v.namespacesDisplay}`}</span>
-                        </div>
-                      </Select.Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={12}>{renderDnatSubnetSelect()}</Col>
-            </Row>
-          ) : (
-            <Row gutter={12}>
-              <Col span={24}>{renderDnatSubnetSelect()}</Col>
-            </Row>
-          )}
+          <Row gutter={12}>
+            <Col span={24}>{renderDnatSubnetSelect()}</Col>
+          </Row>
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item

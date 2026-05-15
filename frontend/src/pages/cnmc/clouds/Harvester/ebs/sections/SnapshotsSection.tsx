@@ -1,12 +1,12 @@
 /**
  * ==============================================================================
- * 模块名称: Harvester 卷快照列表 (Harvester Volume Snapshot List)
+ * 模块名称: Harvester 云盘快照列表 (Harvester Volume Snapshot List)
  * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/ebs/sections/SnapshotsSection.tsx
  * ==============================================================================
  * 
  * [功能描述]
- * 展示 Harvester 存储卷快照资源列表。
- * 提供快照的生命周期管理功能（删除、恢复数据卷）。
+ * 展示 Harvester 存储云盘快照资源列表。
+ * 提供快照的生命周期管理功能（删除、恢复云盘）。
  * 支持灵活的 UI 配置（bordered, showYaml）以适应不同角色的视图需求（如租户侧隐藏 YAML）。
  * 
  * [核心逻辑]
@@ -61,7 +61,7 @@ import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 // -----------------------------------------------------------------------------
-// Props（云详情「卷快照」Tab 注入）
+// Props（云详情「云盘快照」Tab 注入）
 // -----------------------------------------------------------------------------
 /**
  * 组件 Props 定义
@@ -192,7 +192,7 @@ const SnapshotsSection: React.FC<Props> = ({
   // 3. 交互处理 (Action Handlers)
   // ==============================================================================
 
-  // [恢复] 打开数据卷恢复弹窗
+  // [恢复] 打开云盘恢复弹窗
   // 将当前选中的快照记录传递给 Modal，用于后续的 PVC 恢复操作。
   const handleRestore = useCallback((record: any) => {
     if (!hasSnapshotsWrite) {
@@ -379,7 +379,6 @@ const SnapshotsSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'action',
-      width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
@@ -405,17 +404,8 @@ const SnapshotsSection: React.FC<Props> = ({
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_volume_snapshots_list');
 
   // ==============================================================================
-  // 5. 渲染视图 (Render) — 与云详情「卷快照」Tab 页面对应
+  // 5. 渲染视图 (Render) — 与云详情「云盘快照」Tab 页面对应
   // ==============================================================================
-
-  /**
-   * 与 VmSection「云主机」列表一致：有数据时使用 scroll.x 像素下限 + fixed 左/右列。
-   * 不要使用 x: true（含 fixed 时易导致整表被压在视口内裁切右侧列）。
-   */
-  const snapshotsTableScroll = useMemo(
-    () => (filteredData.length > 0 ? ({ x: 2400 } as const) : undefined),
-    [filteredData.length],
-  );
 
   return (
     <PageDetailSection
@@ -503,13 +493,12 @@ const SnapshotsSection: React.FC<Props> = ({
         columns={visibleColumns || columns}
         rowKey="key"
         loading={loading}
-        scroll={snapshotsTableScroll}
+        scroll={{ x: true }}
         rowSelection={{
           selectedRowKeys,
           onChange: setSelectedRowKeys,
         }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
       />
@@ -522,7 +511,7 @@ const SnapshotsSection: React.FC<Props> = ({
         onCancel={() => setRestoreVisible(false)}
         onSuccess={() => {
           setRestoreVisible(false);
-          message.success('已提交恢复任务，请前往“数据卷”列表查看');
+          message.success('已提交恢复任务，请前往“云盘”列表查看');
         }}
       />
 

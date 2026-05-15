@@ -1,8 +1,8 @@
 /**
- * Harvester - 卷快照恢复弹窗
+ * Harvester - 云盘快照恢复弹窗
  *
  * 基于 VolumeSnapshot 创建新 PVC：
- * - K8s 资源名自动生成（id-vol-xxxxxxxxxxx，与创建卷一致），满足 DNS 子域规则；
+ * - K8s 资源名自动生成（id-vol-xxxxxxxxxxx，与创建云盘一致），满足 DNS 子域规则；
  * - 用户填写「云盘名称」为展示别名，写入 annotations['tower.io/alias']，支持中文；
  * - 容量由快照原始大小决定；存储类可选。
  */
@@ -114,7 +114,7 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
 
   return (
     <Modal
-      title="恢复卷快照"
+      title="恢复云盘快照"
       open={visible}
       onOk={handleOk}
       onCancel={onCancel}

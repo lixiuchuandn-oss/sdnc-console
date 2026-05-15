@@ -7,7 +7,7 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc } from '../../../../../../services/harvesterApi';
+import { createHarvesterVpc, fetchHarvesterNamespaces, deleteHarvesterVpc, deleteKubeOvnSubnet, updateHarvesterVpc } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
@@ -17,11 +17,14 @@ import {
   KUBE_OVN_PROVIDER_VPC,
   isBuiltInKubeOvnVpc,
   isVpcOvnSubnetTableRow,
+  TOWER_ALIAS_ANNOTATION,
 } from '../lib/kubeOvnSubnetConstants';
-import { validateExcludeIpWithinCidr } from '../lib/ipv4CidrValidate';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
+import { validateIpv4CidrNotation, validateIpv4HostAddress } from '../lib/ipv4CidrValidate';
+import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
+import { buildBusinessVpcPickerRows } from '../lib/kubeOvnUiHelpers';
 
 /**
  * 接口定义
@@ -90,8 +93,19 @@ const SafeRead = {
   subnetExcludeIps: (data: any) => data?.excludeIps || data?.spec?.excludeIps || [],
 };
 
-const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
-const SUBNET_FINALIZER = 'tower.io/managed';
+/** API / K8s 对象创建时间 → 毫秒（无或无法解析者为 0），用于列表按创建时间倒序 */
+function kubeResourceCreatedMs(record: any): number {
+  const raw = SafeRead.creationTimestamp(record);
+  if (raw == null || raw === '') return 0;
+  const t = new Date(String(raw)).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+const VPC_BIND_NAMESPACE_EXCLUDE = new Set(['cloud-public', 'hci-manager-system']);
+function isVpcBindNamespaceExcluded(name: string): boolean {
+  const n = String(name || '').trim().toLowerCase();
+  return Boolean(n) && VPC_BIND_NAMESPACE_EXCLUDE.has(n);
+}
 
 // Helper
 const generateResourceId = (prefix: string) => `id-${prefix}-${Math.random().toString(36).substring(2, 13)}`;
@@ -127,6 +141,11 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const hasVpcsWrite = useMemo(
     () => hasPermissionForAction(perms, 'clouds.vpcs:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
+  );
+  const vpcPickerRows = useMemo(() => buildBusinessVpcPickerRows(vpcs), [vpcs]);
+  const vpcOnlySubnets = useMemo(
+    () => (subnets || []).filter((s) => isVpcOvnSubnetTableRow(s)),
+    [subnets],
   );
   // --- State ---
   const { id: paramCloudId } = useParams<{ id: string }>();
@@ -166,14 +185,20 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const [isEditVpc, setIsEditVpc] = useState(false);
   const [currentVpc, setCurrentVpc] = useState<any>(null);
 
-  // Create Subnet State
-  const [createSubnetModalVisible, setCreateSubnetModalVisible] = useState(false);
-  const [creatingSubnet, setCreatingSubnet] = useState(false);
-  const [subnetForm] = Form.useForm();
-  const [targetVpc, setTargetVpc] = useState<string>('');
-  const [targetNamespace, setTargetNamespace] = useState<string>('default');
-  const [isEditSubnet, setIsEditSubnet] = useState(false);
-  const [currentSubnet, setCurrentSubnet] = useState<any>(null);
+  // VPC 子网弹窗（与 VpcSubnetsSection 共用 CreateVpcSubnetModal）
+  const [vpcSubnetModalOpen, setVpcSubnetModalOpen] = useState(false);
+  const [vpcSubnetEditMode, setVpcSubnetEditMode] = useState(false);
+  const [vpcSubnetEditingRecord, setVpcSubnetEditingRecord] = useState<any>(null);
+  const [vpcSubnetPresetVpcId, setVpcSubnetPresetVpcId] = useState<string | null>(null);
+  const [vpcSubnetCreateNs, setVpcSubnetCreateNs] = useState<string | null>(null);
+  const [vpcSubnetModalTitleSuffix, setVpcSubnetModalTitleSuffix] = useState<string>('');
+
+  const editVpcBoundNamespace = useMemo(() => {
+    if (!isEditVpc || !currentVpc) return '';
+    const arr = SafeRead.vpcNamespaces(currentVpc);
+    return Array.isArray(arr) && arr.length > 0 ? String(arr[0] ?? '').trim() : '';
+  }, [isEditVpc, currentVpc]);
+
   
   // Namespaces State
   const [namespaces, setNamespaces] = useState<any[]>([]);
@@ -297,7 +322,30 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，silent=true 跳过后端全量同步）
       onRefresh?.(true, true, { vpcsAll: vpcsQueryAll });
     } catch (error: any) {
-      message.error(`${isEditVpc ? '更新' : '创建'} VPC 失败: ${error.message}`);
+      // 表单校验失败时不弹全局错误（字段下已有提示）
+      if (Array.isArray(error?.errorFields) && error.errorFields.length > 0) {
+        return;
+      }
+      const label = isEditVpc ? '更新' : '创建';
+      const rawFull = String(error?.message ?? error ?? '').trim();
+      let detail = rawFull;
+      let prev = '';
+      while (prev !== detail) {
+        prev = detail;
+        detail = detail.replace(/^((创建|更新)\s+VPC\s*失败\s*[:：]?\s*)+/i, '').trim();
+      }
+      detail = translateKnownApiErrorMessage(detail) || detail;
+      if (!detail) detail = '未知错误';
+      // 占位或非法静态路由常见于 400，给可读说明并避免重复的「xxx 失败: xxx 失败」
+      const looksBare400 =
+        /^(HTTP\s*400)$/i.test(detail) ||
+        /^request failed with status code 400$/i.test(detail) ||
+        /^(400)(\s|$)/.test(detail);
+      if (looksBare400) {
+        detail =
+          '请求参数不合法（400）。请检查静态路由：目的网段须为 IPv4 CIDR（例如 192.168.0.0/24），下一跳须为合法 IPv4 地址（例如 10.0.0.1）。';
+      }
+      message.error(`${label} VPC 失败：${detail}`);
     } finally {
       setCreating(false);
     }
@@ -308,22 +356,15 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       message.error('无权限执行该操作');
       return;
     }
-    const vpcName = SafeRead.name(record);
-    const ns = SafeRead.vpcNamespace(record); // 使用新的提取逻辑
-    setTargetVpc(vpcName);
-    setTargetNamespace(ns);
-    setIsEditSubnet(false);
-    setCurrentSubnet(null);
-    subnetForm.resetFields();
-    subnetForm.setFieldsValue({
-      vpc: vpcName,
-      namespace: ns,
-      protocol: 'IPv4',
-      nat: true,
-      allowDhcp: true,
-      excludeIps: [],
-    });
-    setCreateSubnetModalVisible(true);
+    const vpcId = SafeRead.name(record);
+    const vpcAlias = SafeRead.alias(record) || vpcId;
+    const ns = SafeRead.vpcNamespace(record);
+    setVpcSubnetPresetVpcId(String(vpcId || '').trim());
+    setVpcSubnetCreateNs(String(ns || 'default').trim() || 'default');
+    setVpcSubnetModalTitleSuffix(` (所属VPC: ${vpcAlias})`);
+    setVpcSubnetEditMode(false);
+    setVpcSubnetEditingRecord(null);
+    setVpcSubnetModalOpen(true);
   };
 
   const handleEditSubnet = (record: any) => {
@@ -331,123 +372,15 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       message.error('无权限执行该操作');
       return;
     }
-    const name = SafeRead.name(record);
-    const alias = SafeRead.alias(record) || name; // Use alias if available, fallback to name
-    const vpcName = SafeRead.subnetVpc(record);
-    const cidr = SafeRead.subnetCidr(record);
-    const gateway = SafeRead.subnetGateway(record);
-    const protocol = SafeRead.subnetProtocol(record);
-    const nat = SafeRead.subnetNat(record);
-    const allowDhcp = SafeRead.subnetDhcp(record);
-    const excludeIps = SafeRead.subnetExcludeIps(record);
-    const ns = SafeRead.subnetNamespace(record);
-
-    setTargetVpc(vpcName);
-    setTargetNamespace(ns);
-    setIsEditSubnet(true);
-    setCurrentSubnet(record);
-    
-    subnetForm.resetFields();
-    subnetForm.setFieldsValue({
-      name: alias,
-      vpc: vpcName,
-      namespace: ns,
-      cidrBlock: cidr,
-      gateway,
-      protocol,
-      nat,
-      allowDhcp,
-      excludeIps,
-    });
-    setCreateSubnetModalVisible(true);
-  };
-
-  const handleSubnetModalSubmit = async () => {
-    if (!hasVpcsWrite) {
-      message.error('无权限执行该操作');
-      return;
-    }
-    try {
-      const values = await subnetForm.validateFields();
-      if (!cloudId) {
-        message.error('缺少云平台 ID');
-        return;
-      }
-      const cidrBlock = String(values.cidrBlock || '').trim();
-      const excludeIps = (values.excludeIps || []).filter((ip: string) => !!String(ip || '').trim());
-      for (const raw of excludeIps) {
-        const err = validateExcludeIpWithinCidr(cidrBlock, String(raw).trim());
-        if (err) {
-          message.error(err);
-          return;
-        }
-      }
-      setCreatingSubnet(true);
-      
-      const payload: any = {
-        ...values,
-        vpc: targetVpc,
-        namespace: targetNamespace,
-        excludeIps,
-      };
-
-      if (isEditSubnet && currentSubnet) {
-        const name = SafeRead.name(currentSubnet);
-        
-        // Update mode: Map frontend fields to Kube-OVN Spec fields
-        payload.enableDHCP = payload.allowDhcp;
-        payload.natOutgoing = payload.nat;
-        delete payload.allowDhcp;
-        delete payload.nat;
-
-        // Handle alias update
-        payload.annotations = {
-          'tower.io/alias': values.name,
-        };
-        // Remove name from payload (since it's now the alias value from form)
-        delete payload.name;
-
-        await updateKubeOvnSubnet(cloudId, name, payload);
-        message.success('子网更新成功');
-      } else {
-        // Create mode: Generate ID and set alias
-        const generatedName = generateResourceId('sub');
-        payload.name = generatedName;
-        payload.allowEWTraffic = false;
-        payload.annotations = {
-          'tower.io/alias': values.name,
-          [SUBNET_TYPE_ANNOTATION_KEY]: 'vpc',
-        };
-        payload.finalizers = Array.from(new Set([...(Array.isArray(payload?.finalizers) ? payload.finalizers : []), SUBNET_FINALIZER]));
-
-        // NAD 由后端 POST /resources/subnets（harvesterSubnetDirectCreateHandler）与子网一并创建，避免与 Harvester webhook 对 provider 的校验分叉。
-
-        await createKubeOvnSubnet(cloudId, payload);
-        message.success('子网创建成功');
-      }
-
-      setCreateSubnetModalVisible(false);
-      // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，silent=true 跳过后端全量同步）
-      onRefresh?.(true, true, { vpcsAll: vpcsQueryAll });
-    } catch (error: any) {
-      // 如果错误信息已经包含友好的提示（如命名空间终止），直接显示
-      if (error.message?.includes('正在被终止')) {
-        // 错误已在创建 NAD 时显示，这里不再重复显示
-      } else {
-        // 其他错误，显示详细错误信息
-        const errorMsg = error.message || '未知错误';
-        // 检查是否是命名空间终止相关的错误
-        if (errorMsg.includes('being terminated') || errorMsg.includes('terminating')) {
-          message.error(`创建子网失败: 命名空间 ${targetNamespace} 正在被终止，无法创建资源。请选择其他命名空间。`);
-        } else {
-          message.error(
-            `${isEditSubnet ? '更新' : '创建'}子网失败: ${translateKnownApiErrorMessage(errorMsg)}`,
-          );
-        }
-      }
-    } finally {
-      setCreatingSubnet(false);
-    }
+    const vpcName = String(SafeRead.subnetVpc(record) || '').trim();
+    const vpcRow = vpcs.find((v) => String(SafeRead.name(v)).trim() === vpcName);
+    const vpcDisplay = vpcRow ? SafeRead.alias(vpcRow) || SafeRead.name(vpcRow) : vpcName;
+    setVpcSubnetPresetVpcId(null);
+    setVpcSubnetCreateNs(null);
+    setVpcSubnetModalTitleSuffix(vpcDisplay ? ` (所属VPC: ${vpcDisplay})` : '');
+    setVpcSubnetEditMode(true);
+    setVpcSubnetEditingRecord(record);
+    setVpcSubnetModalOpen(true);
   };
 
   const handleDelete = (record: any) => {
@@ -460,18 +393,18 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     if (!cloudId || !name) return;
 
     const relatedSubnets = (subnets || []).filter((s) => {
-      const targetVpc = SafeRead.subnetVpc(s);
-      return String(targetVpc).trim() === String(name).trim();
+      const v = String(s?.spec?.vpc ?? '').trim();
+      return v === String(name).trim();
     });
     if (relatedSubnets.length > 0) {
       const subnetNames = relatedSubnets
         .slice(0, 5)
         .map((s) => SafeRead.displayName(s))
         .join('、');
-      const moreText = relatedSubnets.length > 5 ? ' 等' : '';
+      const moreText = relatedSubnets.length > 5 ? ` 等` : '';
       Modal.error({
         title: '无法删除 VPC',
-        content: `该 VPC（${displayName}）下仍有子网（${subnetNames}${moreText}），请先删除全部关联子网后再删除 VPC。`,
+        content: `请先删除该 VPC（${displayName}）下的子网，然后再删除 VPC。当前关联示例：${subnetNames}${moreText}。`,
       });
       return;
     }
@@ -562,7 +495,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       });
     }
 
-    return filtered;
+    return [...filtered].sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
   }, [vpcs, searchText, namespaceFilter]);
 
   // 详情抽屉
@@ -595,7 +528,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '名称',
       key: 'subnetAlias',
-      width: 200,
+      fixed: 'left' as const,
       ellipsis: true,
       render: (_: any, r: any) => {
         const alias = String(SafeRead.alias(r) || '').trim();
@@ -613,7 +546,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: 'ID',
       key: 'subnetId',
-      width: 200,
       ellipsis: true,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
@@ -623,31 +555,26 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: 'CIDR',
       key: 'cidr',
-      width: 160,
       render: (_: any, r: any) => <Tag>{SafeRead.subnetCidr(r)}</Tag>,
     },
     {
       title: '命名空间',
       key: 'namespace',
-      width: 140,
       render: (_: any, r: any) => cellEllipsis(SafeRead.subnetNamespace(r)),
     },
     {
       title: '网关',
       key: 'gateway',
-      width: 160,
       render: (_: any, r: any) => cellEllipsis(String(SafeRead.subnetGateway(r) || '-')),
     },
     {
       title: '协议',
       key: 'protocol',
-      width: 88,
       render: (_: any, r: any) => SafeRead.subnetProtocol(r),
     },
     {
       title: '类型',
       key: 'type',
-      width: 160,
       render: (_: any, r: any) => {
         const isPrivate = SafeRead.subnetPrivate(r);
         const isNat = SafeRead.subnetNat(r);
@@ -663,7 +590,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '已用 / 总数',
       key: 'usage',
-      width: 120,
       render: (_: any, record: any) => {
         const st = record.status || {};
         const available =
@@ -681,7 +607,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const items = [
@@ -700,6 +625,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '名称',
       key: 'vpcAlias',
+      fixed: 'left' as const,
       ellipsis: true,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
@@ -767,14 +693,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '操作',
       key: 'actions',
-      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
         const isSystem = isBuiltInKubeOvnVpc(name);
         const items = [
           { key: 'edit', label: '编辑VPC', disabled: !hasVpcsWrite, onClick: () => handleEditVpc(r) },
-          { key: 'createSubnet', label: '添加 VPC 子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },
+          { key: 'createSubnet', label: '创建子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },
           ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Vpc') }] : []),
           ...(!isSystem ? [
             { type: 'divider' as const },
@@ -792,11 +717,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     const vpcName = SafeRead.name(record);
     
     // 关联子网：同 VPC + tower.io/ovn-network-scope=vpc（无注解时兼容 subnet-type=vpc），避免展开行混入扁平域子网
-    const relatedSubnets = subnets.filter((s) => {
-      if (!isVpcOvnSubnetTableRow(s)) return false;
-      const targetVpc = SafeRead.subnetVpc(s);
-      return String(targetVpc).trim() === String(vpcName).trim();
-    });
+    const relatedSubnets = subnets
+      .filter((s) => {
+        if (!isVpcOvnSubnetTableRow(s)) return false;
+        const targetVpc = SafeRead.subnetVpc(s);
+        return String(targetVpc).trim() === String(vpcName).trim();
+      })
+      .sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
 
     if (relatedSubnets.length === 0) {
       return <div>暂无关联子网</div>;
@@ -805,9 +732,9 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     return (
       <div style={{ padding: 12,  background: '#EDF0F7', border: '1px solid #e5e5e5', borderRadius: 8 }}>
         <Table
-          className="vpc-expanded-subnet-table"
+          className="std-table vpc-expanded-subnet-table"
           tableLayout="fixed"
-          scroll={{ x: 980 }}
+          scroll={{ x: true }}
           columns={subnetColumns}
           dataSource={relatedSubnets}
           pagination={false}
@@ -892,8 +819,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         columns={tableColumns}
         dataSource={dataSource}
         loading={loading}
+        scroll={{ x: true }}
         pagination={{
-          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
         expandable={{
@@ -912,111 +839,29 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         cloudId={cloudId}
       />
 
-      <Modal
-        title={`${isEditSubnet ? '编辑 VPC 子网' : '添加 VPC 子网'} (VPC: ${targetVpc})`}
-        open={createSubnetModalVisible}
-        onOk={handleSubnetModalSubmit}
-        onCancel={() => setCreateSubnetModalVisible(false)}
-        confirmLoading={creatingSubnet}
-        okText={isEditSubnet ? '确定' : '创建'}
-        cancelText="取消"
-        width={600}
-        destroyOnHidden
-      >
-        <Form form={subnetForm} layout="vertical">
-          <Form.Item
-            name="name"
-            label="名称"
-            rules={[
-              { required: true, message: '请输入子网名称' },
-            ]}
-          >
-            <Input placeholder="请输入子网名称 (支持中文)" />
-          </Form.Item>
+      <CreateVpcSubnetModal
+        open={vpcSubnetModalOpen}
+        onClose={() => {
+          setVpcSubnetModalOpen(false);
+          setVpcSubnetEditMode(false);
+          setVpcSubnetEditingRecord(null);
+          setVpcSubnetPresetVpcId(null);
+          setVpcSubnetCreateNs(null);
+          setVpcSubnetModalTitleSuffix('');
+        }}
+        isEditMode={vpcSubnetEditMode}
+        editingRecord={vpcSubnetEditingRecord}
+        cloudId={cloudId}
+        hasVpcsWrite={hasVpcsWrite}
+        vpcPickerRows={vpcPickerRows}
+        subnets={vpcOnlySubnets}
+        onRefresh={onRefresh}
+        presetVpcId={vpcSubnetPresetVpcId}
+        createSubnetNamespace={vpcSubnetCreateNs}
+        modalTitleSuffix={vpcSubnetModalTitleSuffix}
+        refreshOpts={{ vpcsAll: vpcsQueryAll }}
+      />
 
-          <Form.Item
-            name="cidrBlock"
-            label="CIDR"
-            rules={[
-              { required: true, message: '请输入 CIDR' },
-              { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]+$/, message: '请输入有效的 CIDR 格式 (e.g. 10.0.1.0/24)' }
-            ]}
-          >
-            <Input placeholder="e.g. 10.0.1.0/24" />
-          </Form.Item>
-
-          <Form.Item
-            name="gateway"
-            label="网关"
-            rules={[
-              { required: true, message: '请输入网关 IP' },
-              { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入有效的 IP 地址' }
-            ]}
-          >
-            <Input placeholder="e.g. 10.0.1.1" />
-          </Form.Item>
-
-          <Form.Item
-            name="protocol"
-            label="协议"
-            initialValue="IPv4"
-          >
-            <Radio.Group>
-              <Radio.Button value="IPv4">IPv4</Radio.Button>
-              <Radio.Button value="IPv6" disabled>IPv6 (暂不支持)</Radio.Button>
-            </Radio.Group>
-          </Form.Item>
-
-          <Space size={24}>
-            <Form.Item
-              name="nat"
-              label="NAT"
-              valuePropName="checked"
-              tooltip="是否启用 NAT 转发"
-            >
-              <Switch />
-            </Form.Item>
-            
-            <Form.Item
-              name="allowDhcp"
-              label="DHCP"
-              valuePropName="checked"
-              tooltip="是否启用 DHCP 服务"
-            >
-              <Switch />
-            </Form.Item>
-          </Space>
-
-          <Form.Item
-            label="排除 IP 范围"
-            tooltip="这些 IP 将不会分配给 Pod 或 VM"
-            style={{ marginBottom: 0 }}
-          >
-            <Form.List name="excludeIps">{(fields, { add, remove }) => (
-                <>
-                  {fields.map(({ key, name, ...restField }) => (
-                    <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                      <Form.Item
-                        {...restField}
-                        name={name}
-                        rules={[{ required: true, message: '请输入 IP 或 IP 范围' }]}
-                        style={{ width: 300, marginBottom: 0 }}
-                      >
-                        <Input placeholder="IP 或 CIDR (e.g. 10.0.1.10..10.0.1.20)" />
-                      </Form.Item>
-                      <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
-                    </Space>
-                  ))}
-                  <Form.Item style={{ marginTop: 8 }}>
-                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                      添加排除 IP
-                    </Button>
-                  </Form.Item>
-                </>
-              )}</Form.List>
-          </Form.Item>
-        </Form>
-      </Modal>
 
       <Modal
         title={isEditVpc ? "编辑 VPC" : "创建 VPC"}
@@ -1057,7 +902,11 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
               options={namespaces
                 .filter((n: any) => {
                   const name = n?.metadata?.name || n?.name || '';
-                  return name && !isSystemNamespace(name);
+                  if (!name || isSystemNamespace(name)) return false;
+                  if (isVpcBindNamespaceExcluded(name)) {
+                    return isEditVpc && editVpcBoundNamespace === name;
+                  }
+                  return true;
                 })
                 .map((n: any) => {
                   const name = n.metadata?.name || n.name || '';
@@ -1078,18 +927,34 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
                       <Form.Item
                         {...restField}
                         name={[name, 'cidr']}
-                        rules={[{ required: true, message: '请输入 CIDR' }]}
+                        rules={[
+                          { required: true, message: '请输入目的网段 CIDR', whitespace: true },
+                          {
+                            validator: async (_: unknown, value: unknown) => {
+                              const err = validateIpv4CidrNotation(String(value ?? ''));
+                              if (err) throw new Error(err);
+                            },
+                          },
+                        ]}
                         style={{ width: 200, marginBottom: 0 }}
                       >
-                        <Input placeholder="CIDR (e.g. 192.168.0.0/24)" />
+                        <Input placeholder="例如 192.168.0.0/24" />
                       </Form.Item>
                       <Form.Item
                         {...restField}
                         name={[name, 'nextHopIP']}
-                        rules={[{ required: true, message: '请输入下一跳 IP' }]}
+                        rules={[
+                          { required: true, message: '请输入下一跳 IP', whitespace: true },
+                          {
+                            validator: async (_: unknown, value: unknown) => {
+                              const err = validateIpv4HostAddress(String(value ?? ''));
+                              if (err) throw new Error(err);
+                            },
+                          },
+                        ]}
                         style={{ width: 200, marginBottom: 0 }}
                       >
-                        <Input placeholder="Next Hop IP" />
+                        <Input placeholder="例如 10.0.0.1" />
                       </Form.Item>
                       <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
                     </Space>

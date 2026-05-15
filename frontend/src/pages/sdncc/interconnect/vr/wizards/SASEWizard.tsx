@@ -19,6 +19,11 @@ const SASEWizard: React.FC = () => {
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+  /** 仅首包设备回读用于初始化右翼编辑表；之后「刷新设备回读」只更左翼 mirror，不覆盖已编辑内容 */
+  const formSeededFromDeviceReadRef = React.useRef(false);
+  useEffect(() => {
+    formSeededFromDeviceReadRef.current = false;
+  }, [uuid]);
 
   const watchWanIf = Form.useWatch('wanInterface', form);
   const watchLanIf = Form.useWatch('lanInterface', form);
@@ -115,11 +120,10 @@ const SASEWizard: React.FC = () => {
     };
 
     mirrorForm.setFieldsValue(initialValues);
-    
-    // 直接复用设备回读的数据初始化用户编辑表单
-    // 仅在表单未被修改过或需要重置时覆盖？
-    // 根据需求：全面废弃缓存，复用回读数据 -> 意味着每次回读更新，编辑框也应该更新
-    form.setFieldsValue(initialValues);
+    if (!formSeededFromDeviceReadRef.current) {
+      formSeededFromDeviceReadRef.current = true;
+      form.setFieldsValue(initialValues);
+    }
 
   }, [deviceCfg, mirrorForm, form]);
 

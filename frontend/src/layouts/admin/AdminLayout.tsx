@@ -39,7 +39,7 @@ import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
 import { iconOf } from '../../components/PageContainer';
-import { apiPost, apiRequest, fetchClouds } from '../../services/api';
+import { apiPost, apiRequest } from '../../services/api';
 import { getPublicAdminPasswordPolicy } from '../../services/systemApi';
 import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../../utils/markdown';
@@ -147,6 +147,59 @@ function firstMenuPathInCenter(center: { items?: unknown[] }): string | null {
   return typeof key === 'string' && key.startsWith('/') ? key : null;
 }
 
+/** 组内菜单：含 `parentId` 的项挂到父 `RouteSpec` 下为子菜单（如 安全资源池 → 资源池列表 + 防护对象管理） */
+function buildGroupMenuChildren(specs: RouteSpec[]) {
+  const sorted = [...specs].sort((a: any, b: any) => Number(a.order ?? 0) - Number(b.order ?? 0));
+  return sorted
+    .filter((s) => !s.parentId)
+    .map((root) => {
+      const subs = sorted
+        .filter((s) => s.parentId === root.id)
+        .sort((a: any, b: any) => Number(a.order ?? 0) - Number(b.order ?? 0));
+      if (subs.length === 0) {
+        return {
+          key: root.path,
+          label: root.title || root.breadcrumbLabel || root.id,
+          icon: iconOf(root.icon),
+          requiredFeature: root.requiredFeature,
+        };
+      }
+      return {
+        key: `__sub__${root.id}`,
+        label: root.title || root.breadcrumbLabel || root.id,
+        icon: iconOf(root.icon),
+        requiredFeature: root.requiredFeature,
+        children: [
+          { key: root.path, label: '资源池列表', requiredFeature: root.requiredFeature },
+          ...subs.map((s) => ({
+            key: s.path,
+            label: s.title || s.breadcrumbLabel || s.id,
+            requiredFeature: s.requiredFeature,
+          })),
+        ],
+      };
+    });
+}
+
+/** 当前路径在侧栏 `items` 树中对应的各级 SubMenu 的 `openKeys`（无嵌套时为空数组，仅展开分组） */
+function findMenuOpenKeyChainForPath(items: unknown[] | undefined, currentPath: string, ancestors: string[] = []): string[] | null {
+  if (!items?.length) return null;
+  for (const raw of items) {
+    const item = raw as { key?: string; children?: unknown[] };
+    const k = String(item.key ?? '');
+    const keyPath = k.split('?')[0];
+    if (k.startsWith('/') && keyPath === currentPath) {
+      return ancestors;
+    }
+    if (item.children?.length) {
+      const nextAnc = k && !k.startsWith('/') ? [...ancestors, k] : ancestors;
+      const hit = findMenuOpenKeyChainForPath(item.children, currentPath, nextAnc);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
 /** 由当前路径解析应高亮的平台侧栏 key */
 function sidebarForPath(p: string): string {
   const found = routeSpecs.find((r) => {
@@ -167,9 +220,6 @@ function sidebarForPath(p: string): string {
   }
 
   const s = p.toLowerCase();
-  if (s.includes('/admin/paas')) {
-    return '/admin/cen_compute';
-  }
   if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security/traffic')) {
     return '/admin/cen_sdn';
   }
@@ -536,7 +586,7 @@ const AdminLayout: React.FC = () => {
     const gen = ++summaryLoadGenRef.current;
     setSummaryLoading(true);
     try {
-      const raw = await fetchClouds();
+      const raw = await apiRequest('/api/clouds', { skipCache: true });
       if (gen !== summaryLoadGenRef.current) return;
       const list = Array.isArray(raw) ? raw : (raw?.data || []);
       setSummaryClouds((Array.isArray(list) ? list : []) as Cloud[]);
@@ -618,10 +668,7 @@ const AdminLayout: React.FC = () => {
         key: `${pf}_${grp}`,
         label: grp,
         icon: groupIconOf(pf, grp as string),
-        children: groupedSpecs
-          .filter(s => s.group === grp)
-          .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
-          .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature })),
+        children: buildGroupMenuChildren(groupedSpecs.filter((s) => s.group === grp)),
       }));
     return ({
       key,
@@ -1124,35 +1171,20 @@ const AdminLayout: React.FC = () => {
 
     const currentPath = location.pathname.split('?')[0]; // 移除查询参数
 
-    // 查找包含当前路径的分组
-    const activeGroup = (center.items || []).find((item: any) => {
-      // 如果是分组（有 children），检查其子项是否包含当前路径
-      if (item.children && Array.isArray(item.children)) {
-        return item.children.some((child: any) => {
-          const childPath = String(child.key || '').split('?')[0];
-          return childPath === currentPath;
-        });
-      }
-      // 如果是顶级菜单项，检查是否匹配当前路径
-      const itemPath = String(item.key || '').split('?')[0];
-      return itemPath === currentPath;
-    });
-
-    // 如果找到分组，展开它；否则保持当前展开状态
-    if (activeGroup && activeGroup.children) {
-      const groupKey = activeGroup.key;
-      const sig = `path|${activeSidebarKey}|${currentPath}`;
+    const chain = findMenuOpenKeyChainForPath(center.items, currentPath);
+    if (chain && chain.length > 0) {
+      const sig = `path|${activeSidebarKey}|${currentPath}|${chain.join('>')}`;
       if (lastSidebarAutoExpandSigRef.current === sig) return;
       lastSidebarAutoExpandSigRef.current = sig;
       setOpenKeys((prev) => {
-        if (prev.includes(groupKey)) return prev;
-
-        // 只保留当前平台的展开状态，避免切平台后残留其它平台的 openKeys
-        const pfPrefix = String(groupKey).split('_')[0];
+        const firstKey = chain[0];
+        const pfPrefix = String(firstKey).split('_')[0];
         const nextBase = prev.filter((k) => String(k).startsWith(pfPrefix + '_'));
-
-        // 保留其它已展开分组，只新增当前分组到 openKeys，避免“点第一个分组导致其它折叠”
-        return [...nextBase, groupKey];
+        const merged = [...nextBase];
+        for (const k of chain) {
+          if (!merged.includes(k)) merged.push(k);
+        }
+        return merged;
       });
     }
   }, [collapsed, activeSidebarKey, location.pathname, sidebarCentersForMenu, poolSelectedMenuKey]);

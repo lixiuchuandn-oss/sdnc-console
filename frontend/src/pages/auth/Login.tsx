@@ -41,7 +41,9 @@ const Login: React.FC = () => {
         navigate(String(home?.defaultPath || '/admin/coming-soon').trim() || '/admin/coming-soon');
       }
     } catch (error) {
-      message.error('登录失败，请检查用户名和密码');
+      const msg =
+        error instanceof Error && error.message.trim() ? error.message.trim() : '登录失败';
+      message.error(msg);
     } finally {
       setLoading(false);
     }

@@ -2,7 +2,7 @@
  * ==============================================================================
  * Kube-OVN 子网详情抽屉（扁平/公共子网、VPC 子网）
  * ==============================================================================
- * 布局对齐 HarvesterVmDetailDrawer（顶栏、Segmented）；详情 Card 样式对齐 provider-network-detail-drawer/ProviderNetworkDetailDrawer「网络信息」；ACL 区标题行对齐「网络规划」。
+ * 布局对齐 VmDetailDrawer（顶栏、Segmented）；详情 Card 样式对齐 provider-network-detail-drawer/ProviderNetworkDetailDrawer「网络信息」；ACL 区标题行对齐「网络规划」。
  * 用于：虚拟机创建向导、资源列表页等。
  * ==============================================================================
  */
@@ -120,7 +120,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
     [perms],
   );
 
-  /** 与 HarvesterVmDetailDrawer 的 vmData 一致：抽屉内统一数据源，列表刷新时合并同名字段 */
+  /** 与 VmDetailDrawer 的 vmData 一致：抽屉内统一数据源，列表刷新时合并同名字段 */
   const [subnetData, setSubnetData] = useState<any | null>(null);
   const [localActiveTab, setLocalActiveTab] = useState<SubnetDetailDrawerTabKey>(initialTab);
   const [loadingTopo, setLoadingTopo] = useState(false);
@@ -573,7 +573,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
     <Drawer
       open={open}
       onClose={onClose}
-      width={activeKey === 'acl' ? 1100 : 900}
+      width={800}
       placement="right"
       destroyOnClose
       closable={false}

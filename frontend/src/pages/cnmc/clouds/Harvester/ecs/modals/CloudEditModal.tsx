@@ -1,17 +1,48 @@
-import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Row, Col, Select, Switch, Space, Button, message } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Modal, Form, Input, Row, Col, Select, Switch, Space, Button, message, Cascader } from 'antd';
 import { apiPost, apiPut } from '../../../../../../services/api';
-import { 
-  Cloud, 
-  getCredentialLabels, 
-  resolvePoolTypeLabel
+import {
+  Cloud,
+  getCredentialLabels,
+  resolvePoolTypeLabel,
+  getCloudProviderRegionField,
 } from '../../../../pools/poolProviders';
+import { provinces, cityOptionsByProvince } from '../../../../../../constants/chinaRegions';
 
 interface CloudEditModalProps {
   visible: boolean;
   onCancel: () => void;
   onSuccess: () => void;
   cloud: Cloud | null;
+}
+
+/** Cloudmap 私有云：stored region 字符串 → 级联控件初值（与 CloudWizard submit 语义一致） */
+function parseStoredRegionForCascader(stored: string | undefined): (string | number)[] | undefined {
+  const s = stored?.trim() || '';
+  if (!s || s === 'default') return undefined;
+  const idx = s.indexOf('/');
+  if (idx === -1) return [s];
+  return [s.slice(0, idx).trim(), s.slice(idx + 1).trim()];
+}
+
+function normalizeRegionSubmit(
+  providerId: string | undefined,
+  raw: unknown,
+): string {
+  if (providerId === 'cloudmap.private') {
+    if (Array.isArray(raw) && raw.length >= 2) {
+      const a = String(raw[0] ?? '').trim();
+      const b = String(raw[1] ?? '').trim();
+      if (a && b) return `${a}/${b}`;
+    }
+    if (Array.isArray(raw) && raw.length === 1 && String(raw[0] ?? '').trim()) {
+      return String(raw[0]).trim();
+    }
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    return 'default';
+  }
+  if (raw == null) return '';
+  return typeof raw === 'string' ? raw.trim() : String(raw);
 }
 
 const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSuccess, cloud }) => {
@@ -21,6 +52,23 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
   const [revealLoading, setRevealLoading] = useState(false);
   const [akVisible, setAkVisible] = useState(false);
   const [skVisible, setSkVisible] = useState(false);
+
+  const regionCascaderOptions = useMemo(
+    () =>
+      provinces.map((province) => ({
+        value: province,
+        label: province,
+        children: (cityOptionsByProvince[province] || []).map((city) => ({
+          value: city,
+          label: city,
+        })),
+      })),
+    []
+  );
+
+  const providerId = cloud?.config?.provider as string | undefined;
+  const regionField = useMemo(() => getCloudProviderRegionField(providerId), [providerId]);
+  const regionRequired = !(regionField && regionField.required === false);
 
   const getTypeText = (type: string) => resolvePoolTypeLabel(type);
 
@@ -49,7 +97,6 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         secretKey: res.secretKey,
       });
 
-      // Automatically show the revealed keys
       setAkVisible(true);
       setSkVisible(true);
 
@@ -67,16 +114,19 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
     if (visible && cloud) {
       const provider = (cloud as any)?.config?.provider as string | undefined;
       const isCloudmapPrivate = provider === 'cloudmap.private' || provider === 'cloudmap.edge';
-      
+
+      let regionInit: unknown = cloud.region;
+      if (provider === 'cloudmap.private') {
+        regionInit = parseStoredRegionForCascader(cloud.region);
+      }
+
       form.setFieldsValue({
         name: cloud.name,
         description: cloud.description,
-        region: cloud.region,
+        region: regionInit,
         endpoint: cloud.endpoint,
-        // 对于 cloudmap.private，apiToken 存储在 secretKey 中，也可能在 config.apiToken 中
-        accessKey: isCloudmapPrivate ? '' : (cloud.accessKey || ''), // Pre-fill with redacted key
+        accessKey: isCloudmapPrivate ? '' : cloud.accessKey || '',
         secretKey: cloud.secretKey || (cloud as any)?.config?.apiToken || '',
-        // 高级参数（从 config 预填，如果不存在则默认为 true）
         ignoreTls: cloud?.config?.ignoreTls !== undefined ? !!cloud?.config?.ignoreTls : true,
         harvesterVersion: cloud?.config?.harvesterVersion || 'auto',
       });
@@ -90,22 +140,19 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         return;
       }
 
-      // 过滤掉空的或未修改的accessKey和secretKey
+      const prevCfg = (cloud as any)?.config || {};
+      const pv = providerId;
+      const regionOut = normalizeRegionSubmit(pv, values.region);
+
       const submitData: any = {
         name: values.name,
         description: values.description,
-        region: values.region,
+        region: regionOut,
         endpoint: values.endpoint,
       };
-      
-      // Check if accessKey/secretKey is changed from the redacted version
-      // If fetched (plain text), it will be different from cloud.accessKey (redacted) -> submit new
-      // If modified by user -> submit new
-      // If untouched (redacted) -> do not submit
-      // 对于 cloudmap.private 和 cloudmap.edge，不提交 accessKey
-      const provider = (cloud as any)?.config?.provider as string | undefined;
-      const isCloudmapPrivate = provider === 'cloudmap.private' || provider === 'cloudmap.edge';
-      
+
+      const isCloudmapPrivate = pv === 'cloudmap.private' || pv === 'cloudmap.edge';
+
       if (!isCloudmapPrivate && values.accessKey && values.accessKey !== cloud?.accessKey) {
         submitData.accessKey = values.accessKey;
       }
@@ -113,20 +160,15 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         submitData.secretKey = values.secretKey;
       }
 
-      // 合并更新 config（保持 provider 不变）
-      const prevCfg = (cloud as any)?.config || {};
-
       submitData.config = {
         ...prevCfg,
         ignoreTls: !!values.ignoreTls,
-        // 对于 cloudmap.private 和 cloudmap.edge，强制使用 1.6 版本
-        harvesterVersion: isCloudmapPrivate ? '1.6' : (values.harvesterVersion || prevCfg.harvesterVersion || 'auto'),
+        harvesterVersion: isCloudmapPrivate ? '1.6' : values.harvesterVersion || prevCfg.harvesterVersion || 'auto',
         provider: prevCfg.provider,
       };
-      
-      // 后端使用 PUT 方法更新资源池
+
       await apiPut(`/api/clouds/${cloud.id}`, submitData);
-      
+
       message.success('云资源更新成功');
       onSuccess();
     } catch (error: any) {
@@ -140,133 +182,149 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
     }
   };
 
+  const regionLabel = regionField?.label || '地域';
+  const regionPlaceholder =
+    regionField?.placeholder || (providerId === 'cloudmap.private' ? '请选择省份/城市，默认为default' : '请输入地域');
+
+  const regionRules = regionRequired
+    ? [
+        {
+          required: true,
+          message: regionField?.type === 'select' ? '请选择地域' : '请输入地域',
+        },
+      ]
+    : [];
+
+  const renderRegionControl = () => {
+    if (providerId === 'cloudmap.private' && regionField?.type === 'cascader') {
+      return (
+        <Cascader
+          placeholder={regionPlaceholder}
+          options={regionCascaderOptions}
+          style={{ width: '100%' }}
+          showSearch={{
+            filter: (inputValue, path) =>
+              path.some((option: { label?: React.ReactNode }) =>
+                String(option.label).toLowerCase().includes(inputValue.toLowerCase())
+              ),
+          }}
+          changeOnSelect={false}
+        />
+      );
+    }
+
+    if (regionField?.type === 'select' && regionField.options?.length) {
+      return (
+        <Select placeholder={regionPlaceholder} style={{ width: '100%' }} allowClear={false}>
+          {regionField.options.map((option) => (
+            <Select.Option key={option.value} value={option.value}>
+              {option.label}
+            </Select.Option>
+          ))}
+        </Select>
+      );
+    }
+
+    return <Input placeholder={regionPlaceholder} />;
+  };
+
   return (
     <>
-      <Modal
-        title="编辑云资源"
-        open={visible}
-        onCancel={onCancel}
-        footer={null}
-        width={600}
-        centered
-        destroyOnHidden
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleEditSubmit}
-        >
-          {/* 分组：基础信息（无外卡片，仅标题 + 一列表单） */}
-            <div className="modal-group-title" style={{ marginTop: 16 }}>基础信息</div>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item label="资源类型">
-                  <Input value={getTypeText(String(cloud?.type || ''))} disabled />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="name"
-                  label="云资源池名称"
-                  rules={[{ required: true, message: '请输入云资源池名称' }]}
-                >
-                  <Input placeholder="请输入云资源池名称" />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Form.Item
-              name="description"
-              label="描述"
-              rules={[{ required: true, message: '请输入描述' }]}
-            >
-              <Input.TextArea placeholder="请输入描述" rows={1} />
-            </Form.Item>
-
-
-          {/* 分组：连接信息（无外卡片） */}
-          <div className="modal-group-title">连接信息</div>
+      <Modal title="编辑云资源" open={visible} onCancel={onCancel} footer={null} width={600} centered destroyOnHidden>
+        <Form form={form} layout="vertical" onFinish={handleEditSubmit}>
+          <div className="modal-group-title" style={{ marginTop: 16 }}>
+            基础信息
+          </div>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
-                name="region"
-                label="地域"
-                rules={[{ required: true, message: '请输入地域' }]}
-              >
-                <Input placeholder="请输入地域" />
+              <Form.Item label="资源类型">
+                <Input value={getTypeText(String(cloud?.type || ''))} disabled />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
-                name="endpoint"
-                label="端点"
-                rules={[{ required: true, message: '请输入端点' }]}
+                name="name"
+                label="云资源池名称"
+                rules={[{ required: true, message: '请输入云资源池名称' }]}
               >
+                <Input placeholder="请输入云资源池名称" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="description" label="描述" rules={[{ required: true, message: '请输入描述' }]}>
+            <Input.TextArea placeholder="请输入描述" rows={1} />
+          </Form.Item>
+
+          <div className="modal-group-title">连接信息</div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="region" label={regionLabel} rules={regionRules}>
+                {renderRegionControl()}
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="endpoint" label="端点" rules={[{ required: true, message: '请输入端点' }]}>
                 <Input placeholder="https://api.example.com" />
               </Form.Item>
             </Col>
           </Row>
 
-
-          {/* 分组：认证配置（动态标签，无外卡片） */}
           {(() => {
             const provider = cloud?.config?.provider as string | undefined;
             const { akLabel, skLabel, akPlaceholder, skPlaceholder } = getCredentialLabels(provider);
             const isHarvester = provider === 'harvester' || provider === 'cloudmap';
-            const isCloudmapPrivate = provider === 'cloudmap.private' || provider === 'cloudmap.edge';
-            
+            const isCloudmapPriv = provider === 'cloudmap.private' || provider === 'cloudmap.edge';
+
             return (
               <>
                 <div className="modal-group-title">认证配置</div>
                 <Row gutter={16}>
-                  {!isHarvester && !isCloudmapPrivate && (
+                  {!isHarvester && !isCloudmapPriv && (
                     <Col span={12}>
-                      <Form.Item
-                        name="accessKey"
-                        label={akLabel}
-                      >
+                      <Form.Item name="accessKey" label={akLabel}>
                         <Input.Password
                           placeholder={akPlaceholder}
                           visibilityToggle={{
                             visible: akVisible,
                             onVisibleChange: (v) => {
                               if (v) {
-                                // Trying to show
                                 const currentVal = form.getFieldValue('accessKey');
-                                // Check if it looks redacted (e.g. starts with *** or equals original redacted value)
-                                if (currentVal && (currentVal === cloud?.accessKey || String(currentVal).startsWith('***'))) {
-                                  // Trigger auth
+                                if (
+                                  currentVal &&
+                                  (currentVal === cloud?.accessKey || String(currentVal).startsWith('***'))
+                                ) {
                                   setRevealVisible(true);
-                                  return; // Do not show yet
+                                  return;
                                 }
                               }
                               setAkVisible(v);
-                            }
+                            },
                           }}
                         />
                       </Form.Item>
                     </Col>
                   )}
-                  <Col span={isHarvester || isCloudmapPrivate ? 24 : 12}>
-                    <Form.Item
-                      name="secretKey"
-                      label={skLabel}
-                    >
+                  <Col span={isHarvester || isCloudmapPriv ? 24 : 12}>
+                    <Form.Item name="secretKey" label={skLabel}>
                       <Input.Password
                         placeholder={skPlaceholder}
                         visibilityToggle={{
-                            visible: skVisible,
-                            onVisibleChange: (v) => {
-                              if (v) {
-                                const currentVal = form.getFieldValue('secretKey');
-                                if (currentVal && (currentVal === cloud?.secretKey || String(currentVal).startsWith('***'))) {
-                                  setRevealVisible(true);
-                                  return;
-                                }
+                          visible: skVisible,
+                          onVisibleChange: (v) => {
+                            if (v) {
+                              const currentVal = form.getFieldValue('secretKey');
+                              if (
+                                currentVal &&
+                                (currentVal === cloud?.secretKey || String(currentVal).startsWith('***'))
+                              ) {
+                                setRevealVisible(true);
+                                return;
                               }
-                              setSkVisible(v);
                             }
-                          }}
+                            setSkVisible(v);
+                          },
+                        }}
                       />
                     </Form.Item>
                   </Col>
@@ -275,7 +333,6 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
             );
           })()}
 
-          {/* 分组：高级选项（与创建向导一致） */}
           <div className="modal-group-title">高级选项</div>
           <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
             <Switch />
@@ -306,9 +363,7 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
               <Button type="primary" htmlType="submit">
                 更新
               </Button>
-              <Button onClick={onCancel}>
-                取消
-              </Button>
+              <Button onClick={onCancel}>取消</Button>
             </Space>
           </Form.Item>
         </Form>

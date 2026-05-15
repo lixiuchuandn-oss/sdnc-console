@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Descriptions, Form, Input, message, Row, Col, Space, Steps, Spin, Select, Switch, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -42,15 +42,24 @@ const StandardWizard: React.FC = () => {
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+  const prevVr3ListForEditRef = useRef<any>(null);
+  const prevWanForVr3Ref = useRef<string>('');
+  const prevLanForVr3Ref = useRef<string>('');
+  useEffect(() => {
+    prevVr3ListForEditRef.current = null;
+    prevWanForVr3Ref.current = '';
+    prevLanForVr3Ref.current = '';
+  }, [uuid]);
 
   const watchWanIf = Form.useWatch('wanInterface', form);
   const watchLanIf = Form.useWatch('lanInterface', form);
   const wanIfTrim = watchWanIf ? String(watchWanIf).trim() : '';
   const lanIfTrim = watchLanIf ? String(watchLanIf).trim() : '';
 
-  /** 网卡 IPv4/IPv6 仅从 VR3 list 回填，无则置空 */
+  /** 网卡 IPv4/IPv6 仅从 VR3 list 回填，无则置空（「刷新设备回读」只更 VR3 数据时勿覆盖右翼，除非用户改了 WAN/LAN 口名） */
   useEffect(() => {
     if (!vr3ListCfg) {
+      prevVr3ListForEditRef.current = null;
       form.setFieldsValue({
         wanIpv4: undefined,
         wanIpv6: undefined,
@@ -61,6 +70,14 @@ const StandardWizard: React.FC = () => {
     }
     const wi = watchWanIf ? String(watchWanIf).trim() : '';
     const li = watchLanIf ? String(watchLanIf).trim() : '';
+    const nameChanged = prevWanForVr3Ref.current !== wi || prevLanForVr3Ref.current !== li;
+    if (prevVr3ListForEditRef.current != null && !nameChanged) {
+      prevVr3ListForEditRef.current = vr3ListCfg;
+      return;
+    }
+    prevWanForVr3Ref.current = wi;
+    prevLanForVr3Ref.current = li;
+    prevVr3ListForEditRef.current = vr3ListCfg;
     const wo = wi ? findIfaceInVr3List(vr3ListCfg, wi) : null;
     const lo = li ? findIfaceInVr3List(vr3ListCfg, li) : null;
     form.setFieldsValue({

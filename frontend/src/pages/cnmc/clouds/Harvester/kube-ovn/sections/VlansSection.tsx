@@ -234,6 +234,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         dataIndex: 'displayAlias',
         key: 'displayAlias',
         ellipsis: true,
+        fixed: 'left' as const,
         render: (text: string) => {
           const s = String(text || '').trim() || '—';
           return (
@@ -249,7 +250,6 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         dataIndex: 'metadataName',
         key: 'metadataName',
         ellipsis: true,
-        width: 160,
         render: (text: string) => (
           <Tooltip title="Kubernetes 中 Vlan 对象的 metadata.name，创建后不可改">
             <span>{text ?? '—'}</span>
@@ -306,8 +306,8 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
             {
               title: '操作',
               key: 'action',
-              width: 80,
               align: 'left' as const,
+              fixed: 'right' as const,
               render: (_: unknown, record: any) => (
                 <ResourceActionsDropdown
                   buttonProps={{ className: 'row-actions-trigger' }}
@@ -334,8 +334,8 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
             {
               title: '操作',
               key: 'action',
-              width: 88,
               align: 'left' as const,
+              fixed: 'right' as const,
               render: (_: unknown, record: any) => (
                 <ResourceActionsDropdown
                   buttonProps={{ className: 'row-actions-trigger' }}
@@ -411,7 +411,8 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         dataSource={tableRows}
         rowKey={(r) => r.key}
         loading={tableLoading}
-        pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
+        scroll={{ x: true }}
+        pagination={{ showTotal: (total) => `共 ${total} 条` }}
       />
 
       <ProviderNetworkDetailDrawer
