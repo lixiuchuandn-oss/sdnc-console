@@ -286,6 +286,89 @@ export async function harvesterCephRookObjectStoreDeleteHandler(req: Request, re
   }
 }
 
+// ---- CephObjectStoreUser（RGW 用户 / S3 密钥由 Operator 写入 Secret）----
+
+export async function harvesterCephRookObjectStoreUserGetHandler(req: Request, res: Response) {
+  const cloud = (req as any).cloud;
+  if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+  if (!requireNsName(req, res)) return;
+  try {
+    const data = await rookGetOne(
+      cloud,
+      CEPH_ROOK_STEVE.objectStoreUsers,
+      req.params.namespace,
+      req.params.name,
+    );
+    res.json(data);
+  } catch (e: any) {
+    sendSteveErr(res, e);
+  }
+}
+
+export async function harvesterCephRookObjectStoreUserCreateHandler(req: Request, res: Response) {
+  const cloud = (req as any).cloud;
+  if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+  try {
+    const data = await rookCreate(cloud, CEPH_ROOK_STEVE.objectStoreUsers, req.body);
+    res.status(201).json(data);
+  } catch (e: any) {
+    sendSteveErr(res, e);
+  }
+}
+
+export async function harvesterCephRookObjectStoreUserReplaceHandler(req: Request, res: Response) {
+  const cloud = (req as any).cloud;
+  if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+  if (!requireNsName(req, res)) return;
+  try {
+    const data = await rookReplace(
+      cloud,
+      CEPH_ROOK_STEVE.objectStoreUsers,
+      req.params.namespace,
+      req.params.name,
+      req.body,
+    );
+    res.json(data);
+  } catch (e: any) {
+    sendSteveErr(res, e);
+  }
+}
+
+export async function harvesterCephRookObjectStoreUserPatchHandler(req: Request, res: Response) {
+  const cloud = (req as any).cloud;
+  if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+  if (!requireNsName(req, res)) return;
+  try {
+    const data = await rookPatchMerge(
+      cloud,
+      CEPH_ROOK_STEVE.objectStoreUsers,
+      req.params.namespace,
+      req.params.name,
+      req.body,
+    );
+    res.json(data);
+  } catch (e: any) {
+    sendSteveErr(res, e);
+  }
+}
+
+export async function harvesterCephRookObjectStoreUserDeleteHandler(req: Request, res: Response) {
+  const cloud = (req as any).cloud;
+  if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+  if (!requireNsName(req, res)) return;
+  try {
+    const data = await rookDelete(
+      cloud,
+      CEPH_ROOK_STEVE.objectStoreUsers,
+      req.params.namespace,
+      req.params.name,
+    );
+    respondDelete(res, data);
+  } catch (e: any) {
+    sendSteveErr(res, e);
+  }
+}
+
 // ---- CephBlockPoolRadosNamespace ----
 
 export async function harvesterCephRookRadosNamespaceGetHandler(req: Request, res: Response) {

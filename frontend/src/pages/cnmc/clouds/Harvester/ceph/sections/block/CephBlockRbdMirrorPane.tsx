@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Button, Input, Table, Typography } from 'antd';
+import { Button, Input, Table } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../../../components/PageDetailSection';
@@ -80,10 +80,6 @@ const CephBlockRbdMirrorPane: React.FC<CephBlockRbdMirrorPaneProps> = ({
         <Button icon={<ReloadOutlined />} onClick={() => void load(true)} loading={loading} />
       }
     >
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 13 }}>
-        列表与 Ceph Dashboard「块」扩展能力对齐：对应 Rook `CephRBDMirror`。当前仅支持查看详情；创建/变更请在集群侧或通过
-        kubectl 完成。
-      </Typography.Paragraph>
       <Table<CephRbdMirrorRow>
         className="std-table"
         bordered={false}
@@ -96,7 +92,7 @@ const CephBlockRbdMirrorPane: React.FC<CephBlockRbdMirrorPaneProps> = ({
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条`,
         }}
-        locale={{ emptyText: mirrorRows.length === 0 && !loading ? '集群中未配置 RBD Mirror' : undefined }}
+        locale={{ emptyText: mirrorRows.length === 0 ? '集群中未配置 RBD Mirror' : undefined }}
       />
     </PageDetailSection>
   );

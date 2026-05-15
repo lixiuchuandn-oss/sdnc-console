@@ -152,7 +152,7 @@ frontend/src/
 
 ### `components/`
 
-全局复用组件，例如：`PageContainer` / `PageDetailContainer` / `PageDetailSection`，`StdSideDrawer`，`TableColumnSettingsButton`（配合 `hooks/useTableColumnSettings`），`ResourceActionsDropdown`，`AdminRoute` / `PrivateRoute` 等。表单类弹窗统一使用 Ant Design `Modal` + `Form`。
+全局复用组件，例如：`PageContainer` / `PageDetailContainer` / `PageDetailSection`，`StdSideDrawer`，`TableColumnSettingsButton`（配合 `hooks/useTableColumnSettings`），`ResourceActionsDropdown`，`AdminRoute` / `PrivateRoute` 等。列表加载使用 **`antd` `Table` 的 `loading`**（见 `deployment/docs/specs/frontend-loading-skeleton.md`）。表单类弹窗统一使用 Ant Design `Modal` + `Form`。
 
 **注意**：CNMC 下**强业务**、且仅某一云或某一域使用的块，优先放在对应 `pages/cnmc/...` 域内，避免无故塞进全局 `components/`（见 §9 反模式）。
 

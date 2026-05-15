@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ExpandOutlined, ReloadOutlined, ZoomInOutlined, ZoomOutOutlined } from '@ant-design/icons';
-import { Alert, Button, Empty, Segmented, Select, Spin, message } from 'antd';
+import { Alert, Button, Empty, Segmented, Select, message } from 'antd';
 import type { ReactFlowInstance } from 'react-flow-renderer';
 import {
   fetchAswCtlSwitchesSummary,
@@ -28,6 +28,11 @@ const CHART_MIN_HEIGHT_PX = 280;
 
 /** 与 ProviderNetworkTopologyGraph 中 fitViewOptions 一致，悬浮条「适配画布」与之对齐 */
 const FLOW_FIT_VIEW_OPTIONS = { padding: 0.18, maxZoom: 1.05 } as const;
+
+/** 悬浮缩放：`title` 仅在无画布时提示 */
+function flowZoomButtonTitle(canvasMissing: boolean, verb: string): string {
+  return canvasMissing ? '暂无拓扑画布' : verb;
+}
 
 /** 外层面板：相对定位供工具条悬浮；画板高度由 ResizeObserver 写像素 */
 const TAB_PANEL_TOPOLOGY: React.CSSProperties = {
@@ -90,9 +95,10 @@ type Props = {
 const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
+  /** 首轮并行拉数结束后再做 React Flow 尺寸与 fitView，避免骨架/隐藏阶段宽高为 0 */
+  const [chartLayoutGate, setChartLayoutGate] = useState(false);
 
   const [chartHostHeight, setChartHostHeight] = useState(0);
-  const [flowCtlReady, setFlowCtlReady] = useState(false);
   const [providers, setProviders] = useState<KubeListItem[]>([]);
   const [userSelectedPn, setUserSelectedPn] = useState<string | undefined>();
   /** 集群网络拓扑在多条集群网络时与物理网络一样用 Select 切换 */
@@ -225,13 +231,43 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
   }, [loadClusterNetworks, loadPhysicalUnderlay, loadProviders, loadSubnets, loadVlans]);
 
   useEffect(() => {
+    setChartLayoutGate(false);
+  }, [cloudId, canReadNetworkScope]);
+
+  useEffect(() => {
+    if (!cloudId || !canReadNetworkScope) {
+      setChartLayoutGate(true);
+    }
+  }, [cloudId, canReadNetworkScope]);
+
+  useEffect(() => {
     if (!cloudId || !canReadNetworkScope) return;
-    void loadVlans(true);
-    void loadProviders();
-    void loadSubnets();
-    void loadPhysicalUnderlay();
-    void loadClusterNetworks();
-  }, [cloudId, canReadNetworkScope, loadClusterNetworks, loadPhysicalUnderlay, loadProviders, loadSubnets, loadVlans]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        await Promise.all([
+          loadVlans(true),
+          loadProviders(),
+          loadSubnets(),
+          loadPhysicalUnderlay(),
+          loadClusterNetworks(),
+        ]);
+      } finally {
+        if (!cancelled) setChartLayoutGate(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cloudId,
+    canReadNetworkScope,
+    loadClusterNetworks,
+    loadPhysicalUnderlay,
+    loadProviders,
+    loadSubnets,
+    loadVlans,
+  ]);
 
   useEffect(() => {
     if (providers.length === 0) return;
@@ -412,22 +448,59 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
 
   const bootstrapping = providersLoading && providers.length === 0;
 
-  useEffect(() => {
-    flowInstanceRef.current = null;
-    setFlowCtlReady(false);
-  }, [topoView, effectiveClusterNetworkName]);
-
-  useEffect(() => {
-    if (topoView !== 'underlay') return;
-    if (bootstrapping || !effectivePn) {
-      flowInstanceRef.current = null;
-      setFlowCtlReady(false);
+  /**
+   * 画布实例代数指纹（与内部 React Flow `flowKey` 对齐）；变更时清空实例引用，避免指向已卸载画布。
+   * 不再维护「画布加载中」UI 状态或据此禁用缩放按钮。
+   */
+  const flowStaleFingerprint = useMemo(() => {
+    if (topoView === 'underlay') {
+      return `underlay:${effectiveProviderName}:${vlanLoading}:${subnetLoading}:${physicalTopoLoading}`;
     }
-  }, [topoView, bootstrapping, effectivePn]);
+    return `cluster:${effectiveClusterNetworkName}:${clusterNetworksLoading}:${physicalTopoLoading}`;
+  }, [
+    topoView,
+    effectiveProviderName,
+    vlanLoading,
+    subnetLoading,
+    physicalTopoLoading,
+    effectiveClusterNetworkName,
+    clusterNetworksLoading,
+  ]);
+
+  useLayoutEffect(() => {
+    flowInstanceRef.current = null;
+  }, [flowStaleFingerprint]);
+
+  /** 当前 Tab 无可绘制画布时不持有失效实例引用 */
+  useLayoutEffect(() => {
+    if (topoView === 'underlay' && (bootstrapping || !effectivePn)) {
+      flowInstanceRef.current = null;
+      return;
+    }
+    if (topoView === 'cluster' && (clusterNetworksLoading || clusterNetworks.length === 0)) {
+      flowInstanceRef.current = null;
+    }
+  }, [
+    topoView,
+    bootstrapping,
+    effectivePn,
+    clusterNetworksLoading,
+    clusterNetworks.length,
+  ]);
+
+  /** Provider 首轮拉取结束或集群列表请求结束后展示缩放条；仅「无画布」时禁用按钮 */
+  const showFlowZoomToolbar =
+    (topoView === 'underlay' && !bootstrapping) ||
+    (topoView === 'cluster' && !clusterNetworksLoading);
+
+  const flowCanvasMissing =
+    (topoView === 'underlay' && !effectivePn) ||
+    (topoView === 'cluster' && clusterNetworks.length === 0);
+
+  const flowZoomButtonsDisabled = flowCanvasMissing;
 
   const onFlowReady = useCallback((inst: ReactFlowInstance) => {
     flowInstanceRef.current = inst;
-    setFlowCtlReady(true);
   }, []);
 
   const handleFlowZoomIn = useCallback(() => {
@@ -455,6 +528,30 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
       window.removeEventListener('resize', recalcChartHostHeight);
     };
   }, [recalcChartHostHeight, canReadNetworkScope, bootstrapping, effectivePn]);
+
+  /** 骨架阶段子树为 display:none，React Flow 初次 fitView 尺寸为 0；可见后需重算宿主高度并再次 fitView */
+  useLayoutEffect(() => {
+    if (!chartLayoutGate || !canReadNetworkScope) return;
+    recalcChartHostHeight();
+  }, [chartLayoutGate, canReadNetworkScope, recalcChartHostHeight]);
+
+  useEffect(() => {
+    if (!chartLayoutGate || !canReadNetworkScope) return;
+    const run = () => {
+      flowInstanceRef.current?.fitView?.(FLOW_FIT_VIEW_OPTIONS);
+    };
+    const id = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(run);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [
+    chartLayoutGate,
+    canReadNetworkScope,
+    chartHostHeight,
+    topoView,
+    effectiveProviderName,
+    effectiveClusterNetworkName,
+  ]);
 
   if (!canReadNetworkScope) {
     return (
@@ -496,32 +593,31 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
             options={clusterNetworkOptions}
           />
         ) : null}
-        {((topoView === 'underlay' && !bootstrapping && effectivePn) ||
-          (topoView === 'cluster' && !clusterNetworksLoading && clusterNetworks.length > 0)) ? (
+        {showFlowZoomToolbar ? (
           <>
             <Button
               type="default"
               size="middle"
               icon={<ZoomInOutlined />}
-              disabled={!flowCtlReady}
+              disabled={flowZoomButtonsDisabled}
               onClick={handleFlowZoomIn}
-              title="放大"
+              title={flowZoomButtonTitle(flowCanvasMissing, '放大')}
             />
             <Button
               type="default"
               size="middle"
               icon={<ZoomOutOutlined />}
-              disabled={!flowCtlReady}
+              disabled={flowZoomButtonsDisabled}
               onClick={handleFlowZoomOut}
-              title="缩小"
+              title={flowZoomButtonTitle(flowCanvasMissing, '缩小')}
             />
             <Button
               type="default"
               size="middle"
               icon={<ExpandOutlined />}
-              disabled={!flowCtlReady}
+              disabled={flowZoomButtonsDisabled}
               onClick={handleFlowFitView}
-              title="适配画布"
+              title={flowZoomButtonTitle(flowCanvasMissing, '适配画布')}
             />
           </>
         ) : null}
@@ -541,19 +637,7 @@ const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope 
       </div>
 
       {topoView === 'underlay' ? (
-        bootstrapping ? (
-          <div
-            style={{
-              flex: 1,
-              minHeight: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Spin tip="加载中…" />
-          </div>
-        ) : !effectivePn ? (
+        !effectivePn ? (
           <div style={{ ...NO_PN_EMPTY_WRAP, flex: 1, minHeight: 0 }}>
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无物理网络数据" />
           </div>

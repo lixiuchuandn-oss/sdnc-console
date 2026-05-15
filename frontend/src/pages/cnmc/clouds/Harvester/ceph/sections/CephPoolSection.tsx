@@ -1,21 +1,27 @@
 /** Ceph 存储池：列表与增删改走 Rook `CephBlockPool`（Tower `/ceph/rook`）；总览仍由 `CephStorageSection` 独立使用 Dashboard，勿混用。 */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Empty, Input, message, Popconfirm, Progress, Select, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
+import {
+  Alert,
+  Button,
+  Empty,
+  Input,
+  message,
+  Modal,
+  Progress,
+  Select,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
 import { DatabaseTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import { fetchCephPoolRbdConfiguration, fetchCephDashboardPools } from '../../../../../../services/monitoringApi';
+import { fetchCephDashboardPools } from '../../../../../../services/monitoringApi';
 import { deleteCephBlockPoolRook, fetchCephRookBundle } from '../../../../../../services/cephApi';
 import {
-  buildRbdPoolConfigurationTableRows,
-  type RbdPoolConfigurationTableRow,
-} from '../lib/cephRbdPoolConfiguration';
-import {
-  buildDashboardPoolGeneralDetailEntries,
-  buildDashboardPoolStatsDetailRows,
-  buildRookBlockPoolDetailEntries,
   cephBlockPoolRowToTableRow,
   cephBlockPoolToRow,
   cephDashboardPoolToTableRow,
@@ -23,16 +29,11 @@ import {
   enrichRookPoolRowWithDashboardStats,
   normalizeCephBundle,
   normalizeDashboardPoolListPayload,
-  type CephPoolDetailKV,
-  type CephPoolStatDetailRow,
   type CephPoolTableRow,
 } from '../lib/cephStorage';
 import CephPoolRookFormModal from '../modals/CephPoolRookFormModal';
 
 const TABLE_SETTINGS_KEY = 'harvester_ceph_pools_table_v4';
-
-/** 展开区三 Tab 内表格：保留 std-table 约定，行高由 `ceph-pool-detail-table` 覆盖收紧 */
-const POOL_DETAIL_TABLE_CLASS = 'std-table ceph-pool-detail-table';
 
 /** 尚无行时只保留与 Dashboard 池列表常见列，避免出现一堆空 Rook 专用列 */
 const POOL_COLUMNS_WHEN_EMPTY: readonly string[] = [
@@ -72,226 +73,6 @@ function filterPoolColumnsByRows(
   });
 }
 
-const POOL_DETAIL_KV_COLUMNS: ColumnsType<CephPoolDetailKV> = [
-  {
-    title: '字段',
-    dataIndex: 'label',
-    key: 'label',
-    width: 300,
-    fixed: 'left',
-    ellipsis: { showTitle: false },
-  },
-  {
-    title: '值',
-    dataIndex: 'value',
-    key: 'value',
-    render: (t: string) => (
-      <span style={{ display: 'block', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>
-        {t}
-      </span>
-    ),
-  },
-];
-
-const POOL_DETAIL_STAT_COLUMNS: ColumnsType<CephPoolStatDetailRow> = [
-  { title: '指标', dataIndex: 'label', key: 'label', width: 220, fixed: 'left', ellipsis: { showTitle: false } },
-  { title: '最新值', dataIndex: 'latest', key: 'latest', width: 160, ellipsis: { showTitle: false } },
-  { title: '速率', dataIndex: 'rate', key: 'rate', width: 120, ellipsis: { showTitle: false } },
-  { title: '序列', dataIndex: 'ratesHint', key: 'ratesHint', width: 120, ellipsis: { showTitle: false } },
-];
-
-/** 与 Ceph Dashboard Pools →「配置」一致：RBD 服务质量（QoS） */
-const POOL_RBD_CONFIGURATION_COLUMNS: ColumnsType<RbdPoolConfigurationTableRow> = [
-  { title: '名称', dataIndex: 'displayName', key: 'displayName', width: 140, fixed: 'left', ellipsis: { showTitle: false } },
-  {
-    title: '描述',
-    dataIndex: 'description',
-    key: 'description',
-    ellipsis: { showTitle: false },
-    render: (t: string) => (
-      <span style={{ fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>{t}</span>
-    ),
-  },
-  { title: '密钥', dataIndex: 'optionKey', key: 'optionKey', width: 220, ellipsis: { showTitle: false } },
-  { title: '来源', dataIndex: 'sourceLabel', key: 'sourceLabel', width: 72, ellipsis: { showTitle: false } },
-  { title: '值', dataIndex: 'valueDisplay', key: 'valueDisplay', width: 120, ellipsis: { showTitle: false } },
-];
-
-function CephPoolExpandedDetail({ record, cloudId }: { record: CephPoolTableRow; cloudId: string }) {
-  const raw = record.detailRaw;
-  const [rbdCfgRows, setRbdCfgRows] = useState<RbdPoolConfigurationTableRow[]>([]);
-  const [rbdCfgLoading, setRbdCfgLoading] = useState(false);
-  const [rbdCfgErr, setRbdCfgErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (record.source !== 'dashboard' || !cloudId.trim()) {
-      setRbdCfgRows([]);
-      setRbdCfgErr(null);
-      setRbdCfgLoading(false);
-      return;
-    }
-    const ac = new AbortController();
-    setRbdCfgLoading(true);
-    setRbdCfgErr(null);
-    void (async () => {
-      try {
-        const res = await fetchCephPoolRbdConfiguration(cloudId, record.name, { signal: ac.signal });
-        if (ac.signal.aborted) return;
-        if (!res.ok) {
-          setRbdCfgErr(res.error || `请求失败（HTTP ${res.status}）`);
-          setRbdCfgRows([]);
-          return;
-        }
-        setRbdCfgRows(buildRbdPoolConfigurationTableRows(res.data));
-      } catch (e: unknown) {
-        if (ac.signal.aborted) return;
-        setRbdCfgErr(e instanceof Error ? e.message : '加载配置失败');
-        setRbdCfgRows([]);
-      } finally {
-        if (!ac.signal.aborted) setRbdCfgLoading(false);
-      }
-    })();
-    return () => ac.abort();
-  }, [cloudId, record.source, record.name]);
-
-  if (raw == null) {
-    return (
-      <div style={{ padding: '12px 16px' }}>
-        <Typography.Text type="secondary">暂无原始数据</Typography.Text>
-      </div>
-    );
-  }
-
-  if (record.source === 'dashboard') {
-    const general = buildDashboardPoolGeneralDetailEntries(raw);
-    const statsRows = buildDashboardPoolStatsDetailRows(raw);
-    // Dashboard 展开区：浅底边框与全局表格区块一致，便于与主表区分
-    return (
-      <div
-        style={{
-          padding: '10px',
-          border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
-          borderRadius: 8,
-          background: '#fafafa',
-        }}
-      >
-        <Tabs
-          size="small"
-          items={[
-            {
-              key: 'detail',
-              label: '详细信息',
-              children: (
-                <Table<CephPoolDetailKV>
-                  className={POOL_DETAIL_TABLE_CLASS}
-                  size="small"
-                  rowKey="key"
-                  pagination={false}
-                  scroll={{ x: true, y: 440 }}
-                  columns={POOL_DETAIL_KV_COLUMNS}
-                  dataSource={general}
-                />
-              ),
-            },
-            {
-              key: 'perf',
-              label: '性能详细信息',
-              children:
-                statsRows.length > 0 ? (
-                  <Table<CephPoolStatDetailRow>
-                    className={POOL_DETAIL_TABLE_CLASS}
-                    size="small"
-                    rowKey="key"
-                    pagination={false}
-                    scroll={{ x: true, y: 440 }}
-                    columns={POOL_DETAIL_STAT_COLUMNS}
-                    dataSource={statsRows}
-                  />
-                ) : (
-                  <Empty description="无 stats 块（需 Dashboard api/pool?stats=true）" />
-                ),
-            },
-            {
-              key: 'cfg',
-              label: '配置',
-              children: (
-                <div style={{ minHeight: 100 }}>
-                  {rbdCfgLoading ? (
-                    <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                      <Spin />
-                    </div>
-                  ) : rbdCfgErr ? (
-                    <Alert type="warning" message={rbdCfgErr} showIcon />
-                  ) : (
-                    <Table<RbdPoolConfigurationTableRow>
-                      className={POOL_DETAIL_TABLE_CLASS}
-                      size="small"
-                      rowKey="key"
-                      pagination={false}
-                      scroll={{ x: true, y: 440 }}
-                      columns={POOL_RBD_CONFIGURATION_COLUMNS}
-                      dataSource={rbdCfgRows}
-                      locale={{
-                        emptyText: '暂无 RBD QoS 项（不完整池或 Dashboard 未返回配置列表）',
-                      }}
-                    />
-                  )}
-                </div>
-              ),
-            },
-          ]}
-        />
-      </div>
-    );
-  }
-
-  const rook = buildRookBlockPoolDetailEntries(raw);
-  return (
-    <div style={{ padding: '8px 12px 16px 48px', background: 'rgba(0,0,0,0.02)' }}>
-      <Tabs
-        size="small"
-        items={[
-          {
-            key: 'detail',
-            label: '详细信息',
-            children: (
-              <Table<CephPoolDetailKV>
-                className={POOL_DETAIL_TABLE_CLASS}
-                size="small"
-                rowKey="key"
-                pagination={false}
-                scroll={{ x: true, y: 440 }}
-                columns={POOL_DETAIL_KV_COLUMNS}
-                dataSource={rook.general}
-              />
-            ),
-          },
-          {
-            key: 'perf',
-            label: '性能详细信息',
-            children: <Empty description="Rook 列表无 RADOS 实时 stats，请使用 Dashboard 视图" />,
-          },
-          {
-            key: 'cfg',
-            label: '配置',
-            children: (
-              <Table<CephPoolDetailKV>
-                className={POOL_DETAIL_TABLE_CLASS}
-                size="small"
-                rowKey="key"
-                pagination={false}
-                scroll={{ x: true, y: 440 }}
-                columns={POOL_DETAIL_KV_COLUMNS}
-                dataSource={rook.config}
-              />
-            ),
-          },
-        ]}
-      />
-    </div>
-  );
-}
-
 function poolPhaseTagColor(phase: string): string {
   const u = phase.toUpperCase();
   if (u.includes('READY') && !u.includes('NOT')) return 'success';
@@ -299,6 +80,28 @@ function poolPhaseTagColor(phase: string): string {
   if (u.includes('PEND') || u.includes('PROGRESS') || u.includes('CREAT')) return 'processing';
   if (u.includes('WARN')) return 'warning';
   return 'default';
+}
+
+/** 从当前列表行收集去重选项，供 Select 筛选（忽略空与「—」）。 */
+function distinctFieldOptions(
+  rows: CephPoolTableRow[],
+  field: keyof CephPoolTableRow,
+  maxLabel = 48,
+): { label: string; value: string }[] {
+  const set = new Set<string>();
+  for (const r of rows) {
+    const v = r[field];
+    if (typeof v !== 'string') continue;
+    const s = v.trim();
+    if (!s || s === '—') continue;
+    set.add(s);
+  }
+  return Array.from(set)
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    .map((val) => ({
+      value: val,
+      label: val.length > maxLabel ? `${val.slice(0, maxLabel)}…` : val,
+    }));
 }
 
 export type CephPoolSectionProps = {
@@ -310,7 +113,10 @@ export type CephPoolSectionProps = {
   applicationsScope?: 'cloud' | 'object';
 };
 
-const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applicationsScope = 'cloud' }) => {
+const CephPoolSection: React.FC<CephPoolSectionProps> = ({
+  cloudId,
+  applicationsScope = 'cloud',
+}) => {
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [rows, setRows] = useState<CephPoolTableRow[]>([]);
@@ -319,7 +125,13 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
   /** Rook 模式下合并 Dashboard 性能失败时提示（401/网络等） */
   const [dashboardPoolsHint, setDashboardPoolsHint] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [phaseFilter, setPhaseFilter] = useState<string>('');
+  const [namespaceFilter, setNamespaceFilter] = useState('');
+  const [phaseFilter, setPhaseFilter] = useState('');
+  const [applicationsFilter, setApplicationsFilter] = useState('');
+  const [pgStatusFilter, setPgStatusFilter] = useState('');
+  const [dataProtectionFilter, setDataProtectionFilter] = useState('');
+  const [failureDomainFilter, setFailureDomainFilter] = useState('');
+  const [deviceClassFilter, setDeviceClassFilter] = useState('');
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
   const [poolModalOpen, setPoolModalOpen] = useState(false);
   const [poolModalMode, setPoolModalMode] = useState<'create' | 'edit'>('create');
@@ -425,34 +237,40 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
     void load();
   }, [load]);
 
-  const phaseOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of rows) {
-      if (r.phase && r.phase !== '—') set.add(r.phase);
-    }
-    return Array.from(set)
-      .sort()
-      .map((p) => ({ label: p.length > 48 ? `${p.slice(0, 48)}…` : p, value: p }));
-  }, [rows]);
+  const namespaceOptions = useMemo(() => distinctFieldOptions(rows, 'namespace'), [rows]);
+  const phaseOptions = useMemo(() => distinctFieldOptions(rows, 'phase'), [rows]);
+  const applicationsOptions = useMemo(() => distinctFieldOptions(rows, 'applications'), [rows]);
+  const pgStatusOptions = useMemo(() => distinctFieldOptions(rows, 'pgStatus'), [rows]);
+  const dataProtectionOptions = useMemo(() => distinctFieldOptions(rows, 'dataProtection'), [rows]);
+  const failureDomainOptions = useMemo(() => distinctFieldOptions(rows, 'failureDomain'), [rows]);
+  const deviceClassOptions = useMemo(() => distinctFieldOptions(rows, 'deviceClass'), [rows]);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    const pf = phaseFilter.trim().toLowerCase();
     return rows.filter((r) => {
-      if (pf && r.phase.toLowerCase() !== pf) return false;
-      if (!k) return true;
-      return (
-        r.name.toLowerCase().includes(k) ||
-        r.namespace.toLowerCase().includes(k) ||
-        r.phase.toLowerCase().includes(k) ||
-        r.pgStatus.toLowerCase().includes(k) ||
-        r.dataProtection.toLowerCase().includes(k) ||
-        r.applications.toLowerCase().includes(k) ||
-        r.failureDomain.toLowerCase().includes(k) ||
-        r.deviceClass.toLowerCase().includes(k)
-      );
+      if (k && !r.name.toLowerCase().includes(k)) return false;
+      if (namespaceFilter && r.namespace !== namespaceFilter) return false;
+      if (phaseFilter && r.phase !== phaseFilter) return false;
+      if (applicationsFilter && r.applications !== applicationsFilter) return false;
+      if (pgStatusFilter && r.pgStatus !== pgStatusFilter) return false;
+      if (dataProtectionFilter && r.dataProtection !== dataProtectionFilter) return false;
+      if (failureDomainFilter && r.failureDomain !== failureDomainFilter) return false;
+      if (deviceClassFilter && r.deviceClass !== deviceClassFilter) return false;
+      return true;
     });
-  }, [rows, keyword, phaseFilter]);
+  }, [
+    rows,
+    keyword,
+    namespaceFilter,
+    phaseFilter,
+    applicationsFilter,
+    pgStatusFilter,
+    dataProtectionFilter,
+    failureDomainFilter,
+    deviceClassFilter,
+  ]);
+
+  const bumpPage = () => setPagination((p) => ({ ...p, current: 1 }));
 
   const allColumnsBase: ColumnsType<CephPoolTableRow> = useMemo(
     () => [
@@ -594,27 +412,38 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
         title: '操作',
         key: 'actions',
         fixed: 'right' as const,
-        width: 140,
+        align: 'left' as const,
         render: (_: unknown, r: CephPoolTableRow) =>
           r.source === 'rook' ? (
-            <Space size={4} wrap>
-              <Button
-                type="link"
-                size="small"
-                onClick={() => {
-                  setPoolModalMode('edit');
-                  setPoolEditRecord(r);
-                  setPoolModalOpen(true);
-                }}
-              >
-                编辑
-              </Button>
-              <Popconfirm title="确定删除该 CephBlockPool？" okText="删除" cancelText="取消" onConfirm={() => void deletePool(r)}>
-                <Button type="link" size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>
-            </Space>
+            <ResourceActionsDropdown
+              buttonProps={{ className: 'row-actions-trigger' }}
+              items={[
+                {
+                  key: 'edit',
+                  label: '编辑',
+                  onClick: () => {
+                    setPoolModalMode('edit');
+                    setPoolEditRecord(r);
+                    setPoolModalOpen(true);
+                  },
+                },
+                { type: 'divider', key: 'd1' },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  onClick: () => {
+                    Modal.confirm({
+                      title: '确定删除该 CephBlockPool？',
+                      okText: '删除',
+                      okButtonProps: { danger: true },
+                      cancelText: '取消',
+                      onOk: () => deletePool(r),
+                    });
+                  },
+                },
+              ]}
+            />
           ) : null,
       },
     ];
@@ -622,7 +451,13 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
 
   const resetFilters = () => {
     setKeyword('');
+    setNamespaceFilter('');
     setPhaseFilter('');
+    setApplicationsFilter('');
+    setPgStatusFilter('');
+    setDataProtectionFilter('');
+    setFailureDomainFilter('');
+    setDeviceClassFilter('');
     setPagination((p) => ({ ...p, current: 1 }));
   };
 
@@ -634,26 +469,56 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
         <>
           <Input
             allowClear
-            placeholder="名称 / 应用 / PG / 阶段…"
+            placeholder="搜索池名称"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => {
               setKeyword(e.target.value);
-              setPagination((p) => ({ ...p, current: 1 }));
+              bumpPage();
             }}
             className="toolbar-search"
           />
           <Select
             allowClear
-            placeholder="阶段 / PG 摘要"
+            showSearch
+            placeholder="命名空间"
+            value={namespaceFilter || undefined}
+            onChange={(v) => {
+              setNamespaceFilter(v ?? '');
+              bumpPage();
+            }}
+            className="toolbar-filter"
+            options={namespaceOptions}
+            popupMatchSelectWidth={false}
+            optionFilterProp="label"
+          />
+          <Select
+            allowClear
+            showSearch
+            placeholder="阶段"
             value={phaseFilter || undefined}
             onChange={(v) => {
               setPhaseFilter(v ?? '');
-              setPagination((p) => ({ ...p, current: 1 }));
+              bumpPage();
             }}
             className="toolbar-filter-sm"
             options={phaseOptions}
             popupMatchSelectWidth={false}
+            optionFilterProp="label"
+          />
+          <Select
+            allowClear
+            showSearch
+            placeholder="应用"
+            value={applicationsFilter || undefined}
+            onChange={(v) => {
+              setApplicationsFilter(v ?? '');
+              bumpPage();
+            }}
+            className="toolbar-filter-sm"
+            options={applicationsOptions}
+            popupMatchSelectWidth={false}
+            optionFilterProp="label"
           />
           <button type="button" className="toolbar-reset-btn" onClick={resetFilters}>
             重置
@@ -696,13 +561,9 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({ cloudId, applications
         bordered={false}
         scroll={{ x: true }}
         rowKey="key"
-        loading={loading}
         columns={tableColumns}
         dataSource={filtered}
-        expandable={{
-          columnWidth: 40,
-          expandedRowRender: (record) => <CephPoolExpandedDetail record={record} cloudId={cloudId} />,
-        }}
+        loading={loading}
         locale={{
           emptyText: loadErr ? (
             <Empty description="加载失败" />

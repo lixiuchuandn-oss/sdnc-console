@@ -321,10 +321,13 @@ export async function tryLoadClusterTab(
         }
       }
       return true;
+    case 'storage_pools':
+      return true;
     case 'storage_classes':
       if (
         checkPerm('clouds.storage-classes:read') ||
-        checkPerm('clouds.ecs:read')
+        checkPerm('clouds.ecs:read') ||
+        checkPerm('clouds:read')
       ) {
         loadResource(
           'storageClasses',

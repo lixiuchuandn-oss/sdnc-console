@@ -1,7 +1,10 @@
 /**
- * 磁盘卡片：按主机维度统计 健康/告警/其他
- * 与参考项目 Compute.Tower-Monitoring 一致。
+ * 监控概览 · 磁盘卡片汇总：健康 / 异常 / 其他 与 total。
+ * total 在 Ceph（OSD）分支为 OSD 个数，在 Harvester（BlockDevice）分支为块设备 CR 条数。
  */
+import { normalizeCephBundle } from '../../ceph/lib/cephStorage';
+import { clusterHasCeph } from './storageCardCeph';
+
 export interface DiskSummary {
   healthy: number;
   warning: number;
@@ -9,88 +12,122 @@ export interface DiskSummary {
   total: number;
 }
 
-function getList(res: any): any[] {
+export type DiskCardAggregateMode = 'ceph_osd' | 'block_device';
+
+function getList(res: unknown): any[] {
   if (Array.isArray(res)) return res;
-  if (res && Array.isArray(res.data)) return res.data;
+  if (res && typeof res === 'object' && Array.isArray((res as { data?: unknown }).data)) {
+    return (res as { data: any[] }).data;
+  }
   return [];
 }
 
-function getNodeId(node: any): string {
-  return node?.metadata?.name ?? node?.id ?? '';
+function blockDevicePhaseFailed(phase: unknown): boolean {
+  if (phase == null || phase === '') return false;
+  const s = String(phase).toLowerCase();
+  return s.includes('fail');
 }
 
-function hostErrorCount(longhornNode: any, blockDevicesForNode: any[]): number {
-  let errorCount = 0;
-  const diskStatus = longhornNode?.status?.diskStatus;
-  if (typeof diskStatus === 'object' && diskStatus !== null) {
-    for (const key of Object.keys(diskStatus)) {
-      const d = diskStatus[key];
-      const conditions = d?.conditions || [];
-      const ready = conditions.find((c: any) => c.type === 'Ready');
-      const schedulable = conditions.find((c: any) => c.type === 'Schedulable');
-      if (ready?.status !== 'True' || schedulable?.status !== 'True') errorCount++;
-    }
-  }
-  const unProvisioned = blockDevicesForNode.filter(
-    (bd: any) =>
-      (bd?.spec?.provision || bd?.spec?.fileSystem?.provisioned) &&
-      bd?.status?.provisionPhase !== 'Provisioned'
-  );
-  for (const bd of unProvisioned) {
-    if (bd?.metadata?.state?.error === true) errorCount++;
-  }
-  return errorCount;
+function osdUpInTrue(v: unknown): boolean {
+  return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
 }
 
-export function aggregateDiskSummaryByHost(
-  nodesResponse: any,
-  longhornNodesResponse: any,
-  blockDevicesResponse: any
-): DiskSummary {
-  const nodes = getList(nodesResponse);
-  const longhornList = getList(longhornNodesResponse);
-  const blockList = getList(blockDevicesResponse);
-
-  const longhornByNodeName: Record<string, any> = {};
-  for (const ln of longhornList) {
-    const name = ln?.metadata?.name ?? (typeof ln?.id === 'string' ? ln.id.replace(/^[^/]+\//, '') : '') ?? '';
-    if (name) longhornByNodeName[name] = ln;
-  }
-
-  const blockByNodeName: Record<string, any[]> = {};
-  for (const bd of blockList) {
-    const nodeName = bd?.spec?.nodeName ?? '';
-    if (nodeName) {
-      if (!blockByNodeName[nodeName]) blockByNodeName[nodeName] = [];
-      blockByNodeName[nodeName].push(bd);
-    }
-  }
+/**
+ * Ceph Dashboard `api/health/minimal`（或 Tower 合并后的同结构）中的 osd_map：逐 OSD 统计。
+ * - 已就绪：`up` 且 `in`
+ * - 异常：条目存在且可解析，但未同时 up+in
+ * - 其他：缺字段或形态未知
+ */
+export function aggregateCephOsdDiskSummary(cephMinimal: unknown): DiskSummary | null {
+  if (!cephMinimal || typeof cephMinimal !== 'object') return null;
+  const m = cephMinimal as Record<string, unknown>;
+  const osdMap = m.osd_map;
+  if (!osdMap || typeof osdMap !== 'object') return null;
+  const osds = (osdMap as { osds?: unknown }).osds;
+  if (!Array.isArray(osds) || osds.length === 0) return null;
 
   let healthy = 0;
   let warning = 0;
   let other = 0;
 
-  for (const node of nodes) {
-    const nodeId = getNodeId(node);
-    if (!nodeId) {
+  for (const raw of osds) {
+    if (!raw || typeof raw !== 'object') {
       other++;
       continue;
     }
-    const longhornNode = longhornByNodeName[nodeId];
-    if (!longhornNode) {
+    const o = raw as Record<string, unknown>;
+    const hasUp = 'up' in o && o.up !== undefined && o.up !== null;
+    const hasIn = 'in' in o && o.in !== undefined && o.in !== null;
+    if (!hasUp && !hasIn) {
       other++;
       continue;
     }
-    const blockForNode = blockByNodeName[nodeId] ?? [];
-    const err = hostErrorCount(longhornNode, blockForNode);
-    if (err > 0) warning++;
-    else healthy++;
+    const upOk = osdUpInTrue(o.up);
+    const inOk = osdUpInTrue(o.in);
+    if (upOk && inOk) healthy++;
+    else warning++;
   }
 
   return {
     healthy,
     warning,
     other,
-    total: nodes.length,
+    total: osds.length,
+  };
+}
+
+/**
+ * 对集群内 harvesterhci.io.blockdevices 列表做分区：
+ * - 已就绪：`provisionPhase === 'Provisioned'` 且无 error
+ * - 异常：`metadata.state.error` 或阶段指示失败
+ * - 其他：待发现、纳管中、未指定纳管等其余状态
+ */
+export function aggregateDiskSummaryFromBlockDevices(blockDevicesResponse: unknown): DiskSummary {
+  const list = getList(blockDevicesResponse);
+  let healthy = 0;
+  let warning = 0;
+  let other = 0;
+
+  for (const bd of list) {
+    const err = bd?.metadata?.state?.error === true;
+    const phase = bd?.status?.provisionPhase;
+    if (err || blockDevicePhaseFailed(phase)) {
+      warning++;
+      continue;
+    }
+    if (phase === 'Provisioned') {
+      healthy++;
+      continue;
+    }
+    other++;
+  }
+
+  return {
+    healthy,
+    warning,
+    other,
+    total: list.length,
+  };
+}
+
+/**
+ * 存在 Rook/Ceph 且 mgr minimal 带出 osd_map 时优先用 OSD；否则用 Harvester 块设备（Ceph 集群上常仍可看到节点块设备）。
+ */
+export function resolveMonitoringDiskSummary(
+  cephMinimal: unknown,
+  cephResourcesRaw: unknown,
+  blockDevicesResponse: unknown,
+): { mode: DiskCardAggregateMode; summary: DiskSummary } | null {
+  const bundle = normalizeCephBundle(cephResourcesRaw);
+  if (clusterHasCeph(bundle)) {
+    const osd = aggregateCephOsdDiskSummary(cephMinimal);
+    if (osd && osd.total > 0) {
+      return { mode: 'ceph_osd', summary: osd };
+    }
+  }
+  if (blockDevicesResponse == null) return null;
+  return {
+    mode: 'block_device',
+    summary: aggregateDiskSummaryFromBlockDevices(blockDevicesResponse),
   };
 }

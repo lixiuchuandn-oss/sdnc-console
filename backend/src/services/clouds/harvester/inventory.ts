@@ -99,20 +99,29 @@ import {
  */
 const inventoryUpsertChains = new Map<string, Promise<void>>();
 
+/**
+ * SQLite 实质单写入端；并行多个 `AppDataSource.transaction` 会叠加 SAVEPOINT（typeorm_*），
+ * 不同库存锁键并行 upsert 时易触发 SQLITE_ERROR: no such savepoint（如查询 VLAN 同步入库）。
+ * 故在 sqlite 下将所有 inventory upsert 串到同一等待链。
+ */
+const SQLITE_INVENTORY_UPSERT_GLOBAL_KEY = '__sqlite_inventory_upserts_serial__';
+
 async function withInventoryUpsertLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = inventoryUpsertChains.get(key) ?? Promise.resolve();
+  const lockKey =
+    AppDataSource.options.type === 'sqlite' ? SQLITE_INVENTORY_UPSERT_GLOBAL_KEY : key;
+  const prev = inventoryUpsertChains.get(lockKey) ?? Promise.resolve();
   let release!: () => void;
   const next = new Promise<void>((resolve) => {
     release = resolve;
   });
   const chained = prev.then(() => next);
-  inventoryUpsertChains.set(key, chained);
+  inventoryUpsertChains.set(lockKey, chained);
   await prev;
   try {
     return await fn();
   } finally {
     release();
-    if (inventoryUpsertChains.get(key) === chained) inventoryUpsertChains.delete(key);
+    if (inventoryUpsertChains.get(lockKey) === chained) inventoryUpsertChains.delete(lockKey);
   }
 }
 
@@ -769,9 +778,10 @@ export const syncHarvesterGpus = async (cloud: any, insecure: boolean) => {
 
   const repo = AppDataSource.getRepository(HarvesterGpuInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
-    uid: item.uid || item.raw?.metadata?.uid || `${item.nodeName}-${item.address}`, // Fallback ID
-    name: item.name || item.productName || item.metadata?.name,
-    nodeName: item.nodeName,
+    uid: item.uid || item.raw?.metadata?.uid || `${item.resourceName || 'gpu'}-${item.nodeName || item.node || ''}-${item.address || item.pciAddress || ''}`,
+    name: item.name || item.productName || item.metadata?.name || item.resourceName || 'GPU',
+    // KubeVirt permittedHostDevices 回退条目无节点维度；表里 nodeName NOT NULL，须占位以避免 SQLITE_CONSTRAINT
+    nodeName: item.nodeName || item.node || '—',
     address: item.address,
     vendorId: item.vendorId,
     deviceId: item.deviceId,

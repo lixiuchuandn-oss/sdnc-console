@@ -11,6 +11,7 @@ import UnderlaySubnetsSection from '../../../../Harvester/kube-ovn/sections/Unde
 import VlansSection from '../../../../Harvester/kube-ovn/sections/VlansSection';
 import NamespacesTab from '../../../../Harvester/cluster/NamespacesTab';
 import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
+import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
 import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
@@ -71,9 +72,17 @@ function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): bo
         canReadContainerTab(checkPerm, 'services') ||
         checkPerm('clouds:read')
       );
+    case 'storage_pools':
+      return (
+        checkPerm('clouds.disks:read') ||
+        checkPerm('clouds.cluster-nodes:read') ||
+        checkPerm('clouds:read')
+      );
     case 'storage_classes':
       return (
-        checkPerm('clouds.storage-classes:read') || checkPerm('clouds.ecs:read')
+        checkPerm('clouds.storage-classes:read') ||
+        checkPerm('clouds.ecs:read') ||
+        checkPerm('clouds:read')
       );
     case 'nads':
       return canReadNetworkScope;
@@ -387,6 +396,8 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             <DebugJSON data={rawServices} show={showLog} />
           </>
         );
+      case 'storage_pools':
+        return <CephPoolSection cloudId={cloudId} applicationsScope="cloud" />;
       case 'storage_classes':
         return (
           <>

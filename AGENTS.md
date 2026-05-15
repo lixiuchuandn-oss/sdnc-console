@@ -40,7 +40,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、开发与质量约定 |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`deployment/docs/specs/...`** | Harvester 前端子树、权限、API 规格等专题文档 |
+| **`deployment/docs/specs/...`** | Harvester 前端子树、权限、API 规格等专题文档；**列表/数据区块加载态（骨架屏）**见 **`deployment/docs/specs/frontend-loading-skeleton.md`** |
 
 新增或搬迁源码时：**前端**以 `frontend/src/STRUCTURE.md` 为准，**后端**以 `backend/src/STRUCTURE.md` 为准；对外路径以 `backend/src/index.ts` 的挂载为准。
 
@@ -155,7 +155,6 @@ Compute.Tower/
 │   │   │   ├── CloudSyncService.ts    # 云资源同步服务
 │   │   │   ├── LicenseService.ts      # 授权服务
 │   │   │   └── StandardResourceService.ts # 标准资源服务
-│   │   ├── scripts/           # 运维/初始化脚本（非 HTTP 入口，见 package.json db:* 等）
 │   │   ├── seeders/           # 数据库种子数据
 │   │   ├── utils/             # 工具函数
 │   │   └── ws/                # WebSocket 服务
@@ -164,6 +163,7 @@ Compute.Tower/
 │   │       ├── kvVnc.ts       # KubeVirt VNC
 │   │       ├── kvPodLog.ts    # KubeVirt Pod 日志
 │   │       └── kvPodExec.ts   # KubeVirt Pod 终端
+│   ├── scripts/               # 运维/CLI（db:*、自测脚本；非 HTTP 入口，见 package.json）
 │   ├── public/                # 静态文件托管
 │   ├── data/                  # 运行期数据（授权、系统设置等；须在 backend 目录启动服务，勿使用仓库根 `data/`）
 │   └── package.json
@@ -275,11 +275,13 @@ Compute.Tower/
 - `/api/clouds/{id}/monitoring/ceph-clusters`: Rook `CephCluster` 列表（Steve 优先 `cephclusters.ceph.rook.io`，回退 `ceph.rook.io.cephclusters`；Cloudmap「Ceph 存储」）
 - `/api/clouds/{id}/monitoring/ceph-resources`: Rook Ceph Steve 多资源聚合（`cephclusters`、`cephblockpools`、`cephblockpoolradosnamespaces`、`cephfilesystems`、`cephfilesystemsubvolumegroups`、`cephfilesystemmirrors`、`cephnfses`、`cephobjectstores`、`cephobjectstoreusers`、`cephobjectrealms`、`cephobjectzones`、`cephobjectzonegroups`、`cephbuckettopics`、`cephbucketnotifications`、`cephclients`、`cephcosidrivers`、`cephrbdmirrors` 等；字段名为 camelCase，与 `GET .../ceph/rook/bundle` 一致）
 - `/api/clouds/{id}/ceph/rook/bundle`: 与上条**同源**；独立 Ceph 路径，响应另含 `_tower.api=ceph`
+- **RGW / S3（Tower 代发；管理员权限；不落库）**：`POST /api/clouds/{id}/ceph/rgw/s3/list-buckets`、`POST .../buckets`、`POST .../delete-bucket`、`POST .../list-objects` — 请求体须含 `connection`（至少 `endpoint`，及 `region`、`forcePathStyle`）；可同时提交 **`objectStoreUser`: `{ namespace, name }`**（`CephObjectStoreUser` CR），服务端据此读 CR 关联 Secret 并补全 AK/SK 后代发 S3。亦可不传 `objectStoreUser`，并在 `connection` 中直接提供 `accessKeyId`、`secretAccessKey`（兼容旧用法）。`GET .../rook-secret/{namespace}/{name}` 仍可单独读取 Secret（**响应敏感**）。**Tower/S3 客户端 Endpoint（按 `namespace/objectStoreName`）**：`GET|PUT /api/clouds/{id}/ceph/rgw/s3/gateway-client-config` / `PUT .../gateway-client-config/{namespace}/{name}`（写入云实例 `clouds.config.towerRgwS3ClientByStore`）。兼容 Path-Style 的 Ceph RGW endpoint。
 - **Rook CR Steve 写读**（`{id}` 为云实例 ID；均须经 Harvester/Cloudmap 且管理员权限；请求/响应体为 Steve/K8s CR JSON；PATCH 使用 `Content-Type: application/merge-patch+json`）：
   - **CephCluster**：`GET|PUT|PATCH /api/clouds/{id}/ceph/rook/clusters/{namespace}/{name}`（无集群级 POST/DELETE，避免误操作）
   - **CephBlockPool**：`POST /api/clouds/{id}/ceph/rook/block-pools`，`GET|PUT|PATCH|DELETE /api/clouds/{id}/ceph/rook/block-pools/{namespace}/{name}`
   - **CephFilesystem**：`POST /api/clouds/{id}/ceph/rook/filesystems`，`GET|PUT|PATCH|DELETE .../filesystems/{namespace}/{name}`
   - **CephObjectStore**：`POST /api/clouds/{id}/ceph/rook/object-stores`，`GET|PUT|PATCH|DELETE .../object-stores/{namespace}/{name}`
+  - **CephObjectStoreUser**（RGW 用户；密钥由 Operator 写入 Secret）：`POST /api/clouds/{id}/ceph/rook/object-store-users`，`GET|PUT|PATCH|DELETE .../object-store-users/{namespace}/{name}`
   - **CephBlockPoolRadosNamespace**：`POST /api/clouds/{id}/ceph/rook/blockpool-rados-namespaces`，`GET|PUT|PATCH|DELETE .../blockpool-rados-namespaces/{namespace}/{name}`
 
 **Harvester 容器管理**：
@@ -444,6 +446,10 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 - 公共逻辑提取到 `components/` 或 `hooks/`
 - 使用 TypeScript 类型定义，放在 `types/`
 - 所有 API 调用通过 `services/` 层
+
+### 加载态与骨架屏（列表 / 数据区块）
+
+列表使用 **`antd` `Table` 的 `loading`**。非表格区域若使用占位，直接在页面写 **`antd` `Skeleton`**，**禁止**在仓库内封装只为包装 Skeleton 的组件。细则见 **`deployment/docs/specs/frontend-loading-skeleton.md`**。
 
 ### React 状态管理注意事项
 

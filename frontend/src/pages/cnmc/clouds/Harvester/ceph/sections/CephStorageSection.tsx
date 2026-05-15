@@ -1,6 +1,6 @@
 /** Ceph 存储集群仪表盘：Rook bundle + 节点列表为主；可选合并 mgr Dashboard `api/health/minimal`（客户端性能等）。 */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Card, Col, Flex, Progress, Row, Space, Spin, Statistic, Tooltip, Typography } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Card, Col, Flex, Progress, Row, Skeleton, Space, Statistic, Tooltip, Typography } from 'antd';
 import {
   ApiTwoTone,
   AppstoreTwoTone,
@@ -637,10 +637,17 @@ function MetricCard(props: { title: React.ReactNode; children: React.ReactNode }
 
 export type CephStorageSectionProps = {
   cloudId: string;
+  /** 首次 bundle/dashboard 链路透传完成后回调（供外层统一骨架屏结束时机） */
+  onInitialLoadComplete?: () => void;
 };
 
-const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
-  const [loading, setLoading] = useState(false);
+const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId, onInitialLoadComplete }) => {
+  const onReadyRef = useRef(onInitialLoadComplete);
+  useEffect(() => {
+    onReadyRef.current = onInitialLoadComplete;
+  }, [onInitialLoadComplete]);
+  /** 首次 bundle/节点/Dashboard 链路透传完成前展示骨架，避免 Cloudmap 探测结束后的空白期 */
+  const [initialDashboardBusy, setInitialDashboardBusy] = useState(true);
   const [cephDash, setCephDash] = useState<CephOverviewSummaryEnvelope | null>(null);
   const [cephDashHttpErr, setCephDashHttpErr] = useState<string | null>(null);
   const [healthMinimal, setHealthMinimal] = useState<unknown | null>(null);
@@ -652,8 +659,10 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
 
   const load = useCallback(
     async (force?: boolean) => {
-      if (!cloudId) return;
-      setLoading(true);
+      if (!cloudId) {
+        setInitialDashboardBusy(false);
+        return;
+      }
       setCephDashHttpErr(null);
       setHealthMinimalErr(null);
       try {
@@ -706,7 +715,8 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
         setCephDashHttpErr(msg || '加载失败');
         setHealthMinimalErr(null);
       } finally {
-        setLoading(false);
+        setInitialDashboardBusy(false);
+        onReadyRef.current?.();
       }
     },
     [cloudId],
@@ -801,8 +811,7 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
     }
 
     return (
-      <Spin spinning={loading}>
-        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
           {cephDashHttpErr ? (
             <Alert type="error" showIcon message={cephDashHttpErr} description={CEPH_DASHBOARD_FAIL_HINT} />
           ) : cephDash?._tower?.cephDashboardError ? (
@@ -1205,24 +1214,28 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
           ) : (
             <Typography.Text type="secondary">暂无数据。</Typography.Text>
           )}
-        </Card>
-      </Spin>
+      </Card>
     );
   }, [
     cephDash,
     cephDashHttpErr,
     healthMinimal,
     healthMinimalErr,
-    loading,
     dashboardPools,
     dashboardPoolsRaw,
   ]);
 
   return (
     <PageDetailSection asCard={false} showHeaderTitle={false}>
-      <Space direction="vertical" size={CARD_GAP} style={{ width: '100%' }}>
-        {cephDashboardRestCard}
-      </Space>
+      {initialDashboardBusy ? (
+        <div style={{ paddingTop: 8 }}>
+          <Skeleton active paragraph={{ rows: 10 }} />
+        </div>
+      ) : (
+        <Space direction="vertical" size={CARD_GAP} style={{ width: '100%' }}>
+          {cephDashboardRestCard}
+        </Space>
+      )}
     </PageDetailSection>
   );
 };

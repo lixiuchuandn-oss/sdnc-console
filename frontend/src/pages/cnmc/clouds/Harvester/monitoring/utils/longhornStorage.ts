@@ -9,8 +9,17 @@ export interface LonghornStorageSummary {
   storageReserved: number;
   storageScheduled: number;
   nodeCount: number;
-  /** Longhorn 全局默认副本数（默认存储池），来自集群 Setting default-replica-count */
-  defaultReplicaCount: number;
+  /**
+   * 集群默认 StorageClass（is-default-class，否则列表首项）且为 Longhorn 时，
+   * 来自 parameters.numberOfReplicas；否则 null（不读取 Longhorn setting default-replica-count）。
+   */
+  defaultStorageClassReplicaCount: number | null;
+  /** 用于上一字段的存储类名；非 Longhorn 或未解析时为 null */
+  defaultStorageClassName: string | null;
+  /** 默认 StorageClass provisioner（Steve / K8s 对象字段） */
+  defaultStorageClassProvisioner: string | null;
+  /** 由后端根据默认存储类判定：longhorn / ceph / unknown */
+  distributedStorageKind: 'longhorn' | 'ceph' | 'unknown';
 }
 
 const BYTES_PER_GIB = 1024 ** 3;
@@ -30,11 +39,24 @@ export function parseLonghornStorage(nodesResponse: any): LonghornStorageSummary
   } else if (nodesResponse && Array.isArray(nodesResponse.data)) {
     list = nodesResponse.data;
   }
-  let defaultReplicaCount = 3;
-  const rawRep = nodesResponse?._tower?.defaultLonghornReplicaCount;
-  if (rawRep != null) {
-    const n = Number(rawRep);
-    if (Number.isFinite(n) && n >= 1) defaultReplicaCount = Math.floor(n);
+  let defaultStorageClassReplicaCount: number | null = null;
+  let defaultStorageClassName: string | null = null;
+  let defaultStorageClassProvisioner: string | null = null;
+  let distributedStorageKind: 'longhorn' | 'ceph' | 'unknown' = 'unknown';
+  const tower = nodesResponse?._tower;
+  if (tower && typeof tower === 'object') {
+    const tw = tower as Record<string, unknown>;
+    const rawRep = tw.defaultStorageClassReplicaCount;
+    if (rawRep != null) {
+      const n = Number(rawRep);
+      if (Number.isFinite(n) && n >= 1) defaultStorageClassReplicaCount = Math.floor(n);
+    }
+    const rawNm = tw.defaultStorageClassName;
+    if (rawNm != null && String(rawNm).trim()) defaultStorageClassName = String(rawNm).trim();
+    const rawPv = tw.defaultStorageClassProvisioner;
+    if (rawPv != null && String(rawPv).trim()) defaultStorageClassProvisioner = String(rawPv).trim();
+    const rawKind = tw.distributedStorageKind;
+    if (rawKind === 'longhorn' || rawKind === 'ceph') distributedStorageKind = rawKind;
   }
 
   let totalMaximum = 0;
@@ -75,6 +97,9 @@ export function parseLonghornStorage(nodesResponse: any): LonghornStorageSummary
     storageReserved: totalReserved,
     storageScheduled: totalScheduled,
     nodeCount: list.length,
-    defaultReplicaCount,
+    defaultStorageClassReplicaCount,
+    defaultStorageClassName,
+    defaultStorageClassProvisioner,
+    distributedStorageKind,
   };
 }

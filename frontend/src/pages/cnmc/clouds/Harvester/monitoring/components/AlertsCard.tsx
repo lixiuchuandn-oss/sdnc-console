@@ -2,7 +2,7 @@
  * 告警卡片 - 严重/警告 Tab + 告警列表
  */
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Typography, Spin } from 'antd';
+import { Card, Typography } from 'antd';
 import { WarningOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useDashboardSlowDataContext } from '../DashboardContext';
 import { parseAlerts, type ParsedAlert } from '../utils/prometheusAlerts';
@@ -106,19 +106,28 @@ export const AlertsCard: React.FC = () => {
         boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
       }}
     >
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
-        <Spin spinning={alertsLoading} style={{ minHeight: 120 }}>
-          <div style={{ padding: '0 16px' }}>
-            {!alertsLoading && filteredAlerts.length === 0 && (
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          padding: '0 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          overflowX: 'hidden',
+          overflowY: !alertsLoading && filteredAlerts.length === 0 ? 'hidden' : 'auto',
+          ...(!alertsLoading && filteredAlerts.length === 0
+            ? { justifyContent: 'center', alignItems: 'center' }
+            : {}),
+        }}
+      >
+            {!alertsLoading && filteredAlerts.length === 0 ? (
               <div
                 style={{
-                  minHeight: 240,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
                   padding: 32,
-                  marginBottom: 16,
                 }}
               >
                 <div
@@ -142,9 +151,7 @@ export const AlertsCard: React.FC = () => {
                   {selectedLevel === 'critical' ? '系统运行状态良好' : '系统运行平稳'}
                 </span>
               </div>
-            )}
-            {!alertsLoading &&
-              filteredAlerts.length > 0 &&
+            ) : (
               filteredAlerts.map((alert: ParsedAlert) => (
                 <div
                   key={alert.id}
@@ -174,9 +181,8 @@ export const AlertsCard: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))}
-          </div>
-        </Spin>
+              ))
+            )}
       </div>
     </Card>
   );

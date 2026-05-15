@@ -670,7 +670,8 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       <span className="wizard-secondary-nic-slot-title">{slotTitle}</span>
                       {canRemove ? (
                         <Button
-                          type="text"
+                          color="danger"
+                          variant="filled"
                           icon={<MinusCircleOutlined />}
                           onClick={(e) => {
                             e.stopPropagation?.();
@@ -681,7 +682,6 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             }
                             remove(name);
                           }}
-                          danger
                         />
                       ) : null}
                     </div>
@@ -1153,7 +1153,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   add({ mode: 'vpc', type: 'managedtap', model: 'virtio' });
                 }}
               >
-                + VPC网
+                + VPC网络
               </Button>
               <Button
                 color="primary"

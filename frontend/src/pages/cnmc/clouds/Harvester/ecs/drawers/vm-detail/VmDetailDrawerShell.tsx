@@ -199,38 +199,6 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
         onClick: gated(() => p.setSpecConfigOpen(true)),
       },
       {
-        key: "toolbar_perf_settings",
-        label: "性能设置",
-        disabled: d,
-        onClick: gated(() => p.setPerformanceSettingsOpen(true)),
-      },
-      {
-        key: "toolbar_hotplug_settings",
-        label: "热扩容设置",
-        disabled: d,
-        onClick: gated(() => p.setHotplugSettingsOpen(true)),
-      },
-      {
-        key: "toolbar_node_sched",
-        label: "节点选择器",
-        disabled: d,
-        onClick: gated(() => p.setNodeSchedulingOpen(true)),
-      },
-      {
-        key: "toolbar_node_affinity",
-        label: "节点亲和性",
-        disabled: d,
-        onClick: gated(() => p.setNodeAffinityOpen(true)),
-      },
-      {
-        key: "toolbar_vm_policy",
-        label: "高可用设置",
-        disabled: d,
-        onClick: gated(() => p.setVmPolicyManageOpen(true)),
-      },
-
-      { type: "divider" },
-      {
         key: "toolbar_disk_manage",
         label: "磁盘管理",
         disabled: d,
@@ -254,12 +222,6 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
         disabled: d,
         onClick: gated(() => p.setUsbManageOpen(true)),
       },
-      {
-        key: "toolbar_cloud_init",
-        label: "CloudInit管理",
-        disabled: d,
-        onClick: gated(() => p.setCloudInitManageOpen(true)),
-      },
     ];
   }, [
     p.hasEcsWrite,
@@ -267,12 +229,6 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
     p.setSpecConfigOpen,
     p.setDiskManageOpen,
     p.setNicManageOpen,
-    p.setPerformanceSettingsOpen,
-    p.setHotplugSettingsOpen,
-    p.setNodeSchedulingOpen,
-    p.setNodeAffinityOpen,
-    p.setVmPolicyManageOpen,
-    p.setCloudInitManageOpen,
     p.setGpuManageOpen,
     p.setUsbManageOpen,
   ]);

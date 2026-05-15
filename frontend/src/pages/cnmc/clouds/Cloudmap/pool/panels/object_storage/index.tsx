@@ -1,7 +1,8 @@
 import React from 'react';
 import { Empty } from 'antd';
 import CephObjectStorageSection from '../../../../Harvester/ceph/sections/CephObjectStorageSection';
-import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
+import RgwObjectStoreUsersSection from '../../../../Harvester/ceph/sections/RgwObjectStoreUsersSection';
+import RgwS3BucketsSection from '../../../../Harvester/ceph/sections/RgwS3BucketsSection';
 
 export type CloudmapObjectStorageGroupTabsProps = {
   cloudId: string;
@@ -15,11 +16,17 @@ function canViewObjectStorageInner(key: string, checkPerm: (a: string) => boolea
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds:read');
   if (!ok) return false;
-  return key === 'object_gateways' || key === 'cosi' || key === 'storage_pools';
+  return (
+    key === 'rgw_s3_buckets' ||
+    key === 'rgw_users' ||
+    key === 'object_gateways' ||
+    key === 'cosi'
+  );
 }
 
 /**
- * Cloudmap 池 — 对象存储：`object_storage/*`；网关/COSI 自拉 bundle，「存储池」经 mgr Dashboard 筛 `rgw` 应用。
+ * Cloudmap 池 — 对象存储：`object_storage/*`；网关/COSI 自拉 bundle。
+ * 布局与各区块样式对齐云存储「虚拟云盘」等池内一级页（`PageDetailSection` + `std-table`）。
  */
 const CloudmapObjectStorageGroupTabs: React.FC<CloudmapObjectStorageGroupTabsProps> = ({
   cloudId,
@@ -27,29 +34,21 @@ const CloudmapObjectStorageGroupTabs: React.FC<CloudmapObjectStorageGroupTabsPro
   innerActiveKey,
 }) => {
   if (!canViewObjectStorageInner(innerActiveKey, checkPerm)) {
-    return (
-      <div className="cloudmap-object-storage-pane">
-        <Empty description="无权限访问" style={{ marginTop: 48 }} />
-      </div>
-    );
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
-  let body: React.ReactNode;
   switch (innerActiveKey) {
+    case 'rgw_s3_buckets':
+      return <RgwS3BucketsSection cloudId={cloudId} checkPerm={checkPerm} />;
+    case 'rgw_users':
+      return <RgwObjectStoreUsersSection cloudId={cloudId} checkPerm={checkPerm} />;
     case 'object_gateways':
-      body = <CephObjectStorageSection cloudId={cloudId} embedMode="storesOnly" />;
-      break;
+      return <CephObjectStorageSection cloudId={cloudId} embedMode="storesOnly" checkPerm={checkPerm} />;
     case 'cosi':
-      body = <CephObjectStorageSection cloudId={cloudId} embedMode="cosiOnly" />;
-      break;
-    case 'storage_pools':
-      body = <CephPoolSection cloudId={cloudId} applicationsScope="object" />;
-      break;
+      return <CephObjectStorageSection cloudId={cloudId} embedMode="cosiOnly" />;
     default:
-      body = <Empty description="未知页面" style={{ marginTop: 48 }} />;
+      return <Empty description="未知页面" style={{ marginTop: 48 }} />;
   }
-
-  return <div className="cloudmap-object-storage-pane">{body}</div>;
 };
 
 export default CloudmapObjectStorageGroupTabs;

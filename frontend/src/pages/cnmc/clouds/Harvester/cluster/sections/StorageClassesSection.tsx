@@ -17,7 +17,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions, Select } from 'antd';
+import { Button, Dropdown, Input, Modal, Select, Table, Tabs, Tag, Descriptions } from 'antd';
 import { ReloadOutlined, SearchOutlined, PieChartTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -67,7 +67,13 @@ type Props = {
  * - 不直接请求后端，只消费上层注入的数据和回调
  * - 工具栏和表格区域均遵循 PageDetailSection / global-new.css 的 UI 规范
  */
-const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh, isTenant }) => {
+const StorageClassesSection: React.FC<Props> = ({
+  cloudId,
+  storageClasses,
+  loading,
+  onRefresh,
+  isTenant,
+}) => {
   const hasOpsView = useCloudmapOpsViewWrite();
   const isStandardView = !hasOpsView;
   /**
@@ -130,7 +136,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
   const allColumns = useMemo(() => [
     { 
       title: '名称', 
-      key: 'name', 
+      key: 'name',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const name = r?.metadata?.name || r?.name || '-';
         const isDefault = String(r?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] || '').toLowerCase() === 'true';
@@ -198,7 +205,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
     },
     { 
       title: '操作', 
-      key: 'actions', 
+      key: 'actions',
+      fixed: 'right' as const,
       align: 'left' as const,
       render: (_: any, r: any) => {
           const items: any[] = [];

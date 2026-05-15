@@ -319,24 +319,6 @@ html, body, #root {
   border-bottom: 1px solid #e5e6eb;
 }
 
-/*
- * Ceph 存储池展开行内「详细信息 / 性能 / 配置」：仍用 std-table 冻结与 scroll，但全局 12px+32px 行高过大；
- * 与 Table size=small 对齐，收紧 padding 与行高（需叠在上一段 !important 之后）。
- */
-.ceph-pool-detail-table.ant-table-wrapper .ant-table {
-  font-size: 12px;
-}
-.ceph-pool-detail-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell,
-.ceph-pool-detail-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell {
-  padding-block: 4px !important;
-  padding-inline: 10px !important;
-  line-height: 1.35 !important;
-}
-.ceph-pool-detail-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell:not(:first-child) {
-  white-space: normal !important;
-  vertical-align: top;
-}
-
 /* 多选列：左右与其它列一致，复选框居中 */
 .std-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-selection-column,
 .std-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-selection-column {

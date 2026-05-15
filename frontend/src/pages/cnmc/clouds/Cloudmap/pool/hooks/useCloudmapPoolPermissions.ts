@@ -93,6 +93,7 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds.log-configs:read');
 
   const canViewClusterGroup =
+    checkPerm('clouds.disks:read') ||
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds.cluster-services:read') ||
     checkPerm('clouds.cluster-networks:read') ||

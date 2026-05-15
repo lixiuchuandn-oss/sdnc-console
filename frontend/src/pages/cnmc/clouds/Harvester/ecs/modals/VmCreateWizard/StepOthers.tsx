@@ -21,7 +21,7 @@
  */
 import React from 'react';
 import { Form, Select, Checkbox, Space, Row, Col, Typography, Button } from 'antd';
-import { CloseOutlined } from '@ant-design/icons';
+import { MinusCircleOutlined } from '@ant-design/icons';
 
 /**
  * [接口定义] StepOthersProps
@@ -157,7 +157,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
             ) : null}
             {fields.map(({ key, name }, idx) => (
               <Row key={key} gutter={12} style={{ marginBottom: 8 }}>
-                <Col span={16}>
+                <Col span={22}>
                   <Form.Item name={[name]} rules={[{ required: true, message: '请选择 USB 设备' }]}>
                     <Select
                       placeholder="选择 USB 设备"
@@ -175,20 +175,43 @@ const StepOthers: React.FC<StepOthersProps> = ({
                           }
                           return true;
                         })
-                        .map((x: any) => { 
-                          // [数据转换] 格式化显示 Vendor:Product 
-                          const v = String(x?.vendorId || x?.vendor || ''); 
-                          const p = String(x?.productId || x?.product || ''); 
-                          const code = (v && p) ? `${v}:${p}` : ''; 
-                          const rn = x?.resourceName || '-'; 
-                          return { label: code ? `${rn} (${code})` : rn, value: rn }; 
+                        .map((x: any) => {
+                          const vid = String(
+                            x?.vendorId || x?.vendor || x?.raw?.status?.vendorID || x?.raw?.status?.vendorId || '',
+                          ).trim();
+                          const pid = String(
+                            x?.productId || x?.product || x?.raw?.status?.productID || x?.raw?.status?.productId || '',
+                          ).trim();
+                          const code = vid && pid ? `${vid}:${pid}` : '';
+                          const deviceName = String(
+                            x?.description ||
+                              x?.raw?.status?.description ||
+                              x?.raw?.spec?.description ||
+                              x?.name ||
+                              x?.raw?.metadata?.name ||
+                              '',
+                          ).trim();
+                          const rn = String(x?.resourceName || '').trim();
+                          const label = deviceName
+                            ? code
+                              ? `${deviceName} (${code})`
+                              : deviceName
+                            : code && rn
+                              ? `${rn} (${code})`
+                              : rn || '-';
+                          return { label, value: rn };
                         })}
                       onOpenChange={(open) => { if (open) reloadUsbResources(); }}
                     />
                   </Form.Item>
                 </Col>
-                <Col span={8}>
-                  <Button type="text" icon={<CloseOutlined />} onClick={() => remove(name)} />
+                <Col span={2}>
+                  <Button
+                    color="danger"
+                    variant="filled"
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => remove(name)}
+                  />
                 </Col>
               </Row>
             ))}

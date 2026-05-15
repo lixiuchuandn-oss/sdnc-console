@@ -208,3 +208,189 @@ export function deleteCephObjectStoreRook(cloudId: string, namespace: string, na
   const url = `${cephRookBase(cloudId)}/object-stores/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
   return apiDelete(url);
 }
+
+/** 创建 `CephObjectStore`（Steve POST；body 为完整 K8s CR JSON） */
+export function createCephObjectStoreRook(cloudId: string, body: unknown) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite(`${cephRookBase(cloudId)}/object-stores`, 'POST', body);
+}
+
+/** Rook CephObjectStoreUser（RGW 用户；AK/SK 由 Operator 写入 Secret） */
+export function createCephObjectStoreUserRook(cloudId: string, body: unknown) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite(`${cephRookBase(cloudId)}/object-store-users`, 'POST', body);
+}
+
+export function getCephObjectStoreUserRook(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  options?: { signal?: AbortSignal },
+) {
+  if (!cloudId || !namespace.trim() || !name.trim()) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少参数' });
+  }
+  const url = `${cephRookBase(cloudId)}/object-store-users/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+  return apiGet(url, { signal: options?.signal });
+}
+
+export function patchCephObjectStoreUserRook(cloudId: string, namespace: string, name: string, patch: unknown) {
+  if (!cloudId || !namespace.trim() || !name.trim()) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少参数' });
+  }
+  const url = `${cephRookBase(cloudId)}/object-store-users/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+  return apiPatch(url, patch);
+}
+
+export function replaceCephObjectStoreUserRook(cloudId: string, namespace: string, name: string, body: unknown) {
+  if (!cloudId || !namespace.trim() || !name.trim()) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少参数' });
+  }
+  const url = `${cephRookBase(cloudId)}/object-store-users/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+  return apiWrite(url, 'PUT', body);
+}
+
+export function deleteCephObjectStoreUserRook(cloudId: string, namespace: string, name: string) {
+  if (!cloudId || !namespace.trim() || !name.trim()) {
+    return Promise.resolve({ ok: false, error: '缺少参数' });
+  }
+  const url = `${cephRookBase(cloudId)}/object-store-users/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+  return apiDelete(url);
+}
+
+export type RgwS3ConnectionPayload = {
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region?: string;
+  forcePathStyle?: boolean;
+};
+
+/** 网关参数（可与 objectStoreUser 一并提交，由服务端解析 Secret 补全密钥） */
+export type RgwS3GatewayPayload = {
+  endpoint: string;
+  region?: string;
+  forcePathStyle?: boolean;
+};
+
+export type RgwS3ObjectStoreUserRef = {
+  namespace: string;
+  /** CephObjectStoreUser CR metadata.name */
+  name: string;
+};
+
+function buildRgwS3ProxyBody(
+  gateway: RgwS3GatewayPayload,
+  objectStoreUser: RgwS3ObjectStoreUserRef | null,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    connection: {
+      endpoint: gateway.endpoint,
+      region: gateway.region ?? 'us-east-1',
+      forcePathStyle: gateway.forcePathStyle !== false,
+    },
+  };
+  if (objectStoreUser?.namespace?.trim() && objectStoreUser?.name?.trim()) {
+    body.objectStoreUser = {
+      namespace: objectStoreUser.namespace.trim(),
+      name: objectStoreUser.name.trim(),
+    };
+  }
+  return body;
+}
+
+const cephRgwS3Base = (cloudId: string) =>
+  `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/ceph/rgw/s3`;
+
+/** Tower 按 CephObjectStore（namespace/name）保存的 S3 客户端网关参数（读写 clouds.config） */
+export type RgwGatewayClientConfigResponse = {
+  byStore: Record<string, RgwS3GatewayPayload>;
+};
+
+export function fetchRgwGatewayClientConfig(cloudId: string, options?: { signal?: AbortSignal; force?: boolean }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = options?.force ? `?_=${Date.now()}` : '';
+  return apiGet<RgwGatewayClientConfigResponse>(`${cephRgwS3Base(cloudId)}/gateway-client-config${q}`, {
+    signal: options?.signal,
+    cache: options?.force ? 'no-store' : 'default',
+  });
+}
+
+export function putRgwGatewayClientConfig(
+  cloudId: string,
+  namespace: string,
+  objectStoreName: string,
+  body: { endpoint?: string; region?: string; forcePathStyle?: boolean },
+) {
+  if (!cloudId || !namespace.trim() || !objectStoreName.trim()) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少参数' });
+  }
+  const url = `${cephRgwS3Base(cloudId)}/gateway-client-config/${encodeURIComponent(namespace.trim())}/${encodeURIComponent(objectStoreName.trim())}`;
+  return apiWrite<RgwGatewayClientConfigResponse>(url, 'PUT', body);
+}
+
+/** RGW / S3：列举存储桶（Tower 代发） */
+export function rgwS3ListBuckets(
+  cloudId: string,
+  gateway: RgwS3GatewayPayload,
+  objectStoreUser: RgwS3ObjectStoreUserRef | null,
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite(`${cephRgwS3Base(cloudId)}/list-buckets`, 'POST', buildRgwS3ProxyBody(gateway, objectStoreUser));
+}
+
+export function rgwS3CreateBucket(
+  cloudId: string,
+  gateway: RgwS3GatewayPayload,
+  objectStoreUser: RgwS3ObjectStoreUserRef | null,
+  bucket: string,
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite(`${cephRgwS3Base(cloudId)}/buckets`, 'POST', {
+    ...buildRgwS3ProxyBody(gateway, objectStoreUser),
+    bucket,
+  });
+}
+
+export function rgwS3DeleteBucket(
+  cloudId: string,
+  gateway: RgwS3GatewayPayload,
+  objectStoreUser: RgwS3ObjectStoreUserRef | null,
+  bucket: string,
+) {
+  if (!cloudId) return Promise.resolve({ ok: false, error: '缺少 cloudId' });
+  return apiWrite(`${cephRgwS3Base(cloudId)}/delete-bucket`, 'POST', {
+    ...buildRgwS3ProxyBody(gateway, objectStoreUser),
+    bucket,
+  });
+}
+
+export function rgwS3ListObjects(
+  cloudId: string,
+  gateway: RgwS3GatewayPayload,
+  objectStoreUser: RgwS3ObjectStoreUserRef | null,
+  opts: { bucket: string; prefix?: string; continuationToken?: string; maxKeys?: number },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite(`${cephRgwS3Base(cloudId)}/list-objects`, 'POST', {
+    ...buildRgwS3ProxyBody(gateway, objectStoreUser),
+    bucket: opts.bucket,
+    prefix: opts.prefix,
+    continuationToken: opts.continuationToken,
+    maxKeys: opts.maxKeys,
+  });
+}
+
+/** RGW：读取 CephObjectStoreUser 关联 Secret（管理员；响应含 AK/SK，勿写日志） */
+export function fetchRgwRookSecret(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  options?: { signal?: AbortSignal },
+) {
+  if (!cloudId || !namespace.trim() || !name.trim()) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少参数' });
+  }
+  const url = `${cephRgwS3Base(cloudId)}/rook-secret/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+  return apiGet(url, { signal: options?.signal, cache: 'no-store' });
+}

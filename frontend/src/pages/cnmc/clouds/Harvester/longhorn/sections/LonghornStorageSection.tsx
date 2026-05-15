@@ -286,7 +286,12 @@ const LonghornStorageSection: React.FC<LonghornStorageSectionProps> = ({ cloudId
                 <Statistic title="节点数" value={summary.nodeCount} prefix={<CloudServerOutlined style={{ opacity: 0.55 }} />} />
               </Col>
               <Col {...statCol}>
-                <Statistic title="默认副本数" value={summary.defaultReplicaCount} />
+                <Statistic title="默认存储类副本" value={summary.defaultStorageClassReplicaCount ?? '—'} />
+                {summary.defaultStorageClassName ? (
+                  <Typography.Text type="secondary" ellipsis style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                    {summary.defaultStorageClassName}
+                  </Typography.Text>
+                ) : null}
               </Col>
             </Row>
 

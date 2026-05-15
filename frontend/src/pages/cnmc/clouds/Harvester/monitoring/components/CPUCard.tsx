@@ -2,7 +2,7 @@
  * CPU 卡片 - 圆环已分配比例 + 已分配/可用
  */
 import React, { useMemo } from 'react';
-import { Card, Typography, Spin } from 'antd';
+import { Card, Typography } from 'antd';
 import { ThunderboltOutlined } from '@ant-design/icons';
 import { useDashboardNodeDataContext } from '../DashboardContext';
 import { aggregateNodeResources, aggregateNodeMetrics } from '../utils/nodeResourceMetrics';
@@ -26,7 +26,6 @@ function formatCores(cores: number): string {
 
 export const CPUCard: React.FC = () => {
   const nodeData = useDashboardNodeDataContext();
-  const loading = nodeData?.loading ?? false;
 
   const { totalCpuCores, usedCpuCores, availableCpuCores, percent } = useMemo(() => {
     const resources = aggregateNodeResources(nodeData?.nodeResources ?? null);
@@ -52,13 +51,19 @@ export const CPUCard: React.FC = () => {
       }
       styles={{
         header: { padding: '16px 20px', height: 60, minHeight: 60 },
-        body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '10px 16px' },
+        body: {
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          padding: '10px 16px',
+        },
       }}
       extra={<span style={{ fontSize: 14, color: '#999' }}>共 {formatCores(totalCpuCores)}</span>}
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
     >
-      <Spin spinning={loading} style={{ minHeight: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, minHeight: 0 }}>
           <div style={{ position: 'relative', flexShrink: 0, width: size, height: size }}>
             <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
               <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
@@ -114,7 +119,6 @@ export const CPUCard: React.FC = () => {
             </div>
           </div>
         </div>
-      </Spin>
     </Card>
   );
 };

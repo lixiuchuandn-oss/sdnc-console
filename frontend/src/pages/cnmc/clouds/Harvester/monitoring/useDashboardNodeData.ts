@@ -7,7 +7,10 @@ import {
   fetchNodeResources,
   fetchNodeMetrics,
   fetchStorageNodes,
+  fetchCephDashboardSummary,
+  fetchCephResources,
 } from '../../../../../services/monitoringApi';
+import { fetchHarvesterStorageClasses } from '../../../../../services/harvesterApi';
 import type { NodeResourcesData, NodeMetricsData } from './utils/nodeResourceMetrics';
 
 const POLL_INTERVAL_SUCCESS_SEC = 10;
@@ -17,6 +20,12 @@ export interface DashboardNodeDataState {
   nodeResources: NodeResourcesData | null;
   nodeMetrics: NodeMetricsData | null;
   storageNodes: unknown;
+  /** Ceph Dashboard `api/health/minimal` 载荷（用于概览储存卡片 Ceph 分支） */
+  cephHealthMinimal: unknown | null;
+  /** GET monitoring/ceph-resources（与 rook bundle 同源） */
+  cephResourcesRaw: unknown | null;
+  /** Harvester 存储类列表接口原始 JSON（用于池↔SC 合并） */
+  storageClassesJson: unknown | null;
   loading: boolean;
   error: string | null;
 }
@@ -26,6 +35,9 @@ export function useDashboardNodeData(cloudId: string | undefined): DashboardNode
     nodeResources: null,
     nodeMetrics: null,
     storageNodes: null,
+    cephHealthMinimal: null,
+    cephResourcesRaw: null,
+    storageClassesJson: null,
     loading: !!cloudId,
     error: null,
   });
@@ -55,15 +67,64 @@ export function useDashboardNodeData(cloudId: string | undefined): DashboardNode
         fetchNodeResources(cloudId, opts),
         fetchNodeMetrics(cloudId, opts),
         fetchStorageNodes(cloudId, opts),
+        fetchCephDashboardSummary(cloudId, { path: 'api/health/minimal', signal }),
+        fetchCephResources(cloudId, { signal }),
+        fetchHarvesterStorageClasses(cloudId),
       ])
-        .then(([resourcesResult, metricsResult, storageResult]) => {
+        .then(
+          ([
+            resourcesResult,
+            metricsResult,
+            storageResult,
+            cephMinimalResult,
+            cephResourcesResult,
+            storageClassesResult,
+          ]) => {
           if (!mountedRef.current || signal.aborted) return;
-          
+
           // 处理每个请求的结果，单个失败不影响其他
-          const resourcesRes = resourcesResult.status === 'fulfilled' ? resourcesResult.value : { ok: false, error: resourcesResult.reason?.message || '请求失败', data: null };
-          const metricsRes = metricsResult.status === 'fulfilled' ? metricsResult.value : { ok: false, error: metricsResult.reason?.message || '请求失败', data: null };
-          const storageRes = storageResult.status === 'fulfilled' ? storageResult.value : { ok: false, error: storageResult.reason?.message || '请求失败', data: null };
-          
+          const resourcesRes =
+            resourcesResult.status === 'fulfilled'
+              ? resourcesResult.value
+              : { ok: false, error: resourcesResult.reason?.message || '请求失败', data: null };
+          const metricsRes =
+            metricsResult.status === 'fulfilled'
+              ? metricsResult.value
+              : { ok: false, error: metricsResult.reason?.message || '请求失败', data: null };
+          const storageRes =
+            storageResult.status === 'fulfilled'
+              ? storageResult.value
+              : { ok: false, error: storageResult.reason?.message || '请求失败', data: null };
+          const cephMinimalRes =
+            cephMinimalResult.status === 'fulfilled'
+              ? cephMinimalResult.value
+              : { ok: false, error: cephMinimalResult.reason?.message || '请求失败', data: null };
+          const cephResourcesRes =
+            cephResourcesResult.status === 'fulfilled'
+              ? cephResourcesResult.value
+              : { ok: false, error: cephResourcesResult.reason?.message || '请求失败', data: null };
+
+          let cephHealthMinimal: unknown | null = null;
+          if (cephMinimalRes.ok && cephMinimalRes.data != null) {
+            const env = cephMinimalRes.data as {
+              data?: unknown;
+              _tower?: { cephDashboardError?: boolean | string };
+            };
+            if (!env._tower?.cephDashboardError) {
+              cephHealthMinimal = env.data ?? null;
+            }
+          }
+
+          let cephResourcesRaw: unknown | null = null;
+          if (cephResourcesRes.ok && cephResourcesRes.data != null) {
+            cephResourcesRaw = cephResourcesRes.data;
+          }
+
+          let storageClassesJson: unknown | null = null;
+          if (storageClassesResult.status === 'fulfilled') {
+            storageClassesJson = storageClassesResult.value ?? null;
+          }
+
           const errMsg = !resourcesRes.ok
             ? resourcesRes.error
             : !metricsRes.ok
@@ -75,6 +136,9 @@ export function useDashboardNodeData(cloudId: string | undefined): DashboardNode
             nodeResources: resourcesRes.ok ? (resourcesRes.data as NodeResourcesData) : null,
             nodeMetrics: metricsRes.ok ? (metricsRes.data as NodeMetricsData) : null,
             storageNodes: storageRes.ok ? storageRes.data : null,
+            cephHealthMinimal,
+            cephResourcesRaw,
+            storageClassesJson,
             loading: false,
             error: errMsg ?? null,
           });

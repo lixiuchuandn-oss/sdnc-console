@@ -4,7 +4,10 @@
  */
 import React from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
-import { cloudmapPoolBasePath } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import {
+  cloudmapDefaultPoolInnerSeg,
+  cloudmapPoolBasePath,
+} from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { Empty } from 'antd';
 import {
   CloudmapBackupsGroupTabs,
@@ -31,7 +34,7 @@ import {
   fetchKubeOvnSubnets,
 } from '../api';
 import { useCloudmapPoolDetail } from './PoolDetailContext';
-import CephStorageSection from '../../../Harvester/ceph/sections/CephStorageSection';
+import CloudmapStorageDashboardByBackend from '../panels/resource_hub/CloudmapStorageDashboardByBackend';
 
 const RESOURCE_SUB_SET = new Set<string>(CLOUDMAP_RESOURCE_SUB_KEYS);
 
@@ -60,7 +63,7 @@ const ResourceHubRoute: React.FC = () => {
       );
     case 'ceph_storage_overview':
       return p.canViewCephGroup ? (
-        <CephStorageSection cloudId={p.cloudId} />
+        <CloudmapStorageDashboardByBackend cloudId={p.cloudId} />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
@@ -356,15 +359,15 @@ const CephLegacyPoolRedirect: React.FC = () => {
   const { poolInnerSeg } = useParams<{ poolInnerSeg?: string }>();
   const inner = String(poolInnerSeg ?? '').trim();
   const base = cloudmapPoolBasePath(p.cloudId);
-  let to = `${base}/storage/storage_pools`;
+  let to = `${base}/cluster/storage_pools`;
   if (inner === 'object_storage') {
-    to = `${base}/object_storage/object_gateways`;
+    to = `${base}/object_storage/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('object_storage'))}`;
   } else if (inner === 'overview') {
     to = `${base}/resource_hub/ceph_storage_overview`;
   } else if (inner === 'storage_pools') {
-    to = `${base}/storage/storage_pools`;
+    to = `${base}/cluster/storage_pools`;
   } else if (inner === 'block_storage') {
-    to = `${base}/storage/storage_pools`;
+    to = `${base}/cluster/storage_pools`;
   }
   return <Navigate to={to} replace />;
 };
@@ -414,7 +417,19 @@ const StorageRoute: React.FC = () => {
 
 const StorageLonghornLegacyRedirect: React.FC = () => {
   const p = useCloudmapPoolDetail();
-  return <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/storage/storage_pools`} replace />;
+  return <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/cluster/storage_pools`} replace />;
+};
+
+const NavigateClusterStoragePools: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  return <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/cluster/storage_pools`} replace />;
+};
+
+const NavigateClusterStorageClasses: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  return (
+    <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/cluster/storage_classes`} replace />
+  );
 };
 
 const BackupsRoute: React.FC = () => {
@@ -543,9 +558,12 @@ const CloudmapPoolRoutes: React.FC = () => {
         <Route path="containers/:poolInnerSeg?" element={<ContainersRoute />} />
         <Route path="storage/ceph" element={<StorageCephLegacyRedirect />} />
         <Route path="storage/longhorn" element={<StorageLonghornLegacyRedirect />} />
+        <Route path="storage/storage_pools" element={<NavigateClusterStoragePools />} />
+        <Route path="storage/storage_classes" element={<NavigateClusterStorageClasses />} />
         <Route path="storage/:poolInnerSeg?" element={<StorageRoute />} />
         <Route path="ceph" element={<CephLegacyPoolRedirect />} />
         <Route path="ceph/:poolInnerSeg" element={<CephLegacyPoolRedirect />} />
+        <Route path="object_storage/storage_pools" element={<NavigateClusterStoragePools />} />
         <Route path="object_storage/:poolInnerSeg?" element={<ObjectStorageRoute />} />
         <Route path="backups/:poolInnerSeg?" element={<BackupsRoute />} />
         <Route path="flat_network/:poolInnerSeg?" element={<FlatNetworkRoute />} />
