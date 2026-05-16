@@ -1078,3 +1078,45 @@ html, body, #root {
 .ceph-rook-pool-drawer-form .ant-collapse-header-text {
   font-weight: normal;
 }
+
+/* 用户管理 · 安全设定抽屉：横向表单项标签左对齐、控件列对齐 */
+.security-settings-form .ant-form-item.security-settings-inline-row .ant-form-item-row {
+  flex-wrap: nowrap;
+}
+.security-settings-form .ant-form-item.security-settings-inline-row .ant-form-item-label {
+  flex: 0 0 192px;
+  max-width: 192px;
+  text-align: left;
+}
+.security-settings-form .ant-form-item.security-settings-inline-row .ant-form-item-label > label {
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+  height: auto;
+}
+.security-settings-form .ant-form-item.security-settings-inline-row .ant-form-item-control {
+  flex: 0 0 auto;
+  max-width: none;
+}
+.security-settings-form .security-settings-control.ant-input-number {
+  width: 320px;
+}
+.security-settings-form .security-settings-control.ant-input-number .ant-input-number-input-wrap {
+  flex: 1 1 auto;
+  min-width: 72px;
+}
+.security-settings-form .security-settings-control.ant-input-number .ant-input-number-input {
+  width: 100%;
+  min-width: 4em;
+}
+.security-settings-form .security-settings-control-wide.ant-input-number {
+  width: 360px;
+}
+.security-settings-form .security-settings-control-wide.ant-input-number .ant-input-number-input-wrap {
+  flex: 1 1 auto;
+  min-width: 72px;
+}
+.security-settings-form .security-settings-control-wide.ant-input-number .ant-input-number-input {
+  width: 100%;
+  min-width: 4em;
+}

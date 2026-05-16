@@ -15,6 +15,10 @@ import {
 } from "../../../lib/vmMutation/vmReconfigureCloudInit";
 import { computeSecondaryNicsPayload } from "./vmNicReconfigureCompute";
 import { buildKubeOvnCustomIpVmMetadataAnnotationsFromReconfigureForm } from "../../../lib/vmNicManageLogic";
+import {
+  getVmTemplateFixedHostname,
+  validateAppendPassthroughPciNodeAffinity,
+} from "../../../lib/passthroughNicSelectOptions";
 import { showVmNicChangeRestartConfirm } from "./vmNicSaveRestartConfirm";
 
 function mergeHarvesterDeviceAllocationDetailsJson(
@@ -50,8 +54,9 @@ export async function submitAppendSecondaryNicRow(opts: {
   nads: any[];
   vmNs: string;
   vmName: string;
+  pciDevices?: any[];
 }): Promise<void> {
-  const { cloudId, vmData, newRow, subnets, nads, vmNs, vmName } = opts;
+  const { cloudId, vmData, newRow, subnets, nads, vmNs, vmName, pciDevices } = opts;
   const primaryPatch = buildPrimaryNicFormSlice(vmData, subnets);
   const secondaries = [
     ...buildSecondaryNicsFormSlicesFromRecord(vmData, subnets),
@@ -90,6 +95,17 @@ export async function submitAppendSecondaryNicRow(opts: {
   if (isPciPass) {
     const cr = String(newRow.pciDeviceName).trim();
     const rn = String(newRow.pciResourceName).trim();
+    const pciNode = String(newRow?.pciNodeName || "").trim();
+    const affinityErr = validateAppendPassthroughPciNodeAffinity({
+      vm: vmData,
+      pciNodeName: pciNode,
+      bindNode: String(newRow?.passthroughBindNode || "").trim() || undefined,
+      pciDevices,
+    });
+    if (affinityErr) {
+      message.error(affinityErr);
+      throw new Error("passthrough_pci_node_mismatch");
+    }
     payload.appendHostDevices = [{ name: cr, deviceName: rn }];
     const ann = { ...payload.vmMetadataAnnotations } as Record<string, string | null>;
     ann["harvesterhci.io/deviceAllocationDetails"] = mergeHarvesterDeviceAllocationDetailsJson(
@@ -98,8 +114,8 @@ export async function submitAppendSecondaryNicRow(opts: {
       rn,
     );
     payload.vmMetadataAnnotations = ann;
-    const pciNode = String(newRow?.pciNodeName || "").trim();
-    if (pciNode) {
+    const fixedHost = getVmTemplateFixedHostname(vmData);
+    if (pciNode && !fixedHost) {
       const cur = vmData?.spec?.template?.spec?.nodeSelector || {};
       payload.nodeSelector = {
         ...cur,

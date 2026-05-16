@@ -166,6 +166,35 @@ export function effectiveDiskBusForHotDetachPolicy(
 }
 
 /**
+ * 任一块设备（按 `name` 对齐）的总线是否与 baseline 快照中不同；用于运行中变配保存后的重启提示。
+ */
+export function blockDiskBusTypeChangedFromBaseline(
+  baselineJson: string,
+  currentDisks: any[],
+  currentUi: VmDiskEditorSlice[],
+): boolean {
+  let parsed: { disks?: any[]; ui?: VmDiskEditorSlice[] } = {};
+  try {
+    parsed = JSON.parse(baselineJson || "{}");
+  } catch {
+    return false;
+  }
+  const bd = Array.isArray(parsed.disks) ? parsed.disks : [];
+  const bu = Array.isArray(parsed.ui) ? parsed.ui : [];
+  for (let i = 0; i < currentDisks.length; i++) {
+    const d = currentDisks[i];
+    const name = String(d?.name || "").trim();
+    if (!name) continue;
+    const j = bd.findIndex((x: any) => String(x?.name || "").trim() === name);
+    if (j < 0) continue;
+    const beforeBus = effectiveDiskBusForHotDetachPolicy(bd[j], bu[j]);
+    const afterBus = effectiveDiskBusForHotDetachPolicy(d, currentUi[i]);
+    if (beforeBus !== afterBus) return true;
+  }
+  return false;
+}
+
+/**
  * 解绑此类总线的磁盘时，可不弹「立即重启 / 手动重启」（SCSI 热解绑常见；iscsi 作拼写兼容）。
  * 其余总线（virtio、sata 等）解绑后仍提示重启。
  */
@@ -187,6 +216,24 @@ export function orderVolumesForDisks(disks: any[], volumes: any[]): any[] {
     const v = volumes.find((x: any) => x?.name === name);
     return v ? deepClone(v) : { name };
   });
+}
+
+/**
+ * 与磁盘管理抽屉 `syncFromVm` 一致：块设备 `devices.disks` 的设备名顺序（跳过 Cloud-Init），
+ * 用于检测用户是否调整了列表中的磁盘启动顺序。
+ */
+export function blockDiskDeviceNamesInVmOrder(vm: any): string[] {
+  const dFull = vm?.spec?.template?.spec?.domain?.devices?.disks || [];
+  const volRaw = vm?.spec?.template?.spec?.volumes || [];
+  const volsFull = orderVolumesForDisks(dFull, volRaw);
+  const names: string[] = [];
+  dFull.forEach((disk: any, i: number) => {
+    const vol = volsFull[i];
+    if (isCloudInitVolume(vol)) return;
+    const n = String(disk?.name || "").trim();
+    if (n) names.push(n);
+  });
+  return names;
 }
 
 /** 合并后的 devices.disks：bootOrder=1 写在「第一个块设备槽位」，避免 Cloud-Init 排在首位时抢 bootOrder。 */

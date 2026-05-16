@@ -19,7 +19,10 @@ import {
   isHarvesterVmImageReady,
   resolveVmImageKind,
 } from '../../../../../../../../utils/harvesterUtils';
-import { harvesterCreatedPvcNameFromResponse } from '../../../lib/harvesterVolumeCreateResponse';
+import {
+  harvesterCreatedPvcNameFromResponse,
+  harvesterCreatedPvcTowerAliasFromResponse,
+} from '../../../lib/harvesterVolumeCreateResponse';
 import { getMissingNadsFromNetworks } from '../../../lib/harvesterVmNetwork';
 import { applyBootOrderCdromFirst } from '../../../lib/vmDiskBootOrder';
 import { isRestartRequiredFromVm, isVmStopped } from '../../../lib/vmInstanceStatus';
@@ -256,17 +259,25 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
           message.error('请选择有效的 ISO 镜像');
           return;
         }
+        const isoAlias = String(volName ?? '').trim();
+        const nameForApi =
+          isoAlias ||
+          `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         const createRes: any = await createHarvesterVolume(cloudId, {
           namespace,
-          name: volName,
+          name: nameForApi,
           size: values.newDiskSize,
           storageClassName: values.newDiskSc,
           accessModes: [accessMode],
           volumeMode: 'Block',
-          annotations: { 'harvesterhci.io/imageId': imgVal },
+          annotations: {
+            'harvesterhci.io/imageId': imgVal,
+            ...(isoAlias ? { 'tower.io/alias': isoAlias } : {}),
+          },
         });
-        const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-        const displayAlias = String(volName ?? '').trim() || actualName;
+        const actualName = harvesterCreatedPvcNameFromResponse(createRes, nameForApi);
+        const aliasFromServer = harvesterCreatedPvcTowerAliasFromResponse(createRes);
+        const displayAlias = aliasFromServer || isoAlias || actualName;
         form.setFieldsValue({
           newDiskCreated: true,
           newDiskPvcClaimName: actualName,
@@ -526,23 +537,30 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         return;
       }
 
-      const volName = String(values.newCdromName ?? '').trim();
+      const userCdromAlias = String(
+        form.getFieldValue('newCdromName') ?? values.newCdromName ?? '',
+      ).trim();
+      const nameForApi =
+        userCdromAlias ||
+        `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
       const accessMode = values.newCdromAccessMode || 'ReadWriteMany';
 
       const createRes: any = await createHarvesterVolume(cloudId, {
         namespace,
-        name: volName,
+        name: nameForApi,
         size: values.newCdromSize,
         storageClassName,
         accessModes: [accessMode],
         volumeMode: 'Block',
         annotations: {
           'harvesterhci.io/imageId': imgVal,
+          ...(userCdromAlias ? { 'tower.io/alias': userCdromAlias } : {}),
         },
       });
 
-      const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-      const displayAlias = String(values.newCdromName ?? '').trim() || actualName;
+      const actualName = harvesterCreatedPvcNameFromResponse(createRes, nameForApi);
+      const aliasFromServer = harvesterCreatedPvcTowerAliasFromResponse(createRes);
+      const displayAlias = aliasFromServer || userCdromAlias || actualName;
       form.setFieldsValue({
         newCdromCreated: true,
         newCdromClaimName: actualName,

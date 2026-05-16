@@ -70,6 +70,7 @@ import path from 'path';
 import fs from 'fs';
 import { getPublicUiSettings } from './config/systemSettings';
 import { getPublicAdminPasswordPolicy } from './services/adminPasswordPolicy';
+import { getPublicPageTimeoutMinutes } from './services/adminAuthConfig';
 
 dotenv.config();
 
@@ -231,6 +232,10 @@ app.get('/api/public/system-ui', (_req, res) => {
 /** 未登录可读：管理员密码复杂度规则（用于登录页/改密表单提示） */
 app.get('/api/public/admin-password-policy', (_req, res) => {
   res.json({ data: getPublicAdminPasswordPolicy() });
+});
+/** 未登录可读：页面空闲超时（分钟），用于登录后会话空闲登出 */
+app.get('/api/public/admin-auth-config', (_req, res) => {
+  res.json({ data: { pageTimeoutMinutes: getPublicPageTimeoutMinutes() } });
 });
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/clouds', authMiddleware, cloudRoutes);

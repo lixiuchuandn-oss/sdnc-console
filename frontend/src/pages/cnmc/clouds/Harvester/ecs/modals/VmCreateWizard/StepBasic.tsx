@@ -37,46 +37,12 @@ import {
   pickFirstNamespaceRecordByScenarioForOptions,
 } from '../../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../../context/HarvesterPublicNamespacesContext';
-
-const parseCpuToCores = (s?: string): number => {
-  if (!s) return 0;
-  const t = String(s).trim();
-  if (/m$/i.test(t)) {
-    const v = Number(t.replace(/m$/i, ''));
-    return isFinite(v) ? v / 1000 : 0;
-  } else if (/n$/i.test(t)) {
-    const v = Number(t.replace(/n$/i, ''));
-    return isFinite(v) ? v / 1e9 : 0;
-  } else if (/u$/i.test(t)) {
-    const v = Number(t.replace(/u$/i, ''));
-    return isFinite(v) ? v / 1e6 : 0;
-  }
-  const v = Number(t);
-  return isFinite(v) ? v : 0;
-};
-
-const parseMemoryToBytes = (s?: string): number => {
-  if (!s) return 0;
-  const t = String(s).trim();
-  const m = t.match(/^(\d+(?:\.\d+)?)([KMGTP]i?)?$/i);
-  if (!m) return 0;
-  const val = Number(m[1]);
-  const unit = (m[2] || '').toLowerCase();
-  let bytes = val;
-  if (unit === 'ki') bytes = val * 1024;
-  else if (unit === 'mi') bytes = val * 1024 * 1024;
-  else if (unit === 'gi') bytes = val * 1024 * 1024 * 1024;
-  else if (unit === 'ti') bytes = val * 1024 * 1024 * 1024 * 1024;
-  else if (unit === 'k') bytes = val * 1000;
-  else if (unit === 'm') bytes = val * 1e6;
-  else if (unit === 'g') bytes = val * 1e9;
-  else if (unit === 't') bytes = val * 1e12;
-  return bytes;
-};
-
-const bytesToGiB = (bytes: number): number => {
-  return bytes / (1024 * 1024 * 1024);
-};
+import {
+  bytesToGiB,
+  parseCpuToCores,
+  parseMemoryToBytes,
+} from '../../drawers/shared/lib/harvesterNodeResourceUtils';
+import { useHarvesterNodeResourceMaps } from '../../drawers/shared/lib/useHarvesterNodeResourceMaps';
 
 /**
  * 组件 Props 定义
@@ -149,98 +115,8 @@ const StepBasic: React.FC<StepBasicProps> = ({
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
 
-  // 资源数据状态
-  const [metricsMap, setMetricsMap] = useState<Record<string, { cpuUsedCores?: number; memUsedBytes?: number }>>({});
-  const [requestsMap, setRequestsMap] = useState<Record<string, { cpuRequestCores?: number; memRequestBytes?: number }>>({});
-  const [nodesDetailMap, setNodesDetailMap] = useState<Record<string, { allocatableCpu?: string; allocatableMemory?: string; capacityCpu?: string; capacityMemory?: string }>>({});
-  const [resourceLoading, setResourceLoading] = useState(true);
-  
-  // 获取资源数据
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        if (!cloudId || cloudId === 'all') return;
-        
-        const harvesterApi = await import('../../../../../../../services/harvesterApi');
-        
-        const [metricsRes, podsRes, nodesRes] = await Promise.all([
-          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes'),
-          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/api/v1/pods?allNamespaces=true'),
-          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/api/v1/nodes')
-        ]);
-        
-        // 处理实时使用数据
-        const metricsItems: any[] = Array.isArray((metricsRes as any)?.items) ? (metricsRes as any).items : [];
-        const newMetricsMap: Record<string, { cpuUsedCores?: number; memUsedBytes?: number }> = {};
-        for (const it of metricsItems) {
-          const name = it?.metadata?.name || '';
-          const cpuUsed = parseCpuToCores(it?.usage?.cpu);
-          const memUsed = parseMemoryToBytes(it?.usage?.memory);
-          if (name) newMetricsMap[name] = { cpuUsedCores: cpuUsed, memUsedBytes: memUsed };
-        }
-        
-        // 处理已分配数据
-        const podsItems: any[] = Array.isArray((podsRes as any)?.items) ? (podsRes as any).items : [];
-        const newRequestsMap: Record<string, { cpuRequestCores?: number; memRequestBytes?: number }> = {};
-        for (const pod of podsItems) {
-          const nodeName = pod?.spec?.nodeName || '';
-          if (!nodeName) continue;
-          
-          if (!newRequestsMap[nodeName]) {
-            newRequestsMap[nodeName] = { cpuRequestCores: 0, memRequestBytes: 0 };
-          }
-          
-          const containers = Array.isArray(pod?.spec?.containers) ? pod.spec.containers : [];
-          const initContainers = Array.isArray(pod?.spec?.initContainers) ? pod.spec.initContainers : [];
-          const allContainers = [...containers, ...initContainers];
-          
-          for (const container of allContainers) {
-            const requests = container?.resources?.requests || {};
-            const limits = container?.resources?.limits || {};
-            const cpuReq = requests?.cpu || limits?.cpu;
-            const memReq = requests?.memory || limits?.memory;
-            
-            newRequestsMap[nodeName].cpuRequestCores = (newRequestsMap[nodeName].cpuRequestCores || 0) + parseCpuToCores(cpuReq);
-            newRequestsMap[nodeName].memRequestBytes = (newRequestsMap[nodeName].memRequestBytes || 0) + parseMemoryToBytes(memReq);
-          }
-        }
-        
-        // 处理节点详细数据（包含 allocatable 和 capacity）
-        const newNodesDetailMap: Record<string, { allocatableCpu?: string; allocatableMemory?: string; capacityCpu?: string; capacityMemory?: string }> = {};
-        const nodesItems: any[] = Array.isArray((nodesRes as any)?.items) ? (nodesRes as any).items : [];
-        for (const nodeItem of nodesItems) {
-          const name = nodeItem?.metadata?.name || '';
-          if (!name) continue;
-          newNodesDetailMap[name] = {
-            allocatableCpu: nodeItem?.status?.allocatable?.cpu,
-            allocatableMemory: nodeItem?.status?.allocatable?.memory,
-            capacityCpu: nodeItem?.status?.capacity?.cpu,
-            capacityMemory: nodeItem?.status?.capacity?.memory,
-          };
-        }
-        
-        if (!cancelled) {
-          setMetricsMap(newMetricsMap);
-          setRequestsMap(newRequestsMap);
-          setNodesDetailMap(newNodesDetailMap);
-          setResourceLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setMetricsMap({});
-          setRequestsMap({});
-          setNodesDetailMap({});
-          setResourceLoading(false);
-        }
-      }
-    };
-    
-    setResourceLoading(true);
-    load();
-    
-    return () => { cancelled = true; };
-  }, [cloudId]);
+  const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } =
+    useHarvesterNodeResourceMaps(cloudId);
 
   const visibleNamespaceOptions = useMemo(() => {
     if (!isTenant) return namespaceOptions;
@@ -610,8 +486,9 @@ const StepBasic: React.FC<StepBasicProps> = ({
               },
             ] as any}
             dataSource={displayNodes}
-            loading={nodesLoading}
+            loading={nodesLoading || resourceLoading}
             pagination={false}
+            scroll={{ x: true }}
           />
         </div>
       ) : null}

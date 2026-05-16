@@ -3,7 +3,10 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Button, Drawer, Flex, Form, message } from "antd";
-import { fetchHarvesterNodes } from "../../../../../../../services/harvesterApi";
+import {
+  fetchHarvesterNodes,
+  fetchHarvesterPciDevices,
+} from "../../../../../../../services/harvesterApi";
 import ChangeNodeScheduling from "./ChangeNodeScheduling";
 import { buildVmReconfigureSubmitCtx } from "../../lib/vmMutation/vmReconfigureSubmitContext";
 import { VmReconfigureSubmitSkipFinalize } from "../../lib/vmMutation/vmReconfigureSubmitTypes";
@@ -40,6 +43,7 @@ const VmNodeSchedulingDrawer: React.FC<VmNodeSchedulingDrawerProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [nodes, setNodes] = useState<any[]>([]);
   const [nodesLoading, setNodesLoading] = useState(false);
+  const [pciDevices, setPciDevices] = useState<any[]>([]);
   const vmManageCssVars = useVmManageDrawerCssVars();
   const activeRecord = latestVm || vmData;
 
@@ -74,10 +78,24 @@ const VmNodeSchedulingDrawer: React.FC<VmNodeSchedulingDrawerProps> = ({
     }
   }, [cloudId]);
 
+  const reloadPciDevices = useCallback(async () => {
+    if (!cloudId) return [];
+    try {
+      const json: any = await fetchHarvesterPciDevices(cloudId, true);
+      const items: any[] = json?.data?.items || json?.items || [];
+      const list = Array.isArray(items) ? items : [];
+      setPciDevices(list);
+      return list;
+    } catch {
+      setPciDevices([]);
+      return [];
+    }
+  }, [cloudId]);
+
   useEffect(() => {
     if (!open || !cloudId) return;
-    void reloadNodes();
-  }, [open, cloudId, reloadNodes]);
+    void Promise.all([reloadNodes(), reloadPciDevices()]);
+  }, [open, cloudId, reloadNodes, reloadPciDevices]);
 
   useEffect(() => {
     if (!open || !vmData) return;
@@ -113,7 +131,9 @@ const VmNodeSchedulingDrawer: React.FC<VmNodeSchedulingDrawerProps> = ({
         onOk: onApplied,
         onClose,
       });
-      await submitVmReconfigureChangeNodeScheduling(ctx, values, vmName, namespace);
+      await submitVmReconfigureChangeNodeScheduling(ctx, values, vmName, namespace, {
+        pciDevices,
+      });
       await onApplied?.();
       onClose?.();
     } catch (e: any) {
@@ -171,6 +191,7 @@ const VmNodeSchedulingDrawer: React.FC<VmNodeSchedulingDrawerProps> = ({
           <ChangeNodeScheduling
             form={form}
             record={activeRecord}
+            cloudId={cloudId}
             nodes={nodes}
             reloadNodes={reloadNodes}
             nodesLoading={nodesLoading}

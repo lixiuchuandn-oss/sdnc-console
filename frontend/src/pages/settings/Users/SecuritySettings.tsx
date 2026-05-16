@@ -5,19 +5,40 @@ import {
   Button,
   App,
   InputNumber,
-  Checkbox,
   Switch,
   Space,
   Drawer,
+  Divider,
+  Typography,
+  Flex,
+  Tooltip,
 } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
 import { getSystemSetting as apiGetSystemSetting, updateSystemSetting as apiUpdateSystemSetting } from '../../../services/systemApi';
+import {
+  buildAdminPasswordPolicyPayload,
+  inferPasswordComplexityEnabled,
+} from '../../../utils/adminPasswordPolicy';
 import type { AdminPasswordPolicy } from '../../../utils/adminPasswordPolicy';
+import {
+  DEFAULT_ADMIN_AUTH_CONFIG,
+  parseAdminAuthConfig,
+  type AdminAuthConfig,
+} from '../../../utils/adminAuthConfig';
 
 export type SecuritySettingsDrawerProps = {
   open: boolean;
   onClose: () => void;
   onSaved?: () => void;
 };
+
+const SECURITY_INLINE_LABEL_COL = { flex: '0 0 192px' };
+const SECURITY_INLINE_WRAPPER_COL = { flex: '0 0 auto' };
+const securityInlineRowClass = 'security-settings-inline-row';
+const SECURITY_SETTINGS_FORM_ID = 'security-settings-form';
+
+const PASSWORD_COMPLEXITY_HELP =
+  '开启密码复杂度要求：密码至少 8 位，且须包含数字、大写字母、小写字母、特殊字符中的至少三项。';
 
 export const SecuritySettingsDrawer: React.FC<SecuritySettingsDrawerProps> = ({
   open,
@@ -31,6 +52,14 @@ export const SecuritySettingsDrawer: React.FC<SecuritySettingsDrawerProps> = ({
   useEffect(() => {
     if (!open) return;
     (async () => {
+      let passwordDefaults: Record<string, unknown> = {
+        passwordComplexityEnabled: false,
+        passwordExpiryEnabled: false,
+        maxPasswordAgeDays: 90,
+        requirePasswordChangeOnFirstLogin: false,
+      };
+      let authDefaults: AdminAuthConfig = { ...DEFAULT_ADMIN_AUTH_CONFIG };
+
       try {
         const res = await apiGetSystemSetting('auth.admin_password_policy');
         const raw = (res as any)?.value ?? (res as any)?.data?.value ?? '';
@@ -42,84 +71,97 @@ export const SecuritySettingsDrawer: React.FC<SecuritySettingsDrawerProps> = ({
         }
         const days = parsed.maxPasswordAgeDays ?? 0;
         const enabled = days > 0;
-        form.setFieldsValue({
-          minLength: parsed.minLength ?? 8,
-          maxLength: parsed.maxLength ?? 64,
-          requireUppercase: !!parsed.requireUppercase,
-          requireLowercase: !!parsed.requireLowercase,
-          requireDigit: !!parsed.requireDigit,
-          requireSpecial: !!parsed.requireSpecial,
+        passwordDefaults = {
+          passwordComplexityEnabled: inferPasswordComplexityEnabled(parsed),
           passwordExpiryEnabled: enabled,
           maxPasswordAgeDays: enabled ? days : 90,
           requirePasswordChangeOnFirstLogin: !!parsed.requirePasswordChangeOnFirstLogin,
-        });
+        };
       } catch {
-        form.setFieldsValue({
-          minLength: 8,
-          maxLength: 64,
-          requireUppercase: false,
-          requireLowercase: false,
-          requireDigit: false,
-          requireSpecial: false,
-          passwordExpiryEnabled: false,
-          maxPasswordAgeDays: 90,
-          requirePasswordChangeOnFirstLogin: false,
-        });
+        /* keep passwordDefaults */
       }
+
+      try {
+        const authRes = await apiGetSystemSetting('auth.admin_auth_config');
+        const authRaw = (authRes as any)?.value ?? (authRes as any)?.data?.value ?? '';
+        authDefaults = parseAdminAuthConfig(authRaw ? String(authRaw) : null);
+      } catch {
+        /* keep authDefaults */
+      }
+
+      form.setFieldsValue({ ...passwordDefaults, ...authDefaults });
     })();
   }, [open, form]);
 
   return (
     <Drawer
-      title={<span>安全管理</span>}
+      title={<span>安全设定</span>}
       placement="right"
       width={720}
       open={open}
       onClose={onClose}
       destroyOnHidden
       styles={{ body: { paddingBottom: 24 } }}
+      footer={
+        <Flex justify="flex-end">
+          <Button type="primary" htmlType="submit" form={SECURITY_SETTINGS_FORM_ID}>
+            保存
+          </Button>
+        </Flex>
+      }
     >
       <Form
+        id={SECURITY_SETTINGS_FORM_ID}
         form={form}
+        className="security-settings-form"
         layout="vertical"
         requiredMark={false}
         colon={false}
+        labelAlign="left"
         onFinish={async (values) => {
           try {
             const enabled = !!values.passwordExpiryEnabled;
-            const payload: AdminPasswordPolicy = {
-              minLength: Number(values.minLength) || 8,
-              maxLength: Number(values.maxLength) || 64,
-              requireUppercase: !!values.requireUppercase,
-              requireLowercase: !!values.requireLowercase,
-              requireDigit: !!values.requireDigit,
-              requireSpecial: !!values.requireSpecial,
+            const payload: AdminPasswordPolicy = buildAdminPasswordPolicyPayload({
+              passwordComplexityEnabled: !!values.passwordComplexityEnabled,
               maxPasswordAgeDays: enabled
                 ? Math.max(1, Math.min(3650, Number(values.maxPasswordAgeDays) || 90))
                 : 0,
               requirePasswordChangeOnFirstLogin: !!values.requirePasswordChangeOnFirstLogin,
+            });
+
+            const authPayload: AdminAuthConfig = {
+              maxLoginAttempts: Math.max(1, Number(values.maxLoginAttempts) || 5),
+              loginFailureWindowMinutes: Math.max(1, Number(values.loginFailureWindowMinutes) || 5),
+              loginLockDurationMinutes: Math.max(1, Number(values.loginLockDurationMinutes) || 3),
+              pageTimeoutMinutes: Math.max(1, Number(values.pageTimeoutMinutes) || 60),
             };
-            if (payload.minLength > payload.maxLength) {
-              message.error('最短长度不能大于最长长度');
-              return;
-            }
-            await apiUpdateSystemSetting('auth.admin_password_policy', JSON.stringify(payload));
-            message.success('管理员密码策略已保存');
+
+            await Promise.all([
+              apiUpdateSystemSetting('auth.admin_password_policy', JSON.stringify(payload)),
+              apiUpdateSystemSetting('auth.admin_auth_config', JSON.stringify(authPayload)),
+            ]);
+            message.success('安全设定已保存');
             onSaved?.();
+            onClose();
           } catch {
             message.error('保存失败');
           }
         }}
       >
-        <Form.Item label="最短长度" name="minLength" rules={[{ required: true, message: '请输入' }]}>
-          <InputNumber min={1} max={128} suffix="位" style={{ width: '50%' }} />
-        </Form.Item>
-        <Form.Item label="最长长度" name="maxLength" rules={[{ required: true, message: '请输入' }]}>
-          <InputNumber min={1} max={256} suffix="位" style={{ width: '50%' }} />
-        </Form.Item>
+        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 16 }}>
+          密码策略
+        </Typography.Title>
 
-        <Form.Item label="启用密码有效期">
-          <Space size="middle" align="center" wrap>
+        <Form.Item
+          label="启用密码有效期"
+          layout="horizontal"
+          labelAlign="left"
+          labelCol={SECURITY_INLINE_LABEL_COL}
+          wrapperCol={SECURITY_INLINE_WRAPPER_COL}
+          className={securityInlineRowClass}
+          style={{ marginBottom: 16 }}
+        >
+          <Space size="middle" align="center" wrap={false}>
             <Form.Item name="passwordExpiryEnabled" valuePropName="checked" noStyle>
               <Switch
                 checkedChildren="开启"
@@ -135,43 +177,117 @@ export const SecuritySettingsDrawer: React.FC<SecuritySettingsDrawerProps> = ({
               />
             </Form.Item>
             {passwordExpiryEnabled ? (
-              <Form.Item
-                name="maxPasswordAgeDays"
-                noStyle
-                rules={[{ required: true, message: '请输入天数' }]}
-              >
-                <InputNumber min={1} max={3650} suffix="天后需更换密码" style={{ minWidth: 220 }} />
-              </Form.Item>
+              <>
+                <Form.Item
+                  name="maxPasswordAgeDays"
+                  noStyle
+                  rules={[{ required: true, message: '请输入天数' }]}
+                >
+                  <InputNumber min={1} max={3650} suffix="天" className="security-settings-control" />
+                </Form.Item>
+                <span>后需更换密码</span>
+              </>
             ) : null}
           </Space>
         </Form.Item>
 
         <Form.Item
-          name="requirePasswordChangeOnFirstLogin"
-          valuePropName="checked"
-          style={{ marginTop: 8 }}
           label="首次登录须修改密码"
+          layout="horizontal"
+          labelAlign="left"
+          labelCol={SECURITY_INLINE_LABEL_COL}
+          wrapperCol={SECURITY_INLINE_WRAPPER_COL}
+          className={securityInlineRowClass}
+          style={{ marginBottom: 24 }}
         >
-          <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          <Form.Item name="requirePasswordChangeOnFirstLogin" valuePropName="checked" noStyle>
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
         </Form.Item>
 
-        <Form.Item name="requireUppercase" valuePropName="checked" style={{ marginTop: 8 }}>
-          <Checkbox>至少包含一个大写字母（A-Z）</Checkbox>
-        </Form.Item>
-        <Form.Item name="requireLowercase" valuePropName="checked">
-          <Checkbox>至少包含一个小写字母（a-z）</Checkbox>
-        </Form.Item>
-        <Form.Item name="requireDigit" valuePropName="checked">
-          <Checkbox>至少包含一个数字（0-9）</Checkbox>
-        </Form.Item>
-        <Form.Item name="requireSpecial" valuePropName="checked">
-          <Checkbox>至少包含一个特殊字符（如标点符号）</Checkbox>
+        <Form.Item
+          label={
+            <span>
+              启用密码复杂度
+              <Tooltip title={PASSWORD_COMPLEXITY_HELP} placement="top">
+                <QuestionCircleOutlined
+                  style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)', fontSize: 12, cursor: 'help' }}
+                />
+              </Tooltip>
+            </span>
+          }
+          layout="horizontal"
+          labelAlign="left"
+          labelCol={SECURITY_INLINE_LABEL_COL}
+          wrapperCol={SECURITY_INLINE_WRAPPER_COL}
+          className={securityInlineRowClass}
+          style={{ marginBottom: 24 }}
+        >
+          <Form.Item name="passwordComplexityEnabled" valuePropName="checked" noStyle>
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
         </Form.Item>
 
-        <Form.Item style={{ marginTop: 24 }}>
-          <Button type="primary" htmlType="submit">
-            保存策略
-          </Button>
+        <Divider />
+
+        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 16 }}>
+          登录策略
+        </Typography.Title>
+
+        <Form.Item
+          label="登录允许错误次数"
+          name="maxLoginAttempts"
+          layout="horizontal"
+          labelAlign="left"
+          labelCol={SECURITY_INLINE_LABEL_COL}
+          wrapperCol={SECURITY_INLINE_WRAPPER_COL}
+          className={securityInlineRowClass}
+          rules={[{ required: true, message: '请输入' }]}
+          style={{ marginBottom: 16 }}
+        >
+          <InputNumber min={1} max={100} suffix="次" controls={false} className="security-settings-control" />
+        </Form.Item>
+
+        <Form.Item
+          label="错误统计周期"
+          name="loginFailureWindowMinutes"
+          layout="horizontal"
+          labelAlign="left"
+          labelCol={SECURITY_INLINE_LABEL_COL}
+          wrapperCol={SECURITY_INLINE_WRAPPER_COL}
+          className={securityInlineRowClass}
+          rules={[{ required: true, message: '请输入' }]}
+          style={{ marginBottom: 16 }}
+        >
+          <InputNumber min={1} max={1440} suffix="分钟" controls={false} className="security-settings-control" />
+        </Form.Item>
+
+        <Form.Item
+          label="登录失败锁定间隔"
+          name="loginLockDurationMinutes"
+          layout="horizontal"
+          labelAlign="left"
+          labelCol={SECURITY_INLINE_LABEL_COL}
+          wrapperCol={SECURITY_INLINE_WRAPPER_COL}
+          className={securityInlineRowClass}
+          rules={[{ required: true, message: '请输入' }]}
+          style={{ marginBottom: 16 }}
+        >
+          <InputNumber min={1} max={1440} suffix="分钟" controls={false} className="security-settings-control" />
+        </Form.Item>
+
+        <Form.Item
+          label="页面超时时间"
+          name="pageTimeoutMinutes"
+          layout="horizontal"
+          labelAlign="left"
+          labelCol={SECURITY_INLINE_LABEL_COL}
+          wrapperCol={SECURITY_INLINE_WRAPPER_COL}
+          className={securityInlineRowClass}
+          rules={[{ required: true, message: '请输入' }]}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber min={1} max={1440} suffix="分钟" controls={false} className="security-settings-control" />
         </Form.Item>
       </Form>
     </Drawer>

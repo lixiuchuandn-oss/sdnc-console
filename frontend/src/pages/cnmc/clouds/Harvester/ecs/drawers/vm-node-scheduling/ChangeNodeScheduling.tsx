@@ -9,7 +9,6 @@ import {
   Form,
   Segmented,
   Table,
-  Tag,
   Input,
   Select,
   Button,
@@ -21,6 +20,8 @@ import {
   Flex,
 } from "antd";
 import { ReloadOutlined, PlusOutlined, MinusCircleOutlined } from "@ant-design/icons";
+import { buildHarvesterNodePickerTableColumns } from "../shared/lib/harvesterNodePickerTableColumns";
+import { useHarvesterNodeResourceMaps } from "../shared/lib/useHarvesterNodeResourceMaps";
 
 const SCHEDULING_MODE_DESCRIPTION: Record<
   "auto" | "fixed" | "label",
@@ -39,6 +40,7 @@ const SCHEDULING_MODE_DESCRIPTION: Record<
 type Props = {
   form: any;
   record: any;
+  cloudId?: string;
   nodes?: any[];
   reloadNodes?: () => Promise<any>;
   nodesLoading?: boolean;
@@ -47,10 +49,13 @@ type Props = {
 const ChangeNodeScheduling: React.FC<Props> = ({
   form,
   record,
+  cloudId,
   nodes = [],
   reloadNodes,
   nodesLoading = false,
 }) => {
+  const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } =
+    useHarvesterNodeResourceMaps(cloudId);
   const [nodeKeyword, setNodeKeyword] = useState("");
   const [nodeReadyFilter, setNodeReadyFilter] = useState<
     "all" | "running" | "notready"
@@ -156,6 +161,17 @@ const ChangeNodeScheduling: React.FC<Props> = ({
 
   const nodeRowKey = (r: any) => String(r?.name || r?.metadata?.name || "");
 
+  const nodePickerColumns = useMemo(
+    () =>
+      buildHarvesterNodePickerTableColumns({
+        metricsMap,
+        requestsMap,
+        nodesDetailMap,
+        resourceLoading,
+      }),
+    [metricsMap, requestsMap, nodesDetailMap, resourceLoading],
+  );
+
   const schedulingModeForHelp: keyof typeof SCHEDULING_MODE_DESCRIPTION =
     nodeSchedulingMode === "fixed" || nodeSchedulingMode === "label"
       ? nodeSchedulingMode
@@ -214,88 +230,16 @@ const ChangeNodeScheduling: React.FC<Props> = ({
           </Flex>
 
           <Table
-            size="middle"
-            bordered={false}
-            className="changeNodeScheduling-fixedHostTable"
+            size="small"
+            bordered
+            className="changeNodeScheduling-fixedHostTable wizard-node-table"
             style={{ width: "100%" }}
-            tableLayout="fixed"
             rowKey={nodeRowKey}
-            columns={[
-              {
-                title: "主机名称",
-                key: "name",
-                render: (_: any, r: any) => {
-                  const name =
-                    r?.name || r?.metadata?.name || "-";
-                  const ip =
-                    r?.internalIP ||
-                    r?.status?.addresses?.find((a: any) => a.type === "InternalIP")
-                      ?.address ||
-                    "-";
-                  return (
-                    <Space direction="vertical" size={0}>
-                      <Typography.Text>{name}</Typography.Text>
-                      <Typography.Text type="secondary">{ip}</Typography.Text>
-                    </Space>
-                  );
-                },
-              },
-              {
-                title: "状态",
-                key: "ready",
-                width: 110,
-                render: (_: any, r: any) => {
-                  const ready = isNodeReady(r);
-                  return ready ? (
-                    <Tag color="green" style={{ fontWeight: 400 }}>
-                      Ready
-                    </Tag>
-                  ) : (
-                    <Tag color="red" style={{ fontWeight: 400 }}>
-                      NotReady
-                    </Tag>
-                  );
-                },
-              },
-              {
-                title: "CPU",
-                key: "cpu",
-                width: 100,
-                render: (_: any, r: any) => {
-                  const cpuRaw = r?.cpu ?? r?.status?.capacity?.cpu;
-                  const cores =
-                    typeof cpuRaw === "number"
-                      ? cpuRaw
-                      : Number(String(cpuRaw || "").replace(/[^0-9]/g, "")) ||
-                        0;
-                  return cores ? `${cores} 核` : "—";
-                },
-              },
-              {
-                title: "内存",
-                key: "memory",
-                width: 100,
-                render: (_: any, r: any) => {
-                  const memRaw = r?.memory ?? r?.status?.capacity?.memory;
-                  const raw = String(memRaw || "").toUpperCase();
-                  const num = Number(String(raw).replace(/[^0-9]/g, "")) || 0;
-                  let gb = 0;
-                  if (/KI$/.test(raw)) {
-                    gb = Math.round(num / (1024 * 1024));
-                  } else if (/MI$/.test(raw)) {
-                    gb = Math.round(num / 1024);
-                  } else if (/GI$/.test(raw)) {
-                    gb = num;
-                  } else if (typeof memRaw === "number") {
-                    gb = Math.round(Number(memRaw) / (1024 * 1024 * 1024));
-                  }
-                  return gb ? `${gb} GiB` : "—";
-                },
-              },
-            ]}
+            columns={nodePickerColumns}
             dataSource={displayNodes}
-            loading={nodesLoading}
+            loading={nodesLoading || resourceLoading}
             pagination={false}
+            scroll={{ x: true }}
             rowSelection={{
               type: "radio",
               columnWidth: 48,

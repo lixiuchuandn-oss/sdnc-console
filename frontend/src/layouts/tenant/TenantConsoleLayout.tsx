@@ -10,7 +10,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { apiPost } from '../../services/api';
 import { getPublicAdminPasswordPolicy } from '../../services/systemApi';
-import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../../utils/adminPasswordPolicy';
+import {
+  DEFAULT_ADMIN_PASSWORD_POLICY,
+  validateAdminPasswordClient,
+  type AdminPasswordPolicy,
+} from '../../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../../utils/markdown';
 import './tenant-console-shell.css';
 import {
@@ -319,17 +323,7 @@ const TenantConsoleLayout: React.FC = () => {
                   { required: true, message: '请输入新密码' },
                   {
                     validator: async (_, v) => {
-                      const pol =
-                        adminPwdPolicy || {
-                          minLength: 8,
-                          maxLength: 64,
-                          requireUppercase: false,
-                          requireLowercase: false,
-                          requireDigit: false,
-                          requireSpecial: false,
-                          maxPasswordAgeDays: 0,
-                          requirePasswordChangeOnFirstLogin: false,
-                        };
+                      const pol = adminPwdPolicy || DEFAULT_ADMIN_PASSWORD_POLICY;
                       const err = validateAdminPasswordClient(pol, String(v || ''), user?.username);
                       if (err) throw new Error(err);
                     },

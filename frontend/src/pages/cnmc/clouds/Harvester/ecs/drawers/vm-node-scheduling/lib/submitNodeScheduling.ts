@@ -5,14 +5,21 @@ import { message } from 'antd';
 import { updateHarvesterVmSpec } from '../../../../../../../../services/harvesterApi';
 import type { VmReconfigureSubmitCtx } from '../../../lib/vmMutation/vmReconfigureSubmitContext';
 import { VmReconfigureSubmitSkipFinalize } from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
+import { validateNodeSchedulingPassthroughAffinity } from './validateNodeSchedulingPassthrough';
+
+export type SubmitNodeSchedulingOptions = {
+  pciDevices?: any[];
+  gpuResources?: any[];
+};
 
 export async function submitVmReconfigureChangeNodeScheduling(
   ctx: VmReconfigureSubmitCtx,
   values: any,
   vmName: string,
   namespace: string,
+  opts?: SubmitNodeSchedulingOptions,
 ): Promise<void> {
-  const { cloudId, openRestartConfirm } = ctx;
+  const { cloudId, activeRecord, openRestartConfirm } = ctx;
   const mode = values.nodeSchedulingMode;
   const fixedNode = values.fixedNode;
   const nodeSelectorPairs = values.nodeSelectorPairs || [];
@@ -28,6 +35,15 @@ export async function submitVmReconfigureChangeNodeScheduling(
       throw new VmReconfigureSubmitSkipFinalize();
     }
   }
+
+  validateNodeSchedulingPassthroughAffinity({
+    vm: activeRecord,
+    mode,
+    fixedNode,
+    nodeSelectorPairs,
+    pciDevices: opts?.pciDevices,
+    gpuResources: opts?.gpuResources,
+  });
 
   let updateParams: any = {};
 
