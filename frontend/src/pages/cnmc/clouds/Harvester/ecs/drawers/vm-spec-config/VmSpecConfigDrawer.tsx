@@ -36,6 +36,10 @@ import { useVmHotPlugUiState } from "./lib/useVmHotPlugUiState";
 import { useVmSpecPostSubmit } from "./lib/useVmSpecPostSubmit";
 import { useVmSpecSubmitButtonText } from "./lib/useVmSpecSubmitButtonText";
 import { submitVmSpecChange } from "./lib/submitVmSpecChange";
+import {
+  vmSpecHotplugFormInputMaxCpu,
+  vmSpecHotplugFormInputMaxMemoryGi,
+} from "./lib/vmSpecHotplugRange";
 
 const { Text } = Typography;
 
@@ -153,6 +157,11 @@ const VmSpecCpuMemoryFields: React.FC<VmSpecCpuMemoryFieldsProps> = ({
     hotPlugConfiguredOnVm && maxSockets ? maxSockets : currentCpu;
   const memHintEffective =
     hotPlugConfiguredOnVm && maxMemory ? maxMemory : currentMemory;
+  const hotplugCpuInputMax = vmSpecHotplugFormInputMaxCpu(currentCpu, maxSockets);
+  const hotplugMemInputMax = vmSpecHotplugFormInputMaxMemoryGi(
+    currentMemory,
+    maxMemory,
+  );
 
   const toggleAdvanced = useCallback(() => {
     setShowAdvanced((v) => !v);
@@ -259,7 +268,7 @@ const VmSpecCpuMemoryFields: React.FC<VmSpecCpuMemoryFieldsProps> = ({
                         style={{ width: 100 }}
                         suffix="核"
                         min={currentCpu}
-                        max={maxSockets || currentCpu * 4}
+                        max={hotplugCpuInputMax}
                         onChange={(val) => {
                           const v = Number(val) || 0;
                           if (v <= 0) return;
@@ -424,11 +433,7 @@ const VmSpecCpuMemoryFields: React.FC<VmSpecCpuMemoryFieldsProps> = ({
                 </Radio.Group>
                 <InputNumber
                   min={hotPlugConfiguredOnVm ? currentMemory : 1}
-                  max={
-                    hotPlugConfiguredOnVm
-                      ? maxMemory || currentMemory * 4
-                      : 1024
-                  }
+                  max={hotPlugConfiguredOnVm ? hotplugMemInputMax : 1024}
                   value={memGi}
                   suffix="GiB"
                   style={{ width: 100 }}

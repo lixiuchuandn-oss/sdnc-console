@@ -18,6 +18,7 @@ import {
   fetchHarvesterNodes,
   fetchHarvesterPciDevices,
 } from "../../../../../../../services/harvesterApi";
+import { useAggregatedVmForReconfigureDrawer } from "../shared/lib/useAggregatedVmForReconfigureDrawer";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
 import "../shared/styles/vmManageDrawer.css";
 import {
@@ -37,6 +38,8 @@ import {
   buildPciNicPassthroughSelectOptions,
   passthroughExclusionToFilterOpts,
   pciPassthroughSelectScopeFromWizardNetMode,
+  resolveVmPassthroughSchedulingHost,
+  validateAppendPassthroughPciNodeAffinity,
   type PassthroughSelectionExclusion,
 } from "../../lib/passthroughNicSelectOptions";
 
@@ -75,6 +78,15 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
   const [pciDevices, setPciDevices] = useState<any[]>([]);
   const [nodes, setNodes] = useState<any[]>([]);
   const [nodesLoading, setNodesLoading] = useState(false);
+
+  const {
+    latestVm,
+    loading: vmSpecLoading,
+    fetchFailed: vmSpecFetchFailed,
+  } = useAggregatedVmForReconfigureDrawer(open, cloudId, vmData);
+  /** 拉取完成前不用父级 vmData，避免仍显示创建时 nodeSelector（如 node2） */
+  const activeVm = latestVm ?? (vmSpecFetchFailed ? vmData : null);
+
   const {
     localNads,
     localSubnets,
@@ -83,12 +95,17 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
     reloadSubnets,
     ensureNadsLoaded,
     isHotPlugInProgress,
-  } = useVmAddNicDrawerData({ vmData, cloudId });
+  } = useVmAddNicDrawerData({ vmData: activeVm, cloudId });
 
   const vmNs = String(vmData?.metadata?.namespace || "").trim();
   const vmName = String(
     vmData?.metadata?.name || vmData?.spec?.template?.metadata?.name || "",
   ).trim();
+
+  const schedulingHost = useMemo(
+    () => (activeVm ? resolveVmPassthroughSchedulingHost(activeVm) : ""),
+    [activeVm],
+  );
 
   const nadInfos = useMemo(() => buildVmAddNicNadInfos(localNads), [localNads]);
 
@@ -181,14 +198,6 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
     if (!open) return;
     setWizardNetMode(initialPassthroughWizardNetMode ?? "passthrough");
     form.resetFields();
-    const pinned = String(
-      vmData?.spec?.template?.spec?.nodeSelector?.["kubernetes.io/hostname"] || "",
-    ).trim();
-    const runningOn = String(vmData?.status?.nodeName || "").trim();
-    const pre = pinned || runningOn || undefined;
-    if (pre) {
-      form.setFieldsValue({ passthroughBindNode: pre });
-    }
     void Promise.all([
       reloadNads(),
       reloadVpcs(),
@@ -206,6 +215,19 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
     reloadPciDevices,
     reloadNodes,
   ]);
+
+  /** 聚合 VM 就绪后，按最新调度/运行节点预填 */
+  useEffect(() => {
+    if (!open || !activeVm) return;
+    const pre = resolveVmPassthroughSchedulingHost(activeVm);
+    if (!pre) return;
+    const cur = String(form.getFieldValue("passthroughBindNode") || "").trim();
+    if (cur === pre) return;
+    form.setFieldsValue({
+      passthroughBindNode: pre,
+      ...(cur && cur !== pre ? { passthroughPick: undefined } : {}),
+    });
+  }, [open, activeVm, latestVm, schedulingHost, form]);
 
   const footerDisabled = !hasEcsWrite || isHotPlugInProgress;
 
@@ -229,6 +251,7 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
           pciNodeName: String(hit?._pciNodeName || "").trim(),
           passthroughPick: pick,
           nicWizardMode: wizardNetMode,
+          passthroughBindNode: String(v.passthroughBindNode || "").trim() || undefined,
         });
       } else if (pick.startsWith(PT_PREFIX_MULTUS)) {
         const multusVal = pick.slice(PT_PREFIX_MULTUS.length);
@@ -238,16 +261,29 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
         message.error("请选择直通网络（PCI 或 Multus）");
         return;
       }
+      if (pick.startsWith(PT_PREFIX_PCI)) {
+        const affinityErr = validateAppendPassthroughPciNodeAffinity({
+          vm: activeVm || vmData,
+          pciNodeName: String(row.pciNodeName || "").trim(),
+          bindNode: String(v.passthroughBindNode || "").trim(),
+          pciDevices,
+        });
+        if (affinityErr) {
+          message.error(affinityErr);
+          return;
+        }
+      }
       const nadList = await ensureNadsLoaded();
       setSubmitting(true);
       await submitAppendSecondaryNicRow({
         cloudId,
-        vmData,
+        vmData: activeVm || vmData,
         newRow: row,
         subnets: localSubnets,
         nads: nadList,
         vmNs,
         vmName,
+        pciDevices,
       });
       onClose();
       await onApplied();
@@ -255,7 +291,8 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
       if (e?.errorFields) return;
       if (
         e?.message === "compute_secondary_nic_failed" ||
-        e?.message === "missing_nad"
+        e?.message === "missing_nad" ||
+        e?.message === "passthrough_pci_node_mismatch"
       )
         return;
       message.error(e?.message || "保存失败");
@@ -283,7 +320,7 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
           <Button
             type="primary"
             loading={submitting}
-            disabled={footerDisabled}
+            disabled={footerDisabled || vmSpecLoading}
             onClick={() => void handleSubmit()}
           >
             保存
@@ -331,12 +368,19 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
             label="节点"
             name="passthroughBindNode"
             rules={[{ required: true, message: "请选择节点" }]}
+            extra={
+              schedulingHost
+                ? `当前调度/运行节点为 ${schedulingHost}，请在该节点上选择 PCI 直通网卡`
+                : undefined
+            }
           >
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="选择宿主机节点"
-              loading={nodesLoading}
+              placeholder={
+                vmSpecLoading ? "正在同步虚拟机最新调度…" : "选择宿主机节点"
+              }
+              loading={nodesLoading || vmSpecLoading}
               allowClear
               options={nodeOpts}
               onOpenChange={(o) => {

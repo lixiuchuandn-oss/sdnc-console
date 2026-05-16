@@ -12,7 +12,11 @@ import { fetchHarvesterVMAggregated } from "../../../../../../../../services/har
 import { rebootCloudProviderEcs } from "../../../../../../../../services/api";
 import { translateKnownApiErrorMessage } from "../../../../../../../../utils/k8sErrorMessages";
 import { isVmStopped } from "../../../lib/vmInstanceStatus";
-import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from "../../../lib/vmMutation/vmReconfigureSubmitTypes";
+import {
+  VM_RECONFIGURE_HOTPLUG_EXCEED_RESTART_HINT,
+  VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
+  type VmReconfigureRestartConfirmOptions,
+} from "../../../lib/vmMutation/vmReconfigureSubmitTypes";
 
 /**
  * 规格（CPU/内存）提交成功后的辅助能力：拉聚合 VM、在需冷生效时弹重启确认。
@@ -26,7 +30,12 @@ export function useVmSpecPostSubmit(p: {
   const { cloudId, record, latestVm, setLatestVm } = p;
 
   const openRestartConfirm = useCallback(
-    (namespace: string, vmName: string, force: boolean = false) => {
+    (
+      namespace: string,
+      vmName: string,
+      force: boolean = false,
+      options?: VmReconfigureRestartConfirmOptions,
+    ) => {
       const activeVm = latestVm || record;
       if (isVmStopped(activeVm)) {
         message.success("设置已保存，下次启动时将自动应用新配置");
@@ -35,6 +44,9 @@ export function useVmSpecPostSubmit(p: {
 
       Modal.confirm({
         title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
+        content: options?.exceedsHotplugRange
+          ? VM_RECONFIGURE_HOTPLUG_EXCEED_RESTART_HINT
+          : undefined,
         okText: "立即重启",
         cancelText: "手动重启",
         onOk: async () => {

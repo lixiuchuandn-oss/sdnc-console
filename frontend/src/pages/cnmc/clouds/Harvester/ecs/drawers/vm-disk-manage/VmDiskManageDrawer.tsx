@@ -308,8 +308,29 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     setBaseline(snapshot(d, vols, ui, targets, aliasDraft));
   }, [vmData, diskDisplayRows]);
 
+  // --- 脏检查（须在「与 VM 同步」effect 之前，避免未保存的排序被 vmData/SSE 刷新覆盖） ---
+  const dirty = useMemo(
+    () =>
+      snapshot(
+        disks,
+        volumes,
+        diskUi,
+        pvcTargetGiByVolName,
+        pvcAliasDraftByClaimName,
+      ) !== baseline,
+    [
+      disks,
+      volumes,
+      diskUi,
+      pvcTargetGiByVolName,
+      pvcAliasDraftByClaimName,
+      baseline,
+    ],
+  );
+
   /** 勿在 syncFromVm 内清空：vmData 刷新会重跑 sync，否则解绑记录会在保存前被抹掉。 */
   const diskManagePrevOpenRef = useRef(false);
+  const diskManageSyncedVmKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (open && !diskManagePrevOpenRef.current) {
       removedDiskBusesRef.current = [];
@@ -318,13 +339,23 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     if (!open) {
       removedDiskBusesRef.current = [];
       removedHotplugVolumeNamesRef.current = [];
+      diskManageSyncedVmKeyRef.current = null;
+      diskManagePrevOpenRef.current = false;
+      return;
     }
-    diskManagePrevOpenRef.current = open;
-  }, [open]);
+    diskManagePrevOpenRef.current = true;
 
-  useEffect(() => {
-    if (open && vmData) syncFromVm();
-  }, [open, vmData, syncFromVm]);
+    if (!vmData) return;
+    const syncKey = `${vmNs}/${vmName}`;
+    const isFirstSyncThisOpen = diskManageSyncedVmKeyRef.current !== syncKey;
+    if (isFirstSyncThisOpen) {
+      diskManageSyncedVmKeyRef.current = syncKey;
+      syncFromVm();
+      return;
+    }
+    if (dirty) return;
+    syncFromVm();
+  }, [open, vmData, vmNs, vmName, syncFromVm, dirty]);
 
   useEffect(() => {
     if (!open) {
@@ -359,26 +390,6 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     });
   }, [open, toolbarQuickAction, hasEcsWrite, onToolbarQuickActionConsumed]);
 
-  // --- 脏检查 ---
-  const dirty = useMemo(
-    () =>
-      snapshot(
-        disks,
-        volumes,
-        diskUi,
-        pvcTargetGiByVolName,
-        pvcAliasDraftByClaimName,
-      ) !== baseline,
-    [
-      disks,
-      volumes,
-      diskUi,
-      pvcTargetGiByVolName,
-      pvcAliasDraftByClaimName,
-      baseline,
-    ],
-  );
-
   const displayFor = useCallback(
     (diskName: string) => {
       return diskDisplayRows?.find((x: any) => x?.name === diskName);
@@ -412,7 +423,12 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       const [r] = nextD.splice(idx, 1);
       nextD.splice(j, 0, r);
       setVolumes((prevV) => orderVolumesForDisks(nextD, prevV));
-      setDiskUi(nextD.map((d) => initDiskSlice(d)));
+      setDiskUi((prevUi) => {
+        const nextUi = [...prevUi];
+        const [ru] = nextUi.splice(idx, 1);
+        nextUi.splice(j, 0, ru);
+        return nextUi;
+      });
       return nextD;
     });
   };

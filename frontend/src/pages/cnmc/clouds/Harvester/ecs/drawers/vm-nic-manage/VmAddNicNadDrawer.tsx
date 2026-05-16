@@ -1,6 +1,6 @@
 /**
  * 添加辅助网卡 · NAD 网络（非 OVN 类 Multus）（单文件含本抽屉全部 UI）。
- * 与创建向导 StepNetworks / VmNicManageDrawer：NAD（flat）提交行 `type` 固定为 bridge（见 buildSecondaryRowFlatNad）。
+ * 表单字段与创建向导 StepNetworks NAD（flat）一致：网络、接口类型、模型。
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -9,7 +9,6 @@ import {
   Drawer,
   Flex,
   Form,
-  Input,
   Segmented,
   Select,
   message,
@@ -25,13 +24,10 @@ import {
   buildVmAddNicNadInfos,
   nadOptionsFlatFromInfos,
 } from "./lib/vmAddNicDrawerNadMeta";
+import { NAD_MULTUS_INTERFACE_TYPES } from "../../modals/VmCreateWizard/harvesterVmIfaceTypeOptions";
 import { buildSecondaryRowFlatNad } from "./lib/vmAddNicDrawerRowBuild";
 import { submitAppendSecondaryNicRow } from "./lib/vmAddNicDrawerSubmit";
-import {
-  VM_ADD_NIC_MAC_RULE,
-  VM_ADD_NIC_MODEL_OPTIONS,
-  VM_ADD_NIC_STATIC_IP_RULE,
-} from "./lib/vmAddNicDrawerUiConstants";
+import { VM_ADD_NIC_MODEL_OPTIONS } from "./lib/vmAddNicDrawerUiConstants";
 
 const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
   open,
@@ -67,11 +63,12 @@ const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
     () => nadOptionsFlatFromInfos(nadInfos),
     [nadInfos],
   );
+  const ifaceTypeWatch = Form.useWatch("type", form);
 
   useEffect(() => {
     if (!open) return;
     form.resetFields();
-    form.setFieldsValue({ model: "virtio" });
+    form.setFieldsValue({ model: "virtio", type: "bridge" });
     void Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()]);
   }, [open, form, reloadNads, reloadVpcs, reloadSubnets]);
 
@@ -88,10 +85,7 @@ const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
       }
       const row = buildSecondaryRowFlatNad(nad, {
         model: v.model,
-        macAddress: v.macAddress,
-        ipAddress: v.ipAddress,
-        gateway: v.gateway,
-        dns: v.dns,
+        type: v.type,
       });
       const nadList = await ensureNadsLoaded();
       setSubmitting(true);
@@ -165,9 +159,9 @@ const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
           wrapperCol={{ span: 18 }}
         >
           <Form.Item
-            label="NAD 网络"
+            label="NAD网络"
             name="nad"
-            rules={[{ required: true, message: "请选择 NAD 网络" }]}
+            rules={[{ required: true, message: "请选择网络" }]}
           >
             <Select
               showSearch
@@ -178,7 +172,18 @@ const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
               onOpenChange={(o) => {
                 if (o) void reloadNads();
               }}
+              onChange={() => {
+                form.setFieldsValue({ type: "bridge" });
+              }}
             />
+          </Form.Item>
+          <Form.Item
+            label="接口类型"
+            name="type"
+            initialValue="bridge"
+            rules={[{ required: true, message: "请选择接口类型" }]}
+          >
+            <Select options={NAD_MULTUS_INTERFACE_TYPES} />
           </Form.Item>
           <Form.Item
             label="模型"
@@ -186,27 +191,10 @@ const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
             initialValue="virtio"
             rules={[{ required: true, message: "请选择模型" }]}
           >
-            <Segmented options={VM_ADD_NIC_MODEL_OPTIONS} />
-          </Form.Item>
-          <Form.Item
-            label="MAC 地址"
-            name="macAddress"
-            rules={[VM_ADD_NIC_MAC_RULE]}
-          >
-            <Input placeholder="留空则按 cloud-init 规则处理" />
-          </Form.Item>
-          <Form.Item
-            label="静态 IP"
-            name="ipAddress"
-            rules={[VM_ADD_NIC_STATIC_IP_RULE]}
-          >
-            <Input placeholder="192.168.1.23" />
-          </Form.Item>
-          <Form.Item label="网关" name="gateway">
-            <Input placeholder="可选" />
-          </Form.Item>
-          <Form.Item label="DNS" name="dns">
-            <Input placeholder="可选" />
+            <Segmented
+              options={VM_ADD_NIC_MODEL_OPTIONS}
+              disabled={ifaceTypeWatch === "sriov"}
+            />
           </Form.Item>
         </Form>
       </div>

@@ -189,6 +189,7 @@ export function buildSecondaryRowPassthroughPci(opts: {
   pciDeviceName: string;
   pciResourceName: string;
   pciNodeName?: string;
+  passthroughBindNode?: string;
   passthroughPick?: string;
   /** 与创建向导一致：整卡 PCI vs SR-IOV VF PCI */
   nicWizardMode?: "passthrough" | "passthrough_sriov";
@@ -206,6 +207,7 @@ export function buildSecondaryRowPassthroughPci(opts: {
     pciDeviceName: cr,
     pciResourceName: rn,
     pciNodeName: String(opts.pciNodeName || "").trim() || undefined,
+    passthroughBindNode: String(opts.passthroughBindNode || "").trim() || undefined,
     passthroughPick: String(opts.passthroughPick || "").trim() || `pci:${cr}`,
     name: undefined,
     type: undefined,
@@ -217,21 +219,14 @@ export function buildSecondaryRowFlatNad(
   nadValue: string,
   extras: {
     model?: string;
-    macAddress?: string;
-    ipAddress?: string;
-    gateway?: string;
-    dns?: string;
+    type?: string;
   },
 ): Record<string, unknown> {
-  // 与 StepNetworks DEFAULT_PRIMARY_NIC_TYPE_BY_NET_MODE.flat / VmNicManageDrawer NAD onChange 一致
+  // 与 StepNetworks NAD（flat）一致：仅网络、接口类型、模型，不含 MAC/静态 IP
   return {
     mode: "flat",
     name: nadValue,
-    type: "bridge",
+    type: extras.type || "bridge",
     model: extras.model || "virtio",
-    macAddress: extras.macAddress,
-    ipAddress: extras.ipAddress,
-    gateway: extras.gateway,
-    dns: extras.dns,
   };
 }

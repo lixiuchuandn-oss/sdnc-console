@@ -22,8 +22,13 @@ export function showChangeOsRiskModal(form: FormInstance<any>): void {
       ),
       React.createElement(
         "p",
+        { style: { marginBottom: 4 } },
+        "• 虚拟机须重启后新系统盘才会生效；重启完成后平台会自动删除原系统云盘（云盘列表中的旧盘）。",
+      ),
+      React.createElement(
+        "p",
         { style: { marginBottom: 0 } },
-        "• 虚拟机将会强制重启以应用更改，请在业务低峰期执行。",
+        "• 请在业务低峰期执行，并务必在提示后完成重启。",
       ),
     ),
     okText: "我已知晓",
