@@ -40,7 +40,7 @@
  *    - VPC/扁平子网静态 IP -> metadata.annotations harvesterhci.io/custom-ip（Kube-OVN），非 Cloud-Init network-config
  * ==============================================================================
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Typography } from 'antd';
 import { FileSearchOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import {
@@ -61,6 +61,13 @@ import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../../kube-ovn/lib
 import { kubeSubnetChoiceLabel } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
 import SubnetDetailDrawer from '../../../kube-ovn/drawers/subnet-detail-drawer';
 import { isKubeOvnSubnetNadReady, resolveMultusNetNameForKubeOvnSubnetNic } from './kubeOvnNadRefForVmWizard';
+import { fetchCloudProviderEcs } from '../../../../../../../services/api';
+import {
+  WIZARD_MAC_FIELD_PATTERN,
+  WIZARD_STATIC_IP_FIELD_PATTERN,
+  wizardIpFieldInlineError,
+  wizardMacFieldInlineError,
+} from '../../lib/vmNicMacIpValidation';
 
 /**
  * 子网选项：NAD 未同步时置灰，当前已选可保留以提示「同步中」。
@@ -131,6 +138,8 @@ interface StepNetworksProps {
   setSelectedNetIdx: (idx: number | null) => void;
   /** 当前云 ID：用于打开子网详情抽屉（拓扑 / ACL） */
   cloudId?: string;
+  /** 同云 ECS 列表（用于 MAC/静态 IP 与其它虚机冲突的即时校验；本步内会防抖刷新） */
+  existingVms?: any[];
 }
 
 // --- 常量定义 ---
@@ -183,11 +192,83 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
   selectedNetIdx,
   setSelectedNetIdx,
   cloudId,
+  existingVms = [],
 }) => {
   const passthroughBindNode = Form.useWatch(['primaryNic', 'passthroughBindNode'], form);
   const netModeWatch = Form.useWatch('netMode', form);
   const primaryNicWatch = Form.useWatch('primaryNic', form);
   const netIfacesWatch = Form.useWatch('netIfaces', form);
+  const watchNamespace = Form.useWatch('namespace', form);
+
+  const [livePeerVms, setLivePeerVms] = useState<any[]>(() =>
+    Array.isArray(existingVms) ? existingVms : [],
+  );
+  const livePeerVmsRef = useRef<any[]>([]);
+  livePeerVmsRef.current = livePeerVms;
+  useEffect(() => {
+    setLivePeerVms(Array.isArray(existingVms) ? existingVms : []);
+  }, [existingVms]);
+
+  const peerRefreshFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        ns: watchNamespace,
+        nm: netModeWatch,
+        pn: primaryNicWatch,
+        nf: netIfacesWatch,
+      }),
+    [watchNamespace, netModeWatch, primaryNicWatch, netIfacesWatch],
+  );
+
+  const peerFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const cid = String(cloudId || '').trim();
+    const ns = String(watchNamespace || '').trim();
+    if (!cid || !ns) return;
+    if (peerFetchTimerRef.current) clearTimeout(peerFetchTimerRef.current);
+    peerFetchTimerRef.current = setTimeout(() => {
+      peerFetchTimerRef.current = null;
+      void fetchCloudProviderEcs(cid, true)
+        .then((json: any) => {
+          const extracted: any[] = Array.isArray(json?.data)
+            ? json.data
+            : Array.isArray(json?.data?.items)
+              ? json.data.items
+              : Array.isArray(json?.items)
+                ? json.items
+                : [];
+          setLivePeerVms(Array.isArray(extracted) ? extracted : []);
+        })
+        .catch(() => {});
+    }, 600);
+    return () => {
+      if (peerFetchTimerRef.current) clearTimeout(peerFetchTimerRef.current);
+    };
+  }, [peerRefreshFingerprint, cloudId, watchNamespace]);
+
+  useEffect(() => {
+    const nm = String(form.getFieldValue("netMode") || "");
+    const paths: (string | number)[][] = [];
+    if (nm === "vpc" || nm === "flat_subnet") {
+      paths.push(["primaryNic", "macAddress"], ["primaryNic", "ipAddress"]);
+    }
+    const nf = form.getFieldValue("netIfaces");
+    if (Array.isArray(nf)) {
+      nf.forEach((row: any, i: number) => {
+        const m = String(row?.mode || "");
+        if (m === "vpc" || m === "flat_subnet") {
+          paths.push(["netIfaces", i, "macAddress"], ["netIfaces", i, "ipAddress"]);
+        }
+      });
+    }
+    if (paths.length > 0) {
+      try {
+        void form.validateFields(paths);
+      } catch {
+        /* 仅刷新占用类提示，忽略未填完整项 */
+      }
+    }
+  }, [livePeerVms, form]);
 
   const primaryPassthroughFilter = useMemo(() => {
     const ex = collectWizardPassthroughExclusions({
@@ -821,10 +902,26 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   label="MAC 地址"
                   name={['primaryNic', 'macAddress']}
                   preserve
+                  dependencies={['netIfaces', 'netMode', 'primaryNic', 'namespace']}
+                  validateTrigger={['onChange', 'onBlur']}
                   rules={[
                     {
-                      pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/,
-                      message: '格式如 52:54:00:12:34:56',
+                      validator: async (_rule, value) => {
+                        const s = String(value ?? '').trim();
+                        if (s && !WIZARD_MAC_FIELD_PATTERN.test(s)) {
+                          return Promise.reject(new Error('格式须如 52:54:00:12:34:56'));
+                        }
+                        const v = form.getFieldsValue(true) as any;
+                        const ns = String(form.getFieldValue('namespace') || '').trim();
+                        const err = wizardMacFieldInlineError(
+                          v,
+                          'primary',
+                          value,
+                          livePeerVmsRef.current,
+                          ns,
+                        );
+                        return err ? Promise.reject(new Error(err)) : Promise.resolve();
+                      },
                     },
                   ]}
                 >
@@ -845,11 +942,34 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   name={['primaryNic', 'ipAddress']}
                   preserve
                   tooltip="可选。指定该网卡在子网内的固定 IPv4（可带掩码，如 192.168.1.10/24）；不填则由网络侧自动分配。"
+                  dependencies={[
+                    'netIfaces',
+                    'netMode',
+                    'primaryNic',
+                    'namespace',
+                  ]}
+                  validateTrigger={['onChange', 'onBlur']}
                   rules={[
                     {
-                      pattern:
-                        /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/,
-                      message: '请输入有效的 IP 地址 (如 192.168.1.10 或 192.168.1.10/24)',
+                      validator: async (_rule, value) => {
+                        const s = String(value ?? '').trim();
+                        if (s && !WIZARD_STATIC_IP_FIELD_PATTERN.test(s)) {
+                          return Promise.reject(
+                            new Error('请输入有效的 IP 地址 (如 192.168.1.10 )'),
+                          );
+                        }
+                        const v = form.getFieldsValue(true) as any;
+                        const ns = String(form.getFieldValue('namespace') || '').trim();
+                        const err = wizardIpFieldInlineError(
+                          v,
+                          'primary',
+                          value,
+                          kubeSubnets || [],
+                          livePeerVmsRef.current,
+                          ns,
+                        );
+                        return err ? Promise.reject(new Error(err)) : Promise.resolve();
+                      },
                     },
                   ]}
                 >
@@ -930,16 +1050,16 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                        
                        if (isWizardPciPassthroughNetMode(mode)) {
                           const pciScope = pciPassthroughSelectScopeFromWizardNetMode(mode);
-                          const bn = String(
-                            form.getFieldValue(['primaryNic', 'passthroughBindNode']) || '',
+                          const secBind = String(
+                            form.getFieldValue(['netIfaces', name, 'passthroughBindNode']) || '',
                           ).trim();
                           const list = Array.isArray(pciDevices) ? pciDevices : [];
-                          const filtered = bn
+                          const filtered = secBind
                             ? list.filter((raw: any) => {
                                 const n = String(
                                   raw?.status?.nodeName ?? raw?.spec?.nodeName ?? '',
                                 ).trim();
-                                return n === bn;
+                                return n === secBind;
                               })
                             : [];
                           const pciOptsForSecondary = buildPciNicPassthroughSelectOptions(
@@ -976,71 +1096,139 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               ),
                             },
                           );
+                          const nodeOptsSecondary = (Array.isArray(nodes) ? nodes : [])
+                            .map((node: any) => {
+                              const nm = String(node?.metadata?.name || node?.name || '').trim();
+                              if (!nm) return null;
+                              return { label: nm, value: nm };
+                            })
+                            .filter(Boolean) as { label: string; value: string }[];
                           return (
-                            <Col span={8}>
-                              <Form.Item
-                                 label="直通网络"
-                                 name={[name, 'passthroughPick']}
-                                 rules={[{ required: true, message: '请选择直通网络' }]}
-                                 key={`secondary-nic-passthrough-${name}`}
-                               >
-                                 <Select
-                                   placeholder="选择 PCI 网卡或 Multus 直通网络"
-                                   options={grouped}
-                                   onOpenChange={async (open) => {
-                                     if (open) {
-                                       reloadNads();
-                                       try {
-                                         void reloadPciDevices();
-                                       } catch {
-                                         /* ignore */
-                                       }
-                                     }
-                                   }}
-                                   onChange={(val) => {
-                                     try {
-                                       const s = String(val || '');
-                                       const curr = form.getFieldValue('netIfaces') || [];
-                                       const next = [...curr];
-                                       const entry = { ...(next[name] || {}) };
-                                       if (s.startsWith(PT_PREFIX_PCI)) {
-                                         const cr = s.slice(PT_PREFIX_PCI.length);
-                                         const hit = (pciOptsForSecondary || []).find(
-                                           (x: any) => String(x?.value) === s,
-                                         );
+                            <>
+                              <Col span={8}>
+                                <Form.Item
+                                  label="节点"
+                                  name={[name, 'passthroughBindNode']}
+                                  preserve
+                                  rules={[
+                                    ({ getFieldValue }) => ({
+                                      validator(_, val) {
+                                        const m = String(
+                                          getFieldValue(['netIfaces', name, 'mode']) || '',
+                                        );
+                                        if (!isWizardPciPassthroughNetMode(m)) {
+                                          return Promise.resolve();
+                                        }
+                                        if (!String(val || '').trim()) {
+                                          return Promise.reject(new Error('请选择节点'));
+                                        }
+                                        return Promise.resolve();
+                                      },
+                                    }),
+                                  ]}
+                                  key={`secondary-nic-pt-node-${name}`}
+                                >
+                                  <Select
+                                    showSearch
+                                    optionFilterProp="label"
+                                    placeholder="选择宿主机节点"
+                                    loading={!!nodesLoading}
+                                    allowClear
+                                    options={nodeOptsSecondary}
+                                    onOpenChange={(open) => {
+                                      if (open && reloadNodes) void reloadNodes();
+                                    }}
+                                    onChange={() => {
+                                      try {
+                                        const curr = form.getFieldValue('netIfaces') || [];
+                                        const next = [...curr];
+                                        const entry = { ...(next[name] || {}) };
                                         next[name] = {
                                           ...entry,
-                                          passthroughPick: val,
-                                          passthroughSource: 'pci-host',
-                                          pciDeviceName: cr,
-                                          pciResourceName: String(hit?._pciResourceName || '').trim(),
-                                          pciNodeName: String(hit?._pciNodeName || '').trim(),
-                                          name: undefined,
-                                          type: undefined,
-                                          model: undefined,
-                                        };
-                                      } else if (s.startsWith(PT_PREFIX_MULTUS)) {
-                                        const multusVal = s.slice(PT_PREFIX_MULTUS.length);
-                                        next[name] = {
-                                          ...entry,
-                                          passthroughPick: val,
-                                          passthroughSource: 'multus',
+                                          passthroughPick: undefined,
+                                          passthroughSource: undefined,
                                           pciDeviceName: undefined,
                                           pciResourceName: undefined,
                                           pciNodeName: undefined,
-                                          name: multusVal,
-                                          type: undefined,
-                                          model: undefined,
                                         };
-                                       }
-                                       form.setFieldsValue({ netIfaces: next });
-                                     } catch {
-                                       /* ignore */
-                                     }
-                                   }}
-                                 />
-                               </Form.Item>
-                            </Col>
+                                        form.setFieldsValue({ netIfaces: next });
+                                      } catch {
+                                        /* ignore */
+                                      }
+                                    }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col span={8}>
+                                <Form.Item
+                                  label="直通网络"
+                                  name={[name, 'passthroughPick']}
+                                  rules={[{ required: true, message: '请选择直通网络' }]}
+                                  key={`secondary-nic-passthrough-${name}`}
+                                >
+                                  <Select
+                                    placeholder={
+                                      secBind
+                                        ? '选择 PCI 网卡或 Multus 直通网络'
+                                        : '请先选择节点，再选择本节点 PCI 直通网卡（Multus 可不依赖节点）'
+                                    }
+                                    options={grouped}
+                                    onOpenChange={async (open) => {
+                                      if (open) {
+                                        reloadNads();
+                                        try {
+                                          void reloadPciDevices();
+                                          if (reloadNodes) void reloadNodes();
+                                        } catch {
+                                          /* ignore */
+                                        }
+                                      }
+                                    }}
+                                    onChange={(val) => {
+                                      try {
+                                        const s = String(val || '');
+                                        const curr = form.getFieldValue('netIfaces') || [];
+                                        const next = [...curr];
+                                        const entry = { ...(next[name] || {}) };
+                                        if (s.startsWith(PT_PREFIX_PCI)) {
+                                          const cr = s.slice(PT_PREFIX_PCI.length);
+                                          const hit = (pciOptsForSecondary || []).find(
+                                            (x: any) => String(x?.value) === s,
+                                          );
+                                          next[name] = {
+                                            ...entry,
+                                            passthroughPick: val,
+                                            passthroughSource: 'pci-host',
+                                            pciDeviceName: cr,
+                                            pciResourceName: String(hit?._pciResourceName || '').trim(),
+                                            pciNodeName: String(hit?._pciNodeName || '').trim(),
+                                            name: undefined,
+                                            type: undefined,
+                                            model: undefined,
+                                          };
+                                        } else if (s.startsWith(PT_PREFIX_MULTUS)) {
+                                          const multusVal = s.slice(PT_PREFIX_MULTUS.length);
+                                          next[name] = {
+                                            ...entry,
+                                            passthroughPick: val,
+                                            passthroughSource: 'multus',
+                                            pciDeviceName: undefined,
+                                            pciResourceName: undefined,
+                                            pciNodeName: undefined,
+                                            name: multusVal,
+                                            type: undefined,
+                                            model: undefined,
+                                          };
+                                        }
+                                        form.setFieldsValue({ netIfaces: next });
+                                      } catch {
+                                        /* ignore */
+                                      }
+                                    }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                            </>
                           );
                        }
 
@@ -1353,10 +1541,31 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             <Form.Item
                               label="MAC 地址"
                               name={[name, 'macAddress']}
+                              dependencies={[
+                                'netIfaces',
+                                'netMode',
+                                'primaryNic',
+                                'namespace',
+                              ]}
+                              validateTrigger={['onChange', 'onBlur']}
                               rules={[
                                 {
-                                  pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/,
-                                  message: '格式如 52:54:00:12:34:56',
+                                  validator: async (_rule, value) => {
+                                    const s = String(value ?? '').trim();
+                                    if (s && !WIZARD_MAC_FIELD_PATTERN.test(s)) {
+                                      return Promise.reject(new Error('格式须如 52:54:00:12:34:56'));
+                                    }
+                                    const v = form.getFieldsValue(true) as any;
+                                    const ns = String(form.getFieldValue('namespace') || '').trim();
+                                    const err = wizardMacFieldInlineError(
+                                      v,
+                                      name as number,
+                                      value,
+                                      livePeerVmsRef.current,
+                                      ns,
+                                    );
+                                    return err ? Promise.reject(new Error(err)) : Promise.resolve();
+                                  },
                                 },
                               ]}
                             >
@@ -1379,11 +1588,34 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               label="静态IP"
                               name={[name, 'ipAddress']}
                               tooltip="可选。指定该网卡在子网内的固定 IPv4（可带掩码，如 192.168.1.10/24）；不填则由网络侧自动分配。"
+                              dependencies={[
+                                'netIfaces',
+                                'netMode',
+                                'primaryNic',
+                                'namespace',
+                              ]}
+                              validateTrigger={['onChange', 'onBlur']}
                               rules={[
                                 {
-                                  pattern:
-                                    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/,
-                                  message: '请输入有效的 IP 地址',
+                                  validator: async (_rule, value) => {
+                                    const s = String(value ?? '').trim();
+                                    if (s && !WIZARD_STATIC_IP_FIELD_PATTERN.test(s)) {
+                                      return Promise.reject(
+                                        new Error('请输入有效的 IP 地址 (如 192.168.1.10 )'),
+                                      );
+                                    }
+                                    const v = form.getFieldsValue(true) as any;
+                                    const ns = String(form.getFieldValue('namespace') || '').trim();
+                                    const err = wizardIpFieldInlineError(
+                                      v,
+                                      name as number,
+                                      value,
+                                      kubeSubnets || [],
+                                      livePeerVmsRef.current,
+                                      ns,
+                                    );
+                                    return err ? Promise.reject(new Error(err)) : Promise.resolve();
+                                  },
                                 },
                               ]}
                             >
@@ -1439,10 +1671,16 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 variant="filled"
                 onClick={() => {
                   reloadNads();
+                  const preBind =
+                    String(scheduleHostMode || '').trim() === 'node' &&
+                    String(scheduleSelectedNode || '').trim()
+                      ? String(scheduleSelectedNode).trim()
+                      : undefined;
                   add({
                     mode: 'passthrough_sriov',
                     type: undefined,
                     model: undefined,
+                    passthroughBindNode: preBind,
                     passthroughPick: undefined,
                     passthroughSource: undefined,
                     pciDeviceName: undefined,
@@ -1458,10 +1696,16 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 variant="filled"
                 onClick={() => {
                   reloadNads();
+                  const preBind =
+                    String(scheduleHostMode || '').trim() === 'node' &&
+                    String(scheduleSelectedNode || '').trim()
+                      ? String(scheduleSelectedNode).trim()
+                      : undefined;
                   add({
                     mode: 'passthrough',
                     type: undefined,
                     model: undefined,
+                    passthroughBindNode: preBind,
                     passthroughPick: undefined,
                     passthroughSource: undefined,
                     pciDeviceName: undefined,

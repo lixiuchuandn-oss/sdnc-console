@@ -45,6 +45,10 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../../../constants/cloudPermissions';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
+import {
+  validateVmCreateWizardNicsAgainstPeerVms,
+  validateVmCreateWizardNicsMacIpAndSubnet,
+} from '../lib/vmNicMacIpValidation';
 
 type Props = {
   isTenant?: boolean;
@@ -386,10 +390,37 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
             if (m === 'vpc' || m === 'flat_subnet') {
               extraNetPaths.push(['netIfaces', i, 'macAddress'], ['netIfaces', i, 'ipAddress']);
             }
+            if (m === 'passthrough' || m === 'passthrough_sriov') {
+              extraNetPaths.push(
+                ['netIfaces', i, 'passthroughBindNode'],
+                ['netIfaces', i, 'passthroughPick'],
+              );
+            }
           });
         }
         if (extraNetPaths.length > 0) {
           await form.validateFields(extraNetPaths);
+        }
+        const vNet = form.getFieldsValue(true) as any;
+        const nicDupErr = validateVmCreateWizardNicsMacIpAndSubnet(
+          vNet,
+          kubeSubnets || [],
+        );
+        if (nicDupErr) {
+          message.error(nicDupErr);
+          throw new Error('nic-mac-ip');
+        }
+        const nicNs = String(form.getFieldValue('namespace') || '').trim();
+        if (nicNs) {
+          const nicPeerErr = validateVmCreateWizardNicsAgainstPeerVms(
+            vNet,
+            existingVms,
+            nicNs,
+          );
+          if (nicPeerErr) {
+            message.error(nicPeerErr);
+            throw new Error('nic-peer');
+          }
         }
       }
       
@@ -502,6 +533,42 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
       const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
       if (!cid) { throw new Error('请选择资源池'); }
+
+      let peerListForNic: any[] = existingVms;
+      try {
+        const json: any = await fetchCloudProviderEcs(cid, true);
+        const extracted: any[] = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json?.data?.items)
+            ? json.data.items
+            : Array.isArray(json?.items)
+              ? json.items
+              : [];
+        if (extracted.length > 0) peerListForNic = extracted;
+      } catch {
+        /* 使用内存中的 existingVms */
+      }
+
+      const nicDupSubmitErr = validateVmCreateWizardNicsMacIpAndSubnet(
+        v,
+        kubeSubnets || [],
+      );
+      if (nicDupSubmitErr) {
+        message.error(nicDupSubmitErr);
+        setStep(3);
+        return;
+      }
+      const nicPeerSubmitErr = validateVmCreateWizardNicsAgainstPeerVms(
+        v,
+        peerListForNic,
+        resolvedNamespace,
+      );
+      if (nicPeerSubmitErr) {
+        message.error(nicPeerSubmitErr);
+        setStep(3);
+        return;
+      }
+
       if (hostModeState === 'node' && !selectedNodeName) { throw new Error('请选择主机'); }
       // Primary NIC name is optional now (defaults to Pod Network)
 
@@ -776,6 +843,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   selectedNetIdx={selectedNetIdx}
                   setSelectedNetIdx={setSelectedNetIdx}
                   cloudId={currentCloudId || (cloudId !== 'all' ? cloudId : undefined)}
+                  existingVms={existingVms}
                 />
               </div>
               <div

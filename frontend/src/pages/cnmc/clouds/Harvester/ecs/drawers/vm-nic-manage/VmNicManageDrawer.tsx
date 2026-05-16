@@ -16,6 +16,7 @@ import {
   Space,
   Tag,
   Tooltip,
+  Typography,
 } from "antd";
 import {
   ArrowDownOutlined,
@@ -25,6 +26,7 @@ import {
 } from "@ant-design/icons";
 import { ReactComponent as NicIcon } from "../../../../../../../assets/clouds/nic.svg";
 import { updateHarvesterVmSpec, fetchHarvesterPciDevices } from "../../../../../../../services/harvesterApi";
+import { fetchCloudProviderEcs } from "../../../../../../../services/api";
 import { getMissingNadsFromNetworks } from "../../lib/harvesterVmNetwork";
 import {
   type VmNicEditorSlice,
@@ -46,6 +48,12 @@ import {
   pciNicHostBindingsSnapshot,
   type VmPciNicHostBinding,
 } from "../../lib/passthroughNicSelectOptions";
+import {
+  validateVmReconfigureNicsAgainstPeerVms,
+  validateVmReconfigureNicsMacIpAndSubnet,
+  reconfigureIpFieldInlineError,
+  reconfigureMacFieldInlineError,
+} from "../../lib/vmNicMacIpValidation";
 import { subnetKey } from "../../lib/kubeOvnSubnetNadSelect";
 import SubnetDetailDrawer from "../../../kube-ovn/drawers/subnet-detail-drawer";
 import { TOWER_ALIAS_ANNOTATION } from "../../../kube-ovn/lib/kubeOvnSubnetConstants";
@@ -156,6 +164,11 @@ function snapshot(
 
 function netModeLabel(mode: VmNicNetMode): string {
   return NET_MODE_OPTIONS.find((o) => o.value === mode)?.label ?? String(mode);
+}
+
+/** KubeVirt 接口名须为合法 DNS 子域标签；不支持中文（CJK 统一汉字等） */
+function nicIfaceNameContainsChinese(value: string): boolean {
+  return /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(String(value ?? ""));
 }
 
 /** 校验网卡编辑切片（保存 / 立即移除前共用） */
@@ -448,6 +461,46 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
   const [addNicNadOpen, setAddNicNadOpen] = useState(false);
   const [pciDevices, setPciDevices] = useState<any[]>([]);
   const [pciBindings, setPciBindings] = useState<VmPciNicHostBinding[]>([]);
+  const [peerVmsForHints, setPeerVmsForHints] = useState<any[]>([]);
+
+  const nicHintFingerprint = useMemo(
+    () =>
+      JSON.stringify(
+        (nicUi || []).map((u) => ({
+          m: u?.macAddress,
+          i: u?.ipAddress,
+          mod: u?.netMode,
+        })),
+      ),
+    [nicUi],
+  );
+
+  const peerHintsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open || !cloudId) {
+      setPeerVmsForHints([]);
+      return;
+    }
+    if (peerHintsTimerRef.current) clearTimeout(peerHintsTimerRef.current);
+    peerHintsTimerRef.current = setTimeout(() => {
+      peerHintsTimerRef.current = null;
+      void fetchCloudProviderEcs(cloudId, true)
+        .then((json: any) => {
+          const extracted: any[] = Array.isArray(json?.data)
+            ? json.data
+            : Array.isArray(json?.data?.items)
+              ? json.data.items
+              : Array.isArray(json?.items)
+                ? json.items
+                : [];
+          if (extracted.length > 0) setPeerVmsForHints(extracted);
+        })
+        .catch(() => {});
+    }, 500);
+    return () => {
+      if (peerHintsTimerRef.current) clearTimeout(peerHintsTimerRef.current);
+    };
+  }, [open, cloudId, nicHintFingerprint]);
 
   const reloadPciDevices = useCallback(async () => {
     if (!cloudId) return;
@@ -609,6 +662,14 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
     [interfaces, networks, nicUi, pciBindings, baseline],
   );
 
+  const hasIfaceNameChinese = useMemo(
+    () =>
+      interfaces.some((x) =>
+        nicIfaceNameContainsChinese(String(x?.name ?? "")),
+      ),
+    [interfaces],
+  );
+
   const passthroughExclude = useMemo(
     () =>
       collectVmNicManagePassthroughExclusions({
@@ -715,11 +776,51 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
       }
       if (!validateNicUiSlices(draftNicUi)) return;
 
+      const localNicErr = validateVmReconfigureNicsMacIpAndSubnet(
+        draftNicUi,
+        kubeSubnets,
+      );
+      if (localNicErr) {
+        message.error(localNicErr);
+        return;
+      }
+      let peerVms: any[] = [];
+      try {
+        const json: any = await fetchCloudProviderEcs(cloudId, true);
+        peerVms = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json?.data?.items)
+            ? json.data.items
+            : Array.isArray(json?.items)
+              ? json.items
+              : [];
+      } catch {
+        peerVms = [];
+      }
+      const peerNicErr = validateVmReconfigureNicsAgainstPeerVms(
+        draftNicUi,
+        draftNetsInput,
+        peerVms,
+        vmNs,
+        vmName,
+      );
+      if (peerNicErr) {
+        message.error(peerNicErr);
+        return;
+      }
+
       const nameSet = new Set<string>();
-      for (const x of draftIfaces) {
+      for (let ni = 0; ni < draftIfaces.length; ni++) {
+        const x = draftIfaces[ni];
         const n = String(x?.name || "").trim();
         if (!n) {
           message.error("接口名不能为空");
+          return;
+        }
+        if (nicIfaceNameContainsChinese(n)) {
+          message.error(
+            `网卡 #${ni + 1}：名称不支持中文字符，请使用字母、数字或连字符（如 eth1、nic-1）`,
+          );
           return;
         }
         if (nameSet.has(n)) {
@@ -888,7 +989,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
           <Button
             type="primary"
             loading={saving}
-            disabled={!dirty || !hasEcsWrite}
+            disabled={!dirty || !hasEcsWrite || hasIfaceNameChinese}
             onClick={() => void handleSave()}
           >
             保存
@@ -942,12 +1043,38 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
           const slice = nicUi[idx];
           if (!slice) return null;
           const mode = slice.netMode;
+          const nameChineseErr = nicIfaceNameContainsChinese(
+            String(iface?.name ?? ""),
+          );
 
           const runtimeIp = String(findIp(iface.name) || "").trim();
 
           const showMac = mode !== "flat" && !isWizardPciPassthroughNetMode(mode);
           const showKubeStaticIp = mode === "vpc" || mode === "flat_subnet";
           const showPodAddrExtras = mode === "pod";
+
+          const macInlineHint = showMac
+            ? reconfigureMacFieldInlineError(
+                nicUi,
+                idx,
+                slice.macAddress,
+                peerVmsForHints,
+                vmNs,
+                vmName,
+              )
+            : undefined;
+          const ipInlineHint = showKubeStaticIp
+            ? reconfigureIpFieldInlineError(
+                nicUi,
+                networks,
+                idx,
+                slice.ipAddress,
+                kubeSubnets,
+                peerVmsForHints,
+                vmNs,
+                vmName,
+              )
+            : undefined;
 
           const flatSubnetRec =
             mode === "flat_subnet"
@@ -1018,7 +1145,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
 
           return (
             <div
-              key={`${iface?.name}-${idx}`}
+              key={`kubevirt-nic-${idx}`}
               className="vmManageDrawer-panel"
             >
               {/* —— 卡片标题：图标、序号+接口名、网络类型 Tag、运行态 IP；右侧排序/解绑 —— */}
@@ -1160,10 +1287,19 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                         placeholder="如 eth1、nic-1"
                         value={iface.name || ""}
                         disabled={!hasEcsWrite}
+                        status={nameChineseErr ? "error" : undefined}
                         onChange={(e) =>
                           applyIfaceNameAt(idx, e.target.value)
                         }
                       />
+                      {nameChineseErr ? (
+                        <Typography.Text
+                          type="danger"
+                          style={{ display: "block", marginTop: 4, fontSize: 12 }}
+                        >
+                          网卡名称不支持中文字符，请改用字母、数字或连字符（如 eth1、nic-1）。
+                        </Typography.Text>
+                      ) : null}
                     </Col>
                     {showMac ? (
                       <Col span={8}>
@@ -1172,6 +1308,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                           placeholder="52:54:00:12:34:56"
                           value={slice.macAddress || ""}
                           disabled={!hasEcsWrite}
+                          status={macInlineHint ? "error" : undefined}
                           onChange={(e) =>
                             applySliceAt(idx, {
                               ...slice,
@@ -1179,6 +1316,14 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                             })
                           }
                         />
+                        {macInlineHint ? (
+                          <Typography.Text
+                            type="danger"
+                            style={{ display: "block", marginTop: 4, fontSize: 12 }}
+                          >
+                            {macInlineHint}
+                          </Typography.Text>
+                        ) : null}
                       </Col>
                     ) : null}
                     {showKubeStaticIp || showPodAddrExtras ? (
@@ -1188,6 +1333,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                           placeholder="192.168.1.23"
                           value={slice.ipAddress || ""}
                           disabled={!hasEcsWrite}
+                          status={ipInlineHint ? "error" : undefined}
                           onChange={(e) =>
                             applySliceAt(idx, {
                               ...slice,
@@ -1195,6 +1341,14 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
                             })
                           }
                         />
+                        {ipInlineHint ? (
+                          <Typography.Text
+                            type="danger"
+                            style={{ display: "block", marginTop: 4, fontSize: 12 }}
+                          >
+                            {ipInlineHint}
+                          </Typography.Text>
+                        ) : null}
                       </Col>
                     ) : null}
                     {showPodAddrExtras ? (

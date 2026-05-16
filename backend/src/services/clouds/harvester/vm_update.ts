@@ -228,6 +228,25 @@ export const updateHarvesterVMSpec = async (
  * @param origin API 基础地址
  * @returns 更新后的 VM 对象
  */
+
+/**
+ * 与前端 `vmChangeSystemDiskEligibility.resolveVmBootDiskDevice` 一致：
+ * 根盘须为 block disk；存在 bootOrder=1 时不得误选光驱；禁止用 `disks[0]` 误把光驱当系统盘。
+ */
+function resolveReinstallRootBootDisk(disks: any[]): any | null {
+  if (!Array.isArray(disks)) return null;
+  const bootFirst = disks.find((d: any) => Number(d?.bootOrder) === 1);
+  if (bootFirst) {
+    if (bootFirst.cdrom) return null;
+    if (bootFirst.disk) return bootFirst;
+    return null;
+  }
+  let bootDisk = disks.find((d: any) => d?.name === 'disk-0' && !d.cdrom);
+  if (!bootDisk) bootDisk = disks.find((d: any) => d?.name === 'rootdisk' && !d.cdrom);
+  if (!bootDisk) bootDisk = disks.find((d: any) => !d.cdrom && d.disk);
+  return bootDisk || null;
+}
+
 const updateHarvesterVMSpecInternal = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
@@ -1002,14 +1021,16 @@ const updateHarvesterVMSpecInternal = async (
       // 当前 VM 的根磁盘信息
       const disks = domain.devices?.disks || [];
       const volumes = newSpec.template.spec.volumes || [];
-      const bootDisk = disks.find((d: any) => d.bootOrder === 1) || disks.find((d: any) => d.name === 'disk-0') || disks[0];
-      const rootDiskName = bootDisk?.name || '';
+      const bootDisk = resolveReinstallRootBootDisk(disks);
+      const rootDiskName = String(bootDisk?.name || '').trim();
       const rootVolume = volumes.find((v: any) => v.name === rootDiskName);
-      const oldPvcName = rootVolume?.persistentVolumeClaim?.claimName;
+      const oldPvcName = String(rootVolume?.persistentVolumeClaim?.claimName || '').trim();
+      const oldDvName = String(rootVolume?.dataVolume?.name || '').trim();
       
       console.log('\n💾 [当前根磁盘信息]');
       console.log(`  磁盘名称: ${rootDiskName || '未找到'}`);
       console.log(`  当前 PVC: ${oldPvcName || '未找到'}`);
+      console.log(`  当前 DataVolume: ${oldDvName || '未找到'}`);
       console.log(`  当前总线: ${bootDisk?.disk?.bus || bootDisk?.cdrom?.bus || 'virtio'}`);
       console.log(`  设备类型: ${bootDisk?.disk ? 'disk' : bootDisk?.cdrom ? 'cdrom' : 'unknown'}`);
       
@@ -1022,14 +1043,14 @@ const updateHarvesterVMSpecInternal = async (
       const newPvcName = `${name}-disk-0-${Math.random().toString(36).substring(2, 7)}`;
       
       console.log('\n🔨 [创建新 PVC]');
-      console.log(`  PVC 名称: ${newPvcName}`);
+      console.log(`  展示名(注解 alias): ${newPvcName}`);
       console.log(`  命名空间: ${namespace}`);
       console.log(`  容量: ${spec.rootSize || '40Gi'}`);
       console.log(`  存储类: ${spec.storageClassName || 'undefined (使用默认)'}`);
       console.log(`  卷模式: Block`);
       console.log(`  镜像注解: harvesterhci.io/imageId=${imageId}`);
       
-      await createHarvesterPVCVolume({ endpoint, token, insecure }, {
+      const createdPvc = await createHarvesterPVCVolume({ endpoint, token, insecure }, {
           namespace,
           name: newPvcName,
           size: spec.rootSize || '40Gi',
@@ -1043,21 +1064,26 @@ const updateHarvesterVMSpecInternal = async (
               ...(imageName ? { 'harvesterhci.io/image-name': imageName } : {})
           }
       });
+      /** createHarvesterPVCVolume 实际使用生成的 metadata.name，与请求中的展示名可能不一致 */
+      const actualPvcName = String(createdPvc?.metadata?.name || '').trim();
+      if (!actualPvcName) {
+        throw new Error('重装系统失败：已创建 PVC 但未返回 metadata.name，无法挂载到虚拟机');
+      }
       
-      console.log(`✅ [PVC 创建成功] ${newPvcName}`);
+      console.log(`✅ [PVC 创建成功] ${actualPvcName}（展示/期望名: ${newPvcName}）`);
 
       // 3. Update VM Spec to point to new PVC
       const volIndex = volumes.findIndex((v: any) => v.name === rootDiskName);
       if (volIndex !== -1) {
           console.log('\n🔄 [更新 VM Volume 配置]');
           console.log(`  旧 PVC: ${oldPvcName || '未找到'}`);
-          console.log(`  新 PVC: ${newPvcName}`);
+          console.log(`  新 PVC claimName: ${actualPvcName}`);
           console.log(`  Volume 索引: ${volIndex}`);
           
           volumes[volIndex] = {
               name: rootDiskName,
               persistentVolumeClaim: {
-                  claimName: newPvcName
+                  claimName: actualPvcName
               }
           };
       } else {
@@ -1130,7 +1156,7 @@ const updateHarvesterVMSpecInternal = async (
         // Construct new template for root disk
         const newRootTemplate: any = {
             metadata: {
-                name: newPvcName,
+                name: actualPvcName,
                 annotations: {
                     "harvesterhci.io/imageId": imageId,
                     ...(imageName ? { "harvesterhci.io/image-name": imageName } : {})
@@ -1157,7 +1183,7 @@ const updateHarvesterVMSpecInternal = async (
         const effectiveSc = imageStorageClassName || spec.storageClassName;
         const effectiveAccess = imageStorageClassName ? 'ReadWriteMany' : 'ReadWriteOnce';
         console.log(`  新模板配置:`);
-        console.log(`    - PVC 名称: ${newPvcName}`);
+        console.log(`    - PVC 名称: ${actualPvcName}`);
         console.log(`    - 镜像: ${imageId}${imageName ? ` (${imageName})` : ''}`);
         console.log(`    - 容量: ${spec.rootSize || '40Gi'}`);
         console.log(`    - 存储类: ${effectiveSc || 'undefined'}`);
@@ -1167,10 +1193,11 @@ const updateHarvesterVMSpecInternal = async (
         if (Array.isArray(vct)) {
             // Remove old root disk template (identify by old PVC name or simply reset if it's the only one)
             // Strategy: Filter out the old PVC name if we found it, then append new one
-            if (oldPvcName) {
+            const oldTplNames = [oldPvcName, oldDvName].filter(Boolean);
+            if (oldTplNames.length) {
                 const beforeCount = vct.length;
-                vct = vct.filter((t: any) => t?.metadata?.name !== oldPvcName);
-                console.log(`  已移除旧模板 (${oldPvcName}): ${beforeCount} -> ${vct.length}`);
+                vct = vct.filter((t: any) => !oldTplNames.includes(String(t?.metadata?.name || '').trim()));
+                console.log(`  已移除旧模板 (${oldTplNames.join(', ')}): ${beforeCount} -> ${vct.length}`);
             }
             // Also filter out any template that looks like a root disk (has imageId) to be safe? 
             // No, user might have multiple disks with images. Better stick to PVC name replacement.
@@ -1190,8 +1217,20 @@ const updateHarvesterVMSpecInternal = async (
         console.warn('Failed to update volumeClaimTemplates annotation during reinstall', e);
       }
 
+      // 根盘曾走 DataVolume 时，移除对应 dataVolumeTemplates，避免与直挂 PVC 的根卷冲突（KubeVirt 报 PVC/DV 异常）
+      if (oldDvName && Array.isArray(newSpec.dataVolumeTemplates)) {
+        const beforeDvt = newSpec.dataVolumeTemplates.length;
+        newSpec.dataVolumeTemplates = newSpec.dataVolumeTemplates.filter(
+          (t: any) => String(t?.metadata?.name || '').trim() !== oldDvName,
+        );
+        if (newSpec.dataVolumeTemplates.length !== beforeDvt) {
+          console.log(`[Reinstall] 已从 dataVolumeTemplates 移除根盘条目: ${oldDvName}`);
+        }
+      }
+
       // 5. Delete Old PVC
-      if (oldPvcName) {
+      const oldStorageClaim = oldPvcName || oldDvName;
+      if (oldStorageClaim) {
            // We do NOT delete the old PVC here immediately.
            // Harvester/Kubevirt might need it during termination or it might be handled by ownerReferences.
            // However, for "Reinstall" semantics (replace disk), we usually want to clean up.
@@ -1199,11 +1238,11 @@ const updateHarvesterVMSpecInternal = async (
            // Current logic: We detach it (remove from volumes) and user loses reference to it in VM.
            // If we want to strictly follow "Reinstall = Wipe System Disk", we should delete it.
            // Let's keep existing logic: delete it.
-           console.log(`[Reinstall] Scheduling deletion of old root PVC: ${oldPvcName}`);
+           console.log(`[Reinstall] Scheduling deletion of old root PVC: ${oldStorageClaim}`);
            // Fire and forget, or at least don't block main flow if deletion is slow
-           deleteHarvesterPVC({ endpoint, token, insecure }, namespace, oldPvcName)
-               .then(() => console.log(`[Reinstall] Successfully deleted old PVC: ${oldPvcName}`))
-               .catch((err: any) => console.warn(`[Reinstall] Failed to delete old PVC ${oldPvcName}:`, err.message || err));
+           deleteHarvesterPVC({ endpoint, token, insecure }, namespace, oldStorageClaim)
+               .then(() => console.log(`[Reinstall] Successfully deleted old PVC: ${oldStorageClaim}`))
+               .catch((err: any) => console.warn(`[Reinstall] Failed to delete old PVC ${oldStorageClaim}:`, err.message || err));
       }
   } 
   // --- 0.1 [业务逻辑] 扩容系统盘 (Resize Root Disk) ---

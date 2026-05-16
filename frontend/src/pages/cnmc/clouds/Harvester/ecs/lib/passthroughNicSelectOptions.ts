@@ -248,21 +248,35 @@ export function collectVmPassthroughPciCrNames(vm: any): Set<string> {
   return into;
 }
 
+/** 解析 PCIDevice 行的 PCI 总线地址（BDF），供下拉与摘要展示 */
+function pciRowPciAddress(raw: any): string {
+  return String(
+    raw?.status?.pciAddress ??
+      raw?.status?.address ??
+      raw?.spec?.pciAddress ??
+      raw?.spec?.address ??
+      "",
+  ).trim();
+}
+
 /**
- * @param compact 为 true 时用于下拉：仅 device plugin 资源名（status/spec.resourceName），与 hostDevices.deviceName 一致；缺省时退回 CR 名
+ * @param compact 为 true 时用于下拉：资源名（与 hostDevices.deviceName 一致）+ PCI 号；缺省时退回 CR 名
  */
 function pciRowLabel(raw: any, crFallback: string, compact?: boolean): string {
   const cr = String(raw?.metadata?.name ?? crFallback ?? "").trim() || crFallback;
+  const addr = pciRowPciAddress(raw);
   if (compact) {
     const rn = String(raw?.status?.resourceName ?? raw?.spec?.resourceName ?? "").trim();
-    return rn || cr;
+    const base = rn || cr;
+    return addr ? `${base} · PCI ${addr}` : base;
   }
   const node = String(raw?.status?.nodeName ?? raw?.spec?.nodeName ?? "").trim();
-  const addr = String(
-    raw?.status?.pciAddress ?? raw?.status?.address ?? raw?.spec?.pciAddress ?? "",
-  ).trim();
   const desc = String(raw?.status?.description ?? raw?.spec?.description ?? "").trim();
-  const labelBits = [desc || cr, node ? `节点 ${node}` : "", addr ? addr : ""].filter(Boolean);
+  const labelBits = [
+    desc || cr,
+    node ? `节点 ${node}` : "",
+    addr ? `PCI ${addr}` : "",
+  ].filter(Boolean);
   return labelBits.join(" · ");
 }
 

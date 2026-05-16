@@ -46,6 +46,55 @@ import { updateHarvesterVMSpec } from './vm_update';
 import { deleteHarvesterPVC } from './storage';
 
 /**
+ * 从 VM 对象解析「删除虚拟机磁盘」时应尝试删除的 PVC `metadata.name`（claimName）列表，已去重。
+ * 覆盖 template volumes 的 PVC / DataVolume / ephemeral 直挂 PVC、注解 `harvesterhci.io/volumeClaimTemplates`、
+ * `spec.dataVolumeTemplates`、以及 `spec.template.spec.volumeClaimTemplates`（与回收站彻底删除 / 定时清理语义对齐）。
+ */
+export function collectHarvesterVmPvcClaimNamesForVolumeDelete(vm: any): string[] {
+  const names: string[] = [];
+  const push = (n: unknown) => {
+    const s =
+      typeof n === 'string'
+        ? n.trim()
+        : n != null && n !== undefined
+          ? String(n).trim()
+          : '';
+    if (s) names.push(s);
+  };
+
+  const volumes = vm?.spec?.template?.spec?.volumes;
+  if (Array.isArray(volumes)) {
+    for (const v of volumes) {
+      push(v?.persistentVolumeClaim?.claimName);
+      push(v?.dataVolume?.name);
+      push((v as any)?.ephemeral?.persistentVolumeClaim?.claimName);
+    }
+  }
+
+  try {
+    const vctStr = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+    if (vctStr) {
+      const vct = JSON.parse(vctStr);
+      if (Array.isArray(vct)) {
+        for (const t of vct) push(t?.metadata?.name);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const dvts = Array.isArray(vm?.spec?.dataVolumeTemplates) ? vm.spec.dataVolumeTemplates : [];
+  for (const d of dvts) push(d?.metadata?.name);
+
+  const tplVct = vm?.spec?.template?.spec?.volumeClaimTemplates;
+  if (Array.isArray(tplVct)) {
+    for (const t of tplVct) push(t?.metadata?.name);
+  }
+
+  return Array.from(new Set(names));
+}
+
+/**
  * 解析实例标识为命名空间和名称
  * 
  * [功能描述]
@@ -681,30 +730,9 @@ export const harvesterDeleteVM = async (
       }
     }
     
-    // 1.1 解析 PVC Names
-    if (deleteVolumes) {
-      const volumes = vm?.spec?.template?.spec?.volumes || [];
-      pvcNames = volumes.map((v: any) => v?.persistentVolumeClaim?.claimName).filter((n: any) => !!n);
-      try {
-        const vctStr = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
-        if (vctStr) {
-          const vct = JSON.parse(vctStr);
-          if (Array.isArray(vct)) {
-            const tplNames = vct
-              .map((t: any) => t?.metadata?.name)
-              .filter((n: any) => typeof n === 'string' && !!n);
-            pvcNames = [...pvcNames, ...tplNames];
-          }
-        }
-      } catch {}
-      try {
-        const dvts = Array.isArray(vm?.spec?.dataVolumeTemplates) ? vm.spec.dataVolumeTemplates : [];
-        const dvNames = dvts
-          .map((d: any) => d?.metadata?.name)
-          .filter((n: any) => typeof n === 'string' && !!n);
-        pvcNames = [...pvcNames, ...dvNames];
-      } catch {}
-      pvcNames = Array.from(new Set(pvcNames));
+    // 1.1 解析 PVC Names（与强制删除共用解析逻辑，避免仅认 persistentVolumeClaim 漏删 DataVolume 等盘）
+    if (deleteVolumes && vm) {
+      pvcNames = collectHarvesterVmPvcClaimNamesForVolumeDelete(vm);
       console.info('[DeleteVM] PVCs to delete:', pvcNames);
     }
   } catch (e: any) {
@@ -903,30 +931,16 @@ export const harvesterForceDeleteVM = async (
   try {
     vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
     
-    // 1.1 解析 PVC Names
-    if (deleteVolumes) {
-      const volumes = vm?.spec?.template?.spec?.volumes || [];
-      pvcNames = volumes.map((v: any) => v?.persistentVolumeClaim?.claimName).filter((n: any) => !!n);
-      try {
-        const vctStr = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
-        if (vctStr) {
-          const vct = JSON.parse(vctStr);
-          if (Array.isArray(vct)) {
-            const tplNames = vct
-              .map((t: any) => t?.metadata?.name)
-              .filter((n: any) => typeof n === 'string' && !!n);
-            pvcNames = [...pvcNames, ...tplNames];
-          }
-        }
-      } catch {}
-      try {
-        const dvts = Array.isArray(vm?.spec?.dataVolumeTemplates) ? vm.spec.dataVolumeTemplates : [];
-        const dvNames = dvts
-          .map((d: any) => d?.metadata?.name)
-          .filter((n: any) => typeof n === 'string' && !!n);
-        pvcNames = [...pvcNames, ...dvNames];
-      } catch {}
-      pvcNames = Array.from(new Set(pvcNames));
+    // 1.1 解析 PVC Names（须覆盖 DataVolume、模板 volumeClaimTemplates 等，否则定时清理回收站会遗留磁盘）
+    if (deleteVolumes && vm) {
+      pvcNames = collectHarvesterVmPvcClaimNamesForVolumeDelete(vm);
+      console.info('[ForceDeleteVM] PVC claims to delete:', pvcNames);
+      if (pvcNames.length === 0) {
+        console.warn(
+          '[ForceDeleteVM] deleteVolumes=true but no PVC names resolved from VM spec; cluster disks may be left behind',
+          { namespace: path.namespace, name: path.name },
+        );
+      }
     }
     
     // 1.2 移除 Tower 相关的 Finalizers (Recycle Bin + Managed)，允许真正删除
@@ -995,21 +1009,41 @@ export const harvesterForceDeleteVM = async (
     };
     await waitUntilDeleted();
 
-    // 3.2 删除 PVC
+    // 3.2 删除 PVC（VM 刚删完时 PVC 可能仍被 Finalizer/控制器占用，做有限次重试）
     if (deleteVolumes && pvcNames.length > 0) {
-      for (const claimName of pvcNames) {
-        try {
-          await deleteHarvesterPVC(
-            { endpoint, token, insecure },
-            path.namespace,
-            claimName,
-          );
-          console.info(`[ForceDeleteVM] Deleted PVC: ${claimName}`);
-        } catch (e: any) {
-          if (e?.status !== 404) {
-            console.warn(`[ForceDeleteVM] Failed to delete PVC ${claimName}:`, e?.message || e);
+      const deleteOnePvcWithRetries = async (claimName: string) => {
+        const maxAttempts = 12;
+        const baseDelayMs = 2000;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            await deleteHarvesterPVC(
+              { endpoint, token, insecure },
+              path.namespace,
+              claimName,
+            );
+            console.info(`[ForceDeleteVM] Deleted PVC: ${claimName} (attempt ${attempt})`);
+            return;
+          } catch (e: any) {
+            const st = Number(e?.status || 0);
+            const msg = String(e?.message || e || '').toLowerCase();
+            if (st === 404 || msg.includes('not found')) {
+              return;
+            }
+            console.warn(
+              `[ForceDeleteVM] delete PVC ${claimName} attempt ${attempt}/${maxAttempts}:`,
+              e?.message || e,
+            );
+            if (attempt >= maxAttempts) {
+              console.error(`[ForceDeleteVM] Giving up deleting PVC ${claimName}`);
+              return;
+            }
+            await new Promise((r) => setTimeout(r, baseDelayMs * Math.min(attempt, 6)));
           }
         }
+      };
+
+      for (const claimName of pvcNames) {
+        await deleteOnePvcWithRetries(claimName);
       }
     }
 
