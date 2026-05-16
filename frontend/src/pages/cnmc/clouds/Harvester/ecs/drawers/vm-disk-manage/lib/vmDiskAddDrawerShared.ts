@@ -39,6 +39,7 @@ function initAddDataDiskFormByPreset(
       newCdromAccessMode: "ReadWriteMany",
       newCdromImage: undefined,
       newCdromName: undefined,
+      newCdromClaimName: undefined,
       newCdromSc: undefined,
       newCdromBootFromCdrom: false,
     });
@@ -52,6 +53,7 @@ function initAddDataDiskFormByPreset(
     newDiskIsoImage: undefined,
     existingPvcName: undefined,
     newDiskBootFromCdrom: false,
+    newDiskPvcClaimName: undefined,
   });
 }
 

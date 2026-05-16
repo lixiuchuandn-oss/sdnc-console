@@ -514,6 +514,22 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       applySliceToDisk(d, diskUi[i] || initDiskSlice(d)),
     );
 
+    let baselineDiskNames: any[] | null = null;
+    try {
+      baselineDiskNames = JSON.parse(baseline)?.disks;
+    } catch {
+      baselineDiskNames = null;
+    }
+    const firstBootNameBefore = String(
+      Array.isArray(baselineDiskNames) ? baselineDiskNames[0]?.name : "",
+    ).trim();
+    const firstBootNameAfter = String(disks[0]?.name || "").trim();
+    /** 列表首位即合并后获得 bootOrder=1 的块设备；与上下移动调整启动顺序一致 */
+    const bootOrderChanged =
+      firstBootNameBefore.length > 0 &&
+      firstBootNameAfter.length > 0 &&
+      firstBootNameBefore !== firstBootNameAfter;
+
     const { nextDisks, nextVolumes } = mergeTemplateDisksAndVolumes(
       tpl,
       editedBlocks,
@@ -582,7 +598,14 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       }
       removedHotplugVolumeNamesRef.current = [];
       await patchHarvesterVm(cloudId, vmNs, vmName, patchPayload);
-      message.success("磁盘配置已保存");
+      const running = !isVmStopped(vmData);
+      if (running && bootOrderChanged) {
+        message.success(
+          "磁盘配置已保存。启动顺序已调整，须重启虚拟机后生效。",
+        );
+      } else {
+        message.success("磁盘配置已保存");
+      }
       const busesRemovedThisSave = [...removedDiskBusesRef.current];
       removedDiskBusesRef.current = [];
       await onApplied();
@@ -613,7 +636,8 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
         busesRemovedThisSave.some(
           (b) => !diskDetachSkipsVmRestartPrompt(b),
         );
-      if (needsRestartAfterDetach) {
+      const needsRestartForBootOrder = running && bootOrderChanged;
+      if (needsRestartAfterDetach || needsRestartForBootOrder) {
         const ns = vmNs;
         const name = vmName;
         setTimeout(() => {

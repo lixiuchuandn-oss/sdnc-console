@@ -146,6 +146,27 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'cluster_sriov':
+      if (
+        checkPerm('clouds.pci-devices:read') ||
+        checkPerm('clouds.ecs:read')
+      ) {
+        loadResource(
+          'pciDevices',
+          () => fetchHarvesterPciDevices(cloudId, force),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : Array.isArray((json as any)?.items)
+                ? (json as any).items
+                : [];
+            setHarvesterPciDevices(Array.isArray(list) ? list : []);
+            setRawPciDevices(json || null);
+          },
+          force,
+        );
+      }
+      return true;
     case 'load_balancers':
       if (canReadLoadBalancers) {
         loadResource(

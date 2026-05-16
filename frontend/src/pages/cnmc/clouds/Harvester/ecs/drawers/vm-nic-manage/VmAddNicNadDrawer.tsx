@@ -104,8 +104,8 @@ const VmAddNicNadDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
         vmNs,
         vmName,
       });
-      await onApplied();
       onClose();
+      await onApplied();
     } catch (e: any) {
       if (e?.errorFields) return;
       if (

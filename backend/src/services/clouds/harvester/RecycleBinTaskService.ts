@@ -668,10 +668,9 @@ export class RecycleBinTaskService {
     rbLog.debug(`发现过期的回收站虚拟机: ${cloud.name}/${instanceId}，开始删除...`);
 
     try {
-      // 使用后台模式，避免阻塞清理任务
-      // 后台模式会立即返回，删除操作在后台异步执行
-      await harvesterForceDeleteVM(params, instanceId, false, true);
-      rbLog.debug(`已启动删除过期的回收站虚拟机: ${cloud.name}/${instanceId}（后台执行）`);
+      // 使用后台模式，避免阻塞清理任务；须同步删除关联 PVC（与回收站「彻底删除」语义一致）
+      await harvesterForceDeleteVM(params, instanceId, true, true);
+      rbLog.debug(`已启动删除过期的回收站虚拟机: ${cloud.name}/${instanceId}（后台执行，含卷清理）`);
       return 'success';
     } catch (err: any) {
       rbLog.error(`删除过期的回收站虚拟机失败: ${cloud.name}/${instanceId}`, summarizeRbErr(err));

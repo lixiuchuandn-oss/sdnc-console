@@ -117,8 +117,8 @@ const VmAddNicFlatSubnetDrawer: React.FC<VmAddNicDrawerBaseProps> = ({
         vmNs,
         vmName,
       });
-      await onApplied();
       onClose();
+      await onApplied();
     } catch (e: any) {
       if (e?.errorFields) return;
       if (e?.message === "compute_secondary_nic_failed" || e?.message === "missing_nad")

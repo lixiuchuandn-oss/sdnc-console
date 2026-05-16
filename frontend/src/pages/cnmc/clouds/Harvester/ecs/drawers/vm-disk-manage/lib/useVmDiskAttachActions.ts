@@ -266,7 +266,12 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
           annotations: { 'harvesterhci.io/imageId': imgVal },
         });
         const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-        form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
+        const displayAlias = String(volName ?? '').trim() || actualName;
+        form.setFieldsValue({
+          newDiskCreated: true,
+          newDiskPvcClaimName: actualName,
+          newDiskName: displayAlias,
+        });
         message.success('光盘卷已创建');
         return;
       }
@@ -281,7 +286,12 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
       });
 
       const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-      form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
+      const displayAlias = String(volName ?? '').trim() || actualName;
+      form.setFieldsValue({
+        newDiskCreated: true,
+        newDiskPvcClaimName: actualName,
+        newDiskName: displayAlias,
+      });
       message.success('磁盘卷已创建');
     } catch (e: any) {
       if (e?.errorFields) return;
@@ -321,7 +331,9 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         return;
       }
 
-      const volName = values.newDiskName;
+      const volName =
+        String(form.getFieldValue('newDiskPvcClaimName') ?? '').trim() ||
+        String(values.newDiskName ?? '').trim();
       const mode = values.newDiskMode || 'spec';
 
       if (diskSrc === 'iso') {
@@ -346,7 +358,12 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
           openRestartConfirm(namespace, vmName, false, { cdrom: true });
         }, 300);
 
-        form.setFieldsValue({ newDiskCreated: false, newDiskIsoImage: undefined, newDiskBootFromCdrom: false });
+        form.setFieldsValue({
+          newDiskCreated: false,
+          newDiskIsoImage: undefined,
+          newDiskBootFromCdrom: false,
+          newDiskPvcClaimName: undefined,
+        });
         try {
           onOk?.(true);
         } catch {}
@@ -460,7 +477,7 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         openRestartConfirm(namespace, vmName, false);
       }, 300);
 
-      form.setFieldsValue({ newDiskCreated: false });
+      form.setFieldsValue({ newDiskCreated: false, newDiskPvcClaimName: undefined });
       try {
         onOk?.(true);
       } catch {}
@@ -525,7 +542,12 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
       });
 
       const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-      form.setFieldsValue({ newCdromCreated: true, newCdromName: actualName });
+      const displayAlias = String(values.newCdromName ?? '').trim() || actualName;
+      form.setFieldsValue({
+        newCdromCreated: true,
+        newCdromClaimName: actualName,
+        newCdromName: displayAlias,
+      });
       message.success('光盘卷已创建');
     } catch (e: any) {
       if (e?.errorFields) return;
@@ -551,7 +573,11 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         return;
       }
 
-      const volName = values.newCdromName;
+      const volName = String(form.getFieldValue('newCdromClaimName') ?? '').trim();
+      if (!volName) {
+        message.error('无法解析已创建的光盘卷技术名称，请关闭抽屉后重试');
+        return;
+      }
 
       try {
         await attachIsoPvcAsCdromToVm(volName, !!form.getFieldValue('newCdromBootFromCdrom'));
@@ -569,7 +595,11 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         openRestartConfirm(namespace, vmName, false, { cdrom: true });
       }, 300);
 
-      form.setFieldsValue({ newCdromCreated: false, newCdromBootFromCdrom: false });
+      form.setFieldsValue({
+        newCdromCreated: false,
+        newCdromBootFromCdrom: false,
+        newCdromClaimName: undefined,
+      });
       try {
         onOk?.(true);
       } catch {}

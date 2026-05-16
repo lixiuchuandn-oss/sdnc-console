@@ -50,6 +50,8 @@ export interface RouteSpec {
   poolNavGroup?: string;
   /** Cloudmap 池侧栏 Ant Menu 父级 key（非路径） */
   poolMenuParentKey?: string;
+  /** Cloudmap 池内：侧栏二级分组键（与 `cloudmapPoolNavRows.poolNavSubgroup` 一致） */
+  poolNavSubgroup?: string;
 }
 
 function toCloudmapPoolRouteSpec(
@@ -73,6 +75,7 @@ function toCloudmapPoolRouteSpec(
     navScope: 'cloudmap-pool',
     poolNavGroup: r.poolNavGroup,
     poolMenuParentKey: r.poolMenuParentKey || undefined,
+    poolNavSubgroup: r.poolNavSubgroup,
     title: r.title,
     breadcrumbLabel: r.title,
     subtitle: `${r.poolNavGroup} · ${r.title}`,

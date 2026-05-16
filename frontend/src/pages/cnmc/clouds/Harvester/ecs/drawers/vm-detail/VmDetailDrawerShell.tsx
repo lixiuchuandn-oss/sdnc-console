@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 虚拟机详情抽屉 · 壳层 UI：`VmDetailDrawer`（数据装配）+ `VmDetailDrawerShell`（Drawer/工具栏/Tab 骨架）。
  * 默认导出为对外入口；样式 token 同步导出。
  */

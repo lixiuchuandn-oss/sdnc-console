@@ -248,15 +248,32 @@ export function collectVmPassthroughPciCrNames(vm: any): Set<string> {
   return into;
 }
 
-function pciRowLabel(raw: any, crFallback: string): string {
+/**
+ * @param compact 为 true 时用于下拉：仅 device plugin 资源名（status/spec.resourceName），与 hostDevices.deviceName 一致；缺省时退回 CR 名
+ */
+function pciRowLabel(raw: any, crFallback: string, compact?: boolean): string {
   const cr = String(raw?.metadata?.name ?? crFallback ?? "").trim() || crFallback;
+  if (compact) {
+    const rn = String(raw?.status?.resourceName ?? raw?.spec?.resourceName ?? "").trim();
+    return rn || cr;
+  }
   const node = String(raw?.status?.nodeName ?? raw?.spec?.nodeName ?? "").trim();
-  const desc = String(raw?.status?.description ?? raw?.spec?.description ?? "").trim();
   const addr = String(
     raw?.status?.pciAddress ?? raw?.status?.address ?? raw?.spec?.pciAddress ?? "",
   ).trim();
+  const desc = String(raw?.status?.description ?? raw?.spec?.description ?? "").trim();
   const labelBits = [desc || cr, node ? `节点 ${node}` : "", addr ? addr : ""].filter(Boolean);
   return labelBits.join(" · ");
+}
+
+/** Multus 直通项：去掉「· 类型」尾缀与括号内 VLAN 说明，便于下拉单行展示 */
+function stripPassthroughNadOptionVerboseLabel(lbl: string): string {
+  let s = String(lbl || "").trim();
+  if (!s) return s;
+  const dot = s.indexOf(" · ");
+  if (dot >= 0) s = s.slice(0, dot).trim();
+  s = s.replace(/\s*\([^)]*VLAN\s+\d+[^)]*\)\s*/gi, " ").replace(/\s+/g, " ").trim();
+  return s || String(lbl || "").trim();
 }
 
 function resolvePciResourceNameFromVmAllocation(vm: any, pciCrName: string): string {
@@ -371,7 +388,7 @@ export function buildPciNicPassthroughSelectOptions(
     if (shouldExcludePciCr(cr, filter)) continue;
     const node = String(raw?.status?.nodeName ?? raw?.spec?.nodeName ?? "").trim();
     out.push({
-      label: pciRowLabel(raw, cr),
+      label: pciRowLabel(raw, cr, true),
       value: `${PT_PREFIX_PCI}${cr}`,
       _pciRaw: raw,
       _pciNodeName: node,
@@ -386,8 +403,9 @@ export function buildPciNicPassthroughSelectOptions(
 export function buildGroupedPassthroughSelectOptions(
   pciNicPassthroughOptions: PciNicPassthroughSelectOption[],
   nadOptions: ReadonlyArray<{ label?: unknown; value?: unknown; _type?: unknown }>,
-  opts?: { pciGroupLabel?: string } & PassthroughSelectFilterOpts,
+  opts?: { pciGroupLabel?: string; compactPassthroughLabels?: boolean } & PassthroughSelectFilterOpts,
 ): { label: string; options: { label: unknown; value: string }[] }[] {
+  const compactPassthroughLabels = opts?.compactPassthroughLabels === true;
   const nadPass = (nadOptions || []).filter((x: any) => {
     const t = String((x as any)?._type || "").toLowerCase();
     if (t) return t === "sriov" || t === "macvtap" || t === "macvlan";
@@ -398,17 +416,26 @@ export function buildGroupedPassthroughSelectOptions(
     const v = String(x?.value || "").trim();
     return !shouldExcludeMultusNad(v, opts);
   });
-  const multusGrouped = nadPassFiltered.map((x: any) => ({
-    ...x,
-    value: `${PT_PREFIX_MULTUS}${String(x.value)}`,
-  }));
+  const multusGrouped = nadPassFiltered.map((x: any) => {
+    const nadRes = String(x.value ?? "").trim();
+    const full = String(x.label ?? "");
+    /** compact：NAD 资源名 namespace/name（与库存 value 一致） */
+    const label = compactPassthroughLabels
+      ? nadRes || stripPassthroughNadOptionVerboseLabel(full)
+      : full;
+    return {
+      ...x,
+      label,
+      value: `${PT_PREFIX_MULTUS}${nadRes}`,
+    };
+  });
   const pciFiltered = (pciNicPassthroughOptions || []).filter((x) => {
     const cr = String(x._pciCrName || passthroughPickToPciCrName(String(x.value || ""))).trim();
     return !shouldExcludePciCr(cr, opts);
   });
   const groups: { label: string; options: { label: unknown; value: string }[] }[] = [];
   const pciGroupLabel =
-    String(opts?.pciGroupLabel || "").trim() || "PCI 物理网卡（已在集群启用透传）";
+    String(opts?.pciGroupLabel || "").trim() || "PCI 网卡";
   if (pciFiltered.length > 0) {
     groups.push({
       label: pciGroupLabel,
@@ -417,7 +444,7 @@ export function buildGroupedPassthroughSelectOptions(
   }
   if (multusGrouped.length > 0) {
     groups.push({
-      label: "Multus 网络（SR-IOV / macvtap / macvlan）",
+      label: "Multus 网络",
       options: multusGrouped,
     });
   }

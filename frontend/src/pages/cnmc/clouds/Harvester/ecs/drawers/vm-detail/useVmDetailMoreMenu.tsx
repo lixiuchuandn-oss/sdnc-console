@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 详情抽屉右上角「⋯」操作下拉菜单（与 `VmDetailDrawerShell.tsx` 同级，属抽屉壳层 UI）。
  */
 import { useMemo } from "react";

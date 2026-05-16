@@ -92,6 +92,8 @@ function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): bo
       return checkPerm('clouds.nads:read');
     case 'cluster_pci':
       return checkPerm('clouds.pci-devices:read');
+    case 'cluster_sriov':
+      return checkPerm('clouds.pci-devices:read');
     default:
       return false;
   }
@@ -457,6 +459,22 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               raw={rawPciDevices}
               showLog={showLog}
               bordered={false}
+            />
+            <DebugJSON data={rawPciDevices} show={showLog} />
+          </>
+        );
+      case 'cluster_sriov':
+        return (
+          <>
+            <PciDevicesSection
+              cloudId={cloudId}
+              devices={harvesterPciDevices}
+              loading={resourceLoading.pciDevices}
+              onRefresh={() => loadTabResource('cluster_sriov', true)}
+              raw={rawPciDevices}
+              showLog={showLog}
+              bordered={false}
+              variant="sriov_vf"
             />
             <DebugJSON data={rawPciDevices} show={showLog} />
           </>

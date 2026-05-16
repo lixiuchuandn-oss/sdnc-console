@@ -3,6 +3,7 @@
  * 数据与 `routes/cloudmapPoolNavRows.ts` → `routeSpecs`（navScope: cloudmap-pool）一致。
  */
 import { routeSpecs, type RouteSpec } from '../../../routes/RouteSpec';
+import { CLOUDMAP_POOL_NAV_SUBGROUP_LABELS } from '../../../routes/cloudmapPoolNavRows';
 import { createElement, type ReactNode } from 'react';
 import {
   AlertOutlined,
@@ -582,6 +583,52 @@ export function normalizeCloudmapResourceSubParam(
 }
 
 
+type PoolTabMenuRow = {
+  spec: RouteSpec;
+  p: NonNullable<ReturnType<typeof parseCloudmapPoolRouteSpec>>;
+};
+
+/** 池内 Tab 侧栏叶子：支持 `poolNavSubgroup` 折叠为二级子菜单（与 `order` 顺序一致）。 */
+function poolTabMenuChildrenWithSubgroups(
+  rows: PoolTabMenuRow[],
+  base: string,
+  tab: CloudmapPoolTabKey,
+): any[] {
+  const sorted = [...rows].sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0));
+  const out: any[] = [];
+  let i = 0;
+  while (i < sorted.length) {
+    const sg = sorted[i].spec.poolNavSubgroup;
+    if (!sg) {
+      const { spec, p } = sorted[i];
+      out.push({ key: `${base}/${p.pathSuffix}`, label: spec.title });
+      i += 1;
+      continue;
+    }
+    const groupKey = sg;
+    const bucket: any[] = [];
+    while (i < sorted.length && sorted[i].spec.poolNavSubgroup === groupKey) {
+      const { spec, p } = sorted[i];
+      bucket.push({ key: `${base}/${p.pathSuffix}`, label: spec.title });
+      i += 1;
+    }
+    if (bucket.length === 0) continue;
+    if (bucket.length === 1) {
+      out.push(bucket[0]);
+      continue;
+    }
+    const label =
+      CLOUDMAP_POOL_NAV_SUBGROUP_LABELS[groupKey] ||
+      groupKey;
+    out.push({
+      key: `__cloudmap_pool_sg_${tab}_${groupKey}`,
+      label,
+      children: bucket,
+    });
+  }
+  return out;
+}
+
 function cloudmapPoolMenuItems(
   cloudId: string,
   opts?: CloudmapPoolSidebarBuildOpts,
@@ -625,10 +672,11 @@ function cloudmapPoolMenuItems(
       key: parentKey,
       label: cloudmapTabLabel(tab),
       icon: cloudmapTabIcon(tab),
-      children: rows.map(({ spec, p }) => ({
-        key: `${base}/${p.pathSuffix}`,
-        label: spec.title,
-      })),
+      children: poolTabMenuChildrenWithSubgroups(
+        rows as PoolTabMenuRow[],
+        base,
+        tab,
+      ),
     });
   }
   return items;

@@ -220,21 +220,15 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
   }, [pciDevices, passthroughBindNode, netModeWatch, primaryPassthroughFilter]);
 
   const groupedPassthroughForPrimary = useMemo(() => {
-    const nm = String(netModeWatch || '');
-    const pciScope = isWizardPciPassthroughNetMode(nm)
-      ? pciPassthroughSelectScopeFromWizardNetMode(nm)
-      : 'any';
-    const pciGroupLabel =
-      pciScope === 'sriov_vf' ? 'SR-IOV 虚拟网卡（VF，物理口启用 SR-IOV 后生成）' : undefined;
     return buildGroupedPassthroughSelectOptions(
       pciPassthroughOptsForBindNode,
       nadOptions || [],
       {
-        ...(pciGroupLabel ? { pciGroupLabel } : {}),
+        compactPassthroughLabels: true,
         ...primaryPassthroughFilter,
       },
     );
-  }, [pciPassthroughOptsForBindNode, nadOptions, netModeWatch, primaryPassthroughFilter]);
+  }, [pciPassthroughOptsForBindNode, nadOptions, primaryPassthroughFilter]);
   const [subnetDrawerOpen, setSubnetDrawerOpen] = useState(false);
   const [subnetDrawerRecord, setSubnetDrawerRecord] = useState<any | null>(null);
   const [subnetDrawerKindLabel, setSubnetDrawerKindLabel] = useState('扁平子网');
@@ -963,15 +957,11 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               ),
                             ),
                           );
-                          const pciGroupLabel =
-                            pciScope === 'sriov_vf'
-                              ? 'SR-IOV 虚拟网卡（VF，物理口启用 SR-IOV 后生成）'
-                              : undefined;
                           const grouped = buildGroupedPassthroughSelectOptions(
                             pciOptsForSecondary,
                             nadOptions || [],
                             {
-                              ...(pciGroupLabel ? { pciGroupLabel } : {}),
+                              compactPassthroughLabels: true,
                               ...passthroughExclusionToFilterOpts(
                                 collectWizardPassthroughExclusions({
                                   netMode: netModeWatch,

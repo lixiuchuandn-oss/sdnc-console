@@ -9,6 +9,11 @@ export type CloudmapPoolNavRow = {
   icon: string;
   poolNavGroup: string;
   poolMenuParentKey: string;
+  /**
+   * 池内 Tab 侧栏二级分组键（可选）：同键的连续 `order` 行在侧栏中收入同一可折叠子菜单。
+   * 显示名见 `CLOUDMAP_POOL_NAV_SUBGROUP_LABELS`。
+   */
+  poolNavSubgroup?: string;
   /** 功能开关：无此 feature 时侧栏隐藏该项 */
   requiredFeature?: string;
   /** 池内页 `requiredActions.page`；缺省为 `clouds.console:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
@@ -37,6 +42,18 @@ const BAK = 'cloudmap_menu_backups';
 const FLAT = 'cloudmap_menu_flat_network';
 const KUBE = 'cloudmap_menu_kube_ovn';
 const LOGS = 'cloudmap_menu_logs_config';
+
+/** 池内 Tab 侧栏二级分组标题（`poolNavSubgroup` → 显示名） */
+export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>> = {
+  /** 集群网络（集群网络、NAD、负载均衡、IP 池；原「平台与网络」） */
+  cluster_platform_network: '集群网络',
+  /** 物理交换机、Provider 物理网络、公共子网、VLAN；侧栏展示名 */
+  cluster_physical_network: '物理网络',
+  /** GPU / USB / PCI / SR-IOV */
+  cluster_device_passthrough: '直通设备',
+  /** 存储池、存储类 */
+  cluster_storage: '存储服务',
+};
 
 /** 并入 `routeSpecs` 的唯一表（按 `order` 升序、与侧栏分组一致） */
 export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
@@ -141,46 +158,10 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolMenuParentKey: CLUSTER,
   },
   {
-    id: 'cloudmap-pool-cluster-cluster_physical_switches',
-    pathSuffix: 'cluster/cluster_physical_switches',
-    title: '物理交换机',
-    order: 26,
-    icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-  },
-  {
-    id: 'cloudmap-pool-cluster-kubeovn_public_networks',
-    pathSuffix: 'cluster/kubeovn_public_networks',
-    title: '物理网络',
-    order: 27,
-    icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-  },
-  {
-    id: 'cloudmap-pool-cluster-kubeovn_public_subnets',
-    pathSuffix: 'cluster/kubeovn_public_subnets',
-    title: '公共子网',
-    order: 28,
-    icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-  },
-  {
-    id: 'cloudmap-pool-cluster-cluster_vlans',
-    pathSuffix: 'cluster/cluster_vlans',
-    title: 'VLAN 管理',
-    order: 29,
-    icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-  },
-  {
     id: 'cloudmap-pool-cluster-namespaces',
     pathSuffix: 'cluster/namespaces',
-    title: '命名空间',
-    order: 30,
+    title: '项目',
+    order: 26,
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
@@ -189,10 +170,50 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     id: 'cloudmap-pool-cluster-cluster_services',
     pathSuffix: 'cluster/cluster_services',
     title: '基础服务',
+    order: 27,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+  },
+  {
+    id: 'cloudmap-pool-cluster-cluster_physical_switches',
+    pathSuffix: 'cluster/cluster_physical_switches',
+    title: '物理交换机',
+    order: 28,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_physical_network',
+  },
+  {
+    id: 'cloudmap-pool-cluster-kubeovn_public_networks',
+    pathSuffix: 'cluster/kubeovn_public_networks',
+    title: '物理网络',
+    order: 29,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_physical_network',
+  },
+  {
+    id: 'cloudmap-pool-cluster-kubeovn_public_subnets',
+    pathSuffix: 'cluster/kubeovn_public_subnets',
+    title: '公共子网',
+    order: 30,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_physical_network',
+  },
+  {
+    id: 'cloudmap-pool-cluster-cluster_vlans',
+    pathSuffix: 'cluster/cluster_vlans',
+    title: 'VLAN 管理',
     order: 31,
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_physical_network',
   },
   {
     id: 'cloudmap-pool-cluster-clusterNetworks',
@@ -202,6 +223,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_platform_network',
   },
   {
     id: 'cloudmap-pool-cluster-nads',
@@ -211,6 +233,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_platform_network',
   },
   {
     id: 'cloudmap-pool-cluster-load_balancers',
@@ -220,6 +243,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_platform_network',
   },
   {
     id: 'cloudmap-pool-cluster-ippools',
@@ -229,51 +253,67 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
-  },
-  {
-    id: 'cloudmap-pool-cluster-gpu',
-    pathSuffix: 'cluster/gpu',
-    title: 'GPU 设备',
-    order: 36,
-    icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-  },
-  {
-    id: 'cloudmap-pool-cluster-cluster_usb',
-    pathSuffix: 'cluster/cluster_usb',
-    title: 'USB 设备',
-    order: 37,
-    icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-  },
-  {
-    id: 'cloudmap-pool-cluster-cluster_pci',
-    pathSuffix: 'cluster/cluster_pci',
-    title: 'PCI 设备',
-    order: 38,
-    icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_platform_network',
   },
   {
     id: 'cloudmap-pool-cluster-storage_pools',
     pathSuffix: 'cluster/storage_pools',
     title: '存储池',
-    order: 39,
+    order: 36,
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage',
   },
   {
     id: 'cloudmap-pool-cluster-storage_classes',
     pathSuffix: 'cluster/storage_classes',
     title: '存储类',
+    order: 37,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage',
+  },
+  {
+    id: 'cloudmap-pool-cluster-gpu',
+    pathSuffix: 'cluster/gpu',
+    title: 'GPU 设备',
+    order: 38,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_device_passthrough',
+  },
+  {
+    id: 'cloudmap-pool-cluster-cluster_usb',
+    pathSuffix: 'cluster/cluster_usb',
+    title: 'USB 设备',
+    order: 39,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_device_passthrough',
+  },
+  {
+    id: 'cloudmap-pool-cluster-cluster_pci',
+    pathSuffix: 'cluster/cluster_pci',
+    title: 'PCI 设备',
     order: 40,
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_device_passthrough',
+  },
+  {
+    id: 'cloudmap-pool-cluster-cluster_sriov',
+    pathSuffix: 'cluster/cluster_sriov',
+    title: 'SR-IOV 设备',
+    order: 40.5,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_device_passthrough',
   },
 
   // --- 云主机 ---

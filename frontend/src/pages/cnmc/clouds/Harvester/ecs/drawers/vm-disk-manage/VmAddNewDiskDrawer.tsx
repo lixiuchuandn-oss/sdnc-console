@@ -162,6 +162,9 @@ const VmAddNewDiskDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
           <Form.Item name="newDiskCreated" initialValue={false} hidden>
             <Input />
           </Form.Item>
+          <Form.Item name="newDiskPvcClaimName" hidden>
+            <Input />
+          </Form.Item>
           <Form.Item name="newDiskSource" initialValue="create" hidden>
             <Input />
           </Form.Item>
