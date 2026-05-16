@@ -1494,10 +1494,8 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             setSubnetDrawerOpen(false);
             setSubnetDrawerRecord(null);
           }}
-          cloudId={cloudId}
           subnet={subnetDrawerRecord}
           kindLabel={subnetDrawerKindLabel}
-          onSubnetAclSaved={() => reloadKubeSubnets()}
         />
       ) : null}
     </>

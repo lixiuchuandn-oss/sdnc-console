@@ -5,7 +5,7 @@
  * - 按名称关键字、角色、就绪状态过滤
  * - 解析并展示 CPU/内存总量
  * - 通过 metrics.k8s.io 获取实时 CPU/内存使用率并绘制进度条
- * - 详情抽屉内「运维信息」Tab（ViewLinkTab）查看集群 API 节点 JSON
+ * - 运维视图下：查看节点 View Link 对应 YAML（ResourceLinkYamlDrawer）
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress, Spin } from 'antd';
@@ -15,6 +15,17 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import PhysicalNodeDetailDrawer from '../drawers/PhysicalNodeDetailDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+
+/** Steve `links.view` 或 `/api/v1/nodes/{name}` */
+function nodeRowToViewLink(row: unknown): string | undefined {
+  const r = row as { links?: { view?: string }; metadata?: { name?: string }; name?: string };
+  if (r?.links?.view) return String(r.links.view).trim();
+  const n = r?.metadata?.name || r?.name;
+  if (n) return `/api/v1/nodes/${encodeURIComponent(String(n).trim())}`;
+  return undefined;
+}
 
 /**
  * 组件入参说明
@@ -31,6 +42,9 @@ type Props = {
 };
 
 const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) => {
+  const hasOpsView = useCloudmapOpsViewWrite();
+  const isStandardView = !hasOpsView;
+
   // 过滤条件：关键字、角色、就绪状态
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
@@ -52,6 +66,26 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   // 物理节点详情抽屉
   const [nodeDetailOpen, setNodeDetailOpen] = useState(false);
   const [nodeDetailRecord, setNodeDetailRecord] = useState<any>(null);
+
+  const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
+  const [yamlViewLink, setYamlViewLink] = useState<string | undefined>(undefined);
+
+  const handleOpenYaml = useCallback(
+    (record: any) => {
+      if (!cloudId) {
+        message.warning('缺少云实例上下文，无法拉取 YAML');
+        return;
+      }
+      const link = nodeRowToViewLink(record);
+      if (!link) {
+        message.warning('当前行缺少 View Link，无法拉取 YAML');
+        return;
+      }
+      setYamlViewLink(link);
+      setYamlDrawerOpen(true);
+    },
+    [cloudId],
+  );
 
   const handleOpenNodeDetail = useCallback((record: any) => {
     setNodeDetailRecord(record);
@@ -338,7 +372,6 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
       );
     }},
     { title: '内网IP', key: 'inip', render: (_:any, r:any)=> r?.internalIP || r?.status?.addresses?.find((a:any)=>a?.type==='InternalIP')?.address || '-' },
-    { title: '公网IP', key: 'exip', render: (_:any, r:any)=> r?.externalIP || r?.status?.addresses?.find((a:any)=>a?.type==='ExternalIP')?.address || '-' },
     { 
       title: '就绪', 
       key: 'ready', 
@@ -502,15 +535,15 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
         </div>
       );
     } },
-    { title: '版本', key: 'version', render: (_:any, r:any)=> r?.kubeletVersion || r?.status?.nodeInfo?.kubeletVersion || r?.version || '-' },
     { title: '架构', key: 'arch', render: (_:any, r:any)=> r?.architecture || r?.status?.nodeInfo?.architecture || '-' },
     { title: '系统镜像', key: 'os', render: (_:any, r:any)=> r?.osImage || r?.status?.nodeInfo?.osImage || '-' },
     { title: '内核版本', key: 'kernel', render: (_:any, r:any)=> r?.kernelVersion || r?.status?.nodeInfo?.kernelVersion || '-' },
-    { title: '容器运行时', key: 'runtime', render: (_:any, r:any)=> r?.containerRuntimeVersion || r?.status?.nodeInfo?.containerRuntimeVersion || '-' },
     { title: '操作', key: 'actions', fixed: 'right' as const, render: (_: any, r: any) => {
-        const items: any[] = [
-          { key: 'detail', label: '详情', onClick: () => handleOpenNodeDetail(r) },
-        ];
+        const items: any[] = [];
+        if (!isStandardView) {
+          items.push({ key: 'yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) });
+        }
+        items.push({ key: 'detail', label: '查看详情', onClick: () => handleOpenNodeDetail(r) });
         return (
           <ResourceActionsDropdown 
             items={items} 
@@ -519,7 +552,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
         );
       } 
     },
-  ], [handleOpenNodeDetail, metricsMap]);
+  ], [handleOpenNodeDetail, handleOpenYaml, isStandardView, metricsMap]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nodes_table');
@@ -587,11 +620,22 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
       open={nodeDetailOpen}
       onClose={() => setNodeDetailOpen(false)}
       record={nodeDetailRecord}
-      cloudId={cloudId}
       metrics={metricsMap[String(nodeDetailRecord?.name || nodeDetailRecord?.metadata?.name || '')]}
       onRefreshFromCluster={onRefresh}
       refreshLoading={loading}
     />
+    {cloudId ? (
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={() => {
+          setYamlDrawerOpen(false);
+          setYamlViewLink(undefined);
+        }}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title="节点 YAML"
+      />
+    ) : null}
 
     </PageDetailSection>
   );

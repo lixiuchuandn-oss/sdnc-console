@@ -14,7 +14,7 @@ import {
   ContainerOperationsGate,
 } from '../../../../Harvester/containers';
 import { canReadContainerTab, canWriteContainerTab } from '../../../../../../../utils/permissionUtils';
-import ServicesSection from '../../../../Harvester/cluster/sections/ServicesSection';
+import ServicesSection from '../../../../Harvester/containers/sections/ServicesSection';
 import {
   fetchHarvesterDeployments,
   fetchHarvesterStatefulSets,
@@ -150,7 +150,6 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   const [workloadsAll, setWorkloadsAll] = useState(false);
   const [podsAll, setPodsAll] = useState(false);
   const [jobsAll, setJobsAll] = useState(false);
-  const [servicesAll, setServicesAll] = useState(false);
   const [ingressesAll, setIngressesAll] = useState(false);
   const [pdbsAll, setPdbsAll] = useState(false);
   const [networkPoliciesAll, setNetworkPoliciesAll] = useState(false);
@@ -174,9 +173,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterCronJobs(json?.data?.items || []); }, force);
   };
 
-  const loadServices = (force = true, all?: boolean) => {
-    const queryAll = all !== undefined ? all : servicesAll;
-    loadResource('services', () => fetchHarvesterServices(cloudId, force, queryAll), (json) => { setHarvesterServices(json?.data?.items || []); }, force);
+  const loadServices = (force = true) => {
+    loadResource('services', () => fetchHarvesterServices(cloudId, force, false), (json) => { setHarvesterServices(json?.data?.items || []); }, force);
   };
 
   const loadIngresses = (force = true, all?: boolean) => {
@@ -209,7 +207,6 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     setWorkloadsAll(false);
     setPodsAll(false);
     setJobsAll(false);
-    setServicesAll(false);
     setIngressesAll(false);
     setPdbsAll(false);
     setNetworkPoliciesAll(false);
@@ -303,9 +300,6 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         pods={harvesterPods}
-        showAllSwitch
-        queryAll={servicesAll}
-        onQueryAllChange={(checked) => { setServicesAll(checked); loadServices(true, checked); }}
       />
     );
   } else if (innerActiveKey === 'ingresses') {

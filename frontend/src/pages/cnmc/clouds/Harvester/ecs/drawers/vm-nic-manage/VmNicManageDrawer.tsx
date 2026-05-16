@@ -1289,7 +1289,6 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
             setSubnetDrawerOpen(false);
             setSubnetDrawerRecord(null);
           }}
-          cloudId={cloudId}
           subnet={subnetDrawerRecord}
           kindLabel={subnetDrawerKindLabel}
         />

@@ -153,7 +153,7 @@ const CLOUDMAP_TAB_LABEL: Record<CloudmapPoolTabKey, string> = {
   compute: '云主机',
   paas_databases: '云数据库',
   oniaas_network: '虚拟网元',
-  containers: '容器',
+  containers: '容器服务',
   storage: '云存储',
   object_storage: '对象存储',
   backups: '云备份',

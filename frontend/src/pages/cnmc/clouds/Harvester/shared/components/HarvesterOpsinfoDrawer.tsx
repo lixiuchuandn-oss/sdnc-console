@@ -8,6 +8,8 @@ import { ViewLinkTab } from './ViewLinkTab';
 
 export { ViewLinkTab, useViewLinkTab, ViewLinkTabToolbar, ViewLinkTabEditor } from './ViewLinkTab';
 export type { ViewLinkTabModel } from './ViewLinkTab';
+export { ResourceLinkYamlDrawer, useResourceLinkYamlDrawer } from './ResourceLinkYamlDrawer';
+export type { ResourceLinkYamlDrawerProps, ResourceLinkYamlDrawerModel } from './ResourceLinkYamlDrawer';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;

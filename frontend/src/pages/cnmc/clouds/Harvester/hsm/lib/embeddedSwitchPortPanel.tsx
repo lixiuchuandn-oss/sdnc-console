@@ -66,7 +66,7 @@ function SwitchLeadBadge({ record }: { record: any | null }) {
         </span>
       ) : showHuawei ? (
         <span className="cloudmap-dc-pchrome-icon__brand-wrap">
-          <img src={huaweiLogo} alt="HUAWEI" className="cloudmap-dc-pchrome-icon__brand" />
+          <img src={huaweiLogo} alt="" className="cloudmap-dc-pchrome-icon__brand" />
         </span>
       ) : (
         <ApartmentOutlined className="cloudmap-dc-pchrome-icon__glyph" aria-hidden />

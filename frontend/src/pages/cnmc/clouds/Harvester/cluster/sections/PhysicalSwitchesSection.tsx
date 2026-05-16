@@ -17,21 +17,20 @@
  */
 import React, { useMemo, useState } from 'react';
 import type { ColumnsType } from 'antd/es/table';
-import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
   Card,
+  Form,
+  Input,
+  message,
+  Modal,
+  Select,
   Space,
+  Switch,
   Table,
   Tag,
   Typography,
-  Form,
-  Input,
-  Select,
-  Switch,
-  Modal,
-  message,
 } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -47,11 +46,15 @@ import {
 } from '../../../../../../utils/aswCtlFormUtils';
 import PhysicalSwitchDetailDrawer from '../drawers/PhysicalSwitchDetailDrawer';
 import {
+  isHuaweiSwitchRecord,
+  isWinicssecSwitchRecord,
   parseSwitchDisplayNameFromInfoLines,
   parseSwitchProductModelFromInfoLines,
   switchRecordDeviceProfile,
   switchRecordManagementHost,
 } from '../lib/physicalSwitchRecordUtils';
+import winicssecLogo from '../../../../../../assets/asw/winicssec.png';
+import huaweiLogo from '../../../../../../assets/asw/huawei.png';
 
 export type PhysicalSwitchesSectionProps = {
   cloudId: string;
@@ -75,9 +78,6 @@ export type PhysicalSwitchesSectionProps = {
   loading: boolean;
   onRefresh: (force?: boolean) => void;
 };
-
-/** @deprecated 使用 PhysicalSwitchesSectionProps */
-export type PhysicalSwitchesTabProps = PhysicalSwitchesSectionProps;
 
 type AswCtlProbeRowStatus = 'success' | 'warning' | 'error' | 'default';
 
@@ -358,7 +358,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     AswCtlProbeRow[] | null
   >(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
-  const navigate = useNavigate();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any | null>(null);
   const [hostKeyword, setHostKeyword] = useState('');
@@ -507,32 +506,58 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       {
         title: '交换机名称',
         key: 'switchDisplayName',
+        fixed: 'left',
         ellipsis: true,
         render: (_: unknown, r: any) => {
           const n = parseSwitchDisplayNameFromInfoLines(r?.info?.lines);
           const label = n || '—';
+          const showWin = isWinicssecSwitchRecord(r);
+          const showHua = isHuaweiSwitchRecord(r);
           return (
-            <Button
-              type="link"
-              onClick={() => {
-                setDetailRecord(r);
-                setDetailOpen(true);
-              }}
-              title={label}
+            <div
               style={{
-                padding: 0,
-                height: 'auto',
-                maxWidth: '100%',
-                display: 'inline-block',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                verticalAlign: 'middle',
-                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minWidth: 0,
+                width: '100%',
               }}
             >
-              {label}
-            </Button>
+              {showWin ? (
+                <img
+                  src={winicssecLogo}
+                  alt=""
+                  style={{ height: 20, width: 'auto', flexShrink: 0, display: 'block' }}
+                />
+              ) : null}
+              {showHua ? (
+                <img
+                  src={huaweiLogo}
+                  alt=""
+                  style={{ height: 20, width: 'auto', flexShrink: 0, display: 'block' }}
+                />
+              ) : null}
+              <Typography.Link
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setDetailRecord(r);
+                  setDetailOpen(true);
+                }}
+                title={label}
+                style={{
+                  flex: '1 1 0%',
+                  minWidth: 0,
+                  padding: 0,
+                  display: 'block',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {label}
+              </Typography.Link>
+            </div>
           );
         },
       },
@@ -546,16 +571,8 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         title: '型号',
         key: 'productModel',
         ellipsis: true,
-        render: (_: unknown, r: any) => {
-          const m = parseSwitchProductModelFromInfoLines(r?.info?.lines);
-          return m ? (
-            <Typography.Text ellipsis={{ tooltip: m }} style={{ maxWidth: '100%' }}>
-              {m}
-            </Typography.Text>
-          ) : (
-            '—'
-          );
-        },
+        render: (_: unknown, r: any) =>
+          parseSwitchProductModelFromInfoLines(r?.info?.lines) || '—',
       },
       {
         title: '设备模板',
@@ -638,29 +655,16 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       {
         title: '操作',
         key: 'actions',
+        fixed: 'right',
         render: (_: unknown, r: any) => (
           <ResourceActionsDropdown
             items={[
               {
                 key: 'detail',
-                label: '详情',
+                label: '查看详情',
                 onClick: () => {
                   setDetailRecord(r);
                   setDetailOpen(true);
-                },
-              },
-              {
-                key: 'panel',
-                label: '端口面板',
-                onClick: () => {
-                  const ref = switchRecordManagementHost(r);
-                  const q =
-                    ref && ref !== '—'
-                      ? `?switch_ref=${encodeURIComponent(ref)}`
-                      : '';
-                  navigate(
-                    `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/datacenter_topology${q}`,
-                  );
                 },
               },
             ]}
@@ -669,7 +673,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         ),
       },
     ],
-    [cloudId, navigate],
+    [],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -816,46 +820,46 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
           </div>
         }
       >
-      {unconfigured && summary?.message ? (
-        <Alert
-          type="info"
-          showIcon
-          message={summary.message}
-          description="中填写服务地址；可先「测试连接」再「保存」。"
+        {unconfigured && summary?.message ? (
+          <Alert
+            type="info"
+            showIcon
+            message={summary.message}
+            description="中填写服务地址；可先「测试连接」再「保存」。"
+          />
+        ) : null}
+
+        {summary?.onlyFirstAswCtl && summary?.onlyFirstAswCtlMessage ? (
+          <Alert type="warning" showIcon message={summary.onlyFirstAswCtlMessage} />
+        ) : null}
+
+        {summary?.liveError ? (
+          <Alert type="warning" showIcon message={summary.liveError} style={{ marginBottom: 12 }} />
+        ) : null}
+
+        <Table
+          className="std-table"
+          scroll={{ x: true }}
+          bordered={false}
+          size="small"
+          rowKey="id"
+          loading={loading}
+          pagination={false}
+          dataSource={filteredItems}
+          columns={tableColumns}
         />
-      ) : null}
 
-      {summary?.onlyFirstAswCtl && summary?.onlyFirstAswCtlMessage ? (
-        <Alert type="warning" showIcon message={summary.onlyFirstAswCtlMessage} />
-      ) : null}
-
-      {summary?.liveError ? (
-        <Alert type="warning" showIcon message={summary.liveError} style={{ marginBottom: 12 }} />
-      ) : null}
-
-      <Table
-        className="std-table"
-        scroll={{ x: true }}
-        bordered={false}
-        size="small"
-        rowKey="id"
-        loading={loading}
-        pagination={false}
-        dataSource={filteredItems}
-        columns={tableColumns}
-      />
-
-      <PhysicalSwitchDetailDrawer
-        open={detailOpen}
-        record={detailRecord}
-        initialTab="overview"
-        onClose={() => {
-          setDetailOpen(false);
-          setDetailRecord(null);
-        }}
-        onRefreshFromCluster={onRefresh}
-        refreshLoading={loading}
-      />
+        <PhysicalSwitchDetailDrawer
+          open={detailOpen}
+          record={detailRecord}
+          initialTab="overview"
+          onClose={() => {
+            setDetailOpen(false);
+            setDetailRecord(null);
+          }}
+          onRefreshFromCluster={onRefresh}
+          refreshLoading={loading}
+        />
       </PageDetailSection>
     </>
   );

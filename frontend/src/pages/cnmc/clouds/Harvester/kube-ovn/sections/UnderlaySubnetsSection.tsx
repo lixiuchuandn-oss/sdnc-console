@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Form, Input, Modal, Select, Table, Tag, Tooltip, Typography, message } from 'antd';
-import { ApartmentOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, EditTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
@@ -14,12 +14,9 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { clearCache } from '../../../../../../utils/requestManager';
-import SubnetAclFormItems, {
-  normalizeAclRowForForm,
-  validateAclsFormRowsForSubmit,
-} from '../lib/SubnetAclFormItems';
 import SubnetDetailDrawer from '../drawers/subnet-detail-drawer';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import SubnetAclEditDrawer from '../drawers/subnet-acl-drawer';
+import ResourceLinkYamlDrawer from '../../shared/components/ResourceLinkYamlDrawer';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import {
@@ -84,7 +81,7 @@ type Props = {
   cloudId: string;
   mode?: 'flat' | 'public';
   displayMode?: 'standard' | 'ops';
-  /** 是否显示「查看YAML」并接入 HarvesterOpsinfoDrawer（与 VPC 子网列表一致） */
+  /** 是否显示「查看YAML」并接入 ResourceLinkYamlDrawer（Steve links.view） */
   showYaml?: boolean;
   /** 外部持有的子网列表（如 EIP/SNAT/DNAT 依赖）需要联动刷新时使用 */
   onSubnetsChanged?: () => void | Promise<void>;
@@ -151,19 +148,16 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const [aclModalVisible, setAclModalVisible] = useState(false);
-  const [aclSubnetName, setAclSubnetName] = useState<string | null>(null);
-  const [aclSubmitting, setAclSubmitting] = useState(false);
+  const [aclDrawerOpen, setAclDrawerOpen] = useState(false);
+  const [aclSubnetRecord, setAclSubnetRecord] = useState<any | null>(null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailSubnetRecord, setDetailSubnetRecord] = useState<any>(null);
-  const [harvesterOpsOpen, setHarvesterOpsOpen] = useState(false);
-  const [harvesterOpsRecord, setHarvesterOpsRecord] = useState<any>(null);
-  const [harvesterOpsTab, setHarvesterOpsTab] = useState('detail');
+  const [subnetYamlDrawerOpen, setSubnetYamlDrawerOpen] = useState(false);
+  const [subnetYamlViewLink, setSubnetYamlViewLink] = useState<string | undefined>();
   const [editForm] = Form.useForm();
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editRecord, setEditRecord] = useState<any>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
-  const [aclForm] = Form.useForm();
   const [vlans, setVlans] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
   const [keyword, setKeyword] = useState('');
@@ -213,21 +207,26 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
     [cloudId, isFlatMode, isTenantUser],
   );
 
-  /** 接口保存失败后，用集群当前 Subnet 覆盖 ACL 表单，避免「未写入」的规则仍回显在弹窗里 */
-  const resyncAclFormFromCluster = async (subnetName: string) => {
-    try {
-      const typed = await loadTypedSubnets(true, false);
-      setData(typed);
-      const rec = typed.find((x: any) => x?.metadata?.name === subnetName);
-      if (!rec) return;
-      const spec = rec.spec || {};
-      aclForm.setFieldsValue({
-        acls: Array.isArray(spec.acls) ? spec.acls.map((a: any) => normalizeAclRowForForm({ ...a })) : [],
-      });
-    } catch {
-      // 静默：拉取失败时不打断用户，表单仍保留（与集群可能不一致）
-    }
-  };
+  const reloadSubnetRecordForAcl = useCallback(
+    async (subnetName: string) => {
+      try {
+        const typed = await loadTypedSubnets(true, false);
+        setData(typed);
+        if (cloudId) {
+          clearCache(`/api/clouds/${cloudId}/resources/subnets`, 'GET');
+        }
+        return typed.find((x: any) => x?.metadata?.name === subnetName) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [cloudId, loadTypedSubnets],
+  );
+
+  const closeAclDrawer = useCallback(() => {
+    setAclDrawerOpen(false);
+    setAclSubnetRecord(null);
+  }, []);
 
   const fetchData = useCallback(
     async (force = false, skipSync = false) => {
@@ -444,70 +443,28 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
   const openAclEditor = useCallback((record: any) => {
     const name = record?.metadata?.name;
     if (!name) return;
-    const spec = record?.spec || {};
-    setAclSubnetName(name);
-    aclForm.setFieldsValue({
-      acls: Array.isArray(spec.acls) ? spec.acls.map((a: any) => normalizeAclRowForForm({ ...a })) : [],
-    });
-    setAclModalVisible(true);
-  }, [aclForm]);
-
-  const handleAclSubmit = async () => {
-    if (!ensureUnderlayWrite()) return;
-    if (!aclSubnetName) return;
-    try {
-      const values = await aclForm.validateFields();
-      const patchBody: Record<string, unknown> = {};
-      if (Array.isArray(values.acls)) {
-        const aclCheck = validateAclsFormRowsForSubmit(values.acls);
-        if (!aclCheck.ok) {
-          message.error(aclCheck.message);
-          const err = new Error(aclCheck.message) as Error & { aclFormValidated?: boolean };
-          err.aclFormValidated = true;
-          throw err;
-        }
-        patchBody.acls = aclCheck.normalized;
-      }
-      setAclSubmitting(true);
-      await updateKubeOvnSubnet(cloudId, aclSubnetName, patchBody);
-      message.success('ACL 已更新');
-      setAclModalVisible(false);
-      setAclSubnetName(null);
-      aclForm.resetFields();
-      await fetchData(true, true);
-      await notifySubnetsChanged();
-    } catch (e: any) {
-      if (e?.errorFields) throw e;
-      if (e?.aclFormValidated) throw e;
-      const rd = e?.responseData;
-      let detail = String(e?.message || '').trim() || '未知错误';
-      if (rd?.details != null) {
-        const ds = typeof rd.details === 'string' ? rd.details : JSON.stringify(rd.details);
-        const head = ds.slice(0, 48);
-        if (head && !detail.includes(head)) {
-          const more = ds.length > 400 ? `${ds.slice(0, 400)}…` : ds;
-          detail = `${detail} | ${more}`;
-        }
-      }
-      message.error(`更新 ACL 失败: ${detail}`);
-      if (aclSubnetName) {
-        await resyncAclFormFromCluster(aclSubnetName);
-      }
-      throw e;
-    } finally {
-      setAclSubmitting(false);
-    }
-  };
+    setAclSubnetRecord(record);
+    setAclDrawerOpen(true);
+  }, []);
 
   const openOpsDrawer = useCallback((record: any) => {
     setDetailSubnetRecord(record);
     setDetailDrawerOpen(true);
   }, []);
 
-  const openHarvesterOpsDrawer = useCallback((record: any) => {
-    setHarvesterOpsRecord(record);
-    setHarvesterOpsTab(record?.links?.view ? 'view_link' : 'detail');
-    setHarvesterOpsOpen(true);
+  const openSubnetYamlDrawer = useCallback((record: any) => {
+    const link = String(record?.links?.view ?? '').trim();
+    if (!link) {
+      message.warning('当前子网缺少 View Link，无法加载 YAML');
+      return;
+    }
+    setSubnetYamlViewLink(link);
+    setSubnetYamlDrawerOpen(true);
+  }, []);
+
+  const closeSubnetYamlDrawer = useCallback(() => {
+    setSubnetYamlDrawerOpen(false);
+    setSubnetYamlViewLink(undefined);
   }, []);
 
   const handleDelete = useCallback(
@@ -540,34 +497,91 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         title: '名称',
         key: 'displayName',
         fixed: 'left' as const,
-        ellipsis: true,
+        ellipsis: isFlatMode ? ({ showTitle: false } as const) : true,
         render: (_: any, record: any) => {
           const alias = String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
-          const display = alias || '—';
-          const NameIcon = ApartmentOutlined
-          const nameInner = (
-            <>
-              <NameIcon style={{ color: '#1677ff'}} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{display}</span>
-            </>
-          );
-          return (
-            <span title={alias || undefined} style={{ display: 'flex', alignItems: 'center', maxWidth: '100%', minWidth: 0 }}>
-              {isFlatMode ? (
+          const idName = String(record?.metadata?.name ?? '').trim();
+          const display = alias || idName || '—';
+          const editAriaLabel = isFlatMode
+            ? '编辑子网'
+            : alias
+              ? '修改网络名称'
+              : '设置网络名称';
+
+          if (!isFlatMode) {
+            return (
+              <>
                 <Typography.Link
                   onClick={(e) => {
                     e.preventDefault();
                     openOpsDrawer(record);
                   }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%', minWidth: 0 }}
+                >
+                  {display}
+                </Typography.Link>
+                {hasUnderlayWrite ? (
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditTwoTone />}
+                    aria-label={editAriaLabel}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditNetwork(record);
+                    }}
+                  />
+                ) : null}
+              </>
+            );
+          }
+
+          const NameIcon = ApartmentOutlined;
+          const nameInner = (
+            <>
+              <NameIcon style={{ color: '#1677ff' }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{display}</span>
+            </>
+          );
+          return (
+            <span style={{ display: 'flex', alignItems: 'center', maxWidth: '100%', minWidth: 0 }}>
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  maxWidth: '100%',
+                  minWidth: 0,
+                }}
+              >
+                <Typography.Link
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openOpsDrawer(record);
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    maxWidth: '100%',
+                    minWidth: 0,
+                    flex: 1,
+                  }}
                 >
                   {nameInner}
                 </Typography.Link>
-              ) : (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%', minWidth: 0 }}>
-                  {nameInner}
-                </span>
-              )}
+                {hasUnderlayWrite ? (
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditTwoTone />}
+                    aria-label={editAriaLabel}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditNetwork(record);
+                    }}
+                  />
+                ) : null}
+              </span>
             </span>
           );
         },
@@ -783,18 +797,12 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           const name = record?.metadata?.name;
           const actionItems = [
             ...(effectiveShowYaml
-              ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => openHarvesterOpsDrawer(record) }]
+              ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => openSubnetYamlDrawer(record) }]
               : []),
             {
               key: 'detail',
               label: '查看详情',
               onClick: () => openOpsDrawer(record),
-            },
-            {
-              key: 'edit_network',
-              label: isFlatMode ? '编辑子网' : '编辑网络',
-              disabled: !hasUnderlayWrite,
-              onClick: () => openEditNetwork(record),
             },
             ...(!isStandardView
               ? [
@@ -848,7 +856,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
     [
       subnetKindLabel,
       openOpsDrawer,
-      openHarvesterOpsDrawer,
+      openSubnetYamlDrawer,
       openEditNetwork,
       isFlatMode,
       isStandardView,
@@ -939,25 +947,18 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           setDetailDrawerOpen(false);
           setDetailSubnetRecord(null);
         }}
-        cloudId={cloudId}
         subnet={detailSubnetRecord}
         kindLabel={subnetKindLabel}
         vlans={vlans}
         providers={providers}
-        onSubnetAclSaved={() => void handleForceRefresh()}
       />
 
-      <HarvesterResourceDrawer
-        resourceType="Subnet"
-        record={harvesterOpsRecord}
-        open={harvesterOpsOpen}
-        onClose={() => {
-          setHarvesterOpsOpen(false);
-          setHarvesterOpsRecord(null);
-        }}
-        activeTab={harvesterOpsTab}
-        onTabChange={setHarvesterOpsTab}
+      <ResourceLinkYamlDrawer
+        open={subnetYamlDrawerOpen}
+        onClose={closeSubnetYamlDrawer}
         cloudId={cloudId}
+        viewLink={subnetYamlViewLink}
+        title="查看 YAML"
       />
 
       {isFlatMode ? (
@@ -990,9 +991,8 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       )}
 
       <Modal
-        title={`编辑${subnetKindLabel}`}
+        title="编辑名称"
         open={editModalVisible}
-        centered
         onOk={editForm.submit}
         onCancel={() => {
           setEditModalVisible(false);
@@ -1016,24 +1016,18 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         </Form>
       </Modal>
 
-      <Modal
-        title={'编辑 ACL规则'}
-        open={aclModalVisible}
-        centered
-        onOk={handleAclSubmit}
-        onCancel={() => {
-          setAclModalVisible(false);
-          setAclSubnetName(null);
-          aclForm.resetFields();
+      <SubnetAclEditDrawer
+        open={aclDrawerOpen}
+        onClose={closeAclDrawer}
+        cloudId={cloudId}
+        subnet={aclSubnetRecord}
+        canSubmit={hasUnderlayWrite}
+        reloadSubnetRecord={reloadSubnetRecordForAcl}
+        onSuccess={async () => {
+          await fetchData(true, true);
+          await notifySubnetsChanged();
         }}
-        confirmLoading={aclSubmitting}
-        width={1100}
-        destroyOnHidden
-      >
-        <Form form={aclForm} layout="vertical" className="std-form">
-          <SubnetAclFormItems />
-        </Form>
-      </Modal>
+      />
     </div>
   );
 };

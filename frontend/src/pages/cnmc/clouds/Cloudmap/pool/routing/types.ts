@@ -74,7 +74,6 @@ export type CloudmapPoolPanelProps = {
   setRawSubnets: Dispatch<SetStateAction<any | null>>;
   refreshVlans: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNamespacesForManagement: any[];
-  rawNamespaces: any;
   harvesterStorageClasses: any[];
   setHarvesterStorageClasses: Dispatch<SetStateAction<any[]>>;
   harvesterGpuResources: any[];

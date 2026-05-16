@@ -3,7 +3,7 @@
  * @description Harvester 相关的前端通用工具函数集合
  *
  * 功能分组（与下方代码块顺序一致）：
- * 1. 命名空间 / 存储类：isSystemNamespace、isPublicNamespace、namespaceSectionType、isSystemStorageClass、
+ * 1. 命名空间 / 存储类：isSystemNamespace、isPublicNamespace、namespaceSectionType、isTenantScenarioNamespace、isSystemStorageClass、
  *    isClusterDefaultStorageClass、pickDefaultStorageClassName
  * 2. VM 状态文案：VM_STATUS_MAP、cnVmStatus
  * 3. 集群实体 ID / CR metadata.name：generateHarvesterEntityId、HARVESTER_CR_METADATA_ENTITY、
@@ -71,24 +71,41 @@ export function isImagePublicByScenario(r: any): boolean {
   return r?.namespacePublicByScenario === true;
 }
 
-/** 命名空间管理页「类型」：系统 / 公共 / 租户 / 管理员创建 */
-export type NamespaceSectionKind = 'system' | 'public' | 'tenant' | 'admin';
+/** 命名空间管理页「类型」：系统 / 公共 / 租户 / 管理员 / 未标注场景 */
+export type NamespaceSectionKind =
+  | 'system'
+  | 'public'
+  | 'tenant'
+  | 'admin'
+  /** 缺 tower.io/scenario 或非 public|tenant|admin；非租户项目 */
+  | 'unlabeled';
 
 /**
- * 解析命名空间在列表中的业务类型（与 NamespacesTab 列、筛选一致）
+ * 租户项目：`metadata.labels['tower.io/scenario'] === 'tenant'`（平台租户分配创建路径写入）
+ */
+export function isTenantScenarioNamespace(record: unknown): boolean {
+  const r = record as { metadata?: { labels?: Record<string, string> } };
+  const sc = String(r?.metadata?.labels?.['tower.io/scenario'] || '').trim().toLowerCase();
+  return sc === 'tenant';
+}
+
+/**
+ * 解析命名空间在列表中的业务类型（与 cluster NamespacesSection 列、筛选一致）
  * - 系统：isSystemNamespace(名称)
- * - 其余：优先 label tower.io/scenario（public | tenant | admin）；无 label 时名称命中 isPublicNamespace 视为公共，否则租户
+ * - tenant：tower.io/scenario=tenant（租户项目的权威口径）
+ * - public / admin：对应 scenario 或与公共名兜底（仍为公共展示）
+ * - 其余无合法 scenario：unlabeled（非租户项目）
  */
 export function namespaceSectionType(record: any): NamespaceSectionKind {
   const name = String(record?.metadata?.name || record?.name || '').trim();
-  if (!name) return 'tenant';
+  if (!name) return 'unlabeled';
   if (isSystemNamespace(name)) return 'system';
   const scenario = String(record?.metadata?.labels?.['tower.io/scenario'] || '').trim().toLowerCase();
   if (scenario === 'public') return 'public';
   if (scenario === 'tenant') return 'tenant';
   if (scenario === 'admin') return 'admin';
   if (isPublicNamespace(name)) return 'public';
-  return 'tenant';
+  return 'unlabeled';
 }
 
 /**

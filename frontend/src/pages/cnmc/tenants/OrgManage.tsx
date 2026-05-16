@@ -64,7 +64,7 @@ import {
 } from '../../../types/tenant';
 
 import {
-  namespaceSectionType,
+  isTenantScenarioNamespace,
 } from '../../../utils/harvesterUtils';
 
 // RBAC 角色模型：名称、范围（system/tenant）、状态等
@@ -93,9 +93,9 @@ function formatRoleDisplayName(name: string | undefined): string {
   return TENANT_USER_ROLE_LABEL_FALLBACK[name] || name;
 }
 
-/** 分配计算资源「使用集群已有命名空间」：下拉项仅限租户业务命名空间（排除系统/默认/公共区域及标签 admin），且未被其它组织占用 */
+/** 分配计算资源「使用集群已有命名空间」：须 tower.io/scenario=tenant，且未被其它组织占用 */
 function isAssignableExistingNamespaceRecord(ns: any, occupiedLc: Set<string>): boolean {
-  if (namespaceSectionType(ns) !== 'tenant') return false;
+  if (!isTenantScenarioNamespace(ns)) return false;
   const n = String(ns?.metadata?.name || ns?.name || '').trim();
   if (!n) return false;
   return !occupiedLc.has(n.toLowerCase());
@@ -226,7 +226,7 @@ const OrgManagePage: React.FC = () => {
   const [nsOptions, setNsOptions] = useState<any[]>([]);
   /** 当前所选资源池上已被其他组织占用的命名空间（用于下拉排除） */
   const [occupiedNamespaceNames, setOccupiedNamespaceNames] = useState<string[]>([]);
-  /** 分配抽屉「目标命名空间」：租户业务 NS + 排除已被其他组织绑定的名称（与 harvesterUtils.namespaceSectionType 语义一致） */
+  /** 分配抽屉「目标命名空间」：仅 tower.io/scenario=tenant；排除已被其他组织绑定 */
   const filteredAssignNsNames = useMemo(() => {
     const occupiedLc = new Set(
       (occupiedNamespaceNames || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean),
@@ -2005,10 +2005,15 @@ const OrgManagePage: React.FC = () => {
                                 if (occLc.has(name.toLowerCase())) {
                                   return Promise.reject(new Error('该命名空间已被其它组织占用，请选择其它名称'));
                                 }
-                                if (namespaceSectionType({ metadata: { name } }) !== 'tenant') {
+                                const allowedLc = new Set(
+                                  filteredAssignNsNames.map((x: string) =>
+                                    String(x || '').trim().toLowerCase(),
+                                  ).filter(Boolean),
+                                );
+                                if (!allowedLc.has(name.toLowerCase())) {
                                   return Promise.reject(
                                     new Error(
-                                      '不可绑定系统命名空间、default、公共空间或管理类命名空间',
+                                      '请从下拉列表选择租户项目（须带 tower.io/scenario=tenant）；不支持任意手填名称',
                                     ),
                                   );
                                 }
@@ -2018,11 +2023,11 @@ const OrgManagePage: React.FC = () => {
                           ]}
                           extra={
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              请先选择资源池以加载列表。下拉里已排除系统命名空间、
+                              请先选择资源池以加载列表。下拉里仅限带{' '}
                               <Typography.Text code style={{ fontSize: 11 }}>
-                                default
+                                tower.io/scenario=tenant
                               </Typography.Text>
-                              、公共/管理类命名空间，以及已被其它组织绑定的命名空间；手动输入须符合同样规则。
+                              的命名空间，已排除系统及已被其它组织占用的条目；请从下拉选择，勿随意手填。
                             </Typography.Text>
                           }
                         >

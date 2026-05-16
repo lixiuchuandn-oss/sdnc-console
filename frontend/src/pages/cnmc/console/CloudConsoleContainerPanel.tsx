@@ -20,7 +20,7 @@ import { pickFirstNamespaceRecordByScenario } from '../../../utils/harvesterUtil
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import ServicesSection from '../clouds/Harvester/cluster/sections/ServicesSection';
+import ServicesSection from '../clouds/Harvester/containers/sections/ServicesSection';
 import {
   WorkloadsSection,
   PodsSection,

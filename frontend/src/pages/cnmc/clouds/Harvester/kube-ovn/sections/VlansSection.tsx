@@ -13,7 +13,7 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { clearCache } from '../../../../../../utils/requestManager';
-import ProviderNetworkDetailDrawer from '../drawers/provider-network-detail-drawer';
+import ProviderNetworkVlanPlanDrawer from '../drawers/provider-network-vlan-plan-drawer';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
 import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
@@ -415,7 +415,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         pagination={{ showTotal: (total) => `共 ${total} 条` }}
       />
 
-      <ProviderNetworkDetailDrawer
+      <ProviderNetworkVlanPlanDrawer
         open={vlanPlanOpen}
         onClose={() => setVlanPlanOpen(false)}
         cloudId={cloudId}

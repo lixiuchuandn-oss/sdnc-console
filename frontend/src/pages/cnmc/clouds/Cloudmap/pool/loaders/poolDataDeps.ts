@@ -37,7 +37,6 @@ export type PoolEssentialsDeps = {
   setHarvesterNodes: Dispatch<SetStateAction<any[]>>;
   setRawNodes: Dispatch<SetStateAction<any | null>>;
   setHarvesterNamespaces: Dispatch<SetStateAction<any[]>>;
-  setRawNamespaces: Dispatch<SetStateAction<any | null>>;
   setCapabilities: Dispatch<SetStateAction<any | null>>;
 };
 

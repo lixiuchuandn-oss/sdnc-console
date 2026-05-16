@@ -47,7 +47,6 @@ export function runPoolEssentials(
     setHarvesterNodes,
     setRawNodes,
     setHarvesterNamespaces,
-    setRawNamespaces,
     setCapabilities,
   } = d;
 
@@ -212,7 +211,6 @@ export function runPoolEssentials(
           ? (json as any).items
           : [];
       setHarvesterNamespaces(Array.isArray(list) ? list : []);
-      setRawNamespaces(json || null);
     },
     force,
   );

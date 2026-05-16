@@ -18,13 +18,22 @@ import { clearCache } from '../../../../../../utils/requestManager';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_PROVIDER_NETWORKS_READ, CLOUD_PROVIDER_NETWORKS_WRITE } from '../../../../../../constants/cloudPermissions';
-import ProviderNetworkDetailDrawer, {
-  type ProviderNetworkDetailDrawerSegment,
-} from '../drawers/provider-network-detail-drawer';
+import ProviderNetworkVlanPlanDrawer from '../drawers/provider-network-vlan-plan-drawer';
+import ProviderNetworkDetailDrawer from '../drawers/provider-network-detail-drawer';
+import ResourceLinkYamlDrawer from '../../shared/components/ResourceLinkYamlDrawer';
 import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../../../utils/towerKubeOvnNames';
 import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../lib/kubeOvnSubnetConstants';
 
 const { Option } = Select;
+
+function resolveProviderNetworkViewLink(record: any): string {
+  const raw = record?.raw || record?.rawData || record;
+  const explicit = raw?.links?.view;
+  if (explicit != null && String(explicit).trim()) return String(explicit).trim();
+  const name = String(record?.name || raw?.metadata?.name || '').trim();
+  if (!name || name === '-') return '';
+  return `/apis/kubeovn.io/v1/provider-networks/${encodeURIComponent(name)}`;
+}
 
 type Props = {
   cloudId: string;
@@ -66,20 +75,46 @@ const ProviderNetworksSection: React.FC<Props> = ({
   const [readyFilter, setReadyFilter] = useState<string>('');
   const [vlanFilter, setVlanFilter] = useState<string>('');
   const [customFilter, setCustomFilter] = useState<string>('');
+  const [pnDetailOpen, setPnDetailOpen] = useState(false);
+  const [pnDetailLockProvider, setPnDetailLockProvider] = useState<string | null>(null);
   const [vlanPlanOpen, setVlanPlanOpen] = useState(false);
   const [vlanPlanLockProvider, setVlanPlanLockProvider] = useState<string | null>(null);
-  const [vlanPlanInitialSegment, setVlanPlanInitialSegment] = useState<ProviderNetworkDetailDrawerSegment>('vlan');
+  const [pnYamlOpen, setPnYamlOpen] = useState(false);
+  const [pnYamlViewLink, setPnYamlViewLink] = useState<string | undefined>();
 
-  const openVlanPlanForProvider = useCallback((pnName: string, segment: ProviderNetworkDetailDrawerSegment = 'vlan') => {
+  const openPnYamlDrawer = useCallback((record: any) => {
+    const link = resolveProviderNetworkViewLink(record);
+    if (!link) {
+      message.warning('无法解析 ProviderNetwork 的集群查看路径');
+      return;
+    }
+    setPnYamlViewLink(link);
+    setPnYamlOpen(true);
+  }, []);
+
+  const closePnYamlDrawer = useCallback(() => {
+    setPnYamlOpen(false);
+    setPnYamlViewLink(undefined);
+  }, []);
+
+  const openDetailForProvider = useCallback((pnName: string) => {
+    setPnDetailLockProvider(pnName);
+    setPnDetailOpen(true);
+  }, []);
+
+  const closeDetailDrawer = useCallback(() => {
+    setPnDetailOpen(false);
+    setPnDetailLockProvider(null);
+  }, []);
+
+  const openVlanPlanForProvider = useCallback((pnName: string) => {
     setVlanPlanLockProvider(pnName);
-    setVlanPlanInitialSegment(segment);
     setVlanPlanOpen(true);
   }, []);
 
   const closeVlanPlanDrawer = useCallback(() => {
     setVlanPlanOpen(false);
     setVlanPlanLockProvider(null);
-    setVlanPlanInitialSegment('vlan');
   }, []);
 
   const vlanListForAlias = isParentManaged ? (parentVlans || []) : vlans;
@@ -445,7 +480,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
                 className="cell-link"
                 onClick={(e) => {
                   e.stopPropagation();
-                  openVlanPlanForProvider(pnName);
+                  openDetailForProvider(pnName);
                 }}
               >
                 {s}
@@ -528,11 +563,25 @@ const ProviderNetworksSection: React.FC<Props> = ({
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
+        const pn = String(record.name || '').trim();
+        if (!pn) {
+          return <span style={{ color: '#bfbfbf' }}>—</span>;
+        }
         if (canReadProviderNetwork) {
           items.push({
+            key: 'detail',
+            label: '查看详情',
+            onClick: () => openDetailForProvider(pn),
+          });
+          items.push({
+            key: 'view-yaml',
+            label: '查看 YAML',
+            onClick: () => openPnYamlDrawer(record),
+          });
+          items.push({
             key: 'vlan-plan',
-            label: '详情',
-            onClick: () => openVlanPlanForProvider(String(record.name || '').trim(), 'vlan'),
+            label: '网络规划',
+            onClick: () => openVlanPlanForProvider(pn),
           });
         }
         if (canWriteProviderNetwork) {
@@ -556,7 +605,9 @@ const ProviderNetworksSection: React.FC<Props> = ({
     handleDelete,
     canReadProviderNetwork,
     canWriteProviderNetwork,
+    openDetailForProvider,
     openVlanPlanForProvider,
+    openPnYamlDrawer,
     vlanAliasMap,
     subnets,
   ]);
@@ -784,12 +835,25 @@ const ProviderNetworksSection: React.FC<Props> = ({
       </Modal>
 
       <ProviderNetworkDetailDrawer
+        open={pnDetailOpen}
+        onClose={closeDetailDrawer}
+        cloudId={cloudId}
+        lockProviderName={pnDetailLockProvider}
+        onSuccess={() => fetchData(true, true)}
+      />
+      <ProviderNetworkVlanPlanDrawer
         open={vlanPlanOpen}
         onClose={closeVlanPlanDrawer}
         cloudId={cloudId}
         lockProviderName={vlanPlanLockProvider}
-        initialSegment={vlanPlanInitialSegment}
         onSuccess={() => fetchData(true, true)}
+      />
+      <ResourceLinkYamlDrawer
+        open={pnYamlOpen}
+        onClose={closePnYamlDrawer}
+        cloudId={cloudId}
+        viewLink={pnYamlViewLink}
+        title="查看 YAML"
       />
     </div>
   );

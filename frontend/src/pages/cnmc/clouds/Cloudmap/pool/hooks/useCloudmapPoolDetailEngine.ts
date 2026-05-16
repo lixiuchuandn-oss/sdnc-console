@@ -181,7 +181,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [rawGpu, setRawGpu] = useState<any | null>(null);
   const [rawUsbDevices, setRawUsbDevices] = useState<any | null>(null);
   const [rawPciDevices, setRawPciDevices] = useState<any | null>(null);
-  const [rawNamespaces, setRawNamespaces] = useState<any | null>(null);
   const [rawSnapshots, setRawSnapshots] = useState<any | null>(null);
   const [rawBackups, setRawBackups] = useState<any | null>(null);
   const [rawSshKeys, setRawSshKeys] = useState<any | null>(null);
@@ -312,7 +311,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setHarvesterNodes,
         setRawNodes,
         setHarvesterNamespaces,
-        setRawNamespaces,
         setCapabilities,
       });
     },
@@ -598,7 +596,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     setRawSubnets,
     refreshVlans,
     harvesterNamespacesForManagement,
-    rawNamespaces,
     harvesterStorageClasses,
     setHarvesterStorageClasses,
     harvesterGpuResources,

@@ -14,7 +14,8 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ReloadOutlined, EditOutlined, CodeOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
 import { ServiceTopology } from '../components/topology';
 import { buildServiceTopology, getTopologyStats, TopologyNode } from '../components/serviceTopologyUtils';
-import { YamlEditModal, IngressFormModal, ServiceFormModal, PodTerminal } from '../components';
+import { YamlEditModal, IngressFormModal, PodTerminal } from '../components';
+import ServiceFormDrawer from '../drawers/ServiceFormDrawer';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
@@ -940,17 +941,16 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
         />
       )}
 
-      {/* Service 编辑弹窗 */}
       {editingNode && editingNode.type === 'service' && (
-        <ServiceFormModal
-          visible={editModalOpen}
+        <ServiceFormDrawer
+          open={editModalOpen}
+          mode="edit"
+          onClose={() => setEditModalOpen(false)}
           cloudId={cloudId}
-          editMode
-          initialData={editingNode.rawData}
           namespacesOptions={namespacesOptions}
           defaultNamespace={formDefaultNs}
-          onCancel={() => setEditModalOpen(false)}
-          onSuccess={() => { setEditModalOpen(false); onRefresh?.(true); }}
+          record={{ raw: editingNode.rawData, namespace: editingNode.namespace, name: editingNode.name }}
+          onCommitted={() => onRefresh?.(true)}
         />
       )}
 

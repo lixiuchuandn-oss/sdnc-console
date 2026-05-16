@@ -198,9 +198,9 @@ export const ALL_PERMISSIONS = [
   'clouds.cluster-nodes:read',  // 物理节点列表 - 查看
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
 
-  // 集群基础服务
-  'clouds.cluster-services:read',  // 基础服务列表 - 查看
-  'clouds.cluster-services:write', // 基础服务管理 - 操作维护
+  // 集群服务（K8s Service）
+  'clouds.cluster-services:read',  // 集群服务列表 - 查看
+  'clouds.cluster-services:write', // 集群服务管理 - 操作维护
 
   // 集群网络
   'clouds.cluster-networks:read',  // 集群网络列表 - 查看

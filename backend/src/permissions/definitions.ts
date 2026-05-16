@@ -59,7 +59,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.containers.pdbs': '容器·Pod 中断保护',
   'clouds.containers.networkpolicies': '容器·网络策略',
   'clouds.cluster-nodes': '物理节点',
-  'clouds.cluster-services': '基础服务',
+  'clouds.cluster-services': '集群服务',
   'clouds.cluster-networks': '集群网络',
   'clouds.provider-networks': '物理网络',
   'clouds.vswitches': '虚拟交换机',

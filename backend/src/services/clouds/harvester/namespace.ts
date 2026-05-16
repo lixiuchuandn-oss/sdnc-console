@@ -95,6 +95,26 @@ export const isSystemNamespaceName = (name: string): boolean => {
   return prefixes.some((p) => n.startsWith(p));
 };
 
+/** 与前端 `harvesterUtils.namespaceSectionType` 一致的业务分类 */
+export type NamespaceBusinessSectionKind = 'system' | 'public' | 'tenant' | 'admin' | 'unlabeled';
+
+export function namespaceBusinessSectionKindFromInventoryRaw(raw: any): NamespaceBusinessSectionKind {
+  const name = String(raw?.metadata?.name || raw?.name || '').trim();
+  if (!name) return 'unlabeled';
+  if (isSystemNamespaceName(name)) return 'system';
+  const scenario = String(raw?.metadata?.labels?.['tower.io/scenario'] || '').trim().toLowerCase();
+  if (scenario === 'public') return 'public';
+  if (scenario === 'tenant') return 'tenant';
+  if (scenario === 'admin') return 'admin';
+  if (isPublicNamespaceName(name)) return 'public';
+  return 'unlabeled';
+}
+
+/** 删除 API：仅 `tower.io/scenario=tenant` 允许（租户项目权威口径） */
+export function isNamespaceDeletableAsTenantProject(raw: any): boolean {
+  return namespaceBusinessSectionKindFromInventoryRaw(raw) === 'tenant';
+}
+
 /**
  * 与前端 `harvesterUtils.isSystemResource` 一致
  * 判断 Kubernetes 资源是否为系统内置资源（应从默认列表中过滤）

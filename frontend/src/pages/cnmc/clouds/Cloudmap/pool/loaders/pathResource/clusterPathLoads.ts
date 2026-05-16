@@ -4,7 +4,6 @@ import {
   fetchHarvesterUsbResources,
   fetchHarvesterPciDevices,
   fetchHarvesterLoadBalancers,
-  fetchHarvesterServices,
   fetchKubeOvnVlans,
   fetchKubeOvnProviderNetworks,
   fetchHarvesterIPPools,
@@ -18,7 +17,6 @@ import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/clo
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
-import { canReadContainerTab } from '../../../../../../../utils/permissionUtils';
 
 /** ????`panels/cluster`????????????????VLAN/????? */
 export async function tryLoadClusterTab(
@@ -44,8 +42,6 @@ export async function tryLoadClusterTab(
     setRawPciDevices,
     setHarvesterLoadBalancers,
     setRawLoadBalancers,
-    setHarvesterServices,
-    setRawServices,
     setHarvesterVlans,
     setRawVlans,
     setHarvesterKubeOvnProviderNetworks,
@@ -178,27 +174,6 @@ export async function tryLoadClusterTab(
               : [];
             setHarvesterLoadBalancers(list);
             setRawLoadBalancers(json || null);
-          },
-          force,
-        );
-      }
-      return true;
-    case 'cluster_services':
-      if (
-        checkPerm('clouds.cluster-services:read') ||
-        checkPerm('clouds.services:read') ||
-        canReadContainerTab(checkPerm, 'services') ||
-        checkPerm('clouds:read')
-      ) {
-        loadResource(
-          'services',
-          () => fetchHarvesterServices(cloudId, force),
-          (json) => {
-            const list: any[] = Array.isArray((json as any)?.data?.items)
-              ? (json as any).data.items
-              : [];
-            setHarvesterServices(Array.isArray(list) ? list : []);
-            setRawServices(json || null);
           },
           force,
         );

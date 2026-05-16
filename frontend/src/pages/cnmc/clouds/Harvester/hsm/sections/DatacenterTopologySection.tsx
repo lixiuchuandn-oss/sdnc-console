@@ -612,7 +612,6 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
         setNodeDrawerRecord(null);
       }}
       record={nodeDrawerRecord}
-      cloudId={cloudId}
       metrics={nodeDrawerRecord ? nodeMetricsMap[nodeName(nodeDrawerRecord)] : undefined}
       onRefreshFromCluster={() => void loadAll()}
       refreshLoading={loading}

@@ -684,13 +684,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
             setDetailDrawerOpen(false);
             setDetailSubnetRecord(null);
           }}
-          cloudId={cloudId}
           subnet={detailSubnetRecord}
           kindLabel="VPC 子网"
-          onSubnetAclSaved={() => {
-            onRefresh?.(true);
-            onRefreshNads?.(true, true);
-          }}
         />
       ) : null}
 
