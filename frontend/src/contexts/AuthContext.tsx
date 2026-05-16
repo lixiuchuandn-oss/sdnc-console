@@ -1,5 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { message } from 'antd';
 import { API_BASE_URL } from '../services/api';
+import { getPublicAdminAuthConfig } from '../services/systemApi';
+import { usePageIdleLogout } from '../hooks/usePageIdleLogout';
 import { getToken, setToken as saveToken, removeToken } from '../utils/tokenStorage';
 
 /**
@@ -68,6 +71,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(getToken());
   const [loading, setLoading] = useState(true);
+  const [pageTimeoutMinutes, setPageTimeoutMinutes] = useState(60);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -156,6 +160,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     initAuth();
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    getPublicAdminAuthConfig()
+      .then((cfg) => {
+        const minutes = Number(cfg?.pageTimeoutMinutes);
+        if (Number.isFinite(minutes) && minutes > 0) {
+          setPageTimeoutMinutes(minutes);
+        }
+      })
+      .catch(() => {
+        /* 使用默认 60 分钟 */
+      });
+  }, [user]);
+
 /**
  * 登录
  * - 成功后写入 token 到 localStorage
@@ -192,17 +210,42 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (!response.ok) {
         let errMsg = '登录失败';
+        let errCode: string | undefined;
+        let lockedUntil: number | undefined;
+        let remainingAttempts: number | undefined;
         try {
           const errJson = await response.json();
           if (typeof errJson?.message === 'string' && errJson.message.trim()) {
             errMsg = errJson.message.trim();
+          }
+          if (typeof errJson?.code === 'string') {
+            errCode = errJson.code;
+          }
+          const rawUntil = errJson?.lockedUntil;
+          if (typeof rawUntil === 'number' && Number.isFinite(rawUntil)) {
+            lockedUntil = rawUntil;
+          } else if (typeof rawUntil === 'string' && rawUntil.trim() !== '') {
+            const n = Number(rawUntil);
+            if (Number.isFinite(n)) lockedUntil = n;
+          }
+          const rawRemain = errJson?.remainingAttempts;
+          if (typeof rawRemain === 'number' && Number.isFinite(rawRemain)) {
+            remainingAttempts = rawRemain;
           }
         } catch {
           if (response.status === 401) {
             errMsg = '用户名或密码错误';
           }
         }
-        throw new Error(errMsg);
+        const err = new Error(errMsg) as Error & {
+          code?: string;
+          lockedUntil?: number;
+          remainingAttempts?: number;
+        };
+        if (errCode) err.code = errCode;
+        if (lockedUntil != null) err.lockedUntil = lockedUntil;
+        if (remainingAttempts != null) err.remainingAttempts = remainingAttempts;
+        throw err;
       }
 
       const data = await response.json();
@@ -268,11 +311,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
  * 退出登录
  * - 清空内存态与 localStorage 中的 token
  */
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     setToken(null);
     removeToken();
-  };
+  }, []);
+
+  const handleIdleLogout = useCallback(() => {
+    const minutes = pageTimeoutMinutes;
+    const role = user?.role;
+    message.warning(`超过 ${minutes} 分钟未操作，已自动退出登录`);
+    logout();
+    const path = role === 'tenant' ? '/login' : '/admin/login';
+    window.location.assign(path);
+  }, [logout, pageTimeoutMinutes, user?.role]);
+
+  usePageIdleLogout({
+    enabled: Boolean(user && token && !loading),
+    pageTimeoutMinutes,
+    onIdle: handleIdleLogout,
+  });
 
   const value = {
     user,

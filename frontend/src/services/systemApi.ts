@@ -6,6 +6,20 @@ const API_THREATS = '/api/threats';
 
 /** 未登录可读：后端 system-settings 中全部 ui.* 扁平 KV */
 /** 未登录可读：管理员密码策略（与后端 auth.admin_password_policy 一致） */
+export type PublicAdminAuthConfig = {
+  pageTimeoutMinutes: number;
+};
+
+export async function getPublicAdminAuthConfig(): Promise<PublicAdminAuthConfig | null> {
+  const url = `${API_BASE_URL.replace(/\/$/, '')}/api/public/admin-auth-config`;
+  const res = await fetch(url, { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
+  if (!res.ok) return null;
+  const json = await res.json();
+  const d = json?.data;
+  if (!d || typeof d !== 'object') return null;
+  return d as PublicAdminAuthConfig;
+}
+
 export async function getPublicAdminPasswordPolicy(): Promise<AdminPasswordPolicy | null> {
   const url = `${API_BASE_URL.replace(/\/$/, '')}/api/public/admin-password-policy`;
   const res = await fetch(url, { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });

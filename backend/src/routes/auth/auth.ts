@@ -9,6 +9,11 @@ import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 import { logger } from '../../utils/logger';
 import { adminMustChangePassword } from '../../services/adminPasswordPolicy';
+import {
+  checkLoginLockout,
+  clearLoginFailures,
+  recordLoginFailure,
+} from '../../services/loginLockoutService';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
 import { resolveAdminDefaultHome } from '../../services/AdminDefaultHomeService';
 
@@ -82,6 +87,16 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(400).json({ message: '用户名和密码不能为空' });
     }
 
+    const lockBefore = checkLoginLockout(username);
+    if (lockBefore.locked) {
+      return res.status(401).json({
+        message: lockBefore.message,
+        code: 'LOGIN_LOCKED',
+        lockedUntil: lockBefore.lockedUntil,
+        retryAfterSeconds: lockBefore.retryAfterSeconds,
+      });
+    }
+
     const userRepository = AppDataSource.getRepository(User);
     const tenantRepo = AppDataSource.getRepository(TenantUser);
 
@@ -121,8 +136,27 @@ router.post('/login', async (req: Request, res: Response) => {
       if (process.env.NODE_ENV === 'development') {
         console.log('[Login] 登录失败: 用户名或密码错误', { username, hasAdmin: !!adminCandidate, hasTenant: !!tenantCandidate });
       }
-      return res.status(401).json({ message: '用户名或密码错误' });
+      const failResult = recordLoginFailure(username);
+      if (failResult.locked) {
+        return res.status(401).json({
+          message: failResult.message,
+          code: 'LOGIN_LOCKED',
+          lockedUntil: failResult.lockedUntil,
+          retryAfterSeconds: failResult.retryAfterSeconds,
+        });
+      }
+      const remain = failResult.remainingAttempts;
+      const failMsg =
+        remain > 0
+          ? `用户名或密码错误，还可尝试 ${remain} 次`
+          : '用户名或密码错误';
+      return res.status(401).json({
+        message: failMsg,
+        remainingAttempts: remain,
+      });
     }
+
+    clearLoginFailures(username);
 
     // 状态检查（与「用户名或密码错误」区分开，前端将原样展示 message）
     if (loginUser.status && loginUser.status !== 'active') {

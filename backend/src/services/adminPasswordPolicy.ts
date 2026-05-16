@@ -3,6 +3,7 @@ import type { User } from '../entities/User';
 
 /** 管理员密码策略（存于 system-settings JSON 字符串） */
 export type AdminPasswordPolicy = {
+  passwordComplexityEnabled: boolean;
   minLength: number;
   maxLength: number;
   requireUppercase: boolean;
@@ -15,9 +16,15 @@ export type AdminPasswordPolicy = {
   requirePasswordChangeOnFirstLogin: boolean;
 };
 
+const PASSWORD_COMPLEXITY_ON_MIN_LENGTH = 8;
+const PASSWORD_COMPLEXITY_OFF_MIN_LENGTH = 1;
+const PASSWORD_DEFAULT_MAX_LENGTH = 64;
+const PASSWORD_COMPLEXITY_MIN_CHAR_TYPES = 3;
+
 const DEFAULT_POLICY: AdminPasswordPolicy = {
-  minLength: 8,
-  maxLength: 64,
+  passwordComplexityEnabled: false,
+  minLength: PASSWORD_COMPLEXITY_OFF_MIN_LENGTH,
+  maxLength: PASSWORD_DEFAULT_MAX_LENGTH,
   requireUppercase: false,
   requireLowercase: false,
   requireDigit: false,
@@ -28,6 +35,34 @@ const DEFAULT_POLICY: AdminPasswordPolicy = {
 
 const SETTING_KEY = 'auth.admin_password_policy';
 
+function inferPasswordComplexityEnabled(j: Partial<AdminPasswordPolicy>): boolean {
+  if (j.passwordComplexityEnabled !== undefined) {
+    return Boolean(j.passwordComplexityEnabled);
+  }
+  return Boolean(
+    j.requireUppercase || j.requireLowercase || j.requireDigit || j.requireSpecial,
+  );
+}
+
+function normalizePolicyFields(j: Partial<AdminPasswordPolicy>): AdminPasswordPolicy {
+  const complexityOn = inferPasswordComplexityEnabled(j);
+  const minLength = complexityOn ? PASSWORD_COMPLEXITY_ON_MIN_LENGTH : PASSWORD_COMPLEXITY_OFF_MIN_LENGTH;
+  return {
+    passwordComplexityEnabled: complexityOn,
+    minLength,
+    maxLength: Math.max(
+      minLength,
+      Math.min(256, Number(j.maxLength) || PASSWORD_DEFAULT_MAX_LENGTH),
+    ),
+    requireUppercase: false,
+    requireLowercase: false,
+    requireDigit: false,
+    requireSpecial: false,
+    maxPasswordAgeDays: Math.max(0, Math.min(3650, Number(j.maxPasswordAgeDays) || 0)),
+    requirePasswordChangeOnFirstLogin: Boolean(j.requirePasswordChangeOnFirstLogin),
+  };
+}
+
 export function getDefaultAdminPasswordPolicy(): AdminPasswordPolicy {
   return { ...DEFAULT_POLICY };
 }
@@ -37,16 +72,7 @@ export function parseAdminPasswordPolicy(raw?: string | null): AdminPasswordPoli
   if (!raw || !String(raw).trim()) return base;
   try {
     const j = JSON.parse(String(raw)) as Partial<AdminPasswordPolicy>;
-    return {
-      minLength: Math.max(1, Math.min(128, Number(j.minLength) || base.minLength)),
-      maxLength: Math.max(1, Math.min(256, Number(j.maxLength) || base.maxLength)),
-      requireUppercase: Boolean(j.requireUppercase),
-      requireLowercase: Boolean(j.requireLowercase),
-      requireDigit: Boolean(j.requireDigit),
-      requireSpecial: Boolean(j.requireSpecial),
-      maxPasswordAgeDays: Math.max(0, Math.min(3650, Number(j.maxPasswordAgeDays) || 0)),
-      requirePasswordChangeOnFirstLogin: Boolean(j.requirePasswordChangeOnFirstLogin),
-    };
+    return normalizePolicyFields(j);
   } catch {
     return base;
   }
@@ -65,30 +91,44 @@ function hasSpecialChar(s: string): boolean {
   return /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(s);
 }
 
+function countPasswordCharTypes(password: string): number {
+  const p = String(password ?? '');
+  let n = 0;
+  if (/[A-Z]/.test(p)) n += 1;
+  if (/[a-z]/.test(p)) n += 1;
+  if (/[0-9]/.test(p)) n += 1;
+  if (hasSpecialChar(p)) n += 1;
+  return n;
+}
+
 export function validatePasswordAgainstPolicy(
   password: string,
   policy: AdminPasswordPolicy,
   opts?: { username?: string },
 ): { ok: true } | { ok: false; message: string } {
   const p = String(password ?? '');
-  if (p.length < policy.minLength) {
-    return { ok: false, message: `密码长度不能少于 ${policy.minLength} 位` };
+  const complexityOn = Boolean(policy.passwordComplexityEnabled);
+  const minLen = complexityOn ? PASSWORD_COMPLEXITY_ON_MIN_LENGTH : PASSWORD_COMPLEXITY_OFF_MIN_LENGTH;
+
+  if (p.length < minLen) {
+    return {
+      ok: false,
+      message: minLen <= 1 ? '密码不能为空' : `密码长度不能少于 ${minLen} 位`,
+    };
   }
   if (p.length > policy.maxLength) {
     return { ok: false, message: `密码长度不能超过 ${policy.maxLength} 位` };
   }
-  if (policy.requireUppercase && !/[A-Z]/.test(p)) {
-    return { ok: false, message: '密码需包含至少一个大写字母' };
+
+  if (complexityOn) {
+    if (countPasswordCharTypes(p) < PASSWORD_COMPLEXITY_MIN_CHAR_TYPES) {
+      return {
+        ok: false,
+        message: '密码须包含数字、大写字母、小写字母、特殊字符中的至少三项',
+      };
+    }
   }
-  if (policy.requireLowercase && !/[a-z]/.test(p)) {
-    return { ok: false, message: '密码需包含至少一个小写字母' };
-  }
-  if (policy.requireDigit && !/[0-9]/.test(p)) {
-    return { ok: false, message: '密码需包含至少一个数字' };
-  }
-  if (policy.requireSpecial && !hasSpecialChar(p)) {
-    return { ok: false, message: '密码需包含至少一个特殊字符' };
-  }
+
   const un = opts?.username?.trim();
   if (un && un.length >= 3 && p.toLowerCase().includes(un.toLowerCase())) {
     return { ok: false, message: '密码不能包含用户名' };
