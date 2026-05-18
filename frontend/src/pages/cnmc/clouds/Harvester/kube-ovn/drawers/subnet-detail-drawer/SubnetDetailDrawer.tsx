@@ -119,11 +119,19 @@ const SubnetDetailDrawer: React.FC<Props> = ({
     return t === 'flat';
   }, [kindLabel, effectiveSubnet?.metadata?.annotations]);
 
+  const subnetCategory = useMemo(() => {
+    if (!isFlatSubnetDetail) return null;
+    return resolveTowerUnderlaySubnetCategory(effectiveSubnet, 'flat').category;
+  }, [isFlatSubnetDetail, effectiveSubnet]);
+
+  const isFlatUnderlay = subnetCategory === 'flat-underlay';
+  const isFlatOverlay = subnetCategory === 'flat-overlay';
+
   const showVpcInBasicInfo = useMemo(() => {
     if (!vpcDisplay) return false;
-    if (isFlatSubnetDetail && vpcDisplay === KUBE_OVN_FLAT_VPC) return false;
+    if (isFlatUnderlay) return false;
     return true;
-  }, [vpcDisplay, isFlatSubnetDetail]);
+  }, [vpcDisplay, isFlatUnderlay]);
 
   const showNamespaceInBasicInfo = !isFlatSubnetDetail;
 
@@ -224,7 +232,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
         </Row>
       </Card>
 
-      {!isVpcSubnet ? (
+      {!isVpcSubnet && !isFlatOverlay ? (
         <Card {...SUBNET_DETAIL_SECTION_CARD} styles={SUBNET_DETAIL_SECTION_CARD_STYLES}>
           <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>VLAN信息</div>
           <Row gutter={[24, 16]}>
