@@ -144,14 +144,14 @@ const SshKeyCreateModal: React.FC<Props> = ({ visible, cloudId, onCancel, onSucc
         
         <Form.Item
           name="namespace"
-          label="命名空间 (Namespace)"
-          rules={[{ required: true, message: '请选择命名空间' }]}
-          tooltip="密钥将归属于该命名空间"
+          label="项目"
+          rules={[{ required: true, message: '请选择项目' }]}
+          tooltip="密钥将归属于该项目"
         >
           <Select 
             loading={nsLoading} 
             showSearch
-            placeholder="请选择命名空间"
+            placeholder="请选择项目"
             optionFilterProp="label"
             options={namespaces.map(n => ({ label: n.metadata.name, value: n.metadata.name }))}
           />

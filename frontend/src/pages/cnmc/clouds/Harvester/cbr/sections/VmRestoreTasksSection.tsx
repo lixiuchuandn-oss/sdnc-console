@@ -377,7 +377,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       },
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: 'namespace',
       key: 'namespace',
       render: (ns: string) => (
@@ -528,7 +528,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
             <Select
               allowClear
               showSearch
-              placeholder="命名空间"
+              placeholder="项目"
               className="toolbar-filter-sm"
               value={namespaceFilter || undefined}
               onChange={(v) => setNamespaceFilter((v as string) || '')}

@@ -273,7 +273,7 @@ const NetworkPolicyDetailDrawer: React.FC<{
       
       <Descriptions column={2} bordered size="small">
         <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
-        <Descriptions.Item label="命名空间">{metadata.namespace}</Descriptions.Item>
+        <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
         <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
         <Descriptions.Item label="策略类型">{formatPolicyTypes(spec.policyTypes)}</Descriptions.Item>
         
@@ -343,10 +343,10 @@ const NetworkPolicyDetailDrawer: React.FC<{
                   const entries = Object.entries(labels);
                   return {
                     key: `${ruleIdx}-${peerIdx}`,
-                    type: '命名空间选择器',
+                    type: '项目选择器',
                     typeColor: 'green',
                     source: entries.length === 0 
-                      ? '所有命名空间' 
+                      ? '所有项目' 
                       : entries.map(([k, v]) => `${k}=${v}`).join(', '),
                     ports: portStr,
                   };
@@ -381,7 +381,7 @@ const NetworkPolicyDetailDrawer: React.FC<{
               {
                 title: '来源',
                 render: (_: any, record: any) => (
-                  <span style={{ color: record.source === '所有 Pod' || record.source === '所有命名空间' ? '#999' : undefined }}>
+                  <span style={{ color: record.source === '所有 Pod' || record.source === '所有项目' ? '#999' : undefined }}>
                     {record.source}
                   </span>
                 ),
@@ -435,10 +435,10 @@ const NetworkPolicyDetailDrawer: React.FC<{
                   const entries = Object.entries(labels);
                   return {
                     key: `${ruleIdx}-${peerIdx}`,
-                    type: '命名空间选择器',
+                    type: '项目选择器',
                     typeColor: 'green',
                     target: entries.length === 0 
-                      ? '所有命名空间' 
+                      ? '所有项目' 
                       : entries.map(([k, v]) => `${k}=${v}`).join(', '),
                     ports: portStr,
                   };
@@ -473,7 +473,7 @@ const NetworkPolicyDetailDrawer: React.FC<{
               {
                 title: '目标',
                 render: (_: any, record: any) => (
-                  <span style={{ color: record.target === '所有 Pod' || record.target === '所有命名空间' ? '#999' : undefined }}>
+                  <span style={{ color: record.target === '所有 Pod' || record.target === '所有项目' ? '#999' : undefined }}>
                     {record.target}
                   </span>
                 ),
@@ -616,7 +616,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         <div>
           <p>确定要删除网络策略 "{displayName}" 吗？</p>
           <p>
-            <strong>命名空间:</strong> {namespace}
+            <strong>项目:</strong> {namespace}
           </p>
           <Alert
             message="删除网络策略可能会影响 Pod 之间的网络访问控制"
@@ -729,7 +729,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
     },
@@ -853,7 +853,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             <Input
               className="toolbar-search"
               allowClear
-              placeholder="名称/命名空间"
+              placeholder="名称/项目"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
@@ -861,7 +861,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             <Select
               className="toolbar-filter-sm"
               allowClear
-              placeholder="筛选命名空间"
+              placeholder="筛选项目"
               value={nsValue || undefined}
               onChange={onNsChange}
               showSearch

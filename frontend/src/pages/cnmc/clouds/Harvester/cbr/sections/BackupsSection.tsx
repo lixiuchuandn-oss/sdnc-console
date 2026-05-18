@@ -244,7 +244,7 @@ const BackupsSection: React.FC<Props> = ({
        key: 'name',
        render: (t: string) => <span>{t}</span>
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '项目', dataIndex: 'namespace', key: 'namespace' },
     { title: '目标虚拟机', dataIndex: 'targetVmAlias', key: 'targetVmAlias' },
     { 
       title: '状态', 
@@ -357,7 +357,7 @@ const BackupsSection: React.FC<Props> = ({
               allowClear
               showSearch
               className="toolbar-filter-sm"
-              placeholder="命名空间"
+              placeholder="项目"
               value={namespaceFilter}
               onChange={setNamespaceFilter}
               options={namespaceOptions}

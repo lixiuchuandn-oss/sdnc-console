@@ -1,5 +1,6 @@
 import {
   fetchHarvesterCloudInits,
+  fetchHarvesterImages,
   fetchHarvesterSshKeys,
   fetchHarvesterTemplates,
 } from '../../api';
@@ -22,9 +23,27 @@ export async function tryLoadComputeTab(
     setRawCloudInits,
     setHarvesterTemplates,
     setRawTemplates,
+    setHarvesterImages,
+    setRawImages,
   } = deps;
 
   switch (key) {
+    case 'images':
+      if (checkPerm('clouds.images:read') || checkPerm('clouds.ecs:read')) {
+        loadResource(
+          'images',
+          () => fetchHarvesterImages(cloudId, force),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : [];
+            setHarvesterImages(Array.isArray(list) ? list : []);
+            setRawImages(json || null);
+          },
+          force,
+        );
+      }
+      return true;
     case 'ssh_keys':
       if (checkPerm('clouds.sshkeys:read')) {
         loadResource(

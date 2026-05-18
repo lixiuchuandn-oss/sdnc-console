@@ -167,7 +167,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({
             <Descriptions column={1} size="small" styles={descLabelStyle}>
               <Descriptions.Item label="协议版本">{String(effectiveSubnet?.spec?.protocol ?? 'IPv4')}</Descriptions.Item>
               {showNamespaceInBasicInfo ? (
-                <Descriptions.Item label="命名空间">
+                <Descriptions.Item label="项目">
                   {String(effectiveSubnet?.metadata?.namespace ?? '—')}
                 </Descriptions.Item>
               ) : null}

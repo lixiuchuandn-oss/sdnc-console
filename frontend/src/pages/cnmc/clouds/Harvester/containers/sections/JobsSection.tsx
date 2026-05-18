@@ -759,7 +759,7 @@ const JobDetailDrawer: React.FC<{
           )}
           <Descriptions column={2} bordered size="small">
             <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
-            <Descriptions.Item label="命名空间">{metadata.namespace}</Descriptions.Item>
+            <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
             <Descriptions.Item label="状态">{renderJobStatus(job)}</Descriptions.Item>
             <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
             <Descriptions.Item label="完成数">{status.succeeded || 0}</Descriptions.Item>
@@ -906,7 +906,7 @@ const CronJobDetailDrawer: React.FC<{
       children: (
         <Descriptions column={2} bordered size="small">
           <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
-          <Descriptions.Item label="命名空间">{metadata.namespace}</Descriptions.Item>
+          <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
           <Descriptions.Item label="状态">{renderCronJobStatus(cronjob)}</Descriptions.Item>
           <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
           <Descriptions.Item label="调度计划" span={2}>
@@ -1182,7 +1182,7 @@ const JobTable: React.FC<{
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
       ellipsis: true,
@@ -1291,14 +1291,14 @@ const JobTable: React.FC<{
           <Input
             className="toolbar-search"
             allowClear
-            placeholder="名称/命名空间"
+            placeholder="名称/项目"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
           <Select
             className="toolbar-filter-sm"
-            placeholder="筛选命名空间"
+            placeholder="筛选项目"
             allowClear
             showSearch
             optionFilterProp="label"
@@ -1689,7 +1689,7 @@ const CronJobTable: React.FC<{
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
       ellipsis: true,
@@ -1827,14 +1827,14 @@ const CronJobTable: React.FC<{
           <Input
             className="toolbar-search"
             allowClear
-            placeholder="名称/命名空间"
+            placeholder="名称/项目"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
           <Select
             className="toolbar-filter-sm"
-            placeholder="筛选命名空间"
+            placeholder="筛选项目"
             allowClear
             showSearch
             optionFilterProp="label"

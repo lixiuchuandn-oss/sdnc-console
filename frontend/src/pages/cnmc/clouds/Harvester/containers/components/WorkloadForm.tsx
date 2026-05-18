@@ -2570,20 +2570,20 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
           {renderMatchExpressions(ruleType, ruleIndex)}
         </div>
 
-        {/* 命名空间选择器 */}
+        {/* 项目选择器 */}
         <div style={{ marginBottom: 16 }}>
           <Form.Item
             name={namespacesPath}
             label={
               <span>
-                命名空间选择器
-                <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>(可选，默认为当前命名空间)</span>
+                项目选择器
+                <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>(可选，默认为当前项目)</span>
               </span>
             }
           >
             <Select
               mode="multiple"
-              placeholder="选择目标命名空间（可选）"
+              placeholder="选择目标项目（可选）"
               allowClear
               options={namespacesOptions.filter((ns) => !isSystemNamespace(ns)).map((ns) => ({ label: ns, value: ns }))}
             />
@@ -5343,15 +5343,15 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               <Col span={12}>
                 <Form.Item
                   name="namespace"
-                  label="命名空间"
-                  rules={[{ required: true, message: '请选择命名空间' }]}
+                  label="项目"
+                  rules={[{ required: true, message: '请选择项目' }]}
                   initialValue={defaultNamespace}
                 >
                   <Select
                     showSearch
                     disabled={isEditMode}
                     optionFilterProp="label"
-                    placeholder="选择命名空间"
+                    placeholder="选择项目"
                     options={namespacesOptions
                       .filter((ns) => !isSystemNamespace(ns))
                       .map((ns) => ({ label: ns, value: ns }))}
@@ -6179,7 +6179,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         <span style={{ color: '#333', fontWeight: 500 }}>{summary.name}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
-                        <span style={{ color: '#888' }}>命名空间</span>
+                        <span style={{ color: '#888' }}>项目</span>
                         <span style={{ color: '#333' }}>{summary.namespace}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>

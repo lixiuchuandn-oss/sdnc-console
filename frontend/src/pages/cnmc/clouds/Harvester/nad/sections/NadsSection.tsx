@@ -911,7 +911,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       )
     },
     { 
-      title: '命名空间', 
+      title: '项目', 
       key: 'ns', 
       render: (_: any, r: any) => r._namespace || '-' 
     },
@@ -1067,11 +1067,11 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           {!isTenant && (
             <Select 
               allowClear 
-              placeholder="命名空间" 
+              placeholder="项目" 
               value={nsFilter || undefined} 
               onChange={(v) => setNsFilter(v || '')} 
               className="toolbar-filter-sm"
-              options={[{ value: '', label: '全部命名空间' }, ...nsOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
+              options={[{ value: '', label: '全部项目' }, ...nsOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
             />
           )}
           <Select 

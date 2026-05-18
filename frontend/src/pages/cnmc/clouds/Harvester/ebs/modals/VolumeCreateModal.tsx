@@ -199,7 +199,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
       </Form.Item>
 
       {/* 区块：命名空间 — 有运维视图权限可选；否则只读 default */}
-      <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
+      <Form.Item label="项目" name="namespace" rules={[{ required: true, message: '请选择项目' }]}>
         {hasOpsView ? (
           <Select
             showSearch

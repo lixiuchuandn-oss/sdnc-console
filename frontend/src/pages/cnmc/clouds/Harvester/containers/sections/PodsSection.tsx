@@ -507,7 +507,7 @@ const PodDetailDrawer: React.FC<{
             children: (
               <Descriptions column={2} bordered size="small">
                 <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
-                <Descriptions.Item label="命名空间">{metadata.namespace}</Descriptions.Item>
+                <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
                 <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
                 <Descriptions.Item label="节点">{spec.nodeName || '-'}</Descriptions.Item>
                 <Descriptions.Item label="IP">{status.podIP || '-'}</Descriptions.Item>
@@ -995,7 +995,7 @@ const PodsSection: React.FC<Props> = ({
       },
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
       ellipsis: true,
@@ -1099,14 +1099,14 @@ const PodsSection: React.FC<Props> = ({
           <Input
             className="toolbar-search"
             allowClear
-            placeholder="名称/命名空间/所属工作负载"
+            placeholder="名称/项目/所属工作负载"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
           <Select
             className="toolbar-filter-sm"
-            placeholder="筛选命名空间"
+            placeholder="筛选项目"
             allowClear
             showSearch
             optionFilterProp="label"

@@ -462,7 +462,7 @@ const ImagesSection: React.FC<Props> = ({
     }
     // 默认按创建时间降序（最新在前）；清除列排序时仍保持该顺序
     return [...list].sort((a, b) => getImageCreatedMs(b) - getImageCreatedMs(a));
-  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, hasOpsView, expandOsKeywords, getImageCreatedMs]);
+  }, [localImages, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, hasOpsView, expandOsKeywords, getImageCreatedMs]);
 
   /** 与 resolveImageListStateKey 返回值一致（去掉易与 ready 混淆的 imported/pending） */
   const statusOptions = ['ready', 'failed', 'uploading', 'importing', 'exporting', 'downloading', 'cancelled', 'unknown'];

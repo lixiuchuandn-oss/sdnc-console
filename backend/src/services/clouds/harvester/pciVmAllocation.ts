@@ -23,26 +23,16 @@ function pushCrName(out: Set<string>, s: unknown) {
   if (t) out.add(t);
 }
 
-/** 单台 VM 已声明占用的 PCIDevice CR 名（hostDevices + deviceAllocationDetails.hostdevices） */
+/**
+ * 单台 VM 实际挂载的 PCIDevice CR 名（仅 spec.hostDevices，不含注解）。
+ * 注解 deviceAllocationDetails 可能含 SR-IOV PF 等未挂入 guest 的 CR，不得算作 VM 占用。
+ * USB 类 hostDevices 不计入 PCI 直通占用。
+ */
 export function collectAllocatedPciDeviceCrNamesFromVm(vm: any, into: Set<string>) {
-  try {
-    const raw = vm?.metadata?.annotations?.['harvesterhci.io/deviceAllocationDetails'];
-    if (raw) {
-      const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      const hd = p?.hostdevices;
-      if (hd && typeof hd === 'object') {
-        for (const v of Object.values(hd)) {
-          if (Array.isArray(v)) (v as unknown[]).forEach((x) => pushCrName(into, x));
-        }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
   const hostDevices = vm?.spec?.template?.spec?.domain?.devices?.hostDevices;
   if (!Array.isArray(hostDevices)) return;
   for (const h of hostDevices) {
-    if (isHarvesterGpuLikeHostDevice(h) || isHarvesterUsbHostDevice(h)) continue;
+    if (isHarvesterUsbHostDevice(h)) continue;
     pushCrName(into, h?.name);
   }
 }
@@ -62,7 +52,7 @@ export type PciDeviceBoundVm = {
 
 /**
  * 各 PCIDevice CR 名 → 当前占用的虚拟机信息。
- * 占用判定与 collectAllocatedPciDeviceCrNamesFromVm 同源（hostDevices 非 GPU/USB + deviceAllocationDetails）。
+ * 占用判定与 collectAllocatedPciDeviceCrNamesFromVm 同源（仅 hostDevices）。
  */
 export function buildPciDeviceVmUsageMapFromVms(vms: any[]): Map<string, PciDeviceBoundVm> {
   const map = new Map<string, PciDeviceBoundVm>();

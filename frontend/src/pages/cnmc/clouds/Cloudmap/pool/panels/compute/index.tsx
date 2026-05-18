@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Empty, message } from 'antd';
 import VmSection from '../../../../Harvester/ecs/sections/VmSection';
 import ImagesSection from '../../../../Harvester/ecs/sections/ImagesSection';
@@ -8,7 +8,6 @@ import CloudInitsSection from '../../../../Harvester/ecs/sections/CloudInitsSect
 import RecycleBinSection from '../../../../Harvester/ecs/sections/RecycleBinSection';
 import MigrationsSection from '../../../../Harvester/ecs/sections/MigrationsSection';
 import {
-  apiPost,
   deleteCloudProviderEcs,
   fetchHarvesterImages,
   fetchHarvesterNamespaces,
@@ -157,6 +156,49 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
     rawCloudInits,
   } = props;
 
+  const reloadVmListAfterMutation = useCallback(() => {
+    void refreshVms(true);
+  }, [refreshVms]);
+
+  const handleVmSectionRefresh = useCallback(
+    (force?: boolean) => {
+      const shouldForce = force !== false;
+      void refreshVms(shouldForce);
+      if (!shouldForce) return;
+      if (checkPerm('clouds.images:read')) {
+        void loadResource(
+          'images',
+          () => fetchHarvesterImages(cloudId, true),
+          (json) => setHarvesterImages(json?.data?.items || []),
+          true,
+        );
+      }
+      if (checkPerm('clouds.disks:read')) {
+        void loadResource(
+          'volumes',
+          () => fetchHarvesterVolumes(cloudId, true),
+          (json) => setHarvesterVolumes(json?.data?.items || []),
+          true,
+        );
+      }
+      void loadResource(
+        'namespaces',
+        () => fetchHarvesterNamespaces(cloudId, true, true),
+        (json) => setHarvesterNamespaces(json?.data?.items || []),
+        true,
+      );
+    },
+    [
+      refreshVms,
+      checkPerm,
+      loadResource,
+      cloudId,
+      setHarvesterImages,
+      setHarvesterVolumes,
+      setHarvesterNamespaces,
+    ],
+  );
+
   if (!canViewComputeInner(innerActiveKey, checkPerm)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
@@ -206,42 +248,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                 }
                 onNsChange={(v) => setNsFilter(v || '')}
                 onNodeChange={(v) => setNodeFilter(v || '')}
-                onRefresh={() => {
-                  apiPost(`/api/clouds/${cloudId}/sync`)
-                    .catch(console.warn)
-                    .finally(() => {
-                      void refreshVms();
-                      if (checkPerm('clouds.images:read')) {
-                        loadResource(
-                          'images',
-                          () => fetchHarvesterImages(cloudId, true),
-                          (json) => {
-                            setHarvesterImages(json?.data?.items || []);
-                          },
-                          true,
-                        );
-                      }
-                      if (checkPerm('clouds.disks:read')) {
-                        loadResource(
-                          'volumes',
-                          () => fetchHarvesterVolumes(cloudId, true),
-                          (json) => {
-                            setHarvesterVolumes(json?.data?.items || []);
-                          },
-                          true,
-                        );
-                      }
-                      loadResource(
-                        'namespaces',
-                        () =>
-                          fetchHarvesterNamespaces(cloudId, true, true),
-                        (json) => {
-                          setHarvesterNamespaces(json?.data?.items || []);
-                        },
-                        true,
-                      );
-                    });
-                }}
+                onRefresh={handleVmSectionRefresh}
                 onStart={async (iid: string) => {
                   try {
                     const vm = ecs.find((v: any) => {
@@ -251,42 +258,6 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                           : v?.InstanceId || v?.id;
                       return vId === iid;
                     });
-
-                    // [资源检查] 启动前检查 CPU/内存资源是否足够（使用共享的资源数据）
-                    if (vm) {
-                      const parseMemoryToGiB = (s: string): number => {
-                        const t = s.trim();
-                        const m = t.match(/^(\d+(?:\.\d+)?)([KMG]i?)?$/i);
-                        if (!m) return 0;
-                        const val = Number(m[1]);
-                        const unit = (m[2] || '').toLowerCase();
-                        if (unit === 'ki') return val / (1024 * 1024);
-                        if (unit === 'mi') return val / 1024;
-                        if (unit === 'gi') return val;
-                        return val / (1024 * 1024 * 1024);
-                      };
-
-                      // 获取 VM 的 CPU 和内存配置
-                      const cpu = vm?.spec?.template?.spec?.domain?.cpu;
-                      let cpuRequest = 0;
-                      if (cpu?.sockets !== undefined && cpu?.cores !== undefined && cpu?.threads !== undefined) {
-                        cpuRequest = Number(cpu.sockets) * Number(cpu.cores) * Number(cpu.threads);
-                      } else if (cpu?.sockets !== undefined && cpu?.cores !== undefined) {
-                        cpuRequest = Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
-                      } else if (vm?.cpu !== undefined && vm?.cpu !== null) {
-                        cpuRequest = Number(vm.cpu);
-                      } else {
-                        cpuRequest = Number(cpu?.cores || cpu?.sockets || vm?.vmi?.spec?.domain?.cpu?.cores || 0);
-                      }
-
-                      const memoryStr = String(vm?.spec?.template?.spec?.domain?.memory?.guest || vm?.memoryGb || vm?.vmi?.spec?.domain?.memory?.guest || '');
-                      const memoryRequest = parseMemoryToGiB(memoryStr);
-
-                      // 获取目标节点名称
-                      const targetNodeName = vm?.nodeName || vm?.spec?.template?.spec?.nodeName;
-
-                      // 移除资源检查逻辑，允许直接启动虚拟机
-                    }
 
                     if (vm && harvesterVolumes.length > 0) {
                       const vmVolumes =
@@ -332,9 +303,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
 
                     await startCloudProviderEcs(cloudId, iid);
                     message.success('启动成功');
-                    apiPost(`/api/clouds/${cloudId}/sync`)
-                      .catch(console.warn)
-                      .finally(() => void refreshVms());
+                    reloadVmListAfterMutation();
                   } catch (e: any) {
                     const errMsg = e?.message || String(e);
                     if (
@@ -361,9 +330,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                     message.success(
                       force ? '强制停止指令已下发' : '停止成功',
                     );
-                    apiPost(`/api/clouds/${cloudId}/sync`)
-                      .catch(console.warn)
-                      .finally(() => void refreshVms());
+                    reloadVmListAfterMutation();
                   } catch (e: any) {
                     message.error(e?.message || '停止失败');
                   }
@@ -372,9 +339,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                   try {
                     await rebootCloudProviderEcs(cloudId, iid, false);
                     message.success('重启成功');
-                    apiPost(`/api/clouds/${cloudId}/sync`)
-                      .catch(console.warn)
-                      .finally(() => void refreshVms());
+                    reloadVmListAfterMutation();
                   } catch (e: any) {
                     message.error(e?.message || '重启失败');
                   }
@@ -383,9 +348,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                   try {
                     await softRebootCloudProviderEcs(cloudId, iid);
                     message.success('软重启成功');
-                    apiPost(`/api/clouds/${cloudId}/sync`)
-                      .catch(console.warn)
-                      .finally(() => void refreshVms());
+                    reloadVmListAfterMutation();
                   } catch (e: any) {
                     message.error(e?.message || '软重启失败');
                   }
@@ -394,9 +357,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                   try {
                     await pauseCloudProviderEcs(cloudId, iid);
                     message.success('暂停成功');
-                    apiPost(`/api/clouds/${cloudId}/sync`)
-                      .catch(console.warn)
-                      .finally(() => void refreshVms());
+                    reloadVmListAfterMutation();
                   } catch (e: any) {
                     message.error(e?.message || '暂停失败');
                   }
@@ -405,9 +366,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                   try {
                     await unpauseCloudProviderEcs(cloudId, iid);
                     message.success('恢复成功');
-                    apiPost(`/api/clouds/${cloudId}/sync`)
-                      .catch(console.warn)
-                      .finally(() => void refreshVms());
+                    reloadVmListAfterMutation();
                   } catch (e: any) {
                     message.error(e?.message || '恢复失败');
                   }
@@ -473,9 +432,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                     if (!isBatch) {
                       message.success('虚拟机已移入回收站，到期后自动删除');
                     }
-                    apiPost(`/api/clouds/${cloudId}/sync`)
-                      .catch(console.warn)
-                      .finally(() => void refreshVms());
+                    reloadVmListAfterMutation();
                   } catch (e: any) {
                     message.error(e?.message || '移入回收站失败');
                   }

@@ -721,7 +721,7 @@ const RecycleBinSection: React.FC<Props> = ({
     },
     ...(hasOpsView ? [
       {
-        title: '命名空间',
+        title: '项目',
         key: 'namespace',
         ellipsis: true,
         render: (_: any, r: any) => SafeRead.namespace(r) || '-',
@@ -964,7 +964,7 @@ const RecycleBinSection: React.FC<Props> = ({
             <Select
               allowClear
               showSearch
-              placeholder="命名空间"
+              placeholder="项目"
               value={namespaceFilter || undefined}
               onChange={(v) => setNamespaceFilter(v || '')}
               className="toolbar-filter-sm"

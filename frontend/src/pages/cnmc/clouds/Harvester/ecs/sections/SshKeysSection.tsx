@@ -244,7 +244,7 @@ const SshKeysSection: React.FC<Props> = ({
       copyable: true,
       render: (text: string) => <span className="std-code">{text}</span>
     },
-    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
+    ...(hasOpsView ? [{ title: '项目', dataIndex: 'namespace', key: 'namespace' }] : []),
     { 
       title: '创建时间', 
       key: 'creationTimestamp', 
@@ -337,7 +337,7 @@ const SshKeysSection: React.FC<Props> = ({
           />
           {!isTenant && hasOpsView && (
             <Select
-              placeholder="命名空间"
+              placeholder="项目"
               className="toolbar-filter-sm" 
               allowClear
               showSearch
