@@ -275,6 +275,12 @@ async function resolvePvcClaimNameFromDataVolume(
   return null;
 }
 
+/** 更换系统盘后等待 VMI 释放旧盘的最长时长（用户可能稍后才重启） */
+const REINSTALL_OLD_CLAIM_WAIT_MS = 30 * 60 * 1000;
+const REINSTALL_OLD_CLAIM_POLL_MS = 3000;
+/** 释放后若仍删除失败，继续重试删除的总时长 */
+const REINSTALL_OLD_CLAIM_DELETE_RETRY_MS = 30 * 60 * 1000;
+
 async function isClaimReferencedByVmi(
   params: HarvesterTestParams,
   namespace: string,
@@ -292,10 +298,24 @@ async function isClaimReferencedByVmi(
     );
   } catch (e: any) {
     const st = Number(e?.status || 0);
-    const msg = String(e?.message || '').toLowerCase();
+    const msg = String(e?.message || e || '').toLowerCase();
     if (st === 404 || msg.includes('not found')) return false;
-    return true;
+    console.warn(
+      `[Reinstall] Failed to read VMI while checking claim ${claimName}, assume not mounted:`,
+      e?.message || e,
+    );
+    return false;
   }
+}
+
+/** 从 volumes 列表收集 PVC claimName（不含 DataVolume 名） */
+function collectPvcClaimNamesFromVolumes(volumes: any[]): string[] {
+  const out: string[] = [];
+  for (const v of volumes || []) {
+    const claim = String(v?.persistentVolumeClaim?.claimName || '').trim();
+    if (claim && !out.includes(claim)) out.push(claim);
+  }
+  return out;
 }
 
 /** 更换系统盘后须等 VMI 不再挂载旧盘（通常需用户按提示重启 VM） */
@@ -305,26 +325,25 @@ async function waitForOldRootClaimsReleasedFromVmi(
   vmName: string,
   claimNames: string[],
   origin: string,
-): Promise<void> {
+): Promise<boolean> {
   const unique = Array.from(new Set(claimNames.map((n) => String(n).trim()).filter(Boolean)));
-  if (!unique.length) return;
+  if (!unique.length) return true;
 
-  const maxWaitMs = 5 * 60 * 1000;
-  const intervalMs = 3000;
   const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
+  while (Date.now() - start < REINSTALL_OLD_CLAIM_WAIT_MS) {
     const checks = await Promise.all(
       unique.map((c) => isClaimReferencedByVmi(params, namespace, vmName, c, origin)),
     );
     if (!checks.some(Boolean)) {
       console.log(`[Reinstall] Old root claims released from VMI: ${unique.join(', ')}`);
-      return;
+      return true;
     }
-    await new Promise((r) => setTimeout(r, intervalMs));
+    await new Promise((r) => setTimeout(r, REINSTALL_OLD_CLAIM_POLL_MS));
   }
   console.warn(
     `[Reinstall] Timed out waiting for VMI to release old root claims (restart VM may be required): ${unique.join(', ')}`,
   );
+  return false;
 }
 
 async function deleteHarvesterDataVolumeIfExists(
@@ -360,17 +379,33 @@ async function deleteReinstallOldRootStorageClaims(
   namespace: string,
   vmName: string,
   claimNames: string[],
+  dataVolumeNames: string[],
   origin: string,
 ): Promise<void> {
-  const unique = Array.from(new Set(claimNames.map((n) => String(n).trim()).filter(Boolean)));
-  if (!unique.length) return;
+  const uniqueClaims = Array.from(new Set(claimNames.map((n) => String(n).trim()).filter(Boolean)));
+  const uniqueDvs = Array.from(new Set(dataVolumeNames.map((n) => String(n).trim()).filter(Boolean)));
+  if (!uniqueClaims.length && !uniqueDvs.length) return;
 
-  await waitForOldRootClaimsReleasedFromVmi(params, namespace, vmName, unique, origin);
+  if (uniqueClaims.length) {
+    await waitForOldRootClaimsReleasedFromVmi(params, namespace, vmName, uniqueClaims, origin);
+  }
 
-  const deleteOnePvcWithRetries = async (claimName: string) => {
-    const maxAttempts = 15;
-    const baseDelayMs = 2000;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  const deleteOnePvcWithRetries = async (claimName: string, deadlineMs: number) => {
+    const baseDelayMs = 3000;
+    let attempt = 0;
+    while (Date.now() < deadlineMs) {
+      attempt += 1;
+      const stillMounted = await isClaimReferencedByVmi(
+        params,
+        namespace,
+        vmName,
+        claimName,
+        origin,
+      );
+      if (stillMounted) {
+        await new Promise((r) => setTimeout(r, REINSTALL_OLD_CLAIM_POLL_MS));
+        continue;
+      }
       try {
         await deleteHarvesterPVC(params, namespace, claimName);
         console.log(`[Reinstall] Deleted old root PVC: ${claimName} (attempt ${attempt})`);
@@ -380,22 +415,22 @@ async function deleteReinstallOldRootStorageClaims(
         const msg = String(e?.message || e || '').toLowerCase();
         if (st === 404 || msg.includes('not found')) return true;
         console.warn(
-          `[Reinstall] delete old root PVC ${claimName} attempt ${attempt}/${maxAttempts}:`,
+          `[Reinstall] delete old root PVC ${claimName} attempt ${attempt}:`,
           e?.message || e,
         );
-        if (attempt >= maxAttempts) {
-          console.error(`[Reinstall] Giving up deleting old root PVC: ${claimName}`);
-          return false;
-        }
-        await new Promise((r) => setTimeout(r, baseDelayMs * Math.min(attempt, 6)));
+        await new Promise((r) => setTimeout(r, baseDelayMs * Math.min(attempt, 8)));
       }
     }
+    console.error(`[Reinstall] Giving up deleting old root PVC: ${claimName}`);
     return false;
   };
 
-  for (const claim of unique) {
-    await deleteOnePvcWithRetries(claim);
-    await deleteHarvesterDataVolumeIfExists(params, namespace, claim, origin);
+  const deleteDeadline = Date.now() + REINSTALL_OLD_CLAIM_DELETE_RETRY_MS;
+  for (const claim of uniqueClaims) {
+    await deleteOnePvcWithRetries(claim, deleteDeadline);
+  }
+  for (const dv of uniqueDvs) {
+    await deleteHarvesterDataVolumeIfExists(params, namespace, dv, origin);
   }
 }
 
@@ -453,8 +488,10 @@ const updateHarvesterVMSpecInternal = async (
   
   console.log('\n' + '-'.repeat(80));
 
-  /** 更换系统镜像成功后待删除的旧根盘 claim（须在 VM PATCH 成功后再删） */
+  /** 更换系统镜像成功后待删除的旧根盘 PVC（须在 VM PATCH 成功后再删） */
   let pendingReinstallOldClaims: string[] = [];
+  /** 待删除的旧根盘 DataVolume（仅删 DV 资源，不当作 PVC 名） */
+  let pendingReinstallOldDataVolumes: string[] = [];
 
   // [性能优化] 最小 Patch 策略
   // ---------------------------------------------------------
@@ -1176,6 +1213,7 @@ const updateHarvesterVMSpecInternal = async (
       // 当前 VM 的根磁盘信息
       const disks = domain.devices?.disks || [];
       const volumes = newSpec.template.spec.volumes || [];
+      const pvcClaimsBeforeReinstall = collectPvcClaimNamesFromVolumes(volumes);
       const bootDisk = resolveReinstallRootBootDisk(disks);
       const rootDiskName = String(bootDisk?.name || '').trim();
       const rootVolume = volumes.find((v: any) => v.name === rootDiskName);
@@ -1280,26 +1318,22 @@ const updateHarvesterVMSpecInternal = async (
            }
       }
 
-      // 4. Update VM Template Annotation (Source of Truth for Image Display)
-      // We MUST update both VM-level metadata (for list display) and Template-level metadata (for consistency)
-      // And importantly, update 'harvesterhci.io/volumeClaimTemplates' to reflect new root disk size/image
-      if (!newSpec.metadata) newSpec.metadata = {};
-      if (!newSpec.metadata.annotations) newSpec.metadata.annotations = {};
+      // 4. Update VM / Template annotations (列表与 UI 以 VM 根 metadata 上的 volumeClaimTemplates 为准)
       if (!newSpec.template.metadata) newSpec.template.metadata = {};
       if (!newSpec.template.metadata.annotations) newSpec.template.metadata.annotations = {};
-      
-      // Update imageId annotations
-      newSpec.metadata.annotations['harvesterhci.io/imageId'] = imageId;
+
+      rootVmAnnotationPatches['harvesterhci.io/imageId'] = imageId;
       newSpec.template.metadata.annotations['harvesterhci.io/imageId'] = imageId;
       if (imageName) {
-          newSpec.metadata.annotations['harvesterhci.io/image-name'] = imageName;
+          rootVmAnnotationPatches['harvesterhci.io/image-name'] = imageName;
           newSpec.template.metadata.annotations['harvesterhci.io/image-name'] = imageName;
       }
 
       // Update volumeClaimTemplates to reflect new PVC config (Size, Image, StorageClass)
-      // This is crucial for UI to display correct "Image Size" in list view
       try {
-        const vctStr = newSpec.metadata.annotations['harvesterhci.io/volumeClaimTemplates'];
+        const vctStr =
+          current?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'] ||
+          newSpec?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
         let vct = [];
         if (vctStr) {
            try { vct = JSON.parse(vctStr); } catch {}
@@ -1361,11 +1395,9 @@ const updateHarvesterVMSpecInternal = async (
             vct.push(newRootTemplate);
             console.log(`  已添加新模板: ${vct.length} 个模板`);
             
-            // Write back to annotation
-            newSpec.metadata.annotations['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify(vct);
+            rootVmAnnotationPatches['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify(vct);
         } else {
-            // Initialize if empty
-            newSpec.metadata.annotations['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify([newRootTemplate]);
+            rootVmAnnotationPatches['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify([newRootTemplate]);
             console.log(`  初始化新模板数组: 1 个模板`);
         }
       } catch (e) {
@@ -1386,10 +1418,11 @@ const updateHarvesterVMSpecInternal = async (
       const oldClaims: string[] = [];
       const pushClaim = (n: string) => {
         const s = String(n || '').trim();
-        if (s && !oldClaims.includes(s)) oldClaims.push(s);
+        if (s && s !== actualPvcName && !oldClaims.includes(s)) oldClaims.push(s);
       };
       pushClaim(oldPvcName);
       if (oldDvName) {
+        pendingReinstallOldDataVolumes.push(oldDvName);
         const pvcFromDv = await resolvePvcClaimNameFromDataVolume(
           { endpoint, token, insecure },
           namespace,
@@ -1397,12 +1430,15 @@ const updateHarvesterVMSpecInternal = async (
           origin,
         );
         pushClaim(pvcFromDv || '');
-        pushClaim(oldDvName);
       }
-      if (oldClaims.length) {
-        pendingReinstallOldClaims = oldClaims;
+      const pvcClaimsAfterReinstall = collectPvcClaimNamesFromVolumes(volumes);
+      for (const claim of pvcClaimsBeforeReinstall) {
+        if (!pvcClaimsAfterReinstall.includes(claim)) pushClaim(claim);
+      }
+      pendingReinstallOldClaims = oldClaims;
+      if (oldClaims.length || pendingReinstallOldDataVolumes.length) {
         console.log(
-          `[Reinstall] Old root storage will be deleted after VM patch (post-restart): ${oldClaims.join(', ')}`,
+          `[Reinstall] Old root storage will be deleted after VM patch (post-restart): PVC=[${oldClaims.join(', ')}] DV=[${pendingReinstallOldDataVolumes.join(', ')}]`,
         );
       }
   } 
@@ -2230,13 +2266,15 @@ const updateHarvesterVMSpecInternal = async (
     'Content-Type': 'application/merge-patch+json',
   });
 
-  if (pendingReinstallOldClaims.length > 0) {
+  if (pendingReinstallOldClaims.length > 0 || pendingReinstallOldDataVolumes.length > 0) {
     const claims = [...pendingReinstallOldClaims];
+    const dvs = [...pendingReinstallOldDataVolumes];
     deleteReinstallOldRootStorageClaims(
       { endpoint, token, insecure },
       namespace,
       name,
       claims,
+      dvs,
       origin,
     ).catch((err: any) =>
       console.warn('[Reinstall] Background old root storage cleanup failed:', err?.message || err),

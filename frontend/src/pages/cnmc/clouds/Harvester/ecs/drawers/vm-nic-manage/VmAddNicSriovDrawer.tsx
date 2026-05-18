@@ -40,6 +40,8 @@ import {
   pciPassthroughSelectScopeFromWizardNetMode,
   resolveVmPassthroughSchedulingHost,
   validateAppendPassthroughPciNodeAffinity,
+  wizardPassthroughPickFieldLabel,
+  wizardPassthroughPickRequiredMessage,
   type PassthroughSelectionExclusion,
 } from "../../lib/passthroughNicSelectOptions";
 
@@ -396,9 +398,14 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
             />
           </Form.Item>
           <Form.Item
-            label="直通网络"
+            label={wizardPassthroughPickFieldLabel(wizardNetMode)}
             name="passthroughPick"
-            rules={[{ required: true, message: "请选择直通网络" }]}
+            rules={[
+              {
+                required: true,
+                message: wizardPassthroughPickRequiredMessage(wizardNetMode),
+              },
+            ]}
           >
             <Select
               showSearch

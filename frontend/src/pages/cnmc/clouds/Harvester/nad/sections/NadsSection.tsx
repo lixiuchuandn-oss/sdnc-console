@@ -105,6 +105,14 @@ function inferCniTypeFromConfig(config: any): string {
   return '';
 }
 
+/** Kube-OVN 配套 NAD（由子网生命周期管理，不在 NAD 列表单独删除） */
+function isKubeOvnCniNad(record: { _type?: string; _config?: any }): boolean {
+  const t = String(record?._type ?? inferCniTypeFromConfig(record?._config) ?? '')
+    .trim()
+    .toLowerCase();
+  return t === 'kube-ovn';
+}
+
 function subnetTypeToShortLabel(t: string): string {
   const s = String(t || '').trim().toLowerCase();
   if (s === 'vpc') return 'VPC 子网';
@@ -366,6 +374,11 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
   const handleDelete = useCallback(async (record: any) => {
     if (!ensureNadsWrite()) return;
 
+    if (isKubeOvnCniNad(record)) {
+      message.warning('CNI 类型为 kube-ovn 的网络由 Kube-OVN 子网管理，请通过删除子网操作');
+      return;
+    }
+
     // 租户不能删除公共命名空间的资源
     const isPublic = isPublicNamespace(record._namespace);
     if (isTenant && isPublic) {
@@ -460,14 +473,20 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       return;
     }
 
+    const kubeOvnTargets = targets.filter((item: any) => isKubeOvnCniNad(item));
     const deletableTargets = targets.filter((item: any) => {
+      if (isKubeOvnCniNad(item)) return false;
       if (isTenant && isPublicNamespace(item._namespace)) return false;
       return true;
     });
     const publicTargets = isTenant ? targets.filter((item: any) => isPublicNamespace(item._namespace)) : [];
 
     if (deletableTargets.length === 0) {
-      if (publicTargets.length > 0) {
+      if (kubeOvnTargets.length > 0) {
+        message.warning(
+          `选中的网络无法删除：${kubeOvnTargets.length} 个 kube-ovn 配套网络（请通过 Kube-OVN 子网删除）`,
+        );
+      } else if (publicTargets.length > 0) {
         message.warning(`选中的网络无法删除：${publicTargets.length} 个公共命名空间（租户不能删除）`);
       } else {
         message.warning('选中的网络无法删除');
@@ -553,6 +572,11 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     let content = (
       <>
         <div>{`确定要删除选中的 ${deletableTargets.length} 个网络吗？此操作不可恢复。`}</div>
+        {kubeOvnTargets.length > 0 && (
+          <div style={{ color: '#faad14', marginTop: 8 }}>
+            {`注意：${kubeOvnTargets.length} 个 CNI 类型为 kube-ovn 的网络将被跳过（请通过 Kube-OVN 子网删除）。`}
+          </div>
+        )}
         {publicTargets.length > 0 && (
           <div style={{ color: '#faad14', marginTop: 8 }}>
             {`注意：${publicTargets.length} 个公共命名空间的网络将被跳过（租户不能删除公共命名空间的资源）。`}
@@ -830,7 +854,10 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     selectedRowKeys,
     onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
     getCheckboxProps: (record: any) => ({
-      disabled: !hasNadsWrite || (isTenant && isPublicNamespace(record._namespace)),
+      disabled:
+        !hasNadsWrite ||
+        isKubeOvnCniNad(record) ||
+        (isTenant && isPublicNamespace(record._namespace)),
     }),
   };
 
@@ -998,18 +1025,24 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       render: (_: any, r: any) => {
           const isPublic = isPublicNamespace(r._namespace);
           const deleteDisabled = isTenant && isPublic;
+          const showDelete = !isKubeOvnCniNad(r);
           const items: any[] = [];
           if (!isTenant && !isStandardView) {
             items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
-            items.push({ type: 'divider' });
+            if (showDelete) items.push({ type: 'divider' });
           }
-          items.push({ 
-            key: 'delete', 
-            label: '删除', 
-            danger: true, 
-            disabled: deleteDisabled,
-            onClick: () => handleDelete(r) 
-          });
+          if (showDelete) {
+            items.push({
+              key: 'delete',
+              label: '删除',
+              danger: true,
+              disabled: deleteDisabled,
+              onClick: () => handleDelete(r),
+            });
+          }
+          if (items.length === 0) {
+            return <span style={{ color: '#bfbfbf' }}>—</span>;
+          }
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasNadsWrite }} />;
       } 
     },

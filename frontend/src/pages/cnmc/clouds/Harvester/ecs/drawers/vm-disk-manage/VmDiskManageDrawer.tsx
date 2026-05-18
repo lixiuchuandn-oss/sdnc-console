@@ -79,6 +79,7 @@ import {
   mergeTemplateDisksAndVolumes,
   blockDiskDeviceNamesInVmOrder,
   blockDiskBusTypeChangedFromBaseline,
+  moveMergeTemplateBlockAtUiIndex,
   orderVolumesForDisks,
   removeMergeTemplateBlockAtUiIndex,
   rootBootDiskVolumeNameFromVm,
@@ -420,15 +421,20 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     setDisks((prevD) => {
       if (j < 0 || j >= prevD.length) return prevD;
       const nextD = [...prevD];
-      const [r] = nextD.splice(idx, 1);
-      nextD.splice(j, 0, r);
+      const [movedDisk] = nextD.splice(idx, 1);
+      nextD.splice(j, 0, movedDisk);
       setVolumes((prevV) => orderVolumesForDisks(nextD, prevV));
       setDiskUi((prevUi) => {
         const nextUi = [...prevUi];
-        const [ru] = nextUi.splice(idx, 1);
-        nextUi.splice(j, 0, ru);
+        const [movedUi] = nextUi.splice(idx, 1);
+        nextUi.splice(j, 0, movedUi);
         return nextUi;
       });
+      mergeTemplateRef.current = moveMergeTemplateBlockAtUiIndex(
+        mergeTemplateRef.current,
+        idx,
+        j,
+      );
       return nextD;
     });
   };

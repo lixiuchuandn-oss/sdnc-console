@@ -15,6 +15,18 @@ export function isWizardPciPassthroughNetMode(m: string): boolean {
   return s === WIZARD_NET_MODE_PCI_PHYSICAL || s === WIZARD_NET_MODE_PCI_SRIOV_VF;
 }
 
+/** 创建向导 / 网卡管理：PCI 直通模式下「选择设备」表单项标签 */
+export function wizardPassthroughPickFieldLabel(mode: string | undefined | null): string {
+  const s = String(mode || "").trim();
+  if (s === WIZARD_NET_MODE_PCI_SRIOV_VF) return "直通SR-IOV";
+  if (s === WIZARD_NET_MODE_PCI_PHYSICAL) return "直通网卡";
+  return "直通网络";
+}
+
+export function wizardPassthroughPickRequiredMessage(mode: string | undefined | null): string {
+  return `请选择${wizardPassthroughPickFieldLabel(mode)}`;
+}
+
 export type PassthroughSelectionExclusion = {
   pciCrNames: Set<string>;
   multusNadValues: Set<string>;

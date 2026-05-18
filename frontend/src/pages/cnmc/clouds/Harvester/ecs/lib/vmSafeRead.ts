@@ -411,11 +411,11 @@ export function readVmDetailVolumeDetails(
     .sort((a: any, b: any) => (a.bootOrder || 999) - (b.bootOrder || 999));
 }
 
-/** 详情 Tab「物理网卡」：PCI hostDevice + Multus SR-IOV/macvtap */
+/** 详情 Tab「物理网卡」区块：PCI hostDevice + Multus SR-IOV/macvtap */
 export type VmDetailPassthroughNicRow = {
   key: string;
   name: string;
-  kindLabel: "物理网卡" | "直通SR-IOV";
+  kindLabel: "直通网卡" | "直通SR-IOV";
   mountLabel: "hostDevice" | "Multus";
   deviceLabel: string;
   resourceName?: string;
@@ -441,7 +441,7 @@ export function readVmDetailPassthroughNicRows(
     rows.push({
       key: `pci:${b.pciCrName}`,
       name: b.pciCrName,
-      kindLabel: isVf ? "直通SR-IOV" : "物理网卡",
+      kindLabel: isVf ? "直通SR-IOV" : "直通网卡",
       mountLabel: "hostDevice",
       deviceLabel: getPciDeviceInventoryLabel(pciList, b.pciCrName) || b.pciCrName,
       resourceName: String(b.deviceResourceName || "").trim() || undefined,
@@ -459,7 +459,7 @@ export function readVmDetailPassthroughNicRows(
     rows.push({
       key: `multus:${row.name}`,
       name: String(row.name || ""),
-      kindLabel: isSriov ? "直通SR-IOV" : "物理网卡",
+      kindLabel: isSriov ? "直通SR-IOV" : "直通网卡",
       mountLabel: "Multus",
       deviceLabel: String(row.networkName || row.name || "").trim() || String(row.name || ""),
     });

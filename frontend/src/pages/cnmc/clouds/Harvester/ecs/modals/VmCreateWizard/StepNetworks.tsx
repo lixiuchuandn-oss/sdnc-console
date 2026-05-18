@@ -56,6 +56,8 @@ import {
   isWizardPciPassthroughNetMode,
   passthroughExclusionToFilterOpts,
   pciPassthroughSelectScopeFromWizardNetMode,
+  wizardPassthroughPickFieldLabel,
+  wizardPassthroughPickRequiredMessage,
 } from '../../lib/passthroughNicSelectOptions';
 import { KUBE_OVN_FLAT_VPC, isFlatKubeOvnSubnetVpc } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { kubeSubnetChoiceLabel } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
@@ -536,10 +538,15 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   </Col>
                   <Col span={8}>
                     <Form.Item
-                      label="直通网络"
+                      label={wizardPassthroughPickFieldLabel(mode)}
                       name={['primaryNic', 'passthroughPick']}
                       preserve
-                      rules={[{ required: true, message: '请选择直通网络' }]}
+                      rules={[
+                        {
+                          required: true,
+                          message: wizardPassthroughPickRequiredMessage(mode),
+                        },
+                      ]}
                       key="primary-nic-passthrough"
                     >
                       <Select
@@ -1161,9 +1168,14 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               </Col>
                               <Col span={8}>
                                 <Form.Item
-                                  label="直通网络"
+                                  label={wizardPassthroughPickFieldLabel(mode)}
                                   name={[name, 'passthroughPick']}
-                                  rules={[{ required: true, message: '请选择直通网络' }]}
+                                  rules={[
+                                    {
+                                      required: true,
+                                      message: wizardPassthroughPickRequiredMessage(mode),
+                                    },
+                                  ]}
                                   key={`secondary-nic-passthrough-${name}`}
                                 >
                                   <Select
