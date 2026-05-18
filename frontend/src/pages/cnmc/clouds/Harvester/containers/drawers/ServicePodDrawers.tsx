@@ -179,7 +179,7 @@ export const ServicePodDetailDrawer: React.FC<ServicePodDetailDrawerProps> = ({
               children: (
                 <Descriptions column={2} bordered size="small">
                   <Descriptions.Item label="名称">{pod.metadata?.name}</Descriptions.Item>
-                  <Descriptions.Item label="命名空间">{pod.metadata?.namespace}</Descriptions.Item>
+                  <Descriptions.Item label="项目">{pod.metadata?.namespace}</Descriptions.Item>
                   <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
                   <Descriptions.Item label="节点">{pod.spec?.nodeName || '-'}</Descriptions.Item>
                   <Descriptions.Item label="IP">{pod.status?.podIP || '-'}</Descriptions.Item>

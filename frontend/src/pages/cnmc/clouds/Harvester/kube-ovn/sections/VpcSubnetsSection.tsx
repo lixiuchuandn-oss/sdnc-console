@@ -442,7 +442,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
         },
       },
       {
-        title: '命名空间',
+        title: '项目',
         key: 'namespace',
         ellipsis: true,
         render: (_: any, r: any) => {

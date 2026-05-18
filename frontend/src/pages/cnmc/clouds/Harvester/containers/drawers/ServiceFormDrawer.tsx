@@ -376,7 +376,7 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
     const selector = form.getFieldValue('selector') as Array<{ key: string; value: string }>;
 
     if (!namespace) {
-      message.warning('请先选择命名空间');
+      message.warning('请先选择项目');
       return;
     }
 
@@ -518,11 +518,11 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                     <Col xs={24} sm={12}>
                       <Form.Item
                         name="namespace"
-                        label="命名空间"
-                        rules={[{ required: true, message: '请选择命名空间' }]}
+                        label="项目"
+                        rules={[{ required: true, message: '请选择项目' }]}
                       >
                         <Select
-                          placeholder="选择命名空间"
+                          placeholder="选择项目"
                           showSearch
                           disabled
                           options={namespaceSelectOptions}
@@ -548,11 +548,11 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                   <Col xs={24} sm={12}>
                     <Form.Item
                       name="namespace"
-                      label="命名空间"
-                      rules={[{ required: true, message: '请选择命名空间' }]}
+                      label="项目"
+                      rules={[{ required: true, message: '请选择项目' }]}
                     >
                       <Select
-                        placeholder="选择命名空间"
+                        placeholder="选择项目"
                         showSearch
                         options={namespaceSelectOptions}
                       />

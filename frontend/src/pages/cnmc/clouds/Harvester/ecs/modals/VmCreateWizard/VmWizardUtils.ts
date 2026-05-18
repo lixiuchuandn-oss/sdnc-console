@@ -598,8 +598,22 @@ export const buildHarvesterVmPayload = (params: {
   vmId?: string; // 预生成的 VM ID
   /** 直通 Multus 时按 NAD 解析 sriov / macvtap（与 StepNetworks 一致） */
   nadOptions?: any[];
+  /** USB 资源列表（用于节点固定，与 StepOthers 下拉同源） */
+  usbResources?: any[];
 }) => {
-  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64, vmId, nadOptions } = params;
+  const {
+    v,
+    memGi,
+    hostModeState,
+    selectedNodeName,
+    gpuResources,
+    selectedGpu,
+    capabilities,
+    isArm64,
+    vmId,
+    nadOptions,
+    usbResources,
+  } = params;
   
   // --- 1. GPU 资源处理 ---
   const gpuMode = String(v.gpuMode || 'none').toLowerCase();
@@ -697,6 +711,29 @@ export const buildHarvesterVmPayload = (params: {
         }
         if (pciNode) {
           return { 'kubernetes.io/hostname': pciNode };
+        }
+      } catch {}
+
+      // USB 透传：固定到 USB 设备所在节点（与变配 tryFinalizePassthroughNodeAffinity 一致）
+      try {
+        const usbRns = (Array.isArray(v.usbDevices) ? v.usbDevices : [])
+          .map((x: unknown) => String(x ?? '').trim())
+          .filter(Boolean);
+        if (usbRns.length > 0) {
+          const list = Array.isArray(usbResources) ? usbResources : [];
+          const usbNodes = new Set<string>();
+          for (const rn of usbRns) {
+            const found = list.find(
+              (x: any) => String(x?.resourceName || '').trim() === rn,
+            );
+            const node = String(
+              found?.nodeName || found?.node || found?.raw?.status?.nodeName || '',
+            ).trim();
+            if (node) usbNodes.add(node);
+          }
+          if (usbNodes.size === 1) {
+            return { 'kubernetes.io/hostname': [...usbNodes][0] };
+          }
         }
       } catch {}
       
@@ -1075,7 +1112,19 @@ export const buildHarvesterVmPayload = (params: {
                             const rn = String(nic?.pciResourceName || '').trim();
                             if (dn && rn) list.push({ name: dn, deviceName: rn });
                           });
-                          return list;
+                          let usbOrdinal = 0;
+                          (Array.isArray(v.usbDevices) ? v.usbDevices : []).forEach(
+                            (entry: unknown) => {
+                              const deviceName = String(entry ?? '').trim();
+                              if (!deviceName) return;
+                              usbOrdinal += 1;
+                              list.push({
+                                name: `usb-${usbOrdinal}`,
+                                deviceName,
+                              });
+                            },
+                          );
+                          return list.length > 0 ? list : undefined;
                         })(),
                     },
                     machine: {

@@ -139,8 +139,8 @@ const PciDevicesSection: React.FC<Props> = ({
       const bindTo = String(r?.bindingTo || r?.claimedBy || r?.claimName || '').toLowerCase();
       if (nf && node !== nf) return false;
       if (sf && state !== sf) return false;
-      if (bindFilter === 'bound' && !r?.claimed) return false;
-      if (bindFilter === 'unbound' && r?.claimed) return false;
+      if (bindFilter === 'bound' && !r?.vmInfo) return false;
+      if (bindFilter === 'unbound' && r?.vmInfo) return false;
       if (!kw) return true;
       return (
         node.includes(kw) ||
@@ -239,15 +239,11 @@ const PciDevicesSection: React.FC<Props> = ({
         key: 'binding',
         ellipsis: true,
         render: (_: any, r: any) => {
-          if (!r?.claimed) return <Tag>未绑定</Tag>;
-          if (r?.vmInfo) {
-            const vmInfo = r.vmInfo;
-            const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
-            const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
-            return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
-          }
-          const txt = r?.bindingTo || r?.claimedBy || r?.claimName || '已绑定';
-          return <span style={{ wordBreak: 'break-word' }}>{String(txt)}</span>;
+          if (!r?.vmInfo) return <Tag>未绑定</Tag>;
+          const vmInfo = r.vmInfo;
+          const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
+          const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
+          return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
         },
       },
       {

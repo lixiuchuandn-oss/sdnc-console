@@ -169,7 +169,7 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ open, onCancel, onSuccess,
       <Form form={form} layout="vertical">
         <Row gutter={16}>
             <Col span={12}>
-                <Form.Item name="namespace" label="命名空间">
+                <Form.Item name="namespace" label="项目">
                   <Input disabled />
                 </Form.Item>
             </Col>

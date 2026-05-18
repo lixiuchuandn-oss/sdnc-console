@@ -317,7 +317,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
         </span>
       ) 
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '项目', dataIndex: 'namespace', key: 'namespace' },
     { title: 'IP 范围/CIDR', dataIndex: 'ranges', key: 'ranges', ellipsis: true },
     { 
       title: '网络', 
@@ -379,7 +379,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
             style={{ width: 200 }}
           />
           <Select
-            placeholder="命名空间"
+            placeholder="项目"
             value={nsFilter || undefined}
             onChange={(v) => setNsFilter(v || '')}
             allowClear

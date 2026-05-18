@@ -46,6 +46,7 @@ import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../../../constants/cloudPermissions';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import {
+  extractCloudProviderEcsList,
   validateVmCreateWizardNicsAgainstPeerVms,
   validateVmCreateWizardNicsMacIpAndSubnet,
 } from '../lib/vmNicMacIpValidation';
@@ -412,9 +413,21 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         }
         const nicNs = String(form.getFieldValue('namespace') || '').trim();
         if (nicNs) {
+          let peerListForStep: any[] = existingVms;
+          const cidForPeer =
+            currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
+          if (cidForPeer) {
+            try {
+              const json: any = await fetchCloudProviderEcs(cidForPeer, true);
+              const extracted = extractCloudProviderEcsList(json);
+              if (extracted.length > 0) peerListForStep = extracted;
+            } catch {
+              /* 回退 existingVms */
+            }
+          }
           const nicPeerErr = validateVmCreateWizardNicsAgainstPeerVms(
             vNet,
-            existingVms,
+            peerListForStep,
             nicNs,
           );
           if (nicPeerErr) {
@@ -537,13 +550,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       let peerListForNic: any[] = existingVms;
       try {
         const json: any = await fetchCloudProviderEcs(cid, true);
-        const extracted: any[] = Array.isArray(json?.data)
-          ? json.data
-          : Array.isArray(json?.data?.items)
-            ? json.data.items
-            : Array.isArray(json?.items)
-              ? json.items
-              : [];
+        const extracted = extractCloudProviderEcsList(json);
         if (extracted.length > 0) peerListForNic = extracted;
       } catch {
         /* 使用内存中的 existingVms */
@@ -651,6 +658,45 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         }
       }
 
+      const usbNodes = new Set<string>();
+      const usbRns = (Array.isArray(v.usbDevices) ? v.usbDevices : [])
+        .map((x: unknown) => String(x ?? '').trim())
+        .filter(Boolean);
+      if (usbRns.length > 0) {
+        const usbList = Array.isArray(usbResources) ? usbResources : [];
+        for (const rn of usbRns) {
+          const found = usbList.find(
+            (x: any) => String(x?.resourceName || '').trim() === rn,
+          );
+          const node = String(
+            found?.nodeName || found?.node || found?.raw?.status?.nodeName || '',
+          ).trim();
+          if (node) usbNodes.add(node);
+        }
+        if (usbNodes.size > 1) {
+          message.error('多块 USB 设备须位于同一节点。');
+          return;
+        }
+        if (usbNodes.size === 1) {
+          const un = [...usbNodes][0];
+          if (pciNodes.size === 1 && un !== [...pciNodes][0]) {
+            message.error('USB 与 PCI 直通网卡不在同一节点，请调整设备选择。');
+            return;
+          }
+          if (selectedGpu) {
+            const gn = String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
+            if (gn && un && gn !== un) {
+              message.error('USB 与 GPU 不在同一节点，请调整设备选择。');
+              return;
+            }
+          }
+          if (hostModeState === 'node' && selectedNodeName && un !== String(selectedNodeName)) {
+            message.error('所选主机与 USB 设备所在节点不一致，请将调度改为「自动」或选择与 USB 相同的节点。');
+            return;
+          }
+        }
+      }
+
       // ...
       // 生成唯一ID
       const vmId = await generateUniqueVmId(cid, v.namespace || 'default');
@@ -658,6 +704,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       const payload = constructVmPayload({
         v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities, vmId, // 传入 vmId
         nadOptions: nadOptions || [],
+        usbResources: usbResources || [],
         isArm64: (function() {
             if (nodes && nodes.length > 0) {
                  const n = nodes[0];

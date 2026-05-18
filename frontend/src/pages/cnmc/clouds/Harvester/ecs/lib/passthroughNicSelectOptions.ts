@@ -227,35 +227,17 @@ export function isVmHostDeviceGpuLike(d: any): boolean {
 }
 
 /**
- * 当前 VM 已绑定的 PCIDevice CR 名（hostDevices 中非 GPU/USB + deviceAllocationDetails.hostdevices）。
- * 与后端 pciVmAllocation 收集规则一致，用于变配抽屉展示「已直通」列表。
+ * 当前 VM 已绑定的网卡类 PCIDevice CR 名（仅 hostDevices，不含注解）。
+ * 与后端 pciVmAllocation 一致；注解可能含 SR-IOV PF 等未挂入 guest 的 CR，不得计入。
  */
 export function collectVmPassthroughPciCrNames(vm: any): Set<string> {
   const into = new Set<string>();
-  const push = (s: unknown) => {
-    const t = String(s ?? "").trim();
-    if (t) into.add(t);
-  };
-  try {
-    const raw = vm?.metadata?.annotations?.["harvesterhci.io/deviceAllocationDetails"];
-    if (raw) {
-      const p = typeof raw === "string" ? JSON.parse(raw) : raw;
-      const hd = p?.hostdevices;
-      if (hd && typeof hd === "object") {
-        for (const v of Object.values(hd)) {
-          if (Array.isArray(v)) (v as unknown[]).forEach((x) => push(x));
-        }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
   const hostDevices = vm?.spec?.template?.spec?.domain?.devices?.hostDevices;
-  if (Array.isArray(hostDevices)) {
-    for (const h of hostDevices) {
-      if (isVmHostDeviceGpuLike(h) || isVmHostDeviceUsbLike(h)) continue;
-      push(h?.name);
-    }
+  if (!Array.isArray(hostDevices)) return into;
+  for (const h of hostDevices) {
+    if (isVmHostDeviceGpuLike(h) || isVmHostDeviceUsbLike(h)) continue;
+    const t = String(h?.name ?? "").trim();
+    if (t) into.add(t);
   }
   return into;
 }

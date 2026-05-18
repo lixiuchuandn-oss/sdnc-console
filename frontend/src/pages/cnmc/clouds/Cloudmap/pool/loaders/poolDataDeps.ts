@@ -75,6 +75,8 @@ export type PoolPathResourceDeps = {
   setRawCloudInits: Dispatch<SetStateAction<any | null>>;
   setHarvesterTemplates: Dispatch<SetStateAction<any[]>>;
   setRawTemplates: Dispatch<SetStateAction<any | null>>;
+  setHarvesterImages: Dispatch<SetStateAction<any[]>>;
+  setRawImages: Dispatch<SetStateAction<any | null>>;
   setHarvesterGpuResources: Dispatch<SetStateAction<any[]>>;
   setRawGpu: Dispatch<SetStateAction<any | null>>;
   setHarvesterUsbDevices: Dispatch<SetStateAction<any[]>>;

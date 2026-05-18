@@ -266,7 +266,7 @@ const PDBDetailDrawer: React.FC<{
       
       <Descriptions column={2} bordered size="small">
         <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
-        <Descriptions.Item label="命名空间">{metadata.namespace}</Descriptions.Item>
+        <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
         <Descriptions.Item label="状态">{renderPDBStatus(data)}</Descriptions.Item>
         <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
         
@@ -472,7 +472,7 @@ const PDBSection: React.FC<Props> = ({
         <div>
           <p>确定要删除 Pod 中断保护规则 "{displayName}" 吗？</p>
           <p>
-            <strong>命名空间:</strong> {namespace}
+            <strong>项目:</strong> {namespace}
           </p>
           <Alert
             message="删除 PDB 可能影响服务在节点维护期间的可用性"
@@ -585,7 +585,7 @@ const PDBSection: React.FC<Props> = ({
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
     },
@@ -786,7 +786,7 @@ const PDBSection: React.FC<Props> = ({
             <Input
               className="toolbar-search"
               allowClear
-              placeholder="名称/命名空间"
+              placeholder="名称/项目"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
@@ -794,7 +794,7 @@ const PDBSection: React.FC<Props> = ({
             <Select
               className="toolbar-filter-sm"
               allowClear
-              placeholder="筛选命名空间"
+              placeholder="筛选项目"
               value={nsValue || undefined}
               onChange={onNsChange}
               showSearch

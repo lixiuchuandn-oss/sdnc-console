@@ -128,8 +128,8 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
 
         <Form.Item
           name="namespace"
-          label="命名空间"
-          rules={[{ required: true, message: '请选择命名空间' }]}
+          label="项目"
+          rules={[{ required: true, message: '请选择项目' }]}
         >
           <Select showSearch>
             {namespaces.map(ns => (

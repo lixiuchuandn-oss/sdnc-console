@@ -469,7 +469,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         <Badge status={!suspended ? 'success' : 'warning'} text={!suspended ? '活跃' : '暂停'} />
       )
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '项目', dataIndex: 'namespace', key: 'namespace' },
     { title: '源虚拟机', dataIndex: 'vmAlias', key: 'vmAlias' },
     { 
       title: '计划任务', 
@@ -572,7 +572,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
                 className="toolbar-filter-sm"
                 allowClear
                 showSearch
-                placeholder="命名空间"
+                placeholder="项目"
                 value={namespaceFilter}
                 onChange={setNamespaceFilter}
                 options={namespaceOptions}

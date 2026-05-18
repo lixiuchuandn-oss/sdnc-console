@@ -357,6 +357,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawCloudInits,
         setHarvesterTemplates,
         setRawTemplates,
+        setHarvesterImages,
+        setRawImages,
         setHarvesterGpuResources,
         setRawGpu,
         setHarvesterUsbDevices,

@@ -426,7 +426,7 @@ const ServicesSection: React.FC<Props> = ({
       key: 'id',
       ellipsis: true,
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '项目', dataIndex: 'namespace', key: 'namespace' },
     { 
       title: '类型', 
       dataIndex: 'type', 
@@ -521,7 +521,7 @@ const ServicesSection: React.FC<Props> = ({
         <>
           <Input 
             allowClear 
-            placeholder="服务名/命名空间" 
+            placeholder="服务名/项目" 
             suffix={<SearchOutlined />}
             value={keyword}
             onChange={e => { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }}
@@ -531,7 +531,7 @@ const ServicesSection: React.FC<Props> = ({
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="筛选命名空间"
+            placeholder="筛选项目"
             value={nsValue || undefined}
             onChange={(v) => { onNsChange?.(v); setPagination((p) => ({ ...p, current: 1 })); }}
             options={namespacesOptionsBiz.map((ns) => ({ label: ns, value: ns }))}

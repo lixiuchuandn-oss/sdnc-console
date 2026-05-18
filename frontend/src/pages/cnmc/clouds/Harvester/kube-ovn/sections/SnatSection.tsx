@@ -589,7 +589,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
                   <Select.Option key={v.id} value={v.id} label={v.display} data-search={v.searchLabel}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span>{v.display}</span>
-                      <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>{`命名空间: ${v.namespacesDisplay}`}</span>
+                      <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>{`项目: ${v.namespacesDisplay}`}</span>
                     </div>
                   </Select.Option>
                 ))}

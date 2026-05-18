@@ -22,7 +22,7 @@
  *
  * 快速检索（关键词）：`SafeRead` · `filtered` · `allColumns` · `handleShowVmDetail` · `ResourceActionsDropdown` · `batchStop` / `batchReboot` / `batchDelete`
  *
- * 权限提示：工具栏「批量」下拉与行内 `ResourceActionsDropdown` 门控不一致属有意为之——批量操作用 `hasVmCreatePermission`（clouds.ecs:write 或 clouds:write），行内单项另含控制台/删除等细分权限。
+ * 权限提示：工具栏「批量」下拉与行内 `ResourceActionsDropdown` 门控不一致属有意为之——批量操作用 `vmPermissions.create`（clouds.ecs:write 或 clouds:write），行内单项另含控制台/删除等细分权限。
  *
  * ------------------------------------------------------------------------------
  * [功能描述]
@@ -89,7 +89,7 @@ import {
 } from "@ant-design/icons";
 import PageDetailSection from "../../../../../../components/PageDetailSection";
 import ResourceActionsDropdown from "../../../../../../components/ResourceActionsDropdown";
-import { stopCloudProviderEcs, apiPost } from "../../../../../../services/api";
+import { stopCloudProviderEcs } from "../../../../../../services/api";
 import {
   fetchHarvesterVncUrl,
   fetchHarvesterNodes,
@@ -101,7 +101,7 @@ import TableColumnSettingsButton from "../../../../../../components/TableColumnS
 import VmDetailDrawer from "../drawers/vm-detail";
 import VmMigrateModal from "../modals/VmMigrateModal";
 import VmBackupCreateModal from "../../cbr/modals/VmBackupCreateModal";
-import VmCloneModal from "../../ecs/modals/VmCloneModal";
+import VmCloneModal from "../modals/VmCloneModal";
 import {
   cnVmStatus,
   VM_STATUS_MAP,
@@ -116,7 +116,7 @@ import {
   CLOUD_VM_QUICK_CREATE_WRITE,
 } from "../../../../../../constants/cloudPermissions";
 import { useCloudmapOpsViewWrite } from "../../hooks/useCloudmapOpsViewWrite";
-import SimpleVmCreateModal from "../../ecs/modals/SimpleVmCreateModal";
+import SimpleVmCreateModal from "../modals/SimpleVmCreateModal";
 import VmAliasEditModal from "../modals/VmAliasEditModal";
 import { isTowerPaasInventoryExcludedVm } from "../../shared/harvesterTowerPaas";
 import { findFirstVmVolumeResizeState } from "../lib/vmVolumePvc";
@@ -257,23 +257,16 @@ const VmSection: React.FC<Props> = ({
   const location = useLocation();
   // 当前登录用户：包含 permissions 等信息
   const { user } = useAuth();
-  // 创建虚拟机权限：需要 clouds.ecs:write 或 clouds:write（包含 ecs:write 的继承）
-  const hasVmCreatePermission = useMemo(() => {
+  /** 列表写操作 / 创建向导 / 快速创建权限（一次解析，避免重复遍历 permissions） */
+  const vmPermissions = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
-    return (
-      hasPermissionForAction(perms, "clouds.ecs:write") ||
-      hasPermissionForAction(perms, "clouds:write")
-    );
-  }, [user?.permissions]);
-  /** 创建向导：独立权限原子，与 clouds.ecs:write 解耦 */
-  const hasVmCreateWizardPermission = useMemo(() => {
-    const perms = (user?.permissions ?? []) as string[];
-    return hasPermissionForAction(perms, CLOUD_VM_CREATE_WIZARD_WRITE);
-  }, [user?.permissions]);
-  /** 快速创建：仅 clouds.vm-quick-create:write（与创建向导同一套「独立原子门控 UI」思路） */
-  const hasVmQuickCreatePermission = useMemo(() => {
-    const perms = (user?.permissions ?? []) as string[];
-    return hasPermissionForAction(perms, CLOUD_VM_QUICK_CREATE_WRITE);
+    return {
+      create:
+        hasPermissionForAction(perms, "clouds.ecs:write") ||
+        hasPermissionForAction(perms, "clouds:write"),
+      wizard: hasPermissionForAction(perms, CLOUD_VM_CREATE_WIZARD_WRITE),
+      quickCreate: hasPermissionForAction(perms, CLOUD_VM_QUICK_CREATE_WRITE),
+    };
   }, [user?.permissions]);
   /** 资源池运维视图：命名空间/租户/组织列、YAML、运维筛选等（clouds.cloudmap.ops-view:write） */
   const hasCloudmapOpsViewWrite = useCloudmapOpsViewWrite();
@@ -287,14 +280,9 @@ const VmSection: React.FC<Props> = ({
   }, [onCreateVmOverride]);
 
   const handleInternalQuickVmCreated = useCallback(async () => {
-    try {
-      await apiPost(`/api/clouds/${cloudId}/sync`);
-    } catch {
-      /* ignore */
-    }
     await Promise.resolve(onQuickVmCreated?.());
     onRefresh(true);
-  }, [cloudId, onQuickVmCreated, onRefresh]);
+  }, [onQuickVmCreated, onRefresh]);
 
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
@@ -1355,7 +1343,7 @@ const VmSection: React.FC<Props> = ({
       ...(hasCloudmapOpsViewWrite
         ? [
             {
-              title: "命名空间",
+              title: "项目",
               key: "namespace",
               ellipsis: true,
               render: (_: any, r: any) => SafeRead.namespace(r) || "-",
@@ -1862,7 +1850,7 @@ const VmSection: React.FC<Props> = ({
             <Select
               key="ns-filter"
               className="toolbar-filter-sm"
-              placeholder="命名空间"
+              placeholder="项目"
               value={nsValue || undefined}
               onChange={(v) => onNsChange(v || undefined)}
               allowClear
@@ -1927,7 +1915,7 @@ const VmSection: React.FC<Props> = ({
 
         {/* 右侧：操作按钮 */}
         <div key="toolbar-right" className="toolbar-actions">
-          {hasVmQuickCreatePermission && (
+          {vmPermissions.quickCreate && (
             <Button
               key="quick-create-btn"
               type="primary"
@@ -1936,7 +1924,7 @@ const VmSection: React.FC<Props> = ({
               快速创建
             </Button>
           )}
-          {hasVmCreateWizardPermission && (
+          {vmPermissions.wizard && (
             <Button
               key="wizard-create-btn"
               type="primary"
@@ -1951,7 +1939,7 @@ const VmSection: React.FC<Props> = ({
           )}
           <Tooltip
             title={
-              !hasVmCreatePermission
+              !vmPermissions.create
                 ? undefined
                 : selectedKeys.length === 0
                   ? "请先选择实例"
@@ -1968,24 +1956,24 @@ const VmSection: React.FC<Props> = ({
                       key: "batchStop",
                       label: "批量停止",
                       disabled:
-                        !hasVmCreatePermission || selectedKeys.length === 0,
+                        !vmPermissions.create || selectedKeys.length === 0,
                     },
                     {
                       key: "batchReboot",
                       label: "批量重启",
                       disabled:
-                        !hasVmCreatePermission || selectedKeys.length === 0,
+                        !vmPermissions.create || selectedKeys.length === 0,
                     },
                     { type: "divider" },
                     {
                       key: "batchDelete",
                       label: <span style={{ color: "#ff4d4f" }}>批量删除</span>,
                       disabled:
-                        !hasVmCreatePermission || selectedKeys.length === 0,
+                        !vmPermissions.create || selectedKeys.length === 0,
                     },
                   ],
                   onClick: ({ key }) => {
-                    if (!hasVmCreatePermission) {
+                    if (!vmPermissions.create) {
                       message.error("无权限执行批量操作");
                       return;
                     }
@@ -2001,7 +1989,7 @@ const VmSection: React.FC<Props> = ({
               >
                 <Button
                   icon={<EllipsisOutlined />}
-                  disabled={!hasVmCreatePermission || selectedKeys.length === 0}
+                  disabled={!vmPermissions.create || selectedKeys.length === 0}
                 />
               </Dropdown>
             </span>

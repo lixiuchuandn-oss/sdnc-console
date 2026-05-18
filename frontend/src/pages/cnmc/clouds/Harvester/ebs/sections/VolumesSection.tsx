@@ -989,7 +989,7 @@ const VolumesSection: React.FC<Props> = ({
       render: (v: string) => statusBadge(v) 
     },
     ...(isTenant ? [] : [{ 
-      title: '命名空间', 
+      title: '项目', 
       dataIndex: 'namespace',
       key: 'namespace' 
     }]),
@@ -1241,7 +1241,7 @@ const VolumesSection: React.FC<Props> = ({
           />
           {!isTenant && hasOpsView && (
             <Select
-              allowClear showSearch placeholder="命名空间"
+              allowClear showSearch placeholder="项目"
               value={nsFilter || undefined} onChange={(v) => setNsFilter(v || '')}
               className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...nsOptions]}
             />

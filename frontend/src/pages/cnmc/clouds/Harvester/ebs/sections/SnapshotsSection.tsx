@@ -350,7 +350,7 @@ const SnapshotsSection: React.FC<Props> = ({
           </Tooltip>
         ),
     },
-    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', ellipsis: true }] : []),
+    ...(hasOpsView ? [{ title: '项目', dataIndex: 'namespace', key: 'namespace', ellipsis: true }] : []),
     { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc', ellipsis: true },
     ...(hasOpsView ? [{ title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName', ellipsis: true }] : []),
     {
@@ -424,7 +424,7 @@ const SnapshotsSection: React.FC<Props> = ({
             <Select
               allowClear
               showSearch
-              placeholder="命名空间"
+              placeholder="项目"
               className="toolbar-filter-sm"
               value={namespaceFilter || undefined}
               onChange={(v) => setNamespaceFilter(v || '')}

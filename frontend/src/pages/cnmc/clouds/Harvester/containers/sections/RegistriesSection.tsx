@@ -229,7 +229,7 @@ const RegistryDetailDrawer: React.FC<{
         <Descriptions.Item label="名称" span={2}>
           <Text code copyable>{metadata.name}</Text>
         </Descriptions.Item>
-        <Descriptions.Item label="命名空间">
+        <Descriptions.Item label="项目">
           <Tag color="blue">{metadata.namespace}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="类型">
@@ -803,7 +803,7 @@ const CredentialTable: React.FC<{
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
       render: (ns: string) => <Tag>{ns}</Tag>,
@@ -893,14 +893,14 @@ const CredentialTable: React.FC<{
           <Input
             className="toolbar-search"
             allowClear
-            placeholder="名称/命名空间/别名"
+            placeholder="名称/项目/别名"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => onKeywordChange(e.target.value)}
           />
           <Select
             className="toolbar-filter-sm"
-            placeholder="筛选命名空间"
+            placeholder="筛选项目"
             allowClear
             showSearch
             optionFilterProp="label"

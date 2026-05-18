@@ -413,7 +413,7 @@ const WorkloadTable: React.FC<{
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
       ellipsis: true,
@@ -536,14 +536,14 @@ const WorkloadTable: React.FC<{
           <Input
             className="toolbar-search"
             allowClear
-            placeholder="名称/命名空间"
+            placeholder="名称/项目"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
           <Select
             className="toolbar-filter-sm"
-            placeholder="筛选命名空间"
+            placeholder="筛选项目"
             allowClear
             showSearch
             optionFilterProp="label"

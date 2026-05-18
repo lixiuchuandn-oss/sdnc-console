@@ -297,10 +297,10 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces: p
           <Col span={12}>
             <Form.Item
               name="namespace"
-              label="命名空间"
-              rules={[{ required: true, message: '请选择命名空间' }]}
+              label="项目"
+              rules={[{ required: true, message: '请选择项目' }]}
             >
-              <Select options={nsOptions} placeholder="请选择命名空间" showSearch />
+              <Select options={nsOptions} placeholder="请选择项目" showSearch />
             </Form.Item>
           </Col>
         </Row>

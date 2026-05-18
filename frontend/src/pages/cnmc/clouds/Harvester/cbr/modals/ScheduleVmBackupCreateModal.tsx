@@ -303,9 +303,9 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
           </Radio.Group>
         </Form.Item>
 
-        <Form.Item name="namespace" label="命名空间" rules={[{ required: true }]}>
+        <Form.Item name="namespace" label="项目" rules={[{ required: true, message: '请选择项目' }]}>
           <Select 
-            placeholder="请选择命名空间"
+            placeholder="请选择项目"
             options={filteredNamespaces.map(n => ({ label: n.metadata?.name || n.name, value: n.metadata?.name || n.name }))}
             onChange={() => form.setFieldValue('vmName', undefined)}
             showSearch
@@ -315,7 +315,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
           name="vmName" 
           label="源虚拟机" 
           rules={[{ required: true }]}
-          help={!selectedNamespace ? '请先选择命名空间' : undefined}
+          help={!selectedNamespace ? '请先选择项目' : undefined}
         >
           <Select 
             placeholder="请选择虚拟机"

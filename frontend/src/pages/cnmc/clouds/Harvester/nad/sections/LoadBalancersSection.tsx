@@ -268,7 +268,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
         </span>
       ) 
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '项目', dataIndex: 'namespace', key: 'namespace' },
     { title: '地址', dataIndex: 'address', key: 'address' },
     { title: '地址分配模式', dataIndex: 'ipam', key: 'ipam', render: (t: string) => <Tag>{t}</Tag> },
     { title: '监听器', dataIndex: 'listeners', key: 'listeners', ellipsis: true },
@@ -321,7 +321,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
             style={{ width: 200 }}
           />
           <Select
-            placeholder="命名空间"
+            placeholder="项目"
             value={nsFilter || undefined}
             onChange={(v) => setNsFilter(v || '')}
             allowClear

@@ -78,7 +78,7 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
                   </div>
                   <Paragraph 
                     style={{ margin: 0, color: '#555', paddingLeft: 24 }} 
-                    ellipsis={{ rows: 2, expandable: true, symbol: '灞曞紑' }}
+                    ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}
                   >
                       {message}
                   </Paragraph>
@@ -91,8 +91,9 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
        <div style={{ padding: '12px 16px',  borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: '8px 8px 0 0' }}>
            <Text type="secondary" style={{ fontSize: 12 }}>
-               鍏?{events.length} 鏉′簨浠惰褰?           </Text>
-           <Tooltip title="鍒锋柊">
+               共 {events.length} 条事件记录
+           </Text>
+           <Tooltip title="刷新">
                <Button type="text" size="small" icon={<ReloadOutlined />} onClick={loadEvents} loading={loading} />
            </Tooltip>
        </div>
@@ -101,7 +102,7 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
              dataSource={events} 
              renderItem={renderEventItem}
              loading={loading}
-             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="鏆傛棤浜嬩欢" /> }}
+             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无事件" /> }}
            />
        </div>
     </div>
