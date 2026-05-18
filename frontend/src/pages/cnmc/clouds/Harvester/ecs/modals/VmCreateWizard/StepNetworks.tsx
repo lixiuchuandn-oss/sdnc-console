@@ -65,6 +65,7 @@ import SubnetDetailDrawer from '../../../kube-ovn/drawers/subnet-detail-drawer';
 import { isKubeOvnSubnetNadReady, resolveMultusNetNameForKubeOvnSubnetNic } from './kubeOvnNadRefForVmWizard';
 import { fetchCloudProviderEcs } from '../../../../../../../services/api';
 import {
+  extractCloudProviderEcsList,
   WIZARD_MAC_FIELD_PATTERN,
   WIZARD_STATIC_IP_FIELD_PATTERN,
   wizardIpFieldInlineError,
@@ -222,6 +223,22 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
     [watchNamespace, netModeWatch, primaryNicWatch, netIfacesWatch],
   );
 
+  const refreshLivePeerVms = useCallback(() => {
+    const cid = String(cloudId || '').trim();
+    const ns = String(watchNamespace || '').trim();
+    if (!cid || !ns) return;
+    void fetchCloudProviderEcs(cid, true)
+      .then((json: any) => {
+        const extracted = extractCloudProviderEcsList(json);
+        setLivePeerVms(Array.isArray(extracted) ? extracted : []);
+      })
+      .catch(() => {});
+  }, [cloudId, watchNamespace]);
+
+  useEffect(() => {
+    refreshLivePeerVms();
+  }, [refreshLivePeerVms]);
+
   const peerFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const cid = String(cloudId || '').trim();
@@ -230,23 +247,12 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
     if (peerFetchTimerRef.current) clearTimeout(peerFetchTimerRef.current);
     peerFetchTimerRef.current = setTimeout(() => {
       peerFetchTimerRef.current = null;
-      void fetchCloudProviderEcs(cid, true)
-        .then((json: any) => {
-          const extracted: any[] = Array.isArray(json?.data)
-            ? json.data
-            : Array.isArray(json?.data?.items)
-              ? json.data.items
-              : Array.isArray(json?.items)
-                ? json.items
-                : [];
-          setLivePeerVms(Array.isArray(extracted) ? extracted : []);
-        })
-        .catch(() => {});
-    }, 600);
+      refreshLivePeerVms();
+    }, 300);
     return () => {
       if (peerFetchTimerRef.current) clearTimeout(peerFetchTimerRef.current);
     };
-  }, [peerRefreshFingerprint, cloudId, watchNamespace]);
+  }, [peerRefreshFingerprint, refreshLivePeerVms, cloudId, watchNamespace]);
 
   useEffect(() => {
     const nm = String(form.getFieldValue("netMode") || "");
@@ -948,7 +954,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   label="静态IP"
                   name={['primaryNic', 'ipAddress']}
                   preserve
-                  tooltip="可选。指定该网卡在子网内的固定 IPv4（可带掩码，如 192.168.1.10/24）；不填则由网络侧自动分配。"
+                  tooltip="可选，指定该网卡在子网内的固定 IPv4（如 192.168.1.10），不填则由子网侧自动分配。"
                   dependencies={[
                     'netIfaces',
                     'netMode',
@@ -1599,7 +1605,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             <Form.Item
                               label="静态IP"
                               name={[name, 'ipAddress']}
-                              tooltip="可选。指定该网卡在子网内的固定 IPv4（可带掩码，如 192.168.1.10/24）；不填则由网络侧自动分配。"
+                              tooltip="可选，指定该网卡在子网内的固定 IPv4（如 192.168.1.10），不填则由子网侧自动分配。"
                               dependencies={[
                                 'netIfaces',
                                 'netMode',

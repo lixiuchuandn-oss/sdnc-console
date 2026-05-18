@@ -203,9 +203,7 @@ function readEthernetForIface(
   return { ip, gateway, dns };
 }
 
-/** 解析 VM 根注解 harvesterhci.io/custom-ip（Kube-OVN 静态 IP，与创建向导一致）。 */
-export function parseHarvesterCustomIpList(vmData: any): { name: string; ip: string }[] {
-  const raw = vmData?.metadata?.annotations?.["harvesterhci.io/custom-ip"];
+function parseHarvesterCustomIpAnnotationRaw(raw: unknown): { name: string; ip: string }[] {
   if (raw == null || raw === "") return [];
   try {
     const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -219,6 +217,29 @@ export function parseHarvesterCustomIpList(vmData: any): { name: string; ip: str
   } catch {
     return [];
   }
+}
+
+/**
+ * 解析 harvesterhci.io/custom-ip（Kube-OVN 静态 IP 预留）。
+ * 合并 VM 根注解、Pod 模板注解及列表接口顶层的 annotations 字段。
+ */
+export function parseHarvesterCustomIpList(vmData: any): { name: string; ip: string }[] {
+  const raws: unknown[] = [
+    vmData?.metadata?.annotations?.["harvesterhci.io/custom-ip"],
+    vmData?.spec?.template?.metadata?.annotations?.["harvesterhci.io/custom-ip"],
+    vmData?.annotations?.["harvesterhci.io/custom-ip"],
+  ];
+  const seen = new Set<string>();
+  const out: { name: string; ip: string }[] = [];
+  for (const raw of raws) {
+    for (const item of parseHarvesterCustomIpAnnotationRaw(raw)) {
+      const key = `${item.name}\x1f${item.ip}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
 }
 
 /**

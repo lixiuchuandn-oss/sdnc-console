@@ -29,6 +29,14 @@ export function normalizeIpv4Host(raw: string): string {
   return s;
 }
 
+/** 从 fetchCloudProviderEcs 响应中解析虚拟机列表 */
+export function extractCloudProviderEcsList(json: any): any[] {
+  if (Array.isArray(json?.data)) return json.data;
+  if (Array.isArray(json?.data?.items)) return json.data.items;
+  if (Array.isArray(json?.items)) return json.items;
+  return [];
+}
+
 function findKubeOvnSubnetRow(
   kubeSubnets: any[],
   subnetName: string,
@@ -107,7 +115,90 @@ function findPeerCustomIpStaticConflict(
     const named = tryMatch((en) => customIpAnnotationNameMatches(en, pref));
     if (named) return named;
   }
-  return tryMatch(() => true);
+  const broad = tryMatch(() => true);
+  if (broad) return broad;
+
+  return findPeerRuntimeIpv4Conflict(ipHost, peerVms, targetNs, exclude);
+}
+
+/** 解析 Harvester network.harvesterhci.io/ips 注解（与列表 IP 列同源） */
+function parseHarvesterNetworkIpsAnnotation(raw: unknown): string[] {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    return raw.map((x) => String(x || "").trim()).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    try {
+      const j = JSON.parse(s);
+      if (Array.isArray(j)) {
+        return j.map((x) => String(x || "").trim()).filter(Boolean);
+      }
+    } catch {
+      if (s.includes(",")) {
+        return s
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean);
+      }
+      return [s];
+    }
+  }
+  return [];
+}
+
+/** 已分配/上报的 IPv4（custom-ip 未命中时兜底，避免漏检运行中 VM） */
+function findPeerRuntimeIpv4Conflict(
+  ipHost: string,
+  peerVms: any[],
+  targetNs: string,
+  exclude: { ns: string; name: string } | undefined,
+): { vm: any; entryKey: string } | null {
+  if (!ipHost || !String(targetNs || "").trim()) return null;
+  for (const vm of peerVms || []) {
+    const id = vmRowIdentity(vm);
+    if (exclude && id.ns === exclude.ns && id.name === exclude.name) continue;
+    if (id.ns !== targetNs) continue;
+
+    const hosts = new Set<string>();
+    const addRaw = (raw: string) => {
+      const h = normalizeIpv4Host(raw);
+      if (h) hosts.add(h);
+    };
+    parseHarvesterNetworkIpsAnnotation(
+      vm?.metadata?.annotations?.["network.harvesterhci.io/ips"],
+    ).forEach(addRaw);
+    const vmi = vm?.vmi || vm?.vmiRaw;
+    parseHarvesterNetworkIpsAnnotation(
+      vmi?.metadata?.annotations?.["network.harvesterhci.io/ips"],
+    ).forEach(addRaw);
+    if (Array.isArray(vm?.ips)) {
+      for (const ip of vm.ips) addRaw(String(ip || ""));
+    }
+    const stIfaces = vm?.status?.interfaces;
+    if (Array.isArray(stIfaces)) {
+      for (const iface of stIfaces) {
+        addRaw(String(iface?.ipAddress || iface?.ip || ""));
+        if (Array.isArray(iface?.ipAddresses)) {
+          for (const a of iface.ipAddresses) addRaw(String(a || ""));
+        }
+      }
+    }
+    if (vmi?.status?.interfaces && Array.isArray(vmi.status.interfaces)) {
+      for (const iface of vmi.status.interfaces) {
+        addRaw(String(iface?.ipAddress || iface?.ip || ""));
+        if (Array.isArray(iface?.ipAddresses)) {
+          for (const a of iface.ipAddresses) addRaw(String(a || ""));
+        }
+      }
+    }
+
+    if (hosts.has(ipHost)) {
+      return { vm, entryKey: "" };
+    }
+  }
+  return null;
 }
 
 /** 向导 MAC 完整格式（与 StepNetworks 一致） */
@@ -142,6 +233,11 @@ function peerMacConflictMessage(
   return undefined;
 }
 
+function staticIpPeerConflictSubmitMessage(ipHost: string, vm: any): string {
+  const vn = harvesterVmDisplayLabel(vm);
+  return `静态 IP「${ipHost}」已被虚拟机「${vn}」使用，请更换后再提交`;
+}
+
 function peerCustomIpConflictMessage(
   entryName: string,
   ipHost: string,
@@ -159,8 +255,7 @@ function peerCustomIpConflictMessage(
   );
   if (!hit) return undefined;
   const lbl = harvesterVmDisplayLabel(hit.vm);
-  const ek = String(hit.entryKey || "").trim() || String(entryName || "").trim() || "-";
-  return `该静态 IP 已被虚拟机「${lbl}」占用（子网条目「${ek}」）`;
+  return `该静态 IP 已被虚拟机「${lbl}」使用`;
 }
 
 /** 创建向导 · 主网卡或辅网卡 MAC：与其它卡重复 / 与其它 VM 冲突（value 须为完整 MAC 才检高级项） */
@@ -258,7 +353,9 @@ export function wizardIpFieldInlineError(
 
   const entryName = kubeOvnCustomIpEntryName(subnet, multus);
   const ns = String(targetNamespace || "").trim();
-  if (!ns) return undefined;
+  if (!ns) {
+    return "请先选择项目后再校验静态 IP 是否已被占用";
+  }
   return peerCustomIpConflictMessage(entryName, host, peerVms, ns, undefined);
 }
 
@@ -489,9 +586,7 @@ export function validateVmCreateWizardNicsAgainstPeerVms(
       String(r.entryName || "").trim(),
     );
     if (hit) {
-      const vn = harvesterVmDisplayLabel(hit.vm);
-      const ek = String(hit.entryKey || "").trim() || String(r.entryName || "").trim() || "-";
-      return `静态 IP「${r.ipHost}」（子网条目「${ek}」）已被虚拟机「${vn}」占用，请更换后再提交`;
+      return staticIpPeerConflictSubmitMessage(r.ipHost, hit.vm);
     }
   }
   return null;
@@ -628,9 +723,7 @@ export function validateVmReconfigureNicsAgainstPeerVms(
       String(r.entryName || "").trim(),
     );
     if (hit) {
-      const vn = harvesterVmDisplayLabel(hit.vm);
-      const ek = String(hit.entryKey || "").trim() || String(r.entryName || "").trim() || "-";
-      return `静态 IP「${r.ipHost}」（子网条目「${ek}」）已被虚拟机「${vn}」占用，请更换后再提交`;
+      return staticIpPeerConflictSubmitMessage(r.ipHost, hit.vm);
     }
   }
   return null;

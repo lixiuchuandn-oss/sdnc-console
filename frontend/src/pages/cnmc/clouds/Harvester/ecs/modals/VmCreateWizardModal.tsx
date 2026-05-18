@@ -46,6 +46,7 @@ import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { CLOUD_VM_CREATE_WIZARD_WRITE } from '../../../../../../constants/cloudPermissions';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import {
+  extractCloudProviderEcsList,
   validateVmCreateWizardNicsAgainstPeerVms,
   validateVmCreateWizardNicsMacIpAndSubnet,
 } from '../lib/vmNicMacIpValidation';
@@ -412,9 +413,21 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         }
         const nicNs = String(form.getFieldValue('namespace') || '').trim();
         if (nicNs) {
+          let peerListForStep: any[] = existingVms;
+          const cidForPeer =
+            currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
+          if (cidForPeer) {
+            try {
+              const json: any = await fetchCloudProviderEcs(cidForPeer, true);
+              const extracted = extractCloudProviderEcsList(json);
+              if (extracted.length > 0) peerListForStep = extracted;
+            } catch {
+              /* 回退 existingVms */
+            }
+          }
           const nicPeerErr = validateVmCreateWizardNicsAgainstPeerVms(
             vNet,
-            existingVms,
+            peerListForStep,
             nicNs,
           );
           if (nicPeerErr) {
@@ -537,13 +550,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       let peerListForNic: any[] = existingVms;
       try {
         const json: any = await fetchCloudProviderEcs(cid, true);
-        const extracted: any[] = Array.isArray(json?.data)
-          ? json.data
-          : Array.isArray(json?.data?.items)
-            ? json.data.items
-            : Array.isArray(json?.items)
-              ? json.items
-              : [];
+        const extracted = extractCloudProviderEcsList(json);
         if (extracted.length > 0) peerListForNic = extracted;
       } catch {
         /* 使用内存中的 existingVms */
