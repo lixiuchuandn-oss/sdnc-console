@@ -734,7 +734,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             _promisc: config?.promiscMode,
             _bridge: config?.bridge,
             _type: inferCniTypeFromConfig(config),
-            _cniVersion: config?.cniVersion
+            _cniVersion: config?.cniVersion,
+            _creationTimestamp: item?.metadata?.creationTimestamp || item?.createdAt || ''
         };
     })
     .filter((x: any) => !onlyBridge || String(x?._type || '').toLowerCase().trim() === 'bridge')
@@ -743,6 +744,10 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       const key = x?.metadata?.uid || `${x?._namespace || ''}/${x?._name || ''}`;
       const firstIdx = arr.findIndex((y: any) => (y?.metadata?.uid || `${y?._namespace || ''}/${y?._name || ''}`) === key);
       return firstIdx === idx;
+    })
+    // 按创建时间倒序排列（最新的在前）
+    .sort((a: any, b: any) => {
+      return new Date(b._creationTimestamp || 0).getTime() - new Date(a._creationTimestamp || 0).getTime();
     });
   }, [nads, onlyBridge]);
 
@@ -791,6 +796,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       }
 
       return true;
+    }).sort((a: any, b: any) => {
+      return new Date(b._creationTimestamp || 0).getTime() - new Date(a._creationTimestamp || 0).getTime();
     });
   }, [
     processedData,
@@ -958,6 +965,16 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       title: 'UID',
       key: 'uid',
       render: (_: any, r: any) => r?.metadata?.uid || '-',
+    },
+    {
+      title: '创建时间',
+      key: 'createdAt',
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const t = String(r._creationTimestamp || '').trim();
+        if (!t) return '-';
+        return t.replace('T', ' ').replace(/(\.\d{3})?Z$/, '') || t;
+      },
     },
     {
       title: '操作',
