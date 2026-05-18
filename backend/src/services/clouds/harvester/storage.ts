@@ -524,7 +524,7 @@ export const createHarvesterPVCVolume = async (
   };
 
   const rawDisplayName = String(payload.name || '').trim();
-  const pvcMetaName = generatePvcTechnicalName();
+  const pvcMetaName = rawDisplayName || generatePvcTechnicalName();
   const mergedAnnotations: Record<string, string> = { ...(payload.annotations || {}) };
   if (!mergedAnnotations['tower.io/alias']) {
     mergedAnnotations['tower.io/alias'] = (rawDisplayName || 'volume').slice(0, 512);
