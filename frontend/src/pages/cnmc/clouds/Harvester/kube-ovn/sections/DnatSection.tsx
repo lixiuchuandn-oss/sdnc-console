@@ -15,6 +15,7 @@ import {
   KUBE_OVN_FLAT_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
+  TOWER_IO_DNAT_PORT_GROUP_ANNOTATION,
   isBuiltInKubeOvnVpc,
   isFlatKubeOvnSubnetForFlatNatSelector,
 } from '../lib/kubeOvnSubnetConstants';
@@ -33,6 +34,16 @@ import {
   subnetCidrOf,
   vmUsesSubnet,
 } from '../lib/subnetVmPicker';
+import {
+  DNAT_PORT_RANGE_TOOLTIP,
+  dnatPortRangeCountsMatch,
+  findDnatExternalPortConflicts,
+  formatDnatExternalPortConflictMessage,
+  formatDnatPortsFromMembers,
+  groupDnatRulesForDisplay,
+  parseDnatPortInput,
+  type DnatDisplayRow,
+} from '../lib/dnatPortGroup';
 
 interface BaseSectionProps {
   cloudId: string;
@@ -279,7 +290,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
 
   // 筛选数据并按创建时间倒序排序
   const filteredData = useMemo(() => {
-    const filtered = dnatRules.filter((item: any) => {
+    const ruleMatchesToolbar = (item: any): boolean => {
       const eipName = String(item?.spec?.ovnEip || item?.status?.ovnEip || '').trim();
       const eip =
         String(
@@ -289,39 +300,67 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
             eipName,
         ).trim();
       const internalIp = String(item?.spec?.v4Ip || item?.status?.v4Ip || item?.spec?.internalIp || '').trim();
+      const extPort = String(item?.spec?.externalPort || item?.status?.externalPort || '').trim();
+      const intPort = String(item?.spec?.internalPort || item?.status?.internalPort || '').trim();
       const vpc = item.spec?.vpc || '';
       const protocol = item.spec?.protocol || '';
-      
-      // 关键字搜索
+
       if (keyword) {
         const kw = keyword.toLowerCase();
         if (
           !ovnKeywordMatches(item, kw) &&
           !eip.toLowerCase().includes(kw) &&
-          !internalIp.toLowerCase().includes(kw)
+          !internalIp.toLowerCase().includes(kw) &&
+          !extPort.includes(kw) &&
+          !intPort.includes(kw)
         ) {
           return false;
         }
       }
-      
+
       if (vpcFilter && networkScope !== 'flat' && vpc !== vpcFilter) {
         return false;
       }
-      
-      // 协议筛选
+
       if (protocolFilter && protocol !== protocolFilter) {
         return false;
       }
-      
+
       return true;
-    });
-    
-    // 按创建时间倒序排序
-    return filtered.sort((a: any, b: any) => {
+    };
+
+    const matched = (Array.isArray(dnatRules) ? dnatRules : []).filter(ruleMatchesToolbar);
+    const portGroupsHit = new Set<string>();
+    for (const item of matched) {
+      const gid = String(item?.metadata?.annotations?.[TOWER_IO_DNAT_PORT_GROUP_ANNOTATION] ?? '').trim();
+      if (gid) portGroupsHit.add(gid);
+    }
+
+    const ruleMatchesVpcProtocol = (item: any): boolean => {
+      const vpc = item.spec?.vpc || '';
+      const protocol = item.spec?.protocol || '';
+      if (vpcFilter && networkScope !== 'flat' && vpc !== vpcFilter) return false;
+      if (protocolFilter && protocol !== protocolFilter) return false;
+      return true;
+    };
+
+    const expanded =
+      portGroupsHit.size === 0
+        ? matched
+        : (Array.isArray(dnatRules) ? dnatRules : []).filter((item) => {
+            const gid = String(item?.metadata?.annotations?.[TOWER_IO_DNAT_PORT_GROUP_ANNOTATION] ?? '').trim();
+            if (gid && portGroupsHit.has(gid)) {
+              return ruleMatchesVpcProtocol(item);
+            }
+            return matched.some((m) => m?.metadata?.uid === item?.metadata?.uid);
+          });
+
+    const sorted = expanded.sort((a: any, b: any) => {
       const timeA = a?.metadata?.creationTimestamp || a?.createdAt || '';
       const timeB = b?.metadata?.creationTimestamp || b?.createdAt || '';
       return timeB.localeCompare(timeA);
     });
+    return groupDnatRulesForDisplay(sorted);
   }, [dnatRules, keyword, vpcFilter, protocolFilter, eipIpv4ByName, networkScope]);
 
   // 筛选选项
@@ -374,18 +413,32 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       }
       const eipName = String(values.ovnEip ?? '').trim();
       const proto = String(values.protocol || 'tcp').trim().toLowerCase();
-      const extPort = String(values.externalPort ?? '').trim();
-      const dupTriple = (Array.isArray(dnatRules) ? dnatRules : []).some((r: any) => {
-        const re = String(r?.spec?.ovnEip ?? r?.status?.ovnEip ?? '').trim();
-        const rp = String(r?.spec?.protocol ?? r?.status?.protocol ?? '')
-          .trim()
-          .toLowerCase();
-        const rex = String(r?.spec?.externalPort ?? r?.status?.externalPort ?? '').trim();
-        return re === eipName && rp === proto && rex === extPort;
-      });
-      if (dupTriple) {
+      const extParsed = parseDnatPortInput(values.externalPort);
+      if (!extParsed.ok) {
+        message.error(extParsed.message);
+        return;
+      }
+      const intParsed = parseDnatPortInput(values.internalPort);
+      if (!intParsed.ok) {
+        message.error(intParsed.message);
+        return;
+      }
+      const portCountCheck = dnatPortRangeCountsMatch(values.externalPort, values.internalPort);
+      if (!portCountCheck.ok) {
+        message.error(portCountCheck.message);
+        return;
+      }
+      const rulesFlat = Array.isArray(dnatRules) ? dnatRules : [];
+      const portConflicts = findDnatExternalPortConflicts(
+        rulesFlat,
+        eipName,
+        proto,
+        extParsed.start,
+        extParsed.end,
+      );
+      if (portConflicts.length > 0) {
         message.error(
-          '已存在公网 IP、协议、公网端口相同的 DNAT 规则；同一组条件下仅允许一条内部端口映射，请修改规则。',
+          formatDnatExternalPortConflictMessage(portConflicts, extParsed.start, extParsed.end),
         );
         return;
       }
@@ -442,8 +495,13 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       };
       if (displayName) payload.alias = displayName;
       setCreateLoading(true);
-      await createCloudProviderOvnDnatRule(cloudId, payload, scope);
-      message.success('DNAT 规则创建成功');
+      const res = await createCloudProviderOvnDnatRule(cloudId, payload, scope);
+      const batchCount = Array.isArray(res?.data?.items) ? res.data.items.length : extParsed.count;
+      message.success(
+        batchCount > 1
+          ? `DNAT 规则创建成功（${batchCount} 条端口映射，列表合并为一条）`
+          : 'DNAT 规则创建成功',
+      );
       setIsCreateVisible(false);
       form.resetFields();
       onRefresh(true, true);
@@ -474,9 +532,14 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           message.error('无权限执行该操作');
           return;
         }
+        const groupMembers = (record as DnatDisplayRow)?._dnatGroupMembers;
+        const groupSize = Array.isArray(groupMembers) ? groupMembers.length : 0;
         Modal.confirm({
           title: '确认删除',
-          content: `确定要删除 DNAT 规则「${ovnDisplayName(record)}」吗？`,
+          content:
+            groupSize > 1
+              ? `确定要删除 DNAT 规则「${ovnDisplayName(record)}」吗？将同时删除其 ${groupSize} 条端口映射。`
+              : `确定要删除 DNAT 规则「${ovnDisplayName(record)}」吗？`,
           okText: '删除',
           okType: 'danger',
           cancelText: '取消',
@@ -543,10 +606,15 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         );
       }
     },
-    { 
-      title: '公网端口', 
-      key: 'externalPort', 
-      render: (_: any, r: any) => String(r?.spec?.externalPort || r?.status?.externalPort || '').trim() || '-' 
+    {
+      title: '公网端口',
+      key: 'externalPort',
+      render: (_: any, r: DnatDisplayRow) => {
+        if (r?._dnatGrouped && r._dnatGroupMembers?.length) {
+          return formatDnatPortsFromMembers(r._dnatGroupMembers, 'externalPort');
+        }
+        return String(r?.spec?.externalPort || r?.status?.externalPort || '').trim() || '-';
+      },
     },
     { 
       title: '协议', 
@@ -558,10 +626,15 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       key: 'ip', 
       render: (_: any, r: any) => String(r?.spec?.v4Ip || r?.status?.v4Ip || r?.spec?.internalIp || '').trim() || '-' 
     },
-    { 
-      title: '内部端口', 
-      key: 'internalPort', 
-      render: (_: any, r: any) => String(r?.spec?.internalPort || r?.status?.internalPort || '').trim() || '-' 
+    {
+      title: '内部端口',
+      key: 'internalPort',
+      render: (_: any, r: DnatDisplayRow) => {
+        if (r?._dnatGrouped && r._dnatGroupMembers?.length) {
+          return formatDnatPortsFromMembers(r._dnatGroupMembers, 'internalPort');
+        }
+        return String(r?.spec?.internalPort || r?.status?.internalPort || '').trim() || '-';
+      },
     },
     ...(networkScope === 'flat'
       ? []
@@ -694,7 +767,9 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           loading={loading} 
           bordered={false}
           scroll={{ x: true }}
-          rowKey={r => r.metadata?.uid}
+          rowKey={(r: DnatDisplayRow) =>
+            r?._dnatPortGroup || r?.metadata?.uid || r?.metadata?.name || ''
+          }
           pagination={{
             showTotal: (total) => `共 ${total} 条`,
           }}
@@ -829,7 +904,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={9}>
+            <Col span={6}>
               <Form.Item name="protocol" label="协议" initialValue="tcp">
                 <Select>
                   <Select.Option value="tcp">TCP</Select.Option>
@@ -837,9 +912,50 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={6}>
-              <Form.Item name="externalPort" label="公网端口" rules={[{ required: true, message: '请输入公网端口' }]}>
-                <Input placeholder="例如: 80" />
+            <Col span={9}>
+              <Form.Item
+                name="externalPort"
+                label="公网端口"
+                tooltip={DNAT_PORT_RANGE_TOOLTIP}
+                dependencies={['internalPort', 'ovnEip', 'protocol']}
+                rules={[
+                  { required: true, message: '请输入公网端口' },
+                  {
+                    validator: async (_, value) => {
+                      const parsed = parseDnatPortInput(value);
+                      if (!parsed.ok) return Promise.reject(new Error(parsed.message));
+                      const pair = dnatPortRangeCountsMatch(value, form.getFieldValue('internalPort'));
+                      if (!pair.ok) return Promise.reject(new Error(pair.message));
+                      const eip = String(form.getFieldValue('ovnEip') ?? '').trim();
+                      const pr = String(form.getFieldValue('protocol') || 'tcp')
+                        .trim()
+                        .toLowerCase();
+                      if (eip) {
+                        const conflicts = findDnatExternalPortConflicts(
+                          dnatRules,
+                          eip,
+                          pr,
+                          parsed.start,
+                          parsed.end,
+                        );
+                        if (conflicts.length > 0) {
+                          return Promise.reject(
+                            new Error(
+                              formatDnatExternalPortConflictMessage(
+                                conflicts,
+                                parsed.start,
+                                parsed.end,
+                              ),
+                            ),
+                          );
+                        }
+                      }
+                      return Promise.resolve();
+                    },
+                  },
+                ]}
+              >
+                <Input placeholder="80 或 1-10" />
               </Form.Item>
             </Col>
           </Row>
@@ -905,8 +1021,25 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="internalPort" label="内部端口" rules={[{ required: true, message: '请输入内部端口' }]}>
-                <Input placeholder="例如: 8080" />
+              <Form.Item
+                name="internalPort"
+                label="内部端口"
+                tooltip={DNAT_PORT_RANGE_TOOLTIP}
+                dependencies={['externalPort']}
+                rules={[
+                  { required: true, message: '请输入内部端口' },
+                  {
+                    validator: async (_, value) => {
+                      const parsed = parseDnatPortInput(value);
+                      if (!parsed.ok) return Promise.reject(new Error(parsed.message));
+                      const pair = dnatPortRangeCountsMatch(form.getFieldValue('externalPort'), value);
+                      if (!pair.ok) return Promise.reject(new Error(pair.message));
+                      return Promise.resolve();
+                    },
+                  },
+                ]}
+              >
+                <Input placeholder="8080 或 2-11" />
               </Form.Item>
             </Col>
           </Row>

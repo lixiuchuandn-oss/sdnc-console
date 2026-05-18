@@ -27,6 +27,7 @@ import {
   parseRequiredOvnNetworkScopeCreateQuery,
   parseRequiredOvnNetworkScopeListQuery,
   subnetRefToName,
+  TOWER_IO_DNAT_PORT_GROUP_ANNOTATION,
   TOWER_IO_NAMESPACES_ANNOTATION,
   TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION,
 } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
@@ -60,6 +61,150 @@ export function getOriginFromEndpoint(endpoint: string): string {
 }
 
 const TOWER_IO_ALIAS = 'tower.io/alias';
+
+const DNAT_PORT_MIN = 1;
+const DNAT_PORT_MAX = 65535;
+const DNAT_BATCH_PORT_MAX_COUNT = 100;
+
+type ParsedDnatPortRange =
+  | { ok: true; start: number; end: number; count: number }
+  | { ok: false; message: string };
+
+function parseDnatPortOrRange(portInput: unknown, endInput?: unknown): ParsedDnatPortRange {
+  const parseOne = (v: unknown): number | null => {
+    const s = String(v ?? '').trim();
+    if (!s || !/^\d+$/.test(s)) return null;
+    const n = parseInt(s, 10);
+    if (!Number.isFinite(n) || n < DNAT_PORT_MIN || n > DNAT_PORT_MAX) return null;
+    return n;
+  };
+
+  const main = String(portInput ?? '').trim();
+  const rangeInField = /^(\d+)\s*-\s*(\d+)$/.exec(main);
+  if (rangeInField) {
+    const start = parseInt(rangeInField[1], 10);
+    const end = parseInt(rangeInField[2], 10);
+    if (start > end) return { ok: false, message: '端口范围起始不能大于结束' };
+    const count = end - start + 1;
+    if (count > DNAT_BATCH_PORT_MAX_COUNT) {
+      return { ok: false, message: `端口映射数量不能超过 ${DNAT_BATCH_PORT_MAX_COUNT} 条` };
+    }
+    return { ok: true, start, end, count };
+  }
+
+  const start = parseOne(portInput);
+  if (start == null) {
+    return {
+      ok: false,
+      message: `端口须为 ${DNAT_PORT_MIN}-${DNAT_PORT_MAX} 的整数，或范围如 1-10`,
+    };
+  }
+  const endRaw =
+    endInput != null && String(endInput).trim() !== '' ? parseOne(endInput) : null;
+  if (endInput != null && String(endInput).trim() !== '' && endRaw == null) {
+    return { ok: false, message: `结束端口须为 ${DNAT_PORT_MIN}-${DNAT_PORT_MAX} 的整数` };
+  }
+  const end = endRaw ?? start;
+  if (start > end) return { ok: false, message: '端口范围起始不能大于结束' };
+  const count = end - start + 1;
+  if (count > DNAT_BATCH_PORT_MAX_COUNT) {
+    return { ok: false, message: `端口映射数量不能超过 ${DNAT_BATCH_PORT_MAX_COUNT} 条` };
+  }
+  return { ok: true, start, end, count };
+}
+
+function formatDnatPortRangeLabel(start: number, end: number): string {
+  return start === end ? String(start) : `${start}-${end}`;
+}
+
+function findDnatExternalPortConflictsOnCluster(
+  existingRules: any[],
+  eipName: string,
+  proto: string,
+  newStart: number,
+  newEnd: number,
+): number[] {
+  const eip = String(eipName ?? '').trim();
+  const pr = String(proto ?? '')
+    .trim()
+    .toLowerCase();
+  const occupied = new Set<number>();
+  for (const r of Array.isArray(existingRules) ? existingRules : []) {
+    const re = String(r?.spec?.ovnEip ?? r?.status?.ovnEip ?? '').trim();
+    const rp = String(r?.spec?.protocol ?? r?.status?.protocol ?? '')
+      .trim()
+      .toLowerCase();
+    if (re !== eip || rp !== pr) continue;
+    const p = Number(String(r?.spec?.externalPort ?? r?.status?.externalPort ?? '').trim());
+    if (Number.isFinite(p)) occupied.add(p);
+  }
+  const conflicts: number[] = [];
+  for (let p = newStart; p <= newEnd; p++) {
+    if (occupied.has(p)) conflicts.push(p);
+  }
+  return conflicts;
+}
+
+function formatDnatExternalPortConflictMessage(
+  conflicts: number[],
+  newStart: number,
+  newEnd: number,
+): string {
+  if (!conflicts.length) return '';
+  const newRange = formatDnatPortRangeLabel(newStart, newEnd);
+  const portText =
+    conflicts.length <= 15
+      ? conflicts.join('、')
+      : `${conflicts.slice(0, 15).join('、')} 等 ${conflicts.length} 个`;
+  return `公网 IP、协议下公网端口与已有 DNAT 规则存在重叠（新规则 ${newRange}，冲突端口：${portText}）`;
+}
+
+async function createKubeOvnDnatRuleOnCluster(
+  origin: string,
+  token: string,
+  insecure: boolean,
+  payload: Record<string, unknown>,
+): Promise<any> {
+  const candidates = [`${origin}/apis/kubeovn.io/v1/ovndnatrules`, `${origin}/apis/kubeovn.io/v1/ovn-dnat-rules`];
+  let json: any = null;
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      json = await requestJson('POST', url, token, insecure, payload);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+      if (e?.status === 404 && candidates.indexOf(url) === 0) continue;
+      throw e;
+    }
+  }
+  if (!json && lastErr) throw lastErr || new Error('Failed to create OvnDnatRule');
+  return json;
+}
+
+async function saveDnatRuleInventory(cloud: { id: string }, json: any, internalIp: string) {
+  if (!json?.metadata) return;
+  try {
+    const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+    const entity = repo.create({
+      cloudId: cloud.id,
+      uid: json.metadata?.uid || json.metadata?.name,
+      name: json.metadata?.name || '',
+      vpc: json.spec?.vpc,
+      type: 'DNAT',
+      eip: json.spec?.ovnEip,
+      externalIp: json.status?.v4Eip,
+      internalIp: json.spec?.v4Ip || internalIp,
+      internalPort: json.spec?.internalPort,
+      externalPort: json.spec?.externalPort,
+      protocol: json.spec?.protocol,
+      rawData: json,
+    });
+    await repo.save(entity);
+  } catch (e: any) {
+    console.error('[DNAT-Create] 入库失败:', e?.message || e);
+  }
+}
 
 /** 库存/API 列表：同 uid 优先，避免并发同步导致的重复行 */
 function dedupeOvnNatRules(list: any[]): any[] {
@@ -799,17 +944,39 @@ export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, nex
     const dnatVpc = String(dnatObj?.spec?.vpc || '').trim();
     const scope = dnatVpc ? 'vpc' : 'underlay';
     if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
-    await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovndnatrules', 'ovn-dnat-rules', nameStr);
-    try {
-      await AppDataSource.getRepository(KubeOvnNatRuleInventory).delete({
-        cloudId: cloud.id,
-        name: nameStr,
-        type: 'DNAT',
-      });
-    } catch (e: any) {
-      console.warn('[DNAT-Delete] 本地库存删除失败:', e?.message || e);
+
+    const portGroupId = String(
+      dnatObj?.metadata?.annotations?.[TOWER_IO_DNAT_PORT_GROUP_ANNOTATION] ?? '',
+    ).trim();
+    const toDelete =
+      portGroupId.length > 0
+        ? (Array.isArray(dnats) ? dnats : []).filter(
+            (d: any) =>
+              String(d?.metadata?.annotations?.[TOWER_IO_DNAT_PORT_GROUP_ANNOTATION] ?? '').trim() ===
+              portGroupId,
+          )
+        : dnatObj
+          ? [dnatObj]
+          : [{ metadata: { name: nameStr } }];
+
+    const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+    for (const item of toDelete) {
+      const nm = String(item?.metadata?.name || '').trim();
+      if (!nm) continue;
+      await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovndnatrules', 'ovn-dnat-rules', nm);
+      try {
+        await repo.delete({
+          cloudId: cloud.id,
+          name: nm,
+          type: 'DNAT',
+        });
+      } catch (e: any) {
+        console.warn('[DNAT-Delete] 本地库存删除失败:', e?.message || e);
+      }
     }
-    res.json({ message: '删除成功' });
+    res.json({
+      message: toDelete.length > 1 ? `删除成功（共 ${toDelete.length} 条端口映射）` : '删除成功',
+    });
   } catch (error: any) {
     if (res.headersSent) return;
     res.status(500).json({ message: '删除DNAT规则失败', error: error.message });
@@ -1150,9 +1317,30 @@ async function harvesterOvnDnatCreateHandlerScoped(
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
-    const { name, alias, ovnEip, protocol, externalPort, internalPort, internalIp, vpc } = req.body;
+    const {
+      name,
+      alias,
+      ovnEip,
+      protocol,
+      externalPort,
+      internalPort,
+      externalPortEnd,
+      internalPortEnd,
+      internalIp,
+      vpc,
+    } = req.body;
     if (!name || !ovnEip || !externalPort || !internalPort || !internalIp || !vpc) {
       return res.status(400).json({ message: '缺少必要参数: name, ovnEip, externalPort, internalPort, internalIp, vpc' });
+    }
+    const extParsed = parseDnatPortOrRange(externalPort, externalPortEnd);
+    if (!extParsed.ok) return res.status(400).json({ message: extParsed.message });
+    const intParsed = parseDnatPortOrRange(internalPort, internalPortEnd);
+    if (!intParsed.ok) return res.status(400).json({ message: intParsed.message });
+    if (extParsed.count !== intParsed.count) {
+      return res.status(400).json({
+        message:
+          '公网端口与内部端口的个数须一致（如公网 1-10 为 10 个，内部可为 2-11；不可为 1-5）；按序号一对一映射',
+      });
     }
     if (scope === 'underlay' && !isUnderlayVpcName(vpc)) {
       return res.status(400).json({
@@ -1180,62 +1368,76 @@ async function harvesterOvnDnatCreateHandlerScoped(
         : isUnderlayVpcName(vpcDnat)
           ? 'underlay'
           : 'vpc';
-    const candidates = [`${origin}/apis/kubeovn.io/v1/ovndnatrules`, `${origin}/apis/kubeovn.io/v1/ovn-dnat-rules`];
-    const payload = {
-      apiVersion: 'kubeovn.io/v1',
-      kind: 'OvnDnatRule',
-      metadata: ovnCrMetadataWithOptionalAlias(name, alias, {
+    const groupId = String(name).trim();
+    const protoNorm = String(protocol || 'tcp').trim().toLowerCase();
+    const existingDnats = await listKubeOvnDnatRules({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey || '',
+      insecure,
+    } as any);
+    const eipName = String(ovnEip).trim();
+    const portConflicts = findDnatExternalPortConflictsOnCluster(
+      existingDnats,
+      eipName,
+      protoNorm,
+      extParsed.start,
+      extParsed.end,
+    );
+    if (portConflicts.length > 0) {
+      return res.status(400).json({
+        message: formatDnatExternalPortConflictMessage(
+          portConflicts,
+          extParsed.start,
+          extParsed.end,
+        ),
+      });
+    }
+
+    const created: any[] = [];
+    let primary: any = null;
+    for (let i = 0; i < extParsed.count; i++) {
+      const extP = extParsed.start + i;
+      const intP = intParsed.start + i;
+      const ruleName = extParsed.count === 1 ? groupId : `${groupId}-${extP}`;
+      const extras: Record<string, string | undefined> = {
         [TOWER_IO_NAMESPACES_ANNOTATION]: nsCsvDnat || undefined,
         [TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION]: dnatOvnScope,
-      }),
-      spec: {
-        ovnEip,
-        ipType: 'ip',
-        protocol: protocol || 'tcp',
-        externalPort: String(externalPort),
-        internalPort: String(internalPort),
-        v4Ip: internalIp,
-        vpc,
+      };
+      if (extParsed.count > 1) {
+        extras[TOWER_IO_DNAT_PORT_GROUP_ANNOTATION] = groupId;
+      }
+      const payload = {
+        apiVersion: 'kubeovn.io/v1',
+        kind: 'OvnDnatRule',
+        metadata: ovnCrMetadataWithOptionalAlias(ruleName, i === 0 ? alias : undefined, extras),
+        spec: {
+          ovnEip,
+          ipType: 'ip',
+          protocol: protoNorm,
+          externalPort: String(extP),
+          internalPort: String(intP),
+          v4Ip: internalIp,
+          vpc,
+        },
+      };
+      const json = await createKubeOvnDnatRuleOnCluster(origin, token, insecure, payload);
+      await saveDnatRuleInventory(cloud, json, internalIp);
+      created.push(json);
+      if (!primary) primary = json;
+    }
+
+    const batchMsg =
+      extParsed.count > 1
+        ? `创建成功（共 ${extParsed.count} 条端口映射，列表合并展示）`
+        : '创建成功';
+    res.json({
+      message: batchMsg,
+      data: {
+        groupId: extParsed.count > 1 ? groupId : undefined,
+        items: created,
+        primary,
       },
-    };
-
-    let json: any = null;
-    let lastErr: any = null;
-    for (const url of candidates) {
-      try {
-        json = await requestJson('POST', url, cloud.secretKey || '', insecure, payload);
-        if (json) break;
-      } catch (e: any) {
-        lastErr = e;
-        if (e?.status === 404 && candidates.indexOf(url) === 0) continue;
-        throw e;
-      }
-    }
-    if (!json && lastErr) throw lastErr || new Error('Failed to create OvnDnatRule');
-
-    if (json && json.metadata) {
-      try {
-        const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
-        const entity = repo.create({
-          cloudId: cloud.id,
-          uid: json.metadata?.uid || json.metadata?.name,
-          name: json.metadata?.name || '',
-          vpc: json.spec?.vpc || vpc,
-          type: 'DNAT',
-          eip: json.spec?.ovnEip,
-          externalIp: json.status?.v4Eip,
-          internalIp: json.spec?.v4Ip || internalIp,
-          internalPort: json.spec?.internalPort || String(internalPort),
-          externalPort: json.spec?.externalPort || String(externalPort),
-          protocol: json.spec?.protocol || protocol || 'tcp',
-          rawData: json,
-        });
-        await repo.save(entity);
-      } catch (e: any) {
-        console.error('[DNAT-Create] 入库失败:', e?.message || e);
-      }
-    }
-    res.json({ message: '创建成功', data: json });
+    });
   } catch (error: any) {
     if (res.headersSent) return;
     let details = error.body;
