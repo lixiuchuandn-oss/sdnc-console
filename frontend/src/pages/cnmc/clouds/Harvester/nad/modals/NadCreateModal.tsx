@@ -166,9 +166,6 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
       confirmLoading={loading}
       width={600}
       okText="创建"
-      centered
-      destroyOnHidden
-      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
       <Form form={form} layout="vertical" onFinish={handleFinish}>
       <Form.Item

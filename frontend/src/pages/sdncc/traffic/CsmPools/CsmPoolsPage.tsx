@@ -24,7 +24,7 @@ import {
   getProviderLogo,
   getProviderName,
   isCsmCloud,
-} from '../../../cnmc/pools/poolProviders';
+} from '../../../cnmc/pools/lib/poolProviders';
 
 const { Text } = Typography;
 

@@ -9,7 +9,6 @@ import ReactFlow, {
   Position,
 } from 'react-flow-renderer';
 import 'react-flow-renderer/dist/style.css';
-import { Spin } from 'antd';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../../utils/towerKubeOvnNames';
 import { filterLldpLinksForPhysicalNetwork } from './filterLldpLinksForPhysicalNetwork';
 import type { PnNicTopologyShape } from '../../../kube-ovn/lib/providerNetworkNodeInterface';
@@ -419,7 +418,6 @@ const ProviderNetworkTopologyGraph: React.FC<ProviderNetworkTopologyGraphProps> 
           label: (
             <TopoNodeCard accent={ACCENT.hub}>
               <div style={TOPO_CARD_LOADING_LAYOUT}>
-                <Spin size="small" style={visualTheme === 'dark' ? { color: '#69b1ff' } : undefined} />
                 <div style={topoLoadingCaptionStyle(visualTheme)}>加载 VLAN…</div>
               </div>
             </TopoNodeCard>

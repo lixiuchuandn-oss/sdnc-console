@@ -1,8 +1,8 @@
 import 'antd/dist/reset.css';
 import React, { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AdminHomeGate from './components/AdminHomeGate';
-import { ConfigProvider, Modal, theme as antdTheme, Spin } from 'antd';
+import { ConfigProvider, theme as antdTheme, Spin } from 'antd';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 import { LicenseProvider } from './contexts/LicenseContext';
@@ -17,12 +17,15 @@ import TenantConsoleLayout from './layouts/TenantConsoleLayout';
 import { TENANT_CLOUD_CONSOLE_PATH } from './pages/cnmc/console/tenantConsolePaths';
 
 const OverviewDashboard = lazy(() => import('./pages/cnmc/dashboard/OverviewDashboard'));
-const Users = lazy(() => import('./pages/cnmc/tenants/Users'));
+const Users = lazy(() => import('./pages/cnmc/tenants/sections/TenantUsersWorkspace'));
 const Clouds = lazy(() => import('./pages/cnmc/pools'));
-const CloudDetailGate = lazy(() => import('./pages/cnmc/pools/CloudDetailGate'));
-const RancherClusterWorkspace = lazy(() => import('./pages/cnmc/clouds/rancher'));
-const InstanceDetail = lazy(() => import('./pages/cnmc/pools/InstanceDetail'));
-const Tenants = lazy(() => import('./pages/cnmc/tenants'));
+const CloudmapPoolShell = lazy(() => import('./pages/cnmc/clouds/Cloudmap/CloudmapPoolShell'));
+const HuaweiPoolShell = lazy(() => import('./pages/cnmc/clouds/Hw/HuaweiPoolShell'));
+const AliyunPoolShell = lazy(() => import('./pages/cnmc/clouds/Aliyun/AliyunPoolShell'));
+const RancherPoolVendorShell = lazy(() => import('./pages/cnmc/clouds/rancher/RancherPoolVendorShell'));
+const CsmPoolRouteShell = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolRouteShell'));
+const RancherClusterWorkspace = lazy(() => import('./pages/cnmc/clouds/rancher/RancherClusterWorkspace'));
+const Tenants = lazy(() => import('./pages/cnmc/tenants/sections/TenantsWorkspace'));
 const GeneralSettings = lazy(() => import('./pages/settings/GeneralSettings'));
 const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'));
@@ -56,10 +59,9 @@ const CsmPoolsPage = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolsP
 const CsmPoolDetailPage = lazy(() =>
   import('./pages/sdncc/traffic/CsmPools/CloudDetailCsm').then((m) => ({ default: m.CsmPoolDetailPage })),
 );
-const WebSSHPage = lazy(() => import('./pages/cnmc/pools/WebSSH'));
 const CloudConsolePage = lazy(() => import('./pages/cnmc/console/CloudConsole'));
 const HarvesterVNCPage = lazy(() => import('./pages/cnmc/clouds/Harvester/HarvesterVNC'));
-const OrgManagePage = lazy(() => import('./pages/cnmc/tenants/OrgManage'));
+const OrgManagePage = lazy(() => import('./pages/cnmc/tenants/sections/OrgManageWorkspace'));
 const VmCreateWizardModal = lazy(() => import('./pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizardModal'));
 const AiSocPlaceholder = lazy(() => import('./pages/cnsoc/sec-ops/AiSocPlaceholder'));
 const AiSocFrame = lazy(() => import('./pages/cnsoc/sec-ops/AiSocFrame'));
@@ -82,25 +84,6 @@ const LoadingFallback: React.FC = () => (
   </div>
 );
 
-const InstanceDetailModal: React.FC = () => {
-  const navigate = useNavigate();
-  return (
-    <Modal
-      title="云主机详情"
-      open
-      destroyOnHidden
-      footer={null}
-      width={'75vw'}
-      centered={false}
-      style={{ top: '10vh' }}
-      styles={{ body: { height: '80vh', maxHeight: '80vh', overflowY: 'auto', padding: 0 } }}
-      onCancel={() => navigate(-1)}
-    >
-      <InstanceDetail />
-    </Modal>
-  );
-};
-
 const AppRoutes: React.FC = () => {
   const location = useLocation();
   const background = (location.state as any)?.backgroundLocation;
@@ -110,8 +93,6 @@ const AppRoutes: React.FC = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/" element={<Navigate to="/admin" replace />} />
-        <Route path="/admin/clouds/:id/instances/:instanceId" element={<InstanceDetail />} />
-        <Route path="/clouds/:id/instances/:instanceId" element={<InstanceDetail />} />
         <Route path="/clouds/:id/instances/create" element={<PrivateRoute><VmCreateWizardModal /></PrivateRoute>} />
 
         {/* Admin area */}
@@ -124,10 +105,13 @@ const AppRoutes: React.FC = () => {
           <Route path="welcome" element={<AdminWelcomePage />} />
           <Route path="dashboard" element={<OverviewDashboard />} />
           <Route path="clouds" element={<Clouds />} />
+          <Route path="clouds/vendor/huawei/:id" element={<HuaweiPoolShell />} />
+          <Route path="clouds/vendor/aliyun/:id" element={<AliyunPoolShell />} />
+          <Route path="clouds/vendor/rancher/:id" element={<RancherPoolVendorShell />} />
+          <Route path="clouds/vendor/csm/:id" element={<CsmPoolRouteShell />} />
           <Route path="clouds/:poolId/clusters/:clusterId" element={<RancherClusterWorkspace />} />
-          <Route path="clouds/:id/*" element={<CloudDetailGate />} />
-          <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
+          <Route path="clouds/:id/*" element={<CloudmapPoolShell />} />
           <Route path="clouds/ecs" element={<Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />} />
           <Route path="clouds/console" element={<Navigate to={TENANT_CLOUD_CONSOLE_PATH} replace />} />
           <Route path="tenants" element={<Tenants />} />
@@ -216,9 +200,7 @@ const AppRoutes: React.FC = () => {
         {routeSpecs.filter(s => s.layout === 'default').map(s => {
           const elements: Record<string, JSX.Element> = {
             InstanceWizard: <VmCreateWizardModal />,
-            InstanceDetail: <InstanceDetail />,
             CloudConsolePage: <CloudConsolePage />,
-            WebSSHPage: <WebSSHPage />,
             HarvesterVNCPage: <HarvesterVNCPage />,
           };
           const el = elements[s.element];
@@ -231,7 +213,6 @@ const AppRoutes: React.FC = () => {
           {routeSpecs.filter(s => s.backgroundCapable).map(s => {
             const modalElements: Record<string, JSX.Element> = {
               InstanceWizardModal: <VmCreateWizardModal />,
-              InstanceDetailModal: <InstanceDetailModal />,
             };
             const modal = s.modalElement ? modalElements[s.modalElement] : null;
             if (!modal) return null;

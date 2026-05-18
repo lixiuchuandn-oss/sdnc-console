@@ -3,7 +3,7 @@
  * 探测仅用 `monitoring/ceph-clusters`（单资源列表），避免 `ceph/rook/bundle` 全量聚合带来的延迟。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Skeleton } from 'antd';
+import { Alert, Button } from 'antd';
 import { fetchCephClusters } from '../../../../../../../services/monitoringApi';
 import CephStorageSection from '../../../../Harvester/ceph/sections/CephStorageSection';
 import LonghornStorageSection from '../../../../Harvester/longhorn/sections/LonghornStorageSection';
@@ -75,11 +75,7 @@ const CloudmapStorageDashboardByBackend: React.FC<CloudmapStorageDashboardByBack
   }
 
   if (phase === 'loading') {
-    return (
-      <div style={{ paddingTop: 8 }}>
-        <Skeleton active paragraph={{ rows: 10 }} />
-      </div>
-    );
+    return null;
   }
 
   return (

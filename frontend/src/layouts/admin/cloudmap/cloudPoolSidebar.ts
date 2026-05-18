@@ -21,7 +21,7 @@ import {
   NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
-import type { Cloud } from '../../../pages/cnmc/pools/poolProviders';
+import type { Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
 
 
 /**

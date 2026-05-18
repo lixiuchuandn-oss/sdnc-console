@@ -1,7 +1,7 @@
 /**
  * Harvester 集群 · 命名空间（项目）创建/编辑侧滑表单。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Button,
   Card,
@@ -44,6 +44,14 @@ function collectDuplicatePairKeys(pairs: Array<{ key?: string } | undefined> | u
   return [...dup];
 }
 
+/** K8s 标签/注解 metadata 键校验（非空键时） */
+async function validatePairKeyField(_: unknown, value: unknown) {
+  const k = String(value || '').trim();
+  if (!k) return;
+  if (k.length > 253) throw new Error('键最长 253 个字符');
+  if (/[\s=]/.test(k)) throw new Error('键不能包含空格或 =');
+}
+
 export type NamespaceFormDrawerProps = {
   open: boolean;
   onClose: () => void;
@@ -80,7 +88,7 @@ function recordToPairs(record: unknown): {
   };
 }
 
-export const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
+const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
   open,
   onClose,
   cloudId,
@@ -104,7 +112,7 @@ export const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
     }
   }, [open, editingRecord, form]);
 
-  const handleFinish = async (values: {
+  const handleFinish = useCallback(async (values: {
     name?: string;
     labelPairs?: Array<{ key?: string; value?: string }>;
     annotationPairs?: Array<{ key?: string; value?: string }>;
@@ -170,7 +178,7 @@ export const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [cloudId, form, isEdit, onClose, onCommitted]);
 
   return (
     <Drawer
@@ -216,16 +224,7 @@ export const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
                       <Col flex="1 1 0">
                         <Form.Item
                           name={[rowName, 'key']}
-                          rules={[
-                            {
-                              validator: async (_, value) => {
-                                const k = String(value || '').trim();
-                                if (!k) return;
-                                if (k.length > 253) throw new Error('键最长 253 个字符');
-                                if (/[\s=]/.test(k)) throw new Error('键不能包含空格或 =');
-                              },
-                            },
-                          ]}
+                          rules={[{ validator: validatePairKeyField }]}
                           noStyle
                         >
                           <Input placeholder="键，如 env 或 example.com/name" allowClear />
@@ -265,16 +264,7 @@ export const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
                       <Col flex="1 1 0">
                         <Form.Item
                           name={[rowName, 'key']}
-                          rules={[
-                            {
-                              validator: async (_, value) => {
-                                const k = String(value || '').trim();
-                                if (!k) return;
-                                if (k.length > 253) throw new Error('键最长 253 个字符');
-                                if (/[\s=]/.test(k)) throw new Error('键不能包含空格或 =');
-                              },
-                            },
-                          ]}
+                          rules={[{ validator: validatePairKeyField }]}
                           noStyle
                         >
                           <Input placeholder="键，如 description 或 example.com/note" allowClear />

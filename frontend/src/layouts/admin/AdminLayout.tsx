@@ -52,8 +52,8 @@ import {
   CLOUD_RESOURCE_POOLS_READ,
   CLOUD_RESOURCE_POOLS_WRITE,
 } from '../../constants/cloudPermissions';
-import { type Cloud, isCsmCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/poolProviders';
-import PoolEdgeWizard from '../../pages/cnmc/pools/CloudWizardeasy';
+import { type Cloud, isCsmCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
+import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import {
   parseCloudPoolDetailId,
@@ -1383,7 +1383,7 @@ const AdminLayout: React.FC = () => {
         <Content
           className={adminOutletSdnccClassName}
           style={{
-            background: location.pathname.includes('/webssh') ? '#1e1e1e' : '#fff',
+            background: '#fff',
             height: `calc(100vh - ${ADMIN_HEADER_HEIGHT_PX}px)`,
             overflow: 'auto',
           }}

@@ -22,7 +22,7 @@ import {
   fetchCsmVRouters,
   fetchCsmAssets,
 } from '../../../../services/api';
-import { resolvePoolTypeLabel } from '../../../cnmc/pools/poolProviders';
+import { resolvePoolTypeLabel } from '../../../cnmc/pools/lib/poolProviders';
 import { normalizeCsmPoolTabParam } from '../../../../layouts/admin/csm/csmPoolSidebar';
 import { routeSpecs } from '../../../../routes/RouteSpec';
 import CsmServiceChainSection from './sections/CsmServiceChainSection';

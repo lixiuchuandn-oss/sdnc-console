@@ -6,7 +6,7 @@ import {
   getCredentialLabels,
   resolvePoolTypeLabel,
   getCloudProviderRegionField,
-} from '../../../../pools/poolProviders';
+} from '../../../../pools/lib/poolProviders';
 import { provinces, cityOptionsByProvince } from '../../../../../../constants/chinaRegions';
 
 interface CloudEditModalProps {

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Empty, message } from 'antd';
 import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
-import ClusterNetworksSection from '../../../../Harvester/cluster/sections/ClusterNetworksSection';
+import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
 import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
 import LoadBalancersSection from '../../../../Harvester/nad/sections/LoadBalancersSection';
 import IPPoolsSection from '../../../../Harvester/nad/sections/IPPoolsSection';
@@ -347,7 +347,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
       case 'clusterNetworks':
         return (
           <>
-            <ClusterNetworksSection
+            <NetworksSection
               cloudId={cloudId}
               clusterNetworks={harvesterClusterNetworks}
               loading={resourceLoading.clusterNetworks}

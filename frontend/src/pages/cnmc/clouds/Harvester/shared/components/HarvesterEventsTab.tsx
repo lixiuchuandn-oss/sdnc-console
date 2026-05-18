@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { List, Tag, Typography, Space, Tooltip, Empty, Button } from 'antd';
 import { InfoCircleOutlined, WarningOutlined, ClockCircleOutlined, AppstoreOutlined, ReloadOutlined } from '@ant-design/icons';
 import { fetchHarvesterEvents } from '../../../../../../services/loggingApi';

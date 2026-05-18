@@ -7,9 +7,9 @@
  * [核心功能]
  * 1. 列表展示：支持关键字、命名空间、IP分配方式等多维度过滤
  * 2. 资源创建：通过 NadCreateModal 创建新的网络定义
- * 3. 资源查看：通过 HarvesterResourceDrawer 查看网络详情、事件等信息
+ * 3. 资源查看：通过 ResourceLinkYamlDrawer（Steve links.view）查看 NAD YAML
  * 4. 资源删除：
- *    - 单个删除：检查 VM 占用和 Subnet 依赖，防止误删
+ *    - 单个删除：检查 VM 占用和 Subnet 依赖；CNI 为 kube-ovn 时，仅当仍存在配套 Kube-OVN 子网时禁止删除（否则允许清理孤立 NAD）
  *    - 批量删除：支持多选批量删除，自动过滤不可删除的资源
  * 5. 权限控制：
  *    - 列表展示全部 NAD（含系统命名空间、kube-ovn 等），便于排障
@@ -18,7 +18,7 @@
  * [数据流程]
  * 1. 接收原始 NAD 数据（可能为 K8s 原始对象或后端包装对象）
  * 2. 预处理：解析 config、提取 name/namespace、标准化 IP分配方式等
- * 3. 过滤：根据关键字、命名空间、IP分配方式、关联 OVN 子网过滤，租户模式下过滤公共命名空间
+ * 3. 过滤：根据关键字、命名空间、IP分配方式、是否孤立 NAD 过滤，租户模式下过滤公共命名空间
  * 4. 渲染：表格展示，支持列设置、分页等功能
  * 
  * [依赖检查]
@@ -41,14 +41,14 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, Modal, message, Dropdown, Tooltip } from 'antd';
-import { ReloadOutlined, ApiTwoTone , SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { deleteHarvesterNad, fetchKubeOvnSubnets } from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import NadCreateModal from '../../nad/modals/NadCreateModal';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -105,12 +105,42 @@ function inferCniTypeFromConfig(config: any): string {
   return '';
 }
 
-/** Kube-OVN 配套 NAD（由子网生命周期管理，不在 NAD 列表单独删除） */
+/** CNI 为 kube-ovn 的 NAD（OVN 逻辑网）；仍配套 Subnet 时宜从子网删除，孤立 NAD 可在本列表删除 */
 function isKubeOvnCniNad(record: { _type?: string; _config?: any }): boolean {
   const t = String(record?._type ?? inferCniTypeFromConfig(record?._config) ?? '')
     .trim()
     .toLowerCase();
   return t === 'kube-ovn';
+}
+
+/**
+ * 仍存在与 NAD 配套的 Kube-OVN Subnet 时，NAD 列表侧应引导用户先删子网（或走子网级联删除）。
+ * 匹配规则与 OVN 子网列 / collectKubeOvnSubnetNameCandidates 一致；非 kube-ovn 仍按「子网名 === NAD 名」保守检查。
+ */
+function findDependentSubnetsForNad(record: any, subnets: any[]): string[] {
+  if (!Array.isArray(subnets) || subnets.length === 0) return [];
+  if (isKubeOvnCniNad(record)) {
+    const candidates = new Set(
+      collectKubeOvnSubnetNameCandidates(record).map((s) => s.toLowerCase()).filter(Boolean),
+    );
+    if (candidates.size === 0) return [];
+    return subnets
+      .filter((subnet: any) => {
+        const subnetName = String(subnet?.metadata?.name || subnet?.name || '').toLowerCase();
+        return subnetName && candidates.has(subnetName);
+      })
+      .map((subnet: any) => subnet?.metadata?.name || subnet?.name)
+      .filter(Boolean);
+  }
+  const nadName = String(record?._name ?? '').toLowerCase();
+  if (!nadName) return [];
+  return subnets
+    .filter((subnet: any) => {
+      const subnetName = String(subnet?.metadata?.name || subnet?.name || '').toLowerCase();
+      return subnetName === nadName;
+    })
+    .map((subnet: any) => subnet?.metadata?.name || subnet?.name)
+    .filter(Boolean);
 }
 
 function subnetTypeToShortLabel(t: string): string {
@@ -122,22 +152,66 @@ function subnetTypeToShortLabel(t: string): string {
   return s ? `类型:${s}` : '';
 }
 
-/** OVN 子网筛选下拉：与真实 Subnet metadata.name 不会冲突的哨兵值 */
-const OVN_SUBNET_FILTER_NO_BINDING = '__tower_ovn_filter_no_binding__';
-const OVN_SUBNET_FILTER_UNMATCHED = '__tower_ovn_filter_unmatched_subnet__';
+/** 工具栏「孤立 NAD」筛选的哨兵值（CNI kube-ovn 且当前子网列表中无配套 Subnet） */
+const OVN_NAD_ORPHAN_ONLY = '__tower_ovn_nad_orphan_only__';
+
+const ORPHAN_OVN_NAD_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: OVN_NAD_ORPHAN_ONLY, label: '孤立 NAD' },
+];
 
 /** kube-ovn NAD 在子网 Map 中解析到的 Subnet 对象；非 kube-ovn 或未匹配返回 null */
 function resolveLinkedKubeOvnSubnet(
   record: { _name?: string; _config?: any; _type?: string },
   subnetByNameLc: Map<string, any>,
 ): any | null {
-  const tp = String(record._type ?? '').trim().toLowerCase();
+  const tp = String(record._type ?? inferCniTypeFromConfig(record._config) ?? '')
+    .trim()
+    .toLowerCase();
   if (tp !== 'kube-ovn') return null;
   for (const cand of collectKubeOvnSubnetNameCandidates(record)) {
     const hit = subnetByNameLc.get(cand);
     if (hit) return hit;
   }
   return null;
+}
+
+/** 当前缓存的子网列表中是否仍存在配套子网（用于操作入口是否展示；最终以删除前拉取的子网校验为准）。 */
+function hasLinkedKubeOvnSubnetInMap(record: any, subnetByNameLc: Map<string, any>): boolean {
+  return resolveLinkedKubeOvnSubnet(record, subnetByNameLc) != null;
+}
+
+/** 根据 VM networks 字段解析正在使用该 NAD 的虚拟机展示名列表（与单删 / 批量删同源） */
+function collectVmDisplayNamesUsingNad(
+  vms: any[],
+  record: { _namespace?: string; _name?: string },
+): string[] {
+  const targetNs = String(record._namespace ?? '').toLowerCase();
+  const targetName = String(record._name ?? '').toLowerCase();
+  if (!targetName) return [];
+  const targetRef = `${targetNs}/${targetName}`;
+  return vms
+    .filter((vm: any) => Array.isArray(vm.networks))
+    .filter((vm: any) => {
+      const vmNs = (vm.namespace || vm.metadata?.namespace || '').toLowerCase();
+      return vm.networks.some((n: string) => {
+        if (!n) return false;
+        const s = String(n).toLowerCase();
+        const base = s.includes('@') ? s.split('@')[0] : s;
+        if (base === 'pod' || base === 'default') return false;
+        if (base === targetRef) return true;
+        if (base.endsWith(`/${targetName}`)) return true;
+        if (base === targetName && vmNs === targetNs) return true;
+        return false;
+      });
+    })
+    .map(
+      (vm: any) =>
+        vm?.metadata?.annotations?.['tower.io/alias'] ||
+        vm.InstanceName ||
+        vm.name ||
+        vm.metadata?.name,
+    )
+    .filter(Boolean);
 }
 
 /**
@@ -157,8 +231,6 @@ type Props = {
   cloudId?: string;
   /** 是否为租户模式，影响权限控制和资源过滤 */
   isTenant?: boolean;
-  /** 是否显示表格边框，默认 true */
-  bordered?: boolean;
   /**
    * 为 true 时仅保留 CNI `type=bridge` 的 NAD（会隐藏子网配套的 `kube-ovn` 类 NAD）。
    * 默认 false：展示全部（含公共/扁平/VPC 子网关联创建的 kube-ovn NAD），便于与 Kube-OVN 子网对照排障。
@@ -166,7 +238,7 @@ type Props = {
   onlyBridge?: boolean;
 };
 
-const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false }) => {
+const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, onlyBridge = false }) => {
   const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -186,25 +258,25 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
   const [ovnSubnets, setOvnSubnets] = useState<any[]>([]);
   const [ovnSubnetsLoading, setOvnSubnetsLoading] = useState(false);
 
-  const loadOvnSubnets = useCallback(
-    async (force = false) => {
-      if (!cloudId) {
-        setOvnSubnets([]);
-        return;
-      }
-      setOvnSubnetsLoading(true);
-      try {
-        const res = await fetchKubeOvnSubnets(cloudId, force);
-        const items = res?.data?.items || res?.items || [];
-        setOvnSubnets(Array.isArray(items) ? items : []);
-      } catch {
-        setOvnSubnets([]);
-      } finally {
-        setOvnSubnetsLoading(false);
-      }
-    },
-    [cloudId],
-  );
+  const loadOvnSubnets = useCallback(async (force = false): Promise<any[]> => {
+    if (!cloudId) {
+      setOvnSubnets([]);
+      return [];
+    }
+    setOvnSubnetsLoading(true);
+    try {
+      const res = await fetchKubeOvnSubnets(cloudId, force);
+      const items = res?.data?.items || res?.items || [];
+      const list = Array.isArray(items) ? items : [];
+      setOvnSubnets(list);
+      return list;
+    } catch {
+      setOvnSubnets([]);
+      return [];
+    } finally {
+      setOvnSubnetsLoading(false);
+    }
+  }, [cloudId]);
 
   useEffect(() => {
     loadOvnSubnets(false);
@@ -227,34 +299,50 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
   const [nsFilter, setNsFilter] = useState<string>('');
   /** 过滤条件：IP分配方式筛选（dhcp/static/host-local） */
   const [ipamFilter, setIpamFilter] = useState<string>('');
-  /** 过滤条件：按关联的 Kube-OVN Subnet 资源名（metadata.name）筛选 */
-  const [ovnSubnetFilter, setOvnSubnetFilter] = useState<string>('');
+  /** 过滤条件：仅显示孤立 NAD（kube-ovn、无配套 Kube-OVN 子网） */
+  const [orphanOvnNadFilter, setOrphanOvnNadFilter] = useState<string>('');
 
   useEffect(() => {
-    setOvnSubnetFilter('');
+    setOrphanOvnNadFilter('');
   }, [cloudId]);
   
   /** 批量选择：选中的行 key 列表 */
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  /** 详情抽屉：是否显示 */
-  const [detailVisible, setDetailVisible] = useState(false);
-  /** 详情抽屉：当前查看的记录 */
-  const [detailRecord, setDetailRecord] = useState<any>(null);
-  /** 详情抽屉：当前激活的标签页 */
-  const [detailActiveTab, setDetailActiveTab] = useState('detail');
+  const [nadYamlDrawerOpen, setNadYamlDrawerOpen] = useState(false);
+  const [nadYamlViewLink, setNadYamlViewLink] = useState<string | undefined>();
 
   /** 创建网络弹窗：是否显示 */
   const [createVisible, setCreateVisible] = useState(false);
 
-  /**
-   * 打开 HarvesterResourceDrawer，查看 NAD 详情
-   * kind 固定为 NetworkAttachmentDefinition 以兼容事件等功能
-   */
-  const handleOpenOpsinfo = useCallback(async (record: any, tab: string = 'detail') => {
-    setDetailRecord({ ...record, kind: 'NetworkAttachmentDefinition' });
-    setDetailActiveTab(tab);
-    setDetailVisible(true);
+  /** 打开 ResourceLinkYamlDrawer，经 Steve `links.view` 拉取 NetworkAttachmentDefinition YAML */
+  const openNadYamlDrawer = useCallback(
+    (record: any) => {
+      if (!cloudId) {
+        message.warning('缺少云实例上下文，无法拉取 YAML');
+        return;
+      }
+      const existing = record?.links?.view;
+      const ns = String(record?._namespace ?? record?.metadata?.namespace ?? '').trim();
+      const name = String(record?._name ?? record?.metadata?.name ?? '').trim();
+      const link = existing
+        ? String(existing).trim()
+        : ns && name
+          ? `/apis/k8s.cni.cncf.io/v1/namespaces/${encodeURIComponent(ns)}/network-attachment-definitions/${encodeURIComponent(name)}`
+          : undefined;
+      if (!link) {
+        message.warning('当前行缺少 View Link，无法拉取 YAML');
+        return;
+      }
+      setNadYamlViewLink(link);
+      setNadYamlDrawerOpen(true);
+    },
+    [cloudId],
+  );
+
+  const closeNadYamlDrawer = useCallback(() => {
+    setNadYamlDrawerOpen(false);
+    setNadYamlViewLink(undefined);
   }, []);
 
   /**
@@ -276,47 +364,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     try {
       const ecsRes = await fetchCloudProviderEcs(cloudId || '', true);
       const vms: any[] = ecsRes?.data || ecsRes || [];
-      const targetNs = record._namespace.toLowerCase();
-      const targetName = record._name.toLowerCase();
-      const targetRef = `${targetNs}/${targetName}`;
-      
-      return vms
-        .filter((vm: any) => Array.isArray(vm.networks))
-        .filter((vm: any) => {
-          const vmNs = (vm.namespace || vm.metadata?.namespace || '').toLowerCase();
-          
-          return vm.networks.some((n: string) => {
-            if (!n) return false;
-            
-            // 处理 @ 符号（如 "namespace/name@vlan"）
-            const s = String(n).toLowerCase();
-            const base = s.includes('@') ? s.split('@')[0] : s;
-            
-            // 跳过 Pod 网络和默认网络
-            if (base === 'pod' || base === 'default') return false;
-            
-            // 情况1：完整格式精确匹配 "namespace/name"
-            if (base === targetRef) return true;
-            
-            // 情况2：后缀匹配 "/name"
-            if (base.endsWith(`/${targetName}`)) return true;
-            
-            // 情况3：短格式匹配（仅名称，且 VM 命名空间与 NAD 命名空间相同）
-            if (base === targetName && vmNs === targetNs) return true;
-            
-            return false;
-          });
-        })
-        .map(
-          (vm: any) =>
-            vm?.metadata?.annotations?.['tower.io/alias'] ||
-            vm.InstanceName ||
-            vm.name ||
-            vm.metadata?.name,
-        )
-        .filter(Boolean);
-    } catch (e) {
-      // 忽略占用检查错误，返回空数组
+      return collectVmDisplayNamesUsingNad(vms, record);
+    } catch {
       return [];
     }
   }, [cloudId]);
@@ -335,25 +384,17 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * @param record - NAD 记录对象，需包含 _name 字段
    * @returns 依赖该 NAD 的子网名称列表，如果检查失败返回空数组
    */
-  const checkSubnetDependency = useCallback(async (record: any): Promise<string[]> => {
-    try {
-      const subnetsRes = await fetchKubeOvnSubnets(cloudId || '', true);
-      const subnets: any[] = subnetsRes?.data?.items || subnetsRes?.items || [];
-      const nadName = record._name.toLowerCase();
-      
-      // 检查是否有子网名称与 NAD 名称相同
-      return subnets
-        .filter((subnet: any) => {
-          const subnetName = (subnet?.metadata?.name || subnet?.name || '').toLowerCase();
-          return subnetName === nadName;
-        })
-        .map((subnet: any) => subnet?.metadata?.name || subnet?.name)
-        .filter(Boolean);
-    } catch (e) {
-      // 忽略检查错误，返回空数组
-      return [];
-    }
-  }, [cloudId]);
+  const checkSubnetDependency = useCallback(
+    async (record: any): Promise<string[]> => {
+      try {
+        const subnets = await loadOvnSubnets(true);
+        return findDependentSubnetsForNad(record, subnets);
+      } catch {
+        return [];
+      }
+    },
+    [loadOvnSubnets],
+  );
 
   /**
    * 删除单个网络
@@ -373,11 +414,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    */
   const handleDelete = useCallback(async (record: any) => {
     if (!ensureNadsWrite()) return;
-
-    if (isKubeOvnCniNad(record)) {
-      message.warning('CNI 类型为 kube-ovn 的网络由 Kube-OVN 子网管理，请通过删除子网操作');
-      return;
-    }
 
     // 租户不能删除公共命名空间的资源
     const isPublic = isPublicNamespace(record._namespace);
@@ -435,7 +471,15 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             }
           },
     });
-  }, [ensureNadsWrite, isTenant, checkNetworkUsage, checkSubnetDependency, cloudId, onRefresh, isPublicNamespace]);
+  }, [
+    ensureNadsWrite,
+    isTenant,
+    checkNetworkUsage,
+    checkSubnetDependency,
+    cloudId,
+    onRefresh,
+    isPublicNamespace,
+  ]);
 
   /**
    * 批量删除选中的网络
@@ -473,20 +517,14 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       return;
     }
 
-    const kubeOvnTargets = targets.filter((item: any) => isKubeOvnCniNad(item));
     const deletableTargets = targets.filter((item: any) => {
-      if (isKubeOvnCniNad(item)) return false;
       if (isTenant && isPublicNamespace(item._namespace)) return false;
       return true;
     });
     const publicTargets = isTenant ? targets.filter((item: any) => isPublicNamespace(item._namespace)) : [];
 
     if (deletableTargets.length === 0) {
-      if (kubeOvnTargets.length > 0) {
-        message.warning(
-          `选中的网络无法删除：${kubeOvnTargets.length} 个 kube-ovn 配套网络（请通过 Kube-OVN 子网删除）`,
-        );
-      } else if (publicTargets.length > 0) {
+      if (publicTargets.length > 0) {
         message.warning(`选中的网络无法删除：${publicTargets.length} 个公共命名空间（租户不能删除）`);
       } else {
         message.warning('选中的网络无法删除');
@@ -500,63 +538,27 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     const subnetDependencyMap = new Map<string, string[]>();
     
     try {
-      const [ecsRes, subnetsRes] = await Promise.all([
+      const [ecsRes, subnets] = await Promise.all([
         fetchCloudProviderEcs(cloudId || '', true),
-        fetchKubeOvnSubnets(cloudId || '', true),
+        loadOvnSubnets(true),
       ]);
-      
+
       const vms: any[] = ecsRes?.data || ecsRes || [];
-      const subnets: any[] = subnetsRes?.data?.items || subnetsRes?.items || [];
-      
+
       for (const target of deletableTargets) {
-        const targetNs = target._namespace.toLowerCase();
-        const targetName = target._name.toLowerCase();
-        const targetRef = `${targetNs}/${targetName}`;
-        
-        // 检查 VM 占用
-        const usingVms = vms
-          .filter((vm: any) => Array.isArray(vm.networks))
-          .filter((vm: any) => {
-            const vmNs = (vm.namespace || vm.metadata?.namespace || '').toLowerCase();
-            
-            return vm.networks.some((n: string) => {
-              if (!n) return false;
-              const s = String(n).toLowerCase();
-              const base = s.includes('@') ? s.split('@')[0] : s;
-              if (base === 'pod' || base === 'default') return false;
-              if (base === targetRef) return true;
-              if (base.endsWith(`/${targetName}`)) return true;
-              if (base === targetName && vmNs === targetNs) return true;
-              return false;
-            });
-          })
-          .map(
-            (vm: any) =>
-              vm?.metadata?.annotations?.['tower.io/alias'] ||
-              vm.InstanceName ||
-              vm.name ||
-              vm.metadata?.name,
-          )
-          .filter(Boolean);
-        
+        const usingVms = collectVmDisplayNamesUsingNad(vms, target);
+
         if (usingVms.length > 0) {
           usageMap.set(`${target._namespace}/${target._name}`, usingVms);
         }
-        
-        // 检查 Subnet 依赖
-        const dependentSubnets = subnets
-          .filter((subnet: any) => {
-            const subnetName = (subnet?.metadata?.name || subnet?.name || '').toLowerCase();
-            return subnetName === targetName;
-          })
-          .map((subnet: any) => subnet?.metadata?.name || subnet?.name)
-          .filter(Boolean);
-        
+
+        const dependentSubnets = findDependentSubnetsForNad(target, subnets);
+
         if (dependentSubnets.length > 0) {
           subnetDependencyMap.set(`${target._namespace}/${target._name}`, dependentSubnets);
         }
       }
-    } catch (e) {
+    } catch {
       // 忽略占用检查错误，继续执行删除
     }
 
@@ -572,11 +574,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     let content = (
       <>
         <div>{`确定要删除选中的 ${deletableTargets.length} 个网络吗？此操作不可恢复。`}</div>
-        {kubeOvnTargets.length > 0 && (
-          <div style={{ color: '#faad14', marginTop: 8 }}>
-            {`注意：${kubeOvnTargets.length} 个 CNI 类型为 kube-ovn 的网络将被跳过（请通过 Kube-OVN 子网删除）。`}
-          </div>
-        )}
         {publicTargets.length > 0 && (
           <div style={{ color: '#faad14', marginTop: 8 }}>
             {`注意：${publicTargets.length} 个公共命名空间的网络将被跳过（租户不能删除公共命名空间的资源）。`}
@@ -756,8 +753,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * 1. 关键字过滤：匹配网络名称或命名空间（不区分大小写）
    * 2. 命名空间过滤：精确匹配（不区分大小写）
    * 3. IP分配方式过滤：精确匹配（不区分大小写）
-   * 
-   * [过滤规则]
+   * 4. 孤立 OVN NAD：选中后仅保留 CNI kube-ovn 且无配套 Kube-OVN 子网的行（子网列表加载完成后生效）
    * - 所有过滤条件都是 AND 关系（必须同时满足）
    * - 空字符串表示不过滤该维度
    * - 关键字支持部分匹配，命名空间和 IP分配方式必须精确匹配
@@ -786,20 +782,12 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       // IP分配方式过滤
       if (ipt && ipam !== ipt) return false;
 
-      const ovnRaw = ovnSubnetFilter.trim();
-      if (ovnRaw === OVN_SUBNET_FILTER_NO_BINDING) {
-        const tp = String(item._type ?? '').trim().toLowerCase();
-        if (tp === 'kube-ovn') return false;
-      } else if (ovnRaw && !ovnSubnetsLoading) {
-        if (ovnRaw === OVN_SUBNET_FILTER_UNMATCHED) {
-          const tp = String(item._type ?? '').trim().toLowerCase();
-          if (tp !== 'kube-ovn') return false;
-          if (resolveLinkedKubeOvnSubnet(item, subnetByNameLc)) return false;
-        } else {
-          const linked = resolveLinkedKubeOvnSubnet(item, subnetByNameLc);
-          const linkedName = String(linked?.metadata?.name || linked?.name || '').toLowerCase();
-          if (linkedName !== ovnRaw.toLowerCase()) return false;
-        }
+      if (
+        orphanOvnNadFilter === OVN_NAD_ORPHAN_ONLY &&
+        !ovnSubnetsLoading
+      ) {
+        if (!isKubeOvnCniNad(item)) return false;
+        if (resolveLinkedKubeOvnSubnet(item, subnetByNameLc)) return false;
       }
 
       return true;
@@ -809,7 +797,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     keyword,
     nsFilter,
     ipamFilter,
-    ovnSubnetFilter,
+    orphanOvnNadFilter,
     subnetByNameLc,
     ovnSubnetsLoading,
   ]);
@@ -827,39 +815,20 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     Array.from(new Set(processedData.map(r => r._ipamType).filter(Boolean))).sort(),
   [processedData]);
 
-  /** OVN 子网筛选：固定项（无绑定 / 未匹配）+ 集群 Subnet 列表「别名（资源名）」 */
-  const ovnSubnetSelectOptions = useMemo(() => {
-    const special: { value: string; label: string }[] = [
-      { value: OVN_SUBNET_FILTER_NO_BINDING, label: '无子网绑定' },
-      { value: OVN_SUBNET_FILTER_UNMATCHED, label: '暂无同名子网' },
-    ];
-    const rows = (ovnSubnets || [])
-      .map((s: any) => {
-        const name = String(s?.metadata?.name || s?.name || '').trim();
-        if (!name) return null;
-        const ann = s?.metadata?.annotations || {};
-        const alias = String(ann[TOWER_ALIAS_ANNOTATION] || '').trim();
-        const label = alias ? `${alias}（${name}）` : name;
-        return { value: name, label };
-      })
-      .filter(Boolean) as { value: string; label: string }[];
-    rows.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-    return [...special, ...rows];
-  }, [ovnSubnets]);
-
-  // ==================== 表格配置 ====================
   
-  /** 表格行选择配置：租户不可选公共命名空间；管理员全可选（含系统命名空间，便于排障批量操作） */
-  const rowSelection = {
-    selectedRowKeys,
-    onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
-    getCheckboxProps: (record: any) => ({
-      disabled:
-        !hasNadsWrite ||
-        isKubeOvnCniNad(record) ||
-        (isTenant && isPublicNamespace(record._namespace)),
+  const rowSelection = useMemo(
+    () => ({
+      selectedRowKeys,
+      onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+      getCheckboxProps: (record: any) => ({
+        disabled:
+          !hasNadsWrite ||
+          (isKubeOvnCniNad(record) && hasLinkedKubeOvnSubnetInMap(record, subnetByNameLc)) ||
+          (isTenant && isPublicNamespace(record._namespace)),
+      }),
     }),
-  };
+    [selectedRowKeys, hasNadsWrite, subnetByNameLc, isTenant, isPublicNamespace],
+  );
 
   /**
    * 表格列定义
@@ -869,17 +838,13 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * - 网络ID：显示 NAD 的 metadata.name（K8s 资源名称）
    * - 命名空间：显示所属命名空间
    * - VLAN：如果配置了 VLAN，显示为蓝色标签
-   * - IP分配方式：使用不同颜色的标签区分类型
-   *   - dhcp: 绿色 (std-badge-success)
-   *   - static: 蓝色 (std-badge-info)
-   *   - host-local: 橙色 (std-badge-warning)
-   *   - 未配置: 灰色 (std-badge-default)
-   * - 混杂模式：如果开启，显示橙色标签
+   * - IP分配方式：antd Tag（dhcp/static/host-local）；未配置为 Tag
+   * - 混杂模式：Tag
    * - CNI 类型：完整显示 spec.config 解析出的 type（如 kube-ovn、macvlan）；bridge 时为 `bridge/网桥名` 单行
    * - CNI版本：显示 CNI 版本号
    * - UID：显示 K8s UID
    * - 操作：操作菜单
-   *   - 管理员模式：显示"运维信息"和"删除"
+   *   - 管理员模式：显示「查看YAML」和「删除」
    *   - 租户模式：仅显示"删除"
    *   - 公共命名空间（租户）：删除按钮禁用
    */
@@ -887,58 +852,50 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     {
       fixed: 'left' as const,
       title: '网络名称',
-      key: 'name', 
+      key: 'name',
       render: (_: any, r: any) => {
-        // 优先显示别名，如果没有别名则显示 ID
         let displayName = r._alias || r._name || '-';
-        // 如果名称是 mgmt，映射为管理网
         if (!r._alias && displayName === 'mgmt') {
           displayName = '管理网';
         }
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <ApiTwoTone style={{ color: '#1677ff' }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{displayName}</span>
-          </span>
-        );
-      }
+        return displayName;
+      },
     },
-    { 
-      title: '网络ID', 
-      key: 'id', 
-      render: (_: any, r: any) => (
-        <span className="text-secondary">{r._name || '-'}</span>
-      )
+    {
+      title: '网络ID',
+      key: 'id',
+      render: (_: any, r: any) => r._name || '-',
     },
-    { 
-      title: '命名空间', 
-      key: 'ns', 
-      render: (_: any, r: any) => r._namespace || '-' 
+    {
+      title: '命名空间',
+      key: 'ns',
+      render: (_: any, r: any) => r._namespace || '-',
     },
-    { 
-      title: 'VLAN', 
-      key: 'vlan', 
-      render: (_: any, r: any) => r._vlan ? <Tag color="blue">{r._vlan}</Tag> : <Tag>未配置</Tag> 
+    {
+      title: 'VLAN',
+      key: 'vlan',
+      render: (_: any, r: any) =>
+        r._vlan ? <Tag color="blue">{r._vlan}</Tag> : <Tag>未配置</Tag>,
     },
-    { 
-      title: 'IP分配方式', 
-      key: 'ipamType', 
+    {
+      title: 'IP分配方式',
+      key: 'ipamType',
       render: (_: any, r: any) => {
-          const t = String(r._ipamType || '').toLowerCase();
-          if (!t) return <Tag>未配置</Tag>;
-          
-          let badgeClass = 'std-badge-default';
-          if (t === 'dhcp') badgeClass = 'std-badge-success';
-          else if (t === 'static') badgeClass = 'std-badge-info';
-          else if (t === 'host-local') badgeClass = 'std-badge-warning';
-          
-          return <span className={`std-badge ${badgeClass}`}>{t}</span>;
-      }
+        const t = String(r._ipamType || '').toLowerCase();
+        if (!t) return <Tag>未配置</Tag>;
+        let color: React.ComponentProps<typeof Tag>['color'];
+        if (t === 'dhcp') color = 'success';
+        else if (t === 'static') color = 'blue';
+        else if (t === 'host-local') color = 'orange';
+        else color = 'default';
+        return <Tag color={color}>{t}</Tag>;
+      },
     },
-    { 
-      title: '混杂模式', 
-      key: 'promisc', 
-      render: (_: any, r: any) => r._promisc ? <Tag color="blue">开启</Tag> : <Tag>未配置</Tag> 
+    {
+      title: '混杂模式',
+      key: 'promisc',
+      render: (_: any, r: any) =>
+        r._promisc ? <Tag color="blue">开启</Tag> : <Tag>未配置</Tag>,
     },
     {
       title: 'CNI 类型',
@@ -946,20 +903,11 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       ellipsis: true,
       render: (_: any, r: any) => {
         const tp = String(r._type ?? '').trim();
-        if (!tp) return <span className="text-secondary">—</span>;
+        if (!tp) return '—';
         const isBridge = tp.toLowerCase() === 'bridge';
         const br = String(r._bridge ?? '').trim();
-        if (isBridge && br) {
-          return (
-            <span>
-              <span>{tp}</span>
-              <span>/{br}</span>
-            </span>
-          );
-        }
-        return (
-          <span>{tp}</span>
-        );
+        if (isBridge && br) return `${tp}/${br}`;
+        return tp;
       },
     },
     {
@@ -972,18 +920,16 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         if (!isKubeOvn) {
           return (
             <Tooltip title="当前 CNI 不是 kube-ovn（如 bridge、macvlan），不会与集群里的 Kube-OVN Subnet 做同名配套。">
-              <span className="text-secondary">无子网绑定</span>
+              无子网绑定
             </Tooltip>
           );
         }
-        if (ovnSubnetsLoading) {
-          return <span className="text-secondary">加载中…</span>;
-        }
+        if (ovnSubnetsLoading) return '加载中…';
         const linked = resolveLinkedKubeOvnSubnet(r, subnetByNameLc);
         if (!linked) {
           return (
             <Tooltip title="已为 kube-ovn，但在当前子网列表中未找到同名或 provider 指向的 Subnet；若刚创建请点击工具栏刷新。">
-              <span className="text-secondary">暂无同名子网</span>
+              暂无同名子网
             </Tooltip>
           );
         }
@@ -994,59 +940,54 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         const cidr = String(linked?.spec?.cidrBlock ?? linked?.spec?.cidr ?? '').trim();
         const resName = linked?.metadata?.name || linked?.name || '';
         const line1 = alias || resName || '（无显示名）';
-        const tip = [`名称: ${line1}`, `类型: ${typeLabel || '—'}`, `网段: ${cidr || '—'}`].join('\n');
+        const tip = [`子网名: ${line1}`, `类型: ${typeLabel || '—'}`, `网段: ${cidr || '—'}`].join('\n');
+        const text = [line1, typeLabel || '—', cidr || '—'].join(' / ');
         return (
           <Tooltip title={tip}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-              <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>{line1}</span>
-              <span className="text-secondary" style={{ fontSize: 12, lineHeight: 1.2 }}>
-                {[typeLabel || '—', cidr || '—'].join(' / ')}
-              </span>
-            </div>
+            {text}
           </Tooltip>
         );
       },
     },
-    { 
-      title: 'CNI版本', 
-      key: 'cni', 
-      render: (_: any, r: any) => r._cniVersion || '-' 
+    {
+      title: 'CNI版本',
+      key: 'cni',
+      render: (_: any, r: any) => r._cniVersion || '-',
     },
-    { 
-      title: 'UID', 
-      key: 'uid', 
-      render: (_: any, r: any) => <span>{r?.metadata?.uid || '-'}</span> 
+    {
+      title: 'UID',
+      key: 'uid',
+      render: (_: any, r: any) => r?.metadata?.uid || '-',
     },
-    { 
-      title: '操作', 
-      key: 'actions', 
-      align: 'left' as const,
+    {
+      title: '操作',
+      key: 'actions',
       fixed: 'right' as const,
       render: (_: any, r: any) => {
-          const isPublic = isPublicNamespace(r._namespace);
-          const deleteDisabled = isTenant && isPublic;
-          const showDelete = !isKubeOvnCniNad(r);
-          const items: any[] = [];
-          if (!isTenant && !isStandardView) {
-            items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
-            if (showDelete) items.push({ type: 'divider' });
-          }
-          if (showDelete) {
-            items.push({
-              key: 'delete',
-              label: '删除',
-              danger: true,
-              disabled: deleteDisabled,
-              onClick: () => handleDelete(r),
-            });
-          }
-          if (items.length === 0) {
-            return <span style={{ color: '#bfbfbf' }}>—</span>;
-          }
-          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasNadsWrite }} />;
-      } 
+        const isPublic = isPublicNamespace(r._namespace);
+        const deleteDisabled = isTenant && isPublic;
+        const showDelete = !(isKubeOvnCniNad(r) && hasLinkedKubeOvnSubnetInMap(r, subnetByNameLc));
+        const items: any[] = [];
+        if (!isTenant && !isStandardView) {
+          items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => openNadYamlDrawer(r) });
+          if (showDelete) items.push({ type: 'divider' });
+        }
+        if (showDelete) {
+          items.push({
+            key: 'delete',
+            label: '删除',
+            danger: true,
+            disabled: deleteDisabled,
+            onClick: () => handleDelete(r),
+          });
+        }
+        if (items.length === 0) {
+          return '—';
+        }
+        return <ResourceActionsDropdown items={items} buttonProps={{ disabled: !hasNadsWrite }} />;
+      },
     },
-  ], [hasNadsWrite, isTenant, isStandardView, subnetByNameLc, ovnSubnetsLoading, handleDelete, handleOpenOpsinfo, isPublicNamespace]);
+  ], [hasNadsWrite, isTenant, isStandardView, subnetByNameLc, ovnSubnetsLoading, handleDelete, openNadYamlDrawer, isPublicNamespace]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nads_table');
@@ -1084,16 +1025,13 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           />
           <Select
             allowClear
-            showSearch
-            placeholder="OVN 子网"
+            placeholder="孤立 NAD"
             loading={ovnSubnetsLoading}
             disabled={!cloudId}
-            value={ovnSubnetFilter || undefined}
-            onChange={(v) => setOvnSubnetFilter((v as string) ?? '')}
+            value={orphanOvnNadFilter || undefined}
+            onChange={(v) => setOrphanOvnNadFilter((v as string) ?? '')}
             className="toolbar-filter-sm"
-            options={ovnSubnetSelectOptions}
-            optionFilterProp="label"
-            notFoundContent={ovnSubnetsLoading ? '加载中…' : '暂无子网'}
+            options={ORPHAN_OVN_NAD_FILTER_OPTIONS}
           />
           <button
             type="button"
@@ -1102,7 +1040,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
               setKeyword('');
               setNsFilter('');
               setIpamFilter('');
-              setOvnSubnetFilter('');
+              setOrphanOvnNadFilter('');
             }}
           >
             重置
@@ -1166,15 +1104,15 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         }}
       />
 
-      <HarvesterResourceDrawer
-        open={detailVisible}
-        onClose={() => setDetailVisible(false)}
-        resourceType="NetworkAttachmentDefinition"
-        record={detailRecord}
-        activeTab={detailActiveTab}
-        onTabChange={setDetailActiveTab}
-        cloudId={cloudId}
-      />
+      {cloudId ? (
+        <ResourceLinkYamlDrawer
+          open={nadYamlDrawerOpen}
+          onClose={closeNadYamlDrawer}
+          cloudId={cloudId}
+          viewLink={nadYamlViewLink}
+          title="查看 YAML"
+        />
+      ) : null}
 
       <NadCreateModal 
         open={createVisible} 

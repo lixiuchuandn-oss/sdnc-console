@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 模块名称: 云资源接入向导 (Cloud Resource Access Wizard)
- * 文件路径: frontend/src/pages/cnmc/pools/CloudWizard.tsx
+ * 文件路径: frontend/src/pages/cnmc/pools/modals/CloudWizard.tsx
  * ==============================================================================
  * 
  * [功能描述]
@@ -40,21 +40,18 @@ import {
   EyeOutlined, EyeInvisibleOutlined,
   AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, AppstoreOutlined, CodeSandboxOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined
 } from '@ant-design/icons';
-import '../clouds/Harvester/ecs/modals/VmCreateWizard/InstanceWizard.css';
-import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from './poolProviders';
-import { useLicense } from '../../../contexts/LicenseContext';
-import cloudmapKeyImage from '../../../assets/clouds/cloudmapkey.png';
-import cloudmapApiImage from '../../../assets/clouds/cloudmapapi.png';
-import { provinces, cityOptionsByProvince } from '../../../constants/chinaRegions';
-import { apiPost, apiRequest } from '../../../services/api';
+import '../../clouds/Harvester/ecs/modals/VmCreateWizard/InstanceWizard.css';
+import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from '../lib/poolProviders';
+import { useLicense } from '../../../../contexts/LicenseContext';
+import cloudmapKeyImage from '../../../../assets/clouds/cloudmapkey.png';
+import cloudmapApiImage from '../../../../assets/clouds/cloudmapapi.png';
+import { provinces, cityOptionsByProvince } from '../../../../constants/chinaRegions';
+import { apiPost, apiRequest } from '../../../../services/api';
+import { handleApiError } from '../../../../utils/errorHandler';
+import { isCloudWizardOpenProvider, poolTypeToApiType } from '../lib/cloudWizardUtils';
+
 const { Title, Text } = Typography;
 const { Option } = Select;
-
-/** 向导里 CSM 使用 UI 类型 sdn_security_pool；创建/测试仍传后端 CloudType.security_pool */
-function poolTypeToApiType(raw: string): string {
-  const t = String(raw || '').toLowerCase();
-  return t === 'sdn_security_pool' ? 'security_pool' : t;
-}
 
 interface CloudWizardProps {
   visible: boolean;
@@ -76,11 +73,6 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
 
   // 仅允许 CloudMap 私有云：试用 或 未开通多云 时，统一跳过选择云平台、禁止回退、禁用资源类型
   const isCloudMapOnly = license?.payload?.type === 'trial' || !hasFeature('platform.multi-cloud');
-
-  // [权限/功能开关] 开放平台检查
-  const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'rancher'].includes(id);
-  };
 
   // [级联数据] 构建省份-城市级联选项（必须在组件顶层）
   const regionCascaderOptions = useMemo(() => {
@@ -279,9 +271,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
       }
 
       setTestResult({ success: !!json?.ok, message: msg });
-    } catch (error: any) {
-      // 使用统一错误处理
-      const { handleApiError } = require('../../../utils/errorHandler');
+    } catch (error: unknown) {
       const apiError = handleApiError(error, { 
         showMessage: false, 
         defaultMessage: '连接测试失败' 
@@ -447,8 +437,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
 
   const renderProviderGrid = (category: string, title: string, providers: CloudProvider[]) => {
     const sortedProviders = [...providers].sort((a, b) => {
-      const ao = isOpenProvider(a.id) ? 1 : 0;
-      const bo = isOpenProvider(b.id) ? 1 : 0;
+      const ao = isCloudWizardOpenProvider(a.id) ? 1 : 0;
+      const bo = isCloudWizardOpenProvider(b.id) ? 1 : 0;
       if (bo !== ao) return bo - ao; // 已开放的排前面
       return a.name.localeCompare(b.name);
     });
@@ -467,7 +457,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
           {sortedProviders.map(provider => (
             <Col xs={12} sm={8} md={6} lg={6} key={provider.id}>
               <Card
-                hoverable={isOpenProvider(provider.id)}
+                hoverable={isCloudWizardOpenProvider(provider.id)}
                 style={{ 
                   textAlign: 'center',
                   backgroundColor: selectedProvider?.id === provider.id ? '#1677ff' : '#fff',
@@ -477,11 +467,11 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  opacity: isOpenProvider(provider.id) ? 1 : 0.45,
-                  cursor: isOpenProvider(provider.id) ? 'pointer' : 'not-allowed',
-                  pointerEvents: isOpenProvider(provider.id) ? 'auto' : 'none'
+                  opacity: isCloudWizardOpenProvider(provider.id) ? 1 : 0.45,
+                  cursor: isCloudWizardOpenProvider(provider.id) ? 'pointer' : 'not-allowed',
+                  pointerEvents: isCloudWizardOpenProvider(provider.id) ? 'auto' : 'none'
                 }}
-                onClick={isOpenProvider(provider.id) ? () => handleProviderSelect(provider) : undefined}
+                onClick={isCloudWizardOpenProvider(provider.id) ? () => handleProviderSelect(provider) : undefined}
               >
                 <div style={{ fontSize: 32, marginBottom: 4, color: selectedProvider?.id === provider.id ? '#fff' : '#595959' }}>{getProviderLogo(provider.id, provider.category)}</div>
                 <div>{provider.name}</div>

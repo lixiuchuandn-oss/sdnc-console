@@ -4,7 +4,7 @@ import { CloudUploadOutlined } from '@ant-design/icons';
 import { useOutletContext } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import type { AdminLayoutOutletContext } from '../../../layouts/admin/adminLayoutOutletContext';
-import PoolEdgeWizard from '../pools/CloudWizardeasy';
+import PoolEdgeWizard from '../pools/modals/CloudWizardeasy';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import {
   CLOUD_RESOURCE_POOLS_CREATE_WRITE,

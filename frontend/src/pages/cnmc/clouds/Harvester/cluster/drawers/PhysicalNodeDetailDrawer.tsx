@@ -384,12 +384,19 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     );
   }, [record]);
 
-  const internalIP =
-    record?.internalIP ||
-    record?.status?.addresses?.find((a: any) => a?.type === 'InternalIP')?.address ||
-    '';
+  const annotations = useMemo(() => {
+    const raw = record?.metadata?.annotations;
+    return raw && typeof raw === 'object' ? (raw as Record<string, any>) : {};
+  }, [record]);
 
-  const annotations = (record?.metadata?.annotations || {}) as Record<string, any>;
+  const internalIP = useMemo(
+    () =>
+      record?.internalIP ||
+      record?.status?.addresses?.find((a: any) => a?.type === 'InternalIP')?.address ||
+      '',
+    [record],
+  );
+
   const ntp = useMemo(() => {
     return safeJsonParse<{ ntpSyncStatus?: string; currentNtpServers?: string }>(
       annotations?.['node.harvesterhci.io/ntp-service'],
@@ -423,12 +430,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
         render: (v: any) => {
           const s = String(v ?? '').toLowerCase().trim();
           if (!s) return null;
-          const color = s === 'up' ? 'success' : s === 'down' ? 'default' : 'default';
-          return (
-            <Tag color={color}>
-              {s}
-            </Tag>
-          );
+          return <Tag color={s === 'up' ? 'success' : 'default'}>{s}</Tag>;
         },
       },
       {
@@ -721,7 +723,6 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
           </Panel>
         ),
       },
-    
       {
         key: 'hms-board',
         label: 'HMS 主板',

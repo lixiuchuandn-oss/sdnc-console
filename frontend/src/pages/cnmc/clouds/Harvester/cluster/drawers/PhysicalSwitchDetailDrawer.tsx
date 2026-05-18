@@ -17,9 +17,9 @@ import {
 } from 'antd';
 import AswCliOutputCollapse from '../components/AswCliOutputCollapse';
 import {
-  switchRecordManagementHost,
-  switchRecordDeviceProfile,
   parseSwitchProductModelFromInfoLines,
+  switchRecordDeviceProfile,
+  switchRecordManagementHost,
 } from '../lib/physicalSwitchRecordUtils';
 
 export type PhysicalSwitchDetailDrawerProps = {
@@ -81,6 +81,88 @@ function aswCtlServiceHealthTag(record: any): React.ReactNode {
   return statusTag('—', 'muted');
 }
 
+type SwitchDrawerModel = {
+  record: any;
+  host: string;
+  profile: string;
+  productModel: string;
+  kpiInfoTone: KpiTone;
+  kpiIfTone: KpiTone;
+  kpiPerfTone: KpiTone;
+  kpiProfileTone: KpiTone;
+  kpiVlanTone: KpiTone;
+  kpiInfoVal: string;
+  kpiIfVal: string;
+  kpiPerfVal: string;
+  kpiProfileVal: string;
+  kpiVlanVal: string;
+};
+
+function buildSwitchDrawerModel(record: any): SwitchDrawerModel {
+  const host = switchRecordManagementHost(record);
+  const profile = switchRecordDeviceProfile(record);
+  const productModel = parseSwitchProductModelFromInfoLines(record.info?.lines);
+
+  const kpiInfoTone: KpiTone =
+    record.infoError || (record.info && record.info.ok === false) ? 'err' : record.info ? 'ok' : 'muted';
+  const kpiIfTone: KpiTone =
+    record.interfacesError || (record.interfaces && record.interfaces.ok === false)
+      ? 'err'
+      : record.interfaces
+        ? 'ok'
+        : 'muted';
+  const kpiPerfTone: KpiTone = record.performanceError
+    ? 'err'
+    : record.performanceNotApplicable
+      ? 'warn'
+      : record.performance && record.performance.ok === false
+        ? 'err'
+        : record.performance
+          ? 'ok'
+          : 'muted';
+  const kpiProfileTone: KpiTone = record.deviceProfilesError
+    ? 'err'
+    : record.deviceProfiles
+      ? 'ok'
+      : 'muted';
+  const kpiVlanTone: KpiTone = record.vlansError
+    ? 'err'
+    : record.vlansNotApplicable
+      ? 'warn'
+      : record.vlans && record.vlans.ok === false
+        ? 'err'
+        : record.vlans
+          ? 'ok'
+          : 'muted';
+
+  return {
+    record,
+    host,
+    profile,
+    productModel,
+    kpiInfoTone,
+    kpiIfTone,
+    kpiPerfTone,
+    kpiProfileTone,
+    kpiVlanTone,
+    kpiInfoVal: probeStateText(record, { errorKey: 'infoError', dataKey: 'info' }),
+    kpiIfVal: probeStateText(record, { errorKey: 'interfacesError', dataKey: 'interfaces' }),
+    kpiPerfVal: probeStateText(record, {
+      errorKey: 'performanceError',
+      dataKey: 'performance',
+      naKey: 'performanceNotApplicable',
+      naLabel: '未配置',
+    }),
+    kpiProfileVal: probeStateText(record, { errorKey: 'deviceProfilesError', dataKey: 'deviceProfiles' }),
+    kpiVlanVal: probeStateText(record, {
+      errorKey: 'vlansError',
+      dataKey: 'vlans',
+      naKey: 'vlansNotApplicable',
+      naLabel: '未提供',
+    }),
+  };
+}
+
 const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
   open,
   record,
@@ -93,90 +175,35 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
   const prevOpenRef = useRef(false);
   useEffect(() => {
     if (open && !prevOpenRef.current) {
-      setActiveTab(initialTab ?? 'overview');
+      setActiveTab(initialTab);
     }
     prevOpenRef.current = open;
   }, [open, initialTab]);
 
-  const host = record ? switchRecordManagementHost(record) : '—';
-  const productModel = useMemo(
-    () => (record ? parseSwitchProductModelFromInfoLines(record.info?.lines) : ''),
+  const drawerModel = useMemo(
+    () => (record ? buildSwitchDrawerModel(record) : null),
     [record],
   );
-  const profile = record ? switchRecordDeviceProfile(record) : '';
-
-  const kpiInfoTone: KpiTone = !record
-    ? 'muted'
-    : record.infoError || (record.info && record.info.ok === false)
-      ? 'err'
-      : record.info
-        ? 'ok'
-        : 'muted';
-  const kpiIfTone: KpiTone = !record
-    ? 'muted'
-    : record.interfacesError || (record.interfaces && record.interfaces.ok === false)
-      ? 'err'
-      : record.interfaces
-        ? 'ok'
-        : 'muted';
-  const kpiPerfTone: KpiTone = !record
-    ? 'muted'
-    : record.performanceError
-      ? 'err'
-      : record.performanceNotApplicable
-        ? 'warn'
-        : record.performance && record.performance.ok === false
-          ? 'err'
-          : record.performance
-            ? 'ok'
-            : 'muted';
-  const kpiProfileTone: KpiTone = !record
-    ? 'muted'
-    : record.deviceProfilesError
-      ? 'err'
-      : record.deviceProfiles
-        ? 'ok'
-        : 'muted';
-  const kpiVlanTone: KpiTone = !record
-    ? 'muted'
-    : record.vlansError
-      ? 'err'
-      : record.vlansNotApplicable
-        ? 'warn'
-        : record.vlans && record.vlans.ok === false
-          ? 'err'
-          : record.vlans
-            ? 'ok'
-            : 'muted';
-
-  const kpiInfoVal = record
-    ? probeStateText(record, { errorKey: 'infoError', dataKey: 'info' })
-    : '—';
-  const kpiIfVal = record
-    ? probeStateText(record, { errorKey: 'interfacesError', dataKey: 'interfaces' })
-    : '—';
-  const kpiPerfVal = record
-    ? probeStateText(record, {
-        errorKey: 'performanceError',
-        dataKey: 'performance',
-        naKey: 'performanceNotApplicable',
-        naLabel: '未配置',
-      })
-    : '—';
-  const kpiProfileVal = record
-    ? probeStateText(record, { errorKey: 'deviceProfilesError', dataKey: 'deviceProfiles' })
-    : '—';
-  const kpiVlanVal = record
-    ? probeStateText(record, {
-        errorKey: 'vlansError',
-        dataKey: 'vlans',
-        naKey: 'vlansNotApplicable',
-        naLabel: '未提供',
-      })
-    : '—';
 
   const tabItems = useMemo(() => {
-    if (!record) return [];
+    if (!drawerModel) return [];
+    const r = drawerModel.record;
+    const {
+      host,
+      profile,
+      productModel,
+      kpiInfoTone,
+      kpiIfTone,
+      kpiPerfTone,
+      kpiProfileTone,
+      kpiVlanTone,
+      kpiInfoVal,
+      kpiIfVal,
+      kpiPerfVal,
+      kpiProfileVal,
+      kpiVlanVal,
+    } = drawerModel;
+
     return [
       {
         key: 'overview',
@@ -184,12 +211,12 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
         children: (
           <Descriptions {...DESCR_COL1}>
             <Descriptions.Item label="ASW-CTL 名称">
-              {record.name != null && String(record.name).trim() ? record.name : '—'}
+              {r.name != null && String(r.name).trim() ? r.name : '—'}
             </Descriptions.Item>
             <Descriptions.Item label="服务地址">
-              {record.baseUrl ? (
-                <Typography.Text copyable={{ text: record.baseUrl }} code>
-                  {record.baseUrl}
+              {r.baseUrl ? (
+                <Typography.Text copyable={{ text: r.baseUrl }} code>
+                  {r.baseUrl}
                 </Typography.Text>
               ) : (
                 '—'
@@ -206,7 +233,7 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
                 '—'
               )}
             </Descriptions.Item>
-            <Descriptions.Item label="服务健康">{aswCtlServiceHealthTag(record)}</Descriptions.Item>
+            <Descriptions.Item label="服务健康">{aswCtlServiceHealthTag(r)}</Descriptions.Item>
             <Descriptions.Item label="基本信息">{statusTag(kpiInfoVal, kpiInfoTone)}</Descriptions.Item>
             <Descriptions.Item label="接口状态">{statusTag(kpiIfVal, kpiIfTone)}</Descriptions.Item>
             <Descriptions.Item label="性能探测">{statusTag(kpiPerfVal, kpiPerfTone)}</Descriptions.Item>
@@ -220,73 +247,71 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
         label: '系统信息',
         children: (
           <Flex vertical gap="middle">
-            {record.healthError ? (
+            {r.healthError ? (
               <Alert
                 type="error"
                 showIcon
-                message={`服务健康探测失败${record.healthHttpStatus ? `（HTTP ${record.healthHttpStatus}）` : ''}`}
-                description={`${record.healthPath ? `${record.healthPath}：` : ''}${record.healthError}`}
+                message={`服务健康探测失败${r.healthHttpStatus ? `（HTTP ${r.healthHttpStatus}）` : ''}`}
+                description={`${r.healthPath ? `${r.healthPath}：` : ''}${r.healthError}`}
               />
             ) : null}
-            {record.infoError ? (
+            {r.infoError ? (
               <Alert
                 type="error"
                 showIcon
-                message={`基本信息探测失败${record.infoHttpStatus ? `（HTTP ${record.infoHttpStatus}）` : ''}`}
-                description={record.infoError}
+                message={`基本信息探测失败${r.infoHttpStatus ? `（HTTP ${r.infoHttpStatus}）` : ''}`}
+                description={r.infoError}
               />
             ) : null}
-            {record.interfacesError ? (
+            {r.interfacesError ? (
               <Alert
                 type="error"
                 showIcon
-                message={`接口探测失败${record.interfacesHttpStatus ? `（HTTP ${record.interfacesHttpStatus}）` : ''}`}
-                description={record.interfacesError}
+                message={`接口探测失败${r.interfacesHttpStatus ? `（HTTP ${r.interfacesHttpStatus}）` : ''}`}
+                description={r.interfacesError}
               />
             ) : null}
-            {record.performanceError ? (
+            {r.performanceError ? (
               <Alert
                 type="error"
                 showIcon
-                message={`性能探测失败${record.performanceHttpStatus ? `（HTTP ${record.performanceHttpStatus}）` : ''}`}
-                description={record.performanceError}
+                message={`性能探测失败${r.performanceHttpStatus ? `（HTTP ${r.performanceHttpStatus}）` : ''}`}
+                description={r.performanceError}
               />
             ) : null}
-            {record.deviceProfilesError ? (
+            {r.deviceProfilesError ? (
               <Alert
                 type="error"
                 showIcon
-                message={`设备 Profile 失败${record.deviceProfilesHttpStatus ? `（HTTP ${record.deviceProfilesHttpStatus}）` : ''}`}
-                description={record.deviceProfilesError}
+                message={`设备 Profile 失败${r.deviceProfilesHttpStatus ? `（HTTP ${r.deviceProfilesHttpStatus}）` : ''}`}
+                description={r.deviceProfilesError}
               />
             ) : null}
-            {record.vlansError ? (
+            {r.vlansError ? (
               <Alert
                 type="error"
                 showIcon
-                message={`VLAN 查询失败${record.vlansHttpStatus ? `（HTTP ${record.vlansHttpStatus}）` : ''}`}
-                description={record.vlansError}
+                message={`VLAN 查询失败${r.vlansHttpStatus ? `（HTTP ${r.vlansHttpStatus}）` : ''}`}
+                description={r.vlansError}
               />
             ) : null}
 
-            {record.healthNotApplicable ? (
-              <Alert type="info" showIcon message={record.healthNaMessage || '未提供标准健康路径'} />
-            ) : record.health != null ? (
+            {r.healthNotApplicable ? (
+              <Alert type="info" showIcon message={r.healthNaMessage || '未提供标准健康路径'} />
+            ) : r.health != null ? (
               <Collapse
                 size="small"
                 items={[
                   {
                     key: 'health',
-                    label: `服务健康（${record.healthPath || 'ok'}）`,
+                    label: `服务健康（${r.healthPath || 'ok'}）`,
                     children: (
                       <Typography.Paragraph
                         copyable
                         code
                         style={{ marginBottom: 0, maxHeight: 280, overflow: 'auto', whiteSpace: 'pre-wrap' }}
                       >
-                        {typeof record.health === 'string'
-                          ? record.health
-                          : JSON.stringify(record.health, null, 2)}
+                        {typeof r.health === 'string' ? r.health : JSON.stringify(r.health, null, 2)}
                       </Typography.Paragraph>
                     ),
                   },
@@ -294,23 +319,23 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
               />
             ) : null}
 
-            {record.infoError ? null : (
-              <AswCliOutputCollapse title="基本信息" lines={record.info?.lines || []} />
+            {r.infoError ? null : (
+              <AswCliOutputCollapse title="基本信息" lines={r.info?.lines || []} />
             )}
-            {record.interfacesError ? null : (
-              <AswCliOutputCollapse title="接口状态" lines={record.interfaces?.lines || []} />
+            {r.interfacesError ? null : (
+              <AswCliOutputCollapse title="接口状态" lines={r.interfaces?.lines || []} />
             )}
-            {record.performanceError ? null : record.performanceNotApplicable ? (
+            {r.performanceError ? null : r.performanceNotApplicable ? (
               <Alert
                 type="info"
                 showIcon
-                message={record.performanceNaMessage || '性能探测未配置（HTTP 503）'}
+                message={r.performanceNaMessage || '性能探测未配置（HTTP 503）'}
               />
             ) : (
-              <AswCliOutputCollapse title="性能/健康" lines={record.performance?.lines || []} />
+              <AswCliOutputCollapse title="性能/健康" lines={r.performance?.lines || []} />
             )}
 
-            {record.deviceProfilesError ? null : record.deviceProfiles != null ? (
+            {r.deviceProfilesError ? null : r.deviceProfiles != null ? (
               <Collapse
                 size="small"
                 items={[
@@ -319,11 +344,11 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
                     label: 'GET /v1/device/profiles 响应',
                     children: (
                       <Typography.Paragraph
-                        copyable={{ text: JSON.stringify(record.deviceProfiles, null, 2) }}
+                        copyable={{ text: JSON.stringify(r.deviceProfiles, null, 2) }}
                         code
                         style={{ marginBottom: 0, maxHeight: 360, overflow: 'auto', whiteSpace: 'pre-wrap' }}
                       >
-                        {JSON.stringify(record.deviceProfiles, null, 2)}
+                        {JSON.stringify(r.deviceProfiles, null, 2)}
                       </Typography.Paragraph>
                     ),
                   },
@@ -331,24 +356,24 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
               />
             ) : null}
 
-            {record.vlansError ? null : record.vlansNotApplicable ? (
+            {r.vlansError ? null : r.vlansNotApplicable ? (
               <Alert
                 type="info"
                 showIcon
                 message={
-                  record.vlansNaMessage ||
+                  r.vlansNaMessage ||
                   'HTTP 404：当前服务上无 GET /v1/switch/vlans路由（多为未升级、路径或地址指错）。'
                 }
               />
             ) : null}
-            {record.vlansError || record.vlansNotApplicable ? null : (
-              <AswCliOutputCollapse title="VLAN CLI 回显" lines={record.vlans?.lines || []} />
+            {r.vlansError || r.vlansNotApplicable ? null : (
+              <AswCliOutputCollapse title="VLAN CLI 回显" lines={r.vlans?.lines || []} />
             )}
           </Flex>
         ),
       },
     ];
-  }, [record, profile, productModel, host]);
+  }, [drawerModel]);
 
   return (
     <Drawer

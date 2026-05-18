@@ -13,7 +13,7 @@ import {
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
-import { type Cloud, isCsmCloud } from '../../../pages/cnmc/pools/poolProviders';
+import { type Cloud, isCsmCloud } from '../../../pages/cnmc/pools/lib/poolProviders';
 
 export const CSM_POOL_SIDEBAR_CENTER_KEY = '/admin/csm_pool_context';
 

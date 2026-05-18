@@ -10,15 +10,15 @@ import {
   getCloudmapEdgeProvider,
   type Cloud,
   type CloudProviderField,
-} from './poolProviders';
-import cloudmapKeyImage from '../../../assets/clouds/cloudmapkey.png';
-import cloudmapApiImage from '../../../assets/clouds/cloudmapapi.png';
-import { apiPost, apiPut, apiRequest } from '../../../services/api';
-import { updateSystemSetting } from '../../../services/systemApi';
-import { useAuth } from '../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../utils/accessMapping';
-import { handleApiError } from '../../../utils/errorHandler';
-import { CLOUD_RESOURCE_POOLS_CREATE_WRITE } from '../../../constants/cloudPermissions';
+} from '../lib/poolProviders';
+import cloudmapKeyImage from '../../../../assets/clouds/cloudmapkey.png';
+import cloudmapApiImage from '../../../../assets/clouds/cloudmapapi.png';
+import { apiPost, apiPut, apiRequest } from '../../../../services/api';
+import { updateSystemSetting } from '../../../../services/systemApi';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { handleApiError } from '../../../../utils/errorHandler';
+import { CLOUD_RESOURCE_POOLS_CREATE_WRITE } from '../../../../constants/cloudPermissions';
 
 const { Text } = Typography;
 

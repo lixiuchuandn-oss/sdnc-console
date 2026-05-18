@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 模块名称: 云平台提供商配置 (Cloud Provider Configurations)
- * 文件路径: src/pages/cnmc/pools/poolProviders.tsx
+ * 文件路径: src/pages/cnmc/pools/lib/poolProviders.tsx
  * ==============================================================================
  *
  * [功能描述]
@@ -20,9 +20,9 @@
  * [交互/依赖说明]
  * ------------------------------------------------------------------------------
  * 1. 被引用模块:
- *    - src/pages/cnmc/pools/index.tsx (云资源列表)
- *    - src/pages/cnmc/pools/CloudWizard.tsx (添加云资源向导)
- *    - src/pages/cnmc/pools/CloudDetailGate.tsx（云资源详情入口，按厂商分发）
+ *    - src/pages/cnmc/pools/sections/PoolsListWorkspace.tsx（云资源列表）
+ *    - src/pages/cnmc/pools/modals/CloudWizard.tsx（添加云资源向导）
+ *    - Cloudmap：`clouds/Cloudmap/CloudmapPoolShell.tsx`；华为/阿里云：`Hw/HuaweiPoolShell.tsx`、`Aliyun/AliyunPoolShell.tsx`；Rancher：`rancher/RancherPoolVendorShell.tsx`；CSM：`sdncc/traffic/CsmPools/CsmPoolRouteShell.tsx`（见 `App.tsx` 挂载）
  *
  * 2. 关键数据结构:
  *    - CloudProviderField: 定义表单字段的类型和校验规则。
@@ -675,7 +675,7 @@ export const getCredentialLabels = (provider?: string) => {
   }
 };
 
-/** CloudWizardeasy：固定使用 Cloudmap 边缘接入模板 */
+/** pools/modals/CloudWizardeasy：固定使用 Cloudmap 边缘接入模板 */
 export function getCloudmapEdgeProvider(): CloudProvider {
   const p = cloudProviders.find((x) => x.id === 'cloudmap.edge');
   if (!p) {

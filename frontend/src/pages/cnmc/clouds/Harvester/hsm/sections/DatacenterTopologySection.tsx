@@ -542,9 +542,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
       }}
     >
       <div className="cloudmap-dc-topology-body">
-        {loading && racks.length === 0 ? (
-          <div style={{ padding: '48px 0', textAlign: 'center', color: 'rgba(0,0,0,0.45)' }}>加载中…</div>
-        ) : racks.length === 0 ? (
+        {loading && racks.length === 0 ? null : racks.length === 0 ? (
           <div
             style={{
               flex: 1,
