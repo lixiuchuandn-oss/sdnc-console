@@ -261,8 +261,9 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         }
         const isoAlias = String(volName ?? '').trim();
         const nameForApi =
-          isoAlias ||
-          `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+          isoAlias && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(isoAlias)
+            ? isoAlias
+            : `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         const createRes: any = await createHarvesterVolume(cloudId, {
           namespace,
           name: nameForApi,
@@ -287,17 +288,26 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         return;
       }
 
+      const userAlias = String(volName ?? '').trim();
+      const nameForApi =
+        userAlias && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(userAlias)
+          ? userAlias
+          : `disk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
       const createRes: any = await createHarvesterVolume(cloudId, {
         namespace,
-        name: volName,
+        name: nameForApi,
         size: values.newDiskSize,
         storageClassName: values.newDiskSc,
         accessModes: [accessMode],
         volumeMode: 'Block',
+        annotations: {
+          ...(userAlias ? { 'tower.io/alias': userAlias } : {}),
+        },
       });
 
-      const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-      const displayAlias = String(volName ?? '').trim() || actualName;
+      const actualName = harvesterCreatedPvcNameFromResponse(createRes, nameForApi);
+      const displayAlias = userAlias || actualName;
       form.setFieldsValue({
         newDiskCreated: true,
         newDiskPvcClaimName: actualName,
@@ -541,8 +551,9 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         form.getFieldValue('newCdromName') ?? values.newCdromName ?? '',
       ).trim();
       const nameForApi =
-        userCdromAlias ||
-        `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        userCdromAlias && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(userCdromAlias)
+          ? userCdromAlias
+          : `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
       const accessMode = values.newCdromAccessMode || 'ReadWriteMany';
 
       const createRes: any = await createHarvesterVolume(cloudId, {
