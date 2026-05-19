@@ -2,18 +2,17 @@
  * 告警卡片 - 严重/警告 Tab + 告警列表
  */
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Typography } from 'antd';
+import { Card, Typography, Spin } from 'antd';
 import { WarningOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { useDashboardSlowDataContext } from '../DashboardContext';
-import { parseAlerts, type ParsedAlert } from '../utils/prometheusAlerts';
+import { useMonitoringOverviewSlowLane } from '../MonitoringOverviewLanesContext';
+import { parseAlerts, type ParsedAlert } from '../lib/prometheusAlerts';
 import { CRITICAL_COLOR, WARNING_COLOR } from '../constants';
 
 export const AlertsCard: React.FC = () => {
-  const slowCtx = useDashboardSlowDataContext();
+  const slow = useMonitoringOverviewSlowLane();
+  const alertsLoading = slow.loading;
+  const alertsData = slow.alertsRules ?? null;
   const [selectedLevel, setSelectedLevel] = useState<'critical' | 'warning'>('critical');
-
-  const alertsLoading = slowCtx?.loading ?? false;
-  const alertsData = slowCtx?.alertsRules ?? null;
 
   const { alertsList, levelConfig } = useMemo(() => {
     const list = parseAlerts(alertsData ?? null);
@@ -106,6 +105,7 @@ export const AlertsCard: React.FC = () => {
         boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
       }}
     >
+      <Spin spinning={alertsLoading}>
       <div
         style={{
           flex: 1,
@@ -120,70 +120,71 @@ export const AlertsCard: React.FC = () => {
             : {}),
         }}
       >
-            {!alertsLoading && filteredAlerts.length === 0 ? (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 32,
-                }}
-              >
-                <div
-                  style={{
-                    width: 64,
-                    height: 64,
-                    borderRadius: '50%',
-                    background: 'rgba(82,196,26,0.08)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 18,
-                  }}
-                >
-                  <SafetyCertificateOutlined style={{ fontSize: 36, color: '#52c41a' }} />
-                </div>
-                <span style={{ fontSize: 16, fontWeight: 600 }}>
-                  {selectedLevel === 'critical' ? '无严重告警' : '无警告告警'}
-                </span>
-                <span style={{ fontSize: 14, marginTop: 10, color: 'rgba(0,0,0,0.5)' }}>
-                  {selectedLevel === 'critical' ? '系统运行状态良好' : '系统运行平稳'}
-                </span>
-              </div>
-            ) : (
-              filteredAlerts.map((alert: ParsedAlert) => (
-                <div
-                  key={alert.id}
-                  style={{
-                    padding: 12,
-                    marginBottom: 8,
-                    borderRadius: 6,
-                    borderLeft: `4px solid ${alert.level === 'critical' ? CRITICAL_COLOR : WARNING_COLOR}`,
-                    background:
-                      alert.level === 'critical' ? 'rgba(255,92,124,0.05)' : 'rgba(245,158,11,0.08)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    {getAlertIcon(alert.level)}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                        <Typography.Text strong style={{ fontSize: 14 }}>
-                          {alert.title}
-                        </Typography.Text>
-                        <span style={{ fontSize: 14, color: '#999' }}>{alert.activeAt}</span>
-                      </div>
-                      {alert.description && (
-                        <Typography.Text style={{ fontSize: 14, color: 'rgba(0,0,0,0.7)' }}>
-                          {alert.description}
-                        </Typography.Text>
-                      )}
-                    </div>
+        {!alertsLoading && filteredAlerts.length === 0 ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 32,
+            }}
+          >
+            <div
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: '50%',
+                background: 'rgba(82,196,26,0.08)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 18,
+              }}
+            >
+              <SafetyCertificateOutlined style={{ fontSize: 36, color: '#52c41a' }} />
+            </div>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>
+              {selectedLevel === 'critical' ? '无严重告警' : '无警告告警'}
+            </span>
+            <span style={{ fontSize: 14, marginTop: 10, color: 'rgba(0,0,0,0.5)' }}>
+              {selectedLevel === 'critical' ? '系统运行状态良好' : '系统运行平稳'}
+            </span>
+          </div>
+        ) : (
+          filteredAlerts.map((alert: ParsedAlert) => (
+            <div
+              key={alert.id}
+              style={{
+                padding: 12,
+                marginBottom: 8,
+                borderRadius: 6,
+                borderLeft: `4px solid ${alert.level === 'critical' ? CRITICAL_COLOR : WARNING_COLOR}`,
+                background:
+                  alert.level === 'critical' ? 'rgba(255,92,124,0.05)' : 'rgba(245,158,11,0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                {getAlertIcon(alert.level)}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <Typography.Text strong style={{ fontSize: 14 }}>
+                      {alert.title}
+                    </Typography.Text>
+                    <span style={{ fontSize: 14, color: '#999' }}>{alert.activeAt}</span>
                   </div>
+                  {alert.description && (
+                    <Typography.Text style={{ fontSize: 14, color: 'rgba(0,0,0,0.7)' }}>
+                      {alert.description}
+                    </Typography.Text>
+                  )}
                 </div>
-              ))
-            )}
+              </div>
+            </div>
+          ))
+        )}
       </div>
+      </Spin>
     </Card>
   );
 };

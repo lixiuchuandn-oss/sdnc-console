@@ -63,7 +63,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 平台 | 代码 | 说明 |
 |------|------|------|
 | 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**云数据库**（Cloudmap 资源池 VM，源码在 `pages/cnmc/clouds/Harvester/cloud-database/`） |
-| 租户管理 | TENANTS | 租户、组织、租户用户等；与 CNMC **平级**的独立平台（`RouteSpec.platform` / 顶栏导航）；页面源码过渡期在 `pages/cnmc/tenants/` |
+| 租户管理 | TENANTS | 租户、组织、租户用户等；与 CNMC **平级**的独立平台（`RouteSpec.platform` / 顶栏导航）；页面源码 **`pages/tenants/`** |
 | 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略 |
 | SDN 管理 | SDNCC | SRv6、IPsec、ACL、NAT、VR |
 | AI SOC 中心 | CNSOC | 安全运营、威胁分析、报告 |
@@ -211,7 +211,7 @@ Compute.Tower/
 │   │   │   │   │       ├── monitoring/    # 监控与日志
 │   │   │   │   │       └── cloud-database/  # 云数据库（Cloudmap 资源池 VM；与侧栏 paas_databases 对应）
 │   │   │   │   ├── console/
-│   │   │   │   ├── tenants/   # 租户管理：平台 TENANTS（与 CNMC 平级）；源码暂放 cnmc 下（过渡期）
+│   │   │   ├── tenants/       # TENANTS：租户、组织、租户用户（`pages/tenants/`）
 │   │   │   ├── sdncc/         # SDN 管理
 │   │   │   ├── cnsoc/         # 安全运营等
 │   │   │   └── settings/      # SETTINGS：规范目标目录名；存量可能仍为 Settings/（迁移见 STRUCTURE.md）
@@ -428,7 +428,7 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 - `onSuccess={onRefresh}`：以**子组件在成功时如何调用**为准；若子组件已传 `(true, true)` 则与上表「Harvester 子模块」及本节第 3 条约定一致。
 - 个别 `apiRequest(…, { enableCache: true })` 仍见 `hooks`、仪表盘等；与列表强一致时写操作后重载须 `skipCache: true` 或 `clearCache`（见本节写操作重载第 2 条）。
 
-`services/api.ts` 中 **`fetchTenants` / `fetchUsers` / `fetchAvailableResourcePools` / `fetchUserSpaces` 对 GET 未再默认叠一层 `enableCache`**，与其它列表读法一致，避免多入口改数据后仍读内存旧值。`pages/cnmc/tenants/index.tsx` 内本地 `fetchTenants(force)` 与 `?force=true` 行为保留。新改列表与增删改仍须依本节写操作三条与**自测**；合入前可抽查检索上面两条。
+`services/api.ts` 中 **`fetchTenants` / `fetchUsers` / `fetchAvailableResourcePools` / `fetchUserSpaces` 对 GET 未再默认叠一层 `enableCache`**，与其它列表读法一致，避免多入口改数据后仍读内存旧值。`pages/tenants/hooks/useTenantsPage.tsx` 内本地 `fetchTenants(force)` 与 `?force=true` 行为保留。新改列表与增删改仍须依本节写操作三条与**自测**；合入前可抽查检索上面两条。
 
 **公共组件对齐**：`PageContainer` 工具栏刷新按钮已对 `onRefresh` **固定传入 `true`**（与 `PageDetailSection` → `SharedToolbar` 行为一致），避免 `onClick={onRefresh}` 把 React 点击事件误当作 `force`。业务页仍须在写成功后自行调用列表重载。
 

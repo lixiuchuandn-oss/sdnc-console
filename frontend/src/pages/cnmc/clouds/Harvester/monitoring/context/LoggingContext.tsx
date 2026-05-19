@@ -6,7 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
-import { filterNonSystemNamespaces } from '../utils/namespaceFilter';
+import { filterNonSystemNamespaces } from '../lib/namespaceFilter';
 import { LOGGING_NS, LOG_SCOPE_CLUSTER, LOG_SCOPE_NAMESPACE, LOG_SCOPE_MAP } from '../constants';
 
 /**

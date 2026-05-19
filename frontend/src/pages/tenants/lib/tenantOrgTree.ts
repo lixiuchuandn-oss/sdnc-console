@@ -1,4 +1,4 @@
-import type { Organization } from '../../../../types/tenant';
+﻿import type { Organization } from '../../../types/tenant';
 
 /** 组织树根下节点总数（去重 id，含各级 children） */
 export function countOrganizationsInTree(orgs: Organization[]): number {

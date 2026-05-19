@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { MenuProps } from 'antd';
 import { Form, message, Modal } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import { apiDelete, apiPost, apiPut, apiRequest } from '../../../../services/api';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
+import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
+import { apiDelete, apiPost, apiPut, apiRequest } from '../../../services/api';
 import type {
   Assignment,
   CreateUserFormValues,

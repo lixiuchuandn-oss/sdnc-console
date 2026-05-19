@@ -2,18 +2,19 @@
  * 物理主机卡片 - 圆心总台数（同旧版饼图）；圆环进度为活跃占比
  */
 import React, { useMemo } from 'react';
-import { Card, Typography, Progress } from 'antd';
+import { Card, Typography, Progress, Spin } from 'antd';
 import { CloudServerOutlined } from '@ant-design/icons';
-import { useDashboardNodeDataContext } from '../DashboardContext';
-import { parseNodesToHostSegments } from '../utils/hostSegments';
+import { useMonitoringOverviewFastLane } from '../MonitoringOverviewLanesContext';
+import { parseNodesToHostSegments } from '../lib/hostSegments';
 
 const CIRCLE_SIZE = 150;
 const STROKE_WIDTH = 8;
 
 export const HostsCard: React.FC = () => {
-  const ctx = useDashboardNodeDataContext();
+  const fast = useMonitoringOverviewFastLane();
+  const loading = fast.coreLoading;
 
-  const summary = useMemo(() => parseNodesToHostSegments(ctx?.nodeResources ?? null), [ctx?.nodeResources]);
+  const summary = useMemo(() => parseNodesToHostSegments(fast.nodeResources ?? null), [fast.nodeResources]);
   const { total, segments } = summary;
 
   const activeSeg = segments.find((s) => s.key === 'active');
@@ -50,16 +51,17 @@ export const HostsCard: React.FC = () => {
         boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          flex: 1,
-          justifyContent: 'center',
-          minHeight: 0,
-        }}
-      >
+      <Spin spinning={loading}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            flex: 1,
+            justifyContent: 'center',
+            minHeight: 0,
+          }}
+        >
           <Progress
             type="circle"
             percent={activePct}
@@ -103,6 +105,7 @@ export const HostsCard: React.FC = () => {
             ))}
           </div>
         </div>
+      </Spin>
     </Card>
   );
 };

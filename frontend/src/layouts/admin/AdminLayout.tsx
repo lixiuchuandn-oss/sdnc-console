@@ -4,7 +4,7 @@
  * 检索关键词: AdminLayout layout admin sidebar visibleCenters canAccessPath Ctrl+K
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import {
   App,
   Button,
@@ -83,6 +83,24 @@ const { Header, Content } = Layout;
 
 /** 顶栏高度（与 sticky、抽屉 top、侧栏 top 对齐） */
 const ADMIN_HEADER_HEIGHT_PX = 64;
+
+/** 内容区懒加载分包占位：与 Content 同高，避免矮占位 → 池页全高一瞬间跳变 */
+function AdminOutletSuspenseFallback() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: `calc(100vh - ${ADMIN_HEADER_HEIGHT_PX}px)`,
+        width: '100%',
+        boxSizing: 'border-box',
+      }}
+    >
+      <Spin size="large" aria-label="加载中" />
+    </div>
+  );
+}
 
 /** 顶栏底边、侧栏右边线等与导航分割相关的颜色 */
 const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
@@ -289,8 +307,8 @@ function AdminStandardHeader({
   handleLogout,
   openDefaultPoolWizardAction,
 }: AdminStandardHeaderProps) {
-  const headerColor = settings.headerColor;
-  const headerColorEnd = settings.headerColorEnd;
+  const headerColor = settings.headerColor?.trim();
+  const headerColorEnd = settings.headerColorEnd?.trim();
   const gradient =
     headerColor && headerColorEnd
       ? `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`
@@ -1388,7 +1406,9 @@ const AdminLayout: React.FC = () => {
             overflow: 'auto',
           }}
         >
-          <Outlet context={{ reloadSummaryClouds: loadSummaryClouds } satisfies AdminLayoutOutletContext} />
+          <Suspense fallback={<AdminOutletSuspenseFallback />}>
+            <Outlet context={{ reloadSummaryClouds: loadSummaryClouds } satisfies AdminLayoutOutletContext} />
+          </Suspense>
         </Content>
       </Layout>
     </Layout>

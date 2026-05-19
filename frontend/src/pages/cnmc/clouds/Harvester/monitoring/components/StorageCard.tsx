@@ -5,17 +5,17 @@
  * - 高度：随监控概览网格分配（MonitoringOverview 父列 flex:1 + Card flex:1）；body 单区 overflow 滚动。
  */
 import React, { useMemo } from 'react';
-import { Card, Typography, Progress, Divider } from 'antd';
+import { Card, Typography, Progress, Divider, Spin } from 'antd';
 import { CloudServerOutlined } from '@ant-design/icons';
-import { useDashboardNodeDataContext } from '../DashboardContext';
-import { parseLonghornStorage, formatBytesWithUnit } from '../utils/longhornStorage';
+import { useMonitoringOverviewFastLane } from '../MonitoringOverviewLanesContext';
+import { parseLonghornStorage, formatBytesWithUnit } from '../lib/longhornStorage';
 import { buildCephLandingModel } from '../../ceph/lib/cephDashboardLanding';
 import { normalizeCephBundle } from '../../ceph/lib/cephStorage';
 import {
   clusterHasCeph,
   resolveCephOverviewRawCapacity,
   resolveDefaultStorageClassCephPoolProtection,
-} from '../utils/storageCardCeph';
+} from '../lib/storageCardCeph';
 
 type FormattedBytes = { value: number; unit: string } | null;
 
@@ -77,7 +77,8 @@ const DataProtectionAvailValue: React.FC<{ formatted: FormattedBytes }> = ({ for
 );
 
 export const StorageCard: React.FC = () => {
-  const ctx = useDashboardNodeDataContext();
+  const ctx = useMonitoringOverviewFastLane();
+  const loading = ctx.coreLoading || ctx.extrasLoading;
   const summary = useMemo(() => parseLonghornStorage(ctx?.storageNodes ?? null), [ctx?.storageNodes]);
   const cephBundle = useMemo(() => normalizeCephBundle(ctx?.cephResourcesRaw ?? null), [ctx?.cephResourcesRaw]);
   const cephLanding = useMemo(
@@ -232,6 +233,7 @@ export const StorageCard: React.FC = () => {
       }
       style={cardShellStyle}
     >
+      <Spin spinning={loading}>
       <div
         style={{
           flex: 1,
@@ -415,6 +417,7 @@ export const StorageCard: React.FC = () => {
           </div>
         )}
       </div>
+      </Spin>
     </Card>
   );
 };

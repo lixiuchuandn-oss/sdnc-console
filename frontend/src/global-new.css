@@ -828,9 +828,8 @@ html, body, #root {
   margin-bottom: 24px;
 } */
 
-/* 
- * 带行号的文本区域 (LinedTextArea)
- * 用于显示 JSON/YAML/Code 等元数据
+/*
+ * 带行号文本区域样式（实现见 `pages/sdncc/interconnect/vr/LinedTextArea.tsx`）
  */
 .lined-textarea {
   display: flex;

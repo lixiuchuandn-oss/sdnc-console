@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import JsonHighlight from '../../../../../../components/JsonHighlight';
+import JsonHighlight from './JsonHighlight';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 import ServiceRelatedPodsTab from './ServiceRelatedPodsTab';
 import { ViewLinkTab } from './ViewLinkTab';

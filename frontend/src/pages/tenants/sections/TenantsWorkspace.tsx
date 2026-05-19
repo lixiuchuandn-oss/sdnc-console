@@ -1,10 +1,10 @@
-/**
+﻿/**
  * 租户列表主视图；逻辑见 `hooks/useTenantsPage.tsx`。
  */
 import React from 'react';
 import { Button, Col, Dropdown, Form, Input, Row, Select, Table } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import PageContainer from '../../../../components/PageContainer';
+import PageContainer from '../../../components/PageContainer';
 import TenantUpsertModal from '../modals/TenantUpsertModal';
 import { useTenantsPage } from '../hooks/useTenantsPage';
 

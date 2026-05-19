@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 组织管理页状态与副作用（视图：`sections/OrgManageWorkspace.tsx`）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -14,17 +14,17 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 
-import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
-import { apiDelete, apiPost, apiPut, apiRequest } from '../../../../services/api';
-import { fetchProtectionObjects, fetchServiceChains } from '../../../../services/trafficOrchestration';
-import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
+import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
+import { apiDelete, apiPost, apiPut, apiRequest } from '../../../services/api';
+import { fetchProtectionObjects, fetchServiceChains } from '../../../services/trafficOrchestration';
+import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import {
   CreateTenantUserRequest,
   Organization,
   ResourcePoolAssignment,
   Tenant,
   TenantUser,
-} from '../../../../types/tenant';
+} from '../../../types/tenant';
 import {
   formatRoleDisplayName,
   type OrgManageAssignment as Assignment,

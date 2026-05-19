@@ -2,7 +2,7 @@
  * 虚拟机卡片 - 总数 + 运行中/已暂停/已关机/其他
  */
 import React, { useMemo } from 'react';
-import { Card, Typography } from 'antd';
+import { Card, Typography, Spin } from 'antd';
 import {
   DesktopOutlined,
   PlayCircleOutlined,
@@ -11,8 +11,8 @@ import {
   EllipsisOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { useDashboardSlowDataContext } from '../DashboardContext';
-import { parseVMInstancesToStatusCounts } from '../utils/vmInstances';
+import { useMonitoringOverviewSlowLane } from '../MonitoringOverviewLanesContext';
+import { parseVMInstancesToStatusCounts } from '../lib/vmInstances';
 
 const SEGMENT_ICONS: Record<string, typeof PlayCircleOutlined> = {
   running: PlayCircleOutlined,
@@ -28,10 +28,12 @@ const SEGMENT_COLORS: Record<string, string> = {
 };
 
 export const VMCard: React.FC = () => {
-  const slowCtx = useDashboardSlowDataContext();
+  const slow = useMonitoringOverviewSlowLane();
+  const loading = slow.loading;
+
   const summary = useMemo(
-    () => parseVMInstancesToStatusCounts(slowCtx?.virtualMachines ?? null, slowCtx?.vmInstances ?? null),
-    [slowCtx?.virtualMachines, slowCtx?.vmInstances],
+    () => parseVMInstancesToStatusCounts(slow.virtualMachines ?? null, slow.vmInstances ?? null),
+    [slow.virtualMachines, slow.vmInstances],
   );
 
   const total = summary?.total ?? 0;
@@ -60,6 +62,7 @@ export const VMCard: React.FC = () => {
       extra={<span style={{ fontSize: 14, color: '#999' }}>共 {total} 台</span>}
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
     >
+      <Spin spinning={loading}>
       <div
         style={{
           flex: 1,
@@ -140,6 +143,7 @@ export const VMCard: React.FC = () => {
           按运行状态统计，展示虚拟机总数及运行中/暂停/关机等分布
         </Typography.Text>
       </div>
+      </Spin>
     </Card>
   );
 };

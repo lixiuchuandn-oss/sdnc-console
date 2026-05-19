@@ -6,7 +6,6 @@ import {
   KeyOutlined,
   CheckCircleOutlined ,
 } from '@ant-design/icons';
-import LinedTextArea from '../../../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../../../services/harvesterApi';
 import { ReactComponent as CpuIcon } from '../../../../../../assets/clouds/cpu.svg';
 import { ReactComponent as MemIcon } from '../../../../../../assets/clouds/mem.svg';

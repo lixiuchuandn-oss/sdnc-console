@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Form, Input, message, Modal, Typography } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
-import type { Tenant, CreateTenantRequest } from '../../../../types/tenant';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { apiRequest, apiPost, apiPatch, apiDelete } from '../../../../services/api';
+import type { Tenant, CreateTenantRequest } from '../../../types/tenant';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
+import { apiRequest, apiPost, apiPatch, apiDelete } from '../../../services/api';
 import { parseTenantDeleteError } from '../lib/tenantDeleteErrors';
 import { countOrganizationsInTree } from '../lib/tenantOrgTree';
 import {

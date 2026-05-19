@@ -441,8 +441,8 @@ const OverviewDashboard: React.FC = () => {
                         <div className="dashboard-region-progress-bar">
                           <Progress
                             percent={Math.round((item.value / regionProgressDisplay.maxVal) * 1000) / 10}
-                            strokeWidth={16}
-                            showInfo
+                            percentPosition={{ align: 'center', type: 'inner' }}
+                            size={['100%', 20]}
                             format={() => String(item.value)}
                             strokeColor={token.colorPrimary}
                             trailColor={token.colorFillTertiary}

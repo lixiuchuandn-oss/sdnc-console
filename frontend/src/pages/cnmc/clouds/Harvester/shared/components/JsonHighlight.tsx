@@ -1,5 +1,6 @@
 import React from 'react';
 
+/** JSON 字符串简单语法上色（仅 Harvester 运维信息抽屉等少量场景使用） */
 const JsonHighlight: React.FC<{ value: string; style?: React.CSSProperties }> = ({ value, style }) => {
   const highlightJson = (json: string): React.ReactNode => {
     const lines = json.split('\n');
@@ -73,15 +74,15 @@ const JsonHighlight: React.FC<{ value: string; style?: React.CSSProperties }> = 
   };
 
   return (
-    <pre style={{ 
-      margin: 0, 
+    <pre style={{
+      margin: 0,
       padding: 0,
-      fontSize: 12, 
+      fontSize: 12,
       fontFamily: 'Consolas, Monaco, "Courier New", monospace',
       whiteSpace: 'pre-wrap',
       wordBreak: 'break-all',
       overflow: 'visible',
-      ...style 
+      ...style
     }}>
       {highlightJson(value)}
     </pre>

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 组织管理页主视图（状态见 `hooks/useOrgManagePage.tsx`）。
  */
 import React from 'react';
@@ -34,11 +34,11 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 
-import PageDetailContainer from '../../../../components/PageDetailContainer';
-import StdSideDrawer from '../../../../components/StdSideDrawer';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
-import { apiDelete, apiRequest } from '../../../../services/api';
-import type { Organization } from '../../../../types/tenant';
+import PageDetailContainer from '../../../components/PageDetailContainer';
+import StdSideDrawer from '../../../components/StdSideDrawer';
+import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
+import { apiDelete, apiRequest } from '../../../services/api';
+import type { Organization } from '../../../types/tenant';
 import { useOrgManagePage } from '../hooks/useOrgManagePage';
 import { formatRoleDisplayName } from '../lib/orgManageConstants';
 import {

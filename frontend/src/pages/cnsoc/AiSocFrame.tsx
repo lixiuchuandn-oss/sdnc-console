@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Spin, Result } from 'antd';
-import PageContainer from '../../../components/PageContainer';
-import { getSystemSetting } from '../../../services/systemApi';
+import PageContainer from '../../components/PageContainer';
+import { getSystemSetting } from '../../services/systemApi';
 
 type Props = {
   path: string; // The sub-path on the external server
@@ -11,7 +11,7 @@ const AiSocFrame: React.FC<Props> = ({ path }) => {
   const [baseUrl, setBaseUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   // Default to fixed 1500px height as requested to prevent internal scrolling
-  const [iframeHeight, setIframeHeight] = useState<string | number>(1500); 
+  const [iframeHeight, setIframeHeight] = useState<string | number>(1500);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -19,7 +19,7 @@ const AiSocFrame: React.FC<Props> = ({ path }) => {
       try {
         const [frontRes, baseRes] = await Promise.all([
           getSystemSetting('ai_soc_frontend_url'),
-          getSystemSetting('ai_soc_base_url')
+          getSystemSetting('ai_soc_base_url'),
         ]);
         setBaseUrl(frontRes?.value || baseRes?.value || 'http://192.168.2.22:3000');
       } catch (e) {
@@ -63,11 +63,11 @@ const AiSocFrame: React.FC<Props> = ({ path }) => {
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
 
   if (!baseUrl) {
-     return (
-       <PageContainer>
-         <Result status="warning" title="未配置 AI SOC 地址" subTitle="请在系统设置中配置 AI SOC 服务器地址。" />
-       </PageContainer>
-     );
+    return (
+      <PageContainer>
+        <Result status="warning" title="未配置 AI SOC 地址" subTitle="请在系统设置中配置 AI SOC 服务器地址。" />
+      </PageContainer>
+    );
   }
 
   const cleanBase = baseUrl.replace(/\/$/, '');

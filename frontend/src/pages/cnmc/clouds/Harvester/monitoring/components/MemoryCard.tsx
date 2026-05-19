@@ -2,23 +2,25 @@
  * 内存卡片 - 可分配 / 已分配 / 系统预留 竖条 + 图例
  */
 import React, { useMemo } from 'react';
-import { Card, Typography } from 'antd';
+import { Card, Typography, Spin } from 'antd';
 import { DatabaseOutlined } from '@ant-design/icons';
-import { useDashboardNodeDataContext } from '../DashboardContext';
+import { useMonitoringOverviewFastLane } from '../MonitoringOverviewLanesContext';
 import {
   aggregateNodeResources,
   aggregateNodeMetrics,
   formatMemoryForDisplay,
-} from '../utils/nodeResourceMetrics';
+} from '../lib/nodeResourceMetrics';
 
 const SEGMENT_COLORS = { 可分配: '#D9DDE6', 已分配: '#22C55E', 系统预留: '#15803D' } as const;
 
 export const MemoryCard: React.FC = () => {
-  const nodeData = useDashboardNodeDataContext();
+  const fast = useMonitoringOverviewFastLane();
+  const loading = fast.coreLoading;
+  const nodeData = fast;
 
   const { totalDisplay, segments } = useMemo(() => {
-    const resources = aggregateNodeResources(nodeData?.nodeResources ?? null);
-    const metrics = aggregateNodeMetrics(nodeData?.nodeMetrics ?? null);
+    const resources = aggregateNodeResources(nodeData.nodeResources ?? null);
+    const metrics = aggregateNodeMetrics(nodeData.nodeMetrics ?? null);
     const totalCapacityBytes = resources.totalCapacityMemoryBytes;
     const totalAllocatableBytes = resources.totalMemoryBytes;
     const usedBytes = metrics.usedMemoryBytes;
@@ -38,7 +40,7 @@ export const MemoryCard: React.FC = () => {
         : segs.map((s) => ({ ...s, percent: 0 }));
 
     return { totalDisplay, segments };
-  }, [nodeData?.nodeResources, nodeData?.nodeMetrics]);
+  }, [nodeData.nodeResources, nodeData.nodeMetrics]);
 
   return (
     <Card
@@ -63,6 +65,7 @@ export const MemoryCard: React.FC = () => {
       extra={<span style={{ fontSize: 14, color: '#999' }}>共 {totalDisplay.text}</span>}
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
     >
+      <Spin spinning={loading}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flex: 1, minHeight: 0 }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly' }}>
             {segments.map((seg, i) => (
@@ -119,6 +122,7 @@ export const MemoryCard: React.FC = () => {
             </div>
           </div>
         </div>
+      </Spin>
     </Card>
   );
 };

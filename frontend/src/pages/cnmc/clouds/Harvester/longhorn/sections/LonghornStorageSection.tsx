@@ -13,7 +13,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { fetchStorageNodes } from '../../../../../../services/monitoringApi';
-import { formatBytesWithUnit, parseLonghornStorage } from '../../monitoring/utils/longhornStorage';
+import { formatBytesWithUnit, parseLonghornStorage } from '../../monitoring/lib/longhornStorage';
 
 function listFromStorageNodes(res: any): any[] {
   if (Array.isArray(res)) return res;

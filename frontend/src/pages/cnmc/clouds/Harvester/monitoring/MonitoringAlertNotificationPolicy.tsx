@@ -47,7 +47,7 @@ import {
   RECEIVER_NAME_OPTIONS,
   type ReceiverName,
   type ReceiverSpec,
-} from './utils/receivers';
+} from './lib/receivers';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 

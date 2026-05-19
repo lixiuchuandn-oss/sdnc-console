@@ -17,7 +17,7 @@ import TenantConsoleLayout from './layouts/TenantConsoleLayout';
 import { TENANT_CLOUD_CONSOLE_PATH } from './pages/cnmc/console/tenantConsolePaths';
 
 const OverviewDashboard = lazy(() => import('./pages/cnmc/dashboard/OverviewDashboard'));
-const Users = lazy(() => import('./pages/cnmc/tenants/sections/TenantUsersWorkspace'));
+const Users = lazy(() => import('./pages/tenants/sections/TenantUsersWorkspace'));
 const Clouds = lazy(() => import('./pages/cnmc/pools'));
 const CloudmapPoolShell = lazy(() => import('./pages/cnmc/clouds/Cloudmap/CloudmapPoolShell'));
 const HuaweiPoolShell = lazy(() => import('./pages/cnmc/clouds/Hw/HuaweiPoolShell'));
@@ -25,7 +25,7 @@ const AliyunPoolShell = lazy(() => import('./pages/cnmc/clouds/Aliyun/AliyunPool
 const RancherPoolVendorShell = lazy(() => import('./pages/cnmc/clouds/rancher/RancherPoolVendorShell'));
 const CsmPoolRouteShell = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolRouteShell'));
 const RancherClusterWorkspace = lazy(() => import('./pages/cnmc/clouds/rancher/RancherClusterWorkspace'));
-const Tenants = lazy(() => import('./pages/cnmc/tenants/sections/TenantsWorkspace'));
+const Tenants = lazy(() => import('./pages/tenants/sections/TenantsWorkspace'));
 const GeneralSettings = lazy(() => import('./pages/settings/GeneralSettings'));
 const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'));
@@ -61,10 +61,10 @@ const CsmPoolDetailPage = lazy(() =>
 );
 const CloudConsolePage = lazy(() => import('./pages/cnmc/console/CloudConsole'));
 const HarvesterVNCPage = lazy(() => import('./pages/cnmc/clouds/Harvester/HarvesterVNC'));
-const OrgManagePage = lazy(() => import('./pages/cnmc/tenants/sections/OrgManageWorkspace'));
+const OrgManagePage = lazy(() => import('./pages/tenants/sections/OrgManageWorkspace'));
 const VmCreateWizardModal = lazy(() => import('./pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizardModal'));
-const AiSocPlaceholder = lazy(() => import('./pages/cnsoc/sec-ops/AiSocPlaceholder'));
-const AiSocFrame = lazy(() => import('./pages/cnsoc/sec-ops/AiSocFrame'));
+const AiSocPlaceholder = lazy(() => import('./pages/cnsoc/AiSocPlaceholder'));
+const AiSocFrame = lazy(() => import('./pages/cnsoc/AiSocFrame'));
 const AdminWelcomePage = lazy(() => import('./pages/cnmc/onboarding/AdminWelcomePage'));
 
 const LoadingFallback: React.FC = () => (

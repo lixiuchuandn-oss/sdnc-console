@@ -2,10 +2,10 @@
  * CPU 卡片 - 圆环已分配比例 + 已分配/可用
  */
 import React, { useMemo } from 'react';
-import { Card, Typography } from 'antd';
+import { Card, Typography, Spin } from 'antd';
 import { ThunderboltOutlined } from '@ant-design/icons';
-import { useDashboardNodeDataContext } from '../DashboardContext';
-import { aggregateNodeResources, aggregateNodeMetrics } from '../utils/nodeResourceMetrics';
+import { useMonitoringOverviewFastLane } from '../MonitoringOverviewLanesContext';
+import { aggregateNodeResources, aggregateNodeMetrics } from '../lib/nodeResourceMetrics';
 
 const getRiskColor = (percent: number) => {
   if (percent >= 90) return '#ef4444';
@@ -25,17 +25,19 @@ function formatCores(cores: number): string {
 }
 
 export const CPUCard: React.FC = () => {
-  const nodeData = useDashboardNodeDataContext();
+  const fast = useMonitoringOverviewFastLane();
+  const loading = fast.coreLoading;
+  const nodeData = fast;
 
   const { totalCpuCores, usedCpuCores, availableCpuCores, percent } = useMemo(() => {
-    const resources = aggregateNodeResources(nodeData?.nodeResources ?? null);
-    const metrics = aggregateNodeMetrics(nodeData?.nodeMetrics ?? null);
+    const resources = aggregateNodeResources(nodeData.nodeResources ?? null);
+    const metrics = aggregateNodeMetrics(nodeData.nodeMetrics ?? null);
     const total = resources.totalCpuCores;
     const used = metrics.usedCpuCores;
     const available = Math.max(0, total - used);
     const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : 0;
     return { totalCpuCores: total, usedCpuCores: used, availableCpuCores: available, percent: pct };
-  }, [nodeData?.nodeResources, nodeData?.nodeMetrics]);
+  }, [nodeData.nodeResources, nodeData.nodeMetrics]);
 
   const riskColor = getRiskColor(percent);
   const offset = circumference - (percent / 100) * circumference;
@@ -63,6 +65,7 @@ export const CPUCard: React.FC = () => {
       extra={<span style={{ fontSize: 14, color: '#999' }}>共 {formatCores(totalCpuCores)}</span>}
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
     >
+      <Spin spinning={loading}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, minHeight: 0 }}>
           <div style={{ position: 'relative', flexShrink: 0, width: size, height: size }}>
             <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
@@ -119,6 +122,7 @@ export const CPUCard: React.FC = () => {
             </div>
           </div>
         </div>
+      </Spin>
     </Card>
   );
 };

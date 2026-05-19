@@ -2,11 +2,11 @@
  * 磁盘卡片：总览存储健康与风险（展示随环境自动适配）。
  */
 import React, { useMemo } from 'react';
-import { Card, Typography } from 'antd';
+import { Card, Typography, Spin } from 'antd';
 import { HddOutlined, CheckCircleOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { useDashboardNodeDataContext, useDashboardSlowDataContext } from '../DashboardContext';
-import { resolveMonitoringDiskSummary } from '../utils/diskSummary';
-import type { DiskCardAggregateMode, DiskSummary } from '../utils/diskSummary';
+import { useMonitoringOverviewFastLane, useMonitoringOverviewSlowLane } from '../MonitoringOverviewLanesContext';
+import { resolveMonitoringDiskSummary } from '../lib/diskSummary';
+import type { DiskCardAggregateMode, DiskSummary } from '../lib/diskSummary';
 
 const SEGMENTS: {
   label: string;
@@ -27,16 +27,18 @@ const FOOTER_BY_MODE: Record<DiskCardAggregateMode, string> = {
 };
 
 export const DiskCard: React.FC = () => {
-  const nodeCtx = useDashboardNodeDataContext();
-  const slowCtx = useDashboardSlowDataContext();
+  const fast = useMonitoringOverviewFastLane();
+  const slow = useMonitoringOverviewSlowLane();
+  const loading = fast.extrasLoading || slow.loading;
+
   const resolved = useMemo(
     () =>
       resolveMonitoringDiskSummary(
-        nodeCtx?.cephHealthMinimal ?? null,
-        nodeCtx?.cephResourcesRaw ?? null,
-        slowCtx?.blockDevices ?? null,
+        fast.cephHealthMinimal ?? null,
+        fast.cephResourcesRaw ?? null,
+        slow.blockDevices ?? null,
       ),
-    [nodeCtx?.cephHealthMinimal, nodeCtx?.cephResourcesRaw, slowCtx?.blockDevices],
+    [fast.cephHealthMinimal, fast.cephResourcesRaw, slow.blockDevices],
   );
 
   const mode: DiskCardAggregateMode = resolved?.mode ?? 'block_device';
@@ -67,6 +69,7 @@ export const DiskCard: React.FC = () => {
       extra={<span style={{ fontSize: 14, color: '#999' }}>{extraText}</span>}
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
     >
+      <Spin spinning={loading}>
       <div
         style={{
           flex: 1,
@@ -111,6 +114,7 @@ export const DiskCard: React.FC = () => {
           {FOOTER_BY_MODE[mode]}
         </Typography.Text>
       </div>
+      </Spin>
     </Card>
   );
 };

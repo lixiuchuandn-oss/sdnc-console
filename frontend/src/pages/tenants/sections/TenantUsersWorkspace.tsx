@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 租户用户列表主视图；逻辑见 `hooks/useTenantUsersPage.tsx`。
  */
 import React from 'react';
@@ -9,8 +9,8 @@ import {
   EllipsisOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import PageContainer from '../../../../components/PageContainer';
-import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import PageContainer from '../../../components/PageContainer';
+import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
 import { useTenantUsersPage } from '../hooks/useTenantUsersPage';
 
 const { Option } = Select;
