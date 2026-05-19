@@ -57,7 +57,7 @@ export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>>
 
 /** 并入 `routeSpecs` 的唯一表（按 `order` 升序、与侧栏分组一致） */
 export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
-  // --- 资源总览 ---
+  // --- 资源总览（叶子读权限见 deployment/docs/specs/cloudmap-pool-page-rbac.md）---
   {
     id: 'cloudmap-pool-rh-overview',
     pathSuffix: 'resource_hub/overview',
@@ -66,6 +66,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'DashboardOutlined',
     poolNavGroup: '资源总览',
     poolMenuParentKey: RH,
+    poolPageAction: 'clouds.monitoring.overview:read',
     homePagePriority: -1,
     homePageCandidate: true,
     homePageReplaceParamFrom: 'favoriteCloudId',
@@ -79,6 +80,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'DashboardOutlined',
     poolNavGroup: '资源总览',
     poolMenuParentKey: RH,
+    poolPageAction: 'clouds.cluster-networks:read',
   },
   {
     id: 'cloudmap-pool-rh-network-topo',
@@ -88,6 +90,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'DashboardOutlined',
     poolNavGroup: '资源总览',
     poolMenuParentKey: RH,
+    poolPageAction: 'clouds.provider-networks:read',
   },
   {
     id: 'cloudmap-pool-rh-ceph-overview',
@@ -98,12 +101,14 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolNavGroup: '资源总览',
     poolMenuParentKey: RH,
     routeSpecGroup: '资源总览',
+    poolPageAction: 'clouds.ceph:read',
   },
 
   // --- 监控告警 ---
   {
     id: 'cloudmap-pool-mon-alerts',
     pathSuffix: 'monitoring_alerts/alerts-list',
+    poolPageAction: 'clouds.alerts:read',
     title: '告警列表',
     order: 20,
     icon: 'AlertOutlined',
@@ -113,6 +118,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-mon-rules',
     pathSuffix: 'monitoring_alerts/alert-rules',
+    poolPageAction: 'clouds.alert-rules:read',
     title: '告警规则',
     order: 21,
     icon: 'AlertOutlined',
@@ -122,6 +128,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-mon-policy',
     pathSuffix: 'monitoring_alerts/notification-policy',
+    poolPageAction: 'clouds.alert-policies:read',
     title: '告警通知策略',
     order: 22,
     icon: 'AlertOutlined',
@@ -131,6 +138,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-mon-targets',
     pathSuffix: 'monitoring_alerts/notification-targets',
+    poolPageAction: 'clouds.alert-receivers:read',
     title: '告警通知对象',
     order: 23,
     icon: 'AlertOutlined',
@@ -140,6 +148,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-mon-secrets',
     pathSuffix: 'monitoring_alerts/alert-secrets',
+    poolPageAction: 'clouds.alert-secrets:read',
     title: '告警密钥',
     order: 24,
     icon: 'AlertOutlined',
@@ -151,6 +160,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-cluster_nodes',
     pathSuffix: 'cluster/cluster_nodes',
+    poolPageAction: 'clouds.cluster-nodes:read',
     title: '物理节点',
     order: 25,
     icon: 'ClusterOutlined',
@@ -160,6 +170,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-namespaces',
     pathSuffix: 'cluster/namespaces',
+    poolPageAction: 'clouds.namespaces:read',
     title: '项目',
     order: 26,
     icon: 'ClusterOutlined',
@@ -169,6 +180,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-cluster_physical_switches',
     pathSuffix: 'cluster/cluster_physical_switches',
+    poolPageAction: 'clouds.cluster-networks:read',
     title: '物理交换机',
     order: 28,
     icon: 'ClusterOutlined',
@@ -179,6 +191,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-kubeovn_public_networks',
     pathSuffix: 'cluster/kubeovn_public_networks',
+    poolPageAction: 'clouds.provider-networks:read',
     title: '物理网络',
     order: 29,
     icon: 'ClusterOutlined',
@@ -189,6 +202,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-kubeovn_public_subnets',
     pathSuffix: 'cluster/kubeovn_public_subnets',
+    poolPageAction: 'clouds.subnets.public:read',
     title: '公共子网',
     order: 30,
     icon: 'ClusterOutlined',
@@ -199,6 +213,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-cluster_vlans',
     pathSuffix: 'cluster/cluster_vlans',
+    poolPageAction: 'clouds.vlans:read',
     title: 'VLAN 管理',
     order: 31,
     icon: 'ClusterOutlined',
@@ -209,6 +224,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-clusterNetworks',
     pathSuffix: 'cluster/clusterNetworks',
+    poolPageAction: 'clouds.cluster-networks:read',
     title: '集群网络',
     order: 32,
     icon: 'ClusterOutlined',
@@ -219,6 +235,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-nads',
     pathSuffix: 'cluster/nads',
+    poolPageAction: 'clouds.nads:read',
     title: 'NAD 网络',
     order: 33,
     icon: 'ClusterOutlined',
@@ -229,6 +246,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-load_balancers',
     pathSuffix: 'cluster/load_balancers',
+    poolPageAction: 'clouds.load-balancers:read',
     title: '负载均衡',
     order: 34,
     icon: 'ClusterOutlined',
@@ -239,6 +257,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-ippools',
     pathSuffix: 'cluster/ippools',
+    poolPageAction: 'clouds.nads:read',
     title: 'IP地址池',
     order: 35,
     icon: 'ClusterOutlined',
@@ -249,6 +268,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-storage_pools',
     pathSuffix: 'cluster/storage_pools',
+    poolPageAction: 'clouds.disks:read',
     title: '存储池',
     order: 36,
     icon: 'ClusterOutlined',
@@ -259,6 +279,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-storage_classes',
     pathSuffix: 'cluster/storage_classes',
+    poolPageAction: 'clouds.storage-classes:read',
     title: '存储类',
     order: 37,
     icon: 'ClusterOutlined',
@@ -269,6 +290,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-gpu',
     pathSuffix: 'cluster/gpu',
+    poolPageAction: 'clouds.gpus:read',
     title: 'GPU 设备',
     order: 38,
     icon: 'ClusterOutlined',
@@ -279,6 +301,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-cluster_usb',
     pathSuffix: 'cluster/cluster_usb',
+    poolPageAction: 'clouds.usb-devices:read',
     title: 'USB 设备',
     order: 39,
     icon: 'ClusterOutlined',
@@ -289,6 +312,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-cluster_pci',
     pathSuffix: 'cluster/cluster_pci',
+    poolPageAction: 'clouds.pci-devices:read',
     title: 'PCI 设备',
     order: 40,
     icon: 'ClusterOutlined',
@@ -299,6 +323,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-cluster_sriov',
     pathSuffix: 'cluster/cluster_sriov',
+    poolPageAction: 'clouds.pci-devices:read',
     title: 'SR-IOV 设备',
     order: 40.5,
     icon: 'ClusterOutlined',
@@ -311,6 +336,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-compute-ecs',
     pathSuffix: 'compute/ecs',
+    poolPageAction: 'clouds.ecs:read',
     title: '云主机实例',
     order: 41,
     icon: 'DesktopOutlined',
@@ -320,6 +346,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-compute-images',
     pathSuffix: 'compute/images',
+    poolPageAction: 'clouds.images:read',
     title: '云主机镜像',
     order: 42,
     icon: 'DesktopOutlined',
@@ -329,6 +356,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-compute-templates',
     pathSuffix: 'compute/templates',
+    poolPageAction: 'clouds.templates:read',
     title: '云主机模板',
     order: 43,
     icon: 'DesktopOutlined',
@@ -338,6 +366,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-compute-ssh',
     pathSuffix: 'compute/ssh_keys',
+    poolPageAction: 'clouds.sshkeys:read',
     title: 'SSH 密钥',
     order: 44,
     icon: 'DesktopOutlined',
@@ -347,6 +376,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-compute-bin',
     pathSuffix: 'compute/recycle_bin',
+    poolPageAction: 'clouds.recycle-bin:read',
     title: '回收站',
     order: 45,
     icon: 'DesktopOutlined',
@@ -356,6 +386,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-compute-mig',
     pathSuffix: 'compute/migrations',
+    poolPageAction: 'clouds.migrations:read',
     title: '迁移记录',
     order: 46,
     icon: 'DesktopOutlined',
@@ -367,6 +398,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-paas-rds',
     pathSuffix: 'paas_databases/rds',
+    poolPageAction: 'clouds.paas-databases:read',
     title: '云数据库',
     order: 50,
     icon: 'ConsoleSqlOutlined',
@@ -378,6 +410,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-oniaas-vr',
     pathSuffix: 'oniaas_network/virtual_routers',
+    poolPageAction: 'clouds.vne:read',
     title: '虚拟路由器',
     order: 51,
     icon: 'NodeIndexOutlined',
@@ -387,6 +420,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-oniaas-slb',
     pathSuffix: 'oniaas_network/slb',
+    poolPageAction: 'clouds.load-balancers:read',
     title: '负载均衡器',
     order: 52,
     icon: 'ApiOutlined',
@@ -510,6 +544,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-stor-vol',
     pathSuffix: 'storage/volumes',
+    poolPageAction: 'clouds.disks:read',
     title: '虚拟云盘',
     order: 80,
     icon: 'DatabaseOutlined',
@@ -519,6 +554,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-stor-snap',
     pathSuffix: 'storage/snapshots',
+    poolPageAction: 'clouds.snapshots:read',
     title: '云盘快照',
     order: 81,
     icon: 'DatabaseOutlined',
@@ -528,6 +564,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-stor-rbd-mirror',
     pathSuffix: 'storage/rbd_mirror',
+    poolPageAction: 'clouds.ceph:read',
     title: '远程备份',
     order: 82,
     icon: 'DatabaseOutlined',
@@ -539,6 +576,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-obj-rgw-s3',
     pathSuffix: 'object_storage/rgw_s3_buckets',
+    poolPageAction: 'clouds.ceph:read',
     title: 'S3 存储桶',
     order: 86,
     icon: 'FolderOutlined',
@@ -549,6 +587,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-obj-rgw-users',
     pathSuffix: 'object_storage/rgw_users',
+    poolPageAction: 'clouds.ceph:read',
     title: 'RGW 用户密钥',
     order: 87,
     icon: 'KeyOutlined',
@@ -559,6 +598,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-obj-gateways',
     pathSuffix: 'object_storage/object_gateways',
+    poolPageAction: 'clouds.ceph:read',
     title: '对象网关',
     order: 88,
     icon: 'GatewayOutlined',
@@ -569,6 +609,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-obj-cosi',
     pathSuffix: 'object_storage/cosi',
+    poolPageAction: 'clouds.ceph:read',
     title: 'COSI 驱动',
     order: 89,
     icon: 'ApiOutlined',
@@ -581,6 +622,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-backups',
     pathSuffix: 'backups/backups',
+    poolPageAction: 'clouds.backups:read',
     title: '云主机备份',
     order: 90,
     icon: 'CloudDownloadOutlined',
@@ -590,6 +632,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-snaps',
     pathSuffix: 'backups/vm_snapshots',
+    poolPageAction: 'clouds.backups:read',
     title: '云主机快照',
     order: 91,
     icon: 'CloudDownloadOutlined',
@@ -599,6 +642,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-sched',
     pathSuffix: 'backups/schedule_vm_backups',
+    poolPageAction: 'clouds.backups:read',
     title: '定时策略',
     order: 92,
     icon: 'CloudDownloadOutlined',
@@ -608,6 +652,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-rest',
     pathSuffix: 'backups/vm_restores',
+    poolPageAction: 'clouds.restore-tasks:read',
     title: '恢复任务',
     order: 93,
     icon: 'CloudDownloadOutlined',
@@ -619,6 +664,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-flat-pub',
     pathSuffix: 'flat_network/flat_public_subnets',
+    poolPageAction: 'clouds.subnets.flat:read',
     title: '扁平子网',
     order: 100,
     icon: 'ApartmentOutlined',
@@ -628,6 +674,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-flat-sg',
     pathSuffix: 'flat_network/security_groups',
+    poolPageAction: 'clouds.security-groups.flat:read',
     title: '安全组',
     order: 101,
     icon: 'ApartmentOutlined',
@@ -637,6 +684,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-flat-eip',
     pathSuffix: 'flat_network/flat_kubeovn_eips',
+    poolPageAction: 'clouds.eips.flat:read',
     title: '弹性公网 IP',
     order: 102,
     icon: 'ApartmentOutlined',
@@ -646,6 +694,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-flat-snat',
     pathSuffix: 'flat_network/flat_kubeovn_snat',
+    poolPageAction: 'clouds.snat.flat:read',
     title: 'SNAT',
     order: 103,
     icon: 'ApartmentOutlined',
@@ -655,6 +704,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-flat-dnat',
     pathSuffix: 'flat_network/flat_kubeovn_dnat',
+    poolPageAction: 'clouds.dnat.flat:read',
     title: 'DNAT',
     order: 104,
     icon: 'ApartmentOutlined',
@@ -666,6 +716,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-ovn-vpc',
     pathSuffix: 'kube_ovn/vpcs',
+    poolPageAction: 'clouds.vpcs:read',
     title: 'VPC',
     order: 112,
     icon: 'GlobalOutlined',
@@ -676,6 +727,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-ovn-sub',
     pathSuffix: 'kube_ovn/subnets',
+    poolPageAction: 'clouds.subnets.vpc:read',
     title: '子网',
     order: 113,
     icon: 'GlobalOutlined',
@@ -686,6 +738,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-ovn-eip',
     pathSuffix: 'kube_ovn/kubeovn_eips',
+    poolPageAction: 'clouds.eips.vpc:read',
     title: '弹性公网 IP',
     order: 114,
     icon: 'GlobalOutlined',
@@ -697,6 +750,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-ovn-snat',
     pathSuffix: 'kube_ovn/kubeovn_snat',
+    poolPageAction: 'clouds.snat.vpc:read',
     title: 'SNAT',
     order: 115,
     icon: 'GlobalOutlined',
@@ -707,6 +761,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-ovn-dnat',
     pathSuffix: 'kube_ovn/kubeovn_dnat',
+    poolPageAction: 'clouds.dnat.vpc:read',
     title: 'DNAT',
     order: 116,
     icon: 'GlobalOutlined',
@@ -719,6 +774,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-logs-target',
     pathSuffix: 'logs_config/logs-target',
+    poolPageAction: 'clouds.log-targets:read',
     title: '日志采集对象',
     order: 120,
     icon: 'FileTextOutlined',
@@ -728,6 +784,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-logs-out',
     pathSuffix: 'logs_config/log-outputs',
+    poolPageAction: 'clouds.log-receivers:read',
     title: '日志接收端',
     order: 121,
     icon: 'FileTextOutlined',
@@ -737,6 +794,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-logs-flow',
     pathSuffix: 'logs_config/logs-flow-config',
+    poolPageAction: 'clouds.log-configs:read',
     title: '日志采集配置',
     order: 122,
     icon: 'FileTextOutlined',

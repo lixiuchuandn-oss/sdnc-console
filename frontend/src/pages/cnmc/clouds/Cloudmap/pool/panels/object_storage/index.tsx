@@ -1,5 +1,6 @@
 import React from 'react';
 import { Empty } from 'antd';
+import { CLOUD_CEPH_READ } from '../../../../../../../constants/cloudPermissions';
 import CephObjectStorageSection from '../../../../Harvester/ceph/sections/CephObjectStorageSection';
 import RgwObjectStoreUsersSection from '../../../../Harvester/ceph/sections/RgwObjectStoreUsersSection';
 import RgwS3BucketsSection from '../../../../Harvester/ceph/sections/RgwS3BucketsSection';
@@ -12,6 +13,7 @@ export type CloudmapObjectStorageGroupTabsProps = {
 
 function canViewObjectStorageInner(key: string, checkPerm: (a: string) => boolean): boolean {
   const ok =
+    checkPerm(CLOUD_CEPH_READ) ||
     checkPerm('clouds.disks:read') ||
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds:read');

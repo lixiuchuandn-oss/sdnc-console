@@ -165,6 +165,13 @@ export function createApiPermissionMiddleware(options?: {
       ];
     }
 
+    // 云主机 API：云数据库 / 虚拟路由器页复用 harvester/vms，允许对应独立原子
+    if (actionBase === 'clouds.ecs') {
+      return isRead
+        ? ['clouds.ecs:read', 'clouds.paas-databases:read', 'clouds.vne:read']
+        : ['clouds.ecs:write', 'clouds.paas-databases:write', 'clouds.vne:write'];
+    }
+
     // 子网：父级 clouds.subnets + 按 tower.io/subnet-type 拆分的子权限；仍兼容仅授 VPC 权限的旧角色
     if (actionBase === 'clouds.subnets') {
       return isRead

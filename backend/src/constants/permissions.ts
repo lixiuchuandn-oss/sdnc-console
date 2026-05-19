@@ -271,6 +271,22 @@ export const ALL_PERMISSIONS = [
   'clouds.pci-devices:read',   // PCI 设备列表 - 查看
   'clouds.pci-devices:write',  // PCI 设备管理 - 分配/回收
 
+  // 监控 - 资源池内「资源总览 · 总览」大盘（节点/存储/Ceph 指标等；与告警 Tab 解耦）
+  'clouds.monitoring.overview:read',
+  'clouds.monitoring.overview:write',
+
+  // Rook/Ceph、对象存储、RGW/S3（/api/clouds/:id/ceph/* 与池内对象存储域）
+  'clouds.ceph:read',
+  'clouds.ceph:write',
+
+  // Cloudmap · 云数据库（PaaS VM；数据面仍走 clouds.ecs API，UI 与角色配置独立门控）
+  'clouds.paas-databases:read',
+  'clouds.paas-databases:write',
+
+  // Cloudmap · 虚拟网元（虚拟路由器；底层为带 VNE 标签的 VM，API 仍为 harvester/vms）
+  'clouds.vne:read',
+  'clouds.vne:write',
+
   // 监控 - 告警列表
   'clouds.alerts:read',        // 告警列表 - 查看
   'clouds.alerts:write',       // 告警列表 - 处理/确认
@@ -537,6 +553,10 @@ export const PERMISSION_GROUPS = {
       'clouds.gpus',
       'clouds.usb-devices',
       'clouds.pci-devices',
+      'clouds.monitoring.overview',
+      'clouds.ceph',
+      'clouds.paas-databases',
+      'clouds.vne',
       'clouds.alerts',
       'clouds.alert-rules',
       'clouds.alert-policies',

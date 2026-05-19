@@ -1,5 +1,8 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { CloudmapPoolTabKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import type {
+  CloudmapPoolTabKey,
+  CloudmapResourceSubKey,
+} from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 
 /** 池主内容区面板 props（由 `useCloudmapPoolDetailEngine` 组装，经 Context 注入子路由） */
 export type CloudmapPoolPanelProps = {
@@ -14,6 +17,8 @@ export type CloudmapPoolPanelProps = {
   canReadFlatSubnets: boolean;
   canReadVpcSubnets: boolean;
   canViewMonitoringTab: boolean;
+  canViewMonitoringOverview: boolean;
+  canAccessResourceHubSub: (sub: CloudmapResourceSubKey) => boolean;
   canViewClusterGroup: boolean;
   canViewComputeGroup: boolean;
   canViewCloudDatabaseTab: boolean;

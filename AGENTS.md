@@ -373,6 +373,8 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 **目录落位**：前端见 **`frontend/src/STRUCTURE.md`**（平台、`pages/`、`sections`/`drawers`/`modals`/`shared`）；后端见 **`backend/src/STRUCTURE.md`**（`routes` → `services` → `entities`、多云目录对称、Harvester `handlers/`）。
 
+**Cloudmap 池内 RBAC**：按 **平台 → 分组（poolNavGroup）→ 主页面 / 附加能力** 组织；每个主页面或附加能力各自落实 **功能入口、页面访问、后端接口** 三层（配置抽屉为授权面，目录须与分组一致）。主页面用 `cloudmapPoolNavRows.poolPageAction`；附加能力用独立原子（如 `vm-create-wizard`），普通操作随主页面。见 **`deployment/docs/specs/cloudmap-pool-page-rbac.md`**、`pool/lib/poolPageReadAccess.ts`。
+
 ### 命名约定
 - **组件文件**： PascalCase (如 `PageContainer.tsx`)
 - **工具文件**： camelCase (如 `harvesterUtils.ts`)

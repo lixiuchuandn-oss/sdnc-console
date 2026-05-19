@@ -34,6 +34,18 @@ export const CLOUD_SUBNETS_PUBLIC_WRITE = 'clouds.subnets.public:write';
 export const CLOUD_CONTAINERS_READ = 'clouds.containers:read';
 export const CLOUD_CONTAINERS_WRITE = 'clouds.containers:write';
 
+/** Cloudmap 资源总览 · 监控大盘（/monitoring/* 概览类 API） */
+export const CLOUD_MONITORING_OVERVIEW_READ = 'clouds.monitoring.overview:read';
+
+/** Rook/Ceph、对象存储、RGW/S3（/api/clouds/:id/ceph/*） */
+export const CLOUD_CEPH_READ = 'clouds.ceph:read';
+
+/** Cloudmap · 云数据库（池内 paas_databases） */
+export const CLOUD_PAAS_DATABASES_READ = 'clouds.paas-databases:read';
+
+/** Cloudmap · 虚拟路由器（池内 oniaas_network/virtual_routers） */
+export const CLOUD_VNE_READ = 'clouds.vne:read';
+
 /** Kube-OVN Provider Network（物理网络）列表与详情抽屉（读） */
 export const CLOUD_PROVIDER_NETWORKS_READ = 'clouds.provider-networks:read';
 /** 物理网络创建、删除等写操作 */

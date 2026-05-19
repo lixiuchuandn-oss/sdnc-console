@@ -1,5 +1,6 @@
 import React from 'react';
 import { Empty } from 'antd';
+import { CLOUD_CEPH_READ } from '../../../../../../../constants/cloudPermissions';
 import VolumesSection from '../../../../Harvester/ebs/sections/VolumesSection';
 import SnapshotsSection from '../../../../Harvester/ebs/sections/SnapshotsSection';
 import CloudmapStorageCephRbdMirror from './CloudmapStorageCephRbdMirror';
@@ -56,7 +57,10 @@ export type CloudmapStorageGroupTabsProps = {
 
 function canViewStorageInner(key: string, checkPerm: (a: string) => boolean): boolean {
   const cephish =
-    checkPerm('clouds.disks:read') || checkPerm('clouds.cluster-nodes:read') || checkPerm('clouds:read');
+    checkPerm(CLOUD_CEPH_READ) ||
+    checkPerm('clouds.disks:read') ||
+    checkPerm('clouds.cluster-nodes:read') ||
+    checkPerm('clouds:read');
   if (key === 'rbd_mirror') return cephish;
   if (key === 'volumes') return checkPerm('clouds.disks:read');
   if (key === 'snapshots') return checkPerm('clouds.snapshots:read');

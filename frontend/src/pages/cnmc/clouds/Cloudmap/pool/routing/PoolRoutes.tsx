@@ -47,22 +47,28 @@ const ResourceHubRoute: React.FC = () => {
   }
   switch (sub) {
     case 'overview':
-      return <ResourceOverviewMonitoringPanel cloudId={p.cloudId} />;
+      return p.canAccessResourceHubSub('overview') ? (
+        <ResourceOverviewMonitoringPanel cloudId={p.cloudId} />
+      ) : (
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
+      );
     case 'datacenter_topology':
-      return p.canViewClusterGroup ? (
+      return p.canAccessResourceHubSub('datacenter_topology') ? (
         <ResourceOverviewDatacenterTopologyPanel cloudId={p.cloudId} checkPerm={p.checkPerm} />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
     case 'network_topology':
-      return (
+      return p.canAccessResourceHubSub('network_topology') ? (
         <ResourceOverviewNetworkTopologyPanel
           cloudId={p.cloudId}
-          canReadNetworkScope={p.canReadNetworkScope}
+          canReadNetworkScope={p.canAccessResourceHubSub('network_topology')}
         />
+      ) : (
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
     case 'ceph_storage_overview':
-      return p.canViewCephGroup ? (
+      return p.canAccessResourceHubSub('ceph_storage_overview') ? (
         <CloudmapStorageDashboardByBackend cloudId={p.cloudId} />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
