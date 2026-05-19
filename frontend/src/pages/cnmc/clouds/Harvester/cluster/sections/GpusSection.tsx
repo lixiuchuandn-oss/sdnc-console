@@ -11,7 +11,6 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -29,11 +28,11 @@ interface Props {
   onRefresh: (force?: boolean) => void | Promise<void>;
   raw?: any;
   showLog?: boolean;
+  /** 租户侧隐藏「查看 YAML」等运维入口 */
+  isTenant?: boolean;
 }
 
-const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, raw, showLog }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
+const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, raw, showLog, isTenant = false }) => {
   // 筛选条件：类型、状态与关键字
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -225,14 +224,14 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     {
       title: '操作', key: 'actions', align: 'left' as const, fixed: 'right' as const, render: (_: any, r: any) => {
         const items = [
-          ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
+          ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
           ...(r?.claimRaw ? [{ key: 'binding', label: '查看绑定', onClick: () => handleOpenYaml(r.claimRaw) }] : []),
           ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
         ];
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       }
     }
-  ], [handleOpenYaml, isStandardView, typeTag, vendorName, renderUnifiedStateTag]);
+  ], [handleOpenYaml, isTenant, typeTag, vendorName, renderUnifiedStateTag]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_gpus_table');

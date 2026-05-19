@@ -398,6 +398,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             resources={gpus}
             loading={loading}
             onRefresh={onRefreshGpus || (() => Promise.resolve())}
+            isTenant={isTenantUser}
           />
         );
 

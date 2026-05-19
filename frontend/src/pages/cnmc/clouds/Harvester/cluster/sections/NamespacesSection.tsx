@@ -31,7 +31,6 @@ import {
   type NamespaceListRow,
 } from '../lib/namespacesSectionUtils';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 const TABLE_COLUMNS_SETTINGS_KEY = 'harvester_namespaces_table_v3';
 
@@ -67,7 +66,6 @@ const NamespacesSection: React.FC<Props> = ({
   onRefresh,
   isTenant,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { user } = useAuth();
 
   const hasNamespacesWrite = useMemo(() => {
@@ -79,7 +77,6 @@ const NamespacesSection: React.FC<Props> = ({
   }, [user?.permissions]);
 
   /** Cloudmap 非运维写视图时不展示 YAML 抽屉入口 */
-  const isStandardView = !hasOpsView;
 
   const [keyword, setKeyword] = useState('');
   const [namespaceFormOpen, setNamespaceFormOpen] = useState(false);
@@ -264,7 +261,7 @@ const NamespacesSection: React.FC<Props> = ({
             danger?: boolean;
           }[] = [];
 
-          if (!isTenant && !isStandardView) {
+          if (!isTenant) {
             items.push({
               key: 'yaml',
               label: '查看YAML',
@@ -297,7 +294,6 @@ const NamespacesSection: React.FC<Props> = ({
     handleEdit,
     handleOpenYaml,
     hasNamespacesWrite,
-    isStandardView,
     isTenant,
   ]);
 

@@ -19,7 +19,6 @@ import {
   isVpcOvnSubnetTableRow,
   TOWER_ALIAS_ANNOTATION,
 } from '../lib/kubeOvnSubnetConstants';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
 import { validateIpv4CidrNotation, validateIpv4HostAddress } from '../lib/ipv4CidrValidate';
@@ -127,8 +126,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   bordered = true,
   showYaml = true,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const effectiveShowYaml = showYaml !== false && hasOpsView;
+  const effectiveShowYaml = showYaml !== false;
   /** 具备运维视图权限时：是否请求 all=true（含内置/无注解 VPC） */
   const [vpcsQueryAll, setVpcsQueryAll] = useState(false);
 

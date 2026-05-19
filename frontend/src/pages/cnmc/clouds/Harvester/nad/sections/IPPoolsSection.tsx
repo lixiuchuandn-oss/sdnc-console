@@ -13,13 +13,13 @@ import { ReloadOutlined, SearchOutlined, EnvironmentTwoTone } from '@ant-design/
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import IPPoolCreateModal from '../../nad/modals/IPPoolCreateModal';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterIpPool } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 
 /**
  * 组件入参说明
@@ -38,17 +38,14 @@ interface Props {
 }
 
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
-  const isStandardView = !hasOpsView;
   const { user } = useAuth();
   const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.nads:write');
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [createVisible, setCreateVisible] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState('detail');
-  const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
   // 表格行选择（批量删除）
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
@@ -153,17 +150,6 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
       value: ns
     }));
   }, [dataSource]);
-
-  /**
-   * 打开 HarvesterResourceDrawer 查看地址池原始对象详情
-   */
-  const handleOpenOpsinfo = (record: any) => {
-    if (record?.raw) {
-      setSelectedRecord(record.raw);
-      setDrawerTab('detail');
-      setDrawerOpen(true);
-    }
-  };
 
   /**
    * 删除单个地址池
@@ -344,11 +330,12 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
           <ResourceActionsDropdown 
             buttonProps={{ className: 'row-actions-trigger' }}
             items={[
-              ...(!isTenant && !isStandardView ? [{
+              {
                 key: 'opsinfo',
                 label: '查看YAML',
-                onClick: () => handleOpenOpsinfo(record)
-              }] : []),
+                onClick: () =>
+                  openYamlDrawer({ ...(record.raw || record), kind: 'IPPool' }, { title: '地址池 YAML' }),
+              },
               { type: 'divider' },
               { 
                 key: 'delete', 
@@ -433,14 +420,12 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
         }}
       />
 
-      <HarvesterResourceDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        resourceType="IPPool"
-        record={selectedRecord}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
         cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle}
       />
     </PageDetailSection>
   );

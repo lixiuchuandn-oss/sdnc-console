@@ -13,11 +13,11 @@ import { ReloadOutlined, SearchOutlined, ShareAltOutlined } from '@ant-design/ic
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import CreateLoadBalancerModal from '../../nad/modals/CreateLoadBalancerModal';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterService } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 
 /**
  * 组件入参说明
@@ -38,26 +38,21 @@ interface Props {
 }
 
 const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant, bordered = true }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
-  const isStandardView = !hasOpsView;
   // 工具栏与弹窗状态
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [ipamFilter, setIpamFilter] = useState<string>('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState('detail');
-  const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  /**
-   * 将 Service 对象转换为表格可直接展示的数据结构
-   * - listeners 字段将监听端口列表拼接为 "port:backendPort/protocol" 格式
-   */
   const dataSource = useMemo(() => {
     return (loadBalancers || []).map((raw: any) => {
-      const listeners = (raw.spec?.listeners || []).map((l: any) => `${l.port}:${l.backendPort}/${l.protocol}`).join(', ');
+      const listeners = (raw.spec?.listeners || [])
+        .map((l: any) => `${l.port}:${l.backendPort}/${l.protocol}`)
+        .join(', ');
 
       return {
         key: raw.metadata?.uid,
@@ -72,84 +67,48 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     });
   }, [loadBalancers]);
 
-  /**
-   * 根据关键字、命名空间、IP分配模式进行过滤
-   * 
-   * [权限说明]
-   * - 租户可以看到公共命名空间（default、cloud-public、harvester-public）的 LoadBalancer，但不能删除它们
-   * - 删除权限控制已在删除函数中实现
-   */
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const ns = nsFilter.trim().toLowerCase();
     const ipam = ipamFilter.trim().toLowerCase();
 
     return dataSource.filter((x: any) => {
-      // 关键字过滤：匹配名称或命名空间
       if (kw) {
         const name = String(x.name || '').toLowerCase();
         const namespace = String(x.namespace || '').toLowerCase();
         if (!name.includes(kw) && !namespace.includes(kw)) return false;
       }
-
-      // 命名空间过滤：精确匹配
       if (ns) {
         const namespace = String(x.namespace || '').toLowerCase();
         if (namespace !== ns) return false;
       }
-
-      // IP分配模式过滤：精确匹配
       if (ipam) {
         const ipamType = String(x.ipam || '').toLowerCase();
         if (ipamType !== ipam) return false;
       }
-
       return true;
     });
-  }, [dataSource, keyword, nsFilter, ipamFilter, isTenant]);
+  }, [dataSource, keyword, nsFilter, ipamFilter]);
 
-  /**
-   * 提取可用的命名空间选项（用于筛选下拉框）
-   */
   const namespaceOptions = useMemo(() => {
     const nsSet = new Set<string>();
     dataSource.forEach((item: any) => {
-      if (item.namespace) {
-        nsSet.add(item.namespace);
-      }
+      if (item.namespace) nsSet.add(item.namespace);
     });
-    return Array.from(nsSet).sort().map(ns => ({
-      label: ns,
-      value: ns
-    }));
+    return Array.from(nsSet)
+      .sort()
+      .map((ns) => ({ label: ns, value: ns }));
   }, [dataSource]);
 
-  /**
-   * 提取可用的IP分配模式选项（用于筛选下拉框）
-   */
   const ipamOptions = useMemo(() => {
     const ipamSet = new Set<string>();
     dataSource.forEach((item: any) => {
-      if (item.ipam && item.ipam !== '-') {
-        ipamSet.add(item.ipam);
-      }
+      if (item.ipam && item.ipam !== '-') ipamSet.add(item.ipam);
     });
-    return Array.from(ipamSet).sort().map(ipam => ({
-      label: ipam,
-      value: ipam
-    }));
+    return Array.from(ipamSet)
+      .sort()
+      .map((ipam) => ({ label: ipam, value: ipam }));
   }, [dataSource]);
-
-  /**
-   * 打开 HarvesterResourceDrawer 展示 Service 详情
-   */
-  const handleOpenOpsinfo = (record: any) => {
-    if (record?.raw) {
-      setSelectedRecord(record.raw);
-      setDrawerTab('detail');
-      setDrawerOpen(true);
-    }
-  };
 
   /**
    * 删除单个负载均衡 Service
@@ -286,11 +245,12 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
           <ResourceActionsDropdown 
             buttonProps={{ className: 'row-actions-trigger' }}
             items={[
-              ...(!isTenant && !isStandardView ? [{
+              {
                 key: 'opsinfo',
                 label: '查看YAML',
-                onClick: () => handleOpenOpsinfo(record)
-              }] : []),
+                onClick: () =>
+                  openYamlDrawer({ ...(record.raw || record), kind: 'Service' }, { title: '负载均衡 YAML' }),
+              },
               { type: 'divider' },
               { 
                 key: 'delete', 
@@ -387,14 +347,12 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
         }}
       />
 
-      <HarvesterResourceDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        resourceType="LoadBalancer"
-        record={selectedRecord}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
         cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle}
       />
     </PageDetailSection>
   );

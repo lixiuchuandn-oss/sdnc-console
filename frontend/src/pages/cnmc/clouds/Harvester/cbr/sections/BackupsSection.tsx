@@ -17,7 +17,6 @@ import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参
@@ -60,7 +59,6 @@ const BackupsSection: React.FC<Props> = ({
   isTenant,
   bordered = true,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const vmsForRestore = restoreVms ?? vms;
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -278,7 +276,7 @@ const BackupsSection: React.FC<Props> = ({
       render: (_: any, record: any) => {
         const items: any[] = [];
         
-        if (!isTenant && hasOpsView) {
+        if (!isTenant) {
           items.push({
             key: 'opsinfo',
             label: '查看YAML',
@@ -332,7 +330,7 @@ const BackupsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [handleDelete, isTenant, hasOpsView, hasBackupsWrite]);
+  ], [handleDelete, isTenant, hasBackupsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, `harvester_${type}_list`);
@@ -351,7 +349,7 @@ const BackupsSection: React.FC<Props> = ({
             onChange={e => setKeyword(e.target.value)}
             allowClear
           />
-          {hasOpsView && (
+          {!isTenant && (
             <Select
               key="namespace-filter"
               allowClear

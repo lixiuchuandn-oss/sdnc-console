@@ -48,7 +48,6 @@ import {
   validateFlatSubnetExcludeIpsLocal,
 } from '../lib/flatSubnetExcludeIpValidation';
 import { getFlatSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /** subnet 注解：曾绑 VLAN/物理网下由集群或控制台写入；无 VLAN overlay 应与新建扁平子网一致并清除 */
 const TOWER_PROVIDER_NETWORK_ANNOTATION = 'tower.io/provider-network';
@@ -111,12 +110,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
   showYaml = true,
   onSubnetsChanged,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const resolvedDisplayMode = displayModeProp ?? (hasOpsView ? 'ops' : 'standard');
-  const effectiveShowYaml = showYaml !== false && hasOpsView;
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
+  const resolvedDisplayMode = displayModeProp ?? (isTenantUser ? 'standard' : 'ops');
+  const effectiveShowYaml = showYaml !== false;
   const isFlatMode = mode === 'flat';
   const hasUnderlayWrite = useMemo(() => {
     const scopedWrite = isFlatMode ? CLOUD_SUBNETS_FLAT_WRITE : CLOUD_SUBNETS_PUBLIC_WRITE;

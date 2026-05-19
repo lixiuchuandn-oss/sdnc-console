@@ -1,16 +1,16 @@
 /**
  * @file TemplatesSection.tsx
- * @description Harvester VM 模板列表视图
+ * @description Harvester VM ??????
  *
- * 职责说明：
- * - 以表格形式展示 Harvester 中的虚拟机模板（名称、命名空间、描述、创建时间）
- * - 提供基于名称 / 命名空间的关键字搜索
- * - 支持表格列显示配置（通过 TableColumnSettings 记住用户偏好）
- * - 支持触发上层传入的刷新回调 onRefresh，用于重新拉取模板列表
+ * ?????
+ * - ??????? Harvester ????????????????????????
+ * - ?????? / ??????????
+ * - ???????????? TableColumnSettings ???????
+ * - ????????????? onRefresh???????????
  *
- * 集成说明：
- * - 组件本身是一个“轻量视图”，只负责展示与简单筛选，不直接调用后端 API
- * - 模板列表数据 templates、加载状态 loading 以及刷新函数 onRefresh 由上层 Harvester 页面注入
+ * ?????
+ * - ???????????????????????????????? API
+ * - ?????? templates????? loading ?????? onRefresh ??? Harvester ????
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -23,29 +23,29 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import HarvesterTemplateDetailDrawer from '../../shared/components/HarvesterTemplateDetailDrawer';
-import HarvesterOpsinfoDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { createHarvesterVmFromTemplate, deleteHarvesterResourceByLink } from '../../../../../../services/harvesterApi';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 
 /**
- * Props 定义
+ * Props ??
  *
- * @property cloudId    当前云平台 ID（此处仅透传占位，方便后续扩展操作）
- * @property templates  Harvester 返回的模板列表（VirtualMachineTemplate 数组）
- * @property loading    外层传入的加载状态，用于控制表格和刷新按钮的 loading
- * @property onRefresh  触发上层重新拉取模板列表的回调，支持 force 参数
+ * @property cloudId    ????? ID??????????????????
+ * @property templates  Harvester ????????VirtualMachineTemplate ???
+ * @property loading    ?????????????????????? loading
+ * @property onRefresh  ?????????????????? force ??
  */
 interface Props {
   cloudId: string;
   templates: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
-  isTenant?: boolean; // 是否为租户模式
-  /** 租户控制台当前命名空间：从模板快速创建 VM 时写入 metadata.namespace，避免落到 default */
+  isTenant?: boolean; // ???????
+  /** ??????????????????? VM ??? metadata.namespace????? default */
   workspaceVmNamespace?: string;
   bordered?: boolean;
 }
@@ -76,14 +76,14 @@ const getTemplateAlias = (tpl: any): string =>
 const getTemplateScope = (
   tpl: any,
   isPublicNs: (name: string) => boolean,
-): '全部' | '公共模板' | '私有模板' => {
-  if (!tpl) return '全部';
+): '??' | '????' | '????' => {
+  if (!tpl) return '??';
   const ns = getTemplateNamespace(tpl);
-  return isPublicNs(ns) ? '公共模板' : '私有模板';
+  return isPublicNs(ns) ? '????' : '????';
 };
 
 const getTemplateDefaultVersion = (tpl: any): string => {
-    // 优先展示 status.defaultVersion，其次尝试从 spec.defaultVersionId 解析
+    // ???? status.defaultVersion?????? spec.defaultVersionId ??
     if (tpl?.status?.defaultVersion) return `v${tpl.status.defaultVersion}`;
     if (tpl?.spec?.defaultVersionId) {
         const parts = tpl.spec.defaultVersionId.split('/');
@@ -97,10 +97,10 @@ const getTemplateLatestVersion = (tpl: any): string => {
     return '-';
 };
 
-/** 从模板快速创建 VM：输入框 placeholder 与空值校验提示须一致 */
-const QUICK_CREATE_VM_NAME_HINT = '请输入云主机名称（支持中文）';
+/** ??????? VM???? placeholder ?????????? */
+const QUICK_CREATE_VM_NAME_HINT = '??????????????';
 
-/** 临时：按模板 metadata.name 隐藏系统/底座模板（前端硬编码，后续可删） */
+/** ?????? metadata.name ????/???????????????? */
 const HIDDEN_VM_TEMPLATE_NAMES = new Set([
   'windows-raw-image-base-template',
   'windows-iso-image-base-template',
@@ -109,15 +109,15 @@ const HIDDEN_VM_TEMPLATE_NAMES = new Set([
 ]);
 
 /**
- * TemplatesSection 组件
+ * TemplatesSection ??
  *
- * 用途：
- * - 展示 Harvester VM 模板列表
- * - 提供简单的前端搜索过滤能力
- * - 提供列设置和刷新按钮
+ * ???
+ * - ?? Harvester VM ????
+ * - ?????????????
+ * - ??????????
  *
- * 说明：
- * - 此组件本身不直接调用后端，只消费上层传入的数据和回调
+ * ???
+ * - ??????????????????????????
  */
 const TemplatesSection: React.FC<Props> = ({ 
   cloudId, 
@@ -128,7 +128,6 @@ const TemplatesSection: React.FC<Props> = ({
   workspaceVmNamespace,
   bordered = true,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { modal } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -139,21 +138,20 @@ const TemplatesSection: React.FC<Props> = ({
   );
 
   /**
-   * 搜索关键字（受控 Input）
-   * - 用户在顶部输入框中输入的文本
-   * - 用于在前端过滤模板列表（按名称 / 命名空间模糊匹配）
+   * ???????? Input?
+   * - ??????????????
+   * - ??????????????? / ?????????
    */
   const [searchText, setSearchText] = useState('');
-  // 命名空间筛选状态
+  // ????????
   const [selectedNamespace, setSelectedNamespace] = useState<string>('');
-  // 作用域筛选状态：all/public/private
+  // ????????all/public/private
   const [selectedScope, setSelectedScope] = useState<'' | 'public' | 'private'>('');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
-  const [opsInfoVisible, setOpsInfoVisible] = useState(false);
-  const [opsInfoRecord, setOpsInfoRecord] = useState<any>(null);
-  const [opsInfoActiveTab, setOpsInfoActiveTab] = useState('detail');
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
   const [quickCreateVisible, setQuickCreateVisible] = useState(false);
   const [quickCreateTpl, setQuickCreateTpl] = useState<any>(null);
   const [quickCreateName, setQuickCreateName] = useState('');
@@ -163,7 +161,7 @@ const TemplatesSection: React.FC<Props> = ({
   const handleDelete = useCallback(
     async (tpl: any) => {
       if (!hasTemplatesWrite) {
-        message.error('无权限执行该操作');
+        message.error('????????');
         return;
       }
       const ns = getTemplateNamespace(tpl);
@@ -172,20 +170,20 @@ const TemplatesSection: React.FC<Props> = ({
       const label = alias ? `${alias} (${name})` : name;
 
       modal.confirm({
-        title: '确认删除模板？',
+        title: '???????',
         icon: <ExclamationCircleOutlined />,
-        content: `确定要删除模板 ${label} 吗？此操作不可恢复。`,
-        okText: '删除',
+        content: `??????? ${label} ??????????`,
+        okText: '??',
         okType: 'danger',
         onOk: async () => {
           try {
             // Template Path: /apis/harvesterhci.io/v1beta1/namespaces/{ns}/virtualmachinetemplates/{name}
             const path = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
             await deleteHarvesterResourceByLink(cloudId, path);
-            message.success('删除成功');
+            message.success('????');
             onRefresh?.(true);
           } catch (e: any) {
-            message.error(`删除失败: ${e.message}`);
+            message.error(`????: ${e.message}`);
           }
         },
       });
@@ -193,19 +191,19 @@ const TemplatesSection: React.FC<Props> = ({
     [hasTemplatesWrite, modal, cloudId, onRefresh],
   );
 
-  /** 批量删除（与 VmSection 一致：下拉「⋯」触发，确认后逐条统计成功/失败） */
+  /** ?????? VmSection ????????????????????/??? */
   const handleBatchDelete = () => {
     if (!hasTemplatesWrite) {
-      message.error('无权限执行该操作');
+      message.error('????????');
       return;
     }
     if (selectedRowKeys.length === 0) return;
 
     modal.confirm({
-      title: '确认批量删除模板？',
+      title: '?????????',
       icon: <ExclamationCircleOutlined />,
-      content: `确定要删除选中的 ${selectedRowKeys.length} 个模板吗？此操作不可恢复。`,
-      okText: '批量删除',
+      content: `???????? ${selectedRowKeys.length} ?????????????`,
+      okText: '????',
       okType: 'danger',
       onOk: async () => {
         const targets = filteredData.filter((t: any) => {
@@ -228,9 +226,9 @@ const TemplatesSection: React.FC<Props> = ({
         }
         const ok = results.filter((x) => x.ok).length;
         const fail = results.filter((x) => !x.ok);
-        if (ok > 0) message.success(`删除成功 ${ok} 个模板`);
+        if (ok > 0) message.success(`???? ${ok} ???`);
         if (fail.length > 0) {
-          message.error(`删除失败 ${fail.length} 个：${fail.map((f) => f.id).join(', ')}`);
+          message.error(`???? ${fail.length} ??${fail.map((f) => f.id).join(', ')}`);
         }
         setSelectedRowKeys([]);
         if (ok > 0 || fail.length > 0) onRefresh?.(true);
@@ -241,7 +239,7 @@ const TemplatesSection: React.FC<Props> = ({
   const openQuickCreate = useCallback(
     (tpl: any) => {
       if (!hasTemplatesWrite) {
-        message.error('无权限执行该操作');
+        message.error('????????');
         return;
       }
       if (!tpl) return;
@@ -273,12 +271,12 @@ const TemplatesSection: React.FC<Props> = ({
         namespace: vmNs,
         autoStart: quickCreateAutoStart,
       });
-      message.success('创建成功');
+      message.success('????');
       setQuickCreateVisible(false);
       setQuickCreateTpl(null);
       setQuickCreateName('');
     } catch (e: any) {
-      message.error(e?.message || '创建失败');
+      message.error(e?.message || '????');
     } finally {
       setQuickCreating(false);
     }
@@ -291,45 +289,24 @@ const TemplatesSection: React.FC<Props> = ({
     setDetailVisible(true);
   }, []);
 
-  const handleOpenOpsInfo = useCallback((tpl: any) => {
-    if (!tpl) return;
-    const ns = getTemplateNamespace(tpl);
-    const name = getTemplateName(tpl);
-    // 构造 view link 用于 HarvesterOpsinfoDrawer 获取实时数据
-    // Template 路径: /apis/harvesterhci.io/v1beta1/namespaces/{ns}/virtualmachinetemplates/{name}
-    const viewLink = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
-
-    const r = {
-      ...tpl,
-      kind: tpl?.kind || 'VirtualMachineTemplate',
-      links: {
-        ...(tpl?.links || {}),
-        view: viewLink,
-      },
-    };
-    setOpsInfoRecord(r);
-    setOpsInfoActiveTab('detail');
-    setOpsInfoVisible(true);
-  }, []);
-  
   /**
-   * 表格列定义（allColumns）
+   * ??????allColumns?
    *
-   * 特点：
-   * - 使用 useMemo 避免每次渲染都重新创建列定义
-   * - 不依赖外部状态，因此依赖数组为空 []
+   * ???
+   * - ?? useMemo ??????????????
+   * - ???????????????? []
    *
-   * 列说明：
-   * - 名称：显示模板的 metadata.name
-   * - 命名空间：显示模板所在的 Namespace
-   * - 描述：显示模板 spec.description
-   * - 创建时间：显示 metadata.creationTimestamp
-   * - 操作：目前为占位文案“暂无操作”，后续可扩展
+   * ????
+   * - ???????? metadata.name
+   * - ???????????? Namespace
+   * - ??????? spec.description
+   * - ??????? metadata.creationTimestamp
+   * - ??????????????????????
    */
   const allColumns = useMemo<ColumnsType<any>>(
     () => [
     {
-      title: '模板名称',
+      title: '????',
       key: 'displayName',
       render: (_: any, r: any) => {
         const displayName = getTemplateDisplayName(r);
@@ -348,7 +325,7 @@ const TemplatesSection: React.FC<Props> = ({
       }
     },
     {
-      title: '模板ID',
+      title: '??ID',
       key: 'name',
       render: (_: any, r: any) => {
         const name = getTemplateName(r);
@@ -356,37 +333,37 @@ const TemplatesSection: React.FC<Props> = ({
       }
     },
     {
-      title: '版本',
+      title: '??',
       key: 'version',
       render: (_: any, r: any) => {
         const defaultVersion = getTemplateDefaultVersion(r);
         const latestVersion = getTemplateLatestVersion(r);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Tag color="blue">默认: {defaultVersion}</Tag>
-            <span>最新: {latestVersion}</span>
+            <Tag color="blue">??: {defaultVersion}</Tag>
+            <span>??: {latestVersion}</span>
           </div>
         );
       }
     },
-    ...(hasOpsView ? [{
-      title: '作用域',
+    ...(!isTenant ? [{
+      title: '???',
       key: 'scope',
       render: (_: any, r: any) => {
           const scope = getTemplateScope(r, isPublicNamespace);
-          const isPublic = scope === '公共模板';
+          const isPublic = scope === '????';
           return <Tag color={isPublic ? 'orange' : 'cyan'}>{scope}</Tag>;
       }
     }] : []),
-    ...(hasOpsView
+    ...(!isTenant
       ? [{
-          title: '命名空间',
+          title: '????',
           key: 'namespace',
           render: (_: any, r: any) => getTemplateNamespace(r) || '-'
         }]
       : []),
     {
-      title: '描述',
+      title: '??',
       key: 'description',
       ellipsis: true,
       render: (_: any, r: any) => (
@@ -396,7 +373,7 @@ const TemplatesSection: React.FC<Props> = ({
       )
     },
     {
-      title: '创建时间',
+      title: '????',
       key: 'createdAt',
       className: 'std-time',
       sorter: (a: any, b: any) => {
@@ -410,29 +387,30 @@ const TemplatesSection: React.FC<Props> = ({
       }
     },
     {
-      title: '操作',
+      title: '??',
       key: 'actions',
       render: (_: any, r: any) => {
         const items: any[] = [
           {
             key: 'detail',
-            label: '资源详情',
+            label: '????',
             onClick: () => { handleOpenDrawer(r); },
           }
         ];
 
-        // 仅在非租户模式下显示运维信息
-        if (!isTenant && hasOpsView) {
-          items.push({
+        items.push({
             key: 'ops_info',
-            label: '查看YAML',
-            onClick: () => { handleOpenOpsInfo(r); },
+            label: '??YAML',
+            onClick: () =>
+              openYamlDrawer(
+                { ...r, kind: r?.kind || 'VirtualMachineTemplate' },
+                { title: '?? YAML' },
+              ),
           });
-        }
 
         items.push({
             key: 'create_vm',
-            label: '使用模板创建虚拟机',
+            label: '?????????',
             disabled: !hasTemplatesWrite,
             onClick: () => openQuickCreate(r),
         });
@@ -441,7 +419,7 @@ const TemplatesSection: React.FC<Props> = ({
           { type: 'divider' as const },
           {
             key: 'delete',
-            label: '删除',
+            label: '??',
             danger: true,
             disabled: !hasTemplatesWrite,
             onClick: () => handleDelete(r),
@@ -460,21 +438,21 @@ const TemplatesSection: React.FC<Props> = ({
       },
     }
   ],
-    [isTenant, hasTemplatesWrite, hasOpsView, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete, isPublicNamespace],
+    [hasTemplatesWrite, handleOpenDrawer, openYamlDrawer, openQuickCreate, handleDelete, isPublicNamespace],
   );
 
   /**
-   * 当前表格实际使用的列配置
+   * ????????????
    *
-   * - 初始值为 allColumns
-   * - 通过 TableColumnSettings 组件的 onChange 回调更新
-   * - 用户可以在 UI 中选择显示/隐藏列，这里保存用户的选择结果
+   * - ???? allColumns
+   * - ?? TableColumnSettings ??? onChange ????
+   * - ????? UI ?????/???????????????
    */
-  // 使用新的 hook 管理列设置
+  // ???? hook ?????
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_templates_table');
 
   /**
-   * 基础数据（租户权限过滤 + 临时隐藏底座模板名）
+   * ??????????? + ??????????
    */
   const baseData = useMemo(() => {
     return templates.filter(
@@ -483,35 +461,35 @@ const TemplatesSection: React.FC<Props> = ({
   }, [templates]);
 
   /**
-   * 命名空间选项（过滤系统命名空间）
+   * ????????????????
    */
   const namespaceOptions = useMemo(() => {
     const nsSet = new Set<string>();
     baseData.forEach((t: any) => {
       const ns = getTemplateNamespace(t);
-      if (ns && !isSystemNamespace(ns)) nsSet.add(ns); // 过滤系统命名空间
+      if (ns && !isSystemNamespace(ns)) nsSet.add(ns); // ????????
     });
     return Array.from(nsSet).map(ns => ({ value: ns, label: ns }));
   }, [baseData]);
 
   /**
-   * 最终展示的数据（filteredData）
+   * ????????filteredData?
    *
-   * 过滤逻辑：
-   * - 基于 baseData
-   * - 应用命名空间筛选
-   * - 应用名称关键字搜索
+   * ?????
+   * - ?? baseData
+   * - ????????
+   * - ?????????
    */
   const filteredData = useMemo(() => {
     const rows = baseData.filter((t: any) => {
-      // 1. 命名空间筛选
+      // 1. ??????
       const ns = getTemplateNamespace(t);
       if (selectedNamespace && ns !== selectedNamespace) return false;
-      // 1.1 作用域筛选
-      if (hasOpsView && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
-      if (hasOpsView && selectedScope === 'private' && isPublicNamespace(ns)) return false;
+      // 1.1 ?????
+      if (!isTenant && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
+      if (!isTenant && selectedScope === 'private' && isPublicNamespace(ns)) return false;
 
-      // 2. 关键字搜索
+      // 2. ?????
       if (searchText) {
         const lower = searchText.toLowerCase();
         return getTemplateDisplayName(t).toLowerCase().includes(lower);
@@ -524,40 +502,40 @@ const TemplatesSection: React.FC<Props> = ({
       const tb = new Date(b?.metadata?.creationTimestamp || 0).getTime();
       return tb - ta;
     });
-  }, [baseData, searchText, selectedNamespace, selectedScope, hasOpsView, isPublicNamespace]);
+  }, [baseData, searchText, selectedNamespace, selectedScope, !isTenant, isPublicNamespace]);
 
   return (
       <PageDetailSection
         toolbarLeft={(
           <>
             <Input
-              placeholder="名称/ID"
+              placeholder="??/ID"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               className="toolbar-search"
               allowClear
             />
-            {!isTenant && hasOpsView && (
+            {!isTenant && (
               <Select
                 allowClear
                 showSearch
-                placeholder="命名空间"
+                placeholder="????"
                 value={selectedNamespace || undefined}
                 onChange={(v) => setSelectedNamespace((v as string) || '')}
                 options={namespaceOptions}
                 className="toolbar-filter-sm"
               />
             )}
-            {hasOpsView && (
+            {!isTenant && (
               <Select
                 allowClear
-                placeholder="作用域"
+                placeholder="???"
                 value={selectedScope || undefined}
                 onChange={(val) => setSelectedScope((val as any) || '')}
                 options={[
-                  { value: 'public', label: '公共模板' },
-                  { value: 'private', label: '私有模板' },
+                  { value: 'public', label: '????' },
+                  { value: 'private', label: '????' },
                 ]}
                 className="toolbar-filter-sm"
               />
@@ -571,7 +549,7 @@ const TemplatesSection: React.FC<Props> = ({
                 setSelectedScope('');
               }}
             >
-              重置
+              ??
             </button>
           </>
         )}
@@ -582,7 +560,7 @@ const TemplatesSection: React.FC<Props> = ({
                 !hasTemplatesWrite
                   ? undefined
                   : selectedRowKeys.length === 0
-                    ? '请先选择模板'
+                    ? '??????'
                     : undefined
               }
             >
@@ -593,17 +571,17 @@ const TemplatesSection: React.FC<Props> = ({
                     items: [
                       {
                         key: 'batchDelete',
-                        label: <span style={{ color: '#ff4d4f' }}>批量删除</span>,
+                        label: <span style={{ color: '#ff4d4f' }}>????</span>,
                         disabled: !hasTemplatesWrite || selectedRowKeys.length === 0,
                       },
                     ],
                     onClick: ({ key }) => {
                       if (!hasTemplatesWrite) {
-                        message.error('无权限执行批量操作');
+                        message.error('?????????');
                         return;
                       }
                       if (selectedRowKeys.length === 0) {
-                        message.warning('请先选择模板');
+                        message.warning('??????');
                         return;
                       }
                       if (key === 'batchDelete') handleBatchDelete();
@@ -644,15 +622,15 @@ const TemplatesSection: React.FC<Props> = ({
           dataSource={filteredData}
           loading={loading}
           pagination={{
-            showTotal: (total) => `共 ${total} 条`,
+            showTotal: (total) => `? ${total} ?`,
           }}
         />
 
         <Modal
-          title="使用模板创建虚拟机"
+          title="?????????"
           open={quickCreateVisible}
-          okText="创建"
-          cancelText="取消"
+          okText="??"
+          cancelText="??"
           confirmLoading={quickCreating}
           onOk={doQuickCreate}
           onCancel={() => {
@@ -671,7 +649,7 @@ const TemplatesSection: React.FC<Props> = ({
               autoFocus
             />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>自动开机</span>
+              <span>????</span>
               <Switch checked={quickCreateAutoStart} onChange={setQuickCreateAutoStart} />
             </div>
           </div>
@@ -684,14 +662,12 @@ const TemplatesSection: React.FC<Props> = ({
           cloudId={cloudId}
         />
         
-        <HarvesterOpsinfoDrawer
-          open={opsInfoVisible}
-          onClose={() => setOpsInfoVisible(false)}
-          resourceType="Template"
-          record={opsInfoRecord}
-          activeTab={opsInfoActiveTab}
-          onTabChange={setOpsInfoActiveTab}
+        <ResourceLinkYamlDrawer
+          open={yamlDrawerOpen}
+          onClose={closeYamlDrawer}
           cloudId={cloudId}
+          viewLink={yamlViewLink}
+          title={yamlDrawerTitle}
         />
       </PageDetailSection>
   );

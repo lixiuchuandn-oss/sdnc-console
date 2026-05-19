@@ -14,7 +14,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import VlanConfigsDrawer from '../drawers/VlanConfigsDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 const TABLE_SETTINGS_KEY = 'harvester_cluster_networks_table';
 
@@ -57,8 +56,6 @@ const NetworksSection: React.FC<Props> = ({
   cloudId,
   isTenant,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
 
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -197,7 +194,7 @@ const NetworksSection: React.FC<Props> = ({
             label: '查看VLAN配置',
             onClick: () => openVlanDrawer(record),
           });
-          if (!isTenant && !isStandardView) {
+          if (!isTenant) {
             items.push({
               key: 'opsinfo',
               label: '查看YAML',
@@ -208,7 +205,7 @@ const NetworksSection: React.FC<Props> = ({
         },
       },
     ];
-  }, [handleOpenYaml, openVlanDrawer, isStandardView, isTenant]);
+  }, [handleOpenYaml, openVlanDrawer, isTenant]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(
     allColumns as ColumnsType<object>,

@@ -89,8 +89,6 @@ export const ALL_PERMISSIONS = [
   'clouds.vm-create-wizard:write',
   /** 云主机列表「快速创建」弹窗（SimpleVmCreate），与 clouds.ecs:write 解耦，便于单独门控 */
   'clouds.vm-quick-create:write',
-  /** Cloudmap 资源池：标准/运维视图切换（运维含命名空间、ACL、运维抽屉等） */
-  'clouds.cloudmap.ops-view:write',
   // 扁平网络（新命名）
   'clouds.eips.flat:read',
   'clouds.eips.flat:write',
@@ -566,7 +564,7 @@ export const PERMISSION_GROUPS = {
       'clouds.log-receivers',
       'clouds.log-configs',
     ],
-    '资源控制台': ['clouds.console', 'clouds.cloudmap.ops-view'],
+    '资源控制台': ['clouds.console'],
   },
   // TENANTS 平台（多租户管理）
   TENANTS: {
@@ -691,7 +689,7 @@ export function getGroupByPermission(permission: string): string | null {
   
   // CNMC / 资源池
   if (prefix.startsWith('clouds')) {
-    if (prefix === 'clouds.console' || prefix.startsWith('clouds.cloudmap')) {
+    if (prefix === 'clouds.console') {
       return '资源控制台';
     }
     return '资源池管理';

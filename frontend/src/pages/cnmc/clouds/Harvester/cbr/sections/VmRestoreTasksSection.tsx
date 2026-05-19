@@ -3,11 +3,11 @@ import { App, Badge, Button, Dropdown, Input, Progress, Select, Table, Tag, Tool
 import type { MenuProps } from 'antd';
 import { CloudServerOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import { deleteHarvesterBackup, deleteHarvesterVirtualMachineRestore, fetchHarvesterBackups, fetchHarvesterVirtualMachineRestores } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 type Props = {
   cloudId: string;
@@ -91,7 +91,6 @@ const getBackupStatus = (raw: any) => {
 };
 
 const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -101,9 +100,8 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
   const [backups, setBackups] = useState<any[]>([]);
   const [restores, setRestores] = useState<any[]>([]);
 
-  const [drawerVisible, setDrawerVisible] = useState(false);
-  const [drawerRecord, setDrawerRecord] = useState<any>(null);
-  const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const timerRef = useRef<any>(null);
 
@@ -288,12 +286,15 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     }
   }, [cloudId, message]);
 
-  const openDrawer = (record: any, kind: string, viewLink: string, tab: string = 'detail') => {
-    const r = { ...(record || {}), kind, links: { ...(record?.links || {}), view: viewLink } };
-    setDrawerRecord(r);
-    setDrawerActiveTab(tab);
-    setDrawerVisible(true);
-  };
+  const openYamlFromTask = useCallback(
+    (record: any, kind: string, viewLink: string, title: string) => {
+      openYamlDrawer(
+        { ...(record || {}), kind, links: { ...(record?.links || {}), view: viewLink } },
+        { title, resolveLink: () => viewLink },
+      );
+    },
+    [openYamlDrawer],
+  );
 
   const deleteTask = (row: any) => {
     modal.confirm({
@@ -484,22 +485,22 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
         const ns = String(r.namespace || '');
         const items: MenuProps['items'] = [
           ...(r.backupRaw ? [{
-            key: 'backup_detail',
-            label: `${r.resourceType}详情`,
+            key: 'backup_yaml',
+            label: '查看YAML',
             onClick: () => {
               const name = String(r.backupName || '');
               const view = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`;
-              openDrawer(r.backupRaw, 'VirtualMachineBackup', view, 'detail');
-            }
+              openYamlFromTask(r.backupRaw, 'VirtualMachineBackup', view, '备份 YAML');
+            },
           }] : []),
           ...(r.restoreRaw ? [{
-            key: 'restore_detail',
-            label: '恢复任务详情',
+            key: 'restore_yaml',
+            label: '查看YAML',
             onClick: () => {
               const name = String(r.restoreName || '');
               const view = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinerestores/${encodeURIComponent(name)}`;
-              openDrawer(r.restoreRaw, 'VirtualMachineRestore', view, 'detail');
-            }
+              openYamlFromTask(r.restoreRaw, 'VirtualMachineRestore', view, '恢复任务 YAML');
+            },
           }] : []),
         ];
         return (
@@ -524,7 +525,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
             onChange={(e) => setKeyword(e.target.value)}
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           />
-          {hasOpsView && (
+          {!isTenant && (
             <Select
               allowClear
               showSearch
@@ -580,14 +581,12 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
         }}
       />
 
-      <HarvesterResourceDrawer
-        open={drawerVisible}
-        onClose={() => setDrawerVisible(false)}
-        resourceType="HarvesterResource"
-        record={drawerRecord}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
         cloudId={cloudId}
-        activeTab={drawerActiveTab}
-        onTabChange={setDrawerActiveTab}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle}
       />
     </PageDetailSection>
   );

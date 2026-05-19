@@ -28,7 +28,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import PhysicalNodeDetailDrawer from '../drawers/PhysicalNodeDetailDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { useNodesResourceBundle } from '../hooks/useNodesResourceBundle';
 
 import {
@@ -48,6 +47,7 @@ export type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
+  isTenant?: boolean;
 };
 
 type NodeTableRecord = NodeRow;
@@ -69,9 +69,7 @@ function internalIp(row: NodeRow): string {
   );
 }
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isTenant = false }) => {
 
   const [keyword, setKeyword] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -152,7 +150,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   const allColumns = useMemo((): ColumnsType<NodeTableRecord> => {
     const opsItems = (record: NodeRow) => {
       const items: { key: string; label: string; onClick: () => void }[] = [];
-      if (!isStandardView) items.push({
+      if (!isTenant) items.push({
         key: 'yaml',
         label: '查看YAML',
         onClick: () => handleOpenYaml(record),
@@ -277,7 +275,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   }, [
     handleOpenNodeDetail,
     handleOpenYaml,
-    isStandardView,
+    isTenant,
     resourceMaps,
   ]);
 

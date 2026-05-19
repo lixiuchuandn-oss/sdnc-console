@@ -26,7 +26,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { fetchHarvesterStorageClassDetail } from '../../../../../../services/harvesterApi';
 import { isSystemStorageClass } from '../../../../../../utils/harvesterUtils';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /** 从 StorageClass.parameters 推断后端块池（Rook/Ceph RBD 常用 pool；部分驱动用 blockPool / storagePool） */
 function storageClassBackendPoolLabel(r: any): string {
@@ -74,8 +73,6 @@ const StorageClassesSection: React.FC<Props> = ({
   onRefresh,
   isTenant,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
   /**
    * 关键字搜索（受控 Input）
    * - 用户在顶部输入框中输入的文本
@@ -210,13 +207,13 @@ const StorageClassesSection: React.FC<Props> = ({
       align: 'left' as const,
       render: (_: any, r: any) => {
           const items: any[] = [];
-          if (!isTenant && !isStandardView) {
+          if (!isTenant) {
             items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
           }
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [isTenant, isStandardView]);
+  ], [isTenant]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_storageclasses_table');

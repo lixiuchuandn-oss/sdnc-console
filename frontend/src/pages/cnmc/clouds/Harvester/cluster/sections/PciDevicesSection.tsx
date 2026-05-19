@@ -6,7 +6,6 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { isPciNicSrIovVirtualFunctionPciDevice } from '../../ecs/lib/passthroughNicSelectOptions';
 
 interface Props {
@@ -19,6 +18,7 @@ interface Props {
   bordered?: boolean;
   /** 与创建向导 SR-IOV VF 选项同源：仅展示启发式识别为虚拟功能的网卡类 PCI */
   variant?: 'all' | 'sriov_vf';
+  isTenant?: boolean;
 }
 
 const PciDevicesSection: React.FC<Props> = ({
@@ -30,9 +30,8 @@ const PciDevicesSection: React.FC<Props> = ({
   showLog,
   bordered = true,
   variant = 'all',
+  isTenant = false,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
   const [keyword, setKeyword] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -279,14 +278,14 @@ const PciDevicesSection: React.FC<Props> = ({
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const items = [
-            ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
+            ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
             ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
           ];
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
         },
       },
     ];
-  }, [getNodeName, handleOpenYaml, isStandardView, renderPciStateCell, vendorLabel]);
+  }, [getNodeName, handleOpenYaml, isTenant, renderPciStateCell, vendorLabel]);
 
   const tableSettingsKey =
     variant === 'sriov_vf' ? 'harvester_sriov_pci_devices_table' : 'harvester_pci_devices_table';

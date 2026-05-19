@@ -57,7 +57,6 @@ import {
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
 } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /** 从 NAD 解析可能对应的 Kube-OVN Subnet 名称候选（同名 + provider 首段） */
 function collectKubeOvnSubnetNameCandidates(record: { _name?: string; _config?: any }): string[] {
@@ -239,7 +238,6 @@ type Props = {
 };
 
 const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, onlyBridge = false }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -252,7 +250,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     message.error('当前账号没有附加网络操作权限（需要 clouds.nads:write 或 clouds:write 权限）');
     return false;
   }, [hasNadsWrite]);
-  const isStandardView = !hasOpsView;
 
   /** Kube-OVN Subnet 列表：用于表格「OVN 子网」关联列（与删除校验同源：通常 Subnet 名与 NAD 名一致） */
   const [ovnSubnets, setOvnSubnets] = useState<any[]>([]);
@@ -985,10 +982,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         const deleteDisabled = isTenant && isPublic;
         const showDelete = !(isKubeOvnCniNad(r) && hasLinkedKubeOvnSubnetInMap(r, subnetByNameLc));
         const items: any[] = [];
-        if (!isTenant && !isStandardView) {
-          items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => openNadYamlDrawer(r) });
-          if (showDelete) items.push({ type: 'divider' });
-        }
+        items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => openNadYamlDrawer(r) });
+        if (showDelete) items.push({ type: 'divider' });
         if (showDelete) {
           items.push({
             key: 'delete',
@@ -1004,7 +999,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         return <ResourceActionsDropdown items={items} buttonProps={{ disabled: !hasNadsWrite }} />;
       },
     },
-  ], [hasNadsWrite, isTenant, isStandardView, subnetByNameLc, ovnSubnetsLoading, handleDelete, openNadYamlDrawer, isPublicNamespace]);
+  ], [hasNadsWrite, isTenant, subnetByNameLc, ovnSubnetsLoading, handleDelete, openNadYamlDrawer, isPublicNamespace]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nads_table');

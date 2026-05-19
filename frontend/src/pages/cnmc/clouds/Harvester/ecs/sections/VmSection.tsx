@@ -14,7 +14,7 @@
  *   ④ [核心逻辑] 3 SafeRead — 列渲染与状态徽章的统一读字段入口；避免在列定义里写深链。
  *   ⑤ [逻辑处理] 4 过滤 — filtered、租户/组织级联、命名空间与租户视图规则。
  *   ⑥ [事件处理] 5 / 6 — 行内操作（详情/VNC/重要实例/删除等）与批量停、重启、回收站。
- *   ⑦ [配置] 7 表格列 — allColumns、运维扩展列（hasCloudmapOpsViewWrite）、useTableColumnSettings 持久化 key。
+ *   ⑦ [配置] 7 表格列 — allColumns、非租户扩展列（项目/租户/组织）、useTableColumnSettings 持久化 key。
  *   ⑧ [UI渲染] 8 — 工具栏、Table、VmDetailDrawer 与各弹窗 JSX。
  *
  * 抽离组件：`VmDetailDrawer` 负责详情 Tab、终端、电源工具条及「⋯ → 查看YAML」（内部懒加载嵌套运维抽屉）；
@@ -115,7 +115,6 @@ import {
   CLOUD_VM_CREATE_WIZARD_WRITE,
   CLOUD_VM_QUICK_CREATE_WRITE,
 } from "../../../../../../constants/cloudPermissions";
-import { useCloudmapOpsViewWrite } from "../../hooks/useCloudmapOpsViewWrite";
 import SimpleVmCreateModal from "../modals/SimpleVmCreateModal";
 import VmAliasEditModal from "../modals/VmAliasEditModal";
 import { isTowerPaasInventoryExcludedVm } from "../../shared/harvesterTowerPaas";
@@ -268,9 +267,6 @@ const VmSection: React.FC<Props> = ({
       quickCreate: hasPermissionForAction(perms, CLOUD_VM_QUICK_CREATE_WRITE),
     };
   }, [user?.permissions]);
-  /** 资源池运维视图：命名空间/租户/组织列、YAML、运维筛选等（clouds.cloudmap.ops-view:write） */
-  const hasCloudmapOpsViewWrite = useCloudmapOpsViewWrite();
-
   const handleQuickCreateClick = useCallback(() => {
     if (onCreateVmOverride) {
       onCreateVmOverride();
@@ -1340,7 +1336,7 @@ const VmSection: React.FC<Props> = ({
           );
         },
       },
-      ...(hasCloudmapOpsViewWrite
+      ...(!isTenant
         ? [
             {
               title: "项目",
@@ -1780,7 +1776,6 @@ const VmSection: React.FC<Props> = ({
       isTenant,
       handleToggleImportant,
       message,
-      hasCloudmapOpsViewWrite,
       user?.permissions,
       handleOpenAliasModal,
     ],
@@ -1834,7 +1829,7 @@ const VmSection: React.FC<Props> = ({
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
-          {!isTenant && hasCloudmapOpsViewWrite && (
+          {!isTenant && (
             <Cascader
               key="tenant-org-filter"
               className="toolbar-filter-sm"
@@ -1846,7 +1841,7 @@ const VmSection: React.FC<Props> = ({
               allowClear
             />
           )}
-          {!isTenant && hasCloudmapOpsViewWrite && (
+          {!isTenant && (
             <Select
               key="ns-filter"
               className="toolbar-filter-sm"

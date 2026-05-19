@@ -24,7 +24,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import type { ColumnsType } from 'antd/es/table';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * SafeMig: 统一处理迁移对象的字段读取，兼容多种数据结构
@@ -83,10 +82,10 @@ interface Props {
   cloudId: string;
   onRefresh?: (force?: boolean) => void;
   vms?: any[];
+  isTenant?: boolean;
 }
 
-const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
+const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant = false }) => {
   // 加载状态与数据源
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
@@ -347,7 +346,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms }) => {
       key: 'targetNode',
       render: (_: any, r: any) => SafeMig.targetNode(r)
     },
-    ...(hasOpsView ? [{
+    ...(!isTenant ? [{
       title: '命名空间',
       key: 'namespace',
       render: (_: any, r: any) => SafeMig.namespace(r)
@@ -384,7 +383,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms }) => {
         return <Space size="small">{actions}</Space>;
       }
     }
-  ], [user, hasOpsView]);
+  ], [user]);
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_migrations_table');
 
@@ -401,7 +400,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms }) => {
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
-          {hasOpsView && (
+          {!isTenant && (
             <Select
               allowClear
               showSearch

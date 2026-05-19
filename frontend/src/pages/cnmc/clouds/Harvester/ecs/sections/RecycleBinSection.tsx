@@ -79,7 +79,6 @@ import RecycleBinTaskConfigModal from '../../ecs/modals/RecycleBinTaskConfigModa
 import RecycleBinRecordsSection from './RecycleBinRecordsSection';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { formatStorageSize, parseStorageSize } from '../lib/storageSize';
 
 /**
@@ -115,7 +114,6 @@ const RecycleBinSection: React.FC<Props> = ({
   images = [],
   isTenant = false,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
   // ==========================================
@@ -719,7 +717,7 @@ const RecycleBinSection: React.FC<Props> = ({
         return <Badge status={status as any} text={cnVmStatus(s)} />;
       },
     },
-    ...(hasOpsView ? [
+    ...(!isTenant ? [
       {
         title: '项目',
         key: 'namespace',
@@ -886,7 +884,7 @@ const RecycleBinSection: React.FC<Props> = ({
             label: '恢复',
             onClick: () => handleRestore(r),
           },
-          ...(!isTenant && hasOpsView ? [
+          ...(!isTenant ? [
             { type: 'divider' },
             {
               key: 'opsinfo',
@@ -913,7 +911,7 @@ const RecycleBinSection: React.FC<Props> = ({
     },
     ];
     return cols;
-  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasRecycleBinWrite, isTenant, hasOpsView]);
+  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasRecycleBinWrite, isTenant]);
 
   /**
    * 使用 useTableColumnSettings hook 管理列显示/隐藏
@@ -960,7 +958,7 @@ const RecycleBinSection: React.FC<Props> = ({
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
-          {!isTenant && hasOpsView && namespaceOptions.length > 0 && (
+          {!isTenant && namespaceOptions.length > 0 && (
             <Select
               allowClear
               showSearch

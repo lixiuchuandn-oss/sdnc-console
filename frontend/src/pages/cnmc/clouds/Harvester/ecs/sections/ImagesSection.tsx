@@ -15,8 +15,7 @@
  *    - 特别处理下载进度展示 (Progress)，实时反馈导入状态。
  * 2. [创建流程]:
  *    - 具体表单与 Tab 由 `ImageCreateModal` 承担。
- *    - 无 clouds.cloudmap.ops-view:write：弹窗仅「浏览器上传」。
- *    - 具备该权限：弹窗含浏览器上传、URL 导入、Windows 桌面工具下载。
+ *    - 租户：弹窗仅「浏览器上传」；管理员：含 URL 导入、Windows 桌面工具下载等完整能力。
  * 3. [详情抽屉]:
  *    - 点击行支持打开 `HarvesterResourceDrawer`，展示镜像的 YAML 和 Events。
  *    - 在打开抽屉前，自动补全 `kind: VirtualMachineImage` 以适配通用抽屉逻辑。
@@ -53,7 +52,6 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import ImageLabelEditModal from '../modals/ImageLabelEditModal';
 import ImageCreateModal from '../modals/ImageCreateModal';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { resolveImageListStateKey } from '../lib/vmImageStatus';
 
 /**
@@ -103,7 +101,6 @@ const ImagesSection: React.FC<Props> = ({
   isTenant = false,
   bordered = true,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasImagesWrite = useMemo(
@@ -399,7 +396,7 @@ const ImagesSection: React.FC<Props> = ({
   const filtered = useMemo(() => {
     const base = Array.isArray(localImages) ? localImages : [];
     // 如果没有过滤条件，直接返回所有镜像
-    const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || (hasOpsView ? scopeFilter : '');
+    const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || (!isTenant ? scopeFilter : '');
     let list: any[];
     if (!hasFilters && !isTenant) {
       list = base;
@@ -417,8 +414,8 @@ const ImagesSection: React.FC<Props> = ({
         }
 
         // Scope Filter - 只有用户主动选择时才过滤
-        if (hasOpsView && scopeFilter === 'public' && !isImagePublicByScenario(r)) return false;
-        if (hasOpsView && scopeFilter === 'private') {
+        if (!isTenant && scopeFilter === 'public' && !isImagePublicByScenario(r)) return false;
+        if (!isTenant && scopeFilter === 'private') {
           // Private: 非公共且非系统
           if (isImagePublicByScenario(r) || isSystemNamespace(ns)) return false;
         }
@@ -462,7 +459,7 @@ const ImagesSection: React.FC<Props> = ({
     }
     // 默认按创建时间降序（最新在前）；清除列排序时仍保持该顺序
     return [...list].sort((a, b) => getImageCreatedMs(b) - getImageCreatedMs(a));
-  }, [localImages, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, hasOpsView, expandOsKeywords, getImageCreatedMs]);
+  }, [localImages, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, expandOsKeywords, getImageCreatedMs]);
 
   /** 与 resolveImageListStateKey 返回值一致（去掉易与 ready 混淆的 imported/pending） */
   const statusOptions = ['ready', 'failed', 'uploading', 'importing', 'exporting', 'downloading', 'cancelled', 'unknown'];
@@ -558,7 +555,7 @@ const ImagesSection: React.FC<Props> = ({
         );
     } },
     { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
-    ...(hasOpsView
+    ...(!isTenant
       ? [
           { title: '命名空间', key: 'namespace', render: (_: any, r: any) => getNs(r) },
           { title: '作用域', key: 'scope', render: (_: any, r: any) => (isImagePublicByScenario(r) ? '公共镜像' : '私有镜像') },
@@ -593,7 +590,7 @@ const ImagesSection: React.FC<Props> = ({
         return bytes != null ? gbText(bytes) : '-';
       },
     },
-    ...(hasOpsView
+    ...(!isTenant
       ? [
           {
             title: '存储类',
@@ -647,7 +644,7 @@ const ImagesSection: React.FC<Props> = ({
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
           items={[
-            ...(!isTenant && hasOpsView ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
+            ...(!isTenant ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
             { key: 'editLabels', label: '编辑标签', disabled: !hasImagesWrite, onClick: () => { setLabelEditRecord(r); setLabelEditModalOpen(true); } },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: '确认删除镜像？', content: `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`, onOk: handleDelete }) },
@@ -655,7 +652,7 @@ const ImagesSection: React.FC<Props> = ({
         />
       );
     } },
-  ], [cloudId, onRefresh, vms, isTenant, hasImagesWrite, hasOpsView, ensureImagesWrite, statusBadge, getImageCreatedMs]);
+  ], [cloudId, onRefresh, vms, isTenant, hasImagesWrite, ensureImagesWrite, statusBadge, getImageCreatedMs]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
@@ -711,7 +708,7 @@ const ImagesSection: React.FC<Props> = ({
       toolbarLeft={(
         <>
           <Input allowClear placeholder="名称/命名空间" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
-          {hasOpsView && (
+          {!isTenant && (
             <Select
               allowClear
               placeholder="作用域"
@@ -834,7 +831,7 @@ const ImagesSection: React.FC<Props> = ({
         open={creating}
         onClose={() => setCreating(false)}
         cloudId={cloudId}
-        variant={hasOpsView ? 'full' : 'standard'}
+        variant='full'
         ensureWrite={ensureImagesWrite}
         onUrlImportSuccess={() => onRefresh?.(true, true)}
         onBrowserUploadSuccess={() => onRefresh?.(true, true)}

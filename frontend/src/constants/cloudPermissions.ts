@@ -15,9 +15,6 @@ export const CLOUD_VM_CREATE_WIZARD_WRITE = 'clouds.vm-create-wizard:write';
 /** 云主机列表「快速创建」入口；与创建向导一致，仅门控 UI，具体操作由后端/API 校验 */
 export const CLOUD_VM_QUICK_CREATE_WRITE = 'clouds.vm-quick-create:write';
 
-/** Cloudmap：运维视图列/入口（YAML、命名空间筛选等）；已无 UI 开关，仅 RBAC */
-export const CLOUD_CLOUDMAP_OPS_VIEW_WRITE = 'clouds.cloudmap.ops-view:write';
-
 /**
  * 子网分域门控（前端先行）：
  * - 若后端已下发细粒度权限，优先命中下面三个原子；

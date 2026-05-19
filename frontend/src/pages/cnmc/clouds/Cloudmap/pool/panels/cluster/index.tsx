@@ -238,6 +238,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               loading={resourceLoading.nodes || nodesLoading}
               onRefresh={refreshNodes}
               cloudId={cloudId}
+              isTenant={isTenant}
             />
             <DebugJSON data={rawNodes} show={showLog} />
           </>
@@ -330,6 +331,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             onRefresh={() => loadTabResource('gpu', true)}
             raw={rawGpu}
             showLog={showLog}
+            isTenant={isTenant}
           />
         );
       case 'cluster_usb':
@@ -342,6 +344,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             raw={rawUsbDevices}
             showLog={showLog}
             bordered={false}
+            isTenant={isTenant}
           />
         );
       case 'clusterNetworks':
@@ -418,6 +421,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               raw={rawPciDevices}
               showLog={showLog}
               bordered={false}
+              isTenant={isTenant}
             />
             <DebugJSON data={rawPciDevices} show={showLog} />
           </>
@@ -434,6 +438,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               showLog={showLog}
               bordered={false}
               variant="sriov_vf"
+              isTenant={isTenant}
             />
             <DebugJSON data={rawPciDevices} show={showLog} />
           </>
