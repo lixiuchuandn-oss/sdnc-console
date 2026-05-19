@@ -970,7 +970,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       render: (_: any, r: any) => {
         const t = String(r._creationTimestamp || '').trim();
         if (!t) return '-';
-        return t.replace('T', ' ').replace(/(\.\d{3})?Z$/, '') || t;
+        return new Date(t).toLocaleString();
       },
     },
     {
