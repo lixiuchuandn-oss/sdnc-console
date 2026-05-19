@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Input, Modal, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { ReloadOutlined, SearchOutlined, UsbTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -231,11 +231,22 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const enabled = r?.enabled ?? r?.raw?.status?.enabled ?? r?.rawData?.status?.enabled;
+          // 判断设备是否被虚拟机使用
+          const isUsedByVm = r?.claimed && r?.vmInfo;
+          const vmName = isUsedByVm ? (r.vmInfo.vmDisplayName || r.vmInfo.vmName) : '';
+          
           const items = [
-            ...(enabled === true ? [{ key: 'unclaim', label: '设为非直通', onClick: () => handleSetPassthrough([r], false) }] : []),
+            ...(enabled === true ? [{ 
+              key: 'unclaim', 
+              label: '设为非直通', 
+              onClick: () => handleSetPassthrough([r], false),
+              disabled: isUsedByVm,
+              tooltip: isUsedByVm ? `设备已被虚拟机（${vmName}）使用，不能设置为非直通` : undefined,
+            }] : []),
             ...(enabled === false ? [{ key: 'claim', label: '设为直通', onClick: () => handleSetPassthrough([r], true) }] : []),
             ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
           ];
+          
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
         },
       },
