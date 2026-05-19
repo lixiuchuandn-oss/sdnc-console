@@ -64,18 +64,21 @@ import {
 } from '../../../services/api';
 import { getToken } from '../../../utils/tokenStorage';
 import './CloudConsole.css';
-import CloudConsoleMainPanel, { type CloudConsoleLeftNavScope } from './CloudConsoleMainPanel';
-import CloudConsoleContainerPanel from './CloudConsoleContainerPanel';
+import CloudConsoleMainPanel, { type CloudConsoleLeftNavScope } from './sections/CloudConsoleMainPanel';
+import CloudConsoleContainerPanel from './sections/CloudConsoleContainerPanel';
 import CloudConsoleDatabasePanel, {
   type CloudConsoleDatabaseCategory,
   type CloudConsoleDatabaseResource,
-} from './CloudConsoleDatabasePanel';
+} from './sections/CloudConsoleDatabasePanel';
 import { useLicense } from '../../../contexts/LicenseContext';
-import { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
+import { shouldMergePublicScenarioForTenantConsole } from './lib/tenantConsolePaths';
 import { useTenantConsoleHeaderSlot } from '../../../contexts/TenantConsoleHeaderSlotContext';
 import { useTenantConsoleSider } from '../../../layouts/tenant';
-import { hasPermissionForAction } from '../../../utils/accessMapping';
-import { canViewAnyContainerSubPageFromPerms } from '../../../utils/permissionUtils';
+import { useTenantConsolePermissions } from './hooks/useTenantConsolePermissions';
+import {
+  TENANT_CONSOLE_RESOURCES_NEEDING_ECS,
+  type TenantConsoleLeftNavKey,
+} from './lib/tenantConsolePageAccess';
 
 const { Content } = Layout;
 
@@ -122,6 +125,15 @@ const CloudConsolePage: React.FC = () => {
   const { hasFeature } = useLicense();
   const ovnVpcEnabled = hasFeature('network.ovn.vpc');
 
+  const {
+    canAccessLeftNav,
+    canAccessMainResource,
+    canAccessContainerResource,
+    firstAccessibleLeftNav,
+    pickFirstMainResourceForScope,
+    pickFirstContainerResource,
+  } = useTenantConsolePermissions();
+
   /** 租户控制台：为 GET 附加 mergePublicScenarioNamespaces；非租户不传（后端保持兼容） */
   const isTenantConsole = useMemo(
     () =>
@@ -136,18 +148,6 @@ const CloudConsolePage: React.FC = () => {
   const mergeTenantPublicScope = useCallback(
     (merge: boolean): boolean | undefined => (isTenantConsole ? merge : undefined),
     [isTenantConsole],
-  );
-
-  const permissions = user?.permissions ?? [];
-  const hasEcsWrite = useMemo(
-    () =>
-      hasPermissionForAction(permissions, 'clouds.ecs:write') ||
-      hasPermissionForAction(permissions, 'clouds:write'),
-    [permissions],
-  );
-  const canViewContainersNav = useMemo(
-    () => canViewAnyContainerSubPageFromPerms(permissions),
-    [permissions],
   );
 
   // ==================== State Definitions (状态定义) ====================
@@ -245,37 +245,95 @@ const CloudConsolePage: React.FC = () => {
       { key: 'vpc', icon: <ApartmentOutlined />, label: 'VPC网络' },
       { key: 'rds', icon: <DatabaseOutlined />, label: '云数据库' },
     ];
-    if (!canViewContainersNav) {
-      return (all || []).filter((it) => it && 'key' in it && it.key !== 'container');
-    }
-    return all;
-  }, [canViewContainersNav]);
+    return (all || []).filter(
+      (it) => it && 'key' in it && canAccessLeftNav(it.key as TenantConsoleLeftNavKey),
+    );
+  }, [canAccessLeftNav]);
 
-  const handleLeftNavClick = useCallback<NonNullable<MenuProps['onClick']>>((e) => {
-    const key = e.key as ConsoleLeftNavKey;
-    setConsoleLeftNavKey(key);
-    if (key === 'host') {
+  const applyMainResourceKey = useCallback(
+    (resourceKey: string) => {
+      if (resourceKey === 'flat-subnet') {
+        setHarvesterCategory('flatnet');
+        setHarvesterResource('flat-subnet');
+        return;
+      }
+      if (['vpc-subnet', 'eip', 'snat', 'dnat'].includes(resourceKey)) {
+        setHarvesterCategory(
+          resourceKey === 'vpc-subnet' ? 'vpc-net' : 'vpc-nat',
+        );
+        setHarvesterResource(resourceKey);
+        return;
+      }
+      if (['volume', 'volume-snapshot'].includes(resourceKey)) {
+        setHarvesterCategory('storage');
+        setHarvesterResource(resourceKey);
+        return;
+      }
+      if (['snapshot', 'backup', 'schedule'].includes(resourceKey)) {
+        setHarvesterCategory('backup');
+        setHarvesterResource(resourceKey);
+        return;
+      }
       setHarvesterCategory('compute');
-      setHarvesterResource('vm');
-    } else if (key === 'container') {
-      setContainerCategory('ctr-run');
-      setContainerResource('ctr-workloads');
-    } else if (key === 'flat') {
-      setHarvesterCategory('flatnet');
-      setHarvesterResource('flat-subnet');
-    } else if (key === 'vpc') {
-      setHarvesterCategory('vpc-net');
-      setHarvesterResource('vpc-subnet');
-    }
-  }, []);
+      setHarvesterResource(resourceKey);
+    },
+    [setHarvesterCategory, setHarvesterResource],
+  );
 
+  const handleLeftNavClick = useCallback<NonNullable<MenuProps['onClick']>>(
+    (e) => {
+      const key = e.key as ConsoleLeftNavKey;
+      setConsoleLeftNavKey(key);
+      if (key === 'host') {
+        const res = pickFirstMainResourceForScope('host') ?? 'vm';
+        applyMainResourceKey(res);
+      } else if (key === 'container') {
+        const res = pickFirstContainerResource() ?? 'ctr-workloads';
+        setContainerCategory('ctr-run');
+        setContainerResource(res);
+      } else if (key === 'flat') {
+        const res = pickFirstMainResourceForScope('flat') ?? 'flat-subnet';
+        applyMainResourceKey(res);
+      } else if (key === 'vpc') {
+        const res = pickFirstMainResourceForScope('vpc') ?? 'vpc-subnet';
+        applyMainResourceKey(res);
+      }
+    },
+    [
+      pickFirstMainResourceForScope,
+      pickFirstContainerResource,
+      applyMainResourceKey,
+      setContainerCategory,
+      setContainerResource,
+    ],
+  );
+
+  /** 无当前侧栏权限时落到首个可访问产品域（与池内 pathSync fallback 一致） */
   useEffect(() => {
-    if (consoleLeftNavKey === 'container' && !canViewContainersNav) {
-      setConsoleLeftNavKey('host');
-      setHarvesterCategory('compute');
-      setHarvesterResource('vm');
+    if (canAccessLeftNav(consoleLeftNavKey)) return;
+    const fallback = firstAccessibleLeftNav;
+    if (!fallback) return;
+    setConsoleLeftNavKey(fallback);
+    if (fallback === 'host') {
+      applyMainResourceKey(pickFirstMainResourceForScope('host') ?? 'vm');
+    } else if (fallback === 'container') {
+      setContainerCategory('ctr-run');
+      setContainerResource(pickFirstContainerResource() ?? 'ctr-workloads');
+    } else if (fallback === 'flat') {
+      applyMainResourceKey(pickFirstMainResourceForScope('flat') ?? 'flat-subnet');
+    } else if (fallback === 'vpc') {
+      applyMainResourceKey(pickFirstMainResourceForScope('vpc') ?? 'vpc-subnet');
     }
-  }, [consoleLeftNavKey, canViewContainersNav]);
+  }, [
+    consoleLeftNavKey,
+    canAccessLeftNav,
+    firstAccessibleLeftNav,
+    pickFirstMainResourceForScope,
+    pickFirstContainerResource,
+    applyMainResourceKey,
+    setContainerCategory,
+    setContainerResource,
+  ]);
 
   /** 当前选中资源池是否为 Cloudmap（列表已过滤为仅 Cloudmap，此处用于行为分支） */
   const isCloudmap = useMemo(() => {
@@ -1194,13 +1252,19 @@ const CloudConsolePage: React.FC = () => {
       setNsValue(undefined);
       setNodeValue(undefined);
 
-      if (ovnVpcEnabled) {
+      const needsVpcInventory =
+        ovnVpcEnabled &&
+        (canAccessLeftNav('vpc') ||
+          canAccessLeftNav('rds') ||
+          canAccessMainResource('vm') ||
+          canAccessMainResource('flat-subnet'));
+      if (needsVpcInventory) {
         loadVpcsAndSubnets(currentCloudId);
       }
     }
     // 仅随 currentCloudId / OVN 开关变化；勿把 clouds 放入依赖，否则 setClouds 后反复清空列表导致「一直刷新」
     // eslint-disable-next-line react-hooks/exhaustive-deps
-   }, [currentCloudId, ovnVpcEnabled]);
+   }, [currentCloudId, ovnVpcEnabled, canAccessLeftNav, canAccessMainResource]);
 
   /** 拉取 Harvester 集群能力（与资源池详情页一致），供云主机 Tab 快速创建等使用 */
   useEffect(() => {
@@ -1251,6 +1315,8 @@ const CloudConsolePage: React.FC = () => {
   useEffect(() => {
     if (!currentCloudId || !isCloudmap) return;
     if (consoleLeftNavKey === 'container' || consoleLeftNavKey === 'rds') return;
+    if (!canAccessMainResource(harvesterResource)) return;
+    if (!TENANT_CONSOLE_RESOURCES_NEEDING_ECS.has(harvesterResource)) return;
     const ticket = `${currentCloudId}|${consoleLeftNavKey}|${harvesterResource}`;
     if (ecs.length > 0) {
       ecsBootstrapTicketRef.current = ticket;
@@ -1268,6 +1334,7 @@ const CloudConsolePage: React.FC = () => {
     harvesterResource,
     ecs.length,
     loading,
+    canAccessMainResource,
   ]);
 
   // Cloudmap 资源按需加载：监听 harvesterResource 与 currentCloudId（容器视图走独立 effect）
@@ -1279,54 +1346,69 @@ const CloudConsolePage: React.FC = () => {
 
     switch (harvesterResource) {
       case 'vm':
-        // VM 和 Namespace 已在上方处理
-        // [修复] VM 列表依赖 PVC 数据 (用于显示扩容状态、CloudMap 启动检查等)，必须加载
+        if (!canAccessMainResource('vm')) break;
         if (pvcs.length === 0) loadPvcs(currentCloudId);
-        // [修复] VM 列表依赖镜像数据 (用于显示镜像名称)，必须加载
         if (images.length === 0) loadImages(currentCloudId);
         break;
       case 'image':
+        if (!canAccessMainResource('image')) break;
         if (images.length === 0) loadImages(currentCloudId, true);
         break;
       case 'ssh':
+        if (!canAccessMainResource('ssh')) break;
         loadSshKeys(currentCloudId);
         break;
       case 'cloudinit':
+        if (!canAccessMainResource('cloudinit')) break;
         loadCloudInits(currentCloudId);
         break;
       case 'gpu':
+        if (!canAccessMainResource('gpu')) break;
         loadGpus(currentCloudId);
         break;
       case 'volume':
-        // 仅首次进入云盘视图时自动加载，避免覆盖“创建后强制刷新”的最新结果
+        if (!canAccessMainResource('volume')) break;
         if (pvcs.length === 0) loadPvcs(currentCloudId);
         if (storageClasses.length === 0) loadStorageClasses(currentCloudId, true, true);
         break;
       case 'volume-snapshot':
+        if (!canAccessMainResource('volume-snapshot')) break;
         loadSnapshots(currentCloudId, true);
         break;
       case 'snapshot':
+        if (!canAccessMainResource('snapshot')) break;
+        loadBackups(currentCloudId, true);
+        break;
       case 'backup':
+        if (!canAccessMainResource('backup')) break;
         loadBackups(currentCloudId, true);
         break;
       case 'schedule':
+        if (!canAccessMainResource('schedule')) break;
         loadSchedules(currentCloudId);
         break;
       case 'vpc-subnet':
-        // VPC 数据通常已加载，但可强制刷新
+        if (!canAccessMainResource('vpc-subnet')) break;
         loadVpcsAndSubnets(currentCloudId);
         break;
       case 'eip':
+        if (!canAccessMainResource('eip')) break;
         loadEips(currentCloudId);
         break;
       case 'snat':
+        if (!canAccessMainResource('snat')) break;
         loadSnatRules(currentCloudId);
         break;
       case 'dnat':
+        if (!canAccessMainResource('dnat')) break;
         loadDnatRules(currentCloudId);
         break;
       case 'template':
+        if (!canAccessMainResource('template')) break;
         loadTemplates(currentCloudId);
+        break;
+      case 'recycle-bin':
+        if (!canAccessMainResource('recycle-bin')) break;
         break;
     }
     // 勿加入 loading / images.length / ecs.length：否则与其它 load* 交织会放大请求；VM 列表由上方独立 effect 处理
@@ -1339,11 +1421,13 @@ const CloudConsolePage: React.FC = () => {
     namespaces.length,
     pvcs.length,
     storageClasses.length,
+    canAccessMainResource,
   ]);
 
   /** 容器服务：按子页拉取 K8s 资源 */
   useEffect(() => {
     if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'container') return;
+    if (!canAccessContainerResource(containerResource)) return;
     void loadNamespaces(currentCloudId);
     const cid = currentCloudId;
     switch (containerResource) {
@@ -1381,11 +1465,17 @@ const CloudConsolePage: React.FC = () => {
         break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 按导航 key 触发；loadCtr* 为稳定拉数封装
-  }, [currentCloudId, isCloudmap, consoleLeftNavKey, containerResource]);
+  }, [
+    currentCloudId,
+    isCloudmap,
+    consoleLeftNavKey,
+    containerResource,
+    canAccessContainerResource,
+  ]);
 
   /** 云数据库侧栏：实例列表（单独 effect，避免 loading / 其它列表长度导致重复 GET；空列表同主面板防死循环） */
   useEffect(() => {
-    if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds') return;
+    if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds' || !canAccessLeftNav('rds')) return;
     const ticket = `${currentCloudId}|rds`;
     if (ecs.length > 0) {
       ecsRdsBootstrapTicketRef.current = ticket;
@@ -1400,7 +1490,7 @@ const CloudConsolePage: React.FC = () => {
 
   /** 云数据库侧栏：镜像、存储类、子网、命名空间 */
   useEffect(() => {
-    if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds') return;
+    if (!currentCloudId || !isCloudmap || consoleLeftNavKey !== 'rds' || !canAccessLeftNav('rds')) return;
     if (namespaces.length === 0) loadNamespaces(currentCloudId);
     if (images.length === 0) loadImages(currentCloudId, false, true);
     if (storageClasses.length === 0) loadStorageClasses(currentCloudId, true, true);
@@ -1577,9 +1667,19 @@ const CloudConsolePage: React.FC = () => {
             </div>
           )}
 
-          {isCloudmap && currentCloudId ? (
+          {isCloudmap && currentCloudId && firstAccessibleLeftNav === null ? (
+            <div className="cloud-console-content-placeholder" style={{ textAlign: 'center' }}>
+              <Alert
+                message="暂无可用控制台功能"
+                description="当前账号未授予任何云控制台页面读权限，请联系管理员在「系统设置 → 角色」中配置。"
+                type="info"
+                showIcon
+                style={{ maxWidth: 600, margin: '0 auto' }}
+              />
+            </div>
+          ) : isCloudmap && currentCloudId ? (
             <>
-              {consoleLeftNavKey === 'container' && currentCloudId && (
+              {consoleLeftNavKey === 'container' && currentCloudId && canAccessLeftNav('container') && (
                 <CloudConsoleContainerPanel
                   cloudId={currentCloudId}
                   activeCategory={containerCategory}
@@ -1625,7 +1725,7 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshNetpol={(force) => loadCtrNetpol(currentCloudId, force ?? true)}
                 />
               )}
-              {consoleLeftNavKey === 'rds' && currentCloudId && (
+              {consoleLeftNavKey === 'rds' && currentCloudId && canAccessLeftNav('rds') && (
                 <CloudConsoleDatabasePanel
                   cloudId={currentCloudId}
                   vms={ecs}
@@ -1651,10 +1751,11 @@ const CloudConsolePage: React.FC = () => {
                   harvesterClusterCapabilities={harvesterCapabilities}
                 />
               )}
-              {(consoleLeftNavKey === 'host' ||
-                consoleLeftNavKey === 'flat' ||
-                consoleLeftNavKey === 'vpc') && (
+              {((consoleLeftNavKey === 'host' && canAccessLeftNav('host')) ||
+                (consoleLeftNavKey === 'flat' && canAccessLeftNav('flat')) ||
+                (consoleLeftNavKey === 'vpc' && canAccessLeftNav('vpc'))) && (
                 <CloudConsoleMainPanel
+                  canAccessMainResource={canAccessMainResource}
                   leftNavScope={mainPanelLeftNavScope}
                   cloudId={currentCloudId}
                   harvesterCapabilities={harvesterCapabilities}

@@ -10,17 +10,19 @@
  * 说明：服务拓扑、Service 与多资源联动视图放在资源池详情页更合适；控制台以列表与常用操作为主。
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { checkPoolPageReadPerm } from '../../clouds/Cloudmap/pool/lib/poolPageReadAccess';
 import {
-  canWriteContainerTab,
+  CLOUD_CONTAINER_TAB_WRITE,
   CLOUD_CONSOLE_CONTAINER_RESOURCE_TO_TAB,
-} from '../../../utils/permissionUtils';
-import { ContainerOperationsGate } from '../clouds/Harvester/containers/ContainerOperationsContext';
-import { pickFirstNamespaceRecordByScenario } from '../../../utils/harvesterUtils';
+  type ContainerTabPermissionKey,
+} from '../../../../utils/permissionUtils';
+import { canAccessTenantConsoleContainerResource } from '../lib/tenantConsolePageAccess';
+import { ContainerOperationsGate } from '../../clouds/Harvester/containers/ContainerOperationsContext';
+import { pickFirstNamespaceRecordByScenario } from '../../../../utils/harvesterUtils';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
-import { useAuth } from '../../../contexts/AuthContext';
-import ServicesSection from '../clouds/Harvester/containers/sections/ServicesSection';
+import { useAuth } from '../../../../contexts/AuthContext';
+import ServicesSection from '../../clouds/Harvester/containers/sections/ServicesSection';
 import {
   WorkloadsSection,
   PodsSection,
@@ -31,7 +33,7 @@ import {
   PDBSection,
   NetworkPoliciesSection,
   IngressesSection,
-} from '../clouds/Harvester/containers';
+} from '../../clouds/Harvester/containers';
 
 type NavResource = { key: string; label: string };
 
@@ -176,13 +178,30 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   onRefreshNetpol,
 }) => {
   const { user } = useAuth();
-  const permissions = user?.permissions ?? [];
-  const checkPerm = useCallback((a: string) => hasPermissionForAction(permissions, a), [permissions]);
+  const permissions = useMemo(() => {
+    const p = user?.permissions;
+    return Array.isArray(p) ? p : [];
+  }, [user?.permissions]);
+  const canAccessContainerResource = useCallback(
+    (resourceKey: string) => canAccessTenantConsoleContainerResource(permissions, resourceKey),
+    [permissions],
+  );
   const operationsReadOnly = useMemo(() => {
-    const tabKey = CLOUD_CONSOLE_CONTAINER_RESOURCE_TO_TAB[activeResource];
-    if (!tabKey) return !checkPerm('clouds.containers:write');
-    return !canWriteContainerTab(checkPerm, tabKey);
-  }, [activeResource, checkPerm]);
+    const tabKey = CLOUD_CONSOLE_CONTAINER_RESOURCE_TO_TAB[activeResource] as
+      | ContainerTabPermissionKey
+      | undefined;
+    if (!tabKey) return true;
+    const writeAct = CLOUD_CONTAINER_TAB_WRITE[tabKey];
+    const readAct = writeAct.replace(':write', ':read');
+    return !(checkPoolPageReadPerm(permissions, readAct) || permissions.includes(writeAct));
+  }, [activeResource, permissions]);
+
+  const containerTabConfig = useMemo((): NavCategory[] => {
+    return CONTAINER_TAB_CONFIG.map((cat) => ({
+      ...cat,
+      resources: cat.resources.filter((r) => canAccessContainerResource(r.key)),
+    })).filter((cat) => cat.resources.length > 0);
+  }, [canAccessContainerResource]);
   const isTenantUser = useMemo(
     () => user?.role === 'tenant' || !!user?.tenantId,
     [user],
@@ -197,20 +216,34 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
   }, [namespaceRecords, isTenantUser, nsValue]);
 
   useEffect(() => {
-    const keys = CONTAINER_TAB_CONFIG.map((c) => c.key);
+    const keys = containerTabConfig.map((c) => c.key);
+    if (keys.length === 0) return;
     if (!keys.includes(activeCategory)) {
-      const first = CONTAINER_TAB_CONFIG[0];
+      const first = containerTabConfig[0];
       setActiveCategory(first.key);
       setActiveResource(first.resources[0]?.key ?? '');
     }
-  }, [activeCategory, setActiveCategory, setActiveResource]);
+  }, [activeCategory, containerTabConfig, setActiveCategory, setActiveResource]);
 
-  const getDefaultResource = useCallback((catKey: string) => {
-    const cat = CONTAINER_TAB_CONFIG.find((c) => c.key === catKey);
-    return cat?.resources[0]?.key ?? '';
-  }, []);
+  useEffect(() => {
+    const cat = containerTabConfig.find((c) => c.key === activeCategory);
+    if (!cat?.resources.some((r) => r.key === activeResource)) {
+      setActiveResource((cat?.resources[0]?.key ?? '') as string);
+    }
+  }, [activeCategory, activeResource, containerTabConfig, setActiveResource]);
+
+  const getDefaultResource = useCallback(
+    (catKey: string) => {
+      const cat = containerTabConfig.find((c) => c.key === catKey);
+      return cat?.resources[0]?.key ?? '';
+    },
+    [containerTabConfig],
+  );
 
   const renderContent = useCallback(() => {
+    if (!canAccessContainerResource(activeResource)) {
+      return <Empty description="无权限访问该页面" />;
+    }
     const wlLoading =
       !!resourceLoading.deployments ||
       !!resourceLoading.statefulsets ||
@@ -422,10 +455,11 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     onRefreshNetpol,
     isTenantUser,
     createDefaultNamespace,
+    canAccessContainerResource,
   ]);
 
   const tabItems = useMemo(() => {
-    return CONTAINER_TAB_CONFIG.map((cat) => {
+    return containerTabConfig.map((cat) => {
       const isActive = cat.key === activeCategory;
       const currentResKey = isActive ? activeResource : cat.resources[0].key;
       const currentResLabel =
@@ -472,7 +506,16 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     setActiveCategory,
     setActiveResource,
     renderContent,
+    containerTabConfig,
   ]);
+
+  if (containerTabConfig.length === 0) {
+    return (
+      <div className="cloud-console-panel-root">
+        <Empty description="当前账号无容器服务页面读权限" />
+      </div>
+    );
+  }
 
   return (
     <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>

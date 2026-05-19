@@ -205,7 +205,7 @@ frontend/src/pages/
 │   ├── clouds/
 │   │   ├── Harvester/     # 云详情：域 + sections/modals/shared（细则见 Harvester 修改纪要）
 │   │   ├── Aliyun/、Hw/、Cloudmap/ 等（与仓库目录名一致；CSM 详情在 sdncc/traffic/CsmPools/：CloudDetailCsm、sections/、modals/）
-│   ├── console/           # WebSSH、控制台等
+│   ├── console/           # 租户 Cloudmap 控制台（`/console`）：`CloudConsole.tsx` + `hooks/`、`lib/`、`sections/`
 │
 ├── tenants/                 # ========== TENANTS ========== 租户管理（与 CNMC 平级；`sections/`、`hooks/`、`modals/`、`lib/`）
 │

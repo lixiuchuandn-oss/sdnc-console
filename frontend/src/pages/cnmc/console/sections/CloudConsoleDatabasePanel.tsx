@@ -4,7 +4,9 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
-import { PaasSection } from '../clouds/Harvester/cloud-database';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { canAccessTenantConsoleDatabaseNav } from '../lib/tenantConsolePageAccess';
+import { PaasSection } from '../../clouds/Harvester/cloud-database';
 
 type NavResource = { key: string; label: string; paasType: string };
 
@@ -97,6 +99,16 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   namespaceRecords = [],
   harvesterClusterCapabilities,
 }) => {
+  const { user } = useAuth();
+  const permissions = useMemo(() => {
+    const p = user?.permissions;
+    return Array.isArray(p) ? p : [];
+  }, [user?.permissions]);
+  const canAccessDatabase = useMemo(
+    () => canAccessTenantConsoleDatabaseNav(permissions),
+    [permissions],
+  );
+
   const getDefaultResource = useCallback((catKey: CloudConsoleDatabaseCategory) => {
     const cat = DB_TAB_CONFIG.find((c) => c.key === catKey);
     return (cat?.resources[0]?.key ?? 'mysql') as CloudConsoleDatabaseResource;
@@ -120,6 +132,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
   const currentMeta = resourceMeta(activeCategory, activeResource);
 
   const renderContent = useCallback(() => {
+    if (!canAccessDatabase) return <Empty description="无权限访问云数据库" />;
     if (!currentMeta) return <Empty description="未知产品" />;
     return (
       <PaasSection
@@ -161,6 +174,7 @@ const CloudConsoleDatabasePanel: React.FC<Props> = ({
     namespacesOptions,
     namespaceRecords,
     harvesterClusterCapabilities,
+    canAccessDatabase,
   ]);
 
   const tabItems = useMemo(() => {

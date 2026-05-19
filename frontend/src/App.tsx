@@ -14,7 +14,7 @@ import Login from './pages/auth/Login';
 import AdminLogin from './pages/auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
 import TenantConsoleLayout from './layouts/TenantConsoleLayout';
-import { TENANT_CLOUD_CONSOLE_PATH } from './pages/cnmc/console/tenantConsolePaths';
+import { TENANT_CLOUD_CONSOLE_PATH } from './pages/cnmc/console';
 
 const OverviewDashboard = lazy(() => import('./pages/cnmc/dashboard/OverviewDashboard'));
 const Users = lazy(() => import('./pages/tenants/sections/TenantUsersWorkspace'));
@@ -59,7 +59,7 @@ const CsmPoolsPage = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolsP
 const CsmPoolDetailPage = lazy(() =>
   import('./pages/sdncc/traffic/CsmPools/CloudDetailCsm').then((m) => ({ default: m.CsmPoolDetailPage })),
 );
-const CloudConsolePage = lazy(() => import('./pages/cnmc/console/CloudConsole'));
+const CloudConsolePage = lazy(() => import('./pages/cnmc/console'));
 const HarvesterVNCPage = lazy(() => import('./pages/cnmc/clouds/Harvester/HarvesterVNC'));
 const OrgManagePage = lazy(() => import('./pages/tenants/sections/OrgManageWorkspace'));
 const VmCreateWizardModal = lazy(() => import('./pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizardModal'));

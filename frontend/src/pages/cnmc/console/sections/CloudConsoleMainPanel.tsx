@@ -6,25 +6,25 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
-import { useAuth } from '../../../contexts/AuthContext';
-import { useLicense } from '../../../contexts/LicenseContext';
-import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import VmSection from '../clouds/Harvester/ecs/sections/VmSection';
-import RecycleBinSection from '../clouds/Harvester/ecs/sections/RecycleBinSection';
-import TemplatesSection from '../clouds/Harvester/ecs/sections/TemplatesSection';
-import SshKeysSection from '../clouds/Harvester/ecs/sections/SshKeysSection';
-import VolumesSection from '../clouds/Harvester/ebs/sections/VolumesSection';
-import ImagesSection from '../clouds/Harvester/ecs/sections/ImagesSection';
-import BackupsSection from '../clouds/Harvester/cbr/sections/BackupsSection';
-import ScheduleVmBackupsSection from '../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
-import SnapshotsSection from '../clouds/Harvester/ebs/sections/SnapshotsSection';
-import CloudInitsSection from '../clouds/Harvester/ecs/sections/CloudInitsSection';
-import GpuSection from '../clouds/Harvester/cluster/sections/GpusSection';
-import EipSection from '../clouds/Harvester/kube-ovn/sections/EipSection';
-import SnatSection from '../clouds/Harvester/kube-ovn/sections/SnatSection';
-import DnatSection from '../clouds/Harvester/kube-ovn/sections/DnatSection';
-import VpcsSection from '../clouds/Harvester/kube-ovn/sections/VpcsSection';
-import UnderlaySubnetsSection from '../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { useLicense } from '../../../../contexts/LicenseContext';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import VmSection from '../../clouds/Harvester/ecs/sections/VmSection';
+import RecycleBinSection from '../../clouds/Harvester/ecs/sections/RecycleBinSection';
+import TemplatesSection from '../../clouds/Harvester/ecs/sections/TemplatesSection';
+import SshKeysSection from '../../clouds/Harvester/ecs/sections/SshKeysSection';
+import VolumesSection from '../../clouds/Harvester/ebs/sections/VolumesSection';
+import ImagesSection from '../../clouds/Harvester/ecs/sections/ImagesSection';
+import BackupsSection from '../../clouds/Harvester/cbr/sections/BackupsSection';
+import ScheduleVmBackupsSection from '../../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
+import SnapshotsSection from '../../clouds/Harvester/ebs/sections/SnapshotsSection';
+import CloudInitsSection from '../../clouds/Harvester/ecs/sections/CloudInitsSection';
+import GpuSection from '../../clouds/Harvester/cluster/sections/GpusSection';
+import EipSection from '../../clouds/Harvester/kube-ovn/sections/EipSection';
+import SnatSection from '../../clouds/Harvester/kube-ovn/sections/SnatSection';
+import DnatSection from '../../clouds/Harvester/kube-ovn/sections/DnatSection';
+import VpcsSection from '../../clouds/Harvester/kube-ovn/sections/VpcsSection';
+import UnderlaySubnetsSection from '../../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 
 type NavResource = { key: string; label: string };
 
@@ -43,6 +43,8 @@ export type CloudConsoleLeftNavScope = 'host' | 'flat' | 'vpc' | 'all';
 interface Props {
   /** 与控制台左侧「产品」导航联动，过滤顶部 Tabs */
   leftNavScope?: CloudConsoleLeftNavScope;
+  /** 主面板资源读权限（与 cloudmapPoolNavRows.poolPageAction 对齐） */
+  canAccessMainResource?: (resourceKey: string) => boolean;
   cloudId: string;
   /** GET /resources/harvester/capabilities 的 data；与资源池详情页一致，供快速创建 VM（machine.type 等） */
   harvesterCapabilities?: any | null;
@@ -108,6 +110,7 @@ interface Props {
 
 const CloudConsoleMainPanel: React.FC<Props> = ({
   leftNavScope = 'all',
+  canAccessMainResource,
   cloudId,
   harvesterCapabilities = null,
   vms,
@@ -242,21 +245,36 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     return base;
   }, [ovnVpcEnabled]);
 
-  const tabConfig = useMemo((): NavCategory[] => {
-    if (leftNavScope === 'all') return fullTabConfig;
-    if (leftNavScope === 'host') {
-      return fullTabConfig.filter((c) => ['compute', 'storage', 'backup'].includes(c.key));
-    }
-    if (leftNavScope === 'flat') {
-      return fullTabConfig.filter((c) => c.key === 'flatnet');
-    }
-    if (leftNavScope === 'vpc') {
-      return fullTabConfig.filter((c) => c.key === 'vpc-net' || c.key === 'vpc-nat');
-    }
-    return fullTabConfig;
-  }, [fullTabConfig, leftNavScope]);
+  const filterResourcesByPerm = useCallback(
+    (resources: NavResource[]) => {
+      if (!canAccessMainResource) return resources;
+      return resources.filter((r) => canAccessMainResource(r.key));
+    },
+    [canAccessMainResource],
+  );
 
-  /** 左侧切换或过滤变化时，保证当前类目仍存在于 tabConfig */
+  const tabConfig = useMemo((): NavCategory[] => {
+    let scoped: NavCategory[];
+    if (leftNavScope === 'all') scoped = fullTabConfig;
+    else if (leftNavScope === 'host') {
+      scoped = fullTabConfig.filter((c) => ['compute', 'storage', 'backup'].includes(c.key));
+    } else if (leftNavScope === 'flat') {
+      scoped = fullTabConfig.filter((c) => c.key === 'flatnet');
+    } else if (leftNavScope === 'vpc') {
+      scoped = fullTabConfig.filter((c) => c.key === 'vpc-net' || c.key === 'vpc-nat');
+    } else scoped = fullTabConfig;
+
+    if (!canAccessMainResource) return scoped;
+
+    return scoped
+      .map((cat) => ({
+        ...cat,
+        resources: filterResourcesByPerm(cat.resources),
+      }))
+      .filter((cat) => cat.resources.length > 0);
+  }, [fullTabConfig, leftNavScope, canAccessMainResource, filterResourcesByPerm]);
+
+  /** 左侧切换或过滤变化时，保证当前类目/资源仍存在于 tabConfig */
   useEffect(() => {
     if (tabConfig.length === 0) return;
     const keys = tabConfig.map((c) => c.key);
@@ -264,15 +282,22 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
       const first = tabConfig[0];
       setActiveCategory(first.key);
       setActiveResource(first.resources[0]?.key ?? '');
+      return;
     }
-  }, [tabConfig, activeCategory, setActiveCategory, setActiveResource]);
+    const cat = tabConfig.find((c) => c.key === activeCategory);
+    if (cat && !cat.resources.some((r) => r.key === activeResource)) {
+      setActiveResource(cat.resources[0]?.key ?? '');
+    }
+  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource]);
 
   useEffect(() => {
     if (!ovnVpcEnabled && (activeCategory === 'vpc-net' || activeCategory === 'vpc-nat' || activeCategory === 'vpc')) {
-      setActiveCategory('compute');
-      setActiveResource('vm');
+      if (tabConfig.length > 0) {
+        setActiveCategory(tabConfig[0].key);
+        setActiveResource(tabConfig[0].resources[0]?.key ?? '');
+      }
     }
-  }, [activeCategory, ovnVpcEnabled, setActiveCategory, setActiveResource]);
+  }, [activeCategory, ovnVpcEnabled, tabConfig, setActiveCategory, setActiveResource]);
 
   /** 旧版单一 VPC 类目迁移为 VPC网络 / VPC NAT */
   useEffect(() => {
@@ -308,6 +333,9 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   );
 
   const renderContent = useCallback(() => {
+    if (canAccessMainResource && !canAccessMainResource(activeResource)) {
+      return <Empty description="无权限访问该页面" />;
+    }
     if (!ovnVpcEnabled && ['vpc-subnet', 'eip', 'snat', 'dnat'].includes(activeResource)) {
       return <Empty description="未授权" />;
     }
@@ -599,6 +627,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     onRefreshDnatRules,
     bordered,
     showYaml,
+    canAccessMainResource,
   ]);
 
   const tabItems = useMemo(() => {
@@ -644,7 +673,13 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   if (tabConfig.length === 0) {
     return (
       <div className="cloud-console-panel-root">
-        <Empty description="当前未开通 VPC 网络能力，请在许可证中启用 network.ovn.vpc" />
+        <Empty
+          description={
+            leftNavScope === 'vpc' && !ovnVpcEnabled
+              ? '当前未开通 VPC 网络能力，请在许可证中启用 network.ovn.vpc'
+              : '当前账号无本区域页面读权限'
+          }
+        />
       </div>
     );
   }
@@ -663,7 +698,5 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     </div>
   );
 };
-
-export { shouldMergePublicScenarioForTenantConsole } from './tenantConsolePaths';
 
 export default CloudConsoleMainPanel;

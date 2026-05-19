@@ -24,6 +24,36 @@ export function getPoolPageReadAction(pathSuffix: string): string | undefined {
   return PAGE_READ_BY_SUFFIX.get(pathSuffix);
 }
 
+/**
+ * 池内主页面读权限（严格）：仅匹配 `poolPageAction` 对应原子、write→read、子网汇总/拆分；
+ * **不**使用 `clouds.console:*` / `clouds:read` 兜底。租户 `/console` 与配置抽屉语义对齐。
+ */
+export function checkPoolPageReadPerm(permissions: string[], requiredRead: string): boolean {
+  const perms = permissions ?? [];
+  if (!requiredRead.endsWith(':read')) {
+    return perms.includes('*') || perms.includes(requiredRead);
+  }
+  if (perms.includes('*')) return true;
+  if (perms.includes(requiredRead)) return true;
+
+  const base = requiredRead.slice(0, -':read'.length);
+  if (perms.includes(`${base}:write`) || perms.includes(`${base}:*`)) return true;
+
+  if (base === 'clouds.subnets') {
+    const scoped = [
+      'clouds.subnets.vpc:read',
+      'clouds.subnets.flat:read',
+      'clouds.subnets.public:read',
+    ] as const;
+    if (scoped.some((s) => checkPoolPageReadPerm(perms, s))) return true;
+  }
+  if (base.startsWith('clouds.subnets.') && base !== 'clouds.subnets') {
+    if (perms.includes('clouds.subnets:read') || perms.includes('clouds.subnets:write')) return true;
+  }
+
+  return false;
+}
+
 export function canAccessPoolPage(
   checkPerm: (action: string) => boolean,
   pathSuffix: string,
