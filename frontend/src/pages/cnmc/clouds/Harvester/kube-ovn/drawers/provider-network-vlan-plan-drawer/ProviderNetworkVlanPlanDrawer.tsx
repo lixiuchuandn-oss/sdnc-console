@@ -100,7 +100,7 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
 }) => {
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
-  const isTenantUser = user?.role === 'tenant' || !!user?.tenantId;
+  const isTenantUser = user?.role === 'tenant';
   const canWriteFlatSubnet = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
     const hasWrite =

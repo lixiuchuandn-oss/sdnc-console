@@ -99,7 +99,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
   displayMode: displayModeProp,
 }) => {
   const { user } = useAuth();
-  const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
+  const isTenantUser = useMemo(() => user?.role === 'tenant', [user?.role]);
   const resolvedDisplayMode = displayModeProp ?? (isTenantUser ? 'standard' : 'ops');
   const effectiveShowYaml = showYaml !== false;
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);

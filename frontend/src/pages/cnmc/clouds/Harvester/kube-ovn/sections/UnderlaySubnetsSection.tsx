@@ -112,7 +112,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
+  const isTenantUser = useMemo(() => user?.role === 'tenant', [user?.role]);
   const resolvedDisplayMode = displayModeProp ?? (isTenantUser ? 'standard' : 'ops');
   const effectiveShowYaml = showYaml !== false;
   const isFlatMode = mode === 'flat';

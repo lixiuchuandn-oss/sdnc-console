@@ -504,7 +504,7 @@ const FlatNetworkRoute: React.FC = () => {
 
 const KubeOvnRoute: React.FC = () => {
   const p = useCloudmapPoolDetail();
-  if (!p.ovnVpcEnabled || !p.canViewKubeOvnGroup) {
+  if (!p.canViewKubeOvnGroup) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
@@ -512,6 +512,7 @@ const KubeOvnRoute: React.FC = () => {
       cloudId={p.cloudId}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
+      ovnVpcEnabled={p.ovnVpcEnabled}
       canReadVpcSubnets={p.canReadVpcSubnets}
       innerActiveKey={p.poolInnerActive('kube_ovn')}
       loadResource={p.loadResource}

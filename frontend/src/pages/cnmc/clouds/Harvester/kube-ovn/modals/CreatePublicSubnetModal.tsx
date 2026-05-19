@@ -67,7 +67,7 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
   const [submitting, setSubmitting] = React.useState(false);
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
+  const isTenantUser = useMemo(() => user?.role === 'tenant', [user?.role]);
   const canSubmit = useMemo(() => {
     const hasWrite =
       hasPermissionForAction(perms, CLOUD_SUBNETS_PUBLIC_WRITE) ||

@@ -117,7 +117,6 @@ export function buildInnerMenuByTab(): Partial<
 
 export function filterVisibleCloudmapPoolSpecs(opts?: CloudmapPoolSidebarBuildOpts): RouteSpec[] {
   return getCloudmapPoolRouteSpecs().filter((spec) => {
-    if (opts?.ovnVpcEnabled === false && spec.path.includes('/kube_ovn/')) return false;
     if (spec.requiredFeature && opts?.hasFeature && !opts.hasFeature(spec.requiredFeature)) {
       return false;
     }

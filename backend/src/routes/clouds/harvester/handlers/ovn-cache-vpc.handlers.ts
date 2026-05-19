@@ -19,7 +19,8 @@
  *     `clouds.subnets:write`、`clouds:write`（与公共子网联动改 `enableExternal` / `nextHopIP` 对齐）。
  *
  * 【许可证 network.ovn.vpc】
- *   - 列表 / 创建 / 删除 / 更新「业务 VPC」：一律校验 `network.ovn.vpc` 未启用则 403。
+ *   - 列表 / 创建 / 删除 / 更新「业务 VPC」（ovnNetworkScope=vpc）：须已开通该功能，否则 403。
+ *   - ovnNetworkScope=underlay / 未开通时的 all（仅 underlay 项）：不占用该授权（与扁平/公共子网一致）。
  *   - 仅 PUT 更新内置 VPC：`ovn-internal`、`ovn-cluster`、`ovn-provider` **不**要求该许可证（与公共/扁平 underlay 联动一致）。
  * 子网清单接口（`ovn-cache-subnets.handlers.ts`）不在此做许可证校验。
  *
@@ -51,7 +52,7 @@ import {
 
 /**
  * GET /:id/resources/vpcs — 获取 VPC 列表（Inventory）。
- * 需 `network.ovn.vpc` + `clouds.vpcs:read`（RBAC 由路由中间件保证）。
+ * RBAC：`clouds.vpcs:read`（路由中间件）；License：仅 `ovnNetworkScope=vpc` 须 `network.ovn.vpc`。
  */
 export async function harvesterVpcListHandler(req: Request, res: Response) {
   try {
@@ -64,7 +65,10 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
       return res.status(parsedScope.status).json({ message: parsedScope.message });
     }
 
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
+    const scopeQ = parsedScope.scope;
+    const vpcLicenseEnabled = licenseService.hasFeature('network.ovn.vpc');
+    // 仅「业务 VPC」列表（ovnNetworkScope=vpc）占用 network.ovn.vpc 授权；underlay / 扁平·公共子网联动不占用
+    if (scopeQ === 'vpc' && !vpcLicenseEnabled) {
       return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
     }
 
@@ -158,13 +162,15 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
       }
     }
 
-    const scopeQ = parsedScope.scope;
     if (scopeQ === 'vpc') {
       list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'vpc');
     } else if (scopeQ === 'underlay') {
       list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'underlay');
+    } else if (scopeQ === 'all' && !vpcLicenseEnabled) {
+      // 未开通虚拟专有云时，all 仅返回 underlay 域（内置 VPC），不含业务 VPC
+      list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'underlay');
     }
-    // scopeQ === 'all'：不分域
+    // scopeQ === 'all' 且已开通授权：不分域
 
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {

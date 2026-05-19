@@ -34,7 +34,7 @@ interface KubeOvnVpcsSectionProps {
   subnets?: any[];
   namespaces?: any[];
   loading: boolean;
-  /** 第三项 opts.vpcsAll 为 true 时请求 GET /vpcs?all=true（运维模式开关） */
+  /** 第三项 opts.vpcsAll 为 true 时请求 GET /vpcs?all=true（含内置/无注解 VPC） */
   onRefresh?: (
     force?: boolean,
     silent?: boolean,
@@ -127,7 +127,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   showYaml = true,
 }) => {
   const effectiveShowYaml = showYaml !== false;
-  /** 具备运维视图权限时：是否请求 all=true（含内置/无注解 VPC） */
+  /** 是否请求 all=true（含内置/无注解 VPC）；与 network.ovn.vpc 授权无关 */
   const [vpcsQueryAll, setVpcsQueryAll] = useState(false);
 
   useEffect(() => {
