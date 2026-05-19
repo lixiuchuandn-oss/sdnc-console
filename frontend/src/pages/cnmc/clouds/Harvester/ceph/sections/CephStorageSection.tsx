@@ -21,7 +21,11 @@ import type { EChartsOption, LineSeriesOption } from 'echarts';
 import ReactECharts from 'echarts-for-react';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { fetchCephRookBundle } from '../../../../../../services/cephApi';
-import { fetchCephDashboardSummary, fetchNodeResources } from '../../../../../../services/monitoringApi';
+import {
+  fetchCephDashboardPools,
+  fetchCephDashboardSummary,
+  fetchNodeResources,
+} from '../../../../../../services/monitoringApi';
 import { buildCephLandingModel, formatBps, formatIops } from '../lib/cephDashboardLanding';
 import {
   buildRookCephOverviewLandingInputs,
@@ -29,9 +33,11 @@ import {
   mergeCephDashboardMinimalIntoRookMinimal,
   cephBlockPoolRowToTableRow,
   cephBlockPoolToRow,
+  enrichRookPoolRowWithDashboardStats,
   fmtBytesFromUnknown,
   formatCephPoolCardSummaryLineZh,
   normalizeCephBundle,
+  normalizeDashboardPoolListPayload,
   type CephPoolTableRow,
 } from '../lib/cephStorage';
 
@@ -666,10 +672,11 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId, onInit
       setCephDashHttpErr(null);
       setHealthMinimalErr(null);
       try {
-        const [res, nodeRes, dashRes] = await Promise.all([
+        const [res, nodeRes, dashRes, dashPoolsRes] = await Promise.all([
           fetchCephRookBundle(cloudId, { force: !!force }),
           fetchNodeResources(cloudId),
           fetchCephDashboardSummary(cloudId, { force: !!force, path: 'api/health/minimal' }),
+          fetchCephDashboardPools(cloudId, { force: !!force }),
         ]);
         if (!res.ok || res.data == null) {
           setCephDash(null);
@@ -700,9 +707,21 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId, onInit
           data: summary,
           _tower: { source: 'rook-bundle', unreachable: unreachable || undefined },
         });
+        const dashByName = new Map<string, unknown>();
+        if (dashPoolsRes.ok && dashPoolsRes.data != null) {
+          for (const dp of normalizeDashboardPoolListPayload(dashPoolsRes.data)) {
+            if (!dp || typeof dp !== 'object') continue;
+            const o = dp as Record<string, unknown>;
+            const nm =
+              o.pool_name != null ? String(o.pool_name) : o.name != null ? String(o.name) : '';
+            if (nm) dashByName.set(nm, dp);
+          }
+        }
         const pools = bundle.blockPools.map((p, i) => {
           const row = cephBlockPoolToRow(p, i);
-          return cephBlockPoolRowToTableRow(row, p);
+          const base = cephBlockPoolRowToTableRow(row, p);
+          const dash = dashByName.get(row.name);
+          return enrichRookPoolRowWithDashboardStats(base, dash);
         });
         setDashboardPools(pools);
         setDashboardPoolsRaw(bundle.blockPools);
