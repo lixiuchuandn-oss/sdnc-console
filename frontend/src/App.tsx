@@ -23,6 +23,7 @@ const CloudmapPoolShell = lazy(() => import('./pages/cnmc/clouds/Cloudmap/Cloudm
 const HuaweiPoolShell = lazy(() => import('./pages/cnmc/clouds/Hw/HuaweiPoolShell'));
 const AliyunPoolShell = lazy(() => import('./pages/cnmc/clouds/Aliyun/AliyunPoolShell'));
 const RancherPoolVendorShell = lazy(() => import('./pages/cnmc/clouds/rancher/RancherPoolVendorShell'));
+const XinferencePoolVendorShell = lazy(() => import('./pages/cnmc/clouds/Xinference/XinferencePoolVendorShell'));
 const CsmPoolRouteShell = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolRouteShell'));
 const RancherClusterWorkspace = lazy(() => import('./pages/cnmc/clouds/rancher/RancherClusterWorkspace'));
 const Tenants = lazy(() => import('./pages/tenants/sections/TenantsWorkspace'));
@@ -108,6 +109,7 @@ const AppRoutes: React.FC = () => {
           <Route path="clouds/vendor/huawei/:id" element={<HuaweiPoolShell />} />
           <Route path="clouds/vendor/aliyun/:id" element={<AliyunPoolShell />} />
           <Route path="clouds/vendor/rancher/:id" element={<RancherPoolVendorShell />} />
+          <Route path="clouds/vendor/xinference/:id" element={<XinferencePoolVendorShell />} />
           <Route path="clouds/vendor/csm/:id" element={<CsmPoolRouteShell />} />
           <Route path="clouds/:poolId/clusters/:clusterId" element={<RancherClusterWorkspace />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />

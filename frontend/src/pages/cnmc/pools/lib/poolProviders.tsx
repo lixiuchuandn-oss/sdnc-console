@@ -41,7 +41,8 @@ import {
   SafetyCertificateOutlined,
   DeploymentUnitOutlined,
   CloudUploadOutlined,
-  ContainerOutlined
+  ContainerOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -53,6 +54,12 @@ import {
 export function isCsmCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
   const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();
   return pv === 'cloudmap.csm';
+}
+
+/** Xinference 边缘推理资源池（type=edge + config.provider=xinference） */
+export function isXinferencePoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();
+  return pv === 'xinference';
 }
 
 /** Rancher 容器云资源池（新接入为 type=container_cloud + config.provider=rancher；历史 type=rancher；若列表无 config 则仅能用 type=container_cloud 粗判） */
@@ -439,6 +446,32 @@ export const cloudProviders: CloudProvider[] = [
       { key: 'apiToken', label: 'Cloudmap API 令牌', type: 'password', required: true, placeholder: '请输入 Cloudmap API 令牌' }
     ]
   },
+  {
+    id: 'xinference',
+    name: 'Xinference',
+    category: 'edge',
+    logo: <RobotOutlined />,
+    description: 'Xinference 大模型推理服务平台',
+    fields: [
+      { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
+      {
+        key: 'endpoint',
+        label: '服务地址',
+        type: 'input',
+        required: true,
+        placeholder: 'http://192.168.1.10:9997',
+        help: 'Xinference Supervisor 地址，默认端口 9997',
+      },
+      {
+        key: 'apiToken',
+        label: 'API 令牌',
+        type: 'password',
+        required: false,
+        placeholder: '集群启用认证时必填',
+        help: '对应 Xinference Bearer Token（sk- 开头 API Key 或登录令牌）',
+      },
+    ]
+  },
   // ==============================================================================
   // 3b. 容器云（类型 container_cloud；子厂商由 id 区分，如 rancher）
   // ==============================================================================
@@ -670,6 +703,8 @@ export const getCredentialLabels = (provider?: string) => {
       return { akLabel: '访问密钥', skLabel: 'Cloudmap API 令牌', akPlaceholder: '不需要访问密钥', skPlaceholder: '请输入 Cloudmap API 令牌' };
     case 'rancher':
       return { akLabel: '访问密钥（可选）', skLabel: 'Rancher API 令牌', akPlaceholder: '通常留空', skPlaceholder: '请输入 Rancher API 令牌' };
+    case 'xinference':
+      return { akLabel: '访问密钥（可选）', skLabel: 'API 令牌', akPlaceholder: '通常留空', skPlaceholder: '集群启用认证时填写' };
     default:
       return { akLabel: '访问密钥 (Access Key)', skLabel: '私有密钥 (Secret Key)', akPlaceholder: '请输入访问密钥', skPlaceholder: '请输入私有密钥' };
   }

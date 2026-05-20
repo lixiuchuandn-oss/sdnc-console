@@ -228,12 +228,12 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
             ? `https://ecs.${values.region}.myhuaweicloud.com`
             : selectedProvider?.id === 'rancher'
               ? String(values.rancherUrl || values.endpoint || '').trim()
-            : (selectedProvider?.id === 'cloudmap.edge' || selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.csm')
+            : (selectedProvider?.id === 'cloudmap.edge' || selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.csm' || selectedProvider?.id === 'xinference')
               ? (values.endpoint || '')
               : (values.endpoint || values.authUrl || values.vcenterHost || '');
       
       // [配置合并]
-      const cfgBase: any = { provider: selectedProvider?.id, ...values };
+      const cfgBase: any = { ...values, provider: selectedProvider?.id };
       
       // [特殊处理] Cloudmap 版本兼容
       if (selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.edge') {
@@ -340,7 +340,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
         finalEndpoint = `https://ecs.${finalRegion}.myhuaweicloud.com`;
       } else if (selectedProvider.id === 'rancher') {
         finalEndpoint = (values.rancherUrl && String(values.rancherUrl).trim()) || '';
-      } else if (selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') {
+      } else if (selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge' || selectedProvider.id === 'xinference') {
         finalEndpoint = (values.endpoint && String(values.endpoint).trim()) || '';
       } else {
         finalEndpoint = (values.endpoint || values.authUrl || values.vcenterHost || '').toString().trim();

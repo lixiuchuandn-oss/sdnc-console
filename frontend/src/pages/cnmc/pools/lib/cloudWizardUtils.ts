@@ -11,6 +11,7 @@ const OPEN_PROVIDER_IDS = [
   'cloudmap.edge',
   'cloudmap.csm',
   'rancher',
+  'xinference',
 ] as const;
 
 export function isCloudWizardOpenProvider(id: string): boolean {

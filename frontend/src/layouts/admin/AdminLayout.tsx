@@ -68,6 +68,12 @@ import {
   csmPoolSidebarSelectedKey,
 } from './csm/csmPoolSidebar';
 import {
+  parseXinferencePoolDetailId,
+  buildXinferencePoolSidebarCenter,
+  XINFERENCE_POOL_SIDEBAR_CENTER_KEY,
+  xinferencePoolSidebarSelectedKey,
+} from './xinference/xinferencePoolSidebar';
+import {
   parseRancherClusterWorkspacePath,
   buildRancherClusterSidebarCenter,
   RANCHER_CLUSTER_SIDEBAR_CENTER_KEY,
@@ -766,6 +772,18 @@ const AdminLayout: React.FC = () => {
     [summaryClouds, csmPoolId],
   );
 
+  const xinferencePoolId = useMemo(
+    () => parseXinferencePoolDetailId(location.pathname),
+    [location.pathname],
+  );
+  const xinferencePoolCloud = useMemo(
+    () =>
+      xinferencePoolId
+        ? summaryClouds.find((c) => String(c.id) === String(xinferencePoolId))
+        : undefined,
+    [summaryClouds, xinferencePoolId],
+  );
+
   const poolCloudId = useMemo(
     () => parseCloudPoolDetailId(location.pathname),
     [location.pathname],
@@ -785,6 +803,15 @@ const AdminLayout: React.FC = () => {
     if (!cnmcPools.some((c) => String(c.id) === String(poolCloudId))) return;
     setHeaderSelectedPoolId((prev) => (String(prev) === String(poolCloudId) ? prev : poolCloudId));
   }, [poolCloudId, summaryClouds]);
+
+  useEffect(() => {
+    if (!xinferencePoolId) return;
+    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
+    if (!cnmcPools.some((c) => String(c.id) === String(xinferencePoolId))) return;
+    setHeaderSelectedPoolId((prev) =>
+      String(prev) === String(xinferencePoolId) ? prev : xinferencePoolId,
+    );
+  }, [xinferencePoolId, summaryClouds]);
 
   const rancherClusterCtx = useMemo(
     () => parseRancherClusterWorkspacePath(location.pathname),
@@ -870,9 +897,17 @@ const AdminLayout: React.FC = () => {
     return buildCsmPoolSidebarCenter(csmPoolCloud, csmPoolId);
   }, [csmPoolId, csmPoolCloud, summaryClouds.length]);
 
-  /** CSM 安全资源池详情、Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
+  const xinferencePoolSidebarCenter = useMemo(() => {
+    if (!xinferencePoolId || !xinferencePoolCloud) return null;
+    return buildXinferencePoolSidebarCenter(xinferencePoolCloud, xinferencePoolId);
+  }, [xinferencePoolId, xinferencePoolCloud]);
+
+  /** CSM / Xinference / Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
   const contextualPoolSidebar =
-    rancherClusterSidebarCenter || csmPoolSidebarCenter || poolSidebarCenter;
+    rancherClusterSidebarCenter ||
+    csmPoolSidebarCenter ||
+    xinferencePoolSidebarCenter ||
+    poolSidebarCenter;
   const sidebarCentersForMenu = useMemo(
     () => (contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters),
     [contextualPoolSidebar, visibleCenters],
@@ -906,6 +941,13 @@ const AdminLayout: React.FC = () => {
     if (csmPoolSidebarCenter && csmPoolId) {
       return csmPoolSidebarSelectedKey(csmPoolId, location.pathname, location.search);
     }
+    if (xinferencePoolSidebarCenter && xinferencePoolId) {
+      return xinferencePoolSidebarSelectedKey(
+        xinferencePoolId,
+        location.pathname,
+        location.search,
+      );
+    }
     if (!poolSidebarCenter || !poolCloudId) return undefined;
     return cloudmapPoolSidebarSelectedKey(location.pathname, poolSidebarCenter.items);
   }, [
@@ -913,6 +955,8 @@ const AdminLayout: React.FC = () => {
     rancherClusterCtx,
     csmPoolSidebarCenter,
     csmPoolId,
+    xinferencePoolSidebarCenter,
+    xinferencePoolId,
     poolSidebarCenter,
     poolCloudId,
     location.pathname,
@@ -924,7 +968,7 @@ const AdminLayout: React.FC = () => {
   useEffect(() => {
     setOpenKeys([]);
     lastSidebarAutoExpandSigRef.current = '';
-  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId]);
+  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId, xinferencePoolId]);
 
   useEffect(() => {
     if (!user || summaryLoading) return;
@@ -1141,12 +1185,16 @@ const AdminLayout: React.FC = () => {
       setActiveSidebarKey(CSM_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
+    if (xinferencePoolSidebarCenter) {
+      setActiveSidebarKey(XINFERENCE_POOL_SIDEBAR_CENTER_KEY);
+      return;
+    }
     if (poolSidebarCenter) {
       setActiveSidebarKey(CLOUD_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
     setActiveSidebarKey(sidebarForPath(location.pathname + location.search));
-  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter, csmPoolSidebarCenter]);
+  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter, csmPoolSidebarCenter, xinferencePoolSidebarCenter]);
 
   useEffect(() => {
     if (collapsed) {

@@ -18,6 +18,9 @@ import { createApiPermissionMiddleware } from '../permissions';
 import { logger } from '../utils/logger';
 import { attachDatacenterTopologyRoutes } from './clouds/datacenterTopology.routes';
 import { attachRancherClusterResourceRoutes } from './clouds/rancherClusterResources.routes';
+import { attachXinferenceClusterRoutes } from './clouds/xinferenceCluster.routes';
+import { attachXinferenceModelsRoutes } from './clouds/xinferenceModels.routes';
+import { testXinferenceConnection } from '../services/clouds/xinference/xinferenceClient';
 
 const cloudRouteLog = logger.child('Cloud');
 const cloudDebugLog = logger.child('Cloud-Debug');
@@ -233,6 +236,14 @@ const testCloudConnectionUnified = async (args: {
     });
     return { ok: !!t.ok, message: t.message || '' };
   }
+  if (provider === 'xinference') {
+    const t = await testXinferenceConnection({
+      endpoint: args.endpoint || '',
+      secretKey: args.secretKey || args.config?.apiToken || args.config?.token || '',
+      config: args.config,
+    });
+    return { ok: !!t.ok, message: t.message || '' };
+  }
   return { ok: false, message: '暂不支持该云接入' };
 };
 
@@ -279,6 +290,7 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
     'cloudmap.edge',
     'cloudmap.csm',
     'rancher',
+    'xinference',
   ];
   if (!allowed.includes(pvRaw)) {
     return res.status(400).json({ message: `不支持的 provider：${pvRaw}` });
@@ -403,6 +415,8 @@ registerCsmRoutes(router, checkAdminPermission);
 registerHarvesterRoutes(router, checkAdminPermission);
 registerHarvesterServiceRoutesProvider(router, checkAdminPermission);
 attachRancherClusterResourceRoutes(router, checkAdminPermission);
+attachXinferenceClusterRoutes(router, checkAdminPermission);
+attachXinferenceModelsRoutes(router, checkAdminPermission);
 
 // 标准化获取实例列表：
 // - 对不同 provider 的接口调用结果进行统一转换，输出统一结构的实例信息

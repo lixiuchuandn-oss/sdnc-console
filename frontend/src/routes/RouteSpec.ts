@@ -231,6 +231,21 @@ export const routeSpecs: RouteSpec[] = [
     },
   },
   {
+    id: 'pool-vendor-xinference',
+    path: '/admin/clouds/vendor/xinference/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '资源池管理',
+    hidden: true,
+    title: 'Xinference 资源池详情',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+  },
+  {
     id: 'pool-vendor-csm',
     path: '/admin/clouds/vendor/csm/:cloudId',
     element: 'Clouds',
