@@ -195,17 +195,23 @@ const PaasSection: React.FC<Props> = ({
   }, [paasVmInstances]);
 
   const filteredInstances = useMemo(() => {
-    return paasVmInstances.filter((r) => {
-      const name = SafeRead.name(r).toLowerCase();
-      const status = SafeRead.status(r).toLowerCase();
-      const node = SafeRead.node(r).toLowerCase();
+    return paasVmInstances
+      .filter((r) => {
+        const name = SafeRead.name(r).toLowerCase();
+        const status = SafeRead.status(r).toLowerCase();
+        const node = SafeRead.node(r).toLowerCase();
 
-      if (keyword && !name.includes(keyword.toLowerCase())) return false;
-      if (statusFilter && status !== statusFilter.toLowerCase()) return false;
-      if (nodeFilter && node !== nodeFilter.toLowerCase()) return false;
+        if (keyword && !name.includes(keyword.toLowerCase())) return false;
+        if (statusFilter && status !== statusFilter.toLowerCase()) return false;
+        if (nodeFilter && node !== nodeFilter.toLowerCase()) return false;
 
-      return true;
-    });
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = SafeRead.creationTimestamp(a);
+        const timeB = SafeRead.creationTimestamp(b);
+        return new Date(timeB).getTime() - new Date(timeA).getTime();
+      });
   }, [paasVmInstances, keyword, statusFilter, nodeFilter]);
 
   const vmDetailRecord = useMemo(() => {
