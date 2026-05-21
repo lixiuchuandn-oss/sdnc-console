@@ -14,6 +14,7 @@ import RdsInstanceLabelEditModal from '../modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal from '../modals/RdsDatabaseConsoleModal';
 import { isTowerPaasDatabaseVm } from '../../shared/harvesterTowerPaas';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
+import { cnVmStatus } from '../../../../../../utils/harvesterUtils';
 
 type Props = {
   vms: any[];
@@ -279,7 +280,7 @@ const PaasSection: React.FC<Props> = ({
           else if (k === 'stopping' || k === 'terminating') statusColor = 'warning';
           else if (k === 'error' || k === 'errorunschedulable') statusColor = 'error';
 
-          return <Badge status={statusColor as any} text={s} />;
+          return <Badge status={statusColor as any} text={cnVmStatus(s)} />;
         },
       },
       {
