@@ -2,7 +2,7 @@
   "name": "compute-tower-backend",
   "version": "1.0.1",
   "description": "Compute Tower 多云管理平台后端API",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "dev": "set \"NODE_ENV=development\" && set \"PORT=5001\" && set \"DB_SYNC=true\" && nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",

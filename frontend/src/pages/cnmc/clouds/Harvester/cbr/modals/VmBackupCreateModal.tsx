@@ -51,7 +51,6 @@ const VmBackupCreateModal: React.FC<Props> = ({
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [type, setType] = useState<'backup' | 'snapshot'>(initialType);
   const [selectedNamespace, setSelectedNamespace] = useState<string>('');
   const lockToInitialVm = !!initialVm;
 
@@ -59,8 +58,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
   useEffect(() => {
     if (open) {
       form.resetFields();
-      setType(initialType);
-      
+
       const initValues: any = { type: initialType };
       
       if (initialNamespace) {
@@ -97,12 +95,12 @@ const VmBackupCreateModal: React.FC<Props> = ({
         {
           name: values.name,
           vmName: values.vmName,
-          type: type,
+          type: initialType,
           alias: values.name
         }
       );
 
-      message.success(`${type === 'backup' ? '备份' : '快照'}创建成功`);
+      message.success(`${initialType === 'backup' ? '备份' : '快照'}创建成功`);
       onSuccess({ namespace: values.namespace, name: values.name });
     } catch (e: any) {
       const raw =
@@ -132,7 +130,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
 
   return (
     <Modal
-      title={`创建${type === 'backup' ? '虚拟机备份' : '虚拟机快照'}`}
+      title={`创建${initialType === 'backup' ? '虚拟机备份' : '虚拟机快照'}`}
       open={open}
       onOk={handleOk}
       onCancel={onCancel}

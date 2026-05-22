@@ -4,7 +4,8 @@
  * 基于 VolumeSnapshot 创建新 PVC：
  * - K8s 资源名自动生成（id-vol-xxxxxxxxxxx，与创建云盘一致），满足 DNS 子域规则；
  * - 用户填写「云盘名称」为展示别名，写入 annotations['tower.io/alias']，支持中文；
- * - 容量由快照原始大小决定；存储类可选。
+ * - 容量由快照原始大小决定；存储类可选；
+ * - 卷模式与快照源 PVC 一致；访问模式固定为 ReadWriteMany（RWX）。
  */
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
@@ -145,7 +146,7 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
         <Form.Item
           name="storageClassName"
           label="存储类"
-          extra="如果不指定，将使用集群默认存储类"
+          extra="卷模式与源云盘一致（Block/Filesystem）；访问模式为 ReadWriteMany。不指定存储类时使用集群默认。"
         >
           <Select
             loading={scLoading}

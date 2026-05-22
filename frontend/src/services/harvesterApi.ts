@@ -598,6 +598,30 @@ export const deleteHarvesterVirtualMachineRestore = async (cloudId: string, name
   return await deleteHarvesterResourceByLink(cloudId, path);
 };
 
+const CEPH_VM_RESTORE_LIST_PATHS = [
+  '/apis/hms.rivercloud.com/v1/cephvmrestores',
+  '/v1/hms.rivercloud.com.cephvmrestores',
+] as const;
+
+/** 列出集群内 CephVmRestore（Steve / 标准 API 路径回退） */
+export const fetchHarvesterCephVmRestores = async (cloudId: string, force = false) => {
+  let lastErr: unknown;
+  for (const path of CEPH_VM_RESTORE_LIST_PATHS) {
+    try {
+      return await fetchHarvesterResourceByLink(cloudId, path, force);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (lastErr) throw lastErr;
+  return { items: [] };
+};
+
+export const deleteHarvesterCephVmRestore = async (cloudId: string, namespace: string, name: string) => {
+  const path = `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(namespace)}/cephvmrestores/${encodeURIComponent(name)}`;
+  return await deleteHarvesterResourceByLink(cloudId, path);
+};
+
 /**
  * 获取 Harvester USB 设备资源列表
  * @param cloudId 云环境 ID
@@ -1033,7 +1057,10 @@ export const fetchHarvesterVolumes = async (
  */
 export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?: string) => {
   const qs = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/available-volumes${qs}`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/available-volumes${qs}`,
+    { skipCache: true },
+  );
 };
 
 /**
@@ -1243,7 +1270,7 @@ export const createHarvesterVolumeSnapshot = async (cloudId: string, namespace: 
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
  * @param snapshotName 快照名称
- * @param payload 恢复配置，包含卷名称、存储类名称、大小、访问模式和卷模式
+ * @param payload 恢复配置（卷名称、存储类、别名等）；卷模式由后端按源 PVC 继承，访问模式固定 RWX
  * @returns Promise<any>
  */
 export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string; alias?: string }) => {

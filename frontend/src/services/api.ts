@@ -43,6 +43,38 @@ const defaultApiBase = (() => {
 
 export const API_BASE_URL = defaultApiBase;
 
+/** 从 requestManager / fetch 抛出的错误中提取后端 message（兼容 responseData） */
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  const e = error as {
+    message?: string;
+    responseData?: { message?: string; error?: unknown; hint?: string };
+    response?: { data?: { message?: string; error?: unknown; hint?: string } };
+  };
+  const data = e?.responseData ?? e?.response?.data;
+  let msg = '';
+  if (data && typeof data === 'object' && data.message) {
+    msg = String(data.message);
+    const detail =
+      typeof data.error === 'string'
+        ? data.error
+        : data.error != null
+          ? JSON.stringify(data.error)
+          : '';
+    if (detail && !msg.includes(detail)) {
+      msg = `${msg}: ${detail}`;
+    }
+    if (typeof data.hint === 'string' && data.hint.trim()) {
+      msg = `${msg}（${data.hint.trim()}）`;
+    }
+  } else if (e?.message) {
+    msg = e.message;
+  }
+  if (/^request failed with status code \d+$/i.test(msg.trim())) {
+    return fallback;
+  }
+  return msg || fallback;
+}
+
 // 获取认证token
 export const getAuthHeaders = () => {
   const token = getToken();

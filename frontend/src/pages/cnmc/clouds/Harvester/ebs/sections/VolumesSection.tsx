@@ -111,6 +111,7 @@ import {
   isSystemNamespace,
   isSystemStorageClass,
   pickDefaultStorageClassName,
+  resolveVolumeSnapshotClassName,
 } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
@@ -1435,8 +1436,11 @@ const VolumesSection: React.FC<Props> = ({
               const id = `id-vs-${Math.random().toString(36).substring(2, 13)}`;
               await createHarvesterVolumeSnapshot(cloudId, currentRecord.namespace, currentRecord.name, {
                 name: id,
-                snapshotClassName: 'longhorn-snapshot',
-                alias: v.name
+                snapshotClassName: resolveVolumeSnapshotClassName(
+                  currentRecord.storageClass,
+                  storageClasses,
+                ),
+                alias: v.name,
               });
               message.success('创建成功');
               setSnapshotOpen(false);

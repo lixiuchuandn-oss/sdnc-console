@@ -12,8 +12,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Modal, Form, Input, message, Alert, Switch, Tooltip, Radio, Select } from 'antd';
 import { stopCloudProviderEcs } from '../../../../../../services/api';
-import { createHarvesterVirtualMachineRestore, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../../../services/harvesterApi';
+import { createHarvesterVirtualMachineRestore } from '../../../../../../services/harvesterApi';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
+import { isHarvesterCephVmBackup } from '../../../../../../utils/harvesterUtils';
+import { applyVmTowerAliasWhenReady } from '../../ecs/lib/vmTowerAlias';
 
 /** 与回收站列表一致：finalizers 或 label 标记为回收站中的云主机 */
 function isHarvesterVmInRecycleBin(vm: any): boolean {
@@ -29,7 +31,7 @@ function isHarvesterVmInRecycleBin(vm: any): boolean {
 
 /**
  * 组件入参
- * - visible: 弹窗是否可见
+ * - open: 弹窗是否可见
  * - onCancel: 关闭回调
  * - onSuccess: 创建恢复任务成功回调
  * - cloudId: 云 ID
@@ -75,7 +77,7 @@ const VmRestoreModal: React.FC<Props> = ({
   }, [raw, resource]);
 
   const sourceVmName = useMemo(() => {
-    const fromSpec = raw?.spec?.source?.name;
+    const fromSpec = raw?.spec?.source?.name || raw?.spec?.sourceVm;
     const fromCompat = (resource as any)?.targetVm;
     const name = fromSpec || fromCompat || '';
     return name && name !== '-' ? name : '';
@@ -230,58 +232,32 @@ const VmRestoreModal: React.FC<Props> = ({
         if (values.keepMacAddress !== undefined) payload.spec.keepMacAddress = values.keepMacAddress;
       }
 
+      if (isHarvesterCephVmBackup(resource)) {
+        payload.metadata.annotations['tower.io/backupBackend'] = 'ceph';
+      }
+
       await createHarvesterVirtualMachineRestore(
         cloudId,
         namespace,
         payload
       );
 
-      // 如果是新建虚拟机且用户输入了显示名称，等待VM创建后设置别名
-      if (values.newVM === true && values.displayName) {
-        const displayName = String(values.displayName || '').trim();
-        if (displayName) {
-          try {
-            // 等待VM创建
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            // 尝试获取新创建的VM并设置别名
-            let retries = 5;
-            while (retries > 0) {
-              try {
-                const newVm = await fetchHarvesterVmDetail(cloudId, namespace, targetName);
-                if (newVm) {
-                  await patchHarvesterVm(
-                    cloudId,
-                    namespace,
-                    targetName,
-                    {
-                      metadata: {
-                        annotations: {
-                          'tower.io/alias': displayName,
-                        },
-                      },
-                    }
-                  );
-                  break;
-                }
-              } catch (e: any) {
-                if (e?.status === 404 || e?.message?.includes('not found')) {
-                  retries--;
-                  if (retries > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    continue;
-                  }
-                }
-                // 设置别名失败不影响恢复流程，只记录警告
-                console.warn('Failed to set alias for restored VM:', e);
-                break;
-              }
+      const displayName =
+        values.newVM === true ? String(values.displayName || '').trim() : '';
+      if (displayName) {
+        void applyVmTowerAliasWhenReady(cloudId, namespace, targetName, displayName)
+          .then((ok) => {
+            if (ok) {
+              window.dispatchEvent(
+                new CustomEvent('harvester:vm-alias-applied', {
+                  detail: { namespace, name: targetName, alias: displayName },
+                }),
+              );
             }
-          } catch (e: any) {
-            // 设置别名失败不影响恢复流程
+          })
+          .catch((e) => {
             console.warn('Failed to set alias for restored VM:', e);
-          }
-        }
+          });
       }
 
       message.success('恢复任务创建成功');

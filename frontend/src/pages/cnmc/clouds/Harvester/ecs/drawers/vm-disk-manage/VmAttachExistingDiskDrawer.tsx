@@ -124,6 +124,7 @@ const VmAttachExistingDiskDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
     setLatestVm,
     images,
     availableDiskPvcs,
+    loadAvailablePvcs,
     ensureNadsLoaded,
     isHotPlugInProgress,
   } = useVmAddDataDiskDrawerData({
@@ -264,6 +265,9 @@ const VmAttachExistingDiskDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
               placeholder="选择一个已有 PVC"
               options={pvcSelectOptions}
               optionFilterProp="labelString"
+              onOpenChange={(open) => {
+                if (open) void loadAvailablePvcs();
+              }}
               onChange={(name) => {
                 form.setFieldsValue({
                   newDiskName: name,

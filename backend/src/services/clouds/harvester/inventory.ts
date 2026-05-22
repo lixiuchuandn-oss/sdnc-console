@@ -69,6 +69,8 @@ import {
   listHarvesterVirtualMachineSnapshots,
   listHarvesterVolumeSnapshots,
   listHarvesterBackupsStandard,
+  listHarvesterCephVmBackupsRaw,
+  normalizeCephVmBackupForInventory,
   listHarvesterSshKeysStandard,
   listHarvesterCloudInitsStandard,
   listHarvesterLoadBalancerIPPools,
@@ -1012,6 +1014,7 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
  */
 export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
+  let cephItems: any[] = [];
   try {
     invLog.debug(`${cloud.name}: 开始获取备份列表，cloudId: ${cloud.id}`);
     items = await listHarvesterBackupsStandard({
@@ -1029,8 +1032,24 @@ export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
     throw e;
   }
 
+  try {
+    cephItems = await listHarvesterCephVmBackupsRaw({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+    invLog.debug(`${cloud.name}: CephVmBackup ${cephItems.length} 条`);
+  } catch (e: any) {
+    invLog.warn(`${cloud.name}: CephVmBackup 列表获取失败（忽略）:`, e?.message || e);
+  }
+
+  const merged = [
+    ...items,
+    ...cephItems.map((c) => normalizeCephVmBackupForInventory(c)),
+  ];
+
   // Filter out items that are marked for deletion
-  const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
+  const validItems = merged.filter((item: any) => !item.metadata?.deletionTimestamp);
   invLog.debug(`${cloud.name}: 过滤后有效备份 ${validItems.length} 条（排除删除中的备份）`);
 
   const repo = AppDataSource.getRepository(HarvesterBackupInventory);

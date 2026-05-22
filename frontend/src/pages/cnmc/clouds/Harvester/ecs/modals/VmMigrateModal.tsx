@@ -17,6 +17,7 @@ import {
   fetchHarvesterNodeDetail,
   fetchHarvesterVMAggregated,
 } from '../../../../../../services/harvesterApi';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
 const { Text } = Typography;
 
@@ -271,13 +272,29 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
       }
 
       const target = values?.targetNode === '__AUTO__' ? undefined : values?.targetNode;
+      if (target && currentNodeName && String(target) === String(currentNodeName)) {
+        throw new Error('目标节点不能与当前节点相同');
+      }
       await migrateHarvesterVm(cloudId, instanceId, target);
 
       message.success('迁移任务已提交，在迁移记录页面可看到迁移进度');
       onOk();
       onClose();
     } catch (error: any) {
-      message.error(error.message || '迁移请求失败');
+      const status = Number(error?.status ?? 0);
+      let tip = translateKnownApiErrorMessage(String(error?.message || '').trim());
+      if (
+        (status === 400 || status === 403 || status === 422) &&
+        !tip.startsWith('无法迁移')
+      ) {
+        if (/^(HTTP error|HTTP \d+|请求无效|请求无法处理)/i.test(tip)) {
+          tip =
+            '无法迁移：集群拒绝了本次热迁移请求，请检查虚拟机状态、存储类型与目标节点是否支持热迁移';
+        } else {
+          tip = `无法迁移：${tip.replace(/^(请求无效|请求无法处理|权限不足)：\s*/, '')}`;
+        }
+      }
+      message.error(tip || '迁移请求失败');
     } finally {
       setLoading(false);
     }
