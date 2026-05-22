@@ -628,6 +628,8 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
                         overflow: 'hidden',
                         background: '#fff',
                         minHeight: 56,
+                        maxHeight: 200,
+                        overflowY: 'auto',
                       }}
                     >
                       {joinedRows.length === 0 ? (
@@ -677,6 +679,8 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
                         overflow: 'hidden',
                         background: '#fff',
                         minHeight: 56,
+                        maxHeight: 200,
+                        overflowY: 'auto',
                       }}
                     >
                       {availableRows.length === 0 ? (
