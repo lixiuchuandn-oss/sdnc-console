@@ -13,8 +13,12 @@ import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { deleteHarvesterNamespace } from 'services/harvester/clusterInventory';
 import { hasPermissionForAction } from 'utils/accessMapping';
 import { isTenantScenarioNamespace } from 'utils/harvesterUtils';
-import { clearGetCacheForPath } from 'utils/requestManager';
 import NamespaceFormDrawer from '../drawers/NamespaceFormDrawer';
+import {
+  createClusterToolbarRefresh,
+  reloadHarvesterNamespacesList,
+  type ClusterSectionOnRefresh,
+} from '../lib/clusterSectionRefresh';
 import {
   DEFAULT_NAMESPACE_TYPE_FILTERS,
   filterNamespacesForTable,
@@ -43,7 +47,7 @@ type Props = {
   cloudId: string;
   namespaces?: unknown[];
   loading?: boolean;
-  onRefresh?: (force?: boolean, silent?: boolean) => void;
+  onRefresh?: ClusterSectionOnRefresh;
   isTenant?: boolean;
 };
 
@@ -82,16 +86,14 @@ const NamespacesSection: React.FC<Props> = ({
     setEditingNamespace(null);
   }, []);
 
-  const handleToolbarRefresh = useCallback(() => {
-    if (!onRefresh) {
-      message.warning('刷新功能未配置');
-      return;
-    }
-    void Promise.resolve(onRefresh(true)).catch((e: unknown) => {
-      const err = e as { message?: string };
-      message.error(`刷新失败: ${err?.message || '未知错误'}`);
-    });
-  }, [onRefresh]);
+  const handleToolbarRefresh = useMemo(
+    () => createClusterToolbarRefresh(onRefresh),
+    [onRefresh],
+  );
+
+  const handleListReloadAfterWrite = useCallback(() => {
+    reloadHarvesterNamespacesList(cloudId, onRefresh);
+  }, [cloudId, onRefresh]);
 
   const handleOpenYaml = useCallback((record: NamespaceListRow) => {
     const link = namespaceRowToViewLink(record);
@@ -139,8 +141,7 @@ const NamespacesSection: React.FC<Props> = ({
           try {
             await deleteHarvesterNamespace(cloudId, name);
             message.success('删除成功');
-            clearGetCacheForPath(`/api/clouds/${cloudId}/resources/harvester/namespaces`);
-            onRefresh?.(true, true);
+            reloadHarvesterNamespacesList(cloudId, onRefresh);
           } catch (e: unknown) {
             const err = e as { message?: string };
             message.error(err?.message || '删除失败');
@@ -188,6 +189,7 @@ const NamespacesSection: React.FC<Props> = ({
   return (
     <PageDetailSection
       asCard={false}
+      refreshLoading={loading}
       toolbarLeft={(
         <Space wrap size={[8, 8]}>
           <Input
@@ -263,7 +265,7 @@ const NamespacesSection: React.FC<Props> = ({
         onClose={closeNamespaceFormDrawer}
         cloudId={cloudId}
         editingRecord={editingNamespace}
-        onCommitted={() => onRefresh?.(true, true)}
+        onCommitted={handleListReloadAfterWrite}
       />
 
       <ResourceLinkYamlDrawer

@@ -9,6 +9,7 @@ import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import type { GpuRow } from 'services/harvester/types/inventoryRows';
+import { createClusterToolbarRefresh } from '../lib/clusterSectionRefresh';
 import {
   buildGpuNodeFilterOptions,
   filterGpuDevices,
@@ -20,7 +21,7 @@ interface Props {
   cloudId: string;
   resources: GpuRow[];
   loading?: boolean;
-  onRefresh: (force?: boolean) => void | Promise<void>;
+  onRefresh?: (force?: boolean) => void | Promise<void>;
   raw?: unknown;
   showLog?: boolean;
   isTenant?: boolean;
@@ -51,9 +52,10 @@ const GpuSection: React.FC<Props> = ({
     setDrawerOpen(true);
   }, []);
 
-  const handleRefresh = useCallback(async () => {
-    await onRefresh(true);
-  }, [onRefresh]);
+  const handleToolbarRefresh = useMemo(
+    () => createClusterToolbarRefresh(onRefresh),
+    [onRefresh],
+  );
 
   const filtered = useMemo(
     () =>
@@ -154,12 +156,13 @@ const GpuSection: React.FC<Props> = ({
             <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_gpus_table" />
             <Button
               icon={<ReloadOutlined />}
-              onClick={() => void handleRefresh()}
+              onClick={handleToolbarRefresh}
               loading={loading}
-              disabled={!onRefresh}
+              disabled={loading || !onRefresh}
             />
           </>
         }
+        refreshLoading={loading}
       >
         <Table
           className="std-table"

@@ -14,6 +14,7 @@ import {
   usbDeviceRowKey,
   usbStateLabel,
 } from '../lib/usbDevicesSectionUtils';
+import { createClusterToolbarRefresh } from '../lib/clusterSectionRefresh';
 import { buildUsbDevicesTableColumns } from '../lib/usbDevicesTableColumns';
 
 interface Props {
@@ -67,15 +68,14 @@ const UsbDevicesSection: React.FC<Props> = ({
     [usbDevices, keyword, nodeFilter, statusFilter, bindFilter],
   );
 
-  const handleRefresh = async () => {
-    if (!onRefresh) return;
-    setRefreshing(true);
-    try {
-      await onRefresh(true);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const handleToolbarRefresh = useMemo(
+    () =>
+      createClusterToolbarRefresh(onRefresh, {
+        before: () => setRefreshing(true),
+        after: () => setRefreshing(false),
+      }),
+    [onRefresh],
+  );
 
   const handleOpenYaml = useCallback((record: unknown) => {
     const row = record as Record<string, unknown>;
@@ -184,9 +184,9 @@ const UsbDevicesSection: React.FC<Props> = ({
             <TableColumnSettingsButton allColumns={columnsAll} settingsKey="harvester_usb_devices_table" />
             <Button
               icon={<ReloadOutlined />}
-              onClick={() => void handleRefresh()}
+              onClick={handleToolbarRefresh}
               loading={!!loading || refreshing}
-              disabled={!onRefresh}
+              disabled={!!loading || refreshing || !onRefresh}
             />
           </Space>
         }

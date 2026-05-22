@@ -317,6 +317,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
           <GpusSection
             cloudId={cloudId}
             resources={harvesterGpuResources}
+            loading={resourceLoading.gpu}
             onRefresh={() => loadTabResource('gpu', true)}
             raw={rawGpu}
             showLog={showLog}

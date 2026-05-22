@@ -3,6 +3,7 @@
 import { message } from 'antd';
 import { createHarvesterNamespace, updateHarvesterNamespace } from 'services/harvester/clusterInventory';
 import { isSystemNamespace } from 'utils/harvesterUtils';
+import { harvesterNamespacesListCachePath } from './clusterSectionRefresh';
 import { clearGetCacheForPath } from 'utils/requestManager';
 
 export type NamespaceKeyValuePair = { key?: string; value?: string };
@@ -137,7 +138,7 @@ export async function submitNamespaceForm(
       await createHarvesterNamespace(cloudId, payload);
       message.success('创建成功');
     }
-    clearGetCacheForPath(`/api/clouds/${cloudId}/resources/harvester/namespaces`);
+    clearGetCacheForPath(harvesterNamespacesListCachePath(cloudId));
     return { ok: true };
   } catch (e: unknown) {
     const err = e as { message?: string };

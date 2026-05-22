@@ -5,7 +5,9 @@ export const fetchHarvesterResourceByLink = async (cloudId: string, path: string
   const params = new URLSearchParams();
   params.append('path', path);
   if (force) params.append('force', 'true');
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/proxy?${params.toString()}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/proxy?${params.toString()}`, {
+    skipCache: force,
+  });
 };
 
 export const deleteHarvesterResourceByLink = async (cloudId: string, path: string) => {
