@@ -3,11 +3,15 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Descriptions, Drawer, Flex, Spin, Tabs, Tag, Typography } from 'antd';
-import type { HmsSwitchCr } from '../../../../../../services/harvesterApi';
+import type { HmsSwitchCr } from 'services/harvester/cluster';
 import {
   fetchAswCtlSwitchesSummary,
   syncAswCtlSwitchesToInventory,
-} from '../../../../../../services/harvesterApi';
+} from 'services/harvester/cluster';
+import type {
+  AswCtlSwitchProbeRecord,
+  AswCtlSwitchesSummaryResponse,
+} from 'services/harvester/types/aswProbe';
 import PhysicalSwitchProbeTabs from '../components/PhysicalSwitchProbeTabs';
 import {
   hmsSwitchCrManagementHost,
@@ -44,7 +48,7 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
   onClose,
   canSync = false,
 }) => {
-  const [probeRecord, setProbeRecord] = useState<any | null>(null);
+  const [probeRecord, setProbeRecord] = useState<AswCtlSwitchProbeRecord | null>(null);
   const [probeLoading, setProbeLoading] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [cacheSyncedAt, setCacheSyncedAt] = useState<string | null>(null);
@@ -56,18 +60,19 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
       setProbeLoading(true);
       setProbeError(null);
       try {
-        const res: any = live && canSync
-          ? await syncAswCtlSwitchesToInventory(cloudId)
-          : await fetchAswCtlSwitchesSummary(cloudId);
+        const res = (await (live && canSync
+          ? syncAswCtlSwitchesToInventory(cloudId)
+          : fetchAswCtlSwitchesSummary(cloudId))) as AswCtlSwitchesSummaryResponse;
         const items = Array.isArray(res?.items) ? res.items : [];
         setProbeRecord(matchAswProbeRecordByCr(items, cr));
         setCacheSyncedAt(res?.cacheSyncedAt ? String(res.cacheSyncedAt) : null);
         if (!res?.configured && res?.message) {
           setProbeError(String(res.message));
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         setProbeRecord(null);
-        setProbeError(e?.response?.data?.message || e?.message || '加载运行状态失败');
+        const err = e as { response?: { data?: { message?: string } }; message?: string };
+        setProbeError(err?.response?.data?.message || err?.message || '加载运行状态失败');
       } finally {
         setProbeLoading(false);
       }

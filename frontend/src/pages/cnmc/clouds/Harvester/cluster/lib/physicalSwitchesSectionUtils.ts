@@ -1,4 +1,5 @@
-import type { HmsSwitchCr } from '../../../../../../services/harvesterApi';
+import type { HmsSwitchCr } from 'services/harvester/cluster';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import { matchAswProbeRecordByCr } from './physicalSwitchRecordUtils';
 import { switchProbeProductModel } from './hmsSwitchProbeStatus';
 
@@ -8,12 +9,12 @@ export type PhysicalSwitchProbeMeta = {
 };
 
 export type SwitchTableRow = HmsSwitchCr & {
-  _probe: unknown | null;
+  _probe: AswCtlSwitchProbeRecord | null;
 };
 
 export function buildSwitchTableRows(
   configs: HmsSwitchCr[],
-  probeItems: unknown[],
+  probeItems: AswCtlSwitchProbeRecord[],
 ): SwitchTableRow[] {
   return configs.map((cr) => ({
     ...cr,

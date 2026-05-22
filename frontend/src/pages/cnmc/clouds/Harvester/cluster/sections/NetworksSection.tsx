@@ -8,10 +8,10 @@ import type { ColumnsType } from 'antd/es/table';
 import { LayoutTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
-import PageDetailSection from '../../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
+import PageDetailSection from 'components/PageDetailSection';
+import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
+import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import VlanConfigsDrawer from '../drawers/VlanConfigsDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 

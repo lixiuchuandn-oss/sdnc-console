@@ -43,12 +43,12 @@ export function useNodesResourceBundle(params: {
       }
 
       try {
-        const harvesterApi = await import('../../../../../../services/harvesterApi');
+        const { fetchHarvesterResourceByLink } = await import('services/harvester/resource');
 
         const [metricsRes, podsRes, nodesRes] = await Promise.all([
-          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes'),
-          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/api/v1/pods?allNamespaces=true'),
-          harvesterApi.fetchHarvesterResourceByLink(cloudId, '/api/v1/nodes'),
+          fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes'),
+          fetchHarvesterResourceByLink(cloudId, '/api/v1/pods?allNamespaces=true'),
+          fetchHarvesterResourceByLink(cloudId, '/api/v1/nodes'),
         ]);
 
         const metricsItems: unknown[] = Array.isArray((metricsRes as { items?: unknown })?.items)

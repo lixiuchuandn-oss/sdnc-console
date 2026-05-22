@@ -16,7 +16,7 @@ import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** ????`panels/cluster`????????????????VLAN/????? */
+/** Cloudmap `panels/cluster` 子 Tab 按需加载（节点/命名空间/GPU/USB/PCI/存储/VLAN/网络等） */
 export async function tryLoadClusterTab(
   key: string,
   force: boolean,

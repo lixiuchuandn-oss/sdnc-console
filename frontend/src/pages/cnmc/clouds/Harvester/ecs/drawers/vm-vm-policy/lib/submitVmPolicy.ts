@@ -2,7 +2,7 @@
  * 运行策略 / 驱逐策略提交。
  */
 import { message } from 'antd';
-import { updateHarvesterVmSpec } from '../../../../../../../../services/harvesterApi';
+import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import type { VmReconfigureSubmitCtx } from '../../../lib/vmMutation/vmReconfigureSubmitContext';
 
 export async function submitVmReconfigureVmPolicy(

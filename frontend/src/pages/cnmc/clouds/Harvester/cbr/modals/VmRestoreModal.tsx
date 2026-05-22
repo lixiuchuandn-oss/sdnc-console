@@ -12,7 +12,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Modal, Form, Input, message, Alert, Switch, Tooltip, Radio, Select } from 'antd';
 import { stopCloudProviderEcs } from '../../../../../../services/api';
-import { createHarvesterVirtualMachineRestore, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../../../services/harvesterApi';
+import { createHarvesterVirtualMachineRestore } from 'services/harvester/cbr';
+import { patchHarvesterVm, fetchHarvesterVmDetail } from 'services/harvester/vm';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
 /** 与回收站列表一致：finalizers 或 label 标记为回收站中的云主机 */

@@ -4,26 +4,20 @@
  * Cloudmap「集群 → 物理交换机」：管理 Switch CR，并展示 HSM 探测状态。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Flex, Input, message, Modal, Select, Table, Typography } from 'antd';
+import { Button, Flex, Input, Modal, Select, Table, Typography } from 'antd';
 import { PlusOutlined, RadarChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../../../components/PageDetailSection';
-import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import {
-  createHmsSwitchCr,
-  deleteHmsSwitchCr,
-  updateHmsSwitchCr,
-  type HmsSwitchCr,
-  type HmsSwitchCrSpec,
-} from '../../../../../../services/harvesterApi';
+import PageDetailSection from 'components/PageDetailSection';
+import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
+import type { HmsSwitchCr } from 'services/harvester/cluster';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import HmsServiceMonitorCard from '../components/HmsServiceMonitorCard';
 import HmsSwitchConfigDrawer from '../drawers/HmsSwitchConfigDrawer';
 import HmsSwitchDetailDrawer from '../drawers/HmsSwitchDetailDrawer';
+import { usePhysicalSwitchCrActions } from '../hooks/usePhysicalSwitchCrActions';
 import { usePhysicalSwitchesData } from '../hooks/usePhysicalSwitchesData';
 import {
-  apiErrorMessage,
   buildSwitchTableRows,
   buildVendorFilterOptions,
   countMatchedProbeRows,
@@ -130,53 +124,14 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     [openYamlDrawer],
   );
 
-  const handleDeleteSwitchCr = useCallback(
-    (cr: HmsSwitchCr) => {
-      const name = String(cr?.metadata?.name || '').trim();
-      if (!name || !canManageSwitchCr) return;
-      Modal.confirm({
-        title: `删除交换机「${name}」？`,
-        content: '删除后 HSM 将不再管理该交换机。',
-        okText: '删除',
-        okButtonProps: { danger: true },
-        onOk: async () => {
-          await deleteHmsSwitchCr(cloudId, name);
-          message.success('已删除');
-          await loadAll();
-        },
-      });
-    },
-    [canManageSwitchCr, cloudId, loadAll],
-  );
-
-  const handleSubmitSwitchCr = useCallback(
-    async (payload: { name: string; spec: Record<string, unknown> }) => {
-      if (!canManageSwitchCr) return;
-      setConfigSaving(true);
-      try {
-        if (editingSwitchCr?.metadata?.name) {
-          await updateHmsSwitchCr(cloudId, editingSwitchCr.metadata.name, {
-            spec: payload.spec as HmsSwitchCrSpec,
-          });
-          message.success('配置已更新');
-        } else {
-          await createHmsSwitchCr(cloudId, {
-            name: payload.name,
-            spec: payload.spec as HmsSwitchCrSpec,
-          });
-          message.success('配置已创建');
-        }
-        closeConfigDrawer();
-        await loadAll();
-      } catch (e) {
-        message.error(apiErrorMessage(e, '保存失败'));
-        throw e;
-      } finally {
-        setConfigSaving(false);
-      }
-    },
-    [canManageSwitchCr, cloudId, closeConfigDrawer, editingSwitchCr, loadAll],
-  );
+  const { handleDeleteSwitchCr, handleSubmitSwitchCr } = usePhysicalSwitchCrActions({
+    cloudId,
+    canManageSwitchCr,
+    editingSwitchCr,
+    loadAll,
+    closeConfigDrawer,
+    setConfigSaving,
+  });
 
   const allColumns = useMemo(
     () =>

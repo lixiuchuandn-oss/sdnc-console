@@ -5,7 +5,9 @@ import {
   CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, 
   ReloadOutlined, InfoCircleOutlined, WarningOutlined, LoadingOutlined 
 } from '@ant-design/icons';
-import { fetchHarvesterVMAggregated, fetchHarvesterNodes, fetchHarvesterVolume, fetchHarvesterResourceByLink } from '../../../../../../../services/harvesterApi';
+import { fetchHarvesterVMAggregated } from 'services/harvester/vm';
+import { fetchHarvesterNodes, fetchHarvesterVolume } from '../../../../../../../services/harvesterApi';
+import { fetchHarvesterResourceByLink } from 'services/harvester/resource';
 import { fetchHarvesterVmPod, fetchHarvesterEvents } from '../../../../../../../services/loggingApi';
 import type { DiagnosisResult, DiagnosisStep, StepStatus } from "./lib/diagnosisTypes";
 import {

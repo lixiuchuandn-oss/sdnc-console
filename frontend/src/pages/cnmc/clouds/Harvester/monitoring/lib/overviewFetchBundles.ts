@@ -13,7 +13,7 @@ import {
   fetchVirtualMachineInstances,
   fetchVirtualMachines,
 } from '../../../../../../services/monitoringApi';
-import { fetchHarvesterStorageClasses } from '../../../../../../services/harvesterApi';
+import { fetchHarvesterStorageClasses } from 'services/harvester/clusterInventory';
 import type { NodeMetricsData, NodeResourcesData } from './nodeResourceMetrics';
 
 export interface MonitoringOverviewLaneOutcome<T> {

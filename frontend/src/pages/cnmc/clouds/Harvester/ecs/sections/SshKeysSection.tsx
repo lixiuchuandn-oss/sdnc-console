@@ -18,7 +18,7 @@ import SshKeyCreateModal from '../../ecs/modals/SshKeyCreateModal';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
-import { deleteHarvesterSshKey } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterSshKey } from 'services/harvester/vm';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 

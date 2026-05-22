@@ -15,7 +15,7 @@ import {
   fetchHarvesterMigrations, 
   fetchHarvesterMigrationsDirect, 
   abortHarvesterMigration
-} from '../../../../../../services/harvesterApi';
+} from 'services/harvester/vm';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';

@@ -4,6 +4,12 @@
 import React from 'react';
 import { Card, Space, Spin, Tag, Typography } from 'antd';
 
+import type {
+  AswCtlProbeAggregate,
+  AswCtlSwitchesSummaryResponse,
+  AswCtlSwitchProbeRecord,
+} from 'services/harvester/types/aswProbe';
+
 export type HmsServiceProbeRowStatus = 'success' | 'warning' | 'error' | 'default';
 
 export type HmsServiceProbeRow = {
@@ -14,14 +20,20 @@ export type HmsServiceProbeRow = {
   detail?: string;
 };
 
-export function aswCtlProbeAggregateFromResponse(res: any): any | null {
+export function aswCtlProbeAggregateFromResponse(
+  res: AswCtlSwitchesSummaryResponse | null | undefined,
+): AswCtlProbeAggregate | null {
   if (res?.aggregate && typeof res.aggregate === 'object') return res.aggregate;
-  if (Array.isArray(res?.items) && res.items[0]) return res.items[0];
+  const items = res?.items;
+  if (Array.isArray(items) && items.length > 0) return items[0];
   return null;
 }
 
 /** 由 HSM 聚合探测结果生成服务监控行 */
-export function buildHmsServiceProbeRows(res: any, row: any): HmsServiceProbeRow[] {
+export function buildHmsServiceProbeRows(
+  res: AswCtlSwitchesSummaryResponse | null | undefined,
+  row: AswCtlSwitchProbeRecord | null | undefined,
+): HmsServiceProbeRow[] {
   const rows: HmsServiceProbeRow[] = [];
 
   if (res?.apiKeyProvided === false || row?.apiKeySent === false) {
@@ -77,9 +89,9 @@ export function buildHmsServiceProbeRows(res: any, row: any): HmsServiceProbeRow
   const pushDataRow = (
     key: string,
     label: string,
-    errorKey: string,
-    dataKey: string,
-    opts?: { naKey?: string; naSummary?: string; naMessageKey?: string },
+    errorKey: keyof AswCtlSwitchProbeRecord,
+    dataKey: keyof AswCtlSwitchProbeRecord,
+    opts?: { naKey?: keyof AswCtlSwitchProbeRecord; naSummary?: string; naMessageKey?: keyof AswCtlSwitchProbeRecord },
   ) => {
     if (row?.[errorKey]) {
       rows.push({
@@ -106,7 +118,7 @@ export function buildHmsServiceProbeRows(res: any, row: any): HmsServiceProbeRow
       return;
     }
     const data = row?.[dataKey];
-    if (data && data.ok === false) {
+    if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
       rows.push({ key, label, status: 'error', summary: '异常' });
       return;
     }

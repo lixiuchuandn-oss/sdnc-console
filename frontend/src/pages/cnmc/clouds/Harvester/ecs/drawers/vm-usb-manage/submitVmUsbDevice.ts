@@ -2,7 +2,7 @@
  * 「变更 USB」：解析表单并调用 `updateHarvesterVmSpec`（与 `VmUsbManageDrawer` 同域）。
  */
 import { message } from "antd";
-import { updateHarvesterVmSpec } from "../../../../../../../services/harvesterApi";
+import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import type { VmReconfigureSubmitCtx } from "../../lib/vmMutation/vmReconfigureSubmitContext";
 import { tryFinalizePassthroughNodeAffinity } from "../shared/lib/passthroughNodeAffinity";
 

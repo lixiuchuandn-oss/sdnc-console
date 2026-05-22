@@ -9,7 +9,7 @@ import {
   ReloadOutlined,
   WarningOutlined
 } from '@ant-design/icons';
-import { deleteHarvesterBackup, deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from '../../../../../../../../services/harvesterApi';
+import { deleteHarvesterBackup, deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import { formatCron } from '../../../../../../../../utils/cronFormatter';
 import VmBackupCreateModal from '../../../../cbr/modals/VmBackupCreateModal';
 import VmRestoreModal from '../../../../cbr/modals/VmRestoreModal';

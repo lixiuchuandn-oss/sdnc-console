@@ -14,7 +14,7 @@ import { Table, Badge, Input, Button, Select, DatePicker, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import { getRecycleBinShutdownRecords } from '../../../../../../services/harvesterApi';
+import { getRecycleBinShutdownRecords } from 'services/harvester/vm';
 import { cnVmStatus } from '../../../../../../utils/harvesterUtils';
 import dayjs, { Dayjs } from 'dayjs';
 

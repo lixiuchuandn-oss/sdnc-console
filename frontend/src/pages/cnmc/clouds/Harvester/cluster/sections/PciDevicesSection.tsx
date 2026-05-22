@@ -1,19 +1,26 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Button, Input, Select, Space, Table, Tag } from 'antd';
-import { ReloadOutlined, SearchOutlined, ApiTwoTone  } from '@ant-design/icons';
-import PageDetailSection from '../../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
-import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import PageDetailSection from 'components/PageDetailSection';
+import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { isPciNicSrIovVirtualFunctionPciDevice } from '../../ecs/lib/passthroughNicSelectOptions';
+import {
+  distinctSorted,
+  filterPciDevices,
+  getPciDeviceState,
+  getPciNodeName,
+  pciDeviceRowKey,
+} from '../lib/pciDevicesSectionUtils';
+import { buildPciDevicesTableColumns } from '../lib/pciDevicesTableColumns';
 
 interface Props {
   cloudId: string;
-  devices: any[];
+  devices: unknown[];
   loading?: boolean;
   onRefresh?: (force?: boolean) => void | Promise<void>;
-  raw?: any;
+  raw?: unknown;
   showLog?: boolean;
   bordered?: boolean;
   /** 与创建向导 SR-IOV VF 选项同源：仅展示启发式识别为虚拟功能的网卡类 PCI */
@@ -32,134 +39,46 @@ const PciDevicesSection: React.FC<Props> = ({
   variant = 'all',
   isTenant = false,
 }) => {
-  const [keyword, setKeyword] = useState<string>('');
-  const [nodeFilter, setNodeFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [bindFilter, setBindFilter] = useState<string>('');
+  const [keyword, setKeyword] = useState('');
+  const [nodeFilter, setNodeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [bindFilter, setBindFilter] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerRecord, setDrawerRecord] = useState<any>(null);
+  const [drawerRecord, setDrawerRecord] = useState<unknown>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
 
   const pciRows = useMemo(() => {
     const list = Array.isArray(devices) ? devices : [];
     if (variant !== 'sriov_vf') return list;
-    return list.filter((r: any) =>
-      isPciNicSrIovVirtualFunctionPciDevice(r?.raw || r?.rawData || r),
+    return list.filter((r) =>
+      isPciNicSrIovVirtualFunctionPciDevice(
+        (r as { raw?: unknown; rawData?: unknown })?.raw ||
+          (r as { rawData?: unknown })?.rawData ||
+          r,
+      ),
     );
   }, [devices, variant]);
 
-  const vendorName = useCallback((id?: string) => {
-    const v = String(id || '').trim().toLowerCase();
-    if (!v) return '-';
-    if (v === '10de') return 'NVIDIA';
-    if (v === '1002') return 'AMD';
-    if (v === '8086') return 'Intel';
-    if (v === '1a03') return 'ASPEED';
-    return v;
-  }, []);
-
-  const vendorLabel = useCallback((id?: string) => {
-    const v = String(id || '').trim();
-    if (!v) return '-';
-    const name = vendorName(v);
-    if (!name || name === '-' || name === v.toLowerCase()) return v;
-    return `${name} (${v})`;
-  }, [vendorName]);
-
-  const getNodeName = useCallback((r: any) => {
-    const rawObj = r?.raw || r?.rawData || r;
-    return String(r?.nodeName || r?.status?.nodeName || rawObj?.status?.nodeName || rawObj?.spec?.nodeName || '').trim();
-  }, []);
-
-  const getDeviceState = useCallback((r: any) => {
-    const rawObj = r?.raw || r?.rawData || r;
-    const st = r?.state || r?.metadata?.state || r?.status?.state || r?.status?.phase || r?.status?.conditions?.[0]?.type;
-    if (st && typeof st === 'object' && (st as { name?: string }).name != null) {
-      return String((st as { name?: string }).name).trim();
-    }
-    if (typeof st === 'string' && st.trim()) return st.trim();
-    const driver = rawObj?.status?.kernelDriverInUse || rawObj?.kernelDriverInUse;
-    if (typeof driver === 'string' && driver.toLowerCase().includes('vfio')) return '可透传';
-    if (driver) return '占用中';
-    return '-';
-  }, []);
-
-  const renderPciStateCell = useCallback((r: any) => {
-    const rawObj = r?.raw || r?.rawData || r;
-    const st = r?.state || r?.metadata?.state || r?.status?.state || r?.status?.phase || r?.status?.conditions?.[0]?.type;
-    if (st && typeof st === 'object' && (st as any).name) {
-      const n = String((st as any).name || '').toLowerCase();
-      if (n === 'active' || n === 'enabled') return <Tag color="green">活跃</Tag>;
-      if (n === 'inactive' || n === 'disabled') return <Tag color="default">非活跃</Tag>;
-      if (n === 'transitioning') return <Tag color="blue">变更中</Tag>;
-      if (n === 'error' || n === 'failed') return <Tag color="red">异常</Tag>;
-    }
-    if (typeof st === 'string' && st.trim()) {
-      const s = st.trim();
-      const sl = s.toLowerCase();
-      if (sl === 'active' || sl === 'enabled') return <Tag color="green">活跃</Tag>;
-      if (sl === 'inactive' || sl === 'disabled') return <Tag color="default">非活跃</Tag>;
-      if (sl === 'transitioning') return <Tag color="blue">变更中</Tag>;
-      if (sl === 'error' || sl === 'failed') return <Tag color="red">异常</Tag>;
-      return <Tag>{s}</Tag>;
-    }
-    const driver = rawObj?.status?.kernelDriverInUse || rawObj?.kernelDriverInUse;
-    if (typeof driver === 'string' && driver.toLowerCase().includes('vfio')) return <Tag color="success">可透传</Tag>;
-    if (driver) return <Tag color="processing">占用中</Tag>;
-    return '-';
-  }, []);
-
   const nodeOptions = useMemo(
-    () => Array.from(new Set((Array.isArray(pciRows) ? pciRows : []).map((r: any) => getNodeName(r)).filter(Boolean))).sort(),
-    [pciRows, getNodeName],
+    () => distinctSorted(pciRows.map((r) => getPciNodeName(r))),
+    [pciRows],
   );
   const statusOptions = useMemo(
-    () => Array.from(new Set((Array.isArray(pciRows) ? pciRows : []).map((r: any) => getDeviceState(r)).filter(Boolean))).sort(),
-    [pciRows, getDeviceState],
+    () => distinctSorted(pciRows.map((r) => getPciDeviceState(r))),
+    [pciRows],
   );
 
-  const filtered = useMemo(() => {
-    const list = Array.isArray(pciRows) ? pciRows : [];
-    const kw = String(keyword || '').trim().toLowerCase();
-    const nf = String(nodeFilter || '').trim().toLowerCase();
-    const sf = String(statusFilter || '').trim().toLowerCase();
-    return list.filter((r: any) => {
-      const rawObj = r?.raw || r?.rawData || r;
-      const node = String(getNodeName(r)).toLowerCase();
-      const addr = String(r?.address || r?.pciAddress || r?.status?.pciAddress || r?.status?.address || rawObj?.status?.pciAddress || '').toLowerCase();
-      const rn = String(r?.resourceName || r?.status?.resourceName || '').toLowerCase();
-      const name = String(r?.name || r?.status?.deviceName || r?.metadata?.name || '').toLowerCase();
-      const desc = String(r?.description || r?.status?.description || rawObj?.status?.description || '').toLowerCase();
-      const vendorId = String(r?.vendorId || r?.status?.vendorId || rawObj?.status?.vendorId || '').toLowerCase();
-      const productId = String(r?.productId || r?.deviceId || r?.status?.deviceId || rawObj?.status?.deviceId || '').toLowerCase();
-      const classId = String(r?.classId || r?.status?.classId || rawObj?.status?.classId || '').toLowerCase();
-      const state = String(getDeviceState(r)).toLowerCase();
-      const bindTo = String(r?.bindingTo || r?.claimedBy || r?.claimName || '').toLowerCase();
-      if (nf && node !== nf) return false;
-      if (sf && state !== sf) return false;
-      if (bindFilter === 'bound' && !r?.vmInfo) return false;
-      if (bindFilter === 'unbound' && r?.vmInfo) return false;
-      if (!kw) return true;
-      return (
-        node.includes(kw) ||
-        addr.includes(kw) ||
-        rn.includes(kw) ||
-        name.includes(kw) ||
-        desc.includes(kw) ||
-        vendorId.includes(kw) ||
-        productId.includes(kw) ||
-        classId.includes(kw) ||
-        state.includes(kw) ||
-        bindTo.includes(kw) ||
-        String(
-          vendorLabel(r?.vendorId || r?.status?.vendorId || rawObj?.status?.vendorId || ''),
-        )
-          .toLowerCase()
-          .includes(kw)
-      );
-    });
-  }, [pciRows, keyword, nodeFilter, statusFilter, bindFilter, getNodeName, getDeviceState, vendorLabel]);
+  const filtered = useMemo(
+    () =>
+      filterPciDevices(pciRows, {
+        keyword,
+        nodeFilter,
+        statusFilter,
+        bindFilter,
+      }),
+    [pciRows, keyword, nodeFilter, statusFilter, bindFilter],
+  );
 
   const handleRefresh = async () => {
     if (!onRefresh) return;
@@ -171,121 +90,21 @@ const PciDevicesSection: React.FC<Props> = ({
     }
   };
 
-  const handleOpenYaml = useCallback((record: any) => {
-    setDrawerRecord({ ...record, kind: record?.kind || 'PCIDevice' });
+  const handleOpenYaml = useCallback((record: unknown) => {
+    const row = record as Record<string, unknown>;
+    setDrawerRecord({ ...row, kind: row?.kind || 'PCIDevice' });
     setDrawerTab('detail');
     setDrawerOpen(true);
   }, []);
 
-  const columnsAll = useMemo(() => {
-    return [
-      {
-        title: '名称',
-        key: 'name',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const text = r?.name || r?.status?.deviceName || r?.metadata?.name || '-';
-          return (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ApiTwoTone/>
-              <span>{text}</span>
-            </span>
-          );
-        },
-      },
-      { title: '资源名', key: 'resource', ellipsis: true, render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || '-' },
-      { title: '节点', key: 'node', ellipsis: true, render: (_: any, r: any) => getNodeName(r) || '-' },
-      { title: '状态', key: 'state', ellipsis: true, render: (_: any, r: any) => renderPciStateCell(r) },
-      {
-        title: 'PCI地址',
-        key: 'addr',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const rawObj = r?.raw || r?.rawData || r;
-          return r?.address || r?.pciAddress || r?.status?.pciAddress || r?.status?.address || rawObj?.status?.pciAddress || rawObj?.status?.address || '-';
-        },
-      },
-      {
-        title: '厂商',
-        key: 'vendorId',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const rawObj = r?.raw || r?.rawData || r;
-          const id = r?.vendorId || r?.status?.vendorId || rawObj?.status?.vendorId;
-          return vendorLabel(id);
-        },
-      },
-      {
-        title: '设备ID',
-        key: 'productId',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const rawObj = r?.raw || r?.rawData || r;
-          return r?.productId || r?.deviceId || r?.status?.deviceId || rawObj?.status?.deviceId || '-';
-        },
-      },
-      {
-        title: '描述',
-        key: 'desc',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const rawObj = r?.raw || r?.rawData || r;
-          return r?.description || r?.status?.description || rawObj?.status?.description || '-';
-        },
-      },
-      {
-        title: '绑定到',
-        key: 'binding',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          if (!r?.vmInfo) return <Tag>未绑定</Tag>;
-          const vmInfo = r.vmInfo;
-          const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
-          const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
-          return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
-        },
-      },
-      {
-        title: 'ClassID',
-        key: 'classId',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const rawObj = r?.raw || r?.rawData || r;
-          return r?.classId || r?.status?.classId || rawObj?.status?.classId || '-';
-        },
-      },
-      {
-        title: '驱动',
-        key: 'driver',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const rawObj = r?.raw || r?.rawData || r;
-          return rawObj?.status?.kernelDriverInUse || r?.status?.kernelDriverInUse || '-';
-        },
-      },
-      {
-        title: 'IOMMU组',
-        key: 'iommu',
-        ellipsis: true,
-        render: (_: any, r: any) => {
-          const rawObj = r?.raw || r?.rawData || r;
-          return rawObj?.status?.iommuGroup || r?.status?.iommuGroup || '-';
-        },
-      },
-      {
-        title: '操作',
-        key: 'actions',
-        fixed: 'right' as const,
-        render: (_: any, r: any) => {
-          const items = [
-            ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
-            ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
-          ];
-          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
-        },
-      },
-    ];
-  }, [getNodeName, handleOpenYaml, isTenant, renderPciStateCell, vendorLabel]);
+  const columnsAll = useMemo(
+    () =>
+      buildPciDevicesTableColumns({
+        isTenant,
+        onOpenYaml: handleOpenYaml,
+      }),
+    [handleOpenYaml, isTenant],
+  );
 
   const tableSettingsKey =
     variant === 'sriov_vf' ? 'harvester_sriov_pci_devices_table' : 'harvester_pci_devices_table';
@@ -351,9 +170,9 @@ const PciDevicesSection: React.FC<Props> = ({
           className="std-table"
           scroll={{ x: true }}
           bordered={false}
-          rowKey={(r: any) => String(r?.uid || r?.metadata?.uid || `${getNodeName(r)}-${r?.address || r?.pciAddress || ''}-${r?.resourceName || ''}-${r?.name || ''}`)}
+          rowKey={(r) => pciDeviceRowKey(r)}
           loading={!!loading || refreshing}
-          columns={tableColumns}
+          columns={tableColumns as never}
           dataSource={filtered}
           pagination={{
             showTotal: (total) => `共 ${total} 条`,

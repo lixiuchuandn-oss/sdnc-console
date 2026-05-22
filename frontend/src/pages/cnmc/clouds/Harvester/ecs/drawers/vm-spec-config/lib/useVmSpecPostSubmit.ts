@@ -8,7 +8,7 @@
 
 import { useCallback } from "react";
 import { message, Modal } from "antd";
-import { fetchHarvesterVMAggregated } from "../../../../../../../../services/harvesterApi";
+import { fetchHarvesterVMAggregated } from 'services/harvester/vm';
 import { rebootCloudProviderEcs } from "../../../../../../../../services/api";
 import { translateKnownApiErrorMessage } from "../../../../../../../../utils/k8sErrorMessages";
 import { isVmStopped } from "../../../lib/vmInstanceStatus";

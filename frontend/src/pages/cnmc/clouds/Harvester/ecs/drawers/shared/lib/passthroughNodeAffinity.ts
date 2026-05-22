@@ -3,7 +3,7 @@
  * GPU / USB 各自只提供补丁构建回调，避免两份几乎相同的分支逻辑。
  */
 import { message, Modal } from "antd";
-import { updateHarvesterVmSpec } from "../../../../../../../../services/harvesterApi";
+import { updateHarvesterVmSpec } from "services/harvester/vm";
 import { VmReconfigureSubmitSkipFinalize } from "../../../lib/vmMutation/vmReconfigureSubmitTypes";
 
 export type PassthroughNodeAffinityDevice = "GPU" | "USB";

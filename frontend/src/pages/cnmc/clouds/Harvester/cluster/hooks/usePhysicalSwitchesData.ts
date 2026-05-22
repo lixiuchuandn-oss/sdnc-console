@@ -6,7 +6,8 @@ import {
   probeAswCtlConnection,
   syncAswCtlSwitchesToInventory,
   type HmsSwitchCr,
-} from '../../../../../../services/harvesterApi';
+} from 'services/harvester/cluster';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import {
   aswCtlProbeAggregateFromResponse,
   buildHmsServiceProbeRows,
@@ -29,7 +30,7 @@ export function usePhysicalSwitchesData(
   canManageSwitchCr: boolean,
 ) {
   const [hmsSwitchConfigs, setHmsSwitchConfigs] = useState<HmsSwitchCr[]>([]);
-  const [probeItems, setProbeItems] = useState<unknown[]>([]);
+  const [probeItems, setProbeItems] = useState<AswCtlSwitchProbeRecord[]>([]);
   const [probeMeta, setProbeMeta] = useState<PhysicalSwitchProbeMeta>({});
   const [serviceMonitorRows, setServiceMonitorRows] = useState<HmsServiceProbeRow[]>([]);
   const [serviceMonitorLoading, setServiceMonitorLoading] = useState(false);

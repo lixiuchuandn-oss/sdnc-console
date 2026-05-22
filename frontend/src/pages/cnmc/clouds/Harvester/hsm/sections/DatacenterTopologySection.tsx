@@ -4,8 +4,8 @@
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Button, Card, Divider, Empty, Popconfirm, Segmented, Space, Tooltip, message } from 'antd';
-import { 
+import { Button, Divider, Empty, Popconfirm, Segmented, Space, message } from 'antd';
+import {
   DeleteOutlined,
   EditOutlined,
   InboxOutlined,
@@ -13,23 +13,32 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import {
-  fetchHarvesterNodes,
-  fetchAswCtlSwitchesSummary,
-  fetchHarvesterResourceByLink,
-} from '../../../../../../services/harvesterApi';
-import { parseSwitchDisplayNameFromInfoLines, switchRecordManagementHost } from '../../cluster/lib/physicalSwitchRecordUtils';
+import { fetchAswCtlSwitchesSummary } from 'services/harvester/cluster';
+import { fetchHarvesterNodes } from 'services/harvester/clusterInventory';
+import { fetchHarvesterResourceByLink } from 'services/harvester/resource';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import PhysicalNodeDetailDrawer from '../../cluster/drawers/PhysicalNodeDetailDrawer';
 import PhysicalSwitchDetailDrawer from '../../cluster/drawers/PhysicalSwitchDetailDrawer';
 import { EmbeddedPhysicalNodeBladeBody } from '../lib/embeddedPhysicalNodePanel';
 import { EmbeddedSwitchPortPanelBody } from '../lib/embeddedSwitchPortPanel';
+import { type NodeLiveMetrics } from '../lib/physicalNodeRackUtils';
 import {
-  type NodeLiveMetrics,
-  nodeCpuModelName,
-  nodeManagementIp,
-  parseCpuToCores,
-  parseMemoryToBytes,
-} from '../lib/physicalNodeRackUtils';
+  DATACENTER_GRID_COLS,
+  buildHarvesterNodeSelectOptions,
+  buildNodeMetricsMapFromK8sMetrics,
+  buildSwitchSelectOptions,
+  clampRackCarouselIndex,
+  collectTakenRefKeys,
+  filterSelectOptionsExcludingTakenRefs,
+  findRackIndexBySwitchRef,
+  harvesterNodeName,
+  nextRackSortOrderDefault as calcNextRackSortOrderDefault,
+  normalizeHarvesterNodesList,
+  rackGridFullSpan,
+  resolveRackDeviceLabel,
+  switchStableRef,
+  type HarvesterNodeRecord,
+} from '../lib/datacenterTopologySectionUtils';
 import '../hsm.css';
 import AddRackDeviceModal from '../modals/AddRackDeviceModal';
 import RackFormModal from '../modals/RackFormModal';
@@ -40,42 +49,6 @@ import {
   type DatacenterRack,
   type DatacenterRackDevice,
 } from '../../../../../../services/datacenterTopologyApi';
-
-const GRID_COLS = 24;
-
-/** 每个机柜独占一行，横向占满 24 列栅格（`grid-column: 1 / -1` 等效于 `1 / 25`） */
-function rackGridFullSpan(): string {
-  return `1 / ${GRID_COLS + 1}`;
-}
-
-function normalizeNodes(json: any): any[] {
-  const raw = json?.data?.items ?? json?.items ?? json?.data ?? [];
-  return Array.isArray(raw) ? raw : [];
-}
-
-function nodeName(n: any): string {
-  return String(n?.metadata?.name || n?.name || '').trim();
-}
-
-/** 与「集群 → 物理交换机」表格一致：用管理地址作为落库 refKey（与 Tower 入库 switchHost 对齐） */
-function switchStableRef(sw: any): string {
-  const host = switchRecordManagementHost(sw);
-  if (host && host !== '—') return host;
-  return String(sw?.switchHost || sw?.host || sw?.id || '').trim();
-}
-
-/**
- * 与「集群 → 物理交换机」表格「交换机名称」列一致：仅用语义化探测名，不用 `name`（多为 ASW-CTL 实例名）。
- * 含管理地址时与地址分行（机架条用 `\n`；下拉等单行处请 `.replace(/\n/g, ' · ')`）。
- */
-function switchDisplayLabel(sw: any): string {
-  const fromLines = String(parseSwitchDisplayNameFromInfoLines(sw?.info?.lines) || '').trim();
-  const host = switchStableRef(sw);
-  if (fromLines && host && host !== '—' && fromLines !== host) return `${fromLines}\n${host}`;
-  if (fromLines) return fromLines;
-  if (host && host !== '—') return host;
-  return '物理交换机';
-}
 
 type Props = {
   cloudId: string;
@@ -88,8 +61,8 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
 
   const [loading, setLoading] = useState(true);
   const [racks, setRacks] = useState<DatacenterRack[]>([]);
-  const [nodes, setNodes] = useState<any[]>([]);
-  const [switches, setSwitches] = useState<any[]>([]);
+  const [nodes, setNodes] = useState<HarvesterNodeRecord[]>([]);
+  const [switches, setSwitches] = useState<AswCtlSwitchProbeRecord[]>([]);
   const [nodeMetricsMap, setNodeMetricsMap] = useState<Record<string, NodeLiveMetrics>>({});
 
   const [rackModalOpen, setRackModalOpen] = useState(false);
@@ -97,16 +70,14 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
 
   const [deviceModal, setDeviceModal] = useState<{
     rack: DatacenterRack;
-    /** null = 加设备；非空 = 编辑该机架条 */
     editingDevice: DatacenterRackDevice | null;
   } | null>(null);
 
   const [nodeDrawerOpen, setNodeDrawerOpen] = useState(false);
-  const [nodeDrawerRecord, setNodeDrawerRecord] = useState<any | null>(null);
+  const [nodeDrawerRecord, setNodeDrawerRecord] = useState<HarvesterNodeRecord | null>(null);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [switchDrawerRecord, setSwitchDrawerRecord] = useState<any | null>(null);
+  const [switchDrawerRecord, setSwitchDrawerRecord] = useState<AswCtlSwitchProbeRecord | null>(null);
 
-  /** 多机柜时当前选中的机柜下标（与工具栏 Segmented 同步） */
   const [rackCarouselIndex, setRackCarouselIndex] = useState(0);
   const rackIdsKey = useMemo(() => racks.map((r) => r.id).join('|'), [racks]);
 
@@ -123,84 +94,48 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
         fetchAswCtlSwitchesSummary(cloudId).catch(() => null),
       ]);
       setRacks(Array.isArray(rackJson?.racks) ? rackJson.racks : []);
-      const nodeList = normalizeNodes(nodeJson);
+      const nodeList = normalizeHarvesterNodesList(nodeJson);
       setNodes(nodeList);
       setNodeMetricsMap({});
-      // 与 NodesSection 一致：有节点即尝试拉 metrics（失败则静默为空，不依赖单独节点读权限位）
       if (nodeList.length > 0) {
         try {
-          const res: any = await fetchHarvesterResourceByLink(
+          const res = await fetchHarvesterResourceByLink(
             cloudId,
             '/apis/metrics.k8s.io/v1beta1/nodes',
           );
-          const mItems: any[] = Array.isArray(res?.items) ? res.items : [];
-          const map: Record<string, NodeLiveMetrics> = {};
-          for (const it of mItems) {
-            const nm = String(it?.metadata?.name || '').trim();
-            if (!nm) continue;
-            const epRaw = it?.usage?.['ephemeral-storage'];
-            const epStr = epRaw != null && String(epRaw).trim() !== '' ? String(epRaw) : '';
-            map[nm] = {
-              cpuUsedCores: parseCpuToCores(it?.usage?.cpu),
-              memUsedBytes: parseMemoryToBytes(it?.usage?.memory),
-              storageUsedBytes: epStr ? parseMemoryToBytes(epStr) : undefined,
-            };
-          }
-          setNodeMetricsMap(map);
+          const items =
+            res && typeof res === 'object' && 'items' in res
+              ? (res as { items?: unknown }).items
+              : [];
+          setNodeMetricsMap(buildNodeMetricsMapFromK8sMetrics(items));
         } catch {
           setNodeMetricsMap({});
         }
       }
       setSwitches(Array.isArray(swCache?.items) ? swCache.items : []);
-    } catch (e: any) {
-      message.error(e?.message || '加载失败');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '加载失败';
+      message.error(msg);
     } finally {
       setLoading(false);
     }
-  }, [cloudId, checkPerm]);
+  }, [cloudId]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
 
-  /** 自物理交换机表「端口面板」跳转：`?switch_ref=` 与机柜内交换机 refKey（管理地址）对齐时选中对应机柜 */
   useEffect(() => {
     if (loading || !racks.length) return;
     const sp = new URLSearchParams(location.search);
     const want = sp.get('switch_ref')?.trim();
     if (!want) return;
-    const idx = racks.findIndex((rack) =>
-      (rack.devices || []).some(
-        (d: any) => d.sourceKind === 'switch' && String(d.refKey || '').trim() === want,
-      ),
-    );
+    const idx = findRackIndexBySwitchRef(racks, want);
     if (idx >= 0) setRackCarouselIndex(idx);
   }, [loading, racks, location.search]);
 
-  const nodeOptions = useMemo(
-    () =>
-      nodes
-        .map((n) => {
-          const v = nodeName(n);
-          if (!v) return null;
-          const ip = nodeManagementIp(n);
-          return { value: v, label: ip ? `${v} · ${ip}` : v };
-        })
-        .filter(Boolean) as { value: string; label: string }[],
-    [nodes],
-  );
-
-  /** 可选物理交换机：按管理地址去重，与物理交换机页数据源同一套 items */
-  const switchOptions = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const sw of switches) {
-      const ref = switchStableRef(sw);
-      if (!ref) continue;
-      const label = switchDisplayLabel(sw);
-      if (!m.has(ref)) m.set(ref, label.replace(/\n/g, ' · '));
-    }
-    return Array.from(m.entries()).map(([value, label]) => ({ value, label }));
-  }, [switches]);
+  const nodeOptions = useMemo(() => buildHarvesterNodeSelectOptions(nodes), [nodes]);
+  const switchOptions = useMemo(() => buildSwitchSelectOptions(switches), [switches]);
 
   const openAddToRack = useCallback((rack: DatacenterRack) => {
     setDeviceModal({ rack, editingDevice: null });
@@ -210,50 +145,28 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
     setDeviceModal({ rack, editingDevice: d });
   }, []);
 
-  /** 机柜内已占用的物理服务器名：编辑时把当前条目的 refKey 排除在「已占用」之外，便于改绑或保留原值 */
   const nodeSelectOptions = useMemo(() => {
     if (!deviceModal) return nodeOptions;
-    const taken = new Set(
-      (deviceModal.rack.devices || [])
-        .filter((d) => d.sourceKind === 'node' && d.refKey)
-        .map((d) => String(d.refKey)),
+    const taken = collectTakenRefKeys(deviceModal.rack.devices, 'node');
+    return filterSelectOptionsExcludingTakenRefs(
+      nodeOptions,
+      taken,
+      deviceModal.editingDevice?.refKey,
     );
-    if (deviceModal.editingDevice?.refKey) {
-      taken.delete(String(deviceModal.editingDevice.refKey));
-    }
-    return nodeOptions.filter((o) => !taken.has(o.value));
   }, [deviceModal, nodeOptions]);
 
-  /** 当前机柜内已绑定的交换机管理地址，下拉中隐藏避免重复；编辑时允许保留当前机架条上的交换机 */
   const switchSelectOptions = useMemo(() => {
     if (!deviceModal) return switchOptions;
-    const taken = new Set(
-      (deviceModal.rack.devices || [])
-        .filter((d) => d.sourceKind === 'switch' && d.refKey)
-        .map((d) => String(d.refKey)),
+    const taken = collectTakenRefKeys(deviceModal.rack.devices, 'switch');
+    return filterSelectOptionsExcludingTakenRefs(
+      switchOptions,
+      taken,
+      deviceModal.editingDevice?.refKey,
     );
-    if (deviceModal.editingDevice?.refKey) {
-      taken.delete(String(deviceModal.editingDevice.refKey));
-    }
-    return switchOptions.filter((o) => !taken.has(o.value));
   }, [deviceModal, switchOptions]);
 
   const resolveDeviceLabel = useCallback(
-    (d: DatacenterRackDevice) => {
-      if (d.sourceKind === 'custom') return d.customLabel || '自定义';
-      if (d.sourceKind === 'node' && d.refKey) {
-        const n = nodes.find((x) => nodeName(x) === d.refKey);
-        const miss = n ? '' : '（未在集群中找到）';
-        if (!n) return d.refKey + miss;
-        const cpuModel = nodeCpuModelName(n);
-        return cpuModel ? `${d.refKey}\n${cpuModel}${miss}` : d.refKey + miss;
-      }
-      if (d.sourceKind === 'switch' && d.refKey) {
-        const sw = switches.find((x) => switchStableRef(x) === d.refKey);
-        return sw ? switchDisplayLabel(sw) : `${d.refKey}（未在物理交换机列表中找到）`;
-      }
-      return d.refKey || '—';
-    },
+    (d: DatacenterRackDevice) => resolveRackDeviceLabel(d, nodes, switches),
     [nodes, switches],
   );
 
@@ -271,11 +184,11 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
               : undefined;
 
       let openBladeDetail: (() => void) | undefined;
-      let switchRecordForPanel: any | null = null;
-      let nodeRecordForPanel: any | null = null;
+      let switchRecordForPanel: AswCtlSwitchProbeRecord | null = null;
+      let nodeRecordForPanel: HarvesterNodeRecord | null = null;
 
       if (d.sourceKind === 'node' && d.refKey) {
-        const n = nodes.find((x) => nodeName(x) === d.refKey);
+        const n = nodes.find((x) => harvesterNodeName(x) === d.refKey);
         nodeRecordForPanel = n ?? null;
         if (n) {
           openBladeDetail = () => {
@@ -373,8 +286,9 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
                     await deleteRackDevice(cloudId, rack.id, d.id);
                     message.success('已移除');
                     await loadAll();
-                  } catch (e: any) {
-                    message.error(e?.response?.data?.message || e?.message || '删除失败');
+                  } catch (e: unknown) {
+                    const err = e as { response?: { data?: { message?: string } }; message?: string };
+                    message.error(err?.response?.data?.message || err?.message || '删除失败');
                   }
                 }}
               >
@@ -388,17 +302,13 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
     [canWrite, cloudId, loadAll, nodeMetricsMap, nodes, openEditRackDevice, resolveDeviceLabel, switches],
   );
 
-  const nextRackSortOrderDefault = useMemo(() => {
-    if (!racks.length) return 0;
-    return Math.max(...racks.map((r) => Number(r.sortOrder) || 0)) + 1;
-  }, [racks]);
+  const nextRackSortOrderDefault = useMemo(() => calcNextRackSortOrderDefault(racks), [racks]);
 
   const openCreateRackModal = useCallback(() => {
     setRackModalOpen(true);
   }, []);
 
-  const carouselCursor =
-    racks.length <= 1 ? 0 : Math.min(Math.max(0, rackCarouselIndex), racks.length - 1);
+  const carouselCursor = clampRackCarouselIndex(rackCarouselIndex, racks.length);
   const activeRackIdForDock = racks[carouselCursor]?.id;
 
   const renderRackGrid = useCallback(
@@ -409,8 +319,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
           className="cloudmap-dc-topology-next-rack-grid"
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${GRID_COLS}, minmax(0, 1fr))`,
-            /** 单行占满父级分配高度；勿用默认 auto 行高，否则 U 位增多会撑开整页滚动条 */
+            gridTemplateColumns: `repeat(${DATACENTER_GRID_COLS}, minmax(0, 1fr))`,
             gridTemplateRows: 'minmax(0, 1fr)',
             columnGap: 8,
             rowGap: 8,
@@ -451,12 +360,12 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
               >
                 {canWrite ? (
                   <Space size={4} wrap role="group" aria-label="本机柜">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => setRenameRack(rack)}
-                      />
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={() => setRenameRack(rack)}
+                    />
                     <Popconfirm
                       title="删除本机柜？"
                       description="该机柜及其中的设备占位将从库房中移除。"
@@ -465,12 +374,13 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
                           await deleteDatacenterRack(cloudId, rack.id);
                           message.success('已删除');
                           await loadAll();
-                        } catch (e: any) {
-                          message.error(e?.response?.data?.message || e?.message || '删除失败');
+                        } catch (e: unknown) {
+                          const err = e as { response?: { data?: { message?: string } }; message?: string };
+                          message.error(err?.response?.data?.message || err?.message || '删除失败');
                         }
                       }}
                     >
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />} />
                     </Popconfirm>
                     <Button type="text" size="small" onClick={() => openAddToRack(rack)}>
                       加设备
@@ -481,13 +391,17 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
                   <Divider type="vertical" style={{ margin: 0, height: 22, borderColor: 'rgba(255,255,255,0.14)' }} />
                 ) : null}
                 <Space size={4} wrap role="group" aria-label="库房与列表">
-                  <Button type="text" size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => void loadAll()}>
-                    
-                  </Button>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={loading}
+                    onClick={() => void loadAll()}
+                  />
                   {canWrite ? (
-                      <Button type="link" size="small"  onClick={openCreateRackModal}>
-                        新机柜
-                      </Button>
+                    <Button type="link" size="small" onClick={openCreateRackModal}>
+                      新机柜
+                    </Button>
                   ) : null}
                 </Space>
               </Space>
@@ -519,112 +433,105 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
       openCreateRackModal,
       racks,
       renderDeviceBlade,
-      setRackCarouselIndex,
     ],
   );
 
   return (
     <>
-    <PageDetailSection
-      style={{
-        flex: 1,
-        minHeight: 0,
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-      contentStyle={{
-        flex: 1,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
-      <div className="cloudmap-dc-topology-body">
-        {loading && racks.length === 0 ? null : racks.length === 0 ? (
-          <div
-            style={{
-              flex: 1,
-              minHeight: 360,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '24px 16px',
-            }}
-          >
-            <div style={{ textAlign: 'center', maxWidth: 440 }}>
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  canWrite ? '暂无机柜。请点击「创建机柜」。' : '暂无机柜。'
-                }
-              />
-              {canWrite ? (
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={openCreateRackModal}
-                >
-                  创建机柜
-                </Button>
-              ) : null}
+      <PageDetailSection
+        style={{
+          flex: 1,
+          minHeight: 0,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+        contentStyle={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <div className="cloudmap-dc-topology-body">
+          {loading && racks.length === 0 ? null : racks.length === 0 ? (
+            <div
+              style={{
+                flex: 1,
+                minHeight: 360,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '24px 16px',
+              }}
+            >
+              <div style={{ textAlign: 'center', maxWidth: 440 }}>
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={canWrite ? '暂无机柜。请点击「创建机柜」。' : '暂无机柜。'}
+                />
+                {canWrite ? (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={openCreateRackModal}>
+                    创建机柜
+                  </Button>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ) : (
-          renderRackGrid(racks[carouselCursor])
-        )}
-      </div>
+          ) : (
+            renderRackGrid(racks[carouselCursor])
+          )}
+        </div>
 
-      <RackFormModal
-        mode="create"
-        open={rackModalOpen}
-        onClose={() => setRackModalOpen(false)}
-        onSuccess={() => void loadAll()}
-        cloudId={cloudId}
-        defaultSortOrder={nextRackSortOrderDefault}
+        <RackFormModal
+          mode="create"
+          open={rackModalOpen}
+          onClose={() => setRackModalOpen(false)}
+          onSuccess={() => void loadAll()}
+          cloudId={cloudId}
+          defaultSortOrder={nextRackSortOrderDefault}
+        />
+        <RackFormModal
+          mode="edit"
+          open={!!renameRack}
+          rack={renameRack}
+          onClose={() => setRenameRack(null)}
+          onSuccess={() => void loadAll()}
+          cloudId={cloudId}
+        />
+        <AddRackDeviceModal
+          open={!!deviceModal}
+          rack={deviceModal?.rack ?? null}
+          editingDevice={deviceModal?.editingDevice ?? null}
+          onClose={() => setDeviceModal(null)}
+          onSuccess={() => void loadAll()}
+          cloudId={cloudId}
+          nodeOptions={nodeSelectOptions}
+          switchSelectOptions={switchSelectOptions}
+        />
+      </PageDetailSection>
+      <PhysicalNodeDetailDrawer
+        open={nodeDrawerOpen}
+        onClose={() => {
+          setNodeDrawerOpen(false);
+          setNodeDrawerRecord(null);
+        }}
+        record={nodeDrawerRecord}
+        metrics={nodeDrawerRecord ? nodeMetricsMap[harvesterNodeName(nodeDrawerRecord)] : undefined}
+        onRefreshFromCluster={() => void loadAll()}
+        refreshLoading={loading}
       />
-      <RackFormModal
-        mode="edit"
-        open={!!renameRack}
-        rack={renameRack}
-        onClose={() => setRenameRack(null)}
-        onSuccess={() => void loadAll()}
-        cloudId={cloudId}
+      <PhysicalSwitchDetailDrawer
+        open={switchDrawerOpen}
+        record={switchDrawerRecord}
+        onClose={() => {
+          setSwitchDrawerOpen(false);
+          setSwitchDrawerRecord(null);
+        }}
+        initialTab="overview"
+        onRefreshFromCluster={() => void loadAll()}
+        refreshLoading={loading}
       />
-      <AddRackDeviceModal
-        open={!!deviceModal}
-        rack={deviceModal?.rack ?? null}
-        editingDevice={deviceModal?.editingDevice ?? null}
-        onClose={() => setDeviceModal(null)}
-        onSuccess={() => void loadAll()}
-        cloudId={cloudId}
-        nodeOptions={nodeSelectOptions}
-        switchSelectOptions={switchSelectOptions}
-      />
-    </PageDetailSection>
-    <PhysicalNodeDetailDrawer
-      open={nodeDrawerOpen}
-      onClose={() => {
-        setNodeDrawerOpen(false);
-        setNodeDrawerRecord(null);
-      }}
-      record={nodeDrawerRecord}
-      metrics={nodeDrawerRecord ? nodeMetricsMap[nodeName(nodeDrawerRecord)] : undefined}
-      onRefreshFromCluster={() => void loadAll()}
-      refreshLoading={loading}
-    />
-    <PhysicalSwitchDetailDrawer
-      open={switchDrawerOpen}
-      record={switchDrawerRecord}
-      onClose={() => {
-        setSwitchDrawerOpen(false);
-        setSwitchDrawerRecord(null);
-      }}
-      initialTab="overview"
-      onRefreshFromCluster={() => void loadAll()}
-      refreshLoading={loading}
-    />
     </>
   );
 };

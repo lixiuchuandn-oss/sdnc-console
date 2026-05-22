@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
-import { createHarvesterVirtualMachineBackup } from '../../../../../../services/harvesterApi';
+import { createHarvesterVirtualMachineBackup } from 'services/harvester/cbr';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 
