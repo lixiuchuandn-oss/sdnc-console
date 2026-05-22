@@ -1,5 +1,5 @@
 /**
- * 监控服务 - 监控告警（站内实时告警列表）
+ * 监控服务 - 站内实时告警
  * 设计文档：plan/设计-监控服务-监控告警.md、设计-监控服务-租户入口与权限.md
  * 告警通知配置已迁移至「告警通知策略」Tab（AlertForwardConfig）。
  */
@@ -12,8 +12,8 @@ import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import { fetchAlertsRules, fetchAllowedNamespaces, fetchPrometheusRulesGroups } from '../../../../../services/monitoringApi';
-import { parseAlerts, type ParsedAlert } from './lib/prometheusAlerts';
-import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
+import { parseAlerts, type ParsedAlert } from './utils/prometheusAlerts';
+import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS, SEVERITY_MAP } from './constants';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 
 interface MonitoringAlertsProps {
@@ -149,7 +149,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const renderLevel = useCallback((level: 'critical' | 'warning') => {
     const isCritical = level === 'critical';
     const color = isCritical ? CRITICAL_COLOR : WARNING_COLOR;
-    const label = isCritical ? '紧急告警' : '普通告警';
+    const label = isCritical ? SEVERITY_MAP.SEVERITY_CRITICAL : SEVERITY_MAP.SEVERITY_WARNING;
     return (
       <Space size={6} style={{ alignItems: 'center' }}>
         <span
@@ -187,7 +187,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         key: 'level',
         render: (level: 'critical' | 'warning') => renderLevel(level),
       },
-      { title: '命名空间', dataIndex: 'namespace', key: 'namespace', render: (v: string) => v || '-' },
+      { title: '项目名称', dataIndex: 'namespace', key: 'namespace', render: (v: string) => v || '-' },
       {
         title: '节点',
         dataIndex: 'node',
@@ -274,7 +274,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           <>
             <Input 
               allowClear 
-              placeholder="名称/ID" 
+              placeholder="名称/标识" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={alertKeyword} 
               onChange={(e) => setAlertKeyword(e.target.value)} 
@@ -282,20 +282,21 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
               className="toolbar-search"
             />
             <Select
-              placeholder="命名空间"
+              placeholder="数据源"
+              value={dataSourceFilter}
+              onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
+              options={[{ label: 'Prometheus', value: 'prometheus' }]}
+              className="toolbar-filter-sm"
+            />
+            <Select
+              placeholder="项目名称"
               allowClear
               value={namespaceFilter || undefined}
               onChange={(v) => setNamespaceFilter(v ?? '')}
               options={namespaceFilterOptions}
               loading={!isAdmin && allowedNsLoading}
               className="toolbar-filter-sm"
-            />
-            <Select
-              placeholder="数据源"
-              value={dataSourceFilter}
-              onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
-              options={[{ label: 'Prometheus', value: 'prometheus' }]}
-              className="toolbar-filter-sm"
+              style={{ minWidth: 250 }}
             />
             <Select
               placeholder="级别"

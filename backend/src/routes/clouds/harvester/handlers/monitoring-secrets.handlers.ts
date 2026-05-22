@@ -46,6 +46,10 @@ export async function harvesterMonitoringSecretsListHandler(req: Request, res: R
       name: (item?.metadata?.name ?? item?.name ?? '').toString().trim(),
       data: item?.data && typeof item.data === 'object' ? item.data : {},
       type: (item?.type ?? 'Opaque').toString(),
+      annotations:
+        item?.metadata?.annotations && typeof item.metadata.annotations === 'object'
+          ? item.metadata.annotations
+          : {},
     }));
     res.json(secretList);
   } catch (e: any) {
@@ -60,7 +64,7 @@ export async function harvesterMonitoringSecretsDetailHandler(req: Request, res:
   try {
     const { id, namespace, name } = req.params;
     if (!namespace || !name) {
-      return res.status(400).json({ message: '命名空间与密钥名称不能为空' });
+      return res.status(400).json({ message: '命名空间与密钥标识不能为空' });
     }
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
       namespaces: [namespace],
@@ -75,7 +79,7 @@ export async function harvesterMonitoringSecretsDetailHandler(req: Request, res:
     const origin = normalizeOrigin(cloud.endpoint || '');
     const path = `${SECRETS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
     const excludeQs =
-      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state&exclude=metadata.annotations';
+      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state';
     const url = `${origin}/${path}?${excludeQs}`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     const item =
@@ -95,6 +99,10 @@ export async function harvesterMonitoringSecretsDetailHandler(req: Request, res:
       namespace: (item?.metadata?.namespace ?? '').toString().trim(),
       data: item?.data && typeof item.data === 'object' ? item.data : {},
       type: (item?.type ?? 'Opaque').toString(),
+      annotations:
+        item?.metadata?.annotations && typeof item.metadata.annotations === 'object'
+          ? item.metadata.annotations
+          : {},
     });
   } catch (e: any) {
     if (isUnreachableError(e)) return res.status(200).json({});
@@ -124,6 +132,10 @@ export async function harvesterMonitoringSecretsCreateHandler(req: Request, res:
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
+    const requestAnnotations =
+      body?.metadata?.annotations && typeof body.metadata.annotations === 'object'
+        ? body.metadata.annotations
+        : undefined;
     const payload = {
       apiVersion: 'v1',
       kind: 'Secret',
@@ -132,6 +144,7 @@ export async function harvesterMonitoringSecretsCreateHandler(req: Request, res:
         name,
         namespace,
         labels: { ...(body?.metadata?.labels || {}), [MONITORING_RECEIVER_SECRET_LABEL]: 'true' },
+        ...(requestAnnotations ? { annotations: { ...requestAnnotations } } : {}),
       },
       data: body?.data && typeof body.data === 'object' ? body.data : {},
     };
@@ -178,6 +191,17 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
     if (existing?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true') {
       return res.status(400).json({ message: '该密钥不是告警接收器密钥，无法通过此接口修改' });
     }
+    const existingAnnotations =
+      existing?.metadata?.annotations && typeof existing.metadata.annotations === 'object'
+        ? existing.metadata.annotations
+        : {};
+    const requestAnnotations =
+      body?.metadata?.annotations && typeof body.metadata.annotations === 'object'
+        ? body.metadata.annotations
+        : undefined;
+    const mergedAnnotations = requestAnnotations
+      ? { ...existingAnnotations, ...requestAnnotations }
+      : existingAnnotations;
     const payload = {
       apiVersion: 'v1',
       kind: 'Secret',
@@ -188,6 +212,7 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
         namespace,
         resourceVersion: existing.metadata?.resourceVersion,
         labels: { ...(existing.metadata?.labels || {}), [MONITORING_RECEIVER_SECRET_LABEL]: 'true' },
+        annotations: mergedAnnotations,
       },
       data: body?.data && typeof body.data === 'object' ? body.data : existing?.data || {},
     };

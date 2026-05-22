@@ -9,7 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Descriptions, Form, Input, message, Modal, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
@@ -25,6 +25,8 @@ import {
 } from '../../../../../services/monitoringApi';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+
+const ALERT_POLICY_ALIAS_ANNOTATION = 'tower.io/alias';
 
 function base64Encode(str: string): string {
   try {
@@ -73,10 +75,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState<SecretRow | null>(null);
   const [detailRecord, setDetailRecord] = useState<SecretRow | null>(null);
+  const [aliasEditingKey, setAliasEditingKey] = useState<string | null>(null);
+  const [aliasDraft, setAliasDraft] = useState('');
+  const [aliasSaving, setAliasSaving] = useState(false);
   /** 编辑时从后端拉取的表单初始值，用于 Modal 打开后正确填充（destroyOnHidden 时 setFieldsValue 可能失效） */
   const [editFormInitialValues, setEditFormInitialValues] = useState<{
     namespace: string;
     name: string;
+    alias: string;
     dataKey: string;
     dataValue: string;
   } | null>(null);
@@ -119,6 +125,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
     form.setFieldsValue({
       namespace: namespaceFilter,
       name: '',
+      alias: '',
       dataKey: 'password',
       dataValue: '',
     });
@@ -134,7 +141,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       const ns = record.namespace ?? namespaceFilter;
       const nm = record.name;
       if (!cloudId || !ns || !nm) {
-        message.warning('无法编辑：缺少命名空间或密钥名称');
+        message.warning('无法编辑：缺少命名空间或密钥标识');
         return;
       }
       const hideLoading = message.loading('加载密钥详情中...', 0);
@@ -147,9 +154,11 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         const dataKeys = data.data && typeof data.data === 'object' ? Object.keys(data.data) : [];
         const firstKey = dataKeys[0] ?? 'password';
         const firstVal = data.data?.[firstKey] ? base64Decode(data.data[firstKey]) : '';
+        const alias = (data.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? data.name ?? nm).toString().trim();
         const formValues = {
           namespace: (data.namespace ?? ns).toString().trim(),
           name: (data.name ?? nm).toString().trim(),
+          alias,
           dataKey: firstKey,
           dataValue: firstVal,
         };
@@ -172,22 +181,31 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
     }
     const values = await form.validateFields().catch(() => null);
     if (!values || !cloudId) return;
-    const { namespace, name, dataKey, dataValue } = values;
+    const { namespace, name, alias, dataKey, dataValue } = values;
     const trimmedName = (name ?? '').toString().trim();
+    const aliasInput = (alias ?? '').toString().trim();
+    const effectiveAlias = aliasInput || trimmedName;
     const trimmedKey = (dataKey ?? 'password').toString().trim() || 'password';
     if (!trimmedName) {
-      message.warning('密钥名称不能为空');
+      message.warning('密钥标识不能为空');
       return;
     }
     if (!(dataValue ?? '').toString().trim()) {
-      message.warning('密钥值不能为空');
+      message.warning('密钥数据值不能为空');
       return;
     }
     const data: Record<string, string> = { [trimmedKey]: base64Encode((dataValue ?? '').toString()) };
     setModalLoading(true);
     try {
       if (editingRecord) {
-        const { ok, error } = await updateSecret(cloudId, namespace, editingRecord.name, { data });
+        const { ok, error } = await updateSecret(cloudId, namespace, editingRecord.name, {
+          data,
+          metadata: {
+            annotations: {
+              [ALERT_POLICY_ALIAS_ANNOTATION]: effectiveAlias,
+            },
+          },
+        });
         if (ok) {
           message.success('修改成功');
           setModalOpen(false);
@@ -198,7 +216,13 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         }
       } else {
         const { ok, error } = await createSecret(cloudId, {
-          metadata: { namespace, name: trimmedName },
+          metadata: {
+            namespace,
+            name: trimmedName,
+            annotations: {
+              [ALERT_POLICY_ALIAS_ANNOTATION]: effectiveAlias,
+            },
+          },
           data,
           type: 'Opaque',
         });
@@ -208,7 +232,17 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           setEditFormInitialValues(null);
           loadSecrets();
         } else {
-          message.error(error ?? '新增失败');
+          const errText = (error ?? '').toString();
+          const isNameConflict =
+            errText.includes('资源版本冲突') ||
+            errText.toLowerCase().includes('already exists') ||
+            errText.toLowerCase().includes('alreadyexists') ||
+            errText.includes('已存在');
+          if (isNameConflict) {
+            message.error(`密钥标识（${trimmedName}）已存在，请更换成其他名称再试`);
+          } else {
+            message.error(error ?? '新增失败');
+          }
         }
       }
     } finally {
@@ -222,12 +256,56 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
     return secrets.filter(
       (row) =>
         (row.name ?? '').toLowerCase().includes(k) ||
+        (row.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString().toLowerCase().includes(k) ||
         (row.namespace ?? '').toLowerCase().includes(k) ||
         (row.data && typeof row.data === 'object' && Object.keys(row.data).some((key) => key.toLowerCase().includes(k)))
     );
   }, [secrets, keyword]);
 
   const handleDetail = useCallback((record: SecretRow) => setDetailRecord(record), []);
+
+  const handleStartAliasEdit = useCallback((record: SecretRow) => {
+    const key = `${record.namespace ?? ''}-${record.name}`;
+    const currentAlias = (record.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? record.name ?? '').toString();
+    setAliasEditingKey(key);
+    setAliasDraft(currentAlias);
+  }, []);
+
+  const handleCancelAliasEdit = useCallback(() => {
+    setAliasEditingKey(null);
+    setAliasDraft('');
+  }, []);
+
+  const handleSaveAlias = useCallback(
+    async (record: SecretRow) => {
+      if (!cloudId || !record.namespace || !record.name) {
+        message.warning('无法修改密钥名称：缺少命名空间或密钥标识');
+        return;
+      }
+      const nextAlias = aliasDraft.trim() || record.name;
+      setAliasSaving(true);
+      try {
+        const annotations = {
+          ...(record.annotations || {}),
+          [ALERT_POLICY_ALIAS_ANNOTATION]: nextAlias,
+        };
+        const { ok, error } = await updateSecret(cloudId, record.namespace, record.name, {
+          data: record.data || {},
+          metadata: { annotations },
+        });
+        if (ok) {
+          message.success('密钥名称已更新');
+          handleCancelAliasEdit();
+          await loadSecrets();
+        } else {
+          message.error(error ?? '更新密钥名称失败');
+        }
+      } finally {
+        setAliasSaving(false);
+      }
+    },
+    [aliasDraft, cloudId, handleCancelAliasEdit, loadSecrets]
+  );
 
   const handleDelete = useCallback(
     (record: SecretRow) => {
@@ -236,7 +314,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         return;
       }
       if (!cloudId || !record.namespace || !record.name) {
-        message.warning('无法删除：缺少命名空间或密钥名称');
+        message.warning('无法删除：缺少命名空间或密钥标识');
         return;
       }
       Modal.confirm({
@@ -274,7 +352,60 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   );
 
   const allColumns: ColumnsType<SecretRow> = [
-    { title: '密钥名称', dataIndex: 'name', key: 'name', fixed: 'left', ellipsis: true },
+    {
+      title: '密钥名称',
+      key: 'alias',
+      render: (_, r) => {
+        const rowKey = `${r.namespace ?? ''}-${r.name}`;
+        if (aliasEditingKey === rowKey) {
+          return (
+            <Space size={4}>
+              <Input
+                value={aliasDraft}
+                onChange={(e) => setAliasDraft(e.target.value)}
+                onPressEnter={() => handleSaveAlias(r)}
+                placeholder="请输入密钥名称"
+                style={{ width: 220 }}
+                disabled={aliasSaving}
+              />
+              <Button
+                type="text"
+                icon={<CheckOutlined />}
+                onClick={() => handleSaveAlias(r)}
+                loading={aliasSaving}
+              />
+              <Button
+                type="text"
+                icon={<CloseOutlined />}
+                onClick={handleCancelAliasEdit}
+                disabled={aliasSaving}
+              />
+            </Space>
+          );
+        }
+        const alias = (r.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString().trim();
+        const name = (r.name ?? '').toString().trim();
+        return (
+          <Space size={6}>
+            <span>{alias || name || '-'}</span>
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleStartAliasEdit(r)}
+              disabled={!canWriteSecrets}
+            />
+          </Space>
+        );
+      },
+    },
+    { title: '密钥标识', dataIndex: 'name', key: 'name', fixed: 'left', ellipsis: true },
+    {
+      title: '项目名称',
+      dataIndex: 'namespace',
+      key: 'namespace',
+      render: (v: string | undefined) => v || '-',
+    },
     {
       title: '数据键',
       key: 'dataKeys',
@@ -302,18 +433,11 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           <Space wrap>
             <Input 
               allowClear 
-              placeholder="名称/ID" 
+              placeholder="名称/标识" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword} 
               onChange={(e) => setKeyword(e.target.value)} 
               className="toolbar-search"
-            />
-            <Select
-              placeholder="命名空间"
-              value={namespaceFilter || undefined}
-              onChange={(v) => setNamespaceFilter(v ?? 'cattle-monitoring-system')}
-              options={formNamespaceOptions}
-              className="toolbar-filter-sm"
             />
             <Select
               placeholder="数据源"
@@ -321,6 +445,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
               onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
               options={[{ label: 'Prometheus', value: 'prometheus' }]}
               className="toolbar-filter-sm"
+            />
+            <Select
+              placeholder="项目名称"
+              value={namespaceFilter || undefined}
+              onChange={(v) => setNamespaceFilter(v ?? 'cattle-monitoring-system')}
+              options={formNamespaceOptions}
+              className="toolbar-filter-sm"
+              style={{ minWidth: 250 }}
             />
           </Space>
         }
@@ -345,7 +477,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           pagination={{ showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, pageSizeOptions: ['20', '50', '100'] }}
         />
       </PageDetailSection>
-
+      {/* 新增/修改告警密钥 Modal */}
       <Modal
         title={editingRecord ? '修改告警密钥' : '新增告警密钥'}
         open={modalOpen}
@@ -367,15 +499,23 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           initialValues={editFormInitialValues ?? undefined}
           key={editFormInitialValues ? `edit-${editFormInitialValues.name}` : 'add'}
         >
-          <Form.Item name="namespace" label="命名空间" rules={[{ required: true }]}>
-            <Select placeholder="选择命名空间" options={formNamespaceOptions} disabled={!!editingRecord} />
+          <Form.Item name="namespace" label="项目名称" rules={[{ required: true }]}>
+            <Select placeholder="选择项目名称" options={formNamespaceOptions} disabled={!!editingRecord} />
           </Form.Item>
           <Form.Item
             name="name"
-            label="密钥名称"
-            rules={[{ required: true, message: '请输入密钥名称' }]}
+            label="密钥标识"
+            extra="密钥标识必须唯一且不可变更，用于在告警通知对象中引用"
+            rules={[{ required: true, message: '请输入密钥标识' }]}
           >
-            <Input placeholder="如 admin-email-secret" disabled={!!editingRecord} />
+            <Input placeholder="请输入密钥标识" disabled={!!editingRecord} />
+          </Form.Item>
+          <Form.Item
+            name="alias"
+            label="密钥名称"
+            extra="支持输入中文，如运维团队邮件密钥"
+          >
+            <Input placeholder="请输入密钥名称，如：运维团队告警密钥" maxLength={128} />
           </Form.Item>
           <Form.Item name="dataKey" label="数据键" rules={[{ required: true }]}>
             <Input placeholder="如 password" disabled={!!editingRecord} />
@@ -399,8 +539,11 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       >
         {detailRecord && (
           <Descriptions column={1} bordered size="small">
-            <Descriptions.Item label="密钥名称">{detailRecord.name ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="命名空间">{detailRecord.namespace ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="密钥名称">
+              {(detailRecord.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? detailRecord.name ?? '-').toString()}
+            </Descriptions.Item>
+            <Descriptions.Item label="密钥标识">{detailRecord.name ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="项目名称">{detailRecord.namespace ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="数据键">
               {detailRecord.data && typeof detailRecord.data === 'object'
                 ? Object.keys(detailRecord.data).join(', ')

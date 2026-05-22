@@ -21,7 +21,16 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import {
+  CheckOutlined,
+  CloseOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
@@ -47,9 +56,11 @@ import {
   RECEIVER_NAME_OPTIONS,
   type ReceiverName,
   type ReceiverSpec,
-} from './lib/receivers';
+} from './utils/receivers';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+
+const ALERT_POLICY_ALIAS_ANNOTATION = 'tower.io/alias';
 
 interface TriggerRuleOption {
   value: string;
@@ -193,35 +204,6 @@ function AlertRulesTransfer({
   );
 }
 
-function AlertConfigPreview({
-  form,
-  triggerOptions = [],
-}: { form: FormInstanceType; triggerOptions?: TriggerRuleOption[] }) {
-  const name = Form.useWatch('name', form) ?? '';
-  const namespace = Form.useWatch('namespace', form) ?? '';
-  const description = Form.useWatch('description', form) ?? '';
-  const configReceiverName = (Form.useWatch('configReceiverName', form) ?? []) as string[];
-  const firstEntry = configReceiverName[0];
-  const firstType: ReceiverName = firstEntry && firstEntry.includes(':')
-    ? (firstEntry.slice(0, firstEntry.indexOf(':')) as ReceiverName)
-    : 'email-receiver';
-  const receiverName = (Form.useWatch('receiverName', form) ?? firstType) as ReceiverName;
-  const emailList = Form.useWatch('emailList', form) ?? [];
-  const matchers = (Form.useWatch('matchers', form) ?? []) as string[];
-  const emailCount = Array.isArray(emailList) ? emailList.filter((i: any) => (i?.emailTo ?? '').toString().trim()).length : 0;
-  const receiverDetail = receiverName === 'email-receiver' ? (emailCount ? `邮箱 ${emailCount} 条` : '-') : configReceiverName.length ? `已选 ${configReceiverName.length} 个通知对象` : '-';
-  const matcherLabels = (matchers.filter(Boolean) as string[]).map((v) => triggerOptions.find((o) => o.value === v)?.label ?? v);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>名称</span><span>{name || '-'}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>命名空间</span><span>{namespace || '-'}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>描述</span><span>{(description || '').trim() || '-'}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>配置摘要</span><span>{receiverDetail}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>已选条件</span><span>{matcherLabels.length ? matcherLabels.join('、') : '-'}</span></div>
-    </div>
-  );
-}
-
 interface Props {
   cloudId: string;
 }
@@ -268,6 +250,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailData, setDetailData] = useState<{
     name?: string;
+    alias?: string;
     namespace?: string;
     description?: string;
     creator?: string;
@@ -277,6 +260,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     repeatInterval?: string;
   } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [aliasEditingKey, setAliasEditingKey] = useState<string | null>(null);
+  const [aliasDraft, setAliasDraft] = useState('');
+  const [aliasSaving, setAliasSaving] = useState(false);
 
   const loadConfigList = useCallback(async () => {
     if (!cloudId || !canReadPolicies) return;
@@ -291,7 +277,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     setConfigList(normalizeListPayload(data));
   }, [cloudId, canReadPolicies]);
 
-  /** 通知对象名称下拉数据：来自数据库（GET .../alertmanagerconfigs/receivers，不调用 Harvester），按 receiverName 聚合；可指定 namespaces 覆盖（用于表单内按选中命名空间加载） */
+  /** 通知对象标识下拉数据：来自数据库（GET .../alertmanagerconfigs/receivers，不调用 Harvester），按 receiverName 聚合；可指定 namespaces 覆盖（用于表单内按选中项目名称加载） */
   const loadReceiversList = useCallback(
     async (overrideNamespaces?: string[]) => {
       if (!cloudId) return;
@@ -328,7 +314,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     if (cloudId && canReadPolicies) loadConfigList();
   }, [cloudId, loadConfigList, canReadPolicies]);
 
-  /** 命名空间就绪后拉取通知对象列表（供「通知对象名称」下拉使用） */
+  /** 项目名称就绪后拉取通知对象列表（供「通知对象标识」下拉使用） */
   useEffect(() => {
     if (!cloudId) return;
     const namespaces = isAdmin ? namespaceList : tenantNamespaces;
@@ -383,7 +369,13 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     if (!isAdmin && tenantNamespaces.length) {
       list = list.filter((row) => tenantNamespaces.includes(row.metadata?.namespace ?? ''));
     }
-    return list;
+    return [...list].sort((a, b) => {
+      const aTs = new Date((a.metadata?.creationTimestamp ?? '').toString()).getTime();
+      const bTs = new Date((b.metadata?.creationTimestamp ?? '').toString()).getTime();
+      const aSafe = Number.isFinite(aTs) ? aTs : 0;
+      const bSafe = Number.isFinite(bTs) ? bTs : 0;
+      return bSafe - aSafe;
+    });
   }, [configList, keyword, configNsFilter, isAdmin, tenantNamespaces]);
 
   /** spec 接收器名称 -> 通知方式（用于编辑回填时拼 type:name，以及提交时按类型取 spec） */
@@ -400,6 +392,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     }
     return map;
   }, [receiversList]);
+  const receiverTypeLabelMap: Record<ReceiverName, string> = useMemo(
+    () => ({
+      'email-receiver': '邮件',
+      'dingtalk-receiver': '钉钉',
+      'website-receiver': '站内信',
+    }),
+    []
+  );
 
   const handleOpenForm = useCallback(
     (record: AlertmanagerConfigItem | null) => {
@@ -477,6 +477,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 : routeReceiver ? [`${nameToType[routeReceiver] ?? 'email-receiver'}:${routeReceiver}`] : [];
               form.setFieldsValue({
                 name: d.metadata?.name,
+                alias: (annotations[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString(),
                 namespace: d.metadata?.namespace,
                 description: annotations.description ?? '',
                 repeatInterval: routeRepeatInterval,
@@ -497,6 +498,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         const defaultNs = isAdmin ? undefined : (tenantNamespaces[0] ?? 'default');
         form.setFieldsValue({
           namespace: defaultNs,
+          alias: '',
           receiverName: 'email-receiver',
           configReceiverName: [],
           emailList: [{ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' }],
@@ -522,7 +524,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       const ns = row.metadata?.namespace ?? '';
       const name = row.metadata?.name ?? '';
       if (!cloudId || !ns || !name) {
-        message.error('缺少命名空间或策略名称');
+        message.error('缺少项目名称/策略名称/策略标识');
         return;
       }
       setDetailData(null);
@@ -597,6 +599,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           const matcherDisplayNames = resolvedMatchers.map((id: string) => matcherNameMap.get(id) || id);
           setDetailData({
             name: d.metadata?.name ?? name,
+            alias: (annotations[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString().trim() || undefined,
             namespace: d.metadata?.namespace ?? ns,
             description: (annotations.description ?? '').toString().trim() || undefined,
             creator: d.metadata?.creator ?? undefined,
@@ -661,7 +664,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     return map;
   }, [receiversList]);
 
-  /** 级联选择：第一级 邮件/钉钉/网站，第二级 该类型下的通知对象名称；叶子 value 为 type:name */
+  /** 级联选择：第一级 邮件/钉钉/网站，第二级 该类型下的通知对象标识；叶子 value 为 type:name */
   const receiverCascadeOptions = useMemo((): { value: string; label: string; children?: { value: string; label: string }[] }[] => {
     return RECEIVER_NAME_OPTIONS.map((t) => ({
       value: t.value,
@@ -693,11 +696,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
 
   const [cascadeSelectedValue, setCascadeSelectedValue] = useState<string[]>([]);
 
-  /** 表单内命名空间：未选择时无法按命名空间加载通知对象，需提示用户 */
+  /** 表单内项目名称：未选择时无法按项目名称加载通知对象，需提示用户 */
   const watchedFormNamespace = Form.useWatch('namespace', form);
   const formNamespaceEmpty = !(watchedFormNamespace != null && String(watchedFormNamespace).trim());
 
-  /** 表单打开且用户选择了命名空间时，按该命名空间重新加载通知对象列表（确保「通知方式」下拉能获取 specReceiverName） */
+  /** 表单打开且用户选择了项目名称时，按该项目名称重新加载通知对象列表（确保「通知方式」下拉能获取 specReceiverName） */
   useEffect(() => {
     if (!formModalOpen || !cloudId) return;
     const ns = (watchedFormNamespace ?? '').toString().trim();
@@ -747,12 +750,16 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       if (emailValues) values = { ...values, ...emailValues };
     }
     const name = (values.name ?? '').toString().trim();
+    const aliasInput = (form.getFieldValue('alias') ?? '').toString().trim();
     const namespace = (values.namespace ?? 'default').toString().trim();
     const description = form.getFieldValue('description');
     const matchers = (Array.isArray(form.getFieldValue('matchers')) ? form.getFieldValue('matchers') : []) as string[];
     setFormLoading(true);
     const annotations: Record<string, string> = editingRecord?.metadata?.annotations ? { ...editingRecord.metadata.annotations } : {};
     if (description != null) annotations.description = String(description).trim();
+    const alias = aliasInput || name;
+    if (alias) annotations[ALERT_POLICY_ALIAS_ANNOTATION] = alias;
+    else delete annotations[ALERT_POLICY_ALIAS_ANNOTATION];
     if (matchers.length) annotations.matchers = matchers.join(',');
     type RouteMatcherItem = { matchType: string; name: string; value: string; matchers?: unknown[] };
     const routeMatchers: RouteMatcherItem[] = [];
@@ -837,7 +844,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       const ns = row.metadata?.namespace;
       const name = row.metadata?.name;
       if (!ns || !name || !cloudId) {
-        message.error('缺少命名空间或名称');
+        message.error('缺少项目名称或名称');
         return;
       }
       const { ok, error } = await deleteAlertmanagerconfig(cloudId, ns, name);
@@ -849,11 +856,126 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     [loadConfigList, cloudId, canWritePolicies]
   );
 
+  const handleStartAliasEdit = useCallback((row: AlertmanagerConfigItem) => {
+    const name = (row.metadata?.name ?? (row as any).name ?? '').toString().trim();
+    const namespace = (row.metadata?.namespace ?? '').toString().trim();
+    const key = `${namespace}/${name}`;
+    const alias = (row.metadata?.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? name).toString().trim();
+    setAliasEditingKey(key);
+    setAliasDraft(alias);
+  }, []);
+
+  const handleCancelAliasEdit = useCallback(() => {
+    setAliasEditingKey(null);
+    setAliasDraft('');
+  }, []);
+
+  const handleSaveAlias = useCallback(
+    async (row: AlertmanagerConfigItem) => {
+      if (!canWritePolicies) {
+        message.warning('无权编辑通知策略名称');
+        return;
+      }
+      const namespace = (row.metadata?.namespace ?? '').toString().trim();
+      const name = (row.metadata?.name ?? (row as any).name ?? '').toString().trim();
+      if (!cloudId || !namespace || !name) {
+        message.error('缺少项目名称或通知策略标识');
+        return;
+      }
+      const nextAlias = aliasDraft.trim() || name;
+      setAliasSaving(true);
+      try {
+        const { data: full, ok: okDetail, error: errDetail } = await fetchAlertmanagerconfigDetail(cloudId, namespace, name);
+        if (!okDetail || !full) {
+          message.error(errDetail || '获取通知策略详情失败');
+          return;
+        }
+        const existingRaw = full as any;
+        const existing = existingRaw?.data != null && typeof existingRaw.data === 'object' ? existingRaw.data : existingRaw;
+        const existingAnnotations =
+          existing?.metadata?.annotations && typeof existing.metadata.annotations === 'object'
+            ? existing.metadata.annotations
+            : {};
+        const nextPayload = {
+          ...existing,
+          metadata: {
+            ...existing.metadata,
+            name,
+            namespace,
+            resourceVersion: existing.metadata?.resourceVersion,
+            annotations: {
+              ...existingAnnotations,
+              [ALERT_POLICY_ALIAS_ANNOTATION]: nextAlias,
+            },
+          },
+        };
+        const { ok, error } = await updateAlertmanagerconfig(cloudId, namespace, name, nextPayload);
+        if (ok) {
+          message.success('通知策略名称已更新');
+          handleCancelAliasEdit();
+          await loadConfigList();
+        } else {
+          message.error(error || '更新通知策略名称失败');
+        }
+      } finally {
+        setAliasSaving(false);
+      }
+    },
+    [aliasDraft, canWritePolicies, cloudId, handleCancelAliasEdit, loadConfigList]
+  );
+
   const allConfigColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
     () => [
-      { title: '数据源', key: 'dataSource', fixed: 'left', render: () => 'Prometheus' },
-      { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
-      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', render: (ns: string) => ns || '-' },
+      {
+        title: '通知策略名称',
+        key: 'alias',
+        render: (_, row: AlertmanagerConfigItem) => {
+          const name = (row.metadata?.name ?? (row as any).name ?? '').toString().trim();
+          const namespace = (row.metadata?.namespace ?? '').toString().trim();
+          const rowKey = `${namespace}/${name}`;
+          if (aliasEditingKey === rowKey) {
+            return (
+              <Space size={4}>
+                <Input
+                  value={aliasDraft}
+                  onChange={(e) => setAliasDraft(e.target.value)}
+                  onPressEnter={() => handleSaveAlias(row)}
+                  placeholder="请输入通知策略名称"
+                  style={{ width: 220 }}
+                  disabled={aliasSaving}
+                />
+                <Button
+                  type="text"
+                  icon={<CheckOutlined />}
+                  onClick={() => handleSaveAlias(row)}
+                  loading={aliasSaving}
+                />
+                <Button
+                  type="text"
+                  icon={<CloseOutlined />}
+                  onClick={handleCancelAliasEdit}
+                  disabled={aliasSaving}
+                />
+              </Space>
+            );
+          }
+          const alias = (row.metadata?.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString().trim();
+          return (
+            <Space size={6}>
+              <span>{alias || name || '-'}</span>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => handleStartAliasEdit(row)}
+                disabled={!canWritePolicies}
+              />
+            </Space>
+          );
+        },
+      },
+      { title: '通知策略标识', dataIndex: ['metadata', 'name'], key: 'name', render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
+      { title: '项目名称', dataIndex: ['metadata', 'namespace'], key: 'namespace', render: (ns: string) => ns || '-' },
       {
         title: <span style={{ fontWeight: 600, color: '#000' }}>通知对象</span>,
         key: 'receivers',
@@ -868,14 +990,13 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             <Space size={[8, 4]} wrap>
               {names.map((name) => (
                 <Tag key={name} color="blue" style={{ fontSize: 'inherit', margin: 0, lineHeight: 'inherit' }}>
-                  {name}
+                  {`${name}(${receiverTypeLabelMap[(nameToType[name] ?? 'email-receiver') as ReceiverName] ?? '邮件'})`}
                 </Tag>
               ))}
             </Space>
           );
         },
       },
-      { title: '创建人', dataIndex: ['metadata', 'creator'], key: 'creator', ellipsis: true, render: (v: string | undefined) => v || '-' },
       { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'createdAt', ellipsis: true, render: (v: string | undefined) => (v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       {
         title: '操作',
@@ -907,7 +1028,20 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         ),
       },
     ],
-    [handleOpenForm, handleOpenDetail, handleDeleteConfig, canWritePolicies]
+    [
+      aliasDraft,
+      aliasEditingKey,
+      aliasSaving,
+      canWritePolicies,
+      handleCancelAliasEdit,
+      handleDeleteConfig,
+      handleOpenDetail,
+      handleOpenForm,
+      handleSaveAlias,
+      handleStartAliasEdit,
+      nameToType,
+      receiverTypeLabelMap,
+    ]
   );
 
   // 列显示设置（需要在 allConfigColumns 定义之后）
@@ -982,20 +1116,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             <>
               <Input 
                 allowClear 
-                placeholder="名称/ID" 
+                placeholder="名称/标识" 
                 suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                 value={keyword} 
                 onChange={(e) => setKeyword(e.target.value)} 
                 className="toolbar-search"
-              />
-              <Select
-                placeholder="命名空间"
-                allowClear
-                value={configNsFilter}
-                onChange={setConfigNsFilter}
-                loading={namespaceLoading}
-                options={[{ label: '全部', value: undefined }, ...formNamespaceOptions]}
-                className="toolbar-filter-sm"
               />
               <Select
                 placeholder="数据源"
@@ -1003,6 +1128,16 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
                 options={[{ label: 'Prometheus', value: 'prometheus' }]}
                 className="toolbar-filter-sm"
+              />
+              <Select
+                placeholder="项目名称"
+                allowClear
+                value={configNsFilter}
+                onChange={setConfigNsFilter}
+                loading={namespaceLoading}
+                options={[{ label: '全部', value: undefined }, ...formNamespaceOptions]}
+                className="toolbar-filter-sm"
+                style={{ minWidth: 250 }}
               />
               <button
                 type="button"
@@ -1036,7 +1171,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           />
         </PageDetailSection>
       </div>
-
+      {/* 告警通知策略详情/只读Modal */}
       <Modal
         open={detailModalOpen}
         onCancel={handleCloseDetail}
@@ -1051,14 +1186,17 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           </div>
         ) : detailData ? (
           <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>
-            <Descriptions.Item label="策略名称">{detailData.name ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="命名空间">{detailData.namespace ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知策略名称">{detailData.alias ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知策略标识">{detailData.name ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="项目名称">{detailData.namespace ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="描述">{detailData.description ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="通知对象">
               {detailData.receiverNames?.length ? (
                 <Space size={[8, 4]} wrap>
                   {detailData.receiverNames.map((n) => (
-                    <Tag key={n} color="blue">{n}</Tag>
+                    <Tag key={n} color="blue">
+                      {`${n}(${receiverTypeLabelMap[(nameToType[n] ?? 'email-receiver') as ReceiverName] ?? '邮件'})`}
+                    </Tag>
                   ))}
                 </Space>
               ) : '-'}
@@ -1073,7 +1211,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               ) : '-'}
             </Descriptions.Item>
             <Descriptions.Item label="重复推送间隔">{detailData.repeatInterval ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="创建人">{detailData.creator ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="创建时间">
               {detailData.creationTimestamp ? String(detailData.creationTimestamp).replace('T', ' ').replace(/\.\d{3}Z?$/, '') : '-'}
             </Descriptions.Item>
@@ -1082,7 +1219,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           <Typography.Text type="secondary">暂无数据</Typography.Text>
         )}
       </Modal>
-
+      {/* 告警通知策略新增/编辑Modal */}
       <Modal
         open={formModalOpen}
         onCancel={handleCloseForm}
@@ -1102,6 +1239,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           layout="vertical"
           initialValues={{
             namespace: isAdmin ? undefined : (tenantNamespaces[0] ?? 'default'),
+            alias: '',
             matchers: [],
             matcherPairs: [],
             receiverName: 'email-receiver',
@@ -1111,34 +1249,41 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }}
         >
           <Row gutter={24}>
-            <Col span={10}>
-              <Form.Item name="namespace" label="命名空间" rules={[{ required: true }]}>
-                <Select placeholder={isAdmin ? '选择命名空间' : '租户命名空间'} disabled={!!editingRecord} loading={namespaceLoading} options={formNamespaceOptions} />
-              </Form.Item>
-            </Col>
-            <Col span={14}>
-              <Form.Item name="name" label="通知策略名称" rules={[{ required: true, message: '请输入通知策略名称' }]}>
-                <Input placeholder="通知策略名称" disabled={!!editingRecord} />
+            <Col span={24}>
+              <Form.Item name="namespace" label="项目名称" rules={[{ required: true }]}>
+                <Select placeholder={isAdmin ? '选择项目名称' : '租户项目名称'} disabled={!!editingRecord} loading={namespaceLoading} options={formNamespaceOptions} />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={24}>
-            <Col span={10}>
+            <Col span={12}>
+              <Form.Item name="alias" label="通知策略名称" extra="支持输入中文，如：运维团队通知策略、存储团队通知策略">
+                <Input placeholder="通知策略名称" maxLength={128} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="name" label="通知策略标识" extra="通知策略标识必须唯一且不可变更，如：ops-alert-policy、storage-alert-policy" rules={[{ required: true, message: '请输入通知策略标识，必须唯一' }]}>
+                <Input placeholder="通知策略标识" disabled={!!editingRecord} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={24}>
+            <Col span={12}>
               <Form.Item name="repeatInterval" label="重复推送间隔 (repeatInterval)" extra="如 4h、30m">
                 <Input placeholder="4h" />
               </Form.Item>
             </Col>
-            <Col span={14}>
+            <Col span={12}>
               <Form.Item name="description" label="通知策略描述">
                 <Input.TextArea rows={2} placeholder="通知策略描述" />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={24}>
-            <Col span={10}>
+            <Col span={12}>
               <Form.Item
                 label="通知方式"
-                extra={formNamespaceEmpty ? '请先选择命名空间以加载通知对象' : undefined}
+                extra={formNamespaceEmpty ? '请先选择项目名称以加载通知对象' : undefined}
               >
                 <Cascader
                   allowClear
@@ -1148,7 +1293,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   loading={receiversLoading}
                   onDropdownVisibleChange={(open) => {
                     if (open && !(form.getFieldValue('namespace') != null && String(form.getFieldValue('namespace')).trim())) {
-                      message.warning('请先选择命名空间，以便加载该命名空间下的通知对象');
+                      message.warning('请先选择项目名称，以便加载该项目下的通知对象');
                     }
                   }}
                   onChange={(value) => {
@@ -1166,12 +1311,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 />
               </Form.Item>
             </Col>
-            <Col span={14}>
+            <Col span={12}>
               <Form.Item
                 name="configReceiverName"
                 label="通知对象"
                 rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个通知对象' }]}
-                extra={formNamespaceEmpty ? '请先选择命名空间以加载通知对象' : undefined}
+                extra={formNamespaceEmpty ? '请先选择项目名称以加载通知对象' : undefined}
               >
                 <Select
                   mode="multiple"
@@ -1183,7 +1328,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   placeholder="请选择通知对象（可多选，至少选择一个）"
                   onDropdownVisibleChange={(open) => {
                     if (open && !(form.getFieldValue('namespace') != null && String(form.getFieldValue('namespace')).trim())) {
-                      message.warning('请先选择命名空间，以便加载该命名空间下的通知对象');
+                      message.warning('请先选择项目名称，以便加载该项目下的通知对象');
                     }
                   }}
                 />

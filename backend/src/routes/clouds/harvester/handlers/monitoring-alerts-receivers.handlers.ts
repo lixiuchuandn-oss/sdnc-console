@@ -214,6 +214,17 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCheckHandle
   }
 }
 
+function findDuplicateReceiverName(receivers: any[]): string | null {
+  const seen = new Set<string>();
+  for (const receiver of Array.isArray(receivers) ? receivers : []) {
+    const name = (receiver?.name ?? '').toString().trim();
+    if (!name) continue;
+    if (seen.has(name)) return name;
+    seen.add(name);
+  }
+  return null;
+}
+
 // 处理邮件/站内信接收器
 async function processEmailReceivers(
   conn: { origin: string; token: string; insecure: boolean },
@@ -234,6 +245,12 @@ async function processEmailReceivers(
     .catch((err: any) => (err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)));
   if (!exists) {
     const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : [];
+    const duplicateName = findDuplicateReceiverName(rawReceivers);
+    if (duplicateName) {
+      return res.status(400).json({
+        message: `通知策略标识（${duplicateName}）已存在，请更换成其他名称再试`,
+      });
+    }
     if (rawReceivers.length > 0) {
       try {
         await syncLinkedSecretsAnnotationForReceivers(conn, ns, [], rawReceivers);
@@ -263,6 +280,12 @@ async function processEmailReceivers(
   }
   const oldReceivers = Array.isArray(existing.spec.receivers) ? existing.spec.receivers : [];
   const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : oldReceivers;
+  const duplicateName = findDuplicateReceiverName(rawReceivers);
+  if (duplicateName) {
+    return res.status(400).json({
+      message: `通知策略标识（${duplicateName}）已存在，请更换成其他名称再试`,
+    });
+  }
   try {
     await syncLinkedSecretsAnnotationForReceivers(conn, ns, oldReceivers, rawReceivers);
   } catch (e: any) {
@@ -381,13 +404,13 @@ async function processDingtalkReceivers(
 export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdateHandler(req: Request, res: Response) {
   try {
     const { id, namespace: ns, name } = req.params;
-    if (!ns) return res.status(400).json({ message: '命名空间不能为空' });
+    if (!ns) return res.status(400).json({ message: '项目名称不能为空' });
     if (!isValidReceiverConfigName(name)) {
       return res.status(400).json({ message: '通知方式必须是邮件、钉钉或站内信之一' });
     }
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
       namespaces: [ns],
-      forbiddenMessage: '仅能在您有权限的命名空间下操作告警通知对象',
+      forbiddenMessage: '仅能在您有权限的项目名称下操作告警通知对象',
     });
     if (!tenant) return;
 
@@ -431,7 +454,7 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandl
     const { id, namespace, name } = req.params;
     const specReceiverName = (req.query.specReceiverName ?? '').toString().trim();
     if (!specReceiverName) {
-      return res.status(400).json({ message: '需要删除的通知对象名称不能为空' });
+      return res.status(400).json({ message: '需要删除的通知对象标识不能为空' });
     }
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, { namespaces: [namespace] });
     if (!tenant) return;
@@ -479,13 +502,13 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandl
     const raw = await getJsonOnce(getUrl, conn.token, conn.insecure, true);
     const existing = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
     if (!existing?.spec) {
-      return res.status(404).json({ message: '未找到该通知对象名称' });
+      return res.status(404).json({ message: '未找到该通知对象标识' });
     }
     const receivers = Array.isArray(existing.spec.receivers) ? existing.spec.receivers : [];
     const toRemove = receivers.find((r: any) => (r?.name ?? '').toString().trim() === specReceiverName);
     const nextReceivers = receivers.filter((r: any) => (r?.name ?? '').toString().trim() !== specReceiverName);
     if (nextReceivers.length === receivers.length) {
-      return res.status(404).json({ message: '未找到该通知对象名称' });
+      return res.status(404).json({ message: '未找到该通知对象标识' });
     }
     if (name === DINGTALK_RECEIVER && toRemove) {
       const robotAccount =
@@ -506,7 +529,7 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandl
     res.status(204).send();
   } catch (e: any) {
     if (Number((e as any)?.status) === 404) {
-      return res.status(404).json({ message: e?.message || '未找到该通知对象名称' });
+      return res.status(404).json({ message: e?.message || '未找到该通知对象标识' });
     }
     if (res.headersSent) return;
     const status = (e as any).status || 500;

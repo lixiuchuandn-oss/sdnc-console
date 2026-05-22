@@ -39,7 +39,7 @@ import {
   normalizeDingtalkReceiverSpec,
   type ReceiverName,
   type ReceiverSpec,
-} from './lib/receivers';
+} from './utils/receivers';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 
 type ReceiverSpecItem = NotificationTargetReceiver;
@@ -63,8 +63,7 @@ type ReceiverItem = {
   robotUrl?: string;
   robotAccount?: string;
   robotAccessToken?: string;
-  /** 创建人、创建时间（后端返回） */
-  creator?: string;
+  /** 创建时间（后端返回） */
   createdAt?: string;
 };
 
@@ -81,31 +80,6 @@ const RECEIVER_NAME_LABELS: Record<string, string> = {
   [WEBSITE_RECEIVER]: '站内信',    // 'website-receiver' -> '站内信'
 };
 const RECEIVER_NAME_SELECT_OPTIONS = Object.entries(RECEIVER_NAME_LABELS).map(([value, label]) => ({ value, label }));
-
-const EMAIL_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'creator', 'createdAt', 'smtpHost', 'smtpRequireTls', 'smtpAuthUsername', 'smtpAuthPassword', 'emailFrom', 'emailTo', 'sendResolved', 'action'] as const;
-const DINGTALK_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'creator', 'createdAt', 'url', 'robotAccount', 'robotUrl', 'robotAccessToken', 'sendResolved', 'action'] as const;
-const WEBSITE_COLUMN_KEYS = ['receiverName', 'namespace', 'opened', 'action'] as const;
-
-const COLUMN_TITLES: Record<string, string> = {
-  receiverName: '通知方式',
-  namespace: '命名空间',
-  specReceiverName: '通知对象名称',
-  opened: '已开通',
-  creator: '创建人',
-  createdAt: '创建时间',
-  smtpHost: '邮件服务器(SMTP)',
-  smtpRequireTls: 'SMTP是否TLS',
-  smtpAuthUsername: 'SMTP授权账号',
-  smtpAuthPassword: 'SMTP授权账号密钥(Secret)',
-  emailFrom: '发件人',
-  emailTo: '收件人',
-  sendResolved: '是否发送恢复通知',
-  robotAccount: '钉钉机器人账号',
-  robotUrl: '钉钉机器人地址',
-  robotAccessToken: '钉钉机器人访问令牌',
-  url: 'Webhook URL',
-  action: '操作',
-};
 
 const DEFAULT_ADMIN_NAMESPACE = 'cattle-monitoring-system';
 
@@ -380,7 +354,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       await loadReceivers();
       handleCloseAddWebsiteModal();
       if (failed.length === 0) {
-        message.success(namespaces.length === 1 ? '本站站内信已开通' : `已为 ${namespaces.length} 个命名空间开通站内信`);
+        message.success(namespaces.length === 1 ? '本站站内信已开通' : `已为 ${namespaces.length} 个项目开通站内信`);
       } else if (failed.length < namespaces.length) {
         message.warning(`部分开通成功，失败：${failed.join('；')}`);
       } else {
@@ -437,7 +411,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       );
       if (checkOk && (checkData as any)?.exists) {
         setLoading(false);
-        message.warning('该通知对象名称已存在，请使用其他名称');
+        message.warning('该通知对象标识已存在，请使用其他标识');
         return;
       }
     }
@@ -642,7 +616,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                 key: (c?.authPassword?.key ?? '').toString().trim(),
               },
               sendResolved: c?.sendResolved,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             });
           });
@@ -653,7 +626,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               receiverName: receiverName,
               specReceiverName: specReceiverName,
               emailReceiverId: receiverId,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             } as ReceiverItem);
           }
@@ -675,7 +647,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               url: c?.url,
               robotAccessToken: c?.robotAccessToken,
               sendResolved: c?.sendResolved,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             });
           });
@@ -686,7 +657,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               receiverName: receiverName,
               specReceiverName: specReceiverName,
               dingtalkReceiverId: receiverId,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             } as ReceiverItem);
           }
@@ -700,7 +670,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
             receiverName: receiverName,
             specReceiverName: specReceiverName,
             websiteReceiverId: specReceiver?.id,
-            creator: specReceiver?.creator,
             createdAt: specReceiver?.createdAt,
           } as ReceiverItem);
         }
@@ -753,14 +722,14 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         ),
       },
       {
-        title: '通知对象名称',
+        title: '通知对象标识',
         dataIndex: 'specReceiverName',
         key: 'specReceiverName',
         ellipsis: true,
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       },
       {
-        title: '命名空间',
+        title: '项目名称',
         dataIndex: 'namespace',
         key: 'namespace',
         ellipsis: true,
@@ -804,7 +773,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
         render: (v: string | undefined) => v || '-',
       },
-      { title: '创建人', dataIndex: 'creator', key: 'creator', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => v || '-' },
       { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => (v ? (v.replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       { title: '操作', key: 'action', fixed: 'right', render: renderAction },
     ],
@@ -827,14 +795,14 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         ),
       },
       {
-        title: '通知对象名称',
+        title: '通知对象标识',
         dataIndex: 'specReceiverName',
         key: 'specReceiverName',
         ellipsis: true,
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       },
       {
-        title: '命名空间',
+        title: '项目名称',
         dataIndex: 'namespace',
         key: 'namespace',
         ellipsis: true,
@@ -870,7 +838,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         render: (v: boolean | undefined) => (v === true ? <Tag color="blue">是</Tag> : <Tag color="warning">否</Tag>),
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       },
-      { title: '创建人', dataIndex: 'creator', key: 'creator', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => v || '-' },
       { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => (v ? (v.replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       { title: '操作', key: 'action', fixed: 'right', render: renderAction },
     ],
@@ -897,7 +864,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         render: (_: unknown, r: ReceiverItem) => RECEIVER_NAME_LABELS[r.receiverName ?? ''] ?? r.receiverName ?? '-',
       },
       {
-        title: '命名空间',
+        title: '项目名称',
         dataIndex: 'namespace',
         key: 'namespace',
         ellipsis: true,
@@ -943,20 +910,11 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           <>
             <Input 
               allowClear 
-              placeholder="名称/ID" 
+              placeholder="名称/标识" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword || ''} 
               onChange={(e) => setKeyword(e.target.value)} 
               className="toolbar-search"
-            />
-            <Select
-              placeholder="命名空间"
-              allowClear
-              value={configNsFilter}
-              onChange={setConfigNsFilter}
-              loading={namespaceLoading}
-              options={formNamespaceOptions}
-              className="toolbar-filter-sm"
             />
             <Select
               placeholder="通知方式"
@@ -964,6 +922,16 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               onChange={(v) => setReceiverNameFilter(v ?? 'email-receiver')}
               options={RECEIVER_NAME_SELECT_OPTIONS}
               className="toolbar-filter-sm"
+            />
+            <Select
+              placeholder="项目名称"
+              allowClear
+              value={configNsFilter}
+              onChange={setConfigNsFilter}
+              loading={namespaceLoading}
+              options={formNamespaceOptions}
+              className="toolbar-filter-sm" 
+              style={{ minWidth: 250 }}
             />
           </>
         }
@@ -1015,7 +983,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               {RECEIVER_NAME_LABELS[detailRecord.receiverName ?? ''] ?? detailRecord.receiverName ?? '-'}
             </Descriptions.Item>
             <Descriptions.Item label="命名空间">{detailRecord.namespace ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="通知对象名称">{detailRecord.specReceiverName ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知对象标识">{detailRecord.specReceiverName ?? '-'}</Descriptions.Item>
             {detailRecord.receiverName === EMAIL_RECEIVER && ( // 邮件通知对象
               <>
                 <Descriptions.Item label="发件人">{detailRecord.emailFrom ?? '-'}</Descriptions.Item>
@@ -1039,7 +1007,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
             {detailRecord.receiverName === WEBSITE_RECEIVER && (
               <Descriptions.Item label="说明">本站站内信通知对象，无额外配置</Descriptions.Item>
             )}
-            <Descriptions.Item label="创建人">{detailRecord.creator ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="创建时间">
               {detailRecord.createdAt ? String(detailRecord.createdAt).replace('T', ' ').replace(/\.\d{3}Z?$/, '') : '-'}
             </Descriptions.Item>
@@ -1068,19 +1035,19 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           }}
         >
           <Row gutter={24}>
-            <Col span={10}>
-              <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
+            <Col span={10} style={{ minWidth: 280 }}>
+              <Form.Item name="namespace" label="项目名称" rules={[{ required: true, message: '请选择项目名称' }]}>
                 <Select
-                  placeholder="命名空间"
+                  placeholder="项目名称"
                   allowClear
                   options={formNamespaceOptions}
                   loading={namespaceLoading}
-                  style={{ minWidth: '100%' }}
+                  style={{ width: '100%' }}
                   disabled={!!editingRecord}
                   onChange={(ns) => {
                     if (ns != null && ns !== '') loadEmailModalSecrets(String(ns));
                     else setEmailModalSecrets([]);
-                    // 命名空间变更后密钥列表变化，清空所有邮箱配置的「密钥名称」「密钥Key」
+                    // 命名空间变更后密钥列表变化，清空所有邮箱配置的「密钥标识」「密钥Key」
                     const configs = addEmailForm.getFieldValue('emailConfigs') ?? [];
                     if (Array.isArray(configs) && configs.length > 0) {
                       addEmailForm.setFieldValue(
@@ -1093,7 +1060,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               </Form.Item>
             </Col>
           <Col span={14}>
-            <Form.Item name="specReceiverName" label="通知对象名称" rules={[{ required: true, message: '请输入通知对象名称' }]}>
+            <Form.Item name="specReceiverName" label="通知对象标识" rules={[{ required: true, message: '请输入通知对象标识' }]}>
               <Input placeholder="如：ops-email、storage-email 等" />
             </Form.Item>
           </Col>
@@ -1127,7 +1094,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                   <Col span={12}>
                     <Form.Item name={['emailConfigs', index, 'authIdentity']} noStyle>
                       <Select
-                        placeholder="密钥名称"
+                        placeholder="密钥标识"
                         allowClear
                         loading={loadingEmailModalSecrets}
                         options={emailModalSecrets.map((s) => ({ value: s.name, label: s.name }))}
@@ -1196,7 +1163,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
             </Form.Item>
             </Col>
           <Col span={14}>
-            <Form.Item name="specReceiverName" label="通知对象名称" rules={[{ required: true, message: '请输入通知对象名称' }]}>
+            <Form.Item name="specReceiverName" label="通知对象标识" rules={[{ required: true, message: '请输入通知对象标识' }]}>
               <Input placeholder="ops-dingtalk、storage-dingtalk 等" />
             </Form.Item>
           </Col>
@@ -1220,7 +1187,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           ))}
           </Form>
       </Modal>
-
+      {/* 开通站内信 Modal */}
       <Modal
         title="开通站内信"
         open={addWebsiteModalOpen}
@@ -1251,10 +1218,10 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="namespace" label="命名空间" rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个命名空间' }]}>
+              <Form.Item name="namespace" label="项目名称" rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个项目' }]}>
                 <Select
                   mode="multiple"
-                  placeholder="请选择命名空间（可多选）"
+                  placeholder="请选择项目（可多选）"
                   allowClear
                   options={formNamespaceOptions}
                   loading={namespaceLoading}

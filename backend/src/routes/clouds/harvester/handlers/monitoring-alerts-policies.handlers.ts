@@ -138,7 +138,7 @@ export async function harvesterMonitoringAlertmanagerConfigsDetailHandler(req: R
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
+    const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences';
     const url = `${origin}/${path}?${excludeQs}`;
     const data = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     res.json(data);

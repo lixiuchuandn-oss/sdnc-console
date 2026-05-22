@@ -92,7 +92,7 @@ export async function requireTenantAccessForMonitoring(
     const allowedSet = new Set(tenant.namespaces);
     const allAllowed = namespaces.every((ns) => allowedSet.has(String(ns).trim()));
     if (!allAllowed) {
-      res.status(403).json({ message: options?.forbiddenMessage ?? '无权访问该命名空间下的配置' });
+      res.status(403).json({ message: options?.forbiddenMessage ?? '无权访问项目下的配置' });
       return null;
     }
   }
