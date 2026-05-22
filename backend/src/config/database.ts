@@ -46,7 +46,8 @@ export const AppDataSource = new DataSource({
   // 生产环境禁用自动同步，使用迁移文件管理数据库结构
   // 但为了测试机部署方便，允许通过环境变量 DB_SYNC=true 强制开启同步
   synchronize: process.env.DB_SYNC === 'true',
-  logging: process.env.NODE_ENV === 'development',
+  // 开发环境默认不打印每条 SQL（CloudSync 同步 Harvester 库存会刷屏）；需排查 SQL 时设 DB_LOGGING=true
+  logging: process.env.DB_LOGGING === 'true',
   // SQLite 配置：
   // - 设置 busy timeout 为 5 秒，避免数据库锁定问题
   // - 启用 WAL (Write-Ahead Logging) 模式，提升并发读写性能

@@ -337,6 +337,9 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'asw-ctl') {
                 // 集群侧 ASW-CTL 物理交换机探测（与 Cloudmap 集群分组 Tab 对齐）
                 permissionBase = 'clouds.cluster-networks';
+              } else if (actualResourceType === 'hms') {
+                // HMS Switch CR 声明式配置（与物理交换机 Tab 对齐）
+                permissionBase = 'clouds.cluster-networks';
               } else if (actualResourceType === 'backups' || actualResourceType === 'schedulevmbackups' ||
                          actualResourceType === 'virtualmachinebackups' || actualResourceType === 'virtualmachinerestores') {
                 // VM 备份/快照与定时策略统一使用独立备份权限

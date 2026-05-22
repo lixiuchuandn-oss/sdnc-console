@@ -44,9 +44,10 @@ export function attachXinferenceClusterRoutes(router: Router, perm: RequestHandl
       }
 
       const [clusterInfoRes, versionRes, modelsRes] = await Promise.all([
-        xinferenceGet(ctx, '/v1/cluster/info?detailed=true'),
-        xinferenceGet(ctx, '/v1/cluster/version'),
-        xinferenceGet(ctx, '/v1/models'),
+        xinferenceGet(ctx, '/v1/cluster/info?detailed=true', { timeout: 25_000 }),
+        xinferenceGet(ctx, '/v1/cluster/version', { timeout: 10_000 }),
+        // 模型列表在加载权重时可能长时间阻塞；仪表板不应因此整页挂起
+        xinferenceGet(ctx, '/v1/models', { timeout: 8_000 }),
       ]);
 
       if (!clusterInfoRes.ok) {

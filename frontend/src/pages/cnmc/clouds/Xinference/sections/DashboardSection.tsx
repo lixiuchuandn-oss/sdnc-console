@@ -3,13 +3,12 @@
  * 布局：两行视口网格（上 3 : 下 2），对齐 Cloudmap 监控概览。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Empty, List, Progress, Row, Spin, Tooltip, Typography } from 'antd';
+import { Alert, Card, Col, Empty, List, Progress, Row, Spin, Typography } from 'antd';
 import {
   ApiOutlined,
   CloudServerOutlined,
   ClusterOutlined,
   DatabaseOutlined,
-  ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import {
@@ -420,15 +419,6 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
 
       <Spin spinning={loading}>
         <div style={OVERVIEW_GRID}>
-          <Tooltip title="刷新">
-            <Button
-              aria-label="刷新仪表板"
-              icon={<ReloadOutlined />}
-              onClick={() => void load()}
-              style={{ position: 'absolute', top: 0, right: 0, zIndex: 2 }}
-              type="text"
-            />
-          </Tooltip>
           {/* 上行：集群概览 | CPU+内存 | GPU */}
           <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH}>
             <Col xs={24} lg={8} style={COL_FILL}>

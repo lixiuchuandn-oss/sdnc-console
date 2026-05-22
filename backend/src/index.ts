@@ -4,13 +4,13 @@
 // - 初始化数据库连接、种子数据（管理员账号、角色）及后台同步任务
 // - 对前端提供统一的 API 网关入口（/api/* 与 /api-proxy/*）
 import 'reflect-metadata';
+import './loadEnv';
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
-import dotenv from 'dotenv';
 import { logger, resolveMorganFormat } from './utils/logger';
 import { AppDataSource } from './config/database';
 // 认证与用户相关路由：
@@ -20,6 +20,7 @@ import { AppDataSource } from './config/database';
 import { authRoutes } from './routes/auth/auth';
 import { userRoutes } from './routes/sysuser';
 import { cloudRoutes } from './routes/clouds';
+import { difyEmbedProxyRouter } from './routes/clouds/difyEmbedProxy.router';
 import { tenantRoutes } from './routes/tenants';
 import { errorHandler } from './middleware/errorHandler';
 import { auditLogRoutes } from './routes/auditLogs';
@@ -72,8 +73,6 @@ import { getPublicUiSettings } from './config/systemSettings';
 import { getPublicAdminPasswordPolicy } from './services/adminPasswordPolicy';
 import { getPublicPageTimeoutMinutes } from './services/adminAuthConfig';
 
-dotenv.config();
-
 const app = express();
 /** 必须为 number，否则 listen(port, host, cb) 会与 backlog 重载冲突 */
 const PORT = Number(process.env.PORT) || 5001;
@@ -113,6 +112,7 @@ app.use(
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
     originAgentCluster: false,
+    frameguard: false,
   }),
 );
 {
@@ -238,6 +238,8 @@ app.get('/api/public/admin-auth-config', (_req, res) => {
   res.json({ data: { pageTimeoutMinutes: getPublicPageTimeoutMinutes() } });
 });
 app.use('/api/users', authMiddleware, userRoutes);
+// Dify 同源反代（须在 clouds 鉴权之前；SSO callback 的 ?token= 为 Dify JWT，不能走 Tower 鉴权）
+app.use('/api/clouds', difyEmbedProxyRouter);
 app.use('/api/clouds', authMiddleware, cloudRoutes);
 
 app.use('/api/tenants', authMiddleware, tenantRoutes);

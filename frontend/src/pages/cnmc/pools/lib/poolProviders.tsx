@@ -56,7 +56,7 @@ export function isCsmCloud(cloud: { config?: { provider?: string }; type?: strin
   return pv === 'cloudmap.csm';
 }
 
-/** Xinference 边缘推理资源池（type=edge + config.provider=xinference） */
+/** 边缘推理资源池：Xinference + 同机 Dify + 监控（type=edge + config.provider=xinference） */
 export function isXinferencePoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
   const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();
   return pv === 'xinference';
@@ -448,19 +448,19 @@ export const cloudProviders: CloudProvider[] = [
   },
   {
     id: 'xinference',
-    name: 'Xinference',
+    name: '边缘推理池',
     category: 'edge',
     logo: <RobotOutlined />,
-    description: 'Xinference 大模型推理服务平台',
+    description: '边缘一体机：Xinference 推理 + 同机 Dify 应用 + Grafana 监控',
     fields: [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
       {
         key: 'endpoint',
-        label: '服务地址',
+        label: '边缘节点地址（Xinference）',
         type: 'input',
         required: true,
         placeholder: 'http://192.168.1.10:9997',
-        help: 'Xinference Supervisor 地址，默认端口 9997',
+        help: 'Supervisor 地址（:9997）。Dify 默认同主机 80 端口，无需单独填写',
       },
       {
         key: 'apiToken',
@@ -469,6 +469,22 @@ export const cloudProviders: CloudProvider[] = [
         required: false,
         placeholder: '集群启用认证时必填',
         help: '对应 Xinference Bearer Token（sk- 开头 API Key 或登录令牌）',
+      },
+      {
+        key: 'grafanaUrl',
+        label: 'Grafana 地址（可选）',
+        type: 'input',
+        required: false,
+        placeholder: 'http://192.168.1.10:3000',
+        help: '监控中心嵌入用；未填时从 Xinference ui_config 读取',
+      },
+      {
+        key: 'grafanaDashboardUid',
+        label: 'Grafana Dashboard UID（可选）',
+        type: 'input',
+        required: false,
+        placeholder: 'xinference-overview',
+        help: '官方看板 UID；与 Grafana 地址同时配置后启用监控中心',
       },
     ]
   },

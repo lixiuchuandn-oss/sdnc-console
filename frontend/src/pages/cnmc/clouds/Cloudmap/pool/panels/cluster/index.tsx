@@ -159,7 +159,6 @@ export type CloudmapClusterTabsProps = {
   rawUsbDevices: any;
   harvesterPciDevices: any[];
   rawPciDevices: any;
-  aswSwitchSummary: any | null;
   cloudConfig: any | null;
   onReloadCloudMeta: () => Promise<void>;
   resourceLoading: Record<string, boolean>;
@@ -206,7 +205,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
     rawUsbDevices,
     harvesterPciDevices,
     rawPciDevices,
-    aswSwitchSummary,
     cloudConfig,
     onReloadCloudMeta,
     resourceLoading,
@@ -246,16 +244,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
       case 'cluster_physical_switches':
         return (
           <>
-            <PhysicalSwitchesSection
-              cloudId={cloudId}
-              cloudConfig={cloudConfig}
-              checkPerm={checkPerm}
-              onReloadCloudMeta={onReloadCloudMeta}
-              summary={aswSwitchSummary}
-              loading={!!resourceLoading.aswSwitches}
-              onRefresh={() => void loadTabResource('cluster_physical_switches', true)}
-            />
-            <DebugJSON data={aswSwitchSummary} show={showLog} />
+            <PhysicalSwitchesSection cloudId={cloudId} checkPerm={checkPerm} />
           </>
         );
       case 'kubeovn_public_networks':

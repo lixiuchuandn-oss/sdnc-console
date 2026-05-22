@@ -56,7 +56,6 @@ export {
   fetchHarvesterClusterNetworks, // 集群网络（Harvester Cluster Network）
   fetchAswCtlSwitchesSummary, // 物理交换机：Tower 已入库列表（不触发集群侧实时探测）
   syncAswCtlSwitchesToInventory, // 物理交换机：探测并写库后返回列表
-  probeAswCtlConnection, // 集群 HSM 探测（不写库）
   fetchHarvesterNamespaces, // 命名空间列表
   fetchHarvesterNodes, // 物理节点列表
   fetchHarvesterStorageClasses, // 存储类（StorageClass）列表

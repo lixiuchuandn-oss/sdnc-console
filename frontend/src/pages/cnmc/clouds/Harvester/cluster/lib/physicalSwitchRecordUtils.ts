@@ -13,6 +13,26 @@ export function switchRecordManagementHost(r: any): string {
   return s || '—';
 }
 
+/** Switch CR 声明的管理地址（primaryHost 优先） */
+export function hmsSwitchCrManagementHost(cr: any): string {
+  const spec = cr?.spec || {};
+  return String(spec.primaryHost || spec.hosts?.[0] || '').trim();
+}
+
+/** 按管理地址在 ASW-CTL 探测列表中匹配单台交换机实例 */
+export function matchAswProbeRecordByCr(items: any[] | undefined, cr: any): any | null {
+  if (!Array.isArray(items) || !cr) return null;
+  const host = hmsSwitchCrManagementHost(cr);
+  if (!host) return null;
+  for (const sw of items) {
+    const probeHost = switchRecordManagementHost(sw);
+    if (probeHost !== '—' && probeHost === host) return sw;
+    const direct = String(sw?.info?.host || sw?.switchHost || sw?.host || '').trim();
+    if (direct && direct === host) return sw;
+  }
+  return null;
+}
+
 export function switchRecordDeviceProfile(r: any): string {
   const p =
     r?.info?.device_profile ||

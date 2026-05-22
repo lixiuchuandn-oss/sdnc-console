@@ -87,7 +87,6 @@ export type CloudmapPoolPanelProps = {
   rawUsbDevices: any;
   harvesterPciDevices: any[];
   rawPciDevices: any;
-  aswSwitchSummary: any | null;
   nodeFilter: string;
   setNodeFilter: (v: string) => void;
   nodesOptions: string[];

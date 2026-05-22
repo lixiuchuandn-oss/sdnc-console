@@ -26,6 +26,7 @@ const CLUSTER_KIND_PATH: Record<string, (name: string) => string> = {
   GPUDevice: (name) => `/apis/devices.harvesterhci.io/v1beta1/gpudevices/${encodeURIComponent(name)}`,
   ClusterNetwork: (name) =>
     `/apis/network.harvesterhci.io/v1beta1/clusternetworks/${encodeURIComponent(name)}`,
+  Switch: (name) => `/apis/hms.rivercloud.com/v1/switches/${encodeURIComponent(name)}`,
 };
 
 const NAMESPACED_KIND_PATH: Record<string, (ns: string, name: string) => string> = {

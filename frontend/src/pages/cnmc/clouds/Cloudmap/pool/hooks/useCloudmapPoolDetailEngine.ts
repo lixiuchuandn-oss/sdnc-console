@@ -199,7 +199,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [rawClusterNetworks, setRawClusterNetworks] = useState<any | null>(
     null,
   );
-  const [aswSwitchSummary, setAswSwitchSummary] = useState<any | null>(null);
   const [rawIngresses, setRawIngresses] = useState<any | null>(null);
 
   const loadedRef = React.useRef<Set<string>>(new Set());
@@ -379,7 +378,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawIPPools,
         setHarvesterClusterNetworks,
         setRawClusterNetworks,
-        setAswSwitchSummary,
         setHarvesterNodes,
         setRawNodes,
         setHarvesterStorageClasses,
@@ -616,7 +614,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawUsbDevices,
     harvesterPciDevices,
     rawPciDevices,
-    aswSwitchSummary,
     nodeFilter,
     setNodeFilter,
     nodesOptions,

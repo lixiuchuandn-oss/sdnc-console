@@ -1,867 +1,367 @@
 /**
- * 物理接入交换机（HSM / 北向 API）— 集群 Tab 区块
+ * 物理接入交换机（HSM）— 集群 Tab 区块
  *
- * 【部署与产品归属】
- * - HSM（或 ASW-CTL）北向 HTTP 通常挂在 Harvester/Kubernetes API 同入口（如 `/v1/hms/switch/*`），
- *   南向 SSH 至接入交换机执行只读 CLI。与「集群内能力」同属 Harvester 集群，故 UI 放在 `Harvester/cluster/`。
- *
- * 【Cloudmap 与 Harvester】
- * - Cloudmap「集群 → 物理交换机」Tab 引用本 Section；首屏读 Tower 入库缓存（GET switches），工具栏刷新触发 sync（探测并写库）。
- *
- * 【配置】
- * - 访问地址固定为资源池 **API Endpoint**（与控制台连集群相同），路径 `/v1/hms/*`。
- * - 可选 `config.aswCtl`：HSM API Key、跳过 HTTPS 证书校验等。
- *
- * 【契约文档】
- * - `deployment/docs/specs/api/ASW-CTL简明完整说明.md`
+ * Cloudmap「集群 → 物理交换机」：管理 Switch CR，并展示 HSM 探测状态。
  */
-import React, { useMemo, useState } from 'react';
-import type { ColumnsType } from 'antd/es/table';
-import {
-  Alert,
-  Button,
-  Card,
-  Form,
-  Input,
-  message,
-  Modal,
-  Select,
-  Space,
-  Switch,
-  Table,
-  Tag,
-  Typography,
-} from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Button, Flex, Input, message, Modal, Select, Table, Typography } from 'antd';
+import { PlusOutlined, RadarChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import { apiPut, fetchCloudById } from '../../../../../../services/api';
-import { probeAswCtlConnection } from '../../../../../../services/harvesterApi';
 import {
-  aswCtlModalDefaults,
-  buildAswCtlConfig,
-  getEffectiveAswCtlApiKey,
-} from '../../../../../../utils/aswCtlFormUtils';
-import PhysicalSwitchDetailDrawer from '../drawers/PhysicalSwitchDetailDrawer';
+  createHmsSwitchCr,
+  deleteHmsSwitchCr,
+  updateHmsSwitchCr,
+  type HmsSwitchCr,
+  type HmsSwitchCrSpec,
+} from '../../../../../../services/harvesterApi';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
+import HmsServiceMonitorCard from '../components/HmsServiceMonitorCard';
+import HmsSwitchConfigDrawer from '../drawers/HmsSwitchConfigDrawer';
+import HmsSwitchDetailDrawer from '../drawers/HmsSwitchDetailDrawer';
+import { usePhysicalSwitchesData } from '../hooks/usePhysicalSwitchesData';
 import {
-  isHuaweiSwitchRecord,
-  isWinicssecSwitchRecord,
-  parseSwitchDisplayNameFromInfoLines,
-  parseSwitchProductModelFromInfoLines,
-  switchRecordDeviceProfile,
-  switchRecordManagementHost,
-} from '../lib/physicalSwitchRecordUtils';
-import winicssecLogo from '../../../../../../assets/asw/winicssec.png';
-import huaweiLogo from '../../../../../../assets/asw/huawei.png';
+  apiErrorMessage,
+  buildSwitchTableRows,
+  buildVendorFilterOptions,
+  countMatchedProbeRows,
+  filterSwitchTableRows,
+} from '../lib/physicalSwitchesSectionUtils';
+import { buildPhysicalSwitchesTableColumns } from '../lib/physicalSwitchesTableColumns';
+
+const TABLE_COLUMNS_SETTINGS_KEY = 'harvester_hms_switch_config_table';
 
 export type PhysicalSwitchesSectionProps = {
   cloudId: string;
-  /** 资源池 config（用于表单初始值；保存后会通过 onReloadCloudMeta 刷新） */
-  cloudConfig: any | null;
   checkPerm: (act: string) => boolean;
-  onReloadCloudMeta: () => Promise<void>;
-  summary: {
-    configured?: boolean;
-    message?: string;
-    apiKeyConfigured?: boolean;
-    onlyFirstAswCtl?: boolean;
-    onlyFirstAswCtlMessage?: string;
-    items?: any[];
-    /** 后端：live 为实时 ASW-CTL；database 为末次入库缓存 */
-    source?: 'live' | 'database';
-    stale?: boolean;
-    cacheSyncedAt?: string | null;
-    liveError?: string;
-  } | null;
-  loading: boolean;
-  onRefresh: (force?: boolean) => void;
 };
 
-type AswCtlProbeRowStatus = 'success' | 'warning' | 'error' | 'default';
-
-type AswCtlProbeRow = {
-  key: string;
-  label: string;
-  status: AswCtlProbeRowStatus;
-  summary: string;
-  detail?: string;
-};
-
-/** 探测接口返回的 ASW-CTL 级汇总行（多实例时与 items中单台行区分） */
-function aswCtlProbeAggregateFromResponse(res: any): any | null {
-  if (res?.aggregate && typeof res.aggregate === 'object') return res.aggregate;
-  if (Array.isArray(res?.items) && res.items[0]) return res.items[0];
-  return null;
-}
-
-function buildAswCtlProbeRows(res: any, row: any): AswCtlProbeRow[] {
-  const rows: AswCtlProbeRow[] = [];
-  if (res?.apiKeyProvided === false) {
-    rows.push({
-      key: 'apiKey',
-      label: 'API Key',
-      status: 'warning',
-      summary: '未发送',
-      detail: '受保护接口可能返回 401，请填写密钥或先保存配置',
-    });
-  } else {
-    rows.push({
-      key: 'apiKey',
-      label: 'API Key',
-      status: 'success',
-      summary: '已发送',
-    });
-  }
-  if (row.healthError) {
-    rows.push({
-      key: 'health',
-      label: '健康检查',
-      status: 'error',
-      summary: '异常',
-      detail: String(row.healthError),
-    });
-  } else if (row.healthNotApplicable) {
-    rows.push({
-      key: 'health',
-      label: '健康检查',
-      status: 'warning',
-      summary: '未提供',
-      detail: row.healthNaMessage ? String(row.healthNaMessage) : undefined,
-    });
-  } else {
-    rows.push({
-      key: 'health',
-      label: '健康检查',
-      status: 'success',
-      summary: '正常',
-    });
-  }
-  if (row.infoError) {
-    rows.push({
-      key: 'info',
-      label: '基本信息',
-      status: 'error',
-      summary: '异常',
-      detail: String(row.infoError),
-    });
-  } else {
-    rows.push({
-      key: 'info',
-      label: '基本信息',
-      status: 'success',
-      summary: '正常',
-    });
-  }
-  if (row.interfacesError) {
-    rows.push({
-      key: 'interfaces',
-      label: '接口状态',
-      status: 'error',
-      summary: '异常',
-      detail: String(row.interfacesError),
-    });
-  } else {
-    rows.push({
-      key: 'interfaces',
-      label: '接口状态',
-      status: 'success',
-      summary: '正常',
-    });
-  }
-  if (row.performanceError) {
-    rows.push({
-      key: 'performance',
-      label: '性能探测',
-      status: 'error',
-      summary: '异常',
-      detail: String(row.performanceError),
-    });
-  } else if (row.performanceNotApplicable) {
-    rows.push({
-      key: 'performance',
-      label: '性能探测',
-      status: 'warning',
-      summary: '不适用',
-      detail: row.performanceNaMessage
-        ? String(row.performanceNaMessage)
-        : '未配置或不可用',
-    });
-  } else if (row.performance) {
-    rows.push({
-      key: 'performance',
-      label: '性能探测',
-      status: 'success',
-      summary: '正常',
-    });
-  } else {
-    rows.push({
-      key: 'performance',
-      label: '性能探测',
-      status: 'default',
-      summary: '—',
-    });
-  }
-  if (row.deviceProfilesError) {
-    rows.push({
-      key: 'profiles',
-      label: '设备 Profile',
-      status: 'error',
-      summary: '异常',
-      detail: String(row.deviceProfilesError),
-    });
-  } else if (row.deviceProfiles) {
-    rows.push({
-      key: 'profiles',
-      label: '设备 Profile',
-      status: 'success',
-      summary: '正常',
-    });
-  } else {
-    rows.push({
-      key: 'profiles',
-      label: '设备 Profile',
-      status: 'default',
-      summary: '—',
-    });
-  }
-  if (row.vlansError) {
-    rows.push({
-      key: 'vlans',
-      label: 'VLAN',
-      status: 'error',
-      summary: '异常',
-      detail: String(row.vlansError),
-    });
-  } else if (row.vlansNotApplicable) {
-    rows.push({
-      key: 'vlans',
-      label: 'VLAN',
-      status: 'warning',
-      summary: '未提供',
-      detail: row.vlansNaMessage
-        ? String(row.vlansNaMessage)
-        : 'HTTP 404：无 GET /v1/switch/vlans 路由或未升级（见 ASW-CTL 说明 4.4.1）',
-    });
-  } else if (row.vlans) {
-    rows.push({
-      key: 'vlans',
-      label: 'VLAN',
-      status: 'success',
-      summary: '正常',
-    });
-  } else {
-    rows.push({
-      key: 'vlans',
-      label: 'VLAN',
-      status: 'default',
-      summary: '—',
-    });
-  }
-  return rows;
-}
-
-const AswCtlProbeSummaryCard: React.FC<{ rows: AswCtlProbeRow[] }> = ({
-  rows,
-}) => {
-  const hasError = rows.some((r) => r.status === 'error');
-  const hasWarn = rows.some((r) => r.status === 'warning');
-  const allOk =
-    rows.length > 0 &&
-    !hasError &&
-    !hasWarn &&
-    rows.every((r) => r.status === 'success' || r.summary === '—');
-
-  return (
-    <Card
-      size="small"
-      title={
-        <Space size="small" wrap>
-          <span>探测摘要</span>
-          {allOk ? (
-            <Tag bordered={false} color="success">
-              全部正常
-            </Tag>
-          ) : hasError ? (
-            <Tag bordered={false} color="error">
-              存在异常
-            </Tag>
-          ) : hasWarn ? (
-            <Tag bordered={false} color="warning">
-              需关注
-            </Tag>
-          ) : null}
-        </Space>
-      }
-      style={{ marginTop: 12 }}
-      styles={{ body: { paddingTop: 8, paddingBottom: 8 } }}
-    >
-      <div>
-        {rows.map((r, i) => (
-          <div
-            key={r.key}
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 12,
-              padding: '8px 0',
-              borderBottom:
-                i < rows.length - 1
-                  ? '1px solid var(--ant-color-split, rgba(0,0,0,0.06))'
-                  : undefined,
-            }}
-          >
-            <Typography.Text
-              style={{ width: 96, flexShrink: 0, marginTop: 2 }}
-              type="secondary"
-            >
-              {r.label}
-            </Typography.Text>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <Tag color={r.status}>{r.summary}</Tag>
-              {r.detail ? (
-                <Typography.Paragraph
-                  type="secondary"
-                  style={{
-                    marginBottom: 0,
-                    marginTop: 6,
-                    fontSize: 12,
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {r.detail}
-                </Typography.Paragraph>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-};
-
-/** 见文件头注释：ASW-CTL 集群内部署、本组件归属 Harvester/cluster。 */
 const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
   cloudId,
-  cloudConfig,
   checkPerm,
-  onReloadCloudMeta,
-  summary,
-  loading,
-  onRefresh,
 }) => {
-  const [cfgForm] = Form.useForm();
-  const [saving, setSaving] = useState(false);
-  const [probing, setProbing] = useState(false);
-  const [probeSummaryRows, setProbeSummaryRows] = useState<
-    AswCtlProbeRow[] | null
-  >(null);
-  const [configModalOpen, setConfigModalOpen] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailRecord, setDetailRecord] = useState<any | null>(null);
-  const [hostKeyword, setHostKeyword] = useState('');
-  const [deviceTemplateFilter, setDeviceTemplateFilter] = useState('');
-  const canEditPool = checkPerm('clouds.resource-pools:write');
-  const canProbe = checkPerm('clouds.cluster-networks:read');
+  const canRead = checkPerm('clouds.cluster-networks:read');
+  const canManageSwitchCr = checkPerm('clouds.cluster-networks:write');
 
-  const openAswConfigModal = () => {
-    const d = aswCtlModalDefaults(cloudConfig?.aswCtl);
-    cfgForm.setFieldsValue({
-      aswCtlInsecureTls: !!cloudConfig?.aswCtl?.insecureTls,
-      aswCtlApiKey: d.apiKey,
-    });
-    setProbeSummaryRows(null);
-    setConfigModalOpen(true);
-  };
+  const [keyword, setKeyword] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('');
+  const [switchCrDrawerOpen, setSwitchCrDrawerOpen] = useState(false);
+  const [editingSwitchCr, setEditingSwitchCr] = useState<HmsSwitchCr | null>(null);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  const [detailSwitchCr, setDetailSwitchCr] = useState<HmsSwitchCr | null>(null);
 
-  const items = Array.isArray(summary?.items) ? summary!.items! : [];
-  const unconfigured = summary?.configured === false;
+  const {
+    hmsSwitchConfigs,
+    probeItems,
+    probeMeta,
+    serviceMonitorRows,
+    serviceMonitorLoading,
+    loading,
+    probeLoading,
+    hsmMonitorModalOpen,
+    setHsmMonitorModalOpen,
+    loadAll,
+    handleHsmProbe,
+  } = usePhysicalSwitchesData(cloudId, canRead, canManageSwitchCr);
 
-  const deviceTemplateOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of items) {
-      const p = switchRecordDeviceProfile(r);
-      if (p) set.add(p);
-    }
-    return Array.from(set)
-      .sort((a, b) => a.localeCompare(b, 'zh-CN'))
-      .map((v) => ({ label: v, value: v }));
-  }, [items]);
+  const {
+    yamlDrawerOpen,
+    yamlViewLink,
+    yamlDrawerTitle,
+    openYamlDrawer,
+    closeYamlDrawer,
+  } = useHarvesterResourceLinkYamlDrawer(cloudId);
 
-  const filteredItems = useMemo(() => {
-    const kw = hostKeyword.trim().toLowerCase();
-    const dt = deviceTemplateFilter.trim();
-    return items.filter((r: any) => {
-      if (dt && switchRecordDeviceProfile(r) !== dt) return false;
-      if (!kw) return true;
-      const host = switchRecordManagementHost(r).toLowerCase();
-      const name = String(r?.name || '')
-        .trim()
-        .toLowerCase();
-      const swName = parseSwitchDisplayNameFromInfoLines(r?.info?.lines).toLowerCase();
-      const model = parseSwitchProductModelFromInfoLines(r?.info?.lines).toLowerCase();
-      return host.includes(kw) || name.includes(kw) || swName.includes(kw) || model.includes(kw);
-    });
-  }, [items, hostKeyword, deviceTemplateFilter]);
+  const tableRows = useMemo(
+    () => buildSwitchTableRows(hmsSwitchConfigs, probeItems),
+    [hmsSwitchConfigs, probeItems],
+  );
 
-  const handleSaveAswCtl = async () => {
-    if (!canEditPool) return;
-    try {
-      const values = await cfgForm.validateFields();
-      setSaving(true);
-      const latest = await fetchCloudById(cloudId, { skipCache: true });
-      const prevCfg = { ...(latest?.config || {}) };
-      const aswCtl = buildAswCtlConfig(
-        prevCfg.aswCtl,
-        {
-          apiKey: String(values.aswCtlApiKey || ''),
-        },
-        !!values.aswCtlInsecureTls,
+  const matchedProbeCount = useMemo(
+    () => countMatchedProbeRows(tableRows),
+    [tableRows],
+  );
+
+  const vendorOptions = useMemo(
+    () => buildVendorFilterOptions(hmsSwitchConfigs),
+    [hmsSwitchConfigs],
+  );
+
+  const filteredRows = useMemo(
+    () => filterSwitchTableRows(tableRows, keyword, vendorFilter),
+    [tableRows, keyword, vendorFilter],
+  );
+
+  const closeConfigDrawer = useCallback(() => {
+    setSwitchCrDrawerOpen(false);
+    setEditingSwitchCr(null);
+  }, []);
+
+  const closeDetailDrawer = useCallback(() => {
+    setDetailDrawerOpen(false);
+    setDetailSwitchCr(null);
+  }, []);
+
+  const openCreateSwitchCr = useCallback(() => {
+    setEditingSwitchCr(null);
+    setSwitchCrDrawerOpen(true);
+  }, []);
+
+  const openEditSwitchCr = useCallback((cr: HmsSwitchCr) => {
+    setEditingSwitchCr(cr);
+    setSwitchCrDrawerOpen(true);
+  }, []);
+
+  const openDetailDrawer = useCallback((cr: HmsSwitchCr) => {
+    setDetailSwitchCr(cr);
+    setDetailDrawerOpen(true);
+  }, []);
+
+  const openSwitchYamlDrawer = useCallback(
+    (record: HmsSwitchCr) => {
+      openYamlDrawer(
+        { ...record, kind: record.kind || 'Switch' },
+        { title: '交换机 YAML' },
       );
-      if (aswCtl) prevCfg.aswCtl = aswCtl;
-      else delete prevCfg.aswCtl;
+    },
+    [openYamlDrawer],
+  );
 
-      await apiPut(`/api/clouds/${cloudId}`, { config: prevCfg });
-      await onReloadCloudMeta();
-      onRefresh(true);
-      message.success('已保存');
-      setConfigModalOpen(false);
-    } catch (e: any) {
-      if (e?.errorFields) return;
-      message.error(e?.response?.data?.message || e?.message || '保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleClearAswCtl = async () => {
-    if (!canEditPool) return;
-    setSaving(true);
-    try {
-      const latest = await fetchCloudById(cloudId, { skipCache: true });
-      const prevCfg = { ...(latest?.config || {}) };
-      delete prevCfg.aswCtl;
-      await apiPut(`/api/clouds/${cloudId}`, { config: prevCfg });
-      const empty = aswCtlModalDefaults(undefined);
-      cfgForm.setFieldsValue({
-        aswCtlInsecureTls: false,
-        aswCtlApiKey: empty.apiKey,
-      });
-      await onReloadCloudMeta();
-      onRefresh(true);
-      message.success('已清除配置');
-      setConfigModalOpen(false);
-    } catch (e: any) {
-      message.error(e?.response?.data?.message || e?.message || '清除失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleProbeDraft = async () => {
-    if (!canProbe) return;
-    try {
-      const values = await cfgForm.validateFields();
-      setProbing(true);
-      setProbeSummaryRows(null);
-      const apiKey = getEffectiveAswCtlApiKey(
-        cloudConfig?.aswCtl,
-        String(values.aswCtlApiKey || ''),
-      );
-      const res: any = await probeAswCtlConnection(cloudId, {
-        apiKey,
-        insecureTls: !!values.aswCtlInsecureTls,
-      });
-      const aggregate = aswCtlProbeAggregateFromResponse(res);
-      if (!aggregate) {
-        setProbeSummaryRows([
-          {
-            key: 'empty',
-            label: '探测',
-            status: 'error',
-            summary: '无数据',
-            detail: '服务端未返回探测条目',
-          },
-        ]);
-        message.warning('探测未返回数据');
-        return;
-      }
-      if (res?.apiKeyProvided === false) {
-        message.warning(
-          '未携带 API Key，受保护的接口将返回 401。请填写密钥后重试，或先保存配置再测试（留空时仅沿用已保存的密钥）。',
-        );
-      }
-      setProbeSummaryRows(buildAswCtlProbeRows(res, aggregate));
-      message.success('探测完成，摘要见下方');
-    } catch (e: any) {
-      message.error(e?.response?.data?.message || e?.message || '探测失败');
-    } finally {
-      setProbing(false);
-    }
-  };
-
-  const allColumns: ColumnsType<any> = useMemo(
-    () => [
-      {
-        title: '交换机名称',
-        key: 'switchDisplayName',
-        fixed: 'left',
-        ellipsis: true,
-        render: (_: unknown, r: any) => {
-          const n = parseSwitchDisplayNameFromInfoLines(r?.info?.lines);
-          const label = n || '—';
-          const showWin = isWinicssecSwitchRecord(r);
-          const showHua = isHuaweiSwitchRecord(r);
-          return (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                minWidth: 0,
-                width: '100%',
-              }}
-            >
-              {showWin ? (
-                <img
-                  src={winicssecLogo}
-                  alt=""
-                  style={{ height: 20, width: 'auto', flexShrink: 0, display: 'block' }}
-                />
-              ) : null}
-              {showHua ? (
-                <img
-                  src={huaweiLogo}
-                  alt=""
-                  style={{ height: 20, width: 'auto', flexShrink: 0, display: 'block' }}
-                />
-              ) : null}
-              <Typography.Link
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setDetailRecord(r);
-                  setDetailOpen(true);
-                }}
-                title={label}
-                style={{
-                  flex: '1 1 0%',
-                  minWidth: 0,
-                  padding: 0,
-                  display: 'block',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </Typography.Link>
-            </div>
-          );
+  const handleDeleteSwitchCr = useCallback(
+    (cr: HmsSwitchCr) => {
+      const name = String(cr?.metadata?.name || '').trim();
+      if (!name || !canManageSwitchCr) return;
+      Modal.confirm({
+        title: `删除交换机「${name}」？`,
+        content: '删除后 HSM 将不再管理该交换机。',
+        okText: '删除',
+        okButtonProps: { danger: true },
+        onOk: async () => {
+          await deleteHmsSwitchCr(cloudId, name);
+          message.success('已删除');
+          await loadAll();
         },
-      },
-      {
-        title: '管理地址',
-        key: 'mgmtAddress',
-        ellipsis: true,
-        render: (_: unknown, r: any) => switchRecordManagementHost(r),
-      },
-      {
-        title: '型号',
-        key: 'productModel',
-        ellipsis: true,
-        render: (_: unknown, r: any) =>
-          parseSwitchProductModelFromInfoLines(r?.info?.lines) || '—',
-      },
-      {
-        title: '设备模板',
-        key: 'deviceTemplate',
-        ellipsis: true,
-        render: (_: unknown, r: any) => switchRecordDeviceProfile(r) || '—',
-      },
-      {
-        title: '基本信息',
-        key: 'info',
-        render: (_: unknown, r: any) =>
-          r.infoError ? (
-            <Tag color="error">失败</Tag>
-          ) : r.info && r.info.ok === false ? (
-            <Tag color="error">失败</Tag>
-          ) : r.info ? (
-            <Tag color="success">成功</Tag>
-          ) : (
-            <Tag>—</Tag>
-          ),
-      },
-      {
-        title: '接口状态',
-        key: 'interfaces',
-        render: (_: unknown, r: any) =>
-          r.interfacesError ? (
-            <Tag color="error">失败</Tag>
-          ) : r.interfaces && r.interfaces.ok === false ? (
-            <Tag color="error">失败</Tag>
-          ) : r.interfaces ? (
-            <Tag color="success">成功</Tag>
-          ) : (
-            <Tag>—</Tag>
-          ),
-      },
-      {
-        title: '性能',
-        key: 'performance',
-        render: (_: unknown, r: any) =>
-          r.performanceError ? (
-            <Tag color="error">失败</Tag>
-          ) : r.performanceNotApplicable ? (
-            <Tag>未配置</Tag>
-          ) : r.performance && r.performance.ok === false ? (
-            <Tag color="error">失败</Tag>
-          ) : r.performance ? (
-            <Tag color="success">成功</Tag>
-          ) : (
-            <Tag>—</Tag>
-          ),
-      },
-      {
-        title: '设备 Profile',
-        key: 'deviceProfiles',
-        render: (_: unknown, r: any) =>
-          r.deviceProfilesError ? (
-            <Tag color="error">失败</Tag>
-          ) : r.deviceProfiles ? (
-            <Tag color="success">成功</Tag>
-          ) : (
-            <Tag>—</Tag>
-          ),
-      },
-      {
-        title: 'VLAN',
-        key: 'vlans',
-        render: (_: unknown, r: any) =>
-          r.vlansError ? (
-            <Tag color="error">失败</Tag>
-          ) : r.vlansNotApplicable ? (
-            <Tag>未提供</Tag>
-          ) : r.vlans && r.vlans.ok === false ? (
-            <Tag color="error">失败</Tag>
-          ) : r.vlans ? (
-            <Tag color="success">成功</Tag>
-          ) : (
-            <Tag>—</Tag>
-          ),
-      },
-      {
-        title: '操作',
-        key: 'actions',
-        fixed: 'right',
-        render: (_: unknown, r: any) => (
-          <ResourceActionsDropdown
-            items={[
-              {
-                key: 'detail',
-                label: '查看详情',
-                onClick: () => {
-                  setDetailRecord(r);
-                  setDetailOpen(true);
-                },
-              },
-            ]}
-            buttonProps={{ className: 'row-actions-trigger' }}
-          />
-        ),
-      },
+      });
+    },
+    [canManageSwitchCr, cloudId, loadAll],
+  );
+
+  const handleSubmitSwitchCr = useCallback(
+    async (payload: { name: string; spec: Record<string, unknown> }) => {
+      if (!canManageSwitchCr) return;
+      setConfigSaving(true);
+      try {
+        if (editingSwitchCr?.metadata?.name) {
+          await updateHmsSwitchCr(cloudId, editingSwitchCr.metadata.name, {
+            spec: payload.spec as HmsSwitchCrSpec,
+          });
+          message.success('配置已更新');
+        } else {
+          await createHmsSwitchCr(cloudId, {
+            name: payload.name,
+            spec: payload.spec as HmsSwitchCrSpec,
+          });
+          message.success('配置已创建');
+        }
+        closeConfigDrawer();
+        await loadAll();
+      } catch (e) {
+        message.error(apiErrorMessage(e, '保存失败'));
+        throw e;
+      } finally {
+        setConfigSaving(false);
+      }
+    },
+    [canManageSwitchCr, cloudId, closeConfigDrawer, editingSwitchCr, loadAll],
+  );
+
+  const allColumns = useMemo(
+    () =>
+      buildPhysicalSwitchesTableColumns({
+        canRead,
+        canManageSwitchCr,
+        onDetail: openDetailDrawer,
+        onYaml: openSwitchYamlDrawer,
+        onEdit: openEditSwitchCr,
+        onDelete: handleDeleteSwitchCr,
+      }),
+    [
+      canRead,
+      canManageSwitchCr,
+      openDetailDrawer,
+      openSwitchYamlDrawer,
+      openEditSwitchCr,
+      handleDeleteSwitchCr,
     ],
-    [],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(
     allColumns,
-    'harvester_physical_switches_table',
+    TABLE_COLUMNS_SETTINGS_KEY,
   );
 
+  const monitorHeaderExtra = useMemo(() => {
+    const syncedAt = probeMeta.cacheSyncedAt
+      ? new Date(probeMeta.cacheSyncedAt).toLocaleString('zh-CN')
+      : null;
+    const sourceLabel =
+      probeMeta.source === 'live'
+        ? '实时'
+        : probeMeta.source === 'database'
+          ? '缓存'
+          : null;
+    return (
+      <>
+        {sourceLabel ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            实例数据：{sourceLabel}
+          </Typography.Text>
+        ) : null}
+        {syncedAt ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            末次入库 {syncedAt}
+          </Typography.Text>
+        ) : null}
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          已匹配 {matchedProbeCount}/{hmsSwitchConfigs.length}
+        </Typography.Text>
+      </>
+    );
+  }, [
+    hmsSwitchConfigs.length,
+    matchedProbeCount,
+    probeMeta.cacheSyncedAt,
+    probeMeta.source,
+  ]);
+
+  const dataBusy = loading || probeLoading || serviceMonitorLoading;
+
+  const resetFilters = useCallback(() => {
+    setKeyword('');
+    setVendorFilter('');
+  }, []);
+
   return (
-    <>
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={
+        <>
+          <Input
+            allowClear
+            placeholder="名称 / 管理地址 / 型号"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="toolbar-search"
+          />
+          <Select
+            allowClear
+            placeholder="厂商"
+            value={vendorFilter || undefined}
+            onChange={(v) => setVendorFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={vendorOptions}
+            showSearch
+            optionFilterProp="label"
+          />
+          <button type="button" className="toolbar-reset-btn" onClick={resetFilters}>
+            重置
+          </button>
+        </>
+      }
+      toolbarRight={
+        <div className="toolbar-actions">
+          {canManageSwitchCr ? (
+            <>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateSwitchCr}>
+                添加交换机
+              </Button>
+              <Button
+                icon={<RadarChartOutlined />}
+                loading={probeLoading || serviceMonitorLoading}
+                onClick={() => void handleHsmProbe()}
+              >
+                HSM 探测
+              </Button>
+            </>
+          ) : null}
+          <TableColumnSettingsButton
+            allColumns={allColumns}
+            settingsKey={TABLE_COLUMNS_SETTINGS_KEY}
+          />
+          <Button icon={<ReloadOutlined />} loading={dataBusy} onClick={() => void loadAll()} />
+        </div>
+      }
+    >
+      <Table
+        className="std-table"
+        scroll={{ x: true }}
+        bordered={false}
+        size="small"
+        rowKey={(r) => r.metadata?.name || r.metadata?.uid || 'row'}
+        loading={loading}
+        pagination={false}
+        dataSource={filteredRows}
+        columns={tableColumns}
+      />
+
+      <HmsSwitchConfigDrawer
+        open={switchCrDrawerOpen}
+        editing={editingSwitchCr}
+        saving={configSaving}
+        onClose={closeConfigDrawer}
+        onSubmit={handleSubmitSwitchCr}
+      />
+
+      <HmsSwitchDetailDrawer
+        open={detailDrawerOpen}
+        cr={detailSwitchCr}
+        cloudId={cloudId}
+        canSync={canManageSwitchCr}
+        onClose={closeDetailDrawer}
+      />
+
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle}
+      />
+
       <Modal
-        title="API Key 设置"
-        open={configModalOpen}
-        onCancel={() => setConfigModalOpen(false)}
-        width={600}
-        centered
-        destroyOnHidden
-        styles={{ body: { padding: '10px 0' } }}
+        title="HSM 服务监控"
+        open={hsmMonitorModalOpen}
+        onCancel={() => setHsmMonitorModalOpen(false)}
         footer={
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 8,
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <Space wrap align="center">
+          <Flex justify="flex-end" gap="small">
+            <Button onClick={() => setHsmMonitorModalOpen(false)}>关闭</Button>
+            {canManageSwitchCr ? (
               <Button
-                loading={probing}
-                disabled={!canProbe || saving || probing}
-                onClick={() => void handleProbeDraft()}
-              >
-                测试连接
-              </Button>
-              {!canProbe ? (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  无集群网络读权限
-                </Typography.Text>
-              ) : null}
-            </Space>
-            <Space wrap>
-              <Button key="cancel" onClick={() => setConfigModalOpen(false)}>
-                取消
-              </Button>
-              <Button
-                key="clear"
-                danger
-                loading={saving}
-                disabled={!canEditPool}
-                onClick={() => void handleClearAswCtl()}
-              >
-                清除
-              </Button>
-              <Button
-                key="save"
                 type="primary"
-                loading={saving}
-                disabled={!canEditPool}
-                onClick={() => void handleSaveAswCtl()}
+                icon={<RadarChartOutlined />}
+                loading={probeLoading || serviceMonitorLoading}
+                onClick={() => void handleHsmProbe()}
               >
-                保存
+                重新探测
               </Button>
-            </Space>
-          </div>
+            ) : null}
+          </Flex>
         }
+        width={640}
+        destroyOnHidden
       >
-        {!canEditPool ? (
-          <Alert
-            type="warning"
-            showIcon
-            message="无资源池写权限，无法保存"
-            style={{ marginBottom: 12 }}
-          />
-        ) : null}
-        <Form form={cfgForm} layout="vertical">
-          <Form.Item
-            name="aswCtlApiKey"
-          >
-            <Input.Password
-              placeholder="需要时填写 HSM API Key"
-              prefix="API Key"
-              autoComplete="new-password"
-              disabled={saving || (!canEditPool && !canProbe)}
-            />
-          </Form.Item>
-          <Form.Item
-            name="aswCtlInsecureTls"
-            label="HTTPS 跳过证书校验"
-            valuePropName="checked"
-          >
-            <Switch disabled={saving || (!canEditPool && !canProbe)} />
-          </Form.Item>
-        </Form>
-        {probeSummaryRows?.length ? (
-          <AswCtlProbeSummaryCard rows={probeSummaryRows} />
-        ) : null}
+        <HmsServiceMonitorCard
+          embedded
+          rows={serviceMonitorRows}
+          loading={serviceMonitorLoading || probeLoading}
+          headerExtra={monitorHeaderExtra}
+        />
       </Modal>
-
-      <PageDetailSection
-        asCard={false}
-        toolbarLeft={
-          <>
-            <Input
-              allowClear
-              placeholder="名称 / 管理地址"
-              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-              value={hostKeyword}
-              onChange={(e) => setHostKeyword(e.target.value)}
-              className="toolbar-search"
-            />
-            <Select
-              allowClear
-              placeholder="设备模板"
-              value={deviceTemplateFilter || undefined}
-              onChange={(v) => setDeviceTemplateFilter(v || '')}
-              className="toolbar-filter-sm"
-              options={deviceTemplateOptions}
-              showSearch
-              optionFilterProp="label"
-            />
-            <button
-              type="button"
-              className="toolbar-reset-btn"
-              onClick={() => {
-                setHostKeyword('');
-                setDeviceTemplateFilter('');
-              }}
-            >
-              重置
-            </button>
-          </>
-        }
-        toolbarRight={
-          <div className="toolbar-actions">
-            <Button type="primary" onClick={openAswConfigModal}>
-              连接设置
-            </Button>
-            <TableColumnSettingsButton
-              allColumns={allColumns}
-              settingsKey="harvester_physical_switches_table"
-            />
-            <Button icon={<ReloadOutlined />} loading={loading} onClick={() => onRefresh(true)} />
-          </div>
-        }
-      >
-        {unconfigured && summary?.message ? (
-          <Alert
-            type="info"
-            showIcon
-            message={summary.message}
-            description="中填写服务地址；可先「测试连接」再「保存」。"
-          />
-        ) : null}
-
-        {summary?.onlyFirstAswCtl && summary?.onlyFirstAswCtlMessage ? (
-          <Alert type="warning" showIcon message={summary.onlyFirstAswCtlMessage} />
-        ) : null}
-
-        {summary?.liveError ? (
-          <Alert type="warning" showIcon message={summary.liveError} style={{ marginBottom: 12 }} />
-        ) : null}
-
-        <Table
-          className="std-table"
-          scroll={{ x: true }}
-          bordered={false}
-          size="small"
-          rowKey="id"
-          loading={loading}
-          pagination={false}
-          dataSource={filteredItems}
-          columns={tableColumns}
-        />
-
-        <PhysicalSwitchDetailDrawer
-          open={detailOpen}
-          record={detailRecord}
-          initialTab="overview"
-          onClose={() => {
-            setDetailOpen(false);
-            setDetailRecord(null);
-          }}
-          onRefreshFromCluster={onRefresh}
-          refreshLoading={loading}
-        />
-      </PageDetailSection>
-    </>
+    </PageDetailSection>
   );
 };
 

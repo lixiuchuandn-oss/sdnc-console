@@ -107,10 +107,13 @@ async function xinferenceRequest(
     }
     return { ok: true, status: res.status, data: res.data };
   } catch (e: any) {
+    const isTimeout = e?.code === 'ECONNABORTED' || String(e?.message || '').includes('timeout');
     return {
       ok: false,
       status: 0,
-      message: e?.message || 'Xinference 请求异常',
+      message: isTimeout
+        ? `Xinference 请求超时（${opts?.timeout ?? (method === 'POST' ? 120000 : 30000)}ms）`
+        : e?.message || 'Xinference 请求异常',
     };
   }
 }
@@ -149,6 +152,8 @@ export type XinferenceRunningModel = {
   sizeInBillions?: string;
   quantization?: string;
   replica?: number;
+  address?: string;
+  accelerators?: string[];
 };
 
 export type XinferenceModelRegistration = {
@@ -159,6 +164,29 @@ export type XinferenceModelRegistration = {
   abilities: string[];
   languages: string[];
   contextLength?: number;
+};
+
+export type XinferenceReplicaStatus = {
+  replicaId: number;
+  replicaModelUid: string;
+  workerAddress?: string;
+  status: string;
+  createdTs?: number;
+  errorMessage?: string | null;
+};
+
+/** GET /v1/models/instances — 含 CREATING（下载/加载中）实例；DELETE /v1/models/instances/{model_uid} 清理僵尸元数据（非 terminate） */
+export type XinferenceModelInstance = {
+  modelName: string;
+  modelUid: string;
+  modelVersion?: string | null;
+  modelAbility: string[];
+  replica: number;
+  status: string;
+  instanceCreatedTs?: number;
+  nWorker?: number;
+  errorMessage?: string | null;
+  replicaStatuses: XinferenceReplicaStatus[];
 };
 
 function pickStringArray(raw: unknown): string[] {
@@ -177,6 +205,98 @@ function readContextLength(m: Record<string, unknown>): number | undefined {
     if (typeof cl === 'number' && Number.isFinite(cl)) return cl;
   }
   return undefined;
+}
+
+function normalizeReplicaStatus(raw: unknown): XinferenceReplicaStatus | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const m = raw as Record<string, unknown>;
+  const replicaModelUid = String(m.replica_model_uid ?? m.replicaModelUid ?? '').trim();
+  const replicaIdRaw = m.replica_id ?? m.replicaId;
+  const replicaId =
+    typeof replicaIdRaw === 'number' && Number.isFinite(replicaIdRaw) ? replicaIdRaw : 0;
+  if (!replicaModelUid && replicaIdRaw == null) return null;
+  return {
+    replicaId,
+    replicaModelUid: replicaModelUid || String(replicaId),
+    workerAddress:
+      m.worker_address != null
+        ? String(m.worker_address)
+        : m.workerAddress != null
+          ? String(m.workerAddress)
+          : undefined,
+    status: String(m.status ?? ''),
+    createdTs:
+      typeof m.created_ts === 'number'
+        ? m.created_ts
+        : typeof m.createdTs === 'number'
+          ? m.createdTs
+          : undefined,
+    errorMessage:
+      m.error_message != null
+        ? String(m.error_message)
+        : m.errorMessage != null
+          ? String(m.errorMessage)
+          : null,
+  };
+}
+
+/** GET /v1/models/instances */
+export function normalizeModelInstances(raw: unknown): XinferenceModelInstance[] {
+  if (!Array.isArray(raw)) return [];
+  const out: XinferenceModelInstance[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const m = item as Record<string, unknown>;
+    const modelUid = String(m.model_uid ?? m.modelUid ?? '').trim();
+    if (!modelUid) continue;
+    const modelName = String(m.model_name ?? m.modelName ?? modelUid).trim();
+    const replicaStatusesRaw = Array.isArray(m.replica_statuses)
+      ? m.replica_statuses
+      : Array.isArray(m.replicaStatuses)
+        ? m.replicaStatuses
+        : [];
+    out.push({
+      modelName,
+      modelUid,
+      modelVersion:
+        m.model_version != null
+          ? String(m.model_version)
+          : m.modelVersion != null
+            ? String(m.modelVersion)
+            : null,
+      modelAbility: pickStringArray(m.model_ability ?? m.modelAbility),
+      replica: typeof m.replica === 'number' ? m.replica : 1,
+      status: String(m.status ?? ''),
+      instanceCreatedTs:
+        typeof m.instance_created_ts === 'number'
+          ? m.instance_created_ts
+          : typeof m.instanceCreatedTs === 'number'
+            ? m.instanceCreatedTs
+            : undefined,
+      nWorker:
+        typeof m.n_worker === 'number'
+          ? m.n_worker
+          : typeof m.nWorker === 'number'
+            ? m.nWorker
+            : undefined,
+      errorMessage:
+        m.error_message != null
+          ? String(m.error_message)
+          : m.errorMessage != null
+            ? String(m.errorMessage)
+            : null,
+      replicaStatuses: replicaStatusesRaw
+        .map(normalizeReplicaStatus)
+        .filter((x): x is XinferenceReplicaStatus => x != null),
+    });
+  }
+  return out;
+}
+
+/** GET /v1/models/{uid}/replicas */
+export function normalizeModelReplicas(raw: unknown): XinferenceReplicaStatus[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeReplicaStatus).filter((x): x is XinferenceReplicaStatus => x != null);
 }
 
 /** GET /v1/models → 运行中模型列表 */
@@ -215,9 +335,26 @@ export function normalizeRunningModels(raw: unknown): XinferenceRunningModel[] {
             : undefined,
       quantization: m.quantization != null ? String(m.quantization) : undefined,
       replica: typeof m.replica === 'number' ? m.replica : undefined,
+      address: m.address != null ? String(m.address) : undefined,
+      accelerators: pickAcceleratorsField(m),
     });
   }
   return out;
+}
+
+function pickAcceleratorsField(m: Record<string, unknown>): string[] | undefined {
+  const raw = m.accelerators ?? m.gpu_idx ?? m.gpuIdx;
+  if (Array.isArray(raw)) {
+    const list = raw.map((x) => String(x).trim()).filter(Boolean);
+    return list.length ? list : undefined;
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return undefined;
 }
 
 /** GET /v1/model_registrations/{type} */

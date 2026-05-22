@@ -10,8 +10,6 @@ import {
   fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchHarvesterStorageClasses,
-  fetchAswCtlSwitchesSummary,
-  syncAswCtlSwitchesToInventory,
 } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
@@ -49,7 +47,6 @@ export async function tryLoadClusterTab(
     setRawIPPools,
     setHarvesterClusterNetworks,
     setRawClusterNetworks,
-    setAswSwitchSummary,
     setHarvesterNodes,
     setRawNodes,
     setHarvesterStorageClasses,
@@ -261,61 +258,7 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
-    // 物理交换机：首屏只读入库缓存；强制刷新走 sync（探测+写库），失败则回退只读缓存
     case 'cluster_physical_switches':
-      if (!force && loadedRef.current.has('aswSwitches')) {
-        return true;
-      }
-      if (checkPerm('clouds.cluster-networks:read')) {
-        setResourceLoading((prev) => ({ ...prev, aswSwitches: true }));
-        try {
-          if (force && checkPerm('clouds.cluster-networks:write')) {
-            try {
-              const json = await syncAswCtlSwitchesToInventory(cloudId);
-              setAswSwitchSummary(json || null);
-            } catch (syncErr: any) {
-              console.warn('ASW-CTL sync failed, falling back to cache', syncErr);
-              const msg =
-                syncErr?.response?.data?.message ||
-                syncErr?.message ||
-                '同步失败';
-              try {
-                const cached = await fetchAswCtlSwitchesSummary(cloudId);
-                setAswSwitchSummary(
-                  cached
-                    ? { ...cached, liveError: String(msg), stale: true }
-                    : { liveError: String(msg), items: [], configured: true },
-                );
-              } catch {
-                setAswSwitchSummary({
-                  liveError: String(msg),
-                  items: [],
-                  configured: true,
-                });
-              }
-            }
-          } else {
-            const json = await fetchAswCtlSwitchesSummary(cloudId);
-            setAswSwitchSummary(
-              force && !checkPerm('clouds.cluster-networks:write')
-                ? {
-                    ...json,
-                    stale: true,
-                    liveError:
-                      '无集群网络写权限，无法从集群刷新物理交换机；仅显示 Tower 已缓存数据。',
-                  }
-                : json || null,
-            );
-          }
-          if (!force) {
-            loadedRef.current.add('aswSwitches');
-          }
-        } catch (e) {
-          console.warn('Failed to load ASW-CTL switches', e);
-        } finally {
-          setResourceLoading((prev) => ({ ...prev, aswSwitches: false }));
-        }
-      }
       return true;
     case 'storage_pools':
       return true;

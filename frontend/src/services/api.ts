@@ -76,6 +76,7 @@ const uuidToObjectIdHex = (uuidStr: string): string => {
 // Helper: Parse error response
 const parseErrorResponse = async (response: Response) => {
     let errorMsg = `HTTP error! status: ${response.status}`;
+    let hint: string | undefined;
     try {
         const data = await response.json();
         if (data && typeof data === 'object') {
@@ -95,6 +96,9 @@ const parseErrorResponse = async (response: Response) => {
              else if (data.error) {
                  errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
              }
+             if (data.hint && typeof data.hint === 'string') {
+                 hint = data.hint;
+             }
         }
     } catch (e) {
         // ignore JSON parse error
@@ -102,6 +106,7 @@ const parseErrorResponse = async (response: Response) => {
     const err: any = new Error(errorMsg);
     err.status = response.status;
     err.response = response;
+    if (hint) err.hint = hint;
     throw err;
 };
 
@@ -111,6 +116,8 @@ export type ApiGetOptions = {
   silent?: boolean;
   enableCache?: boolean;
   cacheTTL?: number;
+  /** 默认 true；与运行中列表/进度轮询等同 URL 并发时建议 false */
+  enableDeduplication?: boolean;
 };
 
 // 通用请求函数（去重、重试；GET 默认不缓存，按需 opt-in）
@@ -122,7 +129,7 @@ export const apiRequest = async (endpoint: string, options?: ApiGetOptions) => {
         endpoint,
         headers: getAuthHeaders(),
         options: {
-          enableDeduplication: true,
+          enableDeduplication: options?.enableDeduplication ?? true,
           enableCache: options?.enableCache ?? false,
           enableRetry: true,
           skipCache: options?.skipCache || false,

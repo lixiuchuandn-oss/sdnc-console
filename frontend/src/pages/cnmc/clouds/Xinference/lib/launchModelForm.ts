@@ -1,18 +1,3 @@
-export const ENGINE_OPTIONS = [
-  { label: 'vLLM', value: 'vllm' },
-  { label: 'SGLang', value: 'sglang' },
-  { label: 'llama.cpp', value: 'llama.cpp' },
-  { label: 'Transformers', value: 'transformers' },
-  { label: 'MLX', value: 'MLX' },
-];
-
-export const FORMAT_OPTIONS = [
-  { label: 'pytorch', value: 'pytorch' },
-  { label: 'ggufv2', value: 'ggufv2' },
-  { label: 'gptq', value: 'gptq' },
-  { label: 'awq', value: 'awq' },
-];
-
 export type LaunchFormValues = {
   model_type: string;
   model_name: string;
@@ -20,22 +5,53 @@ export type LaunchFormValues = {
   model_size_in_billions?: string;
   model_format?: string;
   quantization?: string;
+  multimodal_projector?: string;
   model_uid?: string;
   n_gpu?: string;
+  n_gpu_layers?: number;
   replica?: number;
+  download_hub?: string;
+  request_limits?: number;
+  model_path?: string;
+  enable_thinking?: boolean;
+  reasoning_content?: boolean;
+  gpu_idx?: string;
 };
 
-function pickStringList(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((x) => String(x)).filter(Boolean);
+export const DOWNLOAD_HUB_OPTIONS = [
+  { label: 'ModelScope', value: 'modelscope' },
+  { label: 'Hugging Face', value: 'huggingface' },
+  { label: 'CSGHub', value: 'csghub' },
+  { label: '不指定', value: 'none' },
+];
+
+export function totalClusterGpuCount(
+  workerDetails: { gpuCount: number }[],
+  workersSummaryGpu: number,
+  supervisorGpu: number,
+): number {
+  const fromNodes = workerDetails.reduce((s, w) => s + (w.gpuCount || 0), 0);
+  return Math.max(fromNodes, workersSummaryGpu, supervisorGpu, 0);
 }
 
-export function hintsFromRegistrationDetail(detail: Record<string, unknown>) {
-  const specs = Array.isArray(detail.model_specs) ? detail.model_specs : [];
-  const first = specs[0] && typeof specs[0] === 'object' ? (specs[0] as Record<string, unknown>) : null;
+export function buildNGpuOptions(gpuCount: number): { label: string; value: string }[] {
+  const opts: { label: string; value: string }[] = [{ label: 'auto', value: 'auto' }];
+  const max = gpuCount > 0 ? gpuCount : 8;
+  for (let i = 1; i <= max; i++) {
+    opts.push({ label: String(i), value: String(i) });
+  }
+  return opts;
+}
+
+export function defaultLaunchFormValues(modelType: string, modelName: string): LaunchFormValues {
   return {
-    model_engine: pickStringList(first?.model_engines ?? detail.model_engines)[0],
-    model_format: pickStringList(first?.model_formats ?? detail.model_formats)[0],
-    model_size_in_billions: pickStringList(first?.model_sizes_in_billions ?? detail.model_sizes_in_billions)[0],
+    model_type: modelType,
+    model_name: modelName,
+    n_gpu: 'auto',
+    replica: 1,
+    download_hub: 'modelscope',
+    n_gpu_layers: -1,
+    enable_thinking: true,
+    reasoning_content: false,
   };
 }

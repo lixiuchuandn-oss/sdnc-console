@@ -7,11 +7,25 @@ import { ABILITY_LABELS, fmtContextLength } from '../lib/xinferenceModelRegistry
 type Props = {
   item: XinferenceModelRegistration;
   running?: boolean;
+  cached?: boolean;
+  cachedVersionCount?: number;
   onLaunch: () => void;
   onDetail?: () => void;
 };
 
-const ModelRegistrationCard: React.FC<Props> = ({ item, running, onLaunch, onDetail }) => {
+/** 与 Paragraph ellipsis rows 一致，保证各卡片描述区等高 */
+const DESC_ROWS = 3;
+const DESC_LINE_HEIGHT_PX = 20;
+const DESC_BLOCK_HEIGHT = DESC_LINE_HEIGHT_PX * DESC_ROWS;
+
+const ModelRegistrationCard: React.FC<Props> = ({
+  item,
+  running,
+  cached,
+  cachedVersionCount,
+  onLaunch,
+  onDetail,
+}) => {
   const ctx = fmtContextLength(item.contextLength);
   const desc = item.description?.trim() || '暂无描述';
 
@@ -53,15 +67,35 @@ const ModelRegistrationCard: React.FC<Props> = ({ item, running, onLaunch, onDet
             运行中
           </Tag>
         ) : null}
+        {cached ? (
+          <Tag color="cyan" style={{ margin: 0, borderRadius: 999 }}>
+            已缓存
+            {cachedVersionCount != null && cachedVersionCount > 1
+              ? ` · ${cachedVersionCount}版`
+              : ''}
+          </Tag>
+        ) : null}
       </Space>
 
-      <Typography.Paragraph
-        type="secondary"
-        ellipsis={{ rows: 3, expandable: false }}
-        style={{ flex: 1, marginBottom: 8, fontSize: 13 }}
+      <div
+        style={{
+          height: DESC_BLOCK_HEIGHT,
+          marginBottom: 8,
+          overflow: 'hidden',
+        }}
       >
-        {desc}
-      </Typography.Paragraph>
+        <Typography.Paragraph
+          type="secondary"
+          ellipsis={{ rows: DESC_ROWS, expandable: false }}
+          style={{
+            marginBottom: 0,
+            fontSize: 13,
+            lineHeight: `${DESC_LINE_HEIGHT_PX}px`,
+          }}
+        >
+          {desc}
+        </Typography.Paragraph>
+      </div>
 
       {onDetail ? (
         <Button type="link" size="small" style={{ padding: 0, height: 'auto', alignSelf: 'flex-start' }} onClick={onDetail}>
@@ -79,10 +113,12 @@ const ModelRegistrationCard: React.FC<Props> = ({ item, running, onLaunch, onDet
           borderTop: '1px solid #f0f0f0',
         }}
       >
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {ctx || '—'}
-        </Typography.Text>
-        <Space size={4}>
+        {ctx ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {ctx}
+          </Typography.Text>
+        ) : null}
+        <Space size={4} style={ctx ? undefined : { marginLeft: 'auto' }}>
           <MessageOutlined style={{ color: '#94a3b8' }} />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {item.modelType === 'LLM' || !item.modelType ? '聊天模型' : item.modelType}

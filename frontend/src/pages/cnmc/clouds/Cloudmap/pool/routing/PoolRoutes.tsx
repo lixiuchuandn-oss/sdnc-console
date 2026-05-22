@@ -138,7 +138,6 @@ const ClusterRoute: React.FC = () => {
       rawUsbDevices={p.rawUsbDevices}
       harvesterPciDevices={p.harvesterPciDevices}
       rawPciDevices={p.rawPciDevices}
-      aswSwitchSummary={p.aswSwitchSummary}
       cloudConfig={p.cloudConfig}
       onReloadCloudMeta={p.reloadCloudMeta}
       resourceLoading={p.resourceLoading}

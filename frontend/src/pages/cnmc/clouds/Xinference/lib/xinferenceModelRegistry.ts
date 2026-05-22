@@ -1,4 +1,7 @@
-import type { XinferenceModelRegistration } from '../../../../../services/xinferenceApi';
+import type {
+  XinferenceModelRegistration,
+  XinferenceRunningModel,
+} from '../../../../../services/xinferenceApi';
 
 /** 与 Xinference UI「模型广场」类型 Tab 对齐 */
 export const XINFERENCE_GALLERY_MODEL_TYPES = [
@@ -34,6 +37,47 @@ export function modelTypeLabel(modelType: string): string {
   return XINFERENCE_GALLERY_MODEL_TYPES.find((t) => t.key === modelType)?.label ?? modelType;
 }
 
+/** 将运行实例的 model_type 规范为广场 Tab key（大小写不敏感） */
+export function normalizeRunningModelTypeKey(raw?: string): XinferenceGalleryModelType | null {
+  const s = raw?.trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  return XINFERENCE_GALLERY_MODEL_TYPES.find((t) => t.key.toLowerCase() === lower)?.key ?? null;
+}
+
+export function filterRunningModelsByType(
+  items: XinferenceRunningModel[],
+  modelType: XinferenceGalleryModelType,
+): XinferenceRunningModel[] {
+  return items.filter((m) => {
+    const t = normalizeRunningModelTypeKey(m.modelType);
+    if (modelType === 'LLM') return t === 'LLM' || t == null;
+    return t === modelType;
+  });
+}
+
+export function filterRunningModelsByKeyword(
+  items: XinferenceRunningModel[],
+  keyword: string,
+): XinferenceRunningModel[] {
+  const kw = keyword.trim().toLowerCase();
+  if (!kw) return items;
+  return items.filter((m) => {
+    const hay = [
+      m.modelUid,
+      m.modelName,
+      m.modelEngine,
+      m.modelFormat,
+      m.sizeInBillions,
+      m.quantization,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(kw);
+  });
+}
+
 export function fmtContextLength(n?: number): string {
   if (n == null || !Number.isFinite(n)) return '';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M 上下文长度`;
@@ -41,28 +85,12 @@ export function fmtContextLength(n?: number): string {
   return `${n} 上下文长度`;
 }
 
-export type GalleryFilterState = {
-  keyword: string;
-  ability: string | null;
-  status: 'all' | 'running' | 'idle';
-};
-
-export function filterGalleryRegistrations(
-  items: XinferenceModelRegistration[],
-  runningModelNames: Set<string>,
-  filter: GalleryFilterState,
-): XinferenceModelRegistration[] {
-  const kw = filter.keyword.trim().toLowerCase();
-  return items.filter((item) => {
-    if (filter.ability && !item.abilities.includes(filter.ability)) return false;
-    const running = runningModelNames.has(item.modelName);
-    if (filter.status === 'running' && !running) return false;
-    if (filter.status === 'idle' && running) return false;
-    if (!kw) return true;
-    const hay = `${item.modelName} ${item.description ?? ''}`.toLowerCase();
-    return hay.includes(kw);
-  });
-}
+export type { GalleryFilterState } from './galleryFilters';
+export {
+  DEFAULT_GALLERY_FILTER,
+  filterGalleryRegistrations,
+  hasActiveGalleryFilter,
+} from './galleryFilters';
 
 export function collectAbilityOptions(items: XinferenceModelRegistration[]): string[] {
   const set = new Set<string>();

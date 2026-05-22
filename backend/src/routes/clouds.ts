@@ -20,6 +20,9 @@ import { attachDatacenterTopologyRoutes } from './clouds/datacenterTopology.rout
 import { attachRancherClusterResourceRoutes } from './clouds/rancherClusterResources.routes';
 import { attachXinferenceClusterRoutes } from './clouds/xinferenceCluster.routes';
 import { attachXinferenceModelsRoutes } from './clouds/xinferenceModels.routes';
+import { attachXinferenceMonitoringRoutes } from './clouds/xinferenceMonitoring.routes';
+import { attachDifySsoRoutes } from './clouds/difySso.routes';
+import { attachDifyAdminRoutes } from './clouds/difyAdmin.routes';
 import { testXinferenceConnection } from '../services/clouds/xinference/xinferenceClient';
 
 const cloudRouteLog = logger.child('Cloud');
@@ -416,6 +419,9 @@ registerHarvesterRoutes(router, checkAdminPermission);
 registerHarvesterServiceRoutesProvider(router, checkAdminPermission);
 attachRancherClusterResourceRoutes(router, checkAdminPermission);
 attachXinferenceClusterRoutes(router, checkAdminPermission);
+attachXinferenceMonitoringRoutes(router, checkAdminPermission);
+attachDifySsoRoutes(router, checkAdminPermission);
+attachDifyAdminRoutes(router, checkAdminPermission);
 attachXinferenceModelsRoutes(router, checkAdminPermission);
 
 // 标准化获取实例列表：
