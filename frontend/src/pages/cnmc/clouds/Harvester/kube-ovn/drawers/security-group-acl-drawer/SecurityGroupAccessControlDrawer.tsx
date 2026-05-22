@@ -93,7 +93,6 @@ function validateIpCidr(value: string): boolean {
 }
 
 const SG_L4_OPTIONS = [
-  { label: '全部', value: 'ip4' },
   { label: 'TCP', value: 'tcp' },
   { label: 'UDP', value: 'udp' },
   { label: 'ICMP', value: 'icmp' },
