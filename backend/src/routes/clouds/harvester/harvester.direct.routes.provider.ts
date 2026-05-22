@@ -52,6 +52,7 @@ import {
   harvesterSubnetDirectCreateHandler, // 创建子网
   harvesterSubnetDirectUpdateHandler, // 更新子网
   harvesterSubnetDirectDeleteHandler, // 删除子网
+  harvesterSubnetCheckIpHandler, // 检测子网静态 IP 使用状态
 } from './handlers/ovn-direct-subnets.handlers';
 import {
   kubeOvnSecurityGroupListHandler, // 安全组列表
@@ -200,6 +201,7 @@ export function registerHarvesterDirectRoutesProvider(
   const subnetCreateHandlers = harvesterProviderMap(harvesterSubnetDirectCreateHandler);
   const subnetUpdateHandlers = harvesterProviderMap(harvesterSubnetDirectUpdateHandler);
   const subnetDeleteHandlers = harvesterProviderMap(harvesterSubnetDirectDeleteHandler);
+  const subnetCheckIpHandlers = harvesterProviderMap(harvesterSubnetCheckIpHandler);
 
   const kubeOvnSgListHandlers = harvesterProviderMap(kubeOvnSecurityGroupListHandler);
   const kubeOvnSgCreateHandlers = harvesterProviderMap(kubeOvnSecurityGroupCreateHandler);
@@ -482,6 +484,13 @@ export function registerHarvesterDirectRoutesProvider(
     '/:id/resources/subnets/:name',
     checkAdminPermission,
     createProviderRouter(subnetDeleteHandlers)
+  );
+  // 检测子网静态 IP 使用状态
+  // 路由：GET /api/clouds/:id/resources/subnets/:namespace/:name/check-ip?ip=172.16.2.1
+  router.get(
+    '/:id/resources/subnets/:namespace/:name/check-ip',
+    checkAdminPermission,
+    createProviderRouter(subnetCheckIpHandlers)
   );
 
   // Kube-OVN 安全组（Tower 数据库）

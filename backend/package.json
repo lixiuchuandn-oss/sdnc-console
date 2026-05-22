@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@alicloud/pop-core": "^1.7.10",
-    "@aws-sdk/client-s3": "^3.1047.0",
+    "@aws-sdk/client-s3": "^3.1052.0",
     "@huaweicloud/huaweicloud-sdk-core": "^3.1.174",
     "@huaweicloud/huaweicloud-sdk-ecs": "^3.1.174",
     "@huaweicloud/huaweicloud-sdk-eip": "^3.1.174",

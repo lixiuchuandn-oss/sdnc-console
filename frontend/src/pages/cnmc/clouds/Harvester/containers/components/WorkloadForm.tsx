@@ -63,7 +63,7 @@ import {
 } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 import yaml from 'js-yaml';
-import { createHarvesterContainerResource, updateHarvesterContainerResource, fetchKubeOvnSubnets, fetchKubeOvnVpcs, fetchHarvesterNads } from '../../../../../../services/harvesterApi';
+import { createHarvesterContainerResource, updateHarvesterContainerResource, fetchKubeOvnSubnets, fetchKubeOvnVpcs, fetchHarvesterNads, checkSubnetStaticIP } from '../../../../../../services/harvesterApi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 import { 
@@ -415,6 +415,244 @@ const parseK8sError = (error: any): string => {
   }
   
   return rawMsg;
+};
+
+/**
+ * 检查 IP 地址是否在 CIDR 范围内
+ * @param ip IP 地址，如 "192.168.1.100"
+ * @param cidr CIDR 范围，如 "192.168.1.0/24"
+ * @returns 是否在范围内
+ */
+const isIpInCidr = (ip: string, cidr: string): boolean => {
+  try {
+    const [cidrBase, prefixLenStr] = cidr.split('/');
+    const prefixLen = parseInt(prefixLenStr, 10);
+    
+    if (!cidrBase || isNaN(prefixLen) || prefixLen < 0 || prefixLen > 32) {
+      return false;
+    }
+    
+    // 将 IP 转换为 32 位无符号整数（使用 >>> 0 确保无符号）
+    const ipToNumber = (ipStr: string): number => {
+      const parts = ipStr.split('.').map(p => parseInt(p, 10));
+      if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
+        return -1;
+      }
+      // 使用无符号右移确保结果为正数
+      return ((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + parts[3];
+    };
+    
+    const ipNum = ipToNumber(ip);
+    const cidrNum = ipToNumber(cidrBase);
+    
+    if (ipNum < 0 || cidrNum < 0) {
+      return false;
+    }
+    
+    // 计算掩码（无符号）
+    const mask = prefixLen === 0 ? 0 : ((~0 << (32 - prefixLen)) >>> 0);
+    
+    // 检查网络地址是否相同（使用无符号运算）
+    return ((ipNum & mask) >>> 0) === ((cidrNum & mask) >>> 0);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * 将 IP 地址转换为 32 位整数
+ * @param ip IP 地址，如 "192.168.1.100"
+ * @returns 32 位整数，无效返回 -1
+ */
+const ipToNumber = (ip: string): number => {
+  const parts = ip.split('.').map(p => parseInt(p, 10));
+  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
+    return -1;
+  }
+  // 使用无符号右移确保结果为正数（避免 JavaScript 位运算溢出）
+  return ((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + parts[3];
+};
+
+/**
+ * 将 32 位整数转换为 IP 地址
+ * @param num 32 位整数
+ * @returns IP 地址字符串
+ */
+const numberToIp = (num: number): string => {
+  return [
+    (num >>> 24) & 255,
+    (num >>> 16) & 255,
+    (num >>> 8) & 255,
+    num & 255
+  ].join('.');
+};
+
+/**
+ * 解析子网的已使用 IP 范围
+ * Kube-OVN 子网 status.v4UsingIPrange 格式如 "10.1.1.2..10.1.1.10" 或数组形式
+ * @param subnet 子网对象
+ * @returns 已使用 IP 范围数组，每个元素为 { start, end }
+ */
+const parseUsingIPRanges = (subnet: any): Array<{ start: number; end: number }> => {
+  const status = subnet?.status || subnet?.rawData?.status || {};
+  
+  // 尝试多种字段名获取已使用IP范围
+  let rangeStr = status.v4UsingIPrange || status.v4usingIPrange || status.usingIPrange;
+  
+  if (!rangeStr) {
+    return [];
+  }
+  
+  // 如果是数组形式
+  if (Array.isArray(rangeStr)) {
+    return rangeStr
+      .map((r: string) => {
+        const parts = String(r).split('..');
+        if (parts.length === 2) {
+          const start = ipToNumber(parts[0].trim());
+          const end = ipToNumber(parts[1].trim());
+          if (start >= 0 && end >= 0 && start <= end) {
+            return { start, end };
+          }
+        }
+        return null;
+      })
+      .filter((r): r is { start: number; end: number } => r !== null);
+  }
+  
+  // 如果是字符串形式，可能是单个范围或多个范围用逗号分隔
+  const ranges: Array<{ start: number; end: number }> = [];
+  const parts = String(rangeStr).split(',');
+  
+  for (const part of parts) {
+    const rangeParts = part.trim().split('..');
+    if (rangeParts.length === 2) {
+      const start = ipToNumber(rangeParts[0].trim());
+      const end = ipToNumber(rangeParts[1].trim());
+      if (start >= 0 && end >= 0 && start <= end) {
+        ranges.push({ start, end });
+      }
+    }
+  }
+  
+  return ranges;
+};
+
+/**
+ * 检查 IP 是否在已使用 IP 范围内
+ * @param ipNum IP 数值
+ * @param ranges 已使用 IP 范围数组
+ * @returns 是否已使用
+ */
+const isIpInRanges = (ipNum: number, ranges: Array<{ start: number; end: number }>): boolean => {
+  for (const range of ranges) {
+    if (ipNum >= range.start && ipNum <= range.end) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * 解析子网的可用 IP 范围
+ * Kube-OVN 子网 status.v4AvailableIPrange 格式如 "10.1.1.2..10.1.1.254" 或数组形式
+ * @param subnet 子网对象
+ * @returns 可用 IP 范围数组，每个元素为 { start, end }
+ */
+const parseAvailableIPRanges = (subnet: any): Array<{ start: number; end: number }> => {
+  const status = subnet?.status || subnet?.rawData?.status || {};
+  const spec = subnet?.spec || subnet?.rawData?.spec || {};
+  
+  // 尝试多种字段名获取可用IP范围
+  let rangeStr = status.v4AvailableIPrange || status.v4availableIPrange || status.availableIPrange;
+  
+  // 如果没有可用范围，尝试从 CIDR 计算（排除网关和广播地址）
+  if (!rangeStr) {
+    const cidr = spec.cidrBlock || subnet?.cidr || subnet?.spec?.cidrBlock;
+    if (cidr) {
+      // 从 CIDR 计算可用IP范围（简化版，不排除已使用的IP）
+      // 这里只返回CIDR范围，实际检测需要后端API
+      return [];
+    }
+    return [];
+  }
+  
+  // 如果是数组形式
+  if (Array.isArray(rangeStr)) {
+    return rangeStr
+      .map((r: string) => {
+        const parts = String(r).split('..');
+        if (parts.length === 2) {
+          const start = ipToNumber(parts[0].trim());
+          const end = ipToNumber(parts[1].trim());
+          if (start >= 0 && end >= 0 && start <= end) {
+            return { start, end };
+          }
+        }
+        return null;
+      })
+      .filter((r): r is { start: number; end: number } => r !== null);
+  }
+  
+  // 如果是字符串形式，可能是单个范围或多个范围用逗号分隔
+  const ranges: Array<{ start: number; end: number }> = [];
+  const parts = String(rangeStr).split(',');
+  
+  for (const part of parts) {
+    const rangeParts = part.trim().split('..');
+    if (rangeParts.length === 2) {
+      const start = ipToNumber(rangeParts[0].trim());
+      const end = ipToNumber(rangeParts[1].trim());
+      if (start >= 0 && end >= 0 && start <= end) {
+        ranges.push({ start, end });
+      }
+    }
+  }
+  
+  return ranges;
+};
+
+/**
+ * 检查 IP 是否在可用 IP 范围内
+ * @param ip 要检查的 IP 地址
+ * @param subnet 子网对象
+ * @returns { available: boolean, reason: string, unknown?: boolean }
+ */
+const checkIpAvailability = (ip: string, subnet: any): { available: boolean; reason: string; unknown?: boolean } => {
+  const ipNum = ipToNumber(ip);
+  if (ipNum < 0) {
+    return { available: false, reason: 'IP 地址格式无效' };
+  }
+  
+  // 先检查是否在已使用IP范围内
+  const usingRanges = parseUsingIPRanges(subnet);
+  if (usingRanges.length > 0 && isIpInRanges(ipNum, usingRanges)) {
+    const usingDesc = usingRanges.map(r => `${numberToIp(r.start)}..${numberToIp(r.end)}`).join(', ');
+    return { available: false, reason: `IP 已被使用。已使用范围: ${usingDesc}` };
+  }
+  
+  // 再检查可用IP范围
+  const availableRanges = parseAvailableIPRanges(subnet);
+  
+  if (availableRanges.length === 0) {
+    // 如果有已使用范围但没有可用范围，说明可以尝试（不在已使用范围中）
+    if (usingRanges.length > 0) {
+      return { available: true, reason: 'IP 不在已使用范围内，可以尝试分配' };
+    }
+    // 都没有，返回未知状态
+    return { available: false, reason: '无法检测IP可用性：子网未提供可用IP范围信息。请确保该IP未被其他工作负载使用。', unknown: true };
+  }
+  
+  // 检查 IP 是否在任一可用范围内
+  for (const range of availableRanges) {
+    if (ipNum >= range.start && ipNum <= range.end) {
+      return { available: true, reason: `IP 在可用范围内 (${numberToIp(range.start)}..${numberToIp(range.end)})` };
+    }
+  }
+  
+  // IP 不在任何可用范围内，说明已被使用或被排除
+  const rangeDesc = availableRanges.map(r => `${numberToIp(r.start)}..${numberToIp(r.end)}`).join(', ');
+  return { available: false, reason: `IP 不在可用范围内。可用范围: ${rangeDesc}` };
 };
 
 const CPU_RESOURCE_PATTERN = /^(\d+)(m)?$/;
@@ -3358,7 +3596,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 网络配置相关 props
   hideFlatSubnet = false,
 }) => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -3387,6 +3625,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const [nads, setNads] = useState<any[]>([]);
   const [loadingNetworkData, setLoadingNetworkData] = useState(false);
   
+  // 静态 IP 检测状态
+  const [checkingStaticIP, setCheckingStaticIP] = useState(false);
+  const [staticIPCheckResult, setStaticIPCheckResult] = useState<{
+    checked: boolean;
+    available: boolean;
+    reason: string;
+  } | null>(null);
+  
+  // 监听表单字段变化
+  const enableStaticIPWatch = Form.useWatch('enableStaticIP', form);
+
   const [containersVersion, setContainersVersion] = useState(0);
   
   const editMetadata = editData?.metadata;
@@ -4057,6 +4306,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     return vpc === 'ovn-internal' || vpc === 'ovn-cluster';
   }, []);
   
+  
   // 扁平子网选项
   const flatSubnetOptions = useMemo(() => {
     return (kubeSubnets || [])
@@ -4065,8 +4315,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         const name = s.name || s?.metadata?.name || '-';
         const subnetNs = s?.namespace || s?.metadata?.namespace || 'default';
         const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
-        const cidr = s?.cidr || s?.spec?.cidrBlock || 'N/A';
-        const label = alias ? `${alias}(${name})@${cidr}` : `${name}@${cidr}`;
+        const cidr = s?.cidr || s?.spec?.cidrBlock || '';
+        const label = alias 
+          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}` 
+          : `${name}${cidr ? ` (${cidr})` : ''}`;
         const nadRef = `${subnetNs}/${name}`;
         return {
           label,
@@ -4100,8 +4352,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       .map(s => {
         const name = s.name || s?.metadata?.name || '-';
         const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
-        const cidr = s?.cidr || s?.spec?.cidrBlock || 'N/A';
-        const label = alias ? `${alias}(${name})@${cidr}` : `${name}@${cidr}`;
+        const cidr = s?.cidr || s?.spec?.cidrBlock || '';
+        const label = alias 
+          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}` 
+          : `${name}${cidr ? ` (${cidr})` : ''}`;
         return {
           label,
           value: name,
@@ -4109,6 +4363,125 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         };
       });
   }, [kubeSubnets, selectedVpc]);
+  
+  // 静态 IP 检测函数（调用后端API）
+  const handleCheckStaticIP = useCallback(async () => {
+    const staticIP = form.getFieldValue('staticIP');
+    const networkType = form.getFieldValue('networkType');
+    
+    if (!staticIP) {
+      message.warning('请先输入静态 IP 地址');
+      return;
+    }
+    
+    // 验证 IP 格式
+    const ipPattern = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+    if (!ipPattern.test(staticIP)) {
+      message.error('请输入有效的 IPv4 地址');
+      return;
+    }
+    
+    // 获取当前子网信息
+    let subnetName: string | undefined;
+    let subnetNs = 'default';
+    
+    if (networkType === 'flat_subnet') {
+      const flatSubnetValue = form.getFieldValue('flatSubnet');
+      if (flatSubnetValue) {
+        const parts = flatSubnetValue.split('/');
+        if (parts.length === 2) {
+          subnetNs = parts[0];
+          subnetName = parts[1];
+        } else {
+          subnetName = flatSubnetValue;
+        }
+      }
+    } else if (networkType === 'vpc') {
+      const vpcSubnetValue = form.getFieldValue('vpcSubnet');
+      if (vpcSubnetValue) {
+        const parts = vpcSubnetValue.split('/');
+        if (parts.length === 2) {
+          subnetNs = parts[0];
+          subnetName = parts[1];
+        } else {
+          subnetName = vpcSubnetValue;
+        }
+      }
+    }
+    
+    if (!subnetName) {
+      message.warning('请先选择子网');
+      return;
+    }
+    
+    setCheckingStaticIP(true);
+    
+    try {
+      // 调用后端API检测IP是否已被使用
+      const res = await checkSubnetStaticIP(cloudId, subnetNs, subnetName, staticIP);
+      const data = res?.data || res;
+      const used = data?.used === true;
+      const usedBy = data?.usedBy || '';
+      
+      setStaticIPCheckResult({
+        checked: true,
+        available: !used,
+        reason: used
+          ? `IP 已被使用（被 ${usedBy} 占用）`
+          : 'IP 可用，未被其他工作负载使用',
+      });
+      
+      if (used) {
+        message.error(`IP ${staticIP} 已被使用（被 ${usedBy} 占用）`);
+      } else {
+        message.success('IP 可用');
+      }
+    } catch (e: any) {
+      // API调用失败，回退到本地检测
+      console.warn('静态IP检测API调用失败，回退到本地检测:', e);
+      let currentSubnet: any = null;
+      
+      if (networkType === 'flat_subnet') {
+        const flatSubnetValue = form.getFieldValue('flatSubnet');
+        const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === flatSubnetValue);
+        currentSubnet = flatSubnetOption?.subnet;
+      } else if (networkType === 'vpc') {
+        const vpcSubnetValue = form.getFieldValue('vpcSubnet');
+        if (vpcSubnetValue) {
+          const parts = vpcSubnetValue.split('/');
+          const sn = parts.length === 2 ? parts[1] : parts[0];
+          currentSubnet = kubeSubnets.find(s => 
+            (s.name || s?.metadata?.name) === sn && 
+            (s.vpc || s?.spec?.vpc) === selectedVpc
+          );
+        }
+      }
+      
+      if (currentSubnet) {
+        const result = checkIpAvailability(staticIP, currentSubnet);
+        setStaticIPCheckResult({
+          checked: true,
+          available: result.available,
+          reason: result.reason,
+        });
+        if (!result.available) {
+          message.error(result.reason);
+        } else {
+          message.success(result.reason);
+        }
+      } else {
+        setStaticIPCheckResult({
+          checked: true,
+          available: false,
+          reason: '检测失败：无法获取子网信息',
+        });
+        message.error('IP检测失败：无法获取子网信息');
+      }
+    } finally {
+      setCheckingStaticIP(false);
+    }
+  }, [cloudId, form, flatSubnetOptions, kubeSubnets, selectedVpc, message]);
+  
   
   // NAD 选项（排除 kube-ovn 类型，参考 VM 创建向导）
   const allNadOptions = useMemo(() => {
@@ -4712,9 +5085,25 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       // 根据网络类型设置注解
       switch (networkType) {
         case 'flat_subnet':
-          // 扁平子网：设置 networks 注解
+          // 扁平子网：设置 networks 注解和 logical_switch 注解
           if (flatSubnet) {
             annotations['k8s.v1.cni.cncf.io/networks'] = flatSubnet;
+            // 扁平子网需要 logical_switch 注解，格式为 <namespace>/<subnet-name>
+            const flatParts = flatSubnet.split('/');
+            const subnetName = flatParts.length === 2 ? flatParts[1] : flatSubnet;
+            if (flatParts.length === 2) {
+              annotations['ovn.kubernetes.io/logical_switch'] = flatParts[1];
+            } else if (flatParts.length === 1) {
+              annotations['ovn.kubernetes.io/logical_switch'] = flatSubnet;
+            }
+            // 扁平子网静态IP需要用网络名称前缀的注解格式
+            // 格式: <subnet-name>.default.ovn.kubernetes.io/ip_address
+            if (enableStaticIP && staticIP) {
+              // 同时设置两种格式的静态IP注解，确保兼容性
+              annotations['ovn.kubernetes.io/ip_address'] = staticIP;
+              // 使用网络名称前缀格式（这是Kube-OVN多网络模式识别的格式）
+              annotations[`${subnetName}.default.ovn.kubernetes.io/ip_address`] = staticIP;
+            }
           }
           break;
           
@@ -4722,11 +5111,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           // VPC 子网：设置 networks 注解
           if (vpcSubnet) {
             annotations['k8s.v1.cni.cncf.io/networks'] = vpcSubnet;
-            // Kube-OVN VPC 子网需要额外设置 logical_switch 注解
-            // subnetName 格式为 <namespace>/<subnet-name>，提取子网名称
+            // Kube-OVN VPC 子网需要 logical_switch 注解
             const subnetParts = vpcSubnet.split('/');
+            const vpcSubnetName = subnetParts.length === 2 ? subnetParts[1] : vpcSubnet;
             if (subnetParts.length === 2) {
               annotations['ovn.kubernetes.io/logical_switch'] = subnetParts[1];
+            }
+            // VPC 子网静态IP需要用网络名称前缀的注解格式
+            if (enableStaticIP && staticIP) {
+              annotations['ovn.kubernetes.io/ip_address'] = staticIP;
+              const vpcSubnetNs = subnetParts.length === 2 ? subnetParts[0] : 'default';
+              annotations[`${vpcSubnetName}.${vpcSubnetNs}.ovn.kubernetes.io/ip_address`] = staticIP;
             }
           }
           break;
@@ -4739,8 +5134,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           break;
       }
       
-      // 静态 IP 配置
-      if (enableStaticIP && staticIP) {
+      // 静态 IP 配置（仅自定义NAD，扁平子网和VPC子网已在case中处理）
+      if (enableStaticIP && staticIP && networkType === 'custom_nad') {
         annotations['ovn.kubernetes.io/ip_address'] = staticIP;
       }
       
@@ -5153,6 +5548,109 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           return;
         }
         
+        // 校验容器名称是否重复
+        const containerNames = (syncedValues.containers || [])
+          .map(c => c.containerName)
+          .filter(name => name && name.trim());
+        const duplicateNames = containerNames.filter((name, index) => 
+          containerNames.indexOf(name) !== index
+        );
+        if (duplicateNames.length > 0) {
+          setCurrentStep(1); // 跳转到容器配置步骤
+          message.error(`容器名称重复: ${[...new Set(duplicateNames)].join(', ')}，请使用不同的容器名称`);
+          setLoading(false);
+          return;
+        }
+        
+        // 校验静态 IP 是否在子网 CIDR 范围内
+        if (syncedValues.enableStaticIP && syncedValues.staticIP) {
+          const networkType = syncedValues.networkType;
+          let subnetCidr: string | undefined;
+          
+          if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
+            // 扁平子网：从 flatSubnetOptions 中查找 CIDR
+            const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === syncedValues.flatSubnet);
+            subnetCidr = flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
+          } else if (networkType === 'vpc' && syncedValues.vpcSubnet) {
+            // VPC 子网：从 kubeSubnets 中查找 CIDR
+            // vpcSubnet 格式为 namespace/name 或 name
+            const parts = syncedValues.vpcSubnet.split('/');
+            const subnetName = parts.length === 2 ? parts[1] : parts[0];
+            const subnet = kubeSubnets.find(s => 
+              (s.name || s?.metadata?.name) === subnetName && 
+              (s.vpc || s?.spec?.vpc) === syncedValues.vpcName
+            );
+            subnetCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
+          }
+          
+          if (subnetCidr && !isIpInCidr(syncedValues.staticIP, subnetCidr)) {
+            setCurrentStep(2); // 跳转到网络配置步骤
+            message.error(`静态 IP ${syncedValues.staticIP} 不在子网 CIDR 范围 ${subnetCidr} 内，请检查`);
+            setLoading(false);
+            return;
+          }
+          
+          // 校验静态 IP 是否可用（调用后端API）
+          let subnetName: string | undefined;
+          let subnetNs = 'default';
+          
+          if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
+            const flatParts = syncedValues.flatSubnet.split('/');
+            if (flatParts.length === 2) {
+              subnetNs = flatParts[0];
+              subnetName = flatParts[1];
+            } else {
+              subnetName = syncedValues.flatSubnet;
+            }
+          } else if (networkType === 'vpc' && syncedValues.vpcSubnet) {
+            const vpcParts = syncedValues.vpcSubnet.split('/');
+            if (vpcParts.length === 2) {
+              subnetNs = vpcParts[0];
+              subnetName = vpcParts[1];
+            } else {
+              subnetName = syncedValues.vpcSubnet;
+            }
+          }
+          
+          if (subnetName) {
+            try {
+              const ipCheckRes = await checkSubnetStaticIP(cloudId, subnetNs, subnetName, syncedValues.staticIP);
+              const ipCheckData = ipCheckRes?.data || ipCheckRes;
+              if (ipCheckData?.used === true) {
+                setCurrentStep(2);
+                message.error(`静态 IP ${syncedValues.staticIP} 已被使用（被 ${ipCheckData.usedBy || '其他工作负载'} 占用）`);
+                setLoading(false);
+                return;
+              }
+            } catch (e: any) {
+              // API调用失败，弹出确认框让用户确认
+              console.warn('静态IP检测API调用失败:', e);
+              const confirmed = await new Promise<boolean>((resolve) => {
+                modal.confirm({
+                  title: '静态 IP 冲突风险',
+                  content: (
+                    <div>
+                      <p>无法自动检测 IP <strong>{syncedValues.staticIP}</strong> 是否已被使用。</p>
+                      <p style={{ color: '#faad14', marginTop: 8 }}>
+                        ⚠️ 请确认该 IP 未被其他工作负载使用，否则可能导致网络冲突。
+                      </p>
+                    </div>
+                  ),
+                  okText: '确认未使用，继续提交',
+                  cancelText: '取消',
+                  onOk: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              });
+              if (!confirmed) {
+                setCurrentStep(2);
+                setLoading(false);
+                return;
+              }
+            }
+          }
+        }
+        
         resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
         namespace = values.namespace;
@@ -5203,7 +5701,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata]);
+  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, modal, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata]);
   
   // 下一步
   const handleNext = useCallback(async () => {
@@ -5681,7 +6179,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       case 2:
         // 网络配置步骤
         const networkType = form.getFieldValue('networkType') || 'default';
-        const enableStaticIP = form.getFieldValue('enableStaticIP');
+        const enableStaticIP = enableStaticIPWatch ?? false;
         
         return (
           <div>
@@ -5690,7 +6188,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               showIcon
               style={{ marginBottom: 16 }}
               message="网络配置"
-              description="配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义 NAD。"
+              description={
+                <div>
+                  <div>配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义 NAD。</div>
+                  <div style={{ marginTop: 8, color: '#faad14' }}>
+                    💡 提示：如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载。
+                  </div>
+                </div>
+              }
             />
             
             {loadingNetworkData ? (
@@ -5725,8 +6230,18 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           <div>
                             <div>请确保已在资源池中创建扁平子网（Kube-OVN 子网，VPC 为 ovn-internal，注解 tower.io/subnet-type=flat）</div>
                             <div style={{ marginTop: 8 }}>当前加载了 {kubeSubnets.length} 个子网，{kubeSubnets.filter(s => isFlatVpc(s?.vpc || s?.spec?.vpc)).length} 个属于扁平 VPC</div>
+                            <div style={{ marginTop: 8, color: '#1677ff' }}>💡 如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再重试。</div>
                           </div>
                         }
+                      />
+                    )}
+                    {flatSubnetOptions.length > 0 && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 16 }}
+                        message="子网选择提示"
+                        description="如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载，否则可能出现 NAD 未找到的错误。"
                       />
                     )}
                     <Form.Item
@@ -5747,6 +6262,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 
                 {networkType === 'vpc' && (
                   <>
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="子网选择提示"
+                      description="如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载，否则可能出现 NAD 未找到的错误。"
+                    />
                     <Form.Item
                       name="vpcName"
                       label="选择VPC"
@@ -5841,34 +6363,109 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 
                 <Divider />
                 
-                {networkType !== 'default' && (
-                  <>
-                    <Form.Item
-                      name="enableStaticIP"
-                      label="配置静态IP"
-                      valuePropName="checked"
-                      extra="为 Pod 分配固定的 IP 地址（扁平子网和 VPC 子网支持）"
-                    >
-                      <Checkbox />
-                    </Form.Item>
-                    
-                    {enableStaticIP && (
-                      <Form.Item
-                        name="staticIP"
-                        label="静态IP地址"
-                        rules={[
-                          { required: true, message: '请输入静态IP地址' },
-                          {
-                            pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
-                            message: '请输入有效的IPv4地址'
-                          }
-                        ]}
-                      >
-                        <Input placeholder="例如: 192.168.1.100" />
-                      </Form.Item>
-                    )}
-                  </>
-                )}
+                {networkType !== 'default' && (() => {
+                  // 获取当前子网的 CIDR 信息
+                  let currentCidr: string | undefined;
+                  
+                  if (networkType === 'flat_subnet') {
+                    const flatSubnetValue = form.getFieldValue('flatSubnet');
+                    const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === flatSubnetValue);
+                    currentCidr = flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
+                  } else if (networkType === 'vpc') {
+                    const vpcSubnetValue = form.getFieldValue('vpcSubnet');
+                    if (vpcSubnetValue) {
+                      const parts = vpcSubnetValue.split('/');
+                      const subnetName = parts.length === 2 ? parts[1] : parts[0];
+                      const subnet = kubeSubnets.find(s => 
+                         (s.name || s?.metadata?.name) === subnetName && 
+                         (s.vpc || s?.spec?.vpc) === selectedVpc
+                       );
+                       currentCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
+                     }
+                   }
+                   
+return (
+                      <Form.Item label="静态IP配置">
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Form.Item name="enableStaticIP" valuePropName="checked" noStyle>
+                            <Checkbox>启用静态IP</Checkbox>
+                          </Form.Item>
+                          {(enableStaticIPWatch ?? form.getFieldValue('enableStaticIP')) && (
+                           <>
+                             {currentCidr && (
+                               <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
+                                 子网 CIDR: <Tag color="blue">{currentCidr}</Tag>
+                               </div>
+                             )}
+                            <Form.Item
+                              name="staticIP"
+                              label="静态IP地址"
+                              rules={[
+                                { required: true, message: '请输入静态IP地址' },
+                                {
+                                  pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                                  message: '请输入有效的IPv4地址'
+                                },
+                                ...(currentCidr ? [{
+                                  validator: (_: any, value: string) => {
+                                    if (!value || isIpInCidr(value, currentCidr!)) {
+                                      return Promise.resolve();
+                                    }
+                                    return Promise.reject(new Error(`IP 地址不在子网 CIDR 范围 ${currentCidr} 内`));
+                                  }
+                                } as any] : []),
+                                {
+                                  validator: () => {
+                                    if (staticIPCheckResult && !staticIPCheckResult.available) {
+                                      return Promise.reject(new Error(staticIPCheckResult.reason));
+                                    }
+                                    return Promise.resolve();
+                                  }
+                                }
+                              ]}
+                              extra={currentCidr ? `子网 CIDR: ${currentCidr}` : '请先选择子网以获取 CIDR 范围'}
+                            >
+                              <Input 
+                                placeholder="例如: 192.168.1.100" 
+                                addonAfter={
+                                  <Button 
+                                    type="link" 
+                                    size="small"
+                                    loading={checkingStaticIP}
+                                    onClick={handleCheckStaticIP}
+                                    style={{ padding: '0 8px' }}
+                                  >
+                                    检测
+                                  </Button>
+                                }
+                                onChange={() => {
+                                  setStaticIPCheckResult(null);
+                                }}
+                              />
+                            </Form.Item>
+                            {staticIPCheckResult && (
+                              <Alert
+                                type={staticIPCheckResult.available ? 'success' : 'error'}
+                                showIcon
+                                style={{ marginBottom: 16 }}
+                                message={staticIPCheckResult.available ? 'IP 可用' : 'IP 不可用'}
+                                description={staticIPCheckResult.reason}
+                              />
+                            )}
+                            {!staticIPCheckResult && (
+                              <Alert
+                                type="warning"
+                                showIcon
+                                style={{ marginBottom: 16 }}
+                                message="建议点击「检测」按钮验证 IP 是否可用后再提交"
+                              />
+                            )}
+                           </>
+                         )}
+                       </Space>
+                     </Form.Item>
+                   );
+                 })()}
                 
                 {networkType !== 'default' && (
                   <Alert
