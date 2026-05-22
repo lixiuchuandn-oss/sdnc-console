@@ -1025,19 +1025,20 @@ const AdminLayout: React.FC = () => {
       }
       return;
     }
-    if (summaryLoading) return;
-    if (!canWritePools) return;
-    try {
-      if (window.sessionStorage.getItem(MUST_BIND_POOL_DISMISS_KEY) === '1') return;
-    } catch {
-      /* ignore */
-    }
-    if (autoBindPoolPromptShownRef.current) return;
-    autoBindPoolPromptShownRef.current = true;
-    poolWizardOpenedByAutoRef.current = true;
-    setPoolWizardForceRequired(true);
-    setPoolWizardEditing(null);
-    setPoolWizardOpen(true);
+    // 注释掉自动弹出接入边缘云弹窗的逻辑
+    // if (summaryLoading) return;
+    // if (!canWritePools) return;
+    // try {
+    //   if (window.sessionStorage.getItem(MUST_BIND_POOL_DISMISS_KEY) === '1') return;
+    // } catch {
+    //   /* ignore */
+    // }
+    // if (autoBindPoolPromptShownRef.current) return;
+    // autoBindPoolPromptShownRef.current = true;
+    // poolWizardOpenedByAutoRef.current = true;
+    // setPoolWizardForceRequired(true);
+    // setPoolWizardEditing(null);
+    // setPoolWizardOpen(true);
   }, [user, summaryLoading, summaryClouds, canWritePools, summaryListHydrated]);
 
   const handlePoolWizardCancel = useCallback(() => {

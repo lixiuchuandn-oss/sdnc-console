@@ -45,6 +45,9 @@ import {
 
 const TOWER_EIP_ALIAS_ANNOTATION = 'tower.io/alias';
 
+// Kube-OVN IP 注解常量
+const KUBE_OVN_IP_ADDRESS_ANNOTATION = 'ovn.kubernetes.io/ip_address';
+
 function kubeOvnEipPublicDisplayLabels(blocking: any[]): string[] {
   return blocking
     .map((e) => {
@@ -1419,6 +1422,174 @@ export async function harvesterSubnetDirectDeleteHandler(
     res.status(500).json({
       message: '删除子网失败',
       error: error.body || error.message,
+    });
+  }
+}
+
+// =============================================================================
+// Kube-OVN 子网静态 IP 使用检测
+// =============================================================================
+
+/**
+ * 检测指定 IP 是否已被该子网中的 Pod 使用
+ * 
+ * Kube-OVN IP 注解格式：
+ * - ovn.kubernetes.io/ip_address: 主 IP（单网络模式）
+ * - <subnet-name>.<namespace>.ovn.kubernetes.io/ip_address: 多网络模式下的子网 IP
+ * 
+ * 路由：GET /api/clouds/:id/resources/subnets/:namespace/:name/check-ip?ip=172.16.2.1
+ * 返回：{ used: boolean, usedBy?: string }
+ */
+export async function harvesterSubnetCheckIpHandler(
+  req: any,
+  res: Response,
+  next: any,
+) {
+  try {
+    const { id, namespace, name } = req.params;
+    const { ip } = req.query;
+
+    // 参数校验
+    const targetIp = String(ip || '').trim();
+    if (!targetIp) {
+      return res.status(400).json({
+        message: '缺少必要参数: ip',
+        code: 'IP_REQUIRED',
+      });
+    }
+
+    // IPv4 格式校验
+    const ipv4Re = /^\d{1,3}(\.\d{1,3}){3}$/;
+    if (!ipv4Re.test(targetIp)) {
+      return res.status(400).json({
+        message: `IP 地址格式无效: ${targetIp}`,
+        code: 'IP_FORMAT_INVALID',
+      });
+    }
+
+    const subnetName = String(name || '').trim();
+    const subnetNamespace = String(namespace || 'default').trim() || 'default';
+    if (!subnetName) {
+      return res.status(400).json({
+        message: '缺少路径参数: name（子网名称）',
+        code: 'SUBNET_NAME_REQUIRED',
+      });
+    }
+
+    // 权限校验
+    const { allowed } = await checkTenantAccess(req, id);
+    if (!allowed) {
+      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    }
+
+    const cloud = await fetchCloudOr404(id, res);
+    if (!cloud) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
+
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const apiBase = resolveHarvesterK8sApiBase(cloud.endpoint || '');
+    const token = cloud.secretKey || '';
+
+    // 构建多网络模式下的子网 IP 注解 key
+    // 格式: <subnet-name>.<namespace>.ovn.kubernetes.io/ip_address
+    const multusIpAnnotation = `${subnetName}.${subnetNamespace}.${KUBE_OVN_IP_ADDRESS_ANNOTATION}`;
+
+    // 查询该子网关联的命名空间下的所有 Pod
+    // Kube-OVN 子网通过 spec.namespaces 字段指定关联的命名空间
+    // 如果子网没有指定 namespaces，则查询所有命名空间的 Pod
+    let targetNamespaces: string[] = [];
+    
+    try {
+      const subnetUrl = `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnetName)}`;
+      const subnetObj = await getJsonOnce(subnetUrl, token, insecure, true);
+      
+      if (subnetObj?.spec?.namespaces && Array.isArray(subnetObj.spec.namespaces)) {
+        targetNamespaces = subnetObj.spec.namespaces
+          .map((ns: string) => String(ns || '').trim())
+          .filter((ns: string) => ns.length > 0);
+      }
+    } catch (e: any) {
+      console.warn('[CheckIp] Failed to fetch subnet for namespaces:', e?.message || e);
+    }
+
+    // 如果子网没有指定 namespaces，使用传入的 namespace 参数
+    if (targetNamespaces.length === 0) {
+      targetNamespaces = [subnetNamespace];
+    }
+
+    // 遍历所有目标命名空间的 Pod，检查 IP 注解
+    for (const ns of targetNamespaces) {
+      try {
+        const podsUrl = `${apiBase}/api/v1/namespaces/${encodeURIComponent(ns)}/pods`;
+        const podsResult = await getJsonOnce(podsUrl, token, insecure, true);
+        const pods = Array.isArray(podsResult?.items) ? podsResult.items : [];
+
+        for (const pod of pods) {
+          const annotations = pod?.metadata?.annotations || {};
+          const podName = pod?.metadata?.name || '';
+          const podNamespace = pod?.metadata?.namespace || ns;
+
+          // 检查主 IP 注解（单网络模式）
+          const primaryIp = String(annotations[KUBE_OVN_IP_ADDRESS_ANNOTATION] || '').trim();
+          if (primaryIp && primaryIp.toLowerCase() === targetIp.toLowerCase()) {
+            return res.json({
+              used: true,
+              usedBy: `${podNamespace}/${podName}`,
+              ip: targetIp,
+              annotation: KUBE_OVN_IP_ADDRESS_ANNOTATION,
+            });
+          }
+
+          // 检查多网络模式下的子网 IP 注解
+          const multusIp = String(annotations[multusIpAnnotation] || '').trim();
+          if (multusIp && multusIp.toLowerCase() === targetIp.toLowerCase()) {
+            return res.json({
+              used: true,
+              usedBy: `${podNamespace}/${podName}`,
+              ip: targetIp,
+              annotation: multusIpAnnotation,
+            });
+          }
+
+          // 遍历所有注解，查找匹配该子网的 IP 注解
+          // 格式: <subnet-name>.<namespace>.ovn.kubernetes.io/ip_address
+          for (const [key, value] of Object.entries(annotations)) {
+            if (key.endsWith(`.${KUBE_OVN_IP_ADDRESS_ANNOTATION}`)) {
+              // 提取注解中的子网名称
+              // 格式: subnet-name.namespace.ovn.kubernetes.io/ip_address
+              const parts = key.split('.');
+              if (parts.length >= 3) {
+                const annotationSubnetName = parts[0];
+                if (annotationSubnetName.toLowerCase() === subnetName.toLowerCase()) {
+                  const ipValue = String(value || '').trim();
+                  if (ipValue && ipValue.toLowerCase() === targetIp.toLowerCase()) {
+                    return res.json({
+                      used: true,
+                      usedBy: `${podNamespace}/${podName}`,
+                      ip: targetIp,
+                      annotation: key,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[CheckIp] Failed to fetch pods in namespace ${ns}:`, e?.message || e);
+      }
+    }
+
+    // IP 未被使用
+    res.json({
+      used: false,
+      ip: targetIp,
+    });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    res.status(500).json({
+      message: '检测 IP 使用状态失败',
+      error: error.message || String(error),
     });
   }
 }

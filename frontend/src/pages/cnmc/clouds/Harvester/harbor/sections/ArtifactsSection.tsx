@@ -152,10 +152,10 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
 
     return (
       <Space size="small" wrap>
-        {critical > 0 && <Tag color="error">{critical} 严重</Tag>}
-        {high > 0 && <Tag color="warning">{high} 高危</Tag>}
-        {medium > 0 && <Tag color="orange">{medium} 中危</Tag>}
-        {low > 0 && <Tag>{low} 低危</Tag>}
+        {critical > 0 && <Tag style={{ backgroundColor: '#ff4d2e', color: '#fff', border: 'none' }}>{critical} 危急</Tag>}
+        {high > 0 && <Tag style={{ backgroundColor: '#ff8f3d', color: '#fff', border: 'none' }}>{high} 严重</Tag>}
+        {medium > 0 && <Tag style={{ backgroundColor: '#ffce66', color: '#333', border: 'none' }}>{medium} 中等</Tag>}
+        {low > 0 && <Tag style={{ backgroundColor: '#fff5c8', color: '#333', border: 'none' }}>{low} 较低</Tag>}
       </Space>
     );
   };

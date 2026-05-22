@@ -54,7 +54,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   onRefresh,
   createDefaultNamespace,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [activeSubTab, setActiveSubTab] = useState('gatewayclasses');
   
   // 创建弹窗状态

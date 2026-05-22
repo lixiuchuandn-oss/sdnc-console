@@ -68,7 +68,7 @@ const IngressesSection: React.FC<Props> = ({
 }) => {
   const { message: antMessage } = App.useApp();
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? (namespacesOptions?.[0]) ?? 'default';
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   // 关键字搜索（名称 / 命名空间）
   const [keyword, setKeyword] = useState<string>('');
 

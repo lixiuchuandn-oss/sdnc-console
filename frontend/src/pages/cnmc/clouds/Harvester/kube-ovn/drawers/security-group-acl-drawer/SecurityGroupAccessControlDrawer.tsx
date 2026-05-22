@@ -73,11 +73,26 @@ export type SecurityGroupAccessControlDrawerProps = {
 const SG_ACTION_OPTIONS = [
   { label: '允许', value: 'allow' },
   { label: '拒绝', value: 'drop' },
-  { label: '通行(pass)', value: 'pass' },
 ];
 
+function validateIpCidr(value: string): boolean {
+  if (!value || !value.trim()) return true;
+  const trimmed = value.trim();
+  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(\/(\d{1,2}))?$/;
+  const match = trimmed.match(ipv4Regex);
+  if (!match) return false;
+  for (let i = 1; i <= 4; i++) {
+    const octet = parseInt(match[i], 10);
+    if (isNaN(octet) || octet < 0 || octet > 255) return false;
+  }
+  if (match[6]) {
+    const prefix = parseInt(match[6], 10);
+    if (isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+  }
+  return true;
+}
+
 const SG_L4_OPTIONS = [
-  { label: '全部', value: 'ip4' },
   { label: 'TCP', value: 'tcp' },
   { label: 'UDP', value: 'udp' },
   { label: 'ICMP', value: 'icmp' },
@@ -128,13 +143,45 @@ const SecurityGroupAclRuleRow: React.FC<{
 
         {isInbound ? (
           <Col flex="1 1 160px" style={{ minWidth: 140 }}>
-            <Form.Item {...restField} name={[listIndex, 'matchSrcIp']} style={itemNoMargin}>
+            <Form.Item
+              {...restField}
+              name={[listIndex, 'matchSrcIp']}
+              style={itemNoMargin}
+              rules={[
+                {
+                  validator: (_, value) => {
+                    if (!value || !String(value).trim()) return Promise.resolve();
+                    if (!validateIpCidr(String(value))) {
+                      return Promise.reject(new Error('请输入有效的IP或CIDR格式，如 192.168.1.1 或 192.168.1.0/24'));
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
+              validateTrigger={['onChange', 'onBlur']}
+            >
               <Input size="middle" placeholder="源：CIDR 或 IP，如 0.0.0.0/0" allowClear />
             </Form.Item>
           </Col>
         ) : (
           <Col flex="1 1 160px" style={{ minWidth: 140 }}>
-            <Form.Item {...restField} name={[listIndex, 'matchDstIp']} style={itemNoMargin}>
+            <Form.Item
+              {...restField}
+              name={[listIndex, 'matchDstIp']}
+              style={itemNoMargin}
+              rules={[
+                {
+                  validator: (_, value) => {
+                    if (!value || !String(value).trim()) return Promise.resolve();
+                    if (!validateIpCidr(String(value))) {
+                      return Promise.reject(new Error('请输入有效的IP或CIDR格式，如 192.168.1.1 或 192.168.1.0/24'));
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
+              validateTrigger={['onChange', 'onBlur']}
+            >
               <Input size="middle" placeholder="目的：CIDR 或 IP，如 0.0.0.0/0" allowClear />
             </Form.Item>
           </Col>
@@ -580,6 +627,8 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
                         overflow: 'hidden',
                         background: '#fff',
                         minHeight: 56,
+                        maxHeight: 200,
+                        overflowY: 'auto',
                       }}
                     >
                       {joinedRows.length === 0 ? (
@@ -629,6 +678,8 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
                         overflow: 'hidden',
                         background: '#fff',
                         minHeight: 56,
+                        maxHeight: 200,
+                        overflowY: 'auto',
                       }}
                     >
                       {availableRows.length === 0 ? (
