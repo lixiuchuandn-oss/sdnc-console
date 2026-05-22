@@ -17,6 +17,9 @@ import { parseKubeOvnAclRulesInput } from '../../../../services/clouds/harvester
 import {
   formatTowerNamespacesAnnotation,
   isUnderlayVpcName,
+  denyOvnVpcLicense,
+  isVpcBusinessKubeOvnSubnetCr,
+  isVpcBusinessKubeOvnSubnetIntent,
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
   listNamespacesFromVpcObject,
@@ -507,6 +510,13 @@ export async function harvesterSubnetDirectCreateHandler(
           : KUBE_OVN_FLAT_VPC
         : KUBE_OVN_PUBLIC_VPC;
     const targetVpc = vpc || defaultVpcForNew;
+
+    if (
+      isVpcBusinessKubeOvnSubnetIntent(subnetTypeForVpc, targetVpc) &&
+      denyOvnVpcLicense(res)
+    ) {
+      return;
+    }
 
     try {
       const subnetListUrl = `${apiBase}/apis/kubeovn.io/v1/subnets`;
@@ -1018,6 +1028,10 @@ export async function harvesterSubnetDirectUpdateHandler(
     );
     const prevGateway = String(currentSubnet?.spec?.gateway ?? '').trim();
 
+    if (isVpcBusinessKubeOvnSubnetCr(currentSubnet) && denyOvnVpcLicense(res)) {
+      return;
+    }
+
     // 校验 EIP：仅非 lrp 类型占用时禁止修改网段相关字段
     try {
       const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
@@ -1217,6 +1231,10 @@ export async function harvesterSubnetDirectDeleteHandler(
     }
     if (!subnetBefore?.metadata) {
       res.status(404).json({ message: '子网不存在' });
+      return;
+    }
+
+    if (isVpcBusinessKubeOvnSubnetCr(subnetBefore) && denyOvnVpcLicense(res)) {
       return;
     }
 

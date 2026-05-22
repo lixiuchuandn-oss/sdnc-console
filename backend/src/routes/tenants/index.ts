@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { registerTenantCrudRoutes } from './tenantCrudRoutes';
 import { registerTenantOrganizationRoutes } from './tenantOrganizationRoutes';
+import { registerTenantRepairRoutes } from './tenantRepairRoutes';
 import { registerTenantResourcePoolRoutes } from './tenantResourcePoolRoutes';
 import { registerTenantUserRoutes } from './tenantUserRoutes';
 
@@ -11,6 +12,7 @@ import { registerTenantUserRoutes } from './tenantUserRoutes';
 const router = Router();
 
 registerTenantCrudRoutes(router);
+registerTenantRepairRoutes(router);
 registerTenantOrganizationRoutes(router);
 registerTenantUserRoutes(router);
 registerTenantResourcePoolRoutes(router);

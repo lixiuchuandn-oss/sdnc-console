@@ -12,7 +12,11 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnEip, deleteCloudProviderOvnEip } from '../../../../../../services/harvesterApi';
+import {
+  createCloudProviderOvnEip,
+  deleteCloudProviderOvnEip,
+  uiNetworkScopeToCloudOvn,
+} from '../../../../../../services/harvesterApi';
 import MetadataModal from '../modals/MetadataModal';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
@@ -261,7 +265,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
           return;
         }
       }
-      const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+      const scope = uiNetworkScopeToCloudOvn(networkScope);
       const displayName = String(values.displayName ?? '').trim();
       const vpc = String(values.vpc ?? '').trim();
       const routeScope = values.routeScope as string | undefined;
@@ -330,9 +334,11 @@ export const EipSection: React.FC<EipSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              const apiScope =
-                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
-              await deleteCloudProviderOvnEip(cloudId, record.metadata?.name, apiScope);
+              await deleteCloudProviderOvnEip(
+                cloudId,
+                record.metadata?.name,
+                uiNetworkScopeToCloudOvn(networkScope),
+              );
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {

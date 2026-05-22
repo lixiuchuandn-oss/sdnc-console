@@ -1,14 +1,16 @@
 ﻿/**
  * 租户列表主视图；逻辑见 `hooks/useTenantsPage.tsx`。
  */
-import React from 'react';
+import React, { useState } from 'react';
 import { Button, Col, Dropdown, Form, Input, Row, Select, Table } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import TenantUpsertModal from '../modals/TenantUpsertModal';
+import TenantRepairModal from '../modals/TenantRepairModal';
 import { useTenantsPage } from '../hooks/useTenantsPage';
 
 const TenantsWorkspace: React.FC = () => {
+  const [repairModalOpen, setRepairModalOpen] = useState(false);
   const {
     loading,
     filteredTenants,
@@ -70,6 +72,9 @@ const TenantsWorkspace: React.FC = () => {
           <Button type="primary" onClick={openCreateTenantModal}>
             添加租户
           </Button>
+          <Button onClick={() => setRepairModalOpen(true)}>
+            租户数据修复
+          </Button>
           <Dropdown
             menu={{
               items: [
@@ -119,6 +124,12 @@ const TenantsWorkspace: React.FC = () => {
         form={tenantForm}
         onCancel={closeTenantUpsertModal}
         onFinish={handleTenantSubmit}
+      />
+
+      <TenantRepairModal
+        open={repairModalOpen}
+        onClose={() => setRepairModalOpen(false)}
+        onRepaired={() => fetchTenants(true)}
       />
     </PageContainer>
   );

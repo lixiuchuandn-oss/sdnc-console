@@ -664,6 +664,15 @@ function mapUiScopeToCreateQuery(scope: CloudOvnNetworkScope): 'vpc' | 'underlay
   return 'vpc';
 }
 
+/** Section `networkScope` → API 分域（避免各 NAT/EIP 组件重复三元表达式） */
+export function uiNetworkScopeToCloudOvn(
+  networkScope?: 'flat' | 'vpc',
+): CloudOvnNetworkScope {
+  if (networkScope === 'flat') return 'flat';
+  if (networkScope === 'vpc') return 'vpc';
+  return 'legacy';
+}
+
 function ovnListUrl(
   cloudId: string,
   resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
@@ -694,8 +703,12 @@ function cloudOvnResourceItemPath(
   cloudId: string,
   resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
   name: string,
+  scope?: CloudOvnNetworkScope,
 ): string {
-  return `/api/clouds/${cloudId}/resources/${resource}/${encodeURIComponent(name)}`;
+  const base = `/api/clouds/${cloudId}/resources/${resource}/${encodeURIComponent(name)}`;
+  if (!scope || scope === 'legacy') return base;
+  const q = mapUiScopeToListQuery(scope);
+  return `${base}?ovnNetworkScope=${encodeURIComponent(q)}`;
 }
 
 /**
@@ -822,8 +835,12 @@ export const createCloudProviderOvnDnatRule = async (
  * @param name EIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnEip = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovneips', name));
+export const deleteCloudProviderOvnEip = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovneips', name, scope));
 };
 
 /**
@@ -832,8 +849,12 @@ export const deleteCloudProviderOvnEip = async (cloudId: string, name: string, _
  * @param name FIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnFip = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnfips', name));
+export const deleteCloudProviderOvnFip = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnfips', name, scope));
 };
 
 /**
@@ -842,8 +863,12 @@ export const deleteCloudProviderOvnFip = async (cloudId: string, name: string, _
  * @param name SNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnSnatRule = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnsnatrules', name));
+export const deleteCloudProviderOvnSnatRule = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnsnatrules', name, scope));
 };
 
 /**
@@ -852,8 +877,12 @@ export const deleteCloudProviderOvnSnatRule = async (cloudId: string, name: stri
  * @param name DNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnDnatRule = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovndnatrules', name));
+export const deleteCloudProviderOvnDnatRule = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovndnatrules', name, scope));
 };
 
 /**

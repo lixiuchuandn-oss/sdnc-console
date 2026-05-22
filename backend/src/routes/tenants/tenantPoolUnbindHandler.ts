@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { AppDataSource } from '../../config/database';
+import { Organization } from '../../entities/Organization';
 import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { UserSpace } from '../../entities/UserSpace';
 import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
@@ -7,6 +8,8 @@ import { VpcNetwork } from '../../entities/VpcNetwork';
 import { listKubevirtVMsRawWithMeta } from '../../services/clouds/harvester/client';
 import { listHarvesterPVCRaw } from '../../services/clouds/harvester/storage';
 import { getPublicNamespaceNameSetForUnbind } from '../../services/clouds/harvester/publicNamespaces';
+import { isIamCrdTargetCloud } from '../../services/iam/iamCrdCloud';
+import { syncIamOnResourcePoolUnbind } from '../../services/iam/iamCrdSync';
 import {
   UNBIND_RESOURCE_POOL_HAS_RESOURCES_MSG,
   deleteHarvesterTenantNamespacesOnOrgUnbind,
@@ -274,7 +277,34 @@ export async function handleDeleteOrganizationResourcePool(req: Request, res: Re
         await allocationRepository.remove(allocations);
       }
 
+      const cloudForCrd = userSpace.cloud;
+      const tenantIdForCrd = userSpace.tenantId;
+      const userSpaceIdForCrd = userSpace.id;
+
       await userSpaceRepository.remove(userSpace);
+
+      if (cloudForCrd && isIamCrdTargetCloud(cloudForCrd)) {
+        try {
+          const organizationRepository = AppDataSource.getRepository(Organization);
+          const organizations = await organizationRepository.find({
+            where: { tenantId: tenantIdForCrd },
+          });
+          const remainingOnCloud = await userSpaceRepository.count({
+            where: { tenantId: tenantIdForCrd, cloudId: poolId },
+          });
+          await syncIamOnResourcePoolUnbind(
+            cloudForCrd,
+            { id: userSpaceIdForCrd, tenantId: tenantIdForCrd },
+            organizations,
+            remainingOnCloud,
+          );
+        } catch (crdError) {
+          tenantLog.error(
+            '资源池本地已解绑但 IAM CRD 清理失败:',
+            crdError instanceof Error ? crdError.message : String(crdError),
+          );
+        }
+      }
     }
 
     const assignment = await assignmentRepository.findOne({

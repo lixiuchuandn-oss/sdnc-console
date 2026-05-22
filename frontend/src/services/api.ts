@@ -333,6 +333,11 @@ export const fetchAvailableResourcePools = async () => {
   return await apiRequest('/api/tenants/available-resource-pools');
 };
 
+/** 从 Cloudmap/Harvester 资源池 IAM CRD 恢复租户数据到 Tower 数据库 */
+export const repairTenantsFromCrd = async (cloudId: string) => {
+  return await apiPost('/api/tenants/repair-from-crd', { cloudId });
+};
+
 // User Spaces
 export const fetchUserSpaces = async () => {
   return await apiRequest('/api/user-spaces');

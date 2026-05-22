@@ -14,6 +14,8 @@ import {
   isProtectedNamespace,
   patchHarvesterNamespaceMetadata,
 } from '../../services/clouds/harvester/client';
+import { isIamCrdTargetCloud } from '../../services/iam/iamCrdCloud';
+import { syncIamOnResourcePoolBind } from '../../services/iam/iamCrdSync';
 import { isHarvesterLikeCloudProvider } from './tenantKubeUnbind';
 import { handleDeleteOrganizationResourcePool } from './tenantPoolUnbindHandler';
 import { tenantLog } from './tenantRouteLogger';
@@ -55,7 +57,14 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
 
       const tenantRepository = AppDataSource.getRepository(Tenant);
       const tenant = await tenantRepository.findOne({ where: { id: organization.tenantId } });
-      const tenantName = tenant?.name || '';
+      if (!tenant) {
+        return res.status(404).json({ message: '租户不存在' });
+      }
+      const tenantName = tenant.name;
+
+      const tenantOrganizations = await organizationRepository.find({
+        where: { tenantId: organization.tenantId },
+      });
 
       const userSpaceRepository = AppDataSource.getRepository(UserSpace);
       const allocationRepository = AppDataSource.getRepository(UserSpaceAllocation);
@@ -229,10 +238,14 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
       }
 
       const assignments = [];
+      const crdSyncResults: Array<{ cloudId: string; cloudName: string }> = [];
       const permStr = permissions ? JSON.stringify(permissions) : JSON.stringify(['read', 'use']);
       const assignedBy = req.user?.id ? String(req.user.id) : undefined;
 
       for (const resourcePoolId of normalizedPoolIds) {
+        const resourcePool = resourcePools.find((p) => p.id === resourcePoolId);
+        if (!resourcePool) continue;
+
         const existingAssignment = await userSpaceRepository.findOne({
           where: {
             organizationId: orgId,
@@ -308,6 +321,39 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
           });
           await allocationRepository.save(allocation);
         }
+
+        if (isIamCrdTargetCloud(resourcePool)) {
+          try {
+            const crdSync = await syncIamOnResourcePoolBind(
+              resourcePool,
+              tenant,
+              tenantOrganizations,
+              savedUserSpace,
+            );
+            if (crdSync.synced) {
+              crdSyncResults.push({ cloudId: crdSync.cloudId, cloudName: crdSync.cloudName });
+            }
+          } catch (crdError) {
+            await allocationRepository.delete({ userSpaceId: savedUserSpace.id });
+            await rpaRepository.delete({ organizationId: orgId, cloudId: resourcePoolId });
+            await userSpaceRepository.remove(savedUserSpace);
+
+            const idx = assignments.findIndex((a) => a.id === savedUserSpace.id);
+            if (idx >= 0) assignments.splice(idx, 1);
+
+            const detail = crdError instanceof Error ? crdError.message : String(crdError);
+            tenantLog.error(
+              `资源池 ${resourcePool.name} IAM CRD 同步失败，已回滚本地绑定:`,
+              detail,
+            );
+            return res.status(502).json({
+              message: '资源池分配失败：无法同步 IAM CRD 到底座集群',
+              error: detail,
+              cloudId: resourcePool.id,
+              cloudName: resourcePool.name,
+            });
+          }
+        }
       }
 
       if (assignments.length > 0) {
@@ -327,6 +373,7 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
         message,
         assignedCount,
         skippedCount,
+        crdSync: crdSyncResults.length > 0 ? crdSyncResults : undefined,
       });
     } catch (error) {
       tenantLog.error('资源池分配失败:', error instanceof Error ? error.message : String(error));

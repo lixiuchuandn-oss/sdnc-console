@@ -43,7 +43,7 @@ export async function tryLoadKubeOvnFlatTab(
       if (needsFlatSubnetForTab && checkPerm('clouds.networks:read')) {
         loadResource(
           'subnets',
-          () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+          () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
           (json) => {
             const list: any[] = (json as any)?.data?.items || [];
             setKubeOvnSubnets(Array.isArray(list) ? list : []);

@@ -733,6 +733,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'GlobalOutlined',
     poolNavGroup: 'VPC网络',
     poolMenuParentKey: KUBE,
+    requiredFeature: 'network.ovn.vpc',
   },
   {
     id: 'cloudmap-pool-ovn-eip',

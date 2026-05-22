@@ -123,7 +123,7 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
           onSubnetsChanged={() =>
             loadResource(
               'subnets',
-              () => fetchKubeOvnSubnets(cloudId, true),
+              () => fetchKubeOvnSubnets(cloudId, true, false, 'underlay'),
               (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setKubeOvnSubnets(Array.isArray(list) ? list : []);

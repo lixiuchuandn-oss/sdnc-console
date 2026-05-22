@@ -22,7 +22,7 @@
  *   - 列表 / 创建 / 删除 / 更新「业务 VPC」（ovnNetworkScope=vpc）：须已开通该功能，否则 403。
  *   - ovnNetworkScope=underlay / 未开通时的 all（仅 underlay 项）：不占用该授权（与扁平/公共子网一致）。
  *   - 仅 PUT 更新内置 VPC：`ovn-internal`、`ovn-cluster`、`ovn-provider` **不**要求该许可证（与公共/扁平 underlay 联动一致）。
- * 子网清单接口（`ovn-cache-subnets.handlers.ts`）不在此做许可证校验。
+ * 子网清单（`ovn-cache-subnets.handlers.ts`）在对应 handler 内按 `ovnNetworkScope` 做许可证校验。
  *
  * 【租户过滤】
  * GET 列表对租户按 `spec.namespaces` 与租户命名空间交集过滤；允许绑定在 tower.io/scenario=public 的命名空间上的 VPC 对租户可见。
@@ -39,14 +39,16 @@ import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubeOvnVpcs } from '../../../../services/clouds/harvester/inventory';
 import { createKubeOvnVpc, deleteKubeOvnVpc, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
 import { listKubeOvnSubnets, listKubeOvnEips, listKubeOvnFips } from '../../../../services/clouds/harvester/network';
-import { licenseService } from '../../../../services/LicenseService';
 import { checkTenantAccess } from '../harvester.direct.helpers';
 import {
   getPublicScenarioNamespaceNames,
   mergePublicScenarioNamespacesFromQuery,
 } from '../../../../services/clouds/harvester/publicNamespaces';
 import {
-  ovnNetworkScopeFromAnnotations,
+  denyOvnVpcLicense,
+  denyOvnVpcLicenseForVpcListScope,
+  filterOvnListItemsForListQuery,
+  isOvnVpcLicenseEnabled,
   parseRequiredOvnNetworkScopeListQuery,
 } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 
@@ -66,11 +68,8 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
     }
 
     const scopeQ = parsedScope.scope;
-    const vpcLicenseEnabled = licenseService.hasFeature('network.ovn.vpc');
-    // 仅「业务 VPC」列表（ovnNetworkScope=vpc）占用 network.ovn.vpc 授权；underlay / 扁平·公共子网联动不占用
-    if (scopeQ === 'vpc' && !vpcLicenseEnabled) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (denyOvnVpcLicenseForVpcListScope(res, scopeQ)) return;
+    const vpcLicenseEnabled = isOvnVpcLicenseEnabled();
 
     const cloud = (req as any).cloud;
     const { id } = req.params;
@@ -162,15 +161,7 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
       }
     }
 
-    if (scopeQ === 'vpc') {
-      list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'vpc');
-    } else if (scopeQ === 'underlay') {
-      list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'underlay');
-    } else if (scopeQ === 'all' && !vpcLicenseEnabled) {
-      // 未开通虚拟专有云时，all 仅返回 underlay 域（内置 VPC），不含业务 VPC
-      list = list.filter((vpc: any) => ovnNetworkScopeFromAnnotations(vpc) === 'underlay');
-    }
-    // scopeQ === 'all' 且已开通授权：不分域
+    list = filterOvnListItemsForListQuery(list, scopeQ, vpcLicenseEnabled);
 
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
@@ -185,9 +176,7 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
  */
 export async function harvesterVpcCreateHandler(req: Request, res: Response) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (denyOvnVpcLicense(res)) return;
 
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
@@ -237,9 +226,7 @@ export async function harvesterVpcCreateHandler(req: Request, res: Response) {
  */
 export async function harvesterVpcDeleteHandler(req: Request, res: Response) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
+    if (denyOvnVpcLicense(res)) return;
 
     const cloud = (req as any).cloud;
     const { name } = req.params;
@@ -369,8 +356,8 @@ export async function harvesterVpcUpdateHandler(req: Request, res: Response) {
     // 内置 ovn-internal / ovn-cluster / ovn-provider 与 underlay、公共子网等联动，不占用「虚拟专有云」授权
     const isBuiltinVpcExemptFromVpcLicense =
       nameTrim === 'ovn-internal' || nameTrim === 'ovn-cluster' || nameTrim === 'ovn-provider';
-    if (!isBuiltinVpcExemptFromVpcLicense && !licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    if (!isBuiltinVpcExemptFromVpcLicense && denyOvnVpcLicense(res)) {
+      return;
     }
 
     const cloud = (req as any).cloud;
