@@ -17,8 +17,25 @@ export type SubnetAclFormRow = {
   matchDstPort?: number | null;
 };
 
+function validateIpCidr(value: string): boolean {
+  if (!value || !value.trim()) return true;
+  const trimmed = value.trim();
+  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(\/(\d{1,2}))?$/;
+  const match = trimmed.match(ipv4Regex);
+  if (!match) return false;
+  for (let i = 1; i <= 4; i++) {
+    const octet = parseInt(match[i], 10);
+    if (isNaN(octet) || octet < 0 || octet > 255) return false;
+  }
+  if (match[6]) {
+    const prefix = parseInt(match[6], 10);
+    if (isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+  }
+  return true;
+}
+
 const ACL_ACTIONS = [
-  { label: '阻断', value: 'drop' },
+  { label: '拒绝', value: 'drop' },
   { label: '允许', value: 'allow' },
 ];
 
@@ -28,7 +45,6 @@ const ACL_DIRECTIONS = [
 ];
 
 const L4_OPTIONS: { label: string; value: MatchL4 }[] = [
-  { label: 'L3', value: 'ip4' },
   { label: 'TCP', value: 'tcp' },
   { label: 'UDP', value: 'udp' },
   { label: 'ICMP', value: 'icmp' },
@@ -253,29 +269,45 @@ const AclRuleOneRow: React.FC<{
   const showPorts = true;
   return (
     <div style={{ width: '100%', overflowX: 'auto', marginBottom: 10 }}>
-      <Row wrap={false} align="middle" gutter={6} style={{ minWidth: 920, width: '100%' }}>
-        <Col flex="76px" style={{ minWidth: 120 }}>
+      <Row wrap={false} align="top" gutter={[10, 8]} style={{ minWidth: 800, width: '100%' }}>
+        <Col flex="88px" style={{ minWidth: 88 }}>
           <Form.Item {...restField} name={[listIndex, 'priority']} rules={[{ required: true, message: '优先级' }]} style={itemNoMargin}>
-            <InputNumber size="middle" prefix="优先级"  min={1} max={32767} style={{ width: '100%' }} controls />
+            <InputNumber size="middle" min={1} max={32767} placeholder="优先级" style={{ width: '100%' }} controls />
           </Form.Item>
         </Col>
 
-        <Col flex="72px" style={{ minWidth: 120 }}>
+        <Col flex="100px" style={{ minWidth: 100 }}>
           <Form.Item {...restField} name={[listIndex, 'direction']} rules={[{ required: true, message: '方向' }]} style={itemNoMargin}>
             <Select size="middle" options={ACL_DIRECTIONS} style={{ width: '100%' }} />
           </Form.Item>
         </Col>
-        <Col flex="72px" style={{ minWidth: 120 }}>
+        <Col flex="100px" style={{ minWidth: 100 }}>
           <Form.Item {...restField} name={[listIndex, 'matchL4']} style={itemNoMargin}>
-            <Select size="middle" prefix="协议" options={L4_OPTIONS} style={{ width: '100%' }} />
+            <Select size="middle" placeholder="协议" options={L4_OPTIONS} style={{ width: '100%' }} />
           </Form.Item>
         </Col>
-        <Col flex="1 1 108px" style={{ minWidth: 88 }}>
-          <Form.Item {...restField} name={[listIndex, 'matchSrcIp']} style={itemNoMargin}>
+        <Col flex="1 1 160px" style={{ minWidth: 140 }}>
+          <Form.Item
+            {...restField}
+            name={[listIndex, 'matchSrcIp']}
+            style={itemNoMargin}
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (!value || !String(value).trim()) return Promise.resolve();
+                  if (!validateIpCidr(String(value))) {
+                    return Promise.reject(new Error('请输入有效的IP或CIDR格式，如 192.168.1.1 或 192.168.1.0/24'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+            validateTrigger={['onChange', 'onBlur']}
+          >
             <Input size="middle" placeholder="源 IP" allowClear />
           </Form.Item>
         </Col>
-        <Col flex="68px" style={{  minWidth: 100 }}>
+        <Col flex="88px" style={{ minWidth: 88 }}>
           <Form.Item {...restField} name={[listIndex, 'matchSrcPort']} style={itemNoMargin}>
             <InputNumber
               size="middle"
@@ -288,13 +320,29 @@ const AclRuleOneRow: React.FC<{
             />
           </Form.Item>
         </Col>
-        <Col flex="1 1 108px" style={{ minWidth: 88 }}>
-          <Form.Item {...restField} name={[listIndex, 'matchDstIp']} style={itemNoMargin}>
+        <Col flex="1 1 160px" style={{ minWidth: 140 }}>
+          <Form.Item
+            {...restField}
+            name={[listIndex, 'matchDstIp']}
+            style={itemNoMargin}
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (!value || !String(value).trim()) return Promise.resolve();
+                  if (!validateIpCidr(String(value))) {
+                    return Promise.reject(new Error('请输入有效的IP或CIDR格式，如 192.168.1.1 或 192.168.1.0/24'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+            validateTrigger={['onChange', 'onBlur']}
+          >
             <Input size="middle" placeholder="目的 IP" allowClear />
           </Form.Item>
         </Col>
 
-        <Col flex="68px" style={{  minWidth: 100 }}>
+        <Col flex="88px" style={{ minWidth: 88 }}>
           <Form.Item {...restField} name={[listIndex, 'matchDstPort']} style={itemNoMargin}>
             <InputNumber
               size="middle"
@@ -307,7 +355,7 @@ const AclRuleOneRow: React.FC<{
             />
           </Form.Item>
         </Col>
-        <Col flex="72px" style={{ minWidth: 120 }}>
+        <Col flex="100px" style={{ minWidth: 100 }}>
           <Form.Item {...restField} name={[listIndex, 'action']} rules={[{ required: true, message: '动作' }]} style={itemNoMargin}>
             <Select size="middle" options={ACL_ACTIONS} style={{ width: '100%' }} />
           </Form.Item>
@@ -337,7 +385,7 @@ const SubnetAclFormItems: React.FC = () => (
                 action: 'drop',
                 direction: 'from-lport',
                 priority: 1000,
-                matchL4: 'ip4',
+                matchL4: 'tcp',
                 matchSrcIp: '',
                 matchDstIp: '',
                 matchSrcPort: null,
