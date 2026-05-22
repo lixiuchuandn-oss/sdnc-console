@@ -61,7 +61,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-rh-overview',
     pathSuffix: 'resource_hub/overview',
-    title: '总览',
+    title: '集群总览',
     order: 10,
     icon: 'DashboardOutlined',
     poolNavGroup: '资源总览',
@@ -95,7 +95,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-rh-ceph-overview',
     pathSuffix: 'resource_hub/ceph_storage_overview',
-    title: '存储仪表板',
+    title: '存储总览',
     order: 13,
     icon: 'DatabaseOutlined',
     poolNavGroup: '资源总览',

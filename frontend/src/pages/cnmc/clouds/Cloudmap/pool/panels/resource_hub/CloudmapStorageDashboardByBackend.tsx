@@ -1,5 +1,5 @@
 /**
- * Cloudmap「存储仪表板」：存在 Rook CephCluster 时展示 Ceph 总览，否则展示 Longhorn（存量底座）。
+ * Cloudmap「存储总览」：存在 Rook CephCluster 时展示 Ceph 总览，否则展示 Longhorn（存量底座）。
  * 探测仅用 `monitoring/ceph-clusters`（单资源列表），避免 `ceph/rook/bundle` 全量聚合带来的延迟。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';

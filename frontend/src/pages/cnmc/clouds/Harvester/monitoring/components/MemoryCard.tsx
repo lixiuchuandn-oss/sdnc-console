@@ -3,7 +3,7 @@
  */
 import React, { useMemo } from 'react';
 import { Card, Typography, Spin } from 'antd';
-import { DatabaseOutlined } from '@ant-design/icons';
+import { FundOutlined } from '@ant-design/icons';
 import { useMonitoringOverviewFastLane } from '../MonitoringOverviewLanesContext';
 import {
   aggregateNodeResources,
@@ -47,7 +47,7 @@ export const MemoryCard: React.FC = () => {
       size="small"
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <DatabaseOutlined style={{ color: '#1677ff', fontSize: 20 }} />
+          <FundOutlined style={{ color: '#1677ff', fontSize: 20 }} />
           <span style={{ fontSize: 16 }}>内存</span>
         </span>
       }
