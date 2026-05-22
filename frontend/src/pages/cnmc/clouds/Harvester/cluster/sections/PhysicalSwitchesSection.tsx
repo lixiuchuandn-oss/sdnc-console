@@ -255,7 +255,6 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         className="std-table"
         scroll={{ x: true }}
         bordered={false}
-        size="small"
         rowKey={(r) => r.metadata?.name || r.metadata?.uid || 'row'}
         loading={loading}
         pagination={false}

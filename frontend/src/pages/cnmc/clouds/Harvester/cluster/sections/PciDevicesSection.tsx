@@ -13,6 +13,7 @@ import {
   getPciNodeName,
   pciDeviceRowKey,
 } from '../lib/pciDevicesSectionUtils';
+import { createClusterToolbarRefresh } from '../lib/clusterSectionRefresh';
 import { buildPciDevicesTableColumns } from '../lib/pciDevicesTableColumns';
 
 interface Props {
@@ -80,15 +81,14 @@ const PciDevicesSection: React.FC<Props> = ({
     [pciRows, keyword, nodeFilter, statusFilter, bindFilter],
   );
 
-  const handleRefresh = async () => {
-    if (!onRefresh) return;
-    setRefreshing(true);
-    try {
-      await onRefresh(true);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const handleToolbarRefresh = useMemo(
+    () =>
+      createClusterToolbarRefresh(onRefresh, {
+        before: () => setRefreshing(true),
+        after: () => setRefreshing(false),
+      }),
+    [onRefresh],
+  );
 
   const handleOpenYaml = useCallback((record: unknown) => {
     const row = record as Record<string, unknown>;
@@ -162,7 +162,12 @@ const PciDevicesSection: React.FC<Props> = ({
         toolbarRight={(
           <Space>
             <TableColumnSettingsButton allColumns={columnsAll} settingsKey={tableSettingsKey} />
-            <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={!!loading || refreshing} disabled={!onRefresh} />
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleToolbarRefresh}
+              loading={!!loading || refreshing}
+              disabled={!!loading || refreshing || !onRefresh}
+            />
           </Space>
         )}
       >

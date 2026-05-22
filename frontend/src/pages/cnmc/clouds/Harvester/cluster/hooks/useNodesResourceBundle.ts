@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   parseCpuToCores,
   parseMemoryToBytes,
@@ -9,7 +9,7 @@ import {
 
 /**
  * 并行拉取节点 metrics、全集群 Pod requests 聚合、节点 allocatable/capacity；
- * 含周期刷新与外层节点列表就绪后的延迟对齐拉取。
+ * 含周期刷新、列表就绪对齐与显式 reload（force 时跳过前端 GET 缓存并带 proxy force）。
  */
 export function useNodesResourceBundle(params: {
   cloudId?: string;
@@ -23,6 +23,13 @@ export function useNodesResourceBundle(params: {
   const [nodesDetailMap, setNodesDetailMap] = useState<Record<string, NodeDetailAlloc>>({});
   const [resourceLoading, setResourceLoading] = useState(true);
   const [refreshCounter, setRefreshCounter] = useState(0);
+  const forceNextLoadRef = useRef(false);
+
+  const reload = useCallback((force = false) => {
+    if (force) forceNextLoadRef.current = true;
+    setResourceLoading(true);
+    setRefreshCounter((c) => c + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,13 +49,16 @@ export function useNodesResourceBundle(params: {
         return;
       }
 
+      const force = forceNextLoadRef.current;
+      forceNextLoadRef.current = false;
+
       try {
         const { fetchHarvesterResourceByLink } = await import('services/harvester/resource');
 
         const [metricsRes, podsRes, nodesRes] = await Promise.all([
-          fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes'),
-          fetchHarvesterResourceByLink(cloudId, '/api/v1/pods?allNamespaces=true'),
-          fetchHarvesterResourceByLink(cloudId, '/api/v1/nodes'),
+          fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes', force),
+          fetchHarvesterResourceByLink(cloudId, '/api/v1/pods?allNamespaces=true', force),
+          fetchHarvesterResourceByLink(cloudId, '/api/v1/nodes', force),
         ]);
 
         const metricsItems: unknown[] = Array.isArray((metricsRes as { items?: unknown })?.items)
@@ -153,21 +163,19 @@ export function useNodesResourceBundle(params: {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setResourceLoading(true);
-      setRefreshCounter(c => c + 1);
+      reload(false);
     }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [reload]);
 
   useEffect(() => {
     if (!nodesLoading && nodesLength > 0) {
       const timer = setTimeout(() => {
-        setResourceLoading(true);
-        setRefreshCounter(c => c + 1);
+        reload(false);
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [nodesLoading, nodesLength]);
+  }, [nodesLoading, nodesLength, reload]);
 
-  return { metricsMap, requestsMap, nodesDetailMap, resourceLoading };
+  return { metricsMap, requestsMap, nodesDetailMap, resourceLoading, reload };
 }

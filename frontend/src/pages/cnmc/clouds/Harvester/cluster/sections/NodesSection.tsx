@@ -20,6 +20,7 @@ import {
   nodeRowKey,
   nodeRowToViewLink,
 } from '../lib/nodesSectionUtils';
+import { createClusterToolbarRefresh } from '../lib/clusterSectionRefresh';
 import { buildNodesTableColumns } from '../lib/nodesTableColumns';
 
 const COLUMN_SETTINGS_KEY = 'harvester_nodes_table';
@@ -43,7 +44,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
   const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
   const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
 
-  const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } = useNodesResourceBundle({
+  const { metricsMap, requestsMap, nodesDetailMap, resourceLoading, reload } = useNodesResourceBundle({
     cloudId,
     nodesLoading: loading,
     nodesLength: nodes?.length ?? 0,
@@ -107,16 +108,12 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     setReadyFilter('');
   }, []);
 
-  const handleToolbarRefresh = useCallback(() => {
-    if (!onRefresh) {
-      message.warning('刷新功能未配置');
-      return;
-    }
-    void Promise.resolve(onRefresh(true)).catch((e: unknown) => {
-      const err = e as { message?: string };
-      message.error(`刷新失败: ${err?.message || '未知错误'}`);
-    });
-  }, [onRefresh]);
+  const handleToolbarRefresh = useMemo(
+    () => createClusterToolbarRefresh(onRefresh, { before: () => reload(true) }),
+    [onRefresh, reload],
+  );
+
+  const tableLoading = loading || resourceLoading;
 
   return (
     <PageDetailSection
@@ -162,12 +159,12 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
           <Button
             icon={<ReloadOutlined />}
             onClick={handleToolbarRefresh}
-            loading={loading}
-            disabled={loading}
+            loading={tableLoading}
+            disabled={tableLoading}
           />
         </div>
       )}
-      refreshLoading={loading}
+      refreshLoading={tableLoading}
     >
       <Table<NodeRow>
         key={`${keyword}|${roleFilter}|${readyFilter}`}
@@ -177,7 +174,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
         rowKey={(r, i) => nodeRowKey(r, typeof i === 'number' && Number.isFinite(i) ? i : 0)}
         columns={tableColumns}
         dataSource={filtered}
-        loading={loading}
+        loading={tableLoading}
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
@@ -187,8 +184,11 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
         onClose={() => setNodeDetailOpen(false)}
         record={nodeDetailRecord}
         metrics={metricsMap[String(nodeDetailRecord?.name || nodeDetailRecord?.metadata?.name || '')]}
-        onRefreshFromCluster={onRefresh}
-        refreshLoading={loading}
+        onRefreshFromCluster={(force) => {
+          reload(!!force);
+          onRefresh?.(force);
+        }}
+        refreshLoading={tableLoading}
       />
       {cloudId ? (
         <ResourceLinkYamlDrawer

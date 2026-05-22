@@ -16,6 +16,7 @@ import {
   filterStorageClassesForTable,
   storageClassRowKey,
 } from '../lib/storageClassesSectionUtils';
+import { createClusterToolbarRefresh } from '../lib/clusterSectionRefresh';
 import { buildStorageClassesTableColumns } from '../lib/storageClassesTableColumns';
 
 type Props = {
@@ -82,6 +83,11 @@ const StorageClassesSection: React.FC<Props> = ({
     [visibleStorageClasses, keyword, provisionerFilter, reclaimPolicyFilter],
   );
 
+  const handleToolbarRefresh = useMemo(
+    () => createClusterToolbarRefresh(onRefresh),
+    [onRefresh],
+  );
+
   return (
     <PageDetailSection
       asCard={false}
@@ -127,9 +133,15 @@ const StorageClassesSection: React.FC<Props> = ({
       toolbarRight={
         <>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_storageclasses_table" />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleToolbarRefresh}
+            loading={loading}
+            disabled={loading || !onRefresh}
+          />
         </>
       }
+      refreshLoading={loading}
     >
       <Table
         className="std-table"
