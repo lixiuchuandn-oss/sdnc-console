@@ -73,7 +73,6 @@ export type SecurityGroupAccessControlDrawerProps = {
 const SG_ACTION_OPTIONS = [
   { label: '允许', value: 'allow' },
   { label: '拒绝', value: 'drop' },
-  { label: '通行(pass)', value: 'pass' },
 ];
 
 const SG_L4_OPTIONS = [
