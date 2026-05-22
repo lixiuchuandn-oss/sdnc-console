@@ -713,13 +713,13 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
           />
           <Select
             allowClear
-            placeholder="是否有成员"
+            placeholder="是否应用到云主机"
             className="toolbar-filter-sm"
             value={memberFilter || undefined}
             onChange={(v) => setMemberFilter(String(v || ''))}
             options={[
-              { label: '有成员', value: 'has_members' },
-              { label: '无成员', value: 'no_members' },
+              { label: '是', value: 'has_members' },
+              { label: '否', value: 'no_members' },
             ]}
           />
           <Button
