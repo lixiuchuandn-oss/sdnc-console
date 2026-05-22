@@ -700,7 +700,7 @@ const WorkloadsSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [activeTab, setActiveTab] = useState<'deployment' | 'statefulset' | 'daemonset'>('deployment');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createType, setCreateType] = useState<WorkloadType>('deployment');

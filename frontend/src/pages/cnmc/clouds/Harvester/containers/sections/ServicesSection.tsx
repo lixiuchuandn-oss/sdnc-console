@@ -6,7 +6,7 @@
  * 支持 `tower.io/alias` 双轨显示与 JSON Patch 更新别名。
  */
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Table, Button, Input, Select, App, Modal, Form, Tooltip, Tag, Space } from 'antd';
+import { Table, Button, Input, Select, App, Modal, Form, Tooltip, Tag, Space, Switch } from 'antd';
 import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -72,6 +72,9 @@ interface Props {
   onNsChange?: (v?: string) => void;
   pods?: any[];
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 }
 
 const ServicesSection: React.FC<Props> = ({
@@ -85,6 +88,9 @@ const ServicesSection: React.FC<Props> = ({
   onNsChange,
   pods,
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
 
@@ -95,9 +101,9 @@ const ServicesSection: React.FC<Props> = ({
   );
 
   const formDefaultNs = useMemo(() => {
-    const preferred = createDefaultNamespace ?? nsValue;
+    const preferred = createDefaultNamespace ?? nsValue ?? 'default';
     if (preferred && !isSystemNamespace(String(preferred))) return preferred;
-    return namespacesOptionsBiz[0];
+    return namespacesOptionsBiz[0] ?? 'default';
   }, [createDefaultNamespace, nsValue, namespacesOptionsBiz]);
 
   /** 当前筛选落在系统命名空间时清空（父级 state 可能来自历史 URL 等） */
@@ -561,6 +567,15 @@ const ServicesSection: React.FC<Props> = ({
       }
       toolbarRight={
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!isTenant && (
             <Button
               type="primary"

@@ -1029,7 +1029,7 @@ const RegistriesSection: React.FC<Props> = ({
   onRefresh,
   createDefaultNamespace,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
   
   // Tab 状态

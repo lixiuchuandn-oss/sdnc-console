@@ -2017,7 +2017,7 @@ const JobsSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [activeTab, setActiveTab] = useState<'job' | 'cronjob'>('job');
   const [jobCreateVisible, setJobCreateVisible] = useState(false);
   const [cronjobCreateVisible, setCronjobCreateVisible] = useState(false);

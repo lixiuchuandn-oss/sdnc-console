@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip, Switch } from 'antd';
+import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip, Switch, Popover } from 'antd';
 import { FileTextOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -1014,13 +1014,130 @@ const PodsSection: React.FC<Props> = ({
     },
     {
       title: 'IP',
-      dataIndex: ['status', 'podIP'],
       key: 'podIP',
+      render: (_: any, record: any) => {
+        const podIP = record?.status?.podIP;
+        const annotations = record?.metadata?.annotations || {};
+        const networkStatusStr = annotations['k8s.v1.cni.cncf.io/network-status'];
+        
+        // 解析网络状态
+        interface NetworkInfo {
+          name: string;
+          interface: string;
+          ip: string;
+          isDefault: boolean;
+        }
+        const networks: NetworkInfo[] = [];
+        
+        // 添加默认网络
+        if (podIP) {
+          networks.push({
+            name: 'Pod网络',
+            interface: 'eth0',
+            ip: podIP,
+            isDefault: true,
+          });
+        }
+        
+        // 解析附加网络
+        if (networkStatusStr) {
+          try {
+            const networkStatus = JSON.parse(networkStatusStr);
+            if (Array.isArray(networkStatus)) {
+              networkStatus.forEach((net: any) => {
+                if (net.ips && net.ips.length > 0) {
+                  const netName = net.name || '';
+                  const displayName = netName.includes('/') 
+                    ? netName.split('/')[1] 
+                    : (netName || '附加网络');
+                  networks.push({
+                    name: displayName,
+                    interface: net.interface || `net${networks.length}`,
+                    ip: net.ips[0],
+                    isDefault: !!net.default,
+                  });
+                }
+              });
+            }
+          } catch {
+            // 解析失败
+          }
+        }
+        
+        if (networks.length === 0) {
+          return '-';
+        }
+        
+        // 只有一个网络时直接显示
+        if (networks.length === 1) {
+          return (
+            <Tooltip title={`${networks[0].name} (${networks[0].interface})`}>
+              <span>{networks[0].ip}</span>
+            </Tooltip>
+          );
+        }
+        
+        // 多个网络时，显示主IP + 展开按钮
+        const defaultNet = networks.find(n => n.isDefault) || networks[0];
+        const additionalNets = networks.filter(n => !n.isDefault);
+        
+        return (
+          <Space size={4}>
+            <Tooltip title={`${defaultNet.name} (${defaultNet.interface})`}>
+              <span>{defaultNet.ip}</span>
+            </Tooltip>
+            {additionalNets.length > 0 && (
+              <Popover
+                trigger="click"
+                placement="right"
+                content={
+                  <div style={{ minWidth: 200 }}>
+                    <div style={{ marginBottom: 8, fontWeight: 500, color: '#666' }}>
+                      所有网络接口
+                    </div>
+                    {networks.map((net, idx) => (
+                      <div key={idx} style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between',
+                        padding: '4px 0',
+                        borderBottom: idx < networks.length - 1 ? '1px solid #f0f0f0' : 'none'
+                      }}>
+                        <Space size={4}>
+                          <Tag color={net.isDefault ? 'green' : 'blue'} style={{ margin: 0 }}>
+                            {net.interface}
+                          </Tag>
+                          <span style={{ color: '#666', fontSize: 12 }}>{net.name}</span>
+                        </Space>
+                        <span style={{ fontFamily: 'monospace' }}>{net.ip}</span>
+                      </div>
+                    ))}
+                  </div>
+                }
+              >
+                <Tag color="orange" style={{ cursor: 'pointer', margin: 0 }}>
+                  +{additionalNets.length}
+                </Tag>
+              </Popover>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '运行时长',
       key: 'age',
       render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
+    },
+    {
+      title: '创建时间',
+      key: 'creationTimestamp',
+      render: (_: any, record: any) => formatTime(record?.metadata?.creationTimestamp),
+      sorter: (a: any, b: any) => {
+        const ta = a?.metadata?.creationTimestamp ? new Date(a.metadata.creationTimestamp).getTime() : 0;
+        const tb = b?.metadata?.creationTimestamp ? new Date(b.metadata.creationTimestamp).getTime() : 0;
+        return ta - tb;
+      },
+      defaultSortOrder: 'descend' as const,
     },
     {
       title: '镜像',

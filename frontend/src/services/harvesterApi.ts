@@ -1503,6 +1503,19 @@ export const fetchKubeOvnSubnets = async (
   });
 };
 
+/** 检测 Kube-OVN 子网中静态 IP 是否已被使用 */
+export const checkSubnetStaticIP = async (
+  cloudId: string,
+  subnetNamespace: string,
+  subnetName: string,
+  ip: string,
+) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(subnetNamespace)}/${encodeURIComponent(subnetName)}/check-ip?ip=${encodeURIComponent(ip)}`,
+    { skipCache: true },
+  );
+};
+
 /** Tower 侧 Kube-OVN 安全组列表 */
 export const fetchKubeOvnSecurityGroups = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/kube-ovn-security-groups`, {
