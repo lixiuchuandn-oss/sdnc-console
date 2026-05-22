@@ -4,7 +4,7 @@
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Button, Card, Divider, Popconfirm, Segmented, Space, Tooltip, message } from 'antd';
+import { Button, Card, Divider, Empty, Popconfirm, Segmented, Space, Tooltip, message } from 'antd';
 import { 
   DeleteOutlined,
   EditOutlined,
@@ -542,23 +542,34 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
       }}
     >
       <div className="cloudmap-dc-topology-body">
-        {loading ? (
-          <div style={{ padding: '48px 0', textAlign: 'center', color: 'rgba(0,0,0,0.45)' }}>加载中…</div>
-        ) : racks.length === 0 ? (
-          <div>
-            <Card size="small">
-              暂无机柜。请先「刷新」拉取列表；若有权限，可点「新机柜」在库房中创建第一台空机柜。
-            </Card>
-            <Space wrap style={{ marginTop: 10, width: '100%', justifyContent: 'flex-end' }} size="middle">
-              <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void loadAll()}>
-                刷新
-              </Button>
+        {loading && racks.length === 0 ? null : racks.length === 0 ? (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 360,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '24px 16px',
+            }}
+          >
+            <div style={{ textAlign: 'center', maxWidth: 440 }}>
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  canWrite ? '暂无机柜。请点击「创建机柜」。' : '暂无机柜。'
+                }
+              />
               {canWrite ? (
-                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateRackModal}>
-                  新机柜
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={openCreateRackModal}
+                >
+                  创建机柜
                 </Button>
               ) : null}
-            </Space>
+            </div>
           </div>
         ) : (
           renderRackGrid(racks[carouselCursor])
@@ -599,7 +610,6 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
         setNodeDrawerRecord(null);
       }}
       record={nodeDrawerRecord}
-      cloudId={cloudId}
       metrics={nodeDrawerRecord ? nodeMetricsMap[nodeName(nodeDrawerRecord)] : undefined}
       onRefreshFromCluster={() => void loadAll()}
       refreshLoading={loading}

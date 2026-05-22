@@ -50,6 +50,8 @@ export interface RouteSpec {
   poolNavGroup?: string;
   /** Cloudmap 池侧栏 Ant Menu 父级 key（非路径） */
   poolMenuParentKey?: string;
+  /** Cloudmap 池内：侧栏二级分组键（与 `cloudmapPoolNavRows.poolNavSubgroup` 一致） */
+  poolNavSubgroup?: string;
 }
 
 function toCloudmapPoolRouteSpec(
@@ -73,6 +75,7 @@ function toCloudmapPoolRouteSpec(
     navScope: 'cloudmap-pool',
     poolNavGroup: r.poolNavGroup,
     poolMenuParentKey: r.poolMenuParentKey || undefined,
+    poolNavSubgroup: r.poolNavSubgroup,
     title: r.title,
     breadcrumbLabel: r.title,
     subtitle: `${r.poolNavGroup} · ${r.title}`,
@@ -183,6 +186,81 @@ export const routeSpecs: RouteSpec[] = [
     },
   },
   {
+    id: 'pool-vendor-huawei',
+    path: '/admin/clouds/vendor/huawei/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '资源池管理',
+    hidden: true,
+    title: '华为云资源池详情',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+  },
+  {
+    id: 'pool-vendor-aliyun',
+    path: '/admin/clouds/vendor/aliyun/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '资源池管理',
+    hidden: true,
+    title: '阿里云资源池详情',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+  },
+  {
+    id: 'pool-vendor-rancher',
+    path: '/admin/clouds/vendor/rancher/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '资源池管理',
+    hidden: true,
+    title: 'Rancher 资源池详情',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+  },
+  {
+    id: 'pool-vendor-xinference',
+    path: '/admin/clouds/vendor/xinference/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '资源池管理',
+    hidden: true,
+    title: 'Xinference 资源池详情',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+  },
+  {
+    id: 'pool-vendor-csm',
+    path: '/admin/clouds/vendor/csm/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '资源池管理',
+    hidden: true,
+    title: 'CSM 资源池跳转',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+  },
+  {
     id: 'console',
     path: '/console',
     element: 'CloudConsolePage',
@@ -214,7 +292,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'TENANTS',
     group: '租户管理',
     title: '租户管理',
-    subtitle: '租户（Tenant）用于隔离不同组织或项目的资源与权限，支持组织架构、用户与角色管理、资源池分配等。',
+    subtitle: '租户用于隔离不同组织或项目的资源与权限，支持组织架构、用户与角色管理、资源池分配等。',
     icon: 'TeamOutlined',
     requiredActions: {
       page: 'tenants:read',
@@ -265,21 +343,6 @@ export const routeSpecs: RouteSpec[] = [
   },
 
   // CNMC Hidden Routes (放在最后)
-  {
-    id: 'webssh',
-    path: '/admin/clouds/:id/webssh',
-    element: 'WebSSHPage',
-    layout: 'default',
-    guard: 'private',
-    platform: 'CNMC',
-    group: '资源控制台',
-    hidden: true,
-    requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
-    }
-  },
   {
     id: 'vnc',
     path: '/admin/clouds/:id/harvester/vnc',
@@ -344,41 +407,6 @@ export const routeSpecs: RouteSpec[] = [
       write: 'clouds.vm-create-wizard:write'
     }
   },
-  {
-    id: 'instance-detail',
-    path: '/admin/clouds/:id/instances/:instanceId',
-    element: 'InstanceDetail',
-    modalElement: 'InstanceDetailModal',
-    layout: 'default',
-    guard: 'private',
-    backgroundCapable: true,
-    platform: 'CNMC',
-    group: '资源控制台',
-    hidden: true,
-    requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
-    }
-  },
-  {
-    id: 'instance-detail-pure',
-    path: '/clouds/:id/instances/:instanceId',
-    element: 'InstanceDetail',
-    modalElement: 'InstanceDetailModal',
-    layout: 'default',
-    guard: 'private',
-    backgroundCapable: true,
-    platform: 'CNMC',
-    group: '资源控制台',
-    hidden: true,
-    requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
-    }
-  },
-
   // ============================================================================
   // SDNCC 平台 (SDN 控制中心)
   // ============================================================================

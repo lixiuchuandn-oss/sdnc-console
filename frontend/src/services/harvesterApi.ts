@@ -447,6 +447,62 @@ export const probeAswCtlConnection = async (
   );
 };
 
+export type HmsSwitchCrSpec = {
+  hosts?: string[];
+  primaryHost?: string;
+  user?: string;
+  port?: number;
+  password?: string;
+  vendor?: string;
+  deviceProfile?: string;
+  infoCommands?: string[];
+  interfaceCommands?: string[];
+  performanceCommands?: string[];
+  vlanCommands?: string[];
+  corsAllowedOrigins?: string[];
+  dialTimeout?: number;
+  execTimeout?: number;
+  passwordConfigured?: boolean;
+};
+
+export type HmsSwitchCr = {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: { name?: string; uid?: string; resourceVersion?: string };
+  spec?: HmsSwitchCrSpec;
+};
+
+/** 列出集群内 HMS Switch CR（密码字段已脱敏） */
+export const fetchHmsSwitchCrs = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/hms/switches`, {
+    skipCache: true,
+  });
+};
+
+export const createHmsSwitchCr = async (
+  cloudId: string,
+  body: { name: string; spec: HmsSwitchCrSpec },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/hms/switches`, body);
+};
+
+export const updateHmsSwitchCr = async (
+  cloudId: string,
+  name: string,
+  body: { spec: HmsSwitchCrSpec },
+) => {
+  return await apiPut(
+    `/api/clouds/${cloudId}/resources/harvester/hms/switches/${encodeURIComponent(name)}`,
+    body,
+  );
+};
+
+export const deleteHmsSwitchCr = async (cloudId: string, name: string) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester/hms/switches/${encodeURIComponent(name)}`,
+  );
+};
+
 /**
  * 获取 Harvester NAD 详情
  * @param cloudId 云环境 ID
@@ -523,6 +579,13 @@ export const fetchHarvesterResourceByLink = async (cloudId: string, path: string
  */
 export const deleteHarvesterResourceByLink = async (cloudId: string, path: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`);
+};
+
+export const putHarvesterResourceByLink = async (cloudId: string, path: string, body: unknown) => {
+  return await apiPut(
+    `/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`,
+    body,
+  );
 };
 
 export const fetchHarvesterVirtualMachineRestores = async (cloudId: string, force = false) => {

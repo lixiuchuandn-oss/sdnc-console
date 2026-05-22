@@ -485,12 +485,12 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     <div className="wizard-secondary-nic-head">
                       <span className="wizard-secondary-nic-slot-title">{slotTitle}</span>
                       <Button
-                        type="text"
+                        color="danger"
+                        variant="filled"
                         icon={<MinusCircleOutlined />}
                         onClick={() => {
                           remove(fieldName);
                         }}
-                        danger
                       />
                     </div>
                     {st === 'image' ? (

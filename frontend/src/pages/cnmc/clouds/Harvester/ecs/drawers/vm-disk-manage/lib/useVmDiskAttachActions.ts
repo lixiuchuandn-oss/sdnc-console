@@ -19,7 +19,10 @@ import {
   isHarvesterVmImageReady,
   resolveVmImageKind,
 } from '../../../../../../../../utils/harvesterUtils';
-import { harvesterCreatedPvcNameFromResponse } from '../../../lib/harvesterVolumeCreateResponse';
+import {
+  harvesterCreatedPvcNameFromResponse,
+  harvesterCreatedPvcTowerAliasFromResponse,
+} from '../../../lib/harvesterVolumeCreateResponse';
 import { getMissingNadsFromNetworks } from '../../../lib/harvesterVmNetwork';
 import { applyBootOrderCdromFirst } from '../../../lib/vmDiskBootOrder';
 import { isRestartRequiredFromVm, isVmStopped } from '../../../lib/vmInstanceStatus';
@@ -256,32 +259,60 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
           message.error('请选择有效的 ISO 镜像');
           return;
         }
+        const isoAlias = String(volName ?? '').trim();
+        const nameForApi =
+          isoAlias && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(isoAlias)
+            ? isoAlias
+            : `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         const createRes: any = await createHarvesterVolume(cloudId, {
           namespace,
-          name: volName,
+          name: nameForApi,
           size: values.newDiskSize,
           storageClassName: values.newDiskSc,
           accessModes: [accessMode],
           volumeMode: 'Block',
-          annotations: { 'harvesterhci.io/imageId': imgVal },
+          annotations: {
+            'harvesterhci.io/imageId': imgVal,
+            ...(isoAlias ? { 'tower.io/alias': isoAlias } : {}),
+          },
         });
-        const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-        form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
+        const actualName = harvesterCreatedPvcNameFromResponse(createRes, nameForApi);
+        const aliasFromServer = harvesterCreatedPvcTowerAliasFromResponse(createRes);
+        const displayAlias = aliasFromServer || isoAlias || actualName;
+        form.setFieldsValue({
+          newDiskCreated: true,
+          newDiskPvcClaimName: actualName,
+          newDiskName: displayAlias,
+        });
         message.success('光盘卷已创建');
         return;
       }
 
+      const userAlias = String(volName ?? '').trim();
+      const nameForApi =
+        userAlias && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(userAlias)
+          ? userAlias
+          : `disk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
       const createRes: any = await createHarvesterVolume(cloudId, {
         namespace,
-        name: volName,
+        name: nameForApi,
         size: values.newDiskSize,
         storageClassName: values.newDiskSc,
         accessModes: [accessMode],
         volumeMode: 'Block',
+        annotations: {
+          ...(userAlias ? { 'tower.io/alias': userAlias } : {}),
+        },
       });
 
-      const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-      form.setFieldsValue({ newDiskCreated: true, newDiskName: actualName });
+      const actualName = harvesterCreatedPvcNameFromResponse(createRes, nameForApi);
+      const displayAlias = userAlias || actualName;
+      form.setFieldsValue({
+        newDiskCreated: true,
+        newDiskPvcClaimName: actualName,
+        newDiskName: displayAlias,
+      });
       message.success('磁盘卷已创建');
     } catch (e: any) {
       if (e?.errorFields) return;
@@ -321,7 +352,9 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         return;
       }
 
-      const volName = values.newDiskName;
+      const volName =
+        String(form.getFieldValue('newDiskPvcClaimName') ?? '').trim() ||
+        String(values.newDiskName ?? '').trim();
       const mode = values.newDiskMode || 'spec';
 
       if (diskSrc === 'iso') {
@@ -346,7 +379,12 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
           openRestartConfirm(namespace, vmName, false, { cdrom: true });
         }, 300);
 
-        form.setFieldsValue({ newDiskCreated: false, newDiskIsoImage: undefined, newDiskBootFromCdrom: false });
+        form.setFieldsValue({
+          newDiskCreated: false,
+          newDiskIsoImage: undefined,
+          newDiskBootFromCdrom: false,
+          newDiskPvcClaimName: undefined,
+        });
         try {
           onOk?.(true);
         } catch {}
@@ -460,7 +498,7 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         openRestartConfirm(namespace, vmName, false);
       }, 300);
 
-      form.setFieldsValue({ newDiskCreated: false });
+      form.setFieldsValue({ newDiskCreated: false, newDiskPvcClaimName: undefined });
       try {
         onOk?.(true);
       } catch {}
@@ -509,23 +547,36 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         return;
       }
 
-      const volName = String(values.newCdromName ?? '').trim();
+      const userCdromAlias = String(
+        form.getFieldValue('newCdromName') ?? values.newCdromName ?? '',
+      ).trim();
+      const nameForApi =
+        userCdromAlias && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(userCdromAlias)
+          ? userCdromAlias
+          : `cdrom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
       const accessMode = values.newCdromAccessMode || 'ReadWriteMany';
 
       const createRes: any = await createHarvesterVolume(cloudId, {
         namespace,
-        name: volName,
+        name: nameForApi,
         size: values.newCdromSize,
         storageClassName,
         accessModes: [accessMode],
         volumeMode: 'Block',
         annotations: {
           'harvesterhci.io/imageId': imgVal,
+          ...(userCdromAlias ? { 'tower.io/alias': userCdromAlias } : {}),
         },
       });
 
-      const actualName = harvesterCreatedPvcNameFromResponse(createRes, volName);
-      form.setFieldsValue({ newCdromCreated: true, newCdromName: actualName });
+      const actualName = harvesterCreatedPvcNameFromResponse(createRes, nameForApi);
+      const aliasFromServer = harvesterCreatedPvcTowerAliasFromResponse(createRes);
+      const displayAlias = aliasFromServer || userCdromAlias || actualName;
+      form.setFieldsValue({
+        newCdromCreated: true,
+        newCdromClaimName: actualName,
+        newCdromName: displayAlias,
+      });
       message.success('光盘卷已创建');
     } catch (e: any) {
       if (e?.errorFields) return;
@@ -551,7 +602,11 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         return;
       }
 
-      const volName = values.newCdromName;
+      const volName = String(form.getFieldValue('newCdromClaimName') ?? '').trim();
+      if (!volName) {
+        message.error('无法解析已创建的光盘卷技术名称，请关闭抽屉后重试');
+        return;
+      }
 
       try {
         await attachIsoPvcAsCdromToVm(volName, !!form.getFieldValue('newCdromBootFromCdrom'));
@@ -569,7 +624,11 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         openRestartConfirm(namespace, vmName, false, { cdrom: true });
       }, 300);
 
-      form.setFieldsValue({ newCdromCreated: false, newCdromBootFromCdrom: false });
+      form.setFieldsValue({
+        newCdromCreated: false,
+        newCdromBootFromCdrom: false,
+        newCdromClaimName: undefined,
+      });
       try {
         onOk?.(true);
       } catch {}

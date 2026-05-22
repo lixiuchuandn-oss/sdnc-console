@@ -4,21 +4,17 @@ import {
   fetchHarvesterUsbResources,
   fetchHarvesterPciDevices,
   fetchHarvesterLoadBalancers,
-  fetchHarvesterServices,
   fetchKubeOvnVlans,
   fetchKubeOvnProviderNetworks,
   fetchHarvesterIPPools,
   fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchHarvesterStorageClasses,
-  fetchAswCtlSwitchesSummary,
-  syncAswCtlSwitchesToInventory,
 } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
-import { canReadContainerTab } from '../../../../../../../utils/permissionUtils';
 
 /** ????`panels/cluster`????????????????VLAN/????? */
 export async function tryLoadClusterTab(
@@ -44,8 +40,6 @@ export async function tryLoadClusterTab(
     setRawPciDevices,
     setHarvesterLoadBalancers,
     setRawLoadBalancers,
-    setHarvesterServices,
-    setRawServices,
     setHarvesterVlans,
     setRawVlans,
     setHarvesterKubeOvnProviderNetworks,
@@ -53,7 +47,6 @@ export async function tryLoadClusterTab(
     setRawIPPools,
     setHarvesterClusterNetworks,
     setRawClusterNetworks,
-    setAswSwitchSummary,
     setHarvesterNodes,
     setRawNodes,
     setHarvesterStorageClasses,
@@ -146,6 +139,27 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'cluster_sriov':
+      if (
+        checkPerm('clouds.pci-devices:read') ||
+        checkPerm('clouds.ecs:read')
+      ) {
+        loadResource(
+          'pciDevices',
+          () => fetchHarvesterPciDevices(cloudId, force),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : Array.isArray((json as any)?.items)
+                ? (json as any).items
+                : [];
+            setHarvesterPciDevices(Array.isArray(list) ? list : []);
+            setRawPciDevices(json || null);
+          },
+          force,
+        );
+      }
+      return true;
     case 'load_balancers':
       if (canReadLoadBalancers) {
         loadResource(
@@ -157,27 +171,6 @@ export async function tryLoadClusterTab(
               : [];
             setHarvesterLoadBalancers(list);
             setRawLoadBalancers(json || null);
-          },
-          force,
-        );
-      }
-      return true;
-    case 'cluster_services':
-      if (
-        checkPerm('clouds.cluster-services:read') ||
-        checkPerm('clouds.services:read') ||
-        canReadContainerTab(checkPerm, 'services') ||
-        checkPerm('clouds:read')
-      ) {
-        loadResource(
-          'services',
-          () => fetchHarvesterServices(cloudId, force),
-          (json) => {
-            const list: any[] = Array.isArray((json as any)?.data?.items)
-              ? (json as any).data.items
-              : [];
-            setHarvesterServices(Array.isArray(list) ? list : []);
-            setRawServices(json || null);
           },
           force,
         );
@@ -265,66 +258,15 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
-    // 物理交换机：首屏只读入库缓存；强制刷新走 sync（探测+写库），失败则回退只读缓存
     case 'cluster_physical_switches':
-      if (!force && loadedRef.current.has('aswSwitches')) {
-        return true;
-      }
-      if (checkPerm('clouds.cluster-networks:read')) {
-        setResourceLoading((prev) => ({ ...prev, aswSwitches: true }));
-        try {
-          if (force && checkPerm('clouds.cluster-networks:write')) {
-            try {
-              const json = await syncAswCtlSwitchesToInventory(cloudId);
-              setAswSwitchSummary(json || null);
-            } catch (syncErr: any) {
-              console.warn('ASW-CTL sync failed, falling back to cache', syncErr);
-              const msg =
-                syncErr?.response?.data?.message ||
-                syncErr?.message ||
-                '同步失败';
-              try {
-                const cached = await fetchAswCtlSwitchesSummary(cloudId);
-                setAswSwitchSummary(
-                  cached
-                    ? { ...cached, liveError: String(msg), stale: true }
-                    : { liveError: String(msg), items: [], configured: true },
-                );
-              } catch {
-                setAswSwitchSummary({
-                  liveError: String(msg),
-                  items: [],
-                  configured: true,
-                });
-              }
-            }
-          } else {
-            const json = await fetchAswCtlSwitchesSummary(cloudId);
-            setAswSwitchSummary(
-              force && !checkPerm('clouds.cluster-networks:write')
-                ? {
-                    ...json,
-                    stale: true,
-                    liveError:
-                      '无集群网络写权限，无法从集群刷新物理交换机；仅显示 Tower 已缓存数据。',
-                  }
-                : json || null,
-            );
-          }
-          if (!force) {
-            loadedRef.current.add('aswSwitches');
-          }
-        } catch (e) {
-          console.warn('Failed to load ASW-CTL switches', e);
-        } finally {
-          setResourceLoading((prev) => ({ ...prev, aswSwitches: false }));
-        }
-      }
+      return true;
+    case 'storage_pools':
       return true;
     case 'storage_classes':
       if (
         checkPerm('clouds.storage-classes:read') ||
-        checkPerm('clouds.ecs:read')
+        checkPerm('clouds.ecs:read') ||
+        checkPerm('clouds:read')
       ) {
         loadResource(
           'storageClasses',

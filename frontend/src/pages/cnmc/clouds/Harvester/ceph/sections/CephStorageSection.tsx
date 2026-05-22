@@ -1,6 +1,6 @@
 /** Ceph 存储集群仪表盘：Rook bundle + 节点列表为主；可选合并 mgr Dashboard `api/health/minimal`（客户端性能等）。 */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Card, Col, Flex, Progress, Row, Space, Spin, Statistic, Tooltip, Typography } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Card, Col, Flex, Progress, Row, Skeleton, Space, Statistic, Tooltip, Typography } from 'antd';
 import {
   ApiTwoTone,
   AppstoreTwoTone,
@@ -21,7 +21,11 @@ import type { EChartsOption, LineSeriesOption } from 'echarts';
 import ReactECharts from 'echarts-for-react';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { fetchCephRookBundle } from '../../../../../../services/cephApi';
-import { fetchCephDashboardSummary, fetchNodeResources } from '../../../../../../services/monitoringApi';
+import {
+  fetchCephDashboardPools,
+  fetchCephDashboardSummary,
+  fetchNodeResources,
+} from '../../../../../../services/monitoringApi';
 import { buildCephLandingModel, formatBps, formatIops } from '../lib/cephDashboardLanding';
 import {
   buildRookCephOverviewLandingInputs,
@@ -29,9 +33,11 @@ import {
   mergeCephDashboardMinimalIntoRookMinimal,
   cephBlockPoolRowToTableRow,
   cephBlockPoolToRow,
+  enrichRookPoolRowWithDashboardStats,
   fmtBytesFromUnknown,
   formatCephPoolCardSummaryLineZh,
   normalizeCephBundle,
+  normalizeDashboardPoolListPayload,
   type CephPoolTableRow,
 } from '../lib/cephStorage';
 
@@ -637,10 +643,17 @@ function MetricCard(props: { title: React.ReactNode; children: React.ReactNode }
 
 export type CephStorageSectionProps = {
   cloudId: string;
+  /** 首次 bundle/dashboard 链路透传完成后回调（供外层统一骨架屏结束时机） */
+  onInitialLoadComplete?: () => void;
 };
 
-const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
-  const [loading, setLoading] = useState(false);
+const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId, onInitialLoadComplete }) => {
+  const onReadyRef = useRef(onInitialLoadComplete);
+  useEffect(() => {
+    onReadyRef.current = onInitialLoadComplete;
+  }, [onInitialLoadComplete]);
+  /** 首次 bundle/节点/Dashboard 链路透传完成前展示骨架，避免 Cloudmap 探测结束后的空白期 */
+  const [initialDashboardBusy, setInitialDashboardBusy] = useState(true);
   const [cephDash, setCephDash] = useState<CephOverviewSummaryEnvelope | null>(null);
   const [cephDashHttpErr, setCephDashHttpErr] = useState<string | null>(null);
   const [healthMinimal, setHealthMinimal] = useState<unknown | null>(null);
@@ -652,15 +665,18 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
 
   const load = useCallback(
     async (force?: boolean) => {
-      if (!cloudId) return;
-      setLoading(true);
+      if (!cloudId) {
+        setInitialDashboardBusy(false);
+        return;
+      }
       setCephDashHttpErr(null);
       setHealthMinimalErr(null);
       try {
-        const [res, nodeRes, dashRes] = await Promise.all([
+        const [res, nodeRes, dashRes, dashPoolsRes] = await Promise.all([
           fetchCephRookBundle(cloudId, { force: !!force }),
           fetchNodeResources(cloudId),
           fetchCephDashboardSummary(cloudId, { force: !!force, path: 'api/health/minimal' }),
+          fetchCephDashboardPools(cloudId, { force: !!force }),
         ]);
         if (!res.ok || res.data == null) {
           setCephDash(null);
@@ -691,9 +707,21 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
           data: summary,
           _tower: { source: 'rook-bundle', unreachable: unreachable || undefined },
         });
+        const dashByName = new Map<string, unknown>();
+        if (dashPoolsRes.ok && dashPoolsRes.data != null) {
+          for (const dp of normalizeDashboardPoolListPayload(dashPoolsRes.data)) {
+            if (!dp || typeof dp !== 'object') continue;
+            const o = dp as Record<string, unknown>;
+            const nm =
+              o.pool_name != null ? String(o.pool_name) : o.name != null ? String(o.name) : '';
+            if (nm) dashByName.set(nm, dp);
+          }
+        }
         const pools = bundle.blockPools.map((p, i) => {
           const row = cephBlockPoolToRow(p, i);
-          return cephBlockPoolRowToTableRow(row, p);
+          const base = cephBlockPoolRowToTableRow(row, p);
+          const dash = dashByName.get(row.name);
+          return enrichRookPoolRowWithDashboardStats(base, dash);
         });
         setDashboardPools(pools);
         setDashboardPoolsRaw(bundle.blockPools);
@@ -706,7 +734,8 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
         setCephDashHttpErr(msg || '加载失败');
         setHealthMinimalErr(null);
       } finally {
-        setLoading(false);
+        setInitialDashboardBusy(false);
+        onReadyRef.current?.();
       }
     },
     [cloudId],
@@ -801,8 +830,7 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
     }
 
     return (
-      <Spin spinning={loading}>
-        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
           {cephDashHttpErr ? (
             <Alert type="error" showIcon message={cephDashHttpErr} description={CEPH_DASHBOARD_FAIL_HINT} />
           ) : cephDash?._tower?.cephDashboardError ? (
@@ -1205,24 +1233,28 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId }) => {
           ) : (
             <Typography.Text type="secondary">暂无数据。</Typography.Text>
           )}
-        </Card>
-      </Spin>
+      </Card>
     );
   }, [
     cephDash,
     cephDashHttpErr,
     healthMinimal,
     healthMinimalErr,
-    loading,
     dashboardPools,
     dashboardPoolsRaw,
   ]);
 
   return (
     <PageDetailSection asCard={false} showHeaderTitle={false}>
-      <Space direction="vertical" size={CARD_GAP} style={{ width: '100%' }}>
-        {cephDashboardRestCard}
-      </Space>
+      {initialDashboardBusy ? (
+        <div style={{ paddingTop: 8 }}>
+          <Skeleton active paragraph={{ rows: 10 }} />
+        </div>
+      ) : (
+        <Space direction="vertical" size={CARD_GAP} style={{ width: '100%' }}>
+          {cephDashboardRestCard}
+        </Space>
+      )}
     </PageDetailSection>
   );
 };

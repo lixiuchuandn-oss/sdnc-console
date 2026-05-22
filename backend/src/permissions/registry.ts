@@ -46,6 +46,54 @@ export function mapHarvesterContainerSubPathToPermissionBase(sub: string): strin
   }
 }
 
+/**
+ * /api/clouds/:cloudId/{seg}/... 且不在 /resources 子树时的权限基（监控、日志、Ceph、机房拓扑等）。
+ * 与 Cloudmap 池内 Tab 及 frontend accessMapping 对齐；避免一律落 clouds.resource-pools。
+ */
+export function resolveCloudInstanceScopedPermissionBase(parts: string[]): string | null {
+  if (parts.length < 3 || parts[0] !== 'clouds') return null;
+  const seg = String(parts[2] || '').toLowerCase();
+
+  if (seg === 'datacenter-topology') {
+    return 'clouds.cluster-networks';
+  }
+
+  if (seg === 'ceph') {
+    return 'clouds.ceph';
+  }
+
+  if (seg === 'logging') {
+    const sub = String(parts[3] || '').toLowerCase();
+    if (sub.startsWith('clusteroutput') || sub === 'outputs') {
+      return 'clouds.log-receivers';
+    }
+    return 'clouds.log-configs';
+  }
+
+  if (seg === 'monitoring') {
+    const sub = String(parts[3] || '').toLowerCase();
+    if (sub === 'alerts-rules') {
+      return 'clouds.alerts';
+    }
+    if (sub.startsWith('prometheusrules')) {
+      return 'clouds.alert-rules';
+    }
+    if (sub.startsWith('alertmanagerconfigs')) {
+      const tail = parts.slice(3).join('/').toLowerCase();
+      if (tail.includes('/receivers') || tail.endsWith('receivers')) {
+        return 'clouds.alert-receivers';
+      }
+      return 'clouds.alert-policies';
+    }
+    if (sub === 'secrets' || sub === 'configmaps') {
+      return 'clouds.alert-secrets';
+    }
+    return 'clouds.monitoring.overview';
+  }
+
+  return null;
+}
+
 export class PermissionRegistry {
   private definitions: Map<string, PermissionDefinition>;
   private apiMapping: Map<string, string> = new Map(); // method:pathPattern -> permissionId
@@ -289,6 +337,9 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'asw-ctl') {
                 // 集群侧 ASW-CTL 物理交换机探测（与 Cloudmap 集群分组 Tab 对齐）
                 permissionBase = 'clouds.cluster-networks';
+              } else if (actualResourceType === 'hms') {
+                // HMS Switch CR 声明式配置（与物理交换机 Tab 对齐）
+                permissionBase = 'clouds.cluster-networks';
               } else if (actualResourceType === 'backups' || actualResourceType === 'schedulevmbackups' ||
                          actualResourceType === 'virtualmachinebackups' || actualResourceType === 'virtualmachinerestores') {
                 // VM 备份/快照与定时策略统一使用独立备份权限
@@ -318,12 +369,14 @@ export class PermissionRegistry {
             // 例如：/api/clouds/:id/resources/cluster-networks -> clouds.cluster-networks
             permissionBase = `clouds.${seg1}`;
           }
-        } else if (parts.length >= 3 && parts[2] === 'datacenter-topology') {
-          // 机房拓扑（机柜布局持久化），与集群侧物理网络能力对齐
-          permissionBase = 'clouds.cluster-networks';
         } else {
-          // /api/clouds/:id/... 且非 resources 子树（如连接测试等）归入资源池管理权限
-          permissionBase = 'clouds.resource-pools';
+          const scoped = resolveCloudInstanceScopedPermissionBase(parts);
+          if (scoped) {
+            permissionBase = scoped;
+          } else {
+            // /api/clouds/:id/... 且非 resources 子树（连接测试、sync 等）归入资源池管理
+            permissionBase = 'clouds.resource-pools';
+          }
         }
       } else {
         // /api/clouds、/api/clouds/:id（资源池 CRUD 与元数据）

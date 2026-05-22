@@ -91,14 +91,15 @@
 
 .dashboard-region-progress-row {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   min-width: 0;
 }
 
 .dashboard-region-progress-label {
-  flex: 0 0 100px;
-  max-width: 120px;
+  flex: none;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -108,7 +109,8 @@
 }
 
 .dashboard-region-progress-bar {
-  flex: 1;
+  flex: none;
+  width: 100%;
   min-width: 0;
 }
 

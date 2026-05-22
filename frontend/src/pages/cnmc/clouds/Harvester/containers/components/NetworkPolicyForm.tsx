@@ -11,7 +11,7 @@
  * - 基本信息: 名称、命名空间
  * - Pod 选择器: 标签选择器，用于匹配目标 Pod
  * - 策略类型: 入站、出站、或两者
- * - 入站规则: 来源配置（Pod选择器/命名空间选择器/IP块）+ 端口配置
+ * - 入站规则: 来源配置（Pod选择器/项目选择器/IP块）+ 端口配置
  * - 出站规则: 目标配置 + 端口配置
  */
 
@@ -76,7 +76,7 @@ interface PortConfig {
 interface PeerConfig {
   // Pod 选择器
   podSelectorLabels?: LabelItem[];
-  // 命名空间选择器
+  // 项目选择器
   namespaceSelectorLabels?: LabelItem[];
   // IP 块
   ipBlockCidr?: string;
@@ -288,7 +288,7 @@ const PeerCard: React.FC<{
         <Radio.Group size="small" onChange={handlePeerTypeChange} value={peerType}>
           <Radio.Button value="all">全部</Radio.Button>
           <Radio.Button value="podSelector">Pod 选择器</Radio.Button>
-          <Radio.Button value="namespaceSelector">命名空间选择器</Radio.Button>
+          <Radio.Button value="namespaceSelector">项目选择器</Radio.Button>
           <Radio.Button value="ipBlock">IP 地址块</Radio.Button>
         </Radio.Group>
       </Form.Item>
@@ -354,15 +354,15 @@ const PeerCard: React.FC<{
         </Form.Item>
       )}
       
-      {/* 命名空间选择器 */}
+      {/* 项目选择器 */}
       {peerType === 'namespaceSelector' && (
-        <Form.Item label="命名空间标签">
+        <Form.Item label="项目标签">
           <Form.List name={[index, 'namespaceSelectorLabels']}>
             {(labelFields, { add: addLabel, remove: removeLabel }) => (
               <div>
                 {labelFields.length === 0 && (
                   <Alert
-                    message="不添加标签表示选择所有命名空间"
+                    message="不添加标签表示选择所有项目"
                     type="info"
                     showIcon
                     style={{ marginBottom: 8 }}
@@ -445,7 +445,7 @@ const PeerEditor: React.FC<{
       <div style={{ marginBottom: 8, fontWeight: 500 }}>
         <Space>
           <span>{label}</span>
-          <Tooltip title={`配置${isEgress ? '目标' : '来源'}，可以是 Pod、命名空间或 IP 地址块`}>
+          <Tooltip title={`配置${isEgress ? '目标' : '来源'}，可以是 Pod、项目或 IP 地址块`}>
             <InfoCircleOutlined style={{ color: '#999' }} />
           </Tooltip>
         </Space>
@@ -921,8 +921,8 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
               <Col span={12}>
                 <Form.Item
                   name="namespace"
-                  label="命名空间"
-                  rules={[{ required: true, message: '请选择命名空间' }]}
+                  label="项目"
+                  rules={[{ required: true, message: '请选择项目' }]}
                 >
                   <Select
                     showSearch
@@ -940,7 +940,7 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
         return (
           <Card title={<Space><SafetyCertificateOutlined /><span>Pod 选择器</span><Tag color="orange">必填</Tag></Space>} size="small" style={{ marginBottom: 16 }}>
             <Alert
-              message="选择器用于匹配目标 Pod，规则将应用到匹配的 Pod 上。不添加标签表示选择命名空间下所有 Pod。"
+              message="选择器用于匹配目标 Pod，规则将应用到匹配的 Pod 上。不添加标签表示选择项目下所有 Pod。"
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
@@ -1027,7 +1027,7 @@ const NetworkPolicyForm: React.FC<NetworkPolicyFormProps> = ({
                   <span style={{ color: '#333', fontWeight: 500 }}>{summary.name}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
-                  <span style={{ color: '#888' }}>命名空间</span>
+                  <span style={{ color: '#888' }}>项目</span>
                   <span style={{ color: '#333' }}>{summary.namespace}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>

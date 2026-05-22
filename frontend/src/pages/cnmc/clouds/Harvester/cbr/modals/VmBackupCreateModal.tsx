@@ -159,11 +159,11 @@ const VmBackupCreateModal: React.FC<Props> = ({
 
         <Form.Item
           name="namespace"
-          label="命名空间"
-          rules={[{ required: true, message: '请选择命名空间' }]}
+          label="项目"
+          rules={[{ required: true, message: '请选择项目' }]}
         >
           <Select 
-            placeholder="请选择命名空间"
+            placeholder="请选择项目"
             onChange={val => {
               setSelectedNamespace(val);
               form.setFieldsValue({ vmName: undefined });

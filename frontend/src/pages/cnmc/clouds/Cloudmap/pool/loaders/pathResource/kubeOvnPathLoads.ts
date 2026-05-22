@@ -59,6 +59,18 @@ export async function tryLoadKubeOvnVpcTab(
           },
           force,
         );
+        if (ovnVpcEnabled) {
+          loadResource(
+            'vpcs',
+            () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'vpc'),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setKubeOvnVpcs(Array.isArray(list) ? list : []);
+              setRawVpcs(json || null);
+            },
+            force,
+          );
+        }
       }
       return true;
     case 'eips':

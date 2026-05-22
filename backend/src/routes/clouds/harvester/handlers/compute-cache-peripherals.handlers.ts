@@ -30,7 +30,10 @@ import {
   harvesterPciDeviceClaimPassthroughEnabled,
 } from '../../../../services/clouds/harvester/client';
 import { listKubevirtVMsRaw } from '../../../../services/clouds/harvester/vm';
-import { collectAllocatedPciDeviceCrNamesFromVms } from '../../../../services/clouds/harvester/pciVmAllocation';
+import {
+  buildPciDeviceVmUsageMapFromVms,
+  collectAllocatedPciDeviceCrNamesFromVms,
+} from '../../../../services/clouds/harvester/pciVmAllocation';
 
 /**
  * GET /:id/resources/harvester/gpus - 获取 GPU 资源列表
@@ -618,13 +621,16 @@ export async function harvesterPciDeviceListHandler(req: Request, res: Response)
     const { claimMap, claimByKey } = buildHarvesterPciDeviceClaimIndex(claims);
 
     let busyPciCrNames = new Set<string>();
+    let vms: any[] = [];
+    let pciVmUsage = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
     try {
-      const vms = await listKubevirtVMsRaw({
+      vms = await listKubevirtVMsRaw({
         endpoint: cloud.endpoint,
         token: cloud.secretKey || '',
         insecure,
       } as any);
       busyPciCrNames = collectAllocatedPciDeviceCrNamesFromVms(vms);
+      pciVmUsage = buildPciDeviceVmUsageMapFromVms(vms);
     } catch (e: any) {
       console.warn('[harvesterPciDeviceListHandler] list VMs for pci allocation scan failed:', e?.message || e);
     }
@@ -633,10 +639,33 @@ export async function harvesterPciDeviceListHandler(req: Request, res: Response)
       const raw = i.rawData;
       const claim = findHarvesterPciClaimForPciRow(raw, claimMap, claimByKey);
       const passthroughEnabled = harvesterPciDeviceClaimPassthroughEnabled(claim);
-      const cr = String(raw?.metadata?.name ?? '').trim();
+      const cr = String(raw?.metadata?.name ?? i.name ?? '').trim();
       const pciAllocated = !!(cr && busyPciCrNames.has(cr));
+      const vmInfo = cr ? pciVmUsage.get(cr) : undefined;
+      /** 仅 guest hostDevices 真实挂载算「绑定」；PCIDeviceClaim（直通已启用）不算绑定到 VM/容器 */
+      const claimedByVm = pciAllocated && !!vmInfo;
+      const claimed = claimedByVm;
+      const claimedBy = claim?.spec?.userName || claim?.userName || '';
+      const claimName = claim?.metadata?.name || claim?.name || '';
+      const claimNamespace = claim?.metadata?.namespace || claim?.namespace || '';
+      const bindingTo = vmInfo
+        ? `VM:${vmInfo.vmDisplayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`
+        : '';
       return {
         ...raw,
+        claimed,
+        claimedBy,
+        claimName,
+        claimNamespace,
+        bindingTo,
+        bindingTargets: [],
+        vmInfo: vmInfo
+          ? {
+              vmName: vmInfo.vmName,
+              vmNamespace: vmInfo.vmNamespace,
+              vmDisplayName: vmInfo.vmDisplayName,
+            }
+          : undefined,
         _tower: {
           passthroughEnabled,
           pciDeviceClaimName: claim?.metadata?.name || claim?.name || null,

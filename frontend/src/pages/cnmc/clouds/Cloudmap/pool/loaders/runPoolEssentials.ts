@@ -47,7 +47,6 @@ export function runPoolEssentials(
     setHarvesterNodes,
     setRawNodes,
     setHarvesterNamespaces,
-    setRawNamespaces,
     setCapabilities,
   } = d;
 
@@ -91,16 +90,40 @@ export function runPoolEssentials(
     );
   }
 
-  const shouldPrefetchVpcs =
-    canViewKubeOvnGroup ||
+  const wantsFlatNatContext =
     checkPerm('clouds.eips.flat:read') ||
     checkPerm('clouds.fips.flat:read') ||
     checkPerm('clouds.snat.flat:read') ||
     checkPerm('clouds.dnat.flat:read');
-  if (shouldPrefetchVpcs) {
+
+  /** 业务 VPC 列表（scope=vpc）须 network.ovn.vpc */
+  const shouldPrefetchBusinessVpcs =
+    ovnVpcEnabled && (canViewKubeOvnGroup || wantsFlatNatContext);
+
+  /** 扁平/公共子网、扁平 SNAT/DNAT 等仅需内置 underlay VPC，不占 ovn-vpc 授权 */
+  const shouldPrefetchUnderlayVpcs =
+    !shouldPrefetchBusinessVpcs &&
+    (canReadFlatSubnets ||
+      checkPerm('clouds.subnets.public:read') ||
+      wantsFlatNatContext);
+
+  if (shouldPrefetchBusinessVpcs) {
+    const vpcScope =
+      wantsFlatNatContext && !canViewKubeOvnGroup ? 'underlay' : 'vpc';
     loadResource(
       'vpcs',
-      () => fetchKubeOvnVpcs(cloudId, force),
+      () => fetchKubeOvnVpcs(cloudId, force, false, vpcScope),
+      (json) => {
+        const list: any[] = (json as any)?.data?.items || [];
+        setKubeOvnVpcs(Array.isArray(list) ? list : []);
+        setRawVpcs(json || null);
+      },
+      force,
+    );
+  } else if (shouldPrefetchUnderlayVpcs) {
+    loadResource(
+      'vpcs',
+      () => fetchKubeOvnVpcs(cloudId, force, false, 'underlay'),
       (json) => {
         const list: any[] = (json as any)?.data?.items || [];
         setKubeOvnVpcs(Array.isArray(list) ? list : []);
@@ -212,7 +235,6 @@ export function runPoolEssentials(
           ? (json as any).items
           : [];
       setHarvesterNamespaces(Array.isArray(list) ? list : []);
-      setRawNamespaces(json || null);
     },
     force,
   );

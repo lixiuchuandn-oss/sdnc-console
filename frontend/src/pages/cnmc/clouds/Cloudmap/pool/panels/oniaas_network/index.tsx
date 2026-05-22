@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { Empty } from 'antd';
+import { CLOUD_VNE_READ } from '../../../../../../../constants/cloudPermissions';
 import LoadBalancersSection from '../../../../Harvester/nad/sections/LoadBalancersSection';
 import { VirtualRouterSection } from '../../../../Harvester/vne';
 import {
@@ -81,6 +82,13 @@ const CloudmapOniaasNetworkTabs: React.FC<CloudmapOniaasNetworkTabsProps> = ({
 }) => {
   const seg = (innerActiveKey || '').trim() || 'virtual_routers';
   if (seg === 'virtual_routers') {
+    const canViewVr =
+      checkPerm(CLOUD_VNE_READ) ||
+      checkPerm('clouds.ecs:read') ||
+      checkPerm('clouds:read');
+    if (!canViewVr) {
+      return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+    }
     return (
       <VirtualRouterSection
         vms={ecs}

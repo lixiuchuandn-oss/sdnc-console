@@ -18,8 +18,6 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.ecs': '云主机管理',
   'clouds.vm-create-wizard': '云主机创建向导',
   'clouds.vm-quick-create': '云主机快速创建',
-  /** 与权限 ID 前缀 clouds.cloudmap.ops-view 一致（非 clouds.cloudmap） */
-  'clouds.cloudmap.ops-view': '资源池运维视图',
   'clouds.eips.flat': '扁平EIP',
   'clouds.fips.flat': '扁平FIP',
   'clouds.dnat.flat': '扁平DNAT',
@@ -59,7 +57,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.containers.pdbs': '容器·Pod 中断保护',
   'clouds.containers.networkpolicies': '容器·网络策略',
   'clouds.cluster-nodes': '物理节点',
-  'clouds.cluster-services': '基础服务',
+  'clouds.cluster-services': '集群服务',
   'clouds.cluster-networks': '集群网络',
   'clouds.provider-networks': '物理网络',
   'clouds.vswitches': '虚拟交换机',
@@ -76,6 +74,10 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.gpus': 'GPU',
   'clouds.usb-devices': 'USB设备',
   'clouds.pci-devices': 'PCI设备',
+  'clouds.monitoring.overview': '监控概览大盘',
+  'clouds.ceph': 'Ceph与对象存储',
+  'clouds.paas-databases': '云数据库',
+  'clouds.vne': '虚拟网元',
   'clouds.alerts': '告警列表',
   'clouds.alert-rules': '告警规则',
   'clouds.alert-policies': '告警通知策略',
@@ -144,7 +146,6 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.ecs:write': '创建、启动、停止、删除云主机',
   'clouds.vm-create-wizard:write': '使用虚拟机创建向导（分步创建云主机）',
   'clouds.vm-quick-create:write': '使用云主机列表「快速创建」创建虚拟机',
-  'clouds.cloudmap.ops-view:write': '在 Cloudmap 资源池切换并进入运维视图',
   'clouds.eips.flat:read': '查看扁平网络 EIP 列表与状态',
   'clouds.eips.flat:write': '管理扁平网络 EIP',
   'clouds.fips.flat:read': '查看扁平网络 FIP 列表与状态',
@@ -282,7 +283,6 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
     base.startsWith('clouds.ecs') ||
     base.startsWith('clouds.vm-create-wizard') ||
     base.startsWith('clouds.vm-quick-create') ||
-    base.startsWith('clouds.cloudmap') ||
     base.startsWith('clouds.containers') ||
     base === 'clouds.console'
   ) {

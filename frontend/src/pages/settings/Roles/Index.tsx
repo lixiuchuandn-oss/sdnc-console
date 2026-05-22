@@ -19,6 +19,10 @@ import {
   mergeResourceConsoleIntoPlatformEntryGroup,
   ALL_CLOUD_CONTAINER_SUB_READ,
   CLOUD_CONTAINER_TAB_WRITE,
+  permissionFeatureMatchesKeyword,
+  buildCloudmapPoolNavDrawerSections,
+  getPoolNavLeafResourcePrefixSet,
+  getPoolNavAttachedResourcePrefixSet,
 } from '../../../utils/permissionUtils';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
@@ -82,21 +86,14 @@ function filterPermissionStructureByKeyword(
   platforms: { platform: string; groups: { group: string; features: any[] }[] }[],
   kw: string,
 ) {
-  const q = kw.trim().toLowerCase();
-  if (!q) return platforms;
+  if (!kw.trim()) return platforms;
   return platforms
     .map((platform) => ({
       ...platform,
       groups: platform.groups
         .map((group) => ({
           ...group,
-          features: group.features.filter((f) => {
-            if (String(f.feature || '').toLowerCase().includes(q)) return true;
-            if (String(f.resourcePrefix || '').toLowerCase().includes(q)) return true;
-            if (f.read && String(f.read).toLowerCase().includes(q)) return true;
-            if (f.write && String(f.write).toLowerCase().includes(q)) return true;
-            return false;
-          }),
+          features: group.features.filter((f) => permissionFeatureMatchesKeyword(f, kw)),
         }))
         .filter((g) => g.features.length > 0),
     }))
@@ -164,7 +161,7 @@ const AccessRolesPage: React.FC = () => {
 
     allActionsForStructure.forEach(action => {
       const [resource] = action.split(':');
-      
+
       // 如果已经处理过该资源，跳过
       if (processedResources.has(resource)) return;
       processedResources.add(resource);
@@ -288,9 +285,34 @@ const AccessRolesPage: React.FC = () => {
             if (entryFeatures.length > 0) {
               out.push({ group: '平台入口能力', features: entryFeatures });
             }
-            if (restFeatures.length > 0) {
-              const catalogSections = groupResourceConsoleChildFeatures(restFeatures);
+
+            const poolNavLeafPrefixes = getPoolNavLeafResourcePrefixSet();
+            const poolNavAttachedPrefixes = getPoolNavAttachedResourcePrefixSet();
+            const restFiltered = restFeatures.filter(
+              (f) =>
+                !poolNavLeafPrefixes.has(f.resourcePrefix) &&
+                !poolNavAttachedPrefixes.has(f.resourcePrefix),
+            );
+
+            const resolvePoolFeatureLabel = (resourcePrefix: string) => {
+              const readKey = `${resourcePrefix}:read`;
+              const writeKey = `${resourcePrefix}:write`;
+              const id = actionSet.has(readKey) ? readKey : writeKey;
+              return normalizeFeatureName(getFeatureFromDefinition(id, permissionDefinitions));
+            };
+
+            for (const sec of buildCloudmapPoolNavDrawerSections(
+              actionSet,
+              permVerb,
+              resolvePoolFeatureLabel,
+            )) {
+              out.push(sec);
+            }
+
+            if (restFiltered.length > 0) {
+              const catalogSections = groupResourceConsoleChildFeatures(restFiltered);
               for (const sec of catalogSections) {
+                if (sec.label === '平台入口能力') continue;
                 out.push({ group: sec.label, features: sec.items });
               }
             }

@@ -33,7 +33,8 @@ export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
   'audit.logs.retention_days': '180',
   /** 管理员密码策略 JSON（仅平台 User，不含租户） */
   'auth.admin_password_policy': JSON.stringify({
-    minLength: 8,
+    passwordComplexityEnabled: false,
+    minLength: 1,
     maxLength: 64,
     requireUppercase: false,
     requireLowercase: false,
@@ -41,6 +42,13 @@ export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
     requireSpecial: false,
     maxPasswordAgeDays: 0,
     requirePasswordChangeOnFirstLogin: false,
+  }),
+  /** 管理员认证配置 JSON（登录锁定、页面超时等） */
+  'auth.admin_auth_config': JSON.stringify({
+    maxLoginAttempts: 5,
+    loginFailureWindowMinutes: 5,
+    loginLockDurationMinutes: 3,
+    pageTimeoutMinutes: 60,
   }),
 };
 

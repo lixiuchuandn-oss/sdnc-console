@@ -22,6 +22,11 @@ export type UseCloudmapPoolPathSyncParams = {
   locationPathname: string;
   navigate: NavigateFunction;
   canViewClusterGroup: boolean;
+  canViewComputeGroup: boolean;
+  resolveResourceHubSubAccess: (requested: CloudmapResourceSubKey) => CloudmapResourceSubKey | null;
+  canViewMonitoringTab: boolean;
+  canViewLoggingTab: boolean;
+  canViewCloudDatabaseTab: boolean;
   canViewOniaasNetworkTab: boolean;
   canViewCephGroup: boolean;
   canViewObjectStorageGroup: boolean;
@@ -35,6 +40,11 @@ export function useCloudmapPoolPathSync({
   locationPathname,
   navigate,
   canViewClusterGroup,
+  canViewComputeGroup,
+  resolveResourceHubSubAccess,
+  canViewMonitoringTab,
+  canViewLoggingTab,
+  canViewCloudDatabaseTab,
   canViewOniaasNetworkTab,
   canViewCephGroup,
   canViewObjectStorageGroup,
@@ -76,16 +86,36 @@ export function useCloudmapPoolPathSync({
     }
 
     if (p.tab === 'oniaas_network' && !canViewOniaasNetworkTab) {
-      navigate(cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: 'overview' }), {
-        replace: true,
-      });
+      const hub = resolveResourceHubSubAccess('overview');
+      if (hub) {
+        navigate(cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: hub }), {
+          replace: true,
+        });
+      } else if (canViewComputeGroup) {
+        navigate(
+          cloudmapPathForTab(cloudId, 'compute', {
+            poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
+          }),
+          { replace: true },
+        );
+      }
       return;
     }
 
     if (p.tab === 'object_storage' && !canViewObjectStorageGroup) {
-      navigate(cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: 'overview' }), {
-        replace: true,
-      });
+      const hub = resolveResourceHubSubAccess('overview');
+      if (hub) {
+        navigate(cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: hub }), {
+          replace: true,
+        });
+      } else if (canViewComputeGroup) {
+        navigate(
+          cloudmapPathForTab(cloudId, 'compute', {
+            poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
+          }),
+          { replace: true },
+        );
+      }
       return;
     }
 
@@ -105,27 +135,44 @@ export function useCloudmapPoolPathSync({
 
     setActiveTabKey(p.tab);
     if (p.resourceHubSub) {
-      let nextSub = p.resourceHubSub;
-      if (nextSub === 'datacenter_topology' && !canViewClusterGroup) {
-        nextSub = 'overview';
+      const requested = p.resourceHubSub as CloudmapResourceSubKey;
+      const resolved = resolveResourceHubSubAccess(requested);
+      if (!resolved) {
+        if (canViewComputeGroup) {
+          navigate(
+            cloudmapPathForTab(cloudId, 'compute', {
+              poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
+            }),
+            { replace: true },
+          );
+        } else if (canViewClusterGroup) {
+          navigate(
+            cloudmapPathForTab(cloudId, 'cluster', {
+              poolInnerSeg: cloudmapDefaultPoolInnerSeg('cluster'),
+            }),
+            { replace: true },
+          );
+        }
+        return;
+      }
+      if (resolved !== requested) {
         navigate(
-          cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: nextSub }),
+          cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: resolved }),
           { replace: true },
         );
+        return;
       }
-      if (nextSub === 'ceph_storage_overview' && !canViewCephGroup) {
-        nextSub = 'overview';
-        navigate(
-          cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: nextSub }),
-          { replace: true },
-        );
-      }
-      setResourceHubSubKey(nextSub as CloudmapResourceSubKey);
+      setResourceHubSubKey(resolved);
     }
   }, [
     locationPathname,
     cloudId,
     canViewClusterGroup,
+    canViewComputeGroup,
+    resolveResourceHubSubAccess,
+    canViewMonitoringTab,
+    canViewLoggingTab,
+    canViewCloudDatabaseTab,
     canViewOniaasNetworkTab,
     canViewCephGroup,
     canViewObjectStorageGroup,

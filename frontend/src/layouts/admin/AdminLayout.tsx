@@ -4,7 +4,7 @@
  * 检索关键词: AdminLayout layout admin sidebar visibleCenters canAccessPath Ctrl+K
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import {
   App,
   Button,
@@ -41,15 +41,19 @@ import { isSdnccPagePath } from '../../routes/adminRouteMatch';
 import { iconOf } from '../../components/PageContainer';
 import { apiPost, apiRequest } from '../../services/api';
 import { getPublicAdminPasswordPolicy } from '../../services/systemApi';
-import { validateAdminPasswordClient, type AdminPasswordPolicy } from '../../utils/adminPasswordPolicy';
+import {
+  DEFAULT_ADMIN_PASSWORD_POLICY,
+  validateAdminPasswordClient,
+  type AdminPasswordPolicy,
+} from '../../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../../utils/markdown';
 import {
   CLOUD_RESOURCE_POOLS_CREATE_WRITE,
   CLOUD_RESOURCE_POOLS_READ,
   CLOUD_RESOURCE_POOLS_WRITE,
 } from '../../constants/cloudPermissions';
-import { type Cloud, isCsmCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/poolProviders';
-import PoolEdgeWizard from '../../pages/cnmc/pools/CloudWizardeasy';
+import { type Cloud, isCsmCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
+import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import {
   parseCloudPoolDetailId,
@@ -63,6 +67,12 @@ import {
   CSM_POOL_SIDEBAR_CENTER_KEY,
   csmPoolSidebarSelectedKey,
 } from './csm/csmPoolSidebar';
+import {
+  parseXinferencePoolDetailId,
+  buildXinferencePoolSidebarCenter,
+  XINFERENCE_POOL_SIDEBAR_CENTER_KEY,
+  xinferencePoolSidebarSelectedKey,
+} from './xinference/xinferencePoolSidebar';
 import {
   parseRancherClusterWorkspacePath,
   buildRancherClusterSidebarCenter,
@@ -79,6 +89,24 @@ const { Header, Content } = Layout;
 
 /** 顶栏高度（与 sticky、抽屉 top、侧栏 top 对齐） */
 const ADMIN_HEADER_HEIGHT_PX = 64;
+
+/** 内容区懒加载分包占位：与 Content 同高，避免矮占位 → 池页全高一瞬间跳变 */
+function AdminOutletSuspenseFallback() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: `calc(100vh - ${ADMIN_HEADER_HEIGHT_PX}px)`,
+        width: '100%',
+        boxSizing: 'border-box',
+      }}
+    >
+      <Spin size="large" aria-label="加载中" />
+    </div>
+  );
+}
 
 /** 顶栏底边、侧栏右边线等与导航分割相关的颜色 */
 const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
@@ -285,8 +313,8 @@ function AdminStandardHeader({
   handleLogout,
   openDefaultPoolWizardAction,
 }: AdminStandardHeaderProps) {
-  const headerColor = settings.headerColor;
-  const headerColorEnd = settings.headerColorEnd;
+  const headerColor = settings.headerColor?.trim();
+  const headerColorEnd = settings.headerColorEnd?.trim();
   const gradient =
     headerColor && headerColorEnd
       ? `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`
@@ -744,6 +772,18 @@ const AdminLayout: React.FC = () => {
     [summaryClouds, csmPoolId],
   );
 
+  const xinferencePoolId = useMemo(
+    () => parseXinferencePoolDetailId(location.pathname),
+    [location.pathname],
+  );
+  const xinferencePoolCloud = useMemo(
+    () =>
+      xinferencePoolId
+        ? summaryClouds.find((c) => String(c.id) === String(xinferencePoolId))
+        : undefined,
+    [summaryClouds, xinferencePoolId],
+  );
+
   const poolCloudId = useMemo(
     () => parseCloudPoolDetailId(location.pathname),
     [location.pathname],
@@ -763,6 +803,15 @@ const AdminLayout: React.FC = () => {
     if (!cnmcPools.some((c) => String(c.id) === String(poolCloudId))) return;
     setHeaderSelectedPoolId((prev) => (String(prev) === String(poolCloudId) ? prev : poolCloudId));
   }, [poolCloudId, summaryClouds]);
+
+  useEffect(() => {
+    if (!xinferencePoolId) return;
+    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
+    if (!cnmcPools.some((c) => String(c.id) === String(xinferencePoolId))) return;
+    setHeaderSelectedPoolId((prev) =>
+      String(prev) === String(xinferencePoolId) ? prev : xinferencePoolId,
+    );
+  }, [xinferencePoolId, summaryClouds]);
 
   const rancherClusterCtx = useMemo(
     () => parseRancherClusterWorkspacePath(location.pathname),
@@ -848,9 +897,17 @@ const AdminLayout: React.FC = () => {
     return buildCsmPoolSidebarCenter(csmPoolCloud, csmPoolId);
   }, [csmPoolId, csmPoolCloud, summaryClouds.length]);
 
-  /** CSM 安全资源池详情、Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
+  const xinferencePoolSidebarCenter = useMemo(() => {
+    if (!xinferencePoolId || !xinferencePoolCloud) return null;
+    return buildXinferencePoolSidebarCenter(xinferencePoolCloud, xinferencePoolId);
+  }, [xinferencePoolId, xinferencePoolCloud]);
+
+  /** CSM / Xinference / Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
   const contextualPoolSidebar =
-    rancherClusterSidebarCenter || csmPoolSidebarCenter || poolSidebarCenter;
+    rancherClusterSidebarCenter ||
+    csmPoolSidebarCenter ||
+    xinferencePoolSidebarCenter ||
+    poolSidebarCenter;
   const sidebarCentersForMenu = useMemo(
     () => (contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters),
     [contextualPoolSidebar, visibleCenters],
@@ -884,6 +941,13 @@ const AdminLayout: React.FC = () => {
     if (csmPoolSidebarCenter && csmPoolId) {
       return csmPoolSidebarSelectedKey(csmPoolId, location.pathname, location.search);
     }
+    if (xinferencePoolSidebarCenter && xinferencePoolId) {
+      return xinferencePoolSidebarSelectedKey(
+        xinferencePoolId,
+        location.pathname,
+        location.search,
+      );
+    }
     if (!poolSidebarCenter || !poolCloudId) return undefined;
     return cloudmapPoolSidebarSelectedKey(location.pathname, poolSidebarCenter.items);
   }, [
@@ -891,6 +955,8 @@ const AdminLayout: React.FC = () => {
     rancherClusterCtx,
     csmPoolSidebarCenter,
     csmPoolId,
+    xinferencePoolSidebarCenter,
+    xinferencePoolId,
     poolSidebarCenter,
     poolCloudId,
     location.pathname,
@@ -902,7 +968,7 @@ const AdminLayout: React.FC = () => {
   useEffect(() => {
     setOpenKeys([]);
     lastSidebarAutoExpandSigRef.current = '';
-  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId]);
+  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId, xinferencePoolId]);
 
   useEffect(() => {
     if (!user || summaryLoading) return;
@@ -1119,12 +1185,16 @@ const AdminLayout: React.FC = () => {
       setActiveSidebarKey(CSM_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
+    if (xinferencePoolSidebarCenter) {
+      setActiveSidebarKey(XINFERENCE_POOL_SIDEBAR_CENTER_KEY);
+      return;
+    }
     if (poolSidebarCenter) {
       setActiveSidebarKey(CLOUD_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
     setActiveSidebarKey(sidebarForPath(location.pathname + location.search));
-  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter, csmPoolSidebarCenter]);
+  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter, csmPoolSidebarCenter, xinferencePoolSidebarCenter]);
 
   useEffect(() => {
     if (collapsed) {
@@ -1246,17 +1316,7 @@ const AdminLayout: React.FC = () => {
                 { required: true, message: '请输入新密码' },
                 {
                   validator: async (_, v) => {
-                    const pol =
-                      adminPwdPolicy || {
-                        minLength: 8,
-                        maxLength: 64,
-                        requireUppercase: false,
-                        requireLowercase: false,
-                        requireDigit: false,
-                        requireSpecial: false,
-                        maxPasswordAgeDays: 0,
-                        requirePasswordChangeOnFirstLogin: false,
-                      };
+                    const pol = adminPwdPolicy || DEFAULT_ADMIN_PASSWORD_POLICY;
                     const err = validateAdminPasswordClient(pol, String(v || ''), user?.username);
                     if (err) throw new Error(err);
                   },
@@ -1389,12 +1449,14 @@ const AdminLayout: React.FC = () => {
         <Content
           className={adminOutletSdnccClassName}
           style={{
-            background: location.pathname.includes('/webssh') ? '#1e1e1e' : '#fff',
+            background: '#fff',
             height: `calc(100vh - ${ADMIN_HEADER_HEIGHT_PX}px)`,
             overflow: 'auto',
           }}
         >
-          <Outlet context={{ reloadSummaryClouds: loadSummaryClouds } satisfies AdminLayoutOutletContext} />
+          <Suspense fallback={<AdminOutletSuspenseFallback />}>
+            <Outlet context={{ reloadSummaryClouds: loadSummaryClouds } satisfies AdminLayoutOutletContext} />
+          </Suspense>
         </Content>
       </Layout>
     </Layout>

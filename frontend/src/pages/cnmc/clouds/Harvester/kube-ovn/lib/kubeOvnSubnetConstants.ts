@@ -5,6 +5,9 @@ export const TOWER_IO_NAMESPACES_ANNOTATION = 'tower.io/namespaces';
 /** 与后端 OvnNetworkScope 一致：`underlay` | `vpc`，区分扁平域与业务 VPC 域 */
 export const TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION = 'tower.io/ovn-network-scope';
 
+/** 批量端口 DNAT：同组多条规则共享（与后端 `kubeOvnNetworkScope.ts` 一致） */
+export const TOWER_IO_DNAT_PORT_GROUP_ANNOTATION = 'tower.io/dnat-port-group';
+
 /** 分域识别只读 `tower.io/ovn-network-scope`，不做 spec 推断；无注解返回 null */
 export function parseTowerOvnNetworkScopeFromAnnotations(
   resource: { metadata?: { annotations?: Record<string, string> } } | null | undefined,

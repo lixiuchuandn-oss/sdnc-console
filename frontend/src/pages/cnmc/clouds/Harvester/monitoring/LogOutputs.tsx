@@ -1,7 +1,7 @@
 /**
  * 监控服务 - 集群日志接收端（ClusterOutput）
  * 设计文档：plan/设计-监控服务-集群日志接收端.md
- * 参考 Compute.Tower-Monitoring LogOutputPage；复用主项目 PageDetailSection、WizardShell、loggingApi。
+ * 参考 Compute.Tower-Monitoring LogOutputPage；复用主项目 PageDetailSection、loggingApi。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {

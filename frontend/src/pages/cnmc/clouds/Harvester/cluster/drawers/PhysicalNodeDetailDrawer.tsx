@@ -6,21 +6,18 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   Button,
   Descriptions,
   Drawer,
   Empty,
+  Flex,
   Space,
   Table,
   Tabs,
   Tag,
   Tooltip,
   Typography,
-  theme,
 } from 'antd';
-import { CodeOutlined } from '@ant-design/icons';
-import { ViewLinkTab } from '../../shared/components/ViewLinkTab';
 import {
   pickLldpChassisId,
   pickLldpLocalInterface,
@@ -42,18 +39,27 @@ export interface PhysicalNodeDetailDrawerProps {
   open: boolean;
   onClose: () => void;
   record: any;
-  cloudId?: string;
   metrics?: { cpuUsedCores?: number; memUsedBytes?: number };
   /** 从集群刷新节点列表/详情数据（与列表区刷新同源） */
   onRefreshFromCluster?: (force?: boolean) => void;
   refreshLoading?: boolean;
 }
 
-const TAB_PANEL_PADDING: React.CSSProperties = { padding: '8px 0 16px' };
-const TAB_PANEL_PADDING_WIDE: React.CSSProperties = { padding: '8px 0 24px' };
-const TAB_BAR_STYLE: React.CSSProperties = { marginBottom: 8 };
+function Panel({ children }: { children: React.ReactNode }) {
+  return <Flex vertical gap="middle">{children}</Flex>;
+}
 
-const descLabelNarrow: React.CSSProperties = { width: 200 };
+function PanelWide({ children }: { children: React.ReactNode }) {
+  return <Flex vertical gap="large">{children}</Flex>;
+}
+
+/** 单列详情表：统一标签列宽（antd Descriptions styles） */
+const DESCR_COL1 = {
+  bordered: true as const,
+  size: 'small' as const,
+  column: 1 as const,
+  styles: { label: { width: 200 } },
+};
 
 /** 无数据时不展示「-」「—」等占位符 */
 const displayCell = (v: unknown): string => {
@@ -63,8 +69,11 @@ const displayCell = (v: unknown): string => {
   return s;
 };
 
-/** 与 `VmSection` 列表表一致：仅 `className="std-table"`；有数据时 `scroll.x` 由 rc-Table 在容器内处理总宽度与横向滚动。 */
-const HARVESTER_STD_TABLE = { className: 'std-table' } as const;
+/** 抽屉内 Table：仅用 antd 官方 API（size / bordered），不叠 `std-table` 等项目全局表样式 */
+const DRAWER_TABLE_PROPS = {
+  size: 'small' as const,
+  bordered: true as const,
+};
 
 function tableScrollXWhenHasData(len: number): { x: true } | undefined {
   return len > 0 ? { x: true } : undefined;
@@ -326,14 +335,11 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
   open,
   onClose,
   record,
-  cloudId,
   metrics,
   onRefreshFromCluster,
   refreshLoading = false,
 }) => {
-  const { token } = theme.useToken();
   const [activeTab, setActiveTab] = useState('harv-node');
-  const [opsSubDrawerOpen, setOpsSubDrawerOpen] = useState(false);
 
   const nics: HmsNic[] = useMemo(() => {
     const arr = record?.nics;
@@ -378,16 +384,19 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     );
   }, [record]);
 
-  const internalIP =
-    record?.internalIP ||
-    record?.status?.addresses?.find((a: any) => a?.type === 'InternalIP')?.address ||
-    '';
-  const externalIP =
-    record?.externalIP ||
-    record?.status?.addresses?.find((a: any) => a?.type === 'ExternalIP')?.address ||
-    '';
+  const annotations = useMemo(() => {
+    const raw = record?.metadata?.annotations;
+    return raw && typeof raw === 'object' ? (raw as Record<string, any>) : {};
+  }, [record]);
 
-  const annotations = (record?.metadata?.annotations || {}) as Record<string, any>;
+  const internalIP = useMemo(
+    () =>
+      record?.internalIP ||
+      record?.status?.addresses?.find((a: any) => a?.type === 'InternalIP')?.address ||
+      '',
+    [record],
+  );
+
   const ntp = useMemo(() => {
     return safeJsonParse<{ ntpSyncStatus?: string; currentNtpServers?: string }>(
       annotations?.['node.harvesterhci.io/ntp-service'],
@@ -405,7 +414,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     return String(hit || '').trim();
   }, [record]);
 
-  /** HMS 网卡列：与 VmSection 一致由 `std-table` + `scroll.x` 管总宽 */
+  /** HMS 网卡列：antd Table + Tag / Space / Tooltip，无项目表样式 class */
   const nicColumns = useMemo(
     () => [
       {
@@ -421,12 +430,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
         render: (v: any) => {
           const s = String(v ?? '').toLowerCase().trim();
           if (!s) return null;
-          const color = s === 'up' ? 'success' : s === 'down' ? 'default' : 'default';
-          return (
-            <Tag color={color} className="table-tag-tight">
-              {s}
-            </Tag>
-          );
+          return <Tag color={s === 'up' ? 'success' : 'default'}>{s}</Tag>;
         },
       },
       {
@@ -450,7 +454,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
           const t = used ? `已被占用（master=${displayCell(r?.master)}）` : '未占用';
           return (
             <Tooltip title={t}>
-              <Tag color={used ? 'processing' : 'default'} className="table-tag-tight">
+              <Tag color={used ? 'processing' : 'default'}>
                 {used ? '已占用' : '可用'}
               </Tag>
             </Tooltip>
@@ -467,7 +471,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
             return null;
           }
           return (
-            <Space direction="vertical" size={2} className="table-stack-full">
+            <Space direction="vertical" size={2}>
               {rows.map((sw, i) => {
                 const line = [
                   displayCell(sw['System Name'] ?? sw['Chassis ID_MAC']),
@@ -475,11 +479,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 ]
                   .filter(Boolean)
                   .join(' · ');
-                return line ? (
-                  <span key={i} className="table-stack-line">
-                    {line}
-                  </span>
-                ) : null;
+                return line ? <span key={i}>{line}</span> : null;
               })}
             </Space>
           );
@@ -494,19 +494,6 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
   useEffect(() => {
     if (open) setActiveTab('harv-node');
   }, [open, titleName]);
-
-  useEffect(() => {
-    if (!open) setOpsSubDrawerOpen(false);
-  }, [open]);
-
-  const nodeViewLink = useMemo(() => {
-    if (!record) return '';
-    const raw = record?.links?.view;
-    if (raw != null && String(raw).trim()) return String(raw).trim();
-    const name = String(record?.metadata?.name || record?.name || '').trim();
-    if (!name) return '';
-    return `/api/v1/nodes/${encodeURIComponent(name)}`;
-  }, [record]);
 
   const tabItems = useMemo(() => {
     if (!record) return [];
@@ -537,23 +524,19 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
           ? ''
           : '无实时指标（需 metrics.k8s.io）';
 
-    const cpuUsageStyle: React.CSSProperties = {
-      color:
-        !hasMetrics || cpuTotal <= 0
-          ? token.colorTextSecondary
-          : cpuPct != null && cpuPct >= 90
-            ? token.colorWarning
-            : token.colorText,
-    };
+    const cpuUsageTextType: React.ComponentProps<typeof Typography.Text>['type'] =
+      !hasMetrics || cpuTotal <= 0
+        ? 'secondary'
+        : cpuPct != null && cpuPct >= 90
+          ? 'warning'
+          : undefined;
 
-    const memUsageStyle: React.CSSProperties = {
-      color:
-        !hasMetrics || memTotalBytes <= 0
-          ? token.colorTextSecondary
-          : memPct != null && memPct >= 90
-            ? token.colorWarning
-            : token.colorText,
-    };
+    const memUsageTextType: React.ComponentProps<typeof Typography.Text>['type'] =
+      !hasMetrics || memTotalBytes <= 0
+        ? 'secondary'
+        : memPct != null && memPct >= 90
+          ? 'warning'
+          : undefined;
 
     const hw = hardware;
     const diskList: any[] = hw && Array.isArray(hw.disk) ? hw.disk : [];
@@ -575,13 +558,15 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     const allocMem = record?.status?.allocatable?.memory;
 
     const hmsHwMissing = (
-      <div style={TAB_PANEL_PADDING_WIDE}>
+      <PanelWide>
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 hardware（hardwareInfo）">
-          <Typography.Paragraph type="secondary" style={{ textAlign: 'center', marginBottom: 0 }}>
-            {HMS_SYNC_HINT}
-          </Typography.Paragraph>
+          <Flex vertical align="center" gap="small">
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0, textAlign: 'center' }}>
+              {HMS_SYNC_HINT}
+            </Typography.Paragraph>
+          </Flex>
         </Empty>
-      </div>
+      </PanelWide>
     );
 
     return [
@@ -589,8 +574,8 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
         key: 'harv-node',
         label: '物理节点',
         children: (
-          <div style={TAB_PANEL_PADDING}>
-            <Descriptions bordered size="small" column={1} labelStyle={descLabelNarrow}>
+          <Panel>
+            <Descriptions {...DESCR_COL1}>
               <Descriptions.Item label="名称">{titleName}</Descriptions.Item>
               <Descriptions.Item label="就绪">{ready ? 'Ready' : 'NotReady'}</Descriptions.Item>
               <Descriptions.Item label="角色">
@@ -610,22 +595,15 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 </Descriptions.Item>
               ) : null}
               <Descriptions.Item label="CPU 使用（实时）">
-                <Typography.Text style={cpuUsageStyle}>{cpuUsageDisplay}</Typography.Text>
+                <Typography.Text type={cpuUsageTextType}>{cpuUsageDisplay}</Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="内存使用（实时）">
-                <Typography.Text style={memUsageStyle}>{memUsageDisplay}</Typography.Text>
+                <Typography.Text type={memUsageTextType}>{memUsageDisplay}</Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="内网 IP">
                 {internalIP ? (
                   <Typography.Text copyable={{ text: String(internalIP) }} code>
                     {internalIP}
-                  </Typography.Text>
-                ) : null}
-              </Descriptions.Item>
-              <Descriptions.Item label="公网 IP">
-                {externalIP ? (
-                  <Typography.Text copyable={{ text: String(externalIP) }} code>
-                    {externalIP}
                   </Typography.Text>
                 ) : null}
               </Descriptions.Item>
@@ -635,25 +613,27 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
               <Descriptions.Item label="可分配内存">{displayCell(allocMem)}</Descriptions.Item>
               <Descriptions.Item label="物理口（LinkMonitor）">
                 {physicalIfaces.length ? (
-                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Flex vertical gap={4}>
                     {physicalIfaces.map((name) => {
                       const st = ifaceStatusMap[name];
                       return (
-                        <span key={name}>
-                          <Typography.Text code style={{ marginRight: 8 }}>
-                            {name}
-                          </Typography.Text>
-                          {st ? <Tag style={{ margin: 0 }}>{st}</Tag> : null}
-                        </span>
+                        <Space key={name} size="small" align="center">
+                          <Typography.Text code>{name}</Typography.Text>
+                          {st ? <Tag>{st}</Tag> : null}
+                        </Space>
                       );
                     })}
-                  </Space>
+                  </Flex>
                 ) : (
                   <Typography.Text type="secondary">未从 LinkMonitor 解析到 device 口</Typography.Text>
                 )}
               </Descriptions.Item>
-              <Descriptions.Item label="Kubelet">
-                {displayCell(record?.kubeletVersion || record?.status?.nodeInfo?.kubeletVersion)}
+              <Descriptions.Item label="版本">
+                {displayCell(
+                  record?.kubeletVersion ||
+                    record?.status?.nodeInfo?.kubeletVersion ||
+                    record?.version,
+                )}
               </Descriptions.Item>
               <Descriptions.Item label="架构">
                 {displayCell(record?.architecture || record?.status?.nodeInfo?.architecture)}
@@ -666,23 +646,26 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
               </Descriptions.Item>
               <Descriptions.Item label="容器运行时">
                 {displayCell(
-                  record?.containerRuntimeVersion || record?.status?.nodeInfo?.containerRuntimeVersion,
+                  record?.containerRuntimeVersion ||
+                    record?.status?.nodeInfo?.containerRuntimeVersion,
                 )}
               </Descriptions.Item>
             </Descriptions>
-          </div>
+          </Panel>
         ),
       },
       {
         key: 'harv-annotations',
         label: '注解与网络',
         children: (
-          <div style={TAB_PANEL_PADDING}>
-            <Descriptions bordered size="small" column={1} labelStyle={descLabelNarrow}>
+          <Panel>
+            <Descriptions {...DESCR_COL1}>
               <Descriptions.Item label="集群版本展示">{displayCell(harvesterVersion)}</Descriptions.Item>
               <Descriptions.Item label="NTP 同步">{displayCell(ntp?.ntpSyncStatus)}</Descriptions.Item>
               <Descriptions.Item label="NTP 服务器">
-                <span style={{ wordBreak: 'break-all' }}>{displayCell(ntp?.currentNtpServers)}</span>
+                <Typography.Text style={{ wordBreak: 'break-all' }}>
+                  {displayCell(ntp?.currentNtpServers)}
+                </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="OVN 节点 IP">
                 {displayCell(annotations?.['ovn.kubernetes.io/ip_address'])}
@@ -703,15 +686,15 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 {displayCell(annotations?.['etcd.rke2.cattle.io/local-snapshots-timestamp'])}
               </Descriptions.Item>
             </Descriptions>
-          </div>
+          </Panel>
         ),
       },
       {
         key: 'harv-sched',
         label: '调度预留',
         children: (
-          <div style={TAB_PANEL_PADDING}>
-            <Descriptions bordered size="small" column={1} labelStyle={descLabelNarrow}>
+          <Panel>
+            <Descriptions {...DESCR_COL1}>
               <Descriptions.Item label="CPU 请求（Requests）">
                 {podRequests?.cpu
                   ? `${String(podRequests.cpu)}（约 ${formatCpuToCoresText(podRequests.cpu)}）`
@@ -737,27 +720,20 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                   : null}
               </Descriptions.Item>
             </Descriptions>
-          </div>
+          </Panel>
         ),
       },
-    
       {
         key: 'hms-board',
         label: 'HMS 主板',
         children: (
-          <div style={TAB_PANEL_PADDING_WIDE}>
+          <PanelWide>
             {!hw ? (
               hmsHwMissing
             ) : (
               <>
                 {systemObj ? (
-                  <Descriptions
-                    className="hms-hw-same-row-height"
-                    bordered
-                    size="small"
-                    column={1}
-                    labelStyle={descLabelNarrow}
-                  >
+                  <Descriptions className="hms-hw-same-row-height" {...DESCR_COL1}>
                     {Object.entries(systemObj).map(([k, v]) => (
                       <Descriptions.Item key={k} label={hmsSystemInfoLabelZh(k)}>
                         {displayCell(v)}
@@ -769,26 +745,20 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 )}
               </>
             )}
-          </div>
+          </PanelWide>
         ),
       },
       {
         key: 'hms-cpu',
         label: 'HMS 处理器',
         children: (
-          <div style={TAB_PANEL_PADDING_WIDE}>
+          <PanelWide>
             {!hw ? (
               hmsHwMissing
             ) : (
               <>
                 {cpuObj && Object.keys(cpuObj).length > 0 ? (
-                  <Descriptions
-                    className="hms-hw-same-row-height"
-                    bordered
-                    size="small"
-                    column={1}
-                    labelStyle={descLabelNarrow}
-                  >
+                  <Descriptions className="hms-hw-same-row-height" {...DESCR_COL1}>
                     {Object.entries(cpuObj).map(([k, v]) => (
                       <Descriptions.Item key={k} label={hmsCpuInfoLabelZh(k)}>
                         {displayCell(v)}
@@ -800,23 +770,21 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 )}
               </>
             )}
-          </div>
+          </PanelWide>
         ),
       },
       {
         key: 'hms-memory',
         label: 'HMS 内存',
         children: (
-          <div style={TAB_PANEL_PADDING_WIDE}>
+          <PanelWide>
             {!hw ? (
               hmsHwMissing
             ) : (
               <>
                 {memListSorted.length ? (
                   <Table
-                    size="small"
-                    bordered
-                    {...HARVESTER_STD_TABLE}
+                    {...DRAWER_TABLE_PROPS}
                     scroll={tableScrollXWhenHasData(memListSorted.length)}
                     rowKey={(r: any, i?: number) => `${String(r?.Locator ?? '')}-${i ?? 0}`}
                     columns={HMS_MEM_COLS as any}
@@ -828,23 +796,21 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 )}
               </>
             )}
-          </div>
+          </PanelWide>
         ),
       },
       {
         key: 'hms-disk',
         label: 'HMS 存储',
         children: (
-          <div style={TAB_PANEL_PADDING_WIDE}>
+          <PanelWide>
             {!hw ? (
               hmsHwMissing
             ) : (
               <>
                 {diskList.length ? (
                   <Table
-                    size="small"
-                    bordered
-                    {...HARVESTER_STD_TABLE}
+                    {...DRAWER_TABLE_PROPS}
                     scroll={tableScrollXWhenHasData(diskList.length)}
                     rowKey={(r: any, i?: number) => `${r?.name || ''}-${r?.type || ''}-${i ?? 0}`}
                     columns={HMS_DISK_COLS as any}
@@ -854,9 +820,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                       expandedRowRender: (r: any) =>
                         Array.isArray(r?.children) && r.children.length ? (
                           <Table
-                            size="small"
-                            bordered
-                            {...HARVESTER_STD_TABLE}
+                            {...DRAWER_TABLE_PROPS}
                             scroll={tableScrollXWhenHasData(r.children.length)}
                             rowKey={(c: any, j?: number) => `${c?.name}-${j ?? 0}`}
                             columns={HMS_DISK_COLS as any}
@@ -874,53 +838,47 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 )}
               </>
             )}
-          </div>
+          </PanelWide>
         ),
       },
       {
         key: 'hms-nics',
         label: 'HMS 网卡',
         children: (
-          <div style={TAB_PANEL_PADDING_WIDE}>
+          <PanelWide>
             {nics.length ? (
               <Table
-                {...HARVESTER_STD_TABLE}
-                size="small"
-                bordered
+                {...DRAWER_TABLE_PROPS}
                 scroll={tableScrollXWhenHasData(nics.length)}
                 rowKey={(r: any) => `${r?.device || ''}-${r?.mac || ''}-${r?.master || ''}`}
                 columns={nicColumns as any}
                 dataSource={nics}
-                pagination={{ size: 'small', showTotal: (t) => `共 ${t} 条` }}
+                pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条`, size: 'small' }}
               />
             ) : (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="暂无 nics 数据"
-                children={
-                  <Typography.Paragraph type="secondary" style={{ textAlign: 'center' }}>
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 nics 数据">
+                <Flex vertical align="center" gap="small">
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0, textAlign: 'center' }}>
                     {HMS_SYNC_HINT}
                   </Typography.Paragraph>
-                }
-              />
+                </Flex>
+              </Empty>
             )}
-          </div>
+          </PanelWide>
         ),
       },
       {
         key: 'hms-lldp',
         label: 'HMS LLDP',
         children: (
-          <div style={TAB_PANEL_PADDING_WIDE}>
+          <PanelWide>
             {!hw ? (
               hmsHwMissing
             ) : (
               <>
                 {swList.length ? (
                   <Table
-                    size="small"
-                    bordered
-                    {...HARVESTER_STD_TABLE}
+                    {...DRAWER_TABLE_PROPS}
                     scroll={tableScrollXWhenHasData(lldpTableRows.length)}
                     rowKey="key"
                     columns={HMS_LLDP_TABLE_COLUMNS as any}
@@ -932,7 +890,7 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
                 )}
               </>
             )}
-          </div>
+          </PanelWide>
         ),
       },
     ];
@@ -941,7 +899,6 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     titleName,
     ready,
     internalIP,
-    externalIP,
     harvesterVersion,
     ntp,
     annotations,
@@ -954,90 +911,28 @@ const PhysicalNodeDetailDrawer: React.FC<PhysicalNodeDetailDrawerProps> = ({
     physicalIfaces,
     ifaceStatusMap,
     metrics,
-    token,
   ]);
 
-  const nodeOpsSubDrawerTitle = (
-    <Space wrap>
-      <CodeOutlined />
-      <span>运维信息（集群 View Link）</span>
-      {titleName ? <Typography.Text type="secondary">{titleName}</Typography.Text> : null}
-    </Space>
-  );
-
   return (
-    <>
-      <Drawer
-        title={titleName}
-        extra={
-          <Space wrap>
-            {onRefreshFromCluster ? (
-              <Button size="small" onClick={() => onRefreshFromCluster(true)} loading={refreshLoading}>
-                刷新
-              </Button>
-            ) : null}
-            {cloudId ? (
-              <Button
-                size="small"
-                disabled={!nodeViewLink}
-                onClick={() => {
-                  if (nodeViewLink) setOpsSubDrawerOpen(true);
-                }}
-              >
-                运维信息
-              </Button>
-            ) : null}
-          </Space>
-        }
-        open={open && !!record}
-        onClose={onClose}
-        width="min(1000px, 96vw)"
-        placement="right"
-        destroyOnHidden
-      >
-        {record ? (
-          <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} tabBarStyle={TAB_BAR_STYLE} />
-        ) : null}
-      </Drawer>
-
-      <Drawer
-        title={nodeOpsSubDrawerTitle}
-        placement="right"
-        width="min(920px, 96vw)"
-        open={opsSubDrawerOpen && open && !!record}
-        onClose={() => setOpsSubDrawerOpen(false)}
-        destroyOnHidden
-        zIndex={1100}
-      >
-        {!cloudId ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 24,
-              minHeight: 200,
-            }}
-          >
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未配置 cloudId，无法拉取集群 API数据" />
-          </div>
-        ) : nodeViewLink ? (
-          <ViewLinkTab
-            cloudId={cloudId}
-            viewLink={nodeViewLink}
-            active={opsSubDrawerOpen && open && !!record}
-            style={{ width: '100%', minHeight: 360, height: '70vh', border: 'none', borderRadius: 0 }}
-          />
-        ) : (
-          <Alert
-            type="warning"
-            showIcon
-            message="无法解析查看路径"
-            description="缺少节点名称，无法构造 Node的集群查看 URL。"
-          />
-        )}
-      </Drawer>
-    </>
+    <Drawer
+      title="物理节点信息"
+      extra={
+        onRefreshFromCluster ? (
+          <Button size="small" onClick={() => onRefreshFromCluster(true)} loading={refreshLoading}>
+            刷新
+          </Button>
+        ) : null
+      }
+      open={open && !!record}
+      onClose={onClose}
+      width="min(1000px, 96vw)"
+      placement="right"
+      destroyOnHidden
+    >
+      {record ? (
+        <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
+      ) : null}
+    </Drawer>
   );
 };
 

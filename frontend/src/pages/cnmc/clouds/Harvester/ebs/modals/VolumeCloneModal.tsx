@@ -8,7 +8,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { App, Checkbox, Form, Input, Modal } from 'antd';
 import { cloneHarvesterVolume } from '../../../../../../services/harvesterApi';
 import type { VolumeCreateSeed } from './VolumeCreateModal';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 export type VolumeCloneSource = {
   namespace: string;
@@ -30,6 +29,7 @@ export type VolumeCloneModalProps = {
   onCloneSuccess?: () => void;
   /** 取消「克隆数据」时关闭本弹窗并打开创建云盘，传入预填 seed */
   onBranchToCreateVolume: (seed: VolumeCreateSeed) => void;
+  isTenant?: boolean;
 };
 
 const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
@@ -42,8 +42,8 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
   nsOptions,
   onCloneSuccess,
   onBranchToCreateVolume,
+  isTenant = false,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
@@ -79,7 +79,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
             scNames.find((n) => n.toLowerCase() === 'longhorn') ||
             scNames.find((n) => n.toLowerCase().includes('longhorn')) ||
             scNames[0];
-          const defaultNs = hasOpsView
+          const defaultNs = !isTenant
               ? (nsOptions.length > 0 ? nsOptions[0].value : source.namespace)
               : 'default';
           onCancel();
@@ -101,7 +101,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
     [
       cloudId,
       message,
-      hasOpsView,
+      isTenant,
       nsOptions,
       onBranchToCreateVolume,
       onCancel,

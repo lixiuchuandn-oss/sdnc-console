@@ -25,7 +25,6 @@ import {
 import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
 import { ovnDisplayName } from '../lib/ovnResourceDisplay';
 import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * =============================================================================
@@ -52,7 +51,7 @@ type Props = {
   onRefresh?: (force?: boolean) => void;
   onRefreshNads?: (force?: boolean, silent?: boolean) => void;
   showYaml?: boolean;
-  /** 显式指定标准/运维列；不传则按 clouds.cloudmap.ops-view:write */
+  /** 显式指定标准/运维列；不传则租户为标准列、管理员为运维列 */
   displayMode?: 'standard' | 'ops';
 };
 
@@ -99,10 +98,10 @@ const VpcSubnetsSection: React.FC<Props> = ({
   showYaml = true,
   displayMode: displayModeProp,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const resolvedDisplayMode = displayModeProp ?? (hasOpsView ? 'ops' : 'standard');
-  const effectiveShowYaml = showYaml !== false && hasOpsView;
   const { user } = useAuth();
+  const isTenantUser = useMemo(() => user?.role === 'tenant', [user?.role]);
+  const resolvedDisplayMode = displayModeProp ?? (isTenantUser ? 'standard' : 'ops');
+  const effectiveShowYaml = showYaml !== false;
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasVpcsWrite = useMemo(
     () =>
@@ -442,7 +441,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
         },
       },
       {
-        title: '命名空间',
+        title: '项目',
         key: 'namespace',
         ellipsis: true,
         render: (_: any, r: any) => {
@@ -684,13 +683,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
             setDetailDrawerOpen(false);
             setDetailSubnetRecord(null);
           }}
-          cloudId={cloudId}
           subnet={detailSubnetRecord}
           kindLabel="VPC 子网"
-          onSubnetAclSaved={() => {
-            onRefresh?.(true);
-            onRefreshNads?.(true, true);
-          }}
         />
       ) : null}
 

@@ -62,6 +62,9 @@ export const TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION = 'tower.io/ovn-network-scope
 /** 业务命名空间列表镜像（逗号分隔、排序），与 spec.namespaces 同语义 */
 export const TOWER_IO_NAMESPACES_ANNOTATION = 'tower.io/namespaces';
 
+/** 批量端口 DNAT：同组多条 OvnDnatRule 共享此值（一般为创建时的 base metadata.name） */
+export const TOWER_IO_DNAT_PORT_GROUP_ANNOTATION = 'tower.io/dnat-port-group';
+
 /** 子网引用可能是 name 或 ns/name，取 CR 名段 */
 function subnetCrNameFromRef(ref: string | undefined | null): string {
   const s = String(ref ?? '').trim();

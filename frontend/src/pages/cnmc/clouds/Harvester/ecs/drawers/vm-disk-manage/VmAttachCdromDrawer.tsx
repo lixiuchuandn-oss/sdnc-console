@@ -172,6 +172,9 @@ const VmAttachCdromDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
           <Form.Item name="newCdromCreated" initialValue={false} hidden>
             <Input />
           </Form.Item>
+          <Form.Item name="newCdromClaimName" hidden>
+            <Input />
+          </Form.Item>
           <Form.Item
             name="newCdromAccessMode"
             initialValue="ReadWriteMany"

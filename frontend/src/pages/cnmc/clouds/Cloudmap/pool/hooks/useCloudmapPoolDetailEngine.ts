@@ -50,6 +50,9 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     canReadNetworkScope,
     canReadLoadBalancers,
     canViewMonitoringTab,
+    canViewMonitoringOverview,
+    canAccessResourceHubSub,
+    resolveResourceHubSubAccess,
     canViewLoggingTab,
     canViewClusterGroup,
     canViewComputeGroup,
@@ -181,7 +184,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [rawGpu, setRawGpu] = useState<any | null>(null);
   const [rawUsbDevices, setRawUsbDevices] = useState<any | null>(null);
   const [rawPciDevices, setRawPciDevices] = useState<any | null>(null);
-  const [rawNamespaces, setRawNamespaces] = useState<any | null>(null);
   const [rawSnapshots, setRawSnapshots] = useState<any | null>(null);
   const [rawBackups, setRawBackups] = useState<any | null>(null);
   const [rawSshKeys, setRawSshKeys] = useState<any | null>(null);
@@ -197,7 +199,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [rawClusterNetworks, setRawClusterNetworks] = useState<any | null>(
     null,
   );
-  const [aswSwitchSummary, setAswSwitchSummary] = useState<any | null>(null);
   const [rawIngresses, setRawIngresses] = useState<any | null>(null);
 
   const loadedRef = React.useRef<Set<string>>(new Set());
@@ -312,7 +313,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setHarvesterNodes,
         setRawNodes,
         setHarvesterNamespaces,
-        setRawNamespaces,
         setCapabilities,
       });
     },
@@ -359,6 +359,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawCloudInits,
         setHarvesterTemplates,
         setRawTemplates,
+        setHarvesterImages,
+        setRawImages,
         setHarvesterGpuResources,
         setRawGpu,
         setHarvesterUsbDevices,
@@ -376,7 +378,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawIPPools,
         setHarvesterClusterNetworks,
         setRawClusterNetworks,
-        setAswSwitchSummary,
         setHarvesterNodes,
         setRawNodes,
         setHarvesterStorageClasses,
@@ -472,6 +473,11 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     locationPathname: location.pathname,
     navigate,
     canViewClusterGroup,
+    canViewComputeGroup,
+    resolveResourceHubSubAccess,
+    canViewMonitoringTab,
+    canViewLoggingTab,
+    canViewCloudDatabaseTab,
     canViewOniaasNetworkTab,
     canViewCephGroup,
     canViewObjectStorageGroup,
@@ -543,6 +549,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     canReadFlatSubnets,
     canReadVpcSubnets,
     canViewMonitoringTab,
+    canViewMonitoringOverview,
+    canAccessResourceHubSub,
     canViewClusterGroup,
     canViewComputeGroup,
     canViewCloudDatabaseTab,
@@ -598,7 +606,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     setRawSubnets,
     refreshVlans,
     harvesterNamespacesForManagement,
-    rawNamespaces,
     harvesterStorageClasses,
     setHarvesterStorageClasses,
     harvesterGpuResources,
@@ -607,7 +614,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawUsbDevices,
     harvesterPciDevices,
     rawPciDevices,
-    aswSwitchSummary,
     nodeFilter,
     setNodeFilter,
     nodesOptions,

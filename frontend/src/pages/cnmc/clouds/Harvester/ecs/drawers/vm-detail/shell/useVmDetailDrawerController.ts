@@ -9,7 +9,7 @@ import {
   fetchHarvesterVMAggregated,
   normalizeHarvesterGpuResourcesResponse,
 } from "../../../../../../../../services/harvesterApi";
-import { API_BASE_URL, apiPost } from "../../../../../../../../services/api";
+import { apiPost, API_BASE_URL } from "../../../../../../../../services/api";
 import { fetchMetricRange } from "../../../../../../../../services/monitoringApi";
 import { getToken } from "../../../../../../../../utils/tokenStorage";
 import { useAuth } from "../../../../../../../../contexts/AuthContext";

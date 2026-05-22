@@ -7,6 +7,12 @@ export async function tryLoadObjectStorageTab(
   _skipSync: boolean,
   _deps: PoolPathResourceDeps,
 ): Promise<boolean> {
-  if (key === 'object_gateways' || key === 'cosi' || key === 'storage_pools') return true;
+  if (
+    key === 'rgw_s3_buckets' ||
+    key === 'rgw_users' ||
+    key === 'object_gateways' ||
+    key === 'cosi'
+  )
+    return true;
   return false;
 }

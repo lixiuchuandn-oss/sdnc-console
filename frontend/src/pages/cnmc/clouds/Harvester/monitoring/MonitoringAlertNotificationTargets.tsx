@@ -39,7 +39,7 @@ import {
   normalizeDingtalkReceiverSpec,
   type ReceiverName,
   type ReceiverSpec,
-} from './utils/receivers';
+} from './lib/receivers';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 
 type ReceiverSpecItem = NotificationTargetReceiver;

@@ -7,7 +7,7 @@ import { Button, Form, Input, Modal, Space, Switch, Typography, message } from '
 import { CheckCircleOutlined, LoadingOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { apiPost } from '../../../../../services/api';
 import { handleApiError } from '../../../../../utils/errorHandler';
-import { cloudProviders } from '../../../../cnmc/pools/poolProviders';
+import { cloudProviders } from '../../../../cnmc/pools/lib/poolProviders';
 
 const { Text } = Typography;
 

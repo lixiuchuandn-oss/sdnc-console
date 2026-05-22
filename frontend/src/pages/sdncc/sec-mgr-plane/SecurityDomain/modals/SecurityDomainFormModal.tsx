@@ -11,7 +11,7 @@ import {
   fetchTenants,
   fetchOrganizationsByTenant,
 } from '../../../../../services/api';
-import { isRancherPoolCloud } from '../../../../cnmc/pools/poolProviders';
+import { isRancherPoolCloud } from '../../../../cnmc/pools/lib/poolProviders';
 import {
   createSecurityDomain,
   listSecurityDomains,

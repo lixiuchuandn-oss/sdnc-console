@@ -15,6 +15,18 @@ export function isWizardPciPassthroughNetMode(m: string): boolean {
   return s === WIZARD_NET_MODE_PCI_PHYSICAL || s === WIZARD_NET_MODE_PCI_SRIOV_VF;
 }
 
+/** 创建向导 / 网卡管理：PCI 直通模式下「选择设备」表单项标签 */
+export function wizardPassthroughPickFieldLabel(mode: string | undefined | null): string {
+  const s = String(mode || "").trim();
+  if (s === WIZARD_NET_MODE_PCI_SRIOV_VF) return "直通SR-IOV";
+  if (s === WIZARD_NET_MODE_PCI_PHYSICAL) return "直通网卡";
+  return "直通网络";
+}
+
+export function wizardPassthroughPickRequiredMessage(mode: string | undefined | null): string {
+  return `请选择${wizardPassthroughPickFieldLabel(mode)}`;
+}
+
 export type PassthroughSelectionExclusion = {
   pciCrNames: Set<string>;
   multusNadValues: Set<string>;
@@ -215,48 +227,61 @@ export function isVmHostDeviceGpuLike(d: any): boolean {
 }
 
 /**
- * 当前 VM 已绑定的 PCIDevice CR 名（hostDevices 中非 GPU/USB + deviceAllocationDetails.hostdevices）。
- * 与后端 pciVmAllocation 收集规则一致，用于变配抽屉展示「已直通」列表。
+ * 当前 VM 已绑定的网卡类 PCIDevice CR 名（仅 hostDevices，不含注解）。
+ * 与后端 pciVmAllocation 一致；注解可能含 SR-IOV PF 等未挂入 guest 的 CR，不得计入。
  */
 export function collectVmPassthroughPciCrNames(vm: any): Set<string> {
   const into = new Set<string>();
-  const push = (s: unknown) => {
-    const t = String(s ?? "").trim();
-    if (t) into.add(t);
-  };
-  try {
-    const raw = vm?.metadata?.annotations?.["harvesterhci.io/deviceAllocationDetails"];
-    if (raw) {
-      const p = typeof raw === "string" ? JSON.parse(raw) : raw;
-      const hd = p?.hostdevices;
-      if (hd && typeof hd === "object") {
-        for (const v of Object.values(hd)) {
-          if (Array.isArray(v)) (v as unknown[]).forEach((x) => push(x));
-        }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
   const hostDevices = vm?.spec?.template?.spec?.domain?.devices?.hostDevices;
-  if (Array.isArray(hostDevices)) {
-    for (const h of hostDevices) {
-      if (isVmHostDeviceGpuLike(h) || isVmHostDeviceUsbLike(h)) continue;
-      push(h?.name);
-    }
+  if (!Array.isArray(hostDevices)) return into;
+  for (const h of hostDevices) {
+    if (isVmHostDeviceGpuLike(h) || isVmHostDeviceUsbLike(h)) continue;
+    const t = String(h?.name ?? "").trim();
+    if (t) into.add(t);
   }
   return into;
 }
 
-function pciRowLabel(raw: any, crFallback: string): string {
+/** 解析 PCIDevice 行的 PCI 总线地址（BDF），供下拉与摘要展示 */
+function pciRowPciAddress(raw: any): string {
+  return String(
+    raw?.status?.pciAddress ??
+      raw?.status?.address ??
+      raw?.spec?.pciAddress ??
+      raw?.spec?.address ??
+      "",
+  ).trim();
+}
+
+/**
+ * @param compact 为 true 时用于下拉：资源名（与 hostDevices.deviceName 一致）+ PCI 号；缺省时退回 CR 名
+ */
+function pciRowLabel(raw: any, crFallback: string, compact?: boolean): string {
   const cr = String(raw?.metadata?.name ?? crFallback ?? "").trim() || crFallback;
+  const addr = pciRowPciAddress(raw);
+  if (compact) {
+    const rn = String(raw?.status?.resourceName ?? raw?.spec?.resourceName ?? "").trim();
+    const base = rn || cr;
+    return addr ? `${base} · PCI ${addr}` : base;
+  }
   const node = String(raw?.status?.nodeName ?? raw?.spec?.nodeName ?? "").trim();
   const desc = String(raw?.status?.description ?? raw?.spec?.description ?? "").trim();
-  const addr = String(
-    raw?.status?.pciAddress ?? raw?.status?.address ?? raw?.spec?.pciAddress ?? "",
-  ).trim();
-  const labelBits = [desc || cr, node ? `节点 ${node}` : "", addr ? addr : ""].filter(Boolean);
+  const labelBits = [
+    desc || cr,
+    node ? `节点 ${node}` : "",
+    addr ? `PCI ${addr}` : "",
+  ].filter(Boolean);
   return labelBits.join(" · ");
+}
+
+/** Multus 直通项：去掉「· 类型」尾缀与括号内 VLAN 说明，便于下拉单行展示 */
+function stripPassthroughNadOptionVerboseLabel(lbl: string): string {
+  let s = String(lbl || "").trim();
+  if (!s) return s;
+  const dot = s.indexOf(" · ");
+  if (dot >= 0) s = s.slice(0, dot).trim();
+  s = s.replace(/\s*\([^)]*VLAN\s+\d+[^)]*\)\s*/gi, " ").replace(/\s+/g, " ").trim();
+  return s || String(lbl || "").trim();
 }
 
 function resolvePciResourceNameFromVmAllocation(vm: any, pciCrName: string): string {
@@ -300,6 +325,100 @@ export function pciNicHostBindingsSnapshot(bindings: VmPciNicHostBinding[]): str
       deviceResourceName: String(b?.deviceResourceName || "").trim(),
     })),
   );
+}
+
+/**
+ * VM 模板 nodeSelector 中的 kubernetes.io/hostname。
+ * 来源含：创建向导「指定主机」、资源变配「节点调度」固定节点、或添加直通设备后自动写入。
+ */
+export function getVmTemplateFixedHostname(vm: any): string {
+  return String(
+    vm?.spec?.template?.spec?.nodeSelector?.["kubernetes.io/hostname"] || "",
+  ).trim();
+}
+
+/**
+ * 添加/校验直通网卡时应用的调度节点（聚合接口已合并 VMI status）。
+ * 模板 nodeSelector 与运行节点不一致时，以 status.nodeName 为准（变配改固定节点后未重启、
+ * 或列表缓存仍带创建时 node2 而实例已在 node1 等场景）。
+ */
+export function resolveVmPassthroughSchedulingHost(vm: any): string {
+  const running = String(vm?.status?.nodeName || "").trim();
+  const selector = getVmTemplateFixedHostname(vm);
+  if (selector && running && selector !== running) {
+    return running;
+  }
+  if (selector) return selector;
+  return running;
+}
+
+/** 与节点调度变配、创建向导一致：模板已固定 hostname 时，PCI 须落在该节点。 */
+export const PASSTHROUGH_PCI_FIXED_HOST_MISMATCH_MSG = (
+  fixedHost: string,
+  pciNode: string,
+) =>
+  `所选直通网卡位于节点 ${pciNode}，与虚拟机已固定节点 ${fixedHost} 不一致。请选择该节点上的网卡。`;
+
+/**
+ * 添加 PCI 直通/SR-IOV 辅卡：校验与有效调度节点、已有直通网卡所在节点一致。
+ * @returns 错误文案；通过时返回 null
+ */
+export function validateAppendPassthroughPciNodeAffinity(opts: {
+  vm: any;
+  pciNodeName: string;
+  bindNode?: string;
+  pciDevices?: any[];
+}): string | null {
+  const pciNode = String(opts.pciNodeName || "").trim();
+  const bindNode = String(opts.bindNode || "").trim();
+  const schedulingHost = resolveVmPassthroughSchedulingHost(opts.vm);
+
+  if (schedulingHost && bindNode && bindNode !== schedulingHost) {
+    return `虚拟机调度/运行节点为 ${schedulingHost}，所选宿主机节点 ${bindNode} 不一致。请选择该节点上的直通网卡。`;
+  }
+  if (schedulingHost && pciNode && pciNode !== schedulingHost) {
+    return PASSTHROUGH_PCI_FIXED_HOST_MISMATCH_MSG(schedulingHost, pciNode);
+  }
+
+  const existingNodes = collectVmPciPassthroughNicNodeNames(
+    opts.vm,
+    opts.pciDevices,
+  );
+  if (existingNodes.length > 1) {
+    return "虚拟机已绑定多块位于不同节点的 PCI 直通/SR-IOV 网卡，无法继续添加直通网卡。";
+  }
+  if (existingNodes.length === 1 && pciNode) {
+    const only = existingNodes[0];
+    if (only && pciNode !== only) {
+      return `所选直通网卡位于节点 ${pciNode}，与虚拟机已有直通网卡所在节点 ${only} 不一致。请选择同一节点上的网卡。`;
+    }
+  }
+  if (existingNodes.length === 1 && !pciNode) {
+    return "无法校验直通网卡所在节点：请刷新 PCI 设备列表后重试。";
+  }
+
+  return null;
+}
+
+/** 从 VM 已绑定的 PCI 直通/SR-IOV（hostDevices）解析所在节点（依赖 PCI 库存列表）。 */
+export function collectVmPciPassthroughNicNodeNames(
+  vm: any,
+  pciDevices?: any[],
+): string[] {
+  const nodes = new Set<string>();
+  const pciList = Array.isArray(pciDevices) ? pciDevices : [];
+  for (const b of listVmPciNicHostBindings(vm)) {
+    const cr = String(b.pciCrName || "").trim();
+    if (!cr) continue;
+    const raw = pciList.find(
+      (p) => String(p?.metadata?.name || "").trim() === cr,
+    );
+    const node = String(
+      raw?.status?.nodeName ?? raw?.spec?.nodeName ?? "",
+    ).trim();
+    if (node) nodes.add(node);
+  }
+  return [...nodes];
 }
 
 export function listVmPciNicHostBindings(vm: any): VmPciNicHostBinding[] {
@@ -371,7 +490,7 @@ export function buildPciNicPassthroughSelectOptions(
     if (shouldExcludePciCr(cr, filter)) continue;
     const node = String(raw?.status?.nodeName ?? raw?.spec?.nodeName ?? "").trim();
     out.push({
-      label: pciRowLabel(raw, cr),
+      label: pciRowLabel(raw, cr, true),
       value: `${PT_PREFIX_PCI}${cr}`,
       _pciRaw: raw,
       _pciNodeName: node,
@@ -386,8 +505,9 @@ export function buildPciNicPassthroughSelectOptions(
 export function buildGroupedPassthroughSelectOptions(
   pciNicPassthroughOptions: PciNicPassthroughSelectOption[],
   nadOptions: ReadonlyArray<{ label?: unknown; value?: unknown; _type?: unknown }>,
-  opts?: { pciGroupLabel?: string } & PassthroughSelectFilterOpts,
+  opts?: { pciGroupLabel?: string; compactPassthroughLabels?: boolean } & PassthroughSelectFilterOpts,
 ): { label: string; options: { label: unknown; value: string }[] }[] {
+  const compactPassthroughLabels = opts?.compactPassthroughLabels === true;
   const nadPass = (nadOptions || []).filter((x: any) => {
     const t = String((x as any)?._type || "").toLowerCase();
     if (t) return t === "sriov" || t === "macvtap" || t === "macvlan";
@@ -398,17 +518,26 @@ export function buildGroupedPassthroughSelectOptions(
     const v = String(x?.value || "").trim();
     return !shouldExcludeMultusNad(v, opts);
   });
-  const multusGrouped = nadPassFiltered.map((x: any) => ({
-    ...x,
-    value: `${PT_PREFIX_MULTUS}${String(x.value)}`,
-  }));
+  const multusGrouped = nadPassFiltered.map((x: any) => {
+    const nadRes = String(x.value ?? "").trim();
+    const full = String(x.label ?? "");
+    /** compact：NAD 资源名 namespace/name（与库存 value 一致） */
+    const label = compactPassthroughLabels
+      ? nadRes || stripPassthroughNadOptionVerboseLabel(full)
+      : full;
+    return {
+      ...x,
+      label,
+      value: `${PT_PREFIX_MULTUS}${nadRes}`,
+    };
+  });
   const pciFiltered = (pciNicPassthroughOptions || []).filter((x) => {
     const cr = String(x._pciCrName || passthroughPickToPciCrName(String(x.value || ""))).trim();
     return !shouldExcludePciCr(cr, opts);
   });
   const groups: { label: string; options: { label: unknown; value: string }[] }[] = [];
   const pciGroupLabel =
-    String(opts?.pciGroupLabel || "").trim() || "PCI 物理网卡（已在集群启用透传）";
+    String(opts?.pciGroupLabel || "").trim() || "PCI 网卡";
   if (pciFiltered.length > 0) {
     groups.push({
       label: pciGroupLabel,
@@ -417,7 +546,7 @@ export function buildGroupedPassthroughSelectOptions(
   }
   if (multusGrouped.length > 0) {
     groups.push({
-      label: "Multus 网络（SR-IOV / macvtap / macvlan）",
+      label: "Multus 网络",
       options: multusGrouped,
     });
   }

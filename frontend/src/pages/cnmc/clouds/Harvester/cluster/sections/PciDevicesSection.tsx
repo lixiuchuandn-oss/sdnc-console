@@ -6,7 +6,7 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
+import { isPciNicSrIovVirtualFunctionPciDevice } from '../../ecs/lib/passthroughNicSelectOptions';
 
 interface Props {
   cloudId: string;
@@ -16,11 +16,22 @@ interface Props {
   raw?: any;
   showLog?: boolean;
   bordered?: boolean;
+  /** 与创建向导 SR-IOV VF 选项同源：仅展示启发式识别为虚拟功能的网卡类 PCI */
+  variant?: 'all' | 'sriov_vf';
+  isTenant?: boolean;
 }
 
-const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefresh, raw, showLog, bordered = true }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
+const PciDevicesSection: React.FC<Props> = ({
+  cloudId,
+  devices,
+  loading,
+  onRefresh,
+  raw,
+  showLog,
+  bordered = true,
+  variant = 'all',
+  isTenant = false,
+}) => {
   const [keyword, setKeyword] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -29,6 +40,14 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
+
+  const pciRows = useMemo(() => {
+    const list = Array.isArray(devices) ? devices : [];
+    if (variant !== 'sriov_vf') return list;
+    return list.filter((r: any) =>
+      isPciNicSrIovVirtualFunctionPciDevice(r?.raw || r?.rawData || r),
+    );
+  }, [devices, variant]);
 
   const vendorName = useCallback((id?: string) => {
     const v = String(id || '').trim().toLowerCase();
@@ -92,16 +111,16 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
   }, []);
 
   const nodeOptions = useMemo(
-    () => Array.from(new Set((Array.isArray(devices) ? devices : []).map((r: any) => getNodeName(r)).filter(Boolean))).sort(),
-    [devices, getNodeName],
+    () => Array.from(new Set((Array.isArray(pciRows) ? pciRows : []).map((r: any) => getNodeName(r)).filter(Boolean))).sort(),
+    [pciRows, getNodeName],
   );
   const statusOptions = useMemo(
-    () => Array.from(new Set((Array.isArray(devices) ? devices : []).map((r: any) => getDeviceState(r)).filter(Boolean))).sort(),
-    [devices, getDeviceState],
+    () => Array.from(new Set((Array.isArray(pciRows) ? pciRows : []).map((r: any) => getDeviceState(r)).filter(Boolean))).sort(),
+    [pciRows, getDeviceState],
   );
 
   const filtered = useMemo(() => {
-    const list = Array.isArray(devices) ? devices : [];
+    const list = Array.isArray(pciRows) ? pciRows : [];
     const kw = String(keyword || '').trim().toLowerCase();
     const nf = String(nodeFilter || '').trim().toLowerCase();
     const sf = String(statusFilter || '').trim().toLowerCase();
@@ -119,8 +138,8 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
       const bindTo = String(r?.bindingTo || r?.claimedBy || r?.claimName || '').toLowerCase();
       if (nf && node !== nf) return false;
       if (sf && state !== sf) return false;
-      if (bindFilter === 'bound' && !r?.claimed) return false;
-      if (bindFilter === 'unbound' && r?.claimed) return false;
+      if (bindFilter === 'bound' && !r?.vmInfo) return false;
+      if (bindFilter === 'unbound' && r?.vmInfo) return false;
       if (!kw) return true;
       return (
         node.includes(kw) ||
@@ -140,7 +159,7 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
           .includes(kw)
       );
     });
-  }, [devices, keyword, nodeFilter, statusFilter, bindFilter, getNodeName, getDeviceState, vendorLabel]);
+  }, [pciRows, keyword, nodeFilter, statusFilter, bindFilter, getNodeName, getDeviceState, vendorLabel]);
 
   const handleRefresh = async () => {
     if (!onRefresh) return;
@@ -219,15 +238,11 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         key: 'binding',
         ellipsis: true,
         render: (_: any, r: any) => {
-          if (!r?.claimed) return <Tag>未绑定</Tag>;
-          if (r?.vmInfo) {
-            const vmInfo = r.vmInfo;
-            const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
-            const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
-            return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
-          }
-          const txt = r?.bindingTo || r?.claimedBy || r?.claimName || '已绑定';
-          return <span style={{ wordBreak: 'break-word' }}>{String(txt)}</span>;
+          if (!r?.vmInfo) return <Tag>未绑定</Tag>;
+          const vmInfo = r.vmInfo;
+          const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
+          const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
+          return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
         },
       },
       {
@@ -263,23 +278,29 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const items = [
-            ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
+            ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
             ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
           ];
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
         },
       },
     ];
-  }, [getNodeName, handleOpenYaml, isStandardView, renderPciStateCell, vendorLabel]);
+  }, [getNodeName, handleOpenYaml, isTenant, renderPciStateCell, vendorLabel]);
 
-  const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, 'harvester_pci_devices_table');
+  const tableSettingsKey =
+    variant === 'sriov_vf' ? 'harvester_sriov_pci_devices_table' : 'harvester_pci_devices_table';
+
+  const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, tableSettingsKey);
+
+  const sectionTitle = variant === 'sriov_vf' ? 'SR-IOV 设备' : 'PCI 设备';
+  const drawerResourceLabel = variant === 'sriov_vf' ? 'SR-IOV 设备' : 'PCI 设备';
 
   return (
     <>
       <PageDetailSection
         asCard={false}
         bordered={bordered}
-        title="PCI 设备"
+        title={sectionTitle}
         toolbarLeft={(
           <>
             <Input
@@ -321,7 +342,7 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         )}
         toolbarRight={(
           <Space>
-            <TableColumnSettingsButton allColumns={columnsAll} settingsKey="harvester_pci_devices_table" />
+            <TableColumnSettingsButton allColumns={columnsAll} settingsKey={tableSettingsKey} />
             <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={!!loading || refreshing} disabled={!onRefresh} />
           </Space>
         )}
@@ -344,7 +365,7 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
       <HarvesterResourceDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        resourceType="PCI 设备"
+        resourceType={drawerResourceLabel}
         record={drawerRecord}
         activeTab={drawerTab}
         onTabChange={setDrawerTab}

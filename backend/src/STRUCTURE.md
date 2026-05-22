@@ -88,7 +88,6 @@ backend/src/
 ├── middleware/              # 认证、审计、错误处理等
 ├── permissions/             # API 级权限校验（含子文档时可保留 README）
 ├── routes/                  # HTTP 路由（按业务与云厂商拆分）
-├── scripts/                 # 运维/初始化脚本（dbInit、checkUser 等，非请求入口）
 ├── seeders/                 # 种子数据（管理员、角色等）
 ├── services/                # 业务服务与云 SDK 封装
 ├── utils/                   # 日志、报表存储等通用工具
@@ -138,9 +137,10 @@ backend/src/
 
 与 HTTP 分离的长连接实现；升级与路径约定见 `AGENTS.md`。
 
-### `scripts/`、`seeders/`
+### `seeders/`
 
-- **scripts**：一次性或运维向 TypeScript 入口（如 `dbInit.ts`），通过 `package.json` 的 `npm run db:*` 调用；**不作为** Express 路由模块。
+运维/初始化 CLI 脚本放在 **仓库 `backend/scripts/`**（与 `src/` 平级），通过 `package.json` 的 `npm run db:*` 或 `npx ts-node scripts/*.ts` 调用；**不作为** Express 路由模块。
+
 - **seeders**：启动或迁移时初始化数据。
 
 ---

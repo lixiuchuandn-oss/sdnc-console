@@ -295,7 +295,7 @@ const IngressesSection: React.FC<Props> = ({
       ellipsis: true,
       render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', ellipsis: true, render: (ns: string) => <Tag>{ns}</Tag> },
+    { title: '项目', dataIndex: 'namespace', key: 'namespace', ellipsis: true, render: (ns: string) => <Tag>{ns}</Tag> },
     { title: '规则', dataIndex: 'rules', key: 'rules', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', render: formatTime, sorter: (a: any, b: any) => new Date(a?.creationTimestamp || 0).getTime() - new Date(b?.creationTimestamp || 0).getTime(), defaultSortOrder: 'descend' as const },
     {
@@ -366,7 +366,7 @@ const IngressesSection: React.FC<Props> = ({
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="筛选命名空间"
+            placeholder="筛选项目"
             value={nsValue || undefined}
             onChange={(v) => onNsChange?.(v)}
             options={(namespacesOptions || []).map((ns) => ({ label: ns, value: ns }))}

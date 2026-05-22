@@ -3,8 +3,7 @@
  *
  * 【部署】HSM 挂在 Harvester/Kubernetes API 同入口，北向路径为 `/v1/hms/*`。
  *
- * 【Tower 角色】始终使用资源池 `endpoint` 的 origin 作为 HTTP 根地址；`config.aswCtl` 仅保留可选的 API Key、
- * TLS 校验开关、显示名等。聚合 /healthz、北向 switch/*、device/profiles 等（不探测根路径 /openapi.yaml）。
+ * 【Tower 角色】始终使用资源池 `endpoint` 的 origin；北向 API Key 内置，TLS 跟随资源池 ignoreTls。
  */
 import { Request, Response } from 'express';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
@@ -12,6 +11,7 @@ import {
   aswCtlGetJson,
   aswCtlProbeHealth,
   normalizeAswCtlApiKeySecret,
+  resolveAswCtlApiKeySecret,
   harvesterControlPlaneOrigin,
   northApiPathWithPrefix,
   type NormalizedAswEndpoint,
@@ -33,7 +33,7 @@ const ASW_CTL_V1_JSON_TIMEOUT_MS = (() => {
 })();
 
 function itemApiKeySent(ep: NormalizedAswEndpoint): boolean {
-  return !!normalizeAswCtlApiKeySecret(ep.apiKey);
+  return !!resolveAswCtlApiKeySecret(ep.apiKey);
 }
 
 type AswInstanceSlice = { host: string; ok: boolean; lines: any[] };
@@ -225,26 +225,32 @@ type AswCtlRouteResolved = {
   northPrefix: string;
 };
 
-/** 历史 `config.aswCtl.endpoints` 多条时用于提示（仅首条上的 apiKey 仍可能被合并读取）。 */
+/** TLS 校验：与资源池「忽略 TLS」一致，不再单独维护 config.aswCtl。 */
+function resolveAswCtlInsecureTls(cloud: { config?: any }): boolean {
+  return !!(cloud.config as any)?.ignoreTls;
+}
+
+/** 历史 `config.aswCtl.endpoints` 多条时用于提示。 */
 function legacyEndpointsCount(cfg: unknown): number {
   if (!cfg || typeof cfg !== 'object') return 0;
   const eps = (cfg as Record<string, unknown>).endpoints;
   return Array.isArray(eps) ? eps.length : 0;
 }
 
-/** 固定走资源池 API Endpoint + `/v1/hms`；可选密钥等来自 `config.aswCtl`。 */
+/** 固定走资源池 API Endpoint + `/v1/hms`；密钥默认 testkey。 */
 function resolveAswCtlRouting(cloud: { endpoint?: string; config?: any }): AswCtlRouteResolved | null {
   const origin = harvesterControlPlaneOrigin(String(cloud.endpoint || ''));
   if (!origin) return null;
   const cfg = cloud.config?.aswCtl;
   const c = cfg && typeof cfg === 'object' ? (cfg as Record<string, unknown>) : {};
-  let apiKey = normalizeAswCtlApiKeySecret(c.apiKey);
-  if (!apiKey) {
+  let rawKey: unknown = c.apiKey;
+  if (rawKey == null || !String(rawKey).trim()) {
     const eps = c.endpoints;
     if (Array.isArray(eps) && eps[0] && typeof eps[0] === 'object') {
-      apiKey = normalizeAswCtlApiKeySecret((eps[0] as Record<string, unknown>).apiKey);
+      rawKey = (eps[0] as Record<string, unknown>).apiKey;
     }
   }
+  const apiKey = resolveAswCtlApiKeySecret(rawKey);
   return {
     endpoints: [{ name: 'HSM', baseUrl: origin, apiKey }],
     northPrefix: CLUSTER_HSM_NORTH_PREFIX,
@@ -423,7 +429,7 @@ export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response
       onlyFirstAswCtl: legacyEps > 1,
       onlyFirstAswCtlMessage:
         legacyEps > 1
-          ? `检测到 config.aswCtl.endpoints 共 ${legacyEps} 条历史记录；访问地址已固定为资源池 API Endpoint，可选 API Key 仅从首条读取。建议保存「连接设置」以清理多余条目。`
+          ? `检测到 config.aswCtl.endpoints 共 ${legacyEps} 条历史记录；访问地址已固定为资源池 API Endpoint。可忽略旧 aswCtl 配置。`
           : undefined,
       items: cached,
       source: 'database',
@@ -458,7 +464,7 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
       });
     }
 
-    const insecureTls = !!cfg?.insecureTls;
+    const insecureTls = resolveAswCtlInsecureTls(cloud);
     const { endpoints } = routed;
     const legacyEps = legacyEndpointsCount(cfg);
     const ep = endpoints[0]!;
@@ -483,7 +489,7 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
       onlyFirstAswCtl: legacyEps > 1,
       onlyFirstAswCtlMessage:
         legacyEps > 1
-          ? `检测到 config.aswCtl.endpoints 共 ${legacyEps} 条历史记录；访问地址已固定为资源池 API Endpoint，可选 API Key 仅从首条读取。建议保存「连接设置」以清理多余条目。`
+          ? `检测到 config.aswCtl.endpoints 共 ${legacyEps} 条历史记录；访问地址已固定为资源池 API Endpoint。可忽略旧 aswCtl 配置。`
           : undefined,
       items,
       source: 'live',
@@ -501,7 +507,7 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
 
 /**
  * POST /:id/resources/harvester/asw-ctl/probe
- * 按表单草稿探测（不写库），用于「临时配置」内测试连接。
+ * 实时探测 HSM（不写库）；密钥与 TLS 由平台默认策略决定。
  */
 export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
   try {
@@ -510,11 +516,7 @@ export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
     if (!cloud) return;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
 
-    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<
-      string,
-      unknown
-    >;
-    const insecureTls = !!body.insecureTls;
+    const insecureTls = resolveAswCtlInsecureTls(cloud);
 
     const routed = resolveAswCtlRouting(cloud);
     if (!routed) {
@@ -523,10 +525,7 @@ export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
           '资源池 API Endpoint 为空，无法探测集群 HSM。请在资源池连接信息中填写 Harvester/Kubernetes API 地址。',
       });
     }
-    const draftKey = normalizeAswCtlApiKeySecret(body.apiKey);
-    const mergedEp = { ...routed.endpoints[0]! };
-    if (draftKey) mergedEp.apiKey = draftKey;
-    const ep = mergedEp;
+    const ep = { ...routed.endpoints[0]! };
     const northPrefix = routed.northPrefix;
 
     const aggregate = await fetchAswCtlSwitchRow(ep, insecureTls, 'probe', northPrefix);

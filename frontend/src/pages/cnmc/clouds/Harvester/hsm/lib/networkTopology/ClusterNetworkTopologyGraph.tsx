@@ -17,7 +17,7 @@ import ReactFlow, {
   Position,
 } from 'react-flow-renderer';
 import 'react-flow-renderer/dist/style.css';
-import { Empty, Spin } from 'antd';
+import { Empty } from 'antd';
 import {
   ACCENT,
   CARD_WIDTH,
@@ -528,12 +528,8 @@ const ClusterNetworkTopologyGraph: React.FC<ClusterNetworkTopologyGraphProps> = 
     };
   }, [clusterNetworks, clusterNodeRecords, defaultEdgeOpts, physicalLldpLinksProp, visualTheme]);
 
-  if (loading) {
-    return (
-      <div style={{ ...flowOuterStyle, minHeight: 240, alignItems: 'center', justifyContent: 'center' }}>
-        <Spin />
-      </div>
-    );
+  if (loading && (!clusterNetworks || clusterNetworks.length === 0)) {
+    return null;
   }
 
   if (!clusterNetworks || clusterNetworks.length === 0) {

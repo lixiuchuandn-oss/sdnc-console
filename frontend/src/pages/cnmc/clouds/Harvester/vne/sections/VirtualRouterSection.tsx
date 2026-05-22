@@ -44,14 +44,6 @@ const VNE_PAAS_TYPE_LABELS: Record<string, string> = {
   router: '虚拟路由器',
 };
 
-/** 与 `PaasSection` / `VmSection` 一致；Harvester 实例详情为 `namespace/name` */
-function getVmInstancePathId(r: any): string {
-  if (r?.metadata?.name && r?.metadata?.namespace) {
-    return `${r.metadata.namespace}/${r.metadata.name}`;
-  }
-  return String(r?.InstanceId || r?.id || '');
-}
-
 const SafeRead = {
   name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
   status: (r: any) => {
@@ -387,11 +379,6 @@ const VirtualRouterSection: React.FC<Props> = ({
         key: 'actions',
         fixed: 'right' as const,
         render: (_: any, r: any) => {
-          const iid = getVmInstancePathId(r);
-          const href =
-            cloudId && iid && iid.includes('/')
-              ? `/admin/clouds/${encodeURIComponent(cloudId)}/instances/${encodeURIComponent(iid)}`
-              : '';
           const items = [
             {
               key: 'vrConsole',
@@ -402,10 +389,7 @@ const VirtualRouterSection: React.FC<Props> = ({
             {
               key: 'openInstance',
               label: '云主机详情',
-              disabled: !href,
-              onClick: () => {
-                if (href) window.open(href, '_blank', 'noopener,noreferrer');
-              },
+              onClick: () => openVmDetailDrawer(r),
             },
             {
               key: 'editLabels',
@@ -432,7 +416,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         },
       },
     ],
-    [canEditPaasVmLabels, cloudId, openVmDetailDrawer, openYamlDrawer],
+    [canEditPaasVmLabels, openVmDetailDrawer, openYamlDrawer],
   );
 
   const handleOpenCreateModal = () => {

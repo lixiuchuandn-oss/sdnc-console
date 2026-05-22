@@ -28,11 +28,14 @@ export { default as CronJobForm } from './CronJobForm';
 export type { JobFormValues, JobFormProps } from './JobForm';
 export type { CronJobFormValues, CronJobFormProps } from './CronJobForm';
 
-// Service 表单组件
-export { default as ServiceForm } from './ServiceForm';
-export { default as ServiceFormModal } from './ServiceFormModal';
-export type { ServiceFormValues, ServiceFormProps } from './ServiceForm';
-export type { ServiceFormModalProps } from './ServiceFormModal';
+// Service 表单与创建/编辑抽屉（实现均在 `../drawers/ServiceFormDrawer.tsx`）
+export {
+  default as ServiceFormDrawer,
+  ServiceForm,
+  type ServiceFormValues,
+  type ServiceFormProps,
+  type ServiceFormDrawerProps,
+} from '../drawers/ServiceFormDrawer';
 
 // Ingress 表单组件
 export { default as IngressForm } from './IngressForm';

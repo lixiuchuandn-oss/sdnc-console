@@ -14,7 +14,8 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ReloadOutlined, EditOutlined, CodeOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
 import { ServiceTopology } from '../components/topology';
 import { buildServiceTopology, getTopologyStats, TopologyNode } from '../components/serviceTopologyUtils';
-import { YamlEditModal, IngressFormModal, ServiceFormModal, PodTerminal } from '../components';
+import { YamlEditModal, IngressFormModal, PodTerminal } from '../components';
+import ServiceFormDrawer from '../drawers/ServiceFormDrawer';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
@@ -260,7 +261,7 @@ const PodDetailDrawer: React.FC<{
             children: (
               <Descriptions column={2} bordered size="small">
                 <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
-                <Descriptions.Item label="命名空间">{metadata.namespace}</Descriptions.Item>
+                <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
                 <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
                 <Descriptions.Item label="节点">{spec.nodeName || '-'}</Descriptions.Item>
                 <Descriptions.Item label="IP">{status.podIP || '-'}</Descriptions.Item>
@@ -417,7 +418,7 @@ const PodDetailTabs: React.FC<{
           children: (
             <Descriptions column={2} bordered size="small">
               <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
-              <Descriptions.Item label="命名空间">{metadata.namespace}</Descriptions.Item>
+              <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
               <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
               <Descriptions.Item label="节点">{spec.nodeName || '-'}</Descriptions.Item>
               <Descriptions.Item label="IP">{status.podIP || '-'}</Descriptions.Item>
@@ -812,7 +813,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
       >
         <Descriptions column={1} bordered size="small">
           <Descriptions.Item label="名称">{name}</Descriptions.Item>
-          <Descriptions.Item label="命名空间">{namespace}</Descriptions.Item>
+          <Descriptions.Item label="项目">{namespace}</Descriptions.Item>
           <Descriptions.Item label="类型">
             <Tag color={type === 'ingress' ? 'blue' : 'green'}>{type.toUpperCase()}</Tag>
           </Descriptions.Item>
@@ -877,7 +878,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
             />
             <Select
               className="toolbar-filter"
-              placeholder="选择命名空间"
+              placeholder="选择项目"
               allowClear
               value={currentNs ? currentNs : undefined}
               onChange={handleNsChange}
@@ -902,7 +903,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           <Spin size="large" tip="加载中..." />
         </div>
       ) : topology.nodes.length === 0 ? (
-        <Empty description={currentNs ? `命名空间 "${currentNs}" 下没有服务拓扑数据` : '请选择命名空间查看服务拓扑'} style={{ padding: '60px 0' }} />
+        <Empty description={currentNs ? `项目 "${currentNs}" 下没有服务拓扑数据` : '请选择项目查看服务拓扑'} style={{ padding: '60px 0' }} />
       ) : (
         <ServiceTopology key={currentNs} nodes={topology.nodes} edges={topology.edges} onNodeClick={handleNodeClick} height={500} />
       )}
@@ -940,17 +941,16 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
         />
       )}
 
-      {/* Service 编辑弹窗 */}
       {editingNode && editingNode.type === 'service' && (
-        <ServiceFormModal
-          visible={editModalOpen}
+        <ServiceFormDrawer
+          open={editModalOpen}
+          mode="edit"
+          onClose={() => setEditModalOpen(false)}
           cloudId={cloudId}
-          editMode
-          initialData={editingNode.rawData}
           namespacesOptions={namespacesOptions}
           defaultNamespace={formDefaultNs}
-          onCancel={() => setEditModalOpen(false)}
-          onSuccess={() => { setEditModalOpen(false); onRefresh?.(true); }}
+          record={{ raw: editingNode.rawData, namespace: editingNode.namespace, name: editingNode.name }}
+          onCommitted={() => onRefresh?.(true)}
         />
       )}
 

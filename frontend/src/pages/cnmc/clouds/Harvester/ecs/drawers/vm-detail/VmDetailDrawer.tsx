@@ -114,6 +114,12 @@ const VmDetailDrawer: React.FC<VmDetailDrawerProps> = (props) => {
     handleStop: actions.handleStop,
     setDiagnosisDrawerOpen: ctrl.setDiagnosisDrawerOpen,
     setRealtimeLogsDrawerOpen: ctrl.setRealtimeLogsDrawerOpen,
+    setNodeSchedulingOpen: ctrl.setNodeSchedulingOpen,
+    setNodeAffinityOpen: ctrl.setNodeAffinityOpen,
+    setVmPolicyManageOpen: ctrl.setVmPolicyManageOpen,
+    setCloudInitManageOpen: ctrl.setCloudInitManageOpen,
+    setPerformanceSettingsOpen: ctrl.setPerformanceSettingsOpen,
+    setHotplugSettingsOpen: ctrl.setHotplugSettingsOpen,
   });
 
   return (

@@ -19,6 +19,13 @@ import {
   harvesterAswCtlSwitchesHandler,
   harvesterAswCtlSyncHandler,
 } from './handlers/asw-ctl.handlers';
+import {
+  harvesterHmsSwitchCrCreateHandler,
+  harvesterHmsSwitchCrDeleteHandler,
+  harvesterHmsSwitchCrGetHandler,
+  harvesterHmsSwitchCrListHandler,
+  harvesterHmsSwitchCrUpdateHandler,
+} from './handlers/hms-switch-cr.handlers';
 
 /**
  * 注册 Harvester 缓存路由
@@ -98,6 +105,33 @@ export const registerHarvesterRoutes = (
     '/:id/resources/harvester/asw-ctl/probe',
     checkAdminPermission,
     harvesterAswCtlProbeHandler,
+  );
+
+  // HMS Switch CR（hms.rivercloud.com/v1 Switch）声明式配置
+  router.get(
+    '/:id/resources/harvester/hms/switches',
+    checkAdminPermission,
+    harvesterHmsSwitchCrListHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/hms/switches',
+    checkAdminPermission,
+    harvesterHmsSwitchCrCreateHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/hms/switches/:name',
+    checkAdminPermission,
+    harvesterHmsSwitchCrGetHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/hms/switches/:name',
+    checkAdminPermission,
+    harvesterHmsSwitchCrUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/hms/switches/:name',
+    checkAdminPermission,
+    harvesterHmsSwitchCrDeleteHandler,
   );
 
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）

@@ -40,11 +40,9 @@ export async function submitVmReconfigureHotplugSettings(
   const hotPlugAnnotation =
     activeRecord?.metadata?.annotations?.['harvesterhci.io/enableCPUAndMemoryHotplug'];
   const isHotPlugConfiguredByAnnotation = hotPlugAnnotation?.toLowerCase() === 'true';
-  const hasMaxSockets = currentDomain?.cpu?.maxSockets && currentDomain.cpu.maxSockets > currentSockets;
-  const isCurrentlyHotPlug = isHotPlugConfiguredByAnnotation && hasMaxSockets;
-
+  const isFirstTimeEnable = values.enableHotPlug && !isHotPlugConfiguredByAnnotation;
   const needTopologyFix =
-    values.enableHotPlug && !isCurrentlyHotPlug && (currentCores !== 1 || currentThreads !== 1);
+    isFirstTimeEnable && (currentCores !== 1 || currentThreads !== 1);
 
   if (needTopologyFix) {
     const topologyPayload: any = {
@@ -55,7 +53,6 @@ export async function submitVmReconfigureHotplugSettings(
     };
 
     await updateHarvesterVmSpec(cloudId, namespace, vmName, topologyPayload);
-    message.info('已先设置CPU拓扑为cores=1, threads=1，正在开启热扩容...');
 
     try {
       const refreshedVm = await fetchHarvesterVmDetail(cloudId, namespace, vmName);

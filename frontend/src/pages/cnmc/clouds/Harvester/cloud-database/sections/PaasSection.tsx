@@ -2,7 +2,7 @@
  * Harvester 上 **虚拟机** 形态的 PaaS 托管实例列表（通用壳子）。
  * 云数据库实例：`tower.io/paas-category=database` 或旧 `tower.io/rds`；可选再按 `tower.io/paas-type` 收窄；创建/控制台等同目录 Rds*。
  */
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Table, Button, Tag, Badge, Input, Select, message, Typography, Tooltip } from 'antd';
 import { ReloadOutlined, DatabaseOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -13,6 +13,8 @@ import RdsCreateModal from '../modals/RdsCreateModal';
 import RdsInstanceLabelEditModal from '../modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal from '../modals/RdsDatabaseConsoleModal';
 import { isTowerPaasDatabaseVm } from '../../shared/harvesterTowerPaas';
+import VmDetailDrawer from '../../ecs/drawers/vm-detail';
+import { cnVmStatus } from '../../../../../../utils/harvesterUtils';
 
 type Props = {
   vms: any[];
@@ -48,14 +50,6 @@ const PAAS_TYPE_LABELS: Record<string, string> = {
   rocketmq: 'RocketMQ',
   kafka: 'Kafka',
 };
-
-/** 与 `VmSection.getIid` 一致；用于 `/admin/clouds/:id/instances/:instanceId`（Harvester 为 `namespace/name`） */
-function getVmInstancePathId(r: any): string {
-  if (r?.metadata?.name && r?.metadata?.namespace) {
-    return `${r.metadata.namespace}/${r.metadata.name}`;
-  }
-  return String(r?.InstanceId || r?.id || '');
-}
 
 const SafeRead = {
   name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
@@ -170,6 +164,9 @@ const PaasSection: React.FC<Props> = ({
   const [labelEditOpen, setLabelEditOpen] = useState(false);
   const [labelEditRecord, setLabelEditRecord] = useState<any>(null);
   const [dbConsoleVm, setDbConsoleVm] = useState<any | null>(null);
+  const [vmDetailDrawerOpen, setVmDetailDrawerOpen] = useState(false);
+  const [vmDetailRecordSnapshot, setVmDetailRecordSnapshot] = useState<any>(null);
+  const [vmDetailActiveTab, setVmDetailActiveTab] = useState('detail');
 
   const resolvedSectionTitle =
     sectionTitle ||
@@ -198,18 +195,40 @@ const PaasSection: React.FC<Props> = ({
   }, [paasVmInstances]);
 
   const filteredInstances = useMemo(() => {
-    return paasVmInstances.filter((r) => {
-      const name = SafeRead.name(r).toLowerCase();
-      const status = SafeRead.status(r).toLowerCase();
-      const node = SafeRead.node(r).toLowerCase();
+    return paasVmInstances
+      .filter((r) => {
+        const name = SafeRead.name(r).toLowerCase();
+        const status = SafeRead.status(r).toLowerCase();
+        const node = SafeRead.node(r).toLowerCase();
 
-      if (keyword && !name.includes(keyword.toLowerCase())) return false;
-      if (statusFilter && status !== statusFilter.toLowerCase()) return false;
-      if (nodeFilter && node !== nodeFilter.toLowerCase()) return false;
+        if (keyword && !name.includes(keyword.toLowerCase())) return false;
+        if (statusFilter && status !== statusFilter.toLowerCase()) return false;
+        if (nodeFilter && node !== nodeFilter.toLowerCase()) return false;
 
-      return true;
-    });
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = SafeRead.creationTimestamp(a);
+        const timeB = SafeRead.creationTimestamp(b);
+        return new Date(timeB).getTime() - new Date(timeA).getTime();
+      });
   }, [paasVmInstances, keyword, statusFilter, nodeFilter]);
+
+  const vmDetailRecord = useMemo(() => {
+    if (!vmDetailRecordSnapshot) return null;
+    const uid = vmDetailRecordSnapshot?.metadata?.uid;
+    if (uid) {
+      const found = filteredInstances.find((v: any) => v?.metadata?.uid === uid);
+      return found || vmDetailRecordSnapshot;
+    }
+    return vmDetailRecordSnapshot;
+  }, [filteredInstances, vmDetailRecordSnapshot]);
+
+  const openVmDetailDrawer = useCallback((record: any) => {
+    setVmDetailRecordSnapshot(record);
+    setVmDetailActiveTab('detail');
+    setVmDetailDrawerOpen(true);
+  }, []);
 
   const columns = useMemo(
     () => [
@@ -219,27 +238,21 @@ const PaasSection: React.FC<Props> = ({
         fixed: 'left' as const,
         render: (_: any, r: any) => {
           const text = SafeRead.name(r) || '-';
-          const iid = getVmInstancePathId(r);
-          const canOpenInstancePage = Boolean(cloudId && iid && iid.includes('/'));
-          const href = canOpenInstancePage
-            ? `/admin/clouds/${encodeURIComponent(cloudId)}/instances/${encodeURIComponent(iid)}`
-            : undefined;
           return (
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <DatabaseOutlined style={{ color: '#1677ff' }} />
               {text === '-' ? (
                 <span>{text}</span>
-              ) : href ? (
+              ) : (
                 <Typography.Link
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openVmDetailDrawer(r);
+                  }}
                 >
                   {text}
                 </Typography.Link>
-              ) : (
-                <span>{text}</span>
               )}
             </span>
           );
@@ -273,7 +286,7 @@ const PaasSection: React.FC<Props> = ({
           else if (k === 'stopping' || k === 'terminating') statusColor = 'warning';
           else if (k === 'error' || k === 'errorunschedulable') statusColor = 'error';
 
-          return <Badge status={statusColor as any} text={s} />;
+          return <Badge status={statusColor as any} text={cnVmStatus(s)} />;
         },
       },
       {
@@ -341,6 +354,11 @@ const PaasSection: React.FC<Props> = ({
               onClick: () => setDbConsoleVm(r),
             },
             {
+              key: 'vmDetail',
+              label: '云主机详情',
+              onClick: () => openVmDetailDrawer(r),
+            },
+            {
               key: 'editLabels',
               label: '编辑标签',
               disabled: !canEditPaasVmLabels,
@@ -359,7 +377,7 @@ const PaasSection: React.FC<Props> = ({
         },
       },
     ],
-    [canEditPaasVmLabels, cloudId],
+    [canEditPaasVmLabels, openVmDetailDrawer],
   );
 
   const handleOpenCreateModal = () => {
@@ -488,6 +506,23 @@ const PaasSection: React.FC<Props> = ({
         vm={dbConsoleVm}
         onClose={() => setDbConsoleVm(null)}
       />
+
+      {vmDetailDrawerOpen && vmDetailRecord ? (
+        <VmDetailDrawer
+          open
+          onClose={() => {
+            setVmDetailDrawerOpen(false);
+            setVmDetailRecordSnapshot(null);
+          }}
+          record={vmDetailRecord}
+          cloudId={cloudId}
+          namespaces={namespaceRecords || []}
+          images={images || []}
+          activeTab={vmDetailActiveTab}
+          onTabChange={setVmDetailActiveTab}
+          onRefresh={onRefresh}
+        />
+      ) : null}
     </PageDetailSection>
   );
 };

@@ -13,9 +13,8 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { clearCache } from '../../../../../../utils/requestManager';
-import ProviderNetworkDetailDrawer from '../drawers/provider-network-detail-drawer';
+import ProviderNetworkVlanPlanDrawer from '../drawers/provider-network-vlan-plan-drawer';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 const { Option } = Select;
 
@@ -27,13 +26,19 @@ type Props = {
   providerNetworks?: any[];
   loading?: boolean;
   onRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  isTenant?: boolean;
 };
 
-const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loading: loadingProp, onRefresh }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
+const VlansSection: React.FC<Props> = ({
+  cloudId,
+  vlans,
+  providerNetworks,
+  loading: loadingProp,
+  onRefresh,
+  isTenant = false,
+}) => {
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
-  const isStandardView = !hasOpsView;
   const isControlled = typeof onRefresh === 'function';
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -301,7 +306,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
           );
         },
       },
-      ...(!isStandardView && canWriteVlan
+      ...(!isTenant && canWriteVlan
         ? [
             {
               title: '操作',
@@ -329,7 +334,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
               ),
             },
           ]
-        : !isStandardView
+        : !isTenant
           ? [
             {
               title: '操作',
@@ -352,7 +357,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
           ]
           : []),
     ],
-    [canWriteVlan, isStandardView, openDrawer, handleDelete, providerAliasMap],
+    [canWriteVlan, openDrawer, handleDelete, providerAliasMap],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vlans_table');
@@ -415,7 +420,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, providerNetworks, loadi
         pagination={{ showTotal: (total) => `共 ${total} 条` }}
       />
 
-      <ProviderNetworkDetailDrawer
+      <ProviderNetworkVlanPlanDrawer
         open={vlanPlanOpen}
         onClose={() => setVlanPlanOpen(false)}
         cloudId={cloudId}

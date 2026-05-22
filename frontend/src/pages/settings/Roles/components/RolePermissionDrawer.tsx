@@ -18,7 +18,10 @@ import {
   Typography,
 } from 'antd';
 import type { DrawerProps } from 'antd';
-import { groupResourceConsoleChildFeatures } from '../../../../utils/permissionUtils';
+import {
+  groupResourceConsoleChildFeatures,
+  permissionFeatureMatchesKeyword,
+} from '../../../../utils/permissionUtils';
 import { PLATFORM_LABELS } from '../../../../constants/navigation';
 
 const { Text, Title } = Typography;
@@ -115,13 +118,19 @@ const RolePermissionDrawer: React.FC<Props> = ({
     const id = requestAnimationFrame(() => {
       const root = scrollRef.current;
       if (!root) return;
-      const needle = kw.trim().toLowerCase();
+      const needle = kw.trim();
       const cards = root.querySelectorAll('[data-perm-card="1"]');
       for (let i = 0; i < cards.length; i++) {
         const el = cards[i] as HTMLElement;
-        const prefix = (el.getAttribute('data-perm-prefix') || '').toLowerCase();
-        const titleAttr = (el.getAttribute('data-perm-title') || '').toLowerCase();
-        if (prefix.includes(needle) || titleAttr.includes(needle)) {
+        const prefix = el.getAttribute('data-perm-prefix') || '';
+        const titleAttr = el.getAttribute('data-perm-title') || '';
+        const pathSuffix = el.getAttribute('data-perm-path') || '';
+        if (
+          permissionFeatureMatchesKeyword(
+            { resourcePrefix: prefix, feature: titleAttr, pathSuffix },
+            needle,
+          )
+        ) {
           el.scrollIntoView({ block: 'center', behavior: 'smooth' });
           break;
         }
@@ -156,23 +165,30 @@ const RolePermissionDrawer: React.FC<Props> = ({
             data-perm-card="1"
             data-perm-prefix={feature.resourcePrefix || ''}
             data-perm-title={feature.feature || ''}
+            data-perm-path={feature.pathSuffix || ''}
           >
             <Flex gap={G} align="flex-start" justify="space-between" wrap="wrap">
               <Flex vertical gap={G / 2} style={{ flex: 1, minWidth: 0 }}>
                 <Text ellipsis style={{ display: 'block' }}>
-                  {feature.feature}
+                  {feature.capabilityKind === 'attached'
+                    ? `附加 · ${feature.feature}`
+                    : feature.feature}
                 </Text>
                 <Text
                   type="secondary"
                   style={{ display: 'block', fontSize: 14, lineHeight: 1.4, wordBreak: 'break-all' }}
                 >
-                  {Array.from(
-                    new Set(
-                      [feature.readVisible ? feature.read : null, feature.writeVisible ? feature.write : null]
-                        .filter(Boolean)
-                        .map((id) => String(id).split(':')[0]),
-                    ),
-                  ).join(' / ')}
+                  {feature.resourcePrefix ||
+                    Array.from(
+                      new Set(
+                        [
+                          feature.readVisible ? feature.read : null,
+                          feature.writeVisible ? feature.write : null,
+                        ]
+                          .filter(Boolean)
+                          .map((id) => String(id).split(':')[0]),
+                      ),
+                    ).join(' / ')}
                 </Text>
               </Flex>
               <Space size={G} style={{ flexShrink: 0 }}>

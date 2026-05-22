@@ -9,7 +9,10 @@ import TableColumnSettingsButton from '../../../components/TableColumnSettingsBu
 import { apiRequest, apiPost, apiDelete, apiPatch } from '../../../services/api';
 import { getPublicAdminPasswordPolicy } from '../../../services/systemApi';
 import type { AdminPasswordPolicy } from '../../../utils/adminPasswordPolicy';
-import { validateAdminPasswordClient } from '../../../utils/adminPasswordPolicy';
+import {
+  DEFAULT_ADMIN_PASSWORD_POLICY,
+  validateAdminPasswordClient,
+} from '../../../utils/adminPasswordPolicy';
 import { SecuritySettingsDrawer } from './SecuritySettings';
 import { useAuth } from '../../../contexts/AuthContext';
 
@@ -96,17 +99,7 @@ const AccessUsersPage: React.FC = () => {
   }, []);
 
   const passwordRules = (usernameGetter: () => string | undefined) => {
-    const pol =
-      adminPwdPolicy || {
-        minLength: 8,
-        maxLength: 64,
-        requireUppercase: false,
-        requireLowercase: false,
-        requireDigit: false,
-        requireSpecial: false,
-        maxPasswordAgeDays: 0,
-        requirePasswordChangeOnFirstLogin: false,
-      };
+    const pol = adminPwdPolicy || DEFAULT_ADMIN_PASSWORD_POLICY;
     return [
       { required: true, message: '请输入密码' },
       {
@@ -119,17 +112,7 @@ const AccessUsersPage: React.FC = () => {
   };
 
   const passwordRulesOptional = (usernameGetter: () => string | undefined) => {
-    const pol =
-      adminPwdPolicy || {
-        minLength: 8,
-        maxLength: 64,
-        requireUppercase: false,
-        requireLowercase: false,
-        requireDigit: false,
-        requireSpecial: false,
-        maxPasswordAgeDays: 0,
-        requirePasswordChangeOnFirstLogin: false,
-      };
+    const pol = adminPwdPolicy || DEFAULT_ADMIN_PASSWORD_POLICY;
     return [
       {
         validator: async (_: unknown, v: string) => {

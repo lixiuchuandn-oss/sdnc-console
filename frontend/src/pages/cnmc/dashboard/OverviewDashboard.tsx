@@ -38,7 +38,8 @@ import {
 import { isMustChangePasswordApiError } from '../../../utils/errorHandler';
 import { getProviderChartOption } from './chartUtils';
 import './Dashboard.css';
-import { isCsmCloud } from '../pools/poolProviders';
+import { isCsmCloud } from '../pools/lib/poolProviders';
+import { navigateToPoolDetail } from '../pools/lib/poolDetailNav';
 
 function pickSettledResult<T>(result: PromiseSettledResult<T>, fallback: T): T {
   return result.status === 'fulfilled' ? result.value : fallback;
@@ -440,8 +441,8 @@ const OverviewDashboard: React.FC = () => {
                         <div className="dashboard-region-progress-bar">
                           <Progress
                             percent={Math.round((item.value / regionProgressDisplay.maxVal) * 1000) / 10}
-                            strokeWidth={16}
-                            showInfo
+                            percentPosition={{ align: 'center', type: 'inner' }}
+                            size={['100%', 20]}
                             format={() => String(item.value)}
                             strokeColor={token.colorPrimary}
                             trailColor={token.colorFillTertiary}
@@ -555,7 +556,7 @@ const OverviewDashboard: React.FC = () => {
                     <Col xs={24} sm={12} lg={6} key={cloud.id}>
                       <div
                         className={`resource-card-professional ${isOnline ? 'active' : ''}`}
-                        onClick={() => navigate(`/admin/clouds/${cloud.id}`)}
+                        onClick={() => navigateToPoolDetail(navigate, cloud as unknown as Record<string, any>)}
                       >
                         <div className="resource-card-header-professional">
                           <div className="resource-header-content-professional">

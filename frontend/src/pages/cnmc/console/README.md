@@ -1,22 +1,35 @@
-# Cloudmap 云主机控制台（Console）
+# 租户 Cloudmap 控制台（`/console`）
 
-## 租户控制台入口
+## 定位
 
-- **本目录** `frontend/src/pages/cnmc/console` 在沟通与文档中作为 **租户侧 Cloudmap 控制台** 的正式锚点。
-- **路由**：`/console`（租户控制台专用前缀；旧入口 `/admin/clouds/console` 由前端 `Navigate` 重定向到 `/console`。见 `RouteSpec` / `App.tsx` / `tenantConsolePaths.ts`）。
-- **与管理员侧区别**：管理员常从「资源池管理 → 某资源池详情」等入口操作；**租户日常以本 Console 为主**。功能上均针对 Cloudmap/Harvester，但权限与数据范围（如 `mergePublicScenarioNamespaces`）可能不同，实现见 `CloudConsole.tsx` 中 `isTenantConsole` 等逻辑。
+- **路由**：`/console`（租户专用；旧入口 `/admin/clouds/console` 重定向至此，见 `lib/tenantConsolePaths.ts`）。
+- **与管理员侧**：管理员多从资源池详情进入；租户日常以本控制台为主。数据范围（如 `mergePublicScenarioNamespaces`）见 `CloudConsole.tsx`。
+- **RBAC**：与 Cloudmap 池内 `poolPageAction` 对齐，见 `deployment/docs/specs/cloudmap-pool-page-rbac.md` 与 `lib/tenantConsolePageAccess.ts`。
 
-## 主要文件
+## 目录结构（对齐 `frontend/src/STRUCTURE.md`）
 
-| 文件 | 说明 |
-|------|------|
-| `CloudConsole.tsx` | 页面壳：资源池切换、数据拉取、Layout |
-| `CloudConsoleMainPanel.tsx` | 云主机 / 扁平 / VPC 类目与 Section 路由 |
-| `CloudConsoleContainerPanel.tsx` | 容器服务 |
-| `CloudConsoleDatabasePanel.tsx` | 云 RDS 等 |
-| `CloudConsole.css` | 控制台布局与样式 |
-| `TenantConsoleHeaderSlotContext.tsx` | 顶栏「可用区」等中间槽位（由 `TenantConsoleLayout` 提供） |
+```
+console/
+├── index.ts                 # 懒加载入口 + 路由常量再导出
+├── CloudConsole.tsx         # 页面壳：资源池切换、数据拉取、侧栏联动
+├── CloudConsole.css         # 控制台内容区样式
+├── README.md
+├── hooks/
+│   └── useTenantConsolePermissions.ts
+├── lib/
+│   ├── tenantConsolePaths.ts      # 路径常量、租户 GET 合并公共场景规则
+│   └── tenantConsolePageAccess.ts # 控制台 ↔ poolPageAction 映射
+└── sections/                # 主内容区（按产品域拆分 Panel）
+    ├── CloudConsoleMainPanel.tsx      # 云主机 / 扁平 / VPC
+    ├── CloudConsoleContainerPanel.tsx # 容器服务
+    └── CloudConsoleDatabasePanel.tsx  # 云数据库
+```
 
-## 沟通用语建议
+布局壳（顶栏、产品侧栏）在 `layouts/tenant/`，与业务 `sections/` 分离。
 
-对内对外说明「租户控制台」「云主机控制台页面」时，可指向：**`Console` 目录**或路由 **`/console`**，避免与「资源池详情页」混淆。
+## 对外 import
+
+```ts
+import { TENANT_CLOUD_CONSOLE_PATH } from 'pages/cnmc/console';
+const Page = lazy(() => import('pages/cnmc/console'));
+```

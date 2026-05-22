@@ -10,7 +10,11 @@ import { In } from 'typeorm';
 import { HarvesterNamespaceInventory } from '../../../../entities/harvester/HarvesterNamespaceInventory';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncHarvesterNamespaces } from '../../../../services/clouds/harvester/inventory';
-import { isProtectedNamespace, shouldHideNamespaceWhenExcludeSystem } from '../../../../services/clouds/harvester/namespace';
+import {
+  isProtectedNamespace,
+  isNamespaceDeletableAsTenantProject,
+  shouldHideNamespaceWhenExcludeSystem,
+} from '../../../../services/clouds/harvester/namespace';
 import { getPublicScenarioNamespaceNames } from '../../../../services/clouds/harvester/publicNamespaces';
 import { requestJson, getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
@@ -421,7 +425,22 @@ export async function harvesterNamespaceDeleteHandler(req: Request, res: Respons
         error: `命名空间 "${name}" 是系统命名空间，受保护无法删除`,
       });
     }
-    
+
+    const namespaceRepoGate = AppDataSource.getRepository(HarvesterNamespaceInventory);
+    const invGate = await namespaceRepoGate.findOne({ where: { cloudId: id, name } });
+    if (!invGate?.rawData) {
+      return res.status(404).json({
+        message: '命名空间不存在或未同步',
+        error: '请刷新命名空间列表后重试，或确认该名称是否存在',
+      });
+    }
+    if (!isNamespaceDeletableAsTenantProject(invGate.rawData)) {
+      return res.status(403).json({
+        message: '仅允许删除租户项目（须 metadata.labels 含 tower.io/scenario=tenant）',
+        error: '公共、管理员、未标注 tower.io/scenario 及系统等项目不可在此处删除',
+      });
+    }
+
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;

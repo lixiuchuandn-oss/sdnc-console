@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Alert, Card, Descriptions, Space, Tag, Typography } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
-import { getProviderName, resolvePoolTypeLabel } from '../../../../pools/poolProviders';
+import { getProviderName, resolvePoolTypeLabel } from '../../../../pools/lib/poolProviders';
 import '../styles/rancher-overview.css';
 
 const { Text, Paragraph } = Typography;

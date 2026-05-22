@@ -397,7 +397,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
               >
                 <div style={{ lineHeight: 1.2 }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.display}</div>
-                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>{`命名空间: ${row.namespacesDisplay}`}</div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>{`项目: ${row.namespacesDisplay}`}</div>
                 </div>
               </Select.Option>
             ))}

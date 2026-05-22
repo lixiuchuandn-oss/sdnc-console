@@ -21,7 +21,6 @@ import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNames
 import { deleteHarvesterSshKey } from '../../../../../../services/harvesterApi';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -48,7 +47,6 @@ const SshKeysSection: React.FC<Props> = ({
   isTenant,
   bordered = true
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -244,7 +242,7 @@ const SshKeysSection: React.FC<Props> = ({
       copyable: true,
       render: (text: string) => <span className="std-code">{text}</span>
     },
-    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
+    ...(!isTenant ? [{ title: '项目', dataIndex: 'namespace', key: 'namespace' }] : []),
     { 
       title: '创建时间', 
       key: 'creationTimestamp', 
@@ -268,7 +266,7 @@ const SshKeysSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 仅在非租户模式下添加详情入口
-        if (!isTenant && hasOpsView) {
+        if (!isTenant) {
           items.push({ 
             key: 'opsinfo', 
             label: '查看YAML', 
@@ -316,7 +314,7 @@ const SshKeysSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, hasSshKeysWrite, hasOpsView]);
+  ], [isTenant, hasSshKeysWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_ssh_keys_table');
@@ -335,9 +333,9 @@ const SshKeysSection: React.FC<Props> = ({
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
           />
-          {!isTenant && hasOpsView && (
+          {!isTenant && (
             <Select
-              placeholder="命名空间"
+              placeholder="项目"
               className="toolbar-filter-sm" 
               allowClear
               showSearch

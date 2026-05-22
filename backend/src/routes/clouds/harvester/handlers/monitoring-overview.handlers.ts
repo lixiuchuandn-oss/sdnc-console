@@ -19,18 +19,58 @@ import {
   normalizeOrigin,
 } from './monitoring-helpers';
 
-function parseLonghornDefaultReplicaCount(settingsPayload: any): number | null {
-  const items = Array.isArray(settingsPayload?.data)
-    ? settingsPayload.data
-    : Array.isArray(settingsPayload?.items)
-      ? settingsPayload.items
-      : [];
-  const hit = items.find((x: any) => {
-    const id = String(x?.id ?? x?.metadata?.name ?? '').trim();
-    return id === 'default-replica-count';
-  });
-  if (!hit) return null;
-  const raw = hit?.value ?? hit?.spec?.value ?? hit?.status?.value;
+function normalizeSteveCollection(payload: any): any[] {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+/** 与前端 harvesterUtils.isClusterDefaultStorageClass 对齐 */
+function isClusterDefaultStorageClass(sc: any): boolean {
+  const meta = sc?.metadata?.annotations || {};
+  const top = sc?.annotations || {};
+  const flag =
+    meta['storageclass.kubernetes.io/is-default-class'] ??
+    meta['storageclass.beta.kubernetes.io/is-default-class'] ??
+    top['storageclass.kubernetes.io/is-default-class'] ??
+    top['storageclass.beta.kubernetes.io/is-default-class'] ??
+    sc?.isDefault;
+  return String(flag || '').toLowerCase() === 'true';
+}
+
+/** 与前端 pickDefaultStorageClassName：先 is-default，否则列表首项 */
+function pickDefaultStorageClassRecord(list: any[]): any | null {
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const hit = list.find(isClusterDefaultStorageClass);
+  return hit ?? list[0];
+}
+
+function storageClassRecordName(sc: any): string {
+  return String(sc?.metadata?.name ?? sc?.id ?? sc?.name ?? '').trim();
+}
+
+/** 默认存储类对应的分布式块存储大类（用于监控概览储存卡片数据源切换） */
+function classifyDistributedStorageKind(sc: any): 'longhorn' | 'ceph' | 'unknown' {
+  const prov = String(sc?.provisioner ?? sc?.spec?.provisioner ?? '').trim();
+  const pl = prov.toLowerCase();
+  if (!pl) return 'unknown';
+  if (pl.includes('longhorn') || pl.includes('driver.longhorn.io')) return 'longhorn';
+  if (
+    pl.includes('rook-ceph') ||
+    pl.includes('rbd.csi.ceph.com') ||
+    pl.includes('cephfs.csi.ceph.com') ||
+    pl.includes('csi.ceph.com') ||
+    pl.includes('ceph.csi')
+  ) {
+    return 'ceph';
+  }
+  return 'unknown';
+}
+
+/** Longhorn StorageClass 常用 parameters.numberOfReplicas */
+function parseStorageClassNumberOfReplicas(sc: any): number | null {
+  const params = sc?.parameters ?? {};
+  const raw = params.numberOfReplicas ?? params.NumberOfReplicas;
   const n = parseInt(String(raw ?? ''), 10);
   return Number.isFinite(n) && n >= 1 ? n : null;
 }
@@ -46,18 +86,43 @@ export async function harvesterMonitoringStorageNodesHandler(req: Request, res: 
     const origin = normalizeOrigin(cloud.endpoint || '');
     const url = `${origin}/v1/harvester/longhorn.io.nodes?${PAGESIZE}&${EXCLUDE}`;
     const data = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
-    let defaultLonghornReplicaCount = 3;
+
+    let defaultStorageClassReplicaCount: number | null = null;
+    let defaultStorageClassName: string | null = null;
+    let defaultStorageClassProvisioner: string | null = null;
+    let distributedStorageKind: 'longhorn' | 'ceph' | 'unknown' = 'unknown';
     try {
-      const sUrl = `${origin}/v1/harvester/longhorn.io.settings?${PAGESIZE}&${EXCLUDE}`;
-      const sData = await getJsonOnce(sUrl, cloud.secretKey || '', insecure, true);
-      const parsed = parseLonghornDefaultReplicaCount(sData);
-      if (parsed != null) defaultLonghornReplicaCount = parsed;
+      const scUrl = `${origin}/v1/harvester/storage.k8s.io.storageclasses?${PAGESIZE}&${EXCLUDE}`;
+      const scData = await getJsonOnce(scUrl, cloud.secretKey || '', insecure, true);
+      const defSc = pickDefaultStorageClassRecord(normalizeSteveCollection(scData));
+      if (defSc) {
+        defaultStorageClassProvisioner =
+          String(defSc?.provisioner ?? defSc?.spec?.provisioner ?? '').trim() || null;
+        distributedStorageKind = classifyDistributedStorageKind(defSc);
+        const nm = storageClassRecordName(defSc);
+        if (distributedStorageKind === 'longhorn') {
+          defaultStorageClassName = nm || null;
+          defaultStorageClassReplicaCount = parseStorageClassNumberOfReplicas(defSc);
+        } else if (distributedStorageKind === 'ceph') {
+          defaultStorageClassName = nm || null;
+        }
+      }
     } catch {
-      /* 忽略：无权限或集群未暴露该 Steve 资源时沿用默认 3 */
+      /* 权限或 Steve 路径不可用：不下发臆测副本数 */
     }
+
     const out =
       data && typeof data === 'object' && !Array.isArray(data)
-        ? { ...data, _tower: { ...(data as any)._tower, defaultLonghornReplicaCount } }
+        ? {
+            ...data,
+            _tower: {
+              ...(data as any)._tower,
+              defaultStorageClassReplicaCount,
+              defaultStorageClassName,
+              defaultStorageClassProvisioner,
+              distributedStorageKind,
+            },
+          }
         : data;
     res.json(out);
   } catch (e: any) {

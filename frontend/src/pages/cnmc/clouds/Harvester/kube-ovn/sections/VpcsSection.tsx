@@ -19,7 +19,6 @@ import {
   isVpcOvnSubnetTableRow,
   TOWER_ALIAS_ANNOTATION,
 } from '../lib/kubeOvnSubnetConstants';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
 import { validateIpv4CidrNotation, validateIpv4HostAddress } from '../lib/ipv4CidrValidate';
@@ -35,7 +34,7 @@ interface KubeOvnVpcsSectionProps {
   subnets?: any[];
   namespaces?: any[];
   loading: boolean;
-  /** 第三项 opts.vpcsAll 为 true 时请求 GET /vpcs?all=true（运维模式开关） */
+  /** 第三项 opts.vpcsAll 为 true 时请求 GET /vpcs?all=true（含内置/无注解 VPC） */
   onRefresh?: (
     force?: boolean,
     silent?: boolean,
@@ -127,9 +126,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   bordered = true,
   showYaml = true,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const effectiveShowYaml = showYaml !== false && hasOpsView;
-  /** 具备运维视图权限时：是否请求 all=true（含内置/无注解 VPC） */
+  const effectiveShowYaml = showYaml !== false;
+  /** 是否请求 all=true（含内置/无注解 VPC）；与 network.ovn.vpc 授权无关 */
   const [vpcsQueryAll, setVpcsQueryAll] = useState(false);
 
   useEffect(() => {
@@ -558,7 +556,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       render: (_: any, r: any) => <Tag>{SafeRead.subnetCidr(r)}</Tag>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       key: 'namespace',
       render: (_: any, r: any) => cellEllipsis(SafeRead.subnetNamespace(r)),
     },
@@ -672,7 +670,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       render: (_: any, r: any) => <Tag>{SafeRead.vpcCidr(r)}</Tag>,
     },
     {
-      title: '命名空间',
+      title: '项目',
       key: 'namespace',
       render: (_: any, r: any) => {
         const ns = SafeRead.vpcNamespaces(r);
@@ -766,7 +764,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           />
           <Select
             className="toolbar-filter-sm"
-            placeholder="选择命名空间"
+            placeholder="选择项目"
             allowClear
             showSearch
             value={namespaceFilter || undefined}
@@ -887,12 +885,12 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           
           <Form.Item
             name="namespaces"
-            label="绑定命名空间"
-            tooltip="VPC 将接管该命名空间下的网络流量，实现租户隔离。通常一个 VPC 对应一个命名空间。"
-            rules={[{ required: true, message: '请选择命名空间' }]}
+            label="绑定项目"
+            tooltip="VPC 将接管该项目下的网络流量，实现租户隔离。通常一个 VPC 对应一个项目。"
+            rules={[{ required: true, message: '请选择项目' }]}
           >
             <Select 
-              placeholder="选择命名空间" 
+              placeholder="选择项目" 
               style={{ width: '100%' }}
               loading={nsLoading}
               showSearch

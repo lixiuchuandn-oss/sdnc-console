@@ -17,7 +17,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions, Select } from 'antd';
+import { Button, Dropdown, Input, Modal, Select, Table, Tabs, Tag, Descriptions } from 'antd';
 import { ReloadOutlined, SearchOutlined, PieChartTwoTone  } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -26,7 +26,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { fetchHarvesterStorageClassDetail } from '../../../../../../services/harvesterApi';
 import { isSystemStorageClass } from '../../../../../../utils/harvesterUtils';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /** 从 StorageClass.parameters 推断后端块池（Rook/Ceph RBD 常用 pool；部分驱动用 blockPool / storagePool） */
 function storageClassBackendPoolLabel(r: any): string {
@@ -67,9 +66,13 @@ type Props = {
  * - 不直接请求后端，只消费上层注入的数据和回调
  * - 工具栏和表格区域均遵循 PageDetailSection / global-new.css 的 UI 规范
  */
-const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh, isTenant }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
+const StorageClassesSection: React.FC<Props> = ({
+  cloudId,
+  storageClasses,
+  loading,
+  onRefresh,
+  isTenant,
+}) => {
   /**
    * 关键字搜索（受控 Input）
    * - 用户在顶部输入框中输入的文本
@@ -130,7 +133,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
   const allColumns = useMemo(() => [
     { 
       title: '名称', 
-      key: 'name', 
+      key: 'name',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const name = r?.metadata?.name || r?.name || '-';
         const isDefault = String(r?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] || '').toLowerCase() === 'true';
@@ -198,17 +202,18 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
     },
     { 
       title: '操作', 
-      key: 'actions', 
+      key: 'actions',
+      fixed: 'right' as const,
       align: 'left' as const,
       render: (_: any, r: any) => {
           const items: any[] = [];
-          if (!isTenant && !isStandardView) {
+          if (!isTenant) {
             items.push({ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') });
           }
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [isTenant, isStandardView]);
+  ], [isTenant]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_storageclasses_table');

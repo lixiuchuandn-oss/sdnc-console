@@ -166,9 +166,6 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
       confirmLoading={loading}
       width={600}
       okText="创建"
-      centered
-      destroyOnHidden
-      styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
       <Form form={form} layout="vertical" onFinish={handleFinish}>
       <Form.Item
@@ -184,11 +181,11 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
 
       <Form.Item
         name="namespace"
-        label="命名空间"
-        rules={[{ required: true, message: '请选择命名空间' }]}
+        label="项目"
+        rules={[{ required: true, message: '请选择项目' }]}
       >
         <Select 
-          placeholder="请选择命名空间" 
+          placeholder="请选择项目" 
           showSearch 
           loading={nsLoading}
           optionFilterProp="children"

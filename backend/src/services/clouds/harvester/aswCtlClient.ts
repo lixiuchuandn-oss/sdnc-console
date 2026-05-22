@@ -15,6 +15,14 @@ export type AswCtlFetchResult =
 /** 设为1 时 API Key 仅 trim，不做引号/BOM/整行 env 清洗（排查「清洗后与 ASW_CTL_API_KEY 不一致」） */
 const RAW_API_KEY = process.env.ASW_CTL_RAW_API_KEY === '1';
 
+/** 阶段内置 HSM 北向密钥；后期可改为配置中心 / 轮换方案 */
+export const DEFAULT_HMS_API_KEY = 'testkey';
+
+/** 解析用户/资源池配置的密钥，未配置时使用 {@link DEFAULT_HMS_API_KEY} */
+export function resolveAswCtlApiKeySecret(raw: unknown): string {
+  return normalizeAswCtlApiKeySecret(raw) || DEFAULT_HMS_API_KEY;
+}
+
 /** 从 ASW-CTL JSON 错误体中取出可读字符串（避免 error 为对象时变成 [object Object]） */
 function formatAswCtlErrorBody(data: unknown): string {
   if (data == null) return '';

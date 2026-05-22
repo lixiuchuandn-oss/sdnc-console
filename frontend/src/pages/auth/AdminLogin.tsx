@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
 import { Form, Input, Button, Card, message } from 'antd';
+import {
+  getLockedUntilFromLoginError,
+  getLoginErrorHint,
+  getRemainSecFromLockedUntil,
+} from '../../utils/loginLockMessage';
+import { LoginLockAlert } from './LoginLockAlert';
+import { LoginErrorAlert } from './LoginErrorAlert';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +18,9 @@ import './Login.css';
 
 const AdminLogin: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [lockUntil, setLockUntil] = useState<number | null>(null);
+  const [loginErrorHint, setLoginErrorHint] = useState<string | null>(null);
+  const isLoginLocked = lockUntil != null && getRemainSecFromLockedUntil(lockUntil) > 0;
   const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -32,6 +42,8 @@ const AdminLogin: React.FC = () => {
     setLoading(true);
     try {
       const loggedInUser = await login(values.username, values.password);
+      setLockUntil(null);
+      setLoginErrorHint(null);
       message.success('登录成功');
       const role = String((loggedInUser as any)?.role || '').toLowerCase();
 
@@ -44,9 +56,14 @@ const AdminLogin: React.FC = () => {
       const home = await fetchAdminDefaultHomeFromApi();
       navigate(String(home?.defaultPath || '/admin/coming-soon').trim() || '/admin/coming-soon');
     } catch (error) {
-      const msg =
-        error instanceof Error && error.message.trim() ? error.message.trim() : '登录失败';
-      message.error(msg);
+      const until = getLockedUntilFromLoginError(error);
+      if (until) {
+        setLockUntil(until);
+        setLoginErrorHint(null);
+      } else {
+        setLockUntil(null);
+        setLoginErrorHint(getLoginErrorHint(error) ?? '登录失败');
+      }
     } finally {
       setLoading(false);
     }
@@ -75,6 +92,8 @@ const AdminLogin: React.FC = () => {
               autoComplete="off"
               size="large"
             >
+              <LoginLockAlert lockedUntil={lockUntil} onExpired={() => setLockUntil(null)} />
+              <LoginErrorAlert message={!isLoginLocked ? loginErrorHint : null} />
               <Form.Item name="username" rules={[{ required: true, message: '请输入用户名!' }]}>
                 <Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username" />
               </Form.Item>
@@ -86,6 +105,7 @@ const AdminLogin: React.FC = () => {
                   type="primary"
                   htmlType="submit"
                   loading={loading}
+                  disabled={isLoginLocked}
                   block
                   size="large"
                   style={

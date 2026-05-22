@@ -500,6 +500,42 @@ function formatIopsFromRate(rate: number | null): string {
   return `${rate < 10 ? rate.toFixed(1) : Math.round(rate)} /s`;
 }
 
+/** mgr Dashboard 池对象 → 数据保护展示（集群实际 size/type，优先于 Rook CR） */
+export function cephDashboardPoolProtectionFields(
+  pool: unknown,
+): Pick<CephPoolTableRow, 'dataProtection' | 'poolType' | 'typeDetail'> | null {
+  if (!pool || typeof pool !== 'object') return null;
+  const p = pool as Record<string, unknown>;
+  const type = String(p.type ?? '').toLowerCase();
+  const opts = p.options != null && typeof p.options === 'object' && !Array.isArray(p.options)
+    ? (p.options as Record<string, unknown>)
+    : null;
+  if (type.includes('erasure')) {
+    const prof =
+      typeof p.erasure_code_profile === 'string' && p.erasure_code_profile.trim()
+        ? p.erasure_code_profile.trim()
+        : '';
+    const dataProtection = prof ? `纠删 · ${prof}` : '纠删码';
+    return { dataProtection, poolType: '纠删码', typeDetail: prof || '—' };
+  }
+  const sizeRaw = p.size ?? opts?.size;
+  if (sizeRaw != null && sizeRaw !== '') {
+    const n = Number(sizeRaw);
+    if (Number.isFinite(n) && n >= 1) {
+      const sz = String(Math.floor(n));
+      return { dataProtection: `replica · x${sz}`, poolType: '副本', typeDetail: sz };
+    }
+    const sz = String(sizeRaw).trim();
+    if (sz) {
+      return { dataProtection: `replica · x${sz}`, poolType: '副本', typeDetail: sz };
+    }
+  }
+  if (type.includes('replic')) {
+    return { dataProtection: 'replica', poolType: '副本', typeDetail: '—' };
+  }
+  return null;
+}
+
 export function cephDashboardPoolToTableRow(pool: any, index: number): CephPoolTableRow {
   const name =
     pool?.pool_name != null
@@ -507,15 +543,8 @@ export function cephDashboardPoolToTableRow(pool: any, index: number): CephPoolT
       : pool?.name != null
         ? String(pool.name)
         : `pool-${index}`;
-  const type = String(pool?.type || '').toLowerCase();
-  const size = pool?.size;
-  let dataProtection = '—';
-  if (type.includes('erasure')) {
-    const prof = pool?.erasure_code_profile;
-    dataProtection = prof ? `纠删 · ${prof}` : '纠删码';
-  } else {
-    dataProtection = size != null && size !== '' ? `replica · x${size}` : 'replica';
-  }
+  const protection = cephDashboardPoolProtectionFields(pool);
+  const dataProtection = protection?.dataProtection ?? '—';
   const appsRaw = pool?.application_metadata;
   let applications = '—';
   if (Array.isArray(appsRaw) && appsRaw.length) {
@@ -590,19 +619,21 @@ export function cephDashboardPoolToTableRow(pool: any, index: number): CephPoolT
 }
 
 /**
- * 云存储列表以 Rook CR 为主；读写性能、使用率、PG 摘要来自 mgr Dashboard `api/pool?stats=true`（按池名匹配）。
- * 无匹配或 Dashboard 未返回 stats/pg_status 时保留 Rook 行原有占位。
+ * 云存储列表以 Rook CR 为主；mgr Dashboard `api/pool?stats=true` 按池名合并：
+ * - 数据保护（size/type）以 Dashboard 为准（反映集群实际池配置，可与 CR 不同步）；
+ * - 读写性能、使用率、PG 摘要来自 stats/pg_status。
  */
 export function enrichRookPoolRowWithDashboardStats(row: CephPoolTableRow, dashPool: unknown): CephPoolTableRow {
   if (row.source !== 'rook') return row;
   if (!dashPool || typeof dashPool !== 'object') return row;
   const pool = dashPool as Record<string, unknown>;
+  const protection = cephDashboardPoolProtectionFields(pool);
   const stats = pool.stats;
   const hasStats = stats != null && typeof stats === 'object';
   const dashPg = formatDashboardPgStatus(pool.pg_status);
   const hasPg = dashPg !== '—';
 
-  if (!hasStats && !hasPg) return row;
+  if (!hasStats && !hasPg && !protection) return row;
 
   let usagePct: number | null = row.usagePct;
   let readIops = row.readIops;
@@ -655,6 +686,7 @@ export function enrichRookPoolRowWithDashboardStats(row: CephPoolTableRow, dashP
 
   return {
     ...row,
+    ...(protection ?? {}),
     pgStatus: hasPg ? dashPg : row.pgStatus,
     usagePct,
     readIops,

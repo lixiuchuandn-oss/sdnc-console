@@ -1,7 +1,7 @@
 // 页面门控分三层：
 // 1) License/Feature：能力是否启用
 // 2) RBAC：用户是否有读写权限
-// 3) 运维向列表列/入口：由 clouds.cloudmap.ops-view:write（与各 Section 内 hook 一致）；Tab 显隐仍由授权 + RBAC 决定
+// 3) 列表扩展列（项目/租户等）：管理员默认展示，可用列设置隐藏；Tab 显隐由授权 + 各叶 poolPageAction 决定
 //
 // 资源状态与加载编排见 `hooks/useCloudmapPoolDetailEngine.ts`（便于后续按路由拆 Context）。
 

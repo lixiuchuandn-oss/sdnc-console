@@ -80,20 +80,55 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
+/** 顶栏渐变仅此两项本地会话回放（同源上一次 `/api/public/system-ui` 结果），避免刷新首帧透明 */
+const SESSION_HEADER_GRADIENT_KEY = 'tower.systemUi.headerGradient.v1';
+
+function readSessionHeaderGradient(): {
+  headerColor: string;
+  headerColorEnd: string;
+} | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(SESSION_HEADER_GRADIENT_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw) as { start?: unknown; end?: unknown };
+    const start = typeof o.start === 'string' ? o.start.trim() : '';
+    const end = typeof o.end === 'string' ? o.end.trim() : '';
+    if (start.startsWith('#') && end.startsWith('#')) {
+      return { headerColor: start, headerColorEnd: end };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function persistSessionHeaderGradient(headerColor: string, headerColorEnd: string) {
+  try {
+    sessionStorage.setItem(
+      SESSION_HEADER_GRADIENT_KEY,
+      JSON.stringify({ start: headerColor, end: headerColorEnd }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token } = useAuth();
 
-  // 初始化：UI 配置（headerTitle, headerIcon, colors 等）不再从 localStorage 读取，只从后端读取
-  // 只有 theme 和 language 保留在 localStorage（用户个人偏好）
+  const headerGradientMem = typeof window !== 'undefined' ? readSessionHeaderGradient() : null;
+
+  // 初始化：UI 配置（headerTitle, headerIcon, colors 等）从后端读取；顶栏渐变另见会话缓存以免首帧闪透明
+  // theme / language 保留在 localStorage（用户个人偏好）
   const [settings, setSettings] = useState<Settings>({
     theme: (localStorage.getItem('app_theme') as ThemeType) || 'light',
     language: (localStorage.getItem('app_lang') as LanguageType) || 'zh',
-    // 界面相关项仅从后端 system-settings 加载，不在此硬编码默认值
     headerIcon: undefined,
     headerTitle: '',
     browserTitle: '',
-    headerColor: '',
-    headerColorEnd: '',
+    headerColor: headerGradientMem?.headerColor ?? '',
+    headerColorEnd: headerGradientMem?.headerColorEnd ?? '',
     searchBackgroundColor: '',
     primaryColor: '',
     loginTitle: '',
@@ -197,6 +232,14 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const header = String(settings.headerTitle ?? '').trim();
     document.title = tab || header || 'Compute Tower';
   }, [settings.browserTitle, settings.headerTitle]);
+
+  useEffect(() => {
+    const start = String(settings.headerColor ?? '').trim();
+    const end = String(settings.headerColorEnd ?? '').trim();
+    if (start.startsWith('#') && end.startsWith('#')) {
+      persistSessionHeaderGradient(start, end);
+    }
+  }, [settings.headerColor, settings.headerColorEnd]);
 
   const updateSetting = async (key: keyof Settings, value: any) => {
     // Map setting keys to backend keys

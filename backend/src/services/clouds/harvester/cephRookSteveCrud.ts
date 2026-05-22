@@ -24,6 +24,7 @@ const CEPH_CLUSTERS = ['cephclusters.ceph.rook.io', 'ceph.rook.io.cephclusters']
 const CEPH_BLOCK_POOLS = ['cephblockpools.ceph.rook.io', 'ceph.rook.io.cephblockpools'] as const;
 const CEPH_FILESYSTEMS = ['cephfilesystems.ceph.rook.io', 'ceph.rook.io.cephfilesystems'] as const;
 const CEPH_OBJECT_STORES = ['cephobjectstores.ceph.rook.io', 'ceph.rook.io.cephobjectstores'] as const;
+const CEPH_OBJECT_STORE_USERS = ['cephobjectstoreusers.ceph.rook.io', 'ceph.rook.io.cephobjectstoreusers'] as const;
 const CEPH_RADOS_NAMESPACES = [
   'cephblockpoolradosnamespaces.ceph.rook.io',
   'ceph.rook.io.cephblockpoolradosnamespaces',
@@ -35,6 +36,7 @@ export const CEPH_ROOK_STEVE = {
   blockPools: CEPH_BLOCK_POOLS,
   filesystems: CEPH_FILESYSTEMS,
   objectStores: CEPH_OBJECT_STORES,
+  objectStoreUsers: CEPH_OBJECT_STORE_USERS,
   radosNamespaces: CEPH_RADOS_NAMESPACES,
   rbdMirrors: CEPH_RBD_MIRRORS,
 } as const;

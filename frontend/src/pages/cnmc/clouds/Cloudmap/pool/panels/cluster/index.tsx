@@ -1,16 +1,16 @@
 import React, { useEffect } from 'react';
 import { Empty, message } from 'antd';
 import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
-import ServicesSection from '../../../../Harvester/cluster/sections/ServicesSection';
-import ClusterNetworksSection from '../../../../Harvester/cluster/sections/ClusterNetworksSection';
+import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
 import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
 import LoadBalancersSection from '../../../../Harvester/nad/sections/LoadBalancersSection';
 import IPPoolsSection from '../../../../Harvester/nad/sections/IPPoolsSection';
 import ProviderNetworksSection from '../../../../Harvester/kube-ovn/sections/ProviderNetworksSection';
 import UnderlaySubnetsSection from '../../../../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 import VlansSection from '../../../../Harvester/kube-ovn/sections/VlansSection';
-import NamespacesTab from '../../../../Harvester/cluster/NamespacesTab';
+import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
 import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
+import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
 import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
@@ -18,7 +18,6 @@ import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/Phys
 import { fetchKubeOvnSubnets } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isValidCloudmapPoolInnerSeg } from '../../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
-import { canReadContainerTab } from '../../../../../../../utils/permissionUtils';
 import '../../styles/layout.css';
 
 type ClusterSectionVisibleCtx = {
@@ -64,16 +63,17 @@ function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): bo
       );
     case 'clusterNetworks':
       return checkPerm('clouds.cluster-networks:read');
-    case 'cluster_services':
+    case 'storage_pools':
       return (
-        checkPerm('clouds.cluster-services:read') ||
-        checkPerm('clouds.services:read') ||
-        canReadContainerTab(checkPerm, 'services') ||
+        checkPerm('clouds.disks:read') ||
+        checkPerm('clouds.cluster-nodes:read') ||
         checkPerm('clouds:read')
       );
     case 'storage_classes':
       return (
-        checkPerm('clouds.storage-classes:read') || checkPerm('clouds.ecs:read')
+        checkPerm('clouds.storage-classes:read') ||
+        checkPerm('clouds.ecs:read') ||
+        checkPerm('clouds:read')
       );
     case 'nads':
       return canReadNetworkScope;
@@ -82,6 +82,8 @@ function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): bo
     case 'ippools':
       return checkPerm('clouds.nads:read');
     case 'cluster_pci':
+      return checkPerm('clouds.pci-devices:read');
+    case 'cluster_sriov':
       return checkPerm('clouds.pci-devices:read');
     default:
       return false;
@@ -132,12 +134,6 @@ export type CloudmapClusterTabsProps = {
   nodesLoading: boolean;
   refreshNodes: (force?: boolean) => void | Promise<void>;
   rawNodes: any;
-  harvesterServices: any[];
-  rawServices: any;
-  harvesterPods: any[];
-  namespacesOptions: string[];
-  nsFilter: string;
-  setNsFilter: (v: string) => void;
   harvesterClusterNetworks: any[];
   rawClusterNetworks: any;
   harvesterNads: any[];
@@ -156,7 +152,6 @@ export type CloudmapClusterTabsProps = {
   setRawSubnets: (v: any) => void;
   refreshVlans: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNamespacesForManagement: any[];
-  rawNamespaces: any;
   harvesterStorageClasses: any[];
   harvesterGpuResources: any[];
   rawGpu: any;
@@ -164,7 +159,6 @@ export type CloudmapClusterTabsProps = {
   rawUsbDevices: any;
   harvesterPciDevices: any[];
   rawPciDevices: any;
-  aswSwitchSummary: any | null;
   cloudConfig: any | null;
   onReloadCloudMeta: () => Promise<void>;
   resourceLoading: Record<string, boolean>;
@@ -186,12 +180,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
     nodesLoading,
     refreshNodes,
     rawNodes,
-    harvesterServices,
-    rawServices,
-    harvesterPods,
-    namespacesOptions,
-    nsFilter,
-    setNsFilter,
     harvesterClusterNetworks,
     rawClusterNetworks,
     harvesterNads,
@@ -210,7 +198,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
     setRawSubnets,
     refreshVlans,
     harvesterNamespacesForManagement,
-    rawNamespaces,
     harvesterStorageClasses,
     harvesterGpuResources,
     rawGpu,
@@ -218,7 +205,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
     rawUsbDevices,
     harvesterPciDevices,
     rawPciDevices,
-    aswSwitchSummary,
     cloudConfig,
     onReloadCloudMeta,
     resourceLoading,
@@ -250,6 +236,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               loading={resourceLoading.nodes || nodesLoading}
               onRefresh={refreshNodes}
               cloudId={cloudId}
+              isTenant={isTenant}
             />
             <DebugJSON data={rawNodes} show={showLog} />
           </>
@@ -257,16 +244,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
       case 'cluster_physical_switches':
         return (
           <>
-            <PhysicalSwitchesSection
-              cloudId={cloudId}
-              cloudConfig={cloudConfig}
-              checkPerm={checkPerm}
-              onReloadCloudMeta={onReloadCloudMeta}
-              summary={aswSwitchSummary}
-              loading={!!resourceLoading.aswSwitches}
-              onRefresh={() => void loadTabResource('cluster_physical_switches', true)}
-            />
-            <DebugJSON data={aswSwitchSummary} show={showLog} />
+            <PhysicalSwitchesSection cloudId={cloudId} checkPerm={checkPerm} />
           </>
         );
       case 'kubeovn_public_networks':
@@ -286,7 +264,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
         );
       case 'namespaces':
         return (
-          <NamespacesTab
+          <NamespacesSection
             cloudId={cloudId}
             namespaces={harvesterNamespacesForManagement}
             loading={resourceLoading.namespaces}
@@ -296,8 +274,6 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
                 message.success('刷新成功');
               }
             }}
-            showLog={showLog}
-            raw={rawNamespaces}
             isTenant={isTenant}
           />
         );
@@ -344,6 +320,7 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             onRefresh={() => loadTabResource('gpu', true)}
             raw={rawGpu}
             showLog={showLog}
+            isTenant={isTenant}
           />
         );
       case 'cluster_usb':
@@ -356,12 +333,13 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             raw={rawUsbDevices}
             showLog={showLog}
             bordered={false}
+            isTenant={isTenant}
           />
         );
       case 'clusterNetworks':
         return (
           <>
-            <ClusterNetworksSection
+            <NetworksSection
               cloudId={cloudId}
               clusterNetworks={harvesterClusterNetworks}
               loading={resourceLoading.clusterNetworks}
@@ -371,22 +349,8 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
             <DebugJSON data={rawClusterNetworks} show={showLog} />
           </>
         );
-      case 'cluster_services':
-        return (
-          <>
-            <ServicesSection
-              cloudId={cloudId}
-              services={harvesterServices}
-              loading={resourceLoading.services}
-              onRefresh={() => loadTabResource('cluster_services', true)}
-              namespacesOptions={namespacesOptions}
-              nsValue={nsFilter || undefined}
-              onNsChange={(v) => setNsFilter(v || '')}
-              pods={harvesterPods}
-            />
-            <DebugJSON data={rawServices} show={showLog} />
-          </>
-        );
+      case 'storage_pools':
+        return <CephPoolSection cloudId={cloudId} applicationsScope="cloud" />;
       case 'storage_classes':
         return (
           <>
@@ -446,6 +410,24 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
               raw={rawPciDevices}
               showLog={showLog}
               bordered={false}
+              isTenant={isTenant}
+            />
+            <DebugJSON data={rawPciDevices} show={showLog} />
+          </>
+        );
+      case 'cluster_sriov':
+        return (
+          <>
+            <PciDevicesSection
+              cloudId={cloudId}
+              devices={harvesterPciDevices}
+              loading={resourceLoading.pciDevices}
+              onRefresh={() => loadTabResource('cluster_sriov', true)}
+              raw={rawPciDevices}
+              showLog={showLog}
+              bordered={false}
+              variant="sriov_vf"
+              isTenant={isTenant}
             />
             <DebugJSON data={rawPciDevices} show={showLog} />
           </>

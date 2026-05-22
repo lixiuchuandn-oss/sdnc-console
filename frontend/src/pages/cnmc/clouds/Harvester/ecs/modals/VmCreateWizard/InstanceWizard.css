@@ -31,37 +31,30 @@
 }
 .wizard-disk-card.active { border-color: #91caff; }
 .wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
-/* 网络步骤：主网卡 与 本列表、辅助网卡之间、辅助网卡与「添加网卡」按钮 统一 24px（flex gap 显式控制，不靠 margin 折叠） */
+/* 网络步骤：辅助网卡列表纵向排列，项间与按钮区不靠 flex gap / 顶部分隔线（与 wizard-disks-list 一致） */
 .wizard-net-ifaces-list {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-top: 24px;
+  gap: 0;
 }
 .wizard-secondary-nic-wrap {
   flex-shrink: 0;
 }
-/* 添加辅助网卡按钮区：与上方网卡配置块用横线分隔 */
+/* 添加辅助网卡按钮区 */
 .wizard-net-ifaces-list .wizard-net-ifaces-actions {
-  border-top: 1px solid #eaeaea;
-  padding-top: 16px;
   margin-top: 0;
 }
-/* 数据盘列表：与 wizard-net-ifaces-list 同款纵向节奏 */
+/* 数据盘列表：纵向排列，项间不再用 flex gap（间距由各块内部 margin 控制） */
 .wizard-disks-list {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-top: 24px;
+  gap: 0;
 }
-/* 添加数据盘按钮区 */
+/* 添加数据盘按钮区（与上方列表不靠横线分隔） */
 .wizard-disks-list .wizard-disks-actions {
-  border-top: 1px solid #eaeaea;
-  padding-top: 16px;
   margin-top: 0;
 }
 .wizard-secondary-nic-block {
-  padding: 2px 0 6px;
   border: none;
   background: transparent;
 }

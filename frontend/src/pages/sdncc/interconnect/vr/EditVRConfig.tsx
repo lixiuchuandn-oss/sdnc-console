@@ -5,7 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 
 import { getVRConfig, saveVRConfig } from '../../../../services/virtualRouterApi';
-import LinedTextArea from '../../../../components/LinedTextArea';
+import LinedTextArea from './LinedTextArea';
 
 import { getVR2ConfigRaw } from '../../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../../services/api';

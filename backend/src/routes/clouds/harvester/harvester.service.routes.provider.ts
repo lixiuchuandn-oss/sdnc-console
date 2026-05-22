@@ -70,6 +70,11 @@ import {
   harvesterCephRookObjectStoreGetHandler,
   harvesterCephRookObjectStorePatchHandler,
   harvesterCephRookObjectStoreReplaceHandler,
+  harvesterCephRookObjectStoreUserCreateHandler,
+  harvesterCephRookObjectStoreUserDeleteHandler,
+  harvesterCephRookObjectStoreUserGetHandler,
+  harvesterCephRookObjectStoreUserPatchHandler,
+  harvesterCephRookObjectStoreUserReplaceHandler,
   harvesterCephRookRadosNamespaceCreateHandler,
   harvesterCephRookRadosNamespaceDeleteHandler,
   harvesterCephRookRadosNamespaceGetHandler,
@@ -77,6 +82,17 @@ import {
   harvesterCephRookRadosNamespaceReplaceHandler,
   harvesterCephRookRbdMirrorGetHandler,
 } from './handlers/ceph-rook-crud.handlers';
+import {
+  harvesterCephRgwS3CreateBucketHandler,
+  harvesterCephRgwS3DeleteBucketHandler,
+  harvesterCephRgwS3ListBucketsHandler,
+  harvesterCephRgwS3ListObjectsHandler,
+  harvesterCephRgwS3RookSecretHandler,
+} from './handlers/ceph-rgw-s3.handlers';
+import {
+  harvesterCephRgwS3GatewayClientConfigGetHandler,
+  harvesterCephRgwS3GatewayClientConfigPutHandler,
+} from './handlers/ceph-rgw-s3-gateway-binding.handlers';
 import {
   harvesterMonitoringAlertsRulesHandler,
   harvesterMonitoringPrometheusRulesHandler,
@@ -681,6 +697,31 @@ export function registerHarvesterServiceRoutesProvider(
     createProviderRouter(cephAll(harvesterCephRookObjectStoreDeleteHandler)),
   );
   router.post(
+    '/:id/ceph/rook/object-store-users',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreUserCreateHandler)),
+  );
+  router.get(
+    '/:id/ceph/rook/object-store-users/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreUserGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/rook/object-store-users/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreUserReplaceHandler)),
+  );
+  router.patch(
+    '/:id/ceph/rook/object-store-users/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreUserPatchHandler)),
+  );
+  router.delete(
+    '/:id/ceph/rook/object-store-users/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRookObjectStoreUserDeleteHandler)),
+  );
+  router.post(
     '/:id/ceph/rook/blockpool-rados-namespaces',
     checkAdminPermission,
     createProviderRouter(cephAll(harvesterCephRookRadosNamespaceCreateHandler)),
@@ -709,6 +750,43 @@ export function registerHarvesterServiceRoutesProvider(
     '/:id/ceph/rook/rbd-mirrors/:namespace/:name',
     checkAdminPermission,
     createProviderRouter(cephAll(harvesterCephRookRbdMirrorGetHandler)),
+  );
+
+  // RGW / S3（Tower 代发；凭证在请求体 connection 中，不落库）
+  router.post(
+    '/:id/ceph/rgw/s3/list-buckets',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRgwS3ListBucketsHandler)),
+  );
+  router.post(
+    '/:id/ceph/rgw/s3/buckets',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRgwS3CreateBucketHandler)),
+  );
+  router.post(
+    '/:id/ceph/rgw/s3/delete-bucket',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRgwS3DeleteBucketHandler)),
+  );
+  router.post(
+    '/:id/ceph/rgw/s3/list-objects',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRgwS3ListObjectsHandler)),
+  );
+  router.get(
+    '/:id/ceph/rgw/s3/rook-secret/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRgwS3RookSecretHandler)),
+  );
+  router.get(
+    '/:id/ceph/rgw/s3/gateway-client-config',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRgwS3GatewayClientConfigGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/rgw/s3/gateway-client-config/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephRgwS3GatewayClientConfigPutHandler)),
   );
 
   // Monitoring Routes

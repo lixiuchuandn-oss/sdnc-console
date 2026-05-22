@@ -3,6 +3,7 @@ import {
   fetchCloudProviderOvnSnatRules,
   fetchCloudProviderOvnDnatRules,
   fetchKubeOvnSubnets,
+  fetchKubeOvnVpcs,
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
@@ -23,6 +24,8 @@ export async function tryLoadKubeOvnFlatTab(
     setKubeOvnFlatEips,
     setKubeOvnFlatSnatRules,
     setKubeOvnFlatDnatRules,
+    setKubeOvnVpcs,
+    setRawVpcs,
   } = deps;
 
   switch (key) {
@@ -45,6 +48,16 @@ export async function tryLoadKubeOvnFlatTab(
             const list: any[] = (json as any)?.data?.items || [];
             setKubeOvnSubnets(Array.isArray(list) ? list : []);
             setRawSubnets(json || null);
+          },
+          force,
+        );
+        loadResource(
+          'vpcs',
+          () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'underlay'),
+          (json) => {
+            const list: any[] = (json as any)?.data?.items || [];
+            setKubeOvnVpcs(Array.isArray(list) ? list : []);
+            setRawVpcs(json || null);
           },
           force,
         );

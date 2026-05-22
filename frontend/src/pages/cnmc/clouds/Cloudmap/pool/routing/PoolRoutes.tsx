@@ -4,7 +4,10 @@
  */
 import React from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
-import { cloudmapPoolBasePath } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import {
+  cloudmapDefaultPoolInnerSeg,
+  cloudmapPoolBasePath,
+} from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { Empty } from 'antd';
 import {
   CloudmapBackupsGroupTabs,
@@ -31,7 +34,7 @@ import {
   fetchKubeOvnSubnets,
 } from '../api';
 import { useCloudmapPoolDetail } from './PoolDetailContext';
-import CephStorageSection from '../../../Harvester/ceph/sections/CephStorageSection';
+import CloudmapStorageDashboardByBackend from '../panels/resource_hub/CloudmapStorageDashboardByBackend';
 
 const RESOURCE_SUB_SET = new Set<string>(CLOUDMAP_RESOURCE_SUB_KEYS);
 
@@ -44,23 +47,29 @@ const ResourceHubRoute: React.FC = () => {
   }
   switch (sub) {
     case 'overview':
-      return <ResourceOverviewMonitoringPanel cloudId={p.cloudId} />;
+      return p.canAccessResourceHubSub('overview') ? (
+        <ResourceOverviewMonitoringPanel cloudId={p.cloudId} />
+      ) : (
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
+      );
     case 'datacenter_topology':
-      return p.canViewClusterGroup ? (
+      return p.canAccessResourceHubSub('datacenter_topology') ? (
         <ResourceOverviewDatacenterTopologyPanel cloudId={p.cloudId} checkPerm={p.checkPerm} />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
     case 'network_topology':
-      return (
+      return p.canAccessResourceHubSub('network_topology') ? (
         <ResourceOverviewNetworkTopologyPanel
           cloudId={p.cloudId}
-          canReadNetworkScope={p.canReadNetworkScope}
+          canReadNetworkScope={p.canAccessResourceHubSub('network_topology')}
         />
+      ) : (
+        <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
     case 'ceph_storage_overview':
-      return p.canViewCephGroup ? (
-        <CephStorageSection cloudId={p.cloudId} />
+      return p.canAccessResourceHubSub('ceph_storage_overview') ? (
+        <CloudmapStorageDashboardByBackend cloudId={p.cloudId} />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
@@ -104,12 +113,6 @@ const ClusterRoute: React.FC = () => {
       nodesLoading={p.nodesLoading}
       refreshNodes={p.refreshNodes}
       rawNodes={p.rawNodes}
-      harvesterServices={p.harvesterServices}
-      rawServices={p.rawServices}
-      harvesterPods={p.harvesterPods}
-      namespacesOptions={p.namespacesOptions}
-      nsFilter={p.nsFilter}
-      setNsFilter={p.setNsFilter}
       harvesterClusterNetworks={p.harvesterClusterNetworks}
       rawClusterNetworks={p.rawClusterNetworks}
       harvesterNads={p.harvesterNads}
@@ -128,7 +131,6 @@ const ClusterRoute: React.FC = () => {
       setRawSubnets={p.setRawSubnets}
       refreshVlans={p.refreshVlans}
       harvesterNamespacesForManagement={p.harvesterNamespacesForManagement}
-      rawNamespaces={p.rawNamespaces}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterGpuResources={p.harvesterGpuResources}
       rawGpu={p.rawGpu}
@@ -136,7 +138,6 @@ const ClusterRoute: React.FC = () => {
       rawUsbDevices={p.rawUsbDevices}
       harvesterPciDevices={p.harvesterPciDevices}
       rawPciDevices={p.rawPciDevices}
-      aswSwitchSummary={p.aswSwitchSummary}
       cloudConfig={p.cloudConfig}
       onReloadCloudMeta={p.reloadCloudMeta}
       resourceLoading={p.resourceLoading}
@@ -370,15 +371,15 @@ const CephLegacyPoolRedirect: React.FC = () => {
   const { poolInnerSeg } = useParams<{ poolInnerSeg?: string }>();
   const inner = String(poolInnerSeg ?? '').trim();
   const base = cloudmapPoolBasePath(p.cloudId);
-  let to = `${base}/storage/storage_pools`;
+  let to = `${base}/cluster/storage_pools`;
   if (inner === 'object_storage') {
-    to = `${base}/object_storage/object_gateways`;
+    to = `${base}/object_storage/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('object_storage'))}`;
   } else if (inner === 'overview') {
     to = `${base}/resource_hub/ceph_storage_overview`;
   } else if (inner === 'storage_pools') {
-    to = `${base}/storage/storage_pools`;
+    to = `${base}/cluster/storage_pools`;
   } else if (inner === 'block_storage') {
-    to = `${base}/storage/storage_pools`;
+    to = `${base}/cluster/storage_pools`;
   }
   return <Navigate to={to} replace />;
 };
@@ -428,7 +429,19 @@ const StorageRoute: React.FC = () => {
 
 const StorageLonghornLegacyRedirect: React.FC = () => {
   const p = useCloudmapPoolDetail();
-  return <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/storage/storage_pools`} replace />;
+  return <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/cluster/storage_pools`} replace />;
+};
+
+const NavigateClusterStoragePools: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  return <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/cluster/storage_pools`} replace />;
+};
+
+const NavigateClusterStorageClasses: React.FC = () => {
+  const p = useCloudmapPoolDetail();
+  return (
+    <Navigate to={`${cloudmapPoolBasePath(p.cloudId)}/cluster/storage_classes`} replace />
+  );
 };
 
 const BackupsRoute: React.FC = () => {
@@ -490,7 +503,7 @@ const FlatNetworkRoute: React.FC = () => {
 
 const KubeOvnRoute: React.FC = () => {
   const p = useCloudmapPoolDetail();
-  if (!p.ovnVpcEnabled || !p.canViewKubeOvnGroup) {
+  if (!p.canViewKubeOvnGroup) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
@@ -498,6 +511,7 @@ const KubeOvnRoute: React.FC = () => {
       cloudId={p.cloudId}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
+      ovnVpcEnabled={p.ovnVpcEnabled}
       canReadVpcSubnets={p.canReadVpcSubnets}
       innerActiveKey={p.poolInnerActive('kube_ovn')}
       loadResource={p.loadResource}
@@ -557,9 +571,12 @@ const CloudmapPoolRoutes: React.FC = () => {
         <Route path="containers/:poolInnerSeg?" element={<ContainersRoute />} />
         <Route path="storage/ceph" element={<StorageCephLegacyRedirect />} />
         <Route path="storage/longhorn" element={<StorageLonghornLegacyRedirect />} />
+        <Route path="storage/storage_pools" element={<NavigateClusterStoragePools />} />
+        <Route path="storage/storage_classes" element={<NavigateClusterStorageClasses />} />
         <Route path="storage/:poolInnerSeg?" element={<StorageRoute />} />
         <Route path="ceph" element={<CephLegacyPoolRedirect />} />
         <Route path="ceph/:poolInnerSeg" element={<CephLegacyPoolRedirect />} />
+        <Route path="object_storage/storage_pools" element={<NavigateClusterStoragePools />} />
         <Route path="object_storage/:poolInnerSeg?" element={<ObjectStorageRoute />} />
         <Route path="backups/:poolInnerSeg?" element={<BackupsRoute />} />
         <Route path="flat_network/:poolInnerSeg?" element={<FlatNetworkRoute />} />

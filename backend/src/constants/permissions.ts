@@ -89,8 +89,6 @@ export const ALL_PERMISSIONS = [
   'clouds.vm-create-wizard:write',
   /** 云主机列表「快速创建」弹窗（SimpleVmCreate），与 clouds.ecs:write 解耦，便于单独门控 */
   'clouds.vm-quick-create:write',
-  /** Cloudmap 资源池：标准/运维视图切换（运维含命名空间、ACL、运维抽屉等） */
-  'clouds.cloudmap.ops-view:write',
   // 扁平网络（新命名）
   'clouds.eips.flat:read',
   'clouds.eips.flat:write',
@@ -198,9 +196,9 @@ export const ALL_PERMISSIONS = [
   'clouds.cluster-nodes:read',  // 物理节点列表 - 查看
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
 
-  // 集群基础服务
-  'clouds.cluster-services:read',  // 基础服务列表 - 查看
-  'clouds.cluster-services:write', // 基础服务管理 - 操作维护
+  // 集群服务（K8s Service）
+  'clouds.cluster-services:read',  // 集群服务列表 - 查看
+  'clouds.cluster-services:write', // 集群服务管理 - 操作维护
 
   // 集群网络
   'clouds.cluster-networks:read',  // 集群网络列表 - 查看
@@ -270,6 +268,22 @@ export const ALL_PERMISSIONS = [
   // PCI 设备
   'clouds.pci-devices:read',   // PCI 设备列表 - 查看
   'clouds.pci-devices:write',  // PCI 设备管理 - 分配/回收
+
+  // 监控 - 资源池内「资源总览 · 总览」大盘（节点/存储/Ceph 指标等；与告警 Tab 解耦）
+  'clouds.monitoring.overview:read',
+  'clouds.monitoring.overview:write',
+
+  // Rook/Ceph、对象存储、RGW/S3（/api/clouds/:id/ceph/* 与池内对象存储域）
+  'clouds.ceph:read',
+  'clouds.ceph:write',
+
+  // Cloudmap · 云数据库（PaaS VM；数据面仍走 clouds.ecs API，UI 与角色配置独立门控）
+  'clouds.paas-databases:read',
+  'clouds.paas-databases:write',
+
+  // Cloudmap · 虚拟网元（虚拟路由器；底层为带 VNE 标签的 VM，API 仍为 harvester/vms）
+  'clouds.vne:read',
+  'clouds.vne:write',
 
   // 监控 - 告警列表
   'clouds.alerts:read',        // 告警列表 - 查看
@@ -537,6 +551,10 @@ export const PERMISSION_GROUPS = {
       'clouds.gpus',
       'clouds.usb-devices',
       'clouds.pci-devices',
+      'clouds.monitoring.overview',
+      'clouds.ceph',
+      'clouds.paas-databases',
+      'clouds.vne',
       'clouds.alerts',
       'clouds.alert-rules',
       'clouds.alert-policies',
@@ -546,7 +564,7 @@ export const PERMISSION_GROUPS = {
       'clouds.log-receivers',
       'clouds.log-configs',
     ],
-    '资源控制台': ['clouds.console', 'clouds.cloudmap.ops-view'],
+    '资源控制台': ['clouds.console'],
   },
   // TENANTS 平台（多租户管理）
   TENANTS: {
@@ -671,7 +689,7 @@ export function getGroupByPermission(permission: string): string | null {
   
   // CNMC / 资源池
   if (prefix.startsWith('clouds')) {
-    if (prefix === 'clouds.console' || prefix.startsWith('clouds.cloudmap')) {
+    if (prefix === 'clouds.console') {
       return '资源控制台';
     }
     return '资源池管理';

@@ -12,7 +12,7 @@ import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import { fetchAlertsRules, fetchAllowedNamespaces, fetchPrometheusRulesGroups } from '../../../../../services/monitoringApi';
-import { parseAlerts, type ParsedAlert } from './utils/prometheusAlerts';
+import { parseAlerts, type ParsedAlert } from './lib/prometheusAlerts';
 import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 

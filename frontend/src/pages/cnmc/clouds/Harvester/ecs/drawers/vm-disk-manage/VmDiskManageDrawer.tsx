@@ -77,6 +77,9 @@ import {
   isVolumeKindWithoutExtraFields,
   isVolumeStructurallyLocked,
   mergeTemplateDisksAndVolumes,
+  blockDiskDeviceNamesInVmOrder,
+  blockDiskBusTypeChangedFromBaseline,
+  moveMergeTemplateBlockAtUiIndex,
   orderVolumesForDisks,
   removeMergeTemplateBlockAtUiIndex,
   rootBootDiskVolumeNameFromVm,
@@ -190,15 +193,28 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
   );
 
   const openRestartConfirmAfterDiskDetach = useCallback(
-    (namespace: string, name: string) => {
+    (
+      namespace: string,
+      name: string,
+      opts?: {
+        /** 保存瞬间的运行态；避免保存后父级刷新 `vmData` 导致误判为关机、从而不弹重启确认 */
+        runningOverride?: boolean;
+        content?: React.ReactNode;
+      },
+    ) => {
       if (!namespace || !name) return;
-      if (isVmStopped(vmData)) {
+      const running =
+        typeof opts?.runningOverride === "boolean"
+          ? opts.runningOverride
+          : !isVmStopped(vmData);
+      if (!running) {
         message.success("设置已保存，下次启动时将自动应用新配置");
         return;
       }
       Modal.confirm({
         zIndex: 3000,
         title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
+        content: opts?.content,
         okText: "立即重启",
         cancelText: "手动重启",
         onOk: async () => {
@@ -293,8 +309,29 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     setBaseline(snapshot(d, vols, ui, targets, aliasDraft));
   }, [vmData, diskDisplayRows]);
 
+  // --- 脏检查（须在「与 VM 同步」effect 之前，避免未保存的排序被 vmData/SSE 刷新覆盖） ---
+  const dirty = useMemo(
+    () =>
+      snapshot(
+        disks,
+        volumes,
+        diskUi,
+        pvcTargetGiByVolName,
+        pvcAliasDraftByClaimName,
+      ) !== baseline,
+    [
+      disks,
+      volumes,
+      diskUi,
+      pvcTargetGiByVolName,
+      pvcAliasDraftByClaimName,
+      baseline,
+    ],
+  );
+
   /** 勿在 syncFromVm 内清空：vmData 刷新会重跑 sync，否则解绑记录会在保存前被抹掉。 */
   const diskManagePrevOpenRef = useRef(false);
+  const diskManageSyncedVmKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (open && !diskManagePrevOpenRef.current) {
       removedDiskBusesRef.current = [];
@@ -303,13 +340,23 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     if (!open) {
       removedDiskBusesRef.current = [];
       removedHotplugVolumeNamesRef.current = [];
+      diskManageSyncedVmKeyRef.current = null;
+      diskManagePrevOpenRef.current = false;
+      return;
     }
-    diskManagePrevOpenRef.current = open;
-  }, [open]);
+    diskManagePrevOpenRef.current = true;
 
-  useEffect(() => {
-    if (open && vmData) syncFromVm();
-  }, [open, vmData, syncFromVm]);
+    if (!vmData) return;
+    const syncKey = `${vmNs}/${vmName}`;
+    const isFirstSyncThisOpen = diskManageSyncedVmKeyRef.current !== syncKey;
+    if (isFirstSyncThisOpen) {
+      diskManageSyncedVmKeyRef.current = syncKey;
+      syncFromVm();
+      return;
+    }
+    if (dirty) return;
+    syncFromVm();
+  }, [open, vmData, vmNs, vmName, syncFromVm, dirty]);
 
   useEffect(() => {
     if (!open) {
@@ -344,26 +391,6 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     });
   }, [open, toolbarQuickAction, hasEcsWrite, onToolbarQuickActionConsumed]);
 
-  // --- 脏检查 ---
-  const dirty = useMemo(
-    () =>
-      snapshot(
-        disks,
-        volumes,
-        diskUi,
-        pvcTargetGiByVolName,
-        pvcAliasDraftByClaimName,
-      ) !== baseline,
-    [
-      disks,
-      volumes,
-      diskUi,
-      pvcTargetGiByVolName,
-      pvcAliasDraftByClaimName,
-      baseline,
-    ],
-  );
-
   const displayFor = useCallback(
     (diskName: string) => {
       return diskDisplayRows?.find((x: any) => x?.name === diskName);
@@ -394,10 +421,20 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
     setDisks((prevD) => {
       if (j < 0 || j >= prevD.length) return prevD;
       const nextD = [...prevD];
-      const [r] = nextD.splice(idx, 1);
-      nextD.splice(j, 0, r);
+      const [movedDisk] = nextD.splice(idx, 1);
+      nextD.splice(j, 0, movedDisk);
       setVolumes((prevV) => orderVolumesForDisks(nextD, prevV));
-      setDiskUi(nextD.map((d) => initDiskSlice(d)));
+      setDiskUi((prevUi) => {
+        const nextUi = [...prevUi];
+        const [movedUi] = nextUi.splice(idx, 1);
+        nextUi.splice(j, 0, movedUi);
+        return nextUi;
+      });
+      mergeTemplateRef.current = moveMergeTemplateBlockAtUiIndex(
+        mergeTemplateRef.current,
+        idx,
+        j,
+      );
       return nextD;
     });
   };
@@ -514,6 +551,35 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       applySliceToDisk(d, diskUi[i] || initDiskSlice(d)),
     );
 
+    let baselineDiskNames: any[] | null = null;
+    try {
+      baselineDiskNames = JSON.parse(baseline)?.disks;
+    } catch {
+      baselineDiskNames = null;
+    }
+    let baselineOrderNames: string[] = [];
+    if (Array.isArray(baselineDiskNames)) {
+      baselineOrderNames = baselineDiskNames
+        .map((d: any) => String(d?.name || "").trim())
+        .filter(Boolean);
+    }
+    if (baselineOrderNames.length === 0) {
+      baselineOrderNames = blockDiskDeviceNamesInVmOrder(vmData);
+    }
+    const currentOrderNames = disks
+      .map((d) => String(d?.name || "").trim())
+      .filter(Boolean);
+    /** 块设备在列表中的顺序变化（含首盘变化）；与 merge 后 bootOrder=1 落在首块一致 */
+    const diskBootOrderChanged =
+      currentOrderNames.length > 0 &&
+      baselineOrderNames.join("\x1e") !== currentOrderNames.join("\x1e");
+
+    const diskBusTypeChanged = blockDiskBusTypeChangedFromBaseline(
+      baseline,
+      disks,
+      diskUi,
+    );
+
     const { nextDisks, nextVolumes } = mergeTemplateDisksAndVolumes(
       tpl,
       editedBlocks,
@@ -582,7 +648,28 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       }
       removedHotplugVolumeNamesRef.current = [];
       await patchHarvesterVm(cloudId, vmNs, vmName, patchPayload);
-      message.success("磁盘配置已保存");
+      const running = !isVmStopped(vmData);
+      if (running && diskBootOrderChanged && diskBusTypeChanged) {
+        message.success({
+          content:
+            "磁盘配置已保存。当前虚拟机正在运行，启动顺序与磁盘总线类型的调整须重启后方可生效。",
+          duration: 5,
+        });
+      } else if (running && diskBootOrderChanged) {
+        message.success({
+          content:
+            "磁盘配置已保存。当前虚拟机正在运行，启动顺序的调整须重启后方可生效。",
+          duration: 5,
+        });
+      } else if (running && diskBusTypeChanged) {
+        message.success({
+          content:
+            "磁盘配置已保存。当前虚拟机正在运行，磁盘总线类型的调整须重启后方可生效。",
+          duration: 5,
+        });
+      } else {
+        message.success("磁盘配置已保存");
+      }
       const busesRemovedThisSave = [...removedDiskBusesRef.current];
       removedDiskBusesRef.current = [];
       await onApplied();
@@ -613,11 +700,42 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
         busesRemovedThisSave.some(
           (b) => !diskDetachSkipsVmRestartPrompt(b),
         );
-      if (needsRestartAfterDetach) {
+      const needsRestartForBootOrder = running && diskBootOrderChanged;
+      const needsRestartForBus = running && diskBusTypeChanged;
+      if (needsRestartAfterDetach || needsRestartForBootOrder || needsRestartForBus) {
         const ns = vmNs;
         const name = vmName;
         setTimeout(() => {
-          openRestartConfirmAfterDiskDetach(ns, name);
+          let content: React.ReactNode;
+          if (
+            needsRestartAfterDetach &&
+            needsRestartForBootOrder &&
+            needsRestartForBus
+          ) {
+            content =
+              "本次保存包含磁盘解绑、启动顺序及块设备总线类型调整；须重启实例后生效。";
+          } else if (needsRestartAfterDetach && needsRestartForBootOrder) {
+            content =
+              "本次保存包含磁盘解绑与启动顺序调整，上述变更须重启实例后生效。";
+          } else if (needsRestartAfterDetach && needsRestartForBus) {
+            content =
+              "本次保存包含磁盘解绑与块设备总线类型调整，上述变更须重启实例后生效。";
+          } else if (needsRestartForBootOrder && needsRestartForBus) {
+            content =
+              "本次保存已调整磁盘启动顺序与块设备总线类型；运行中实例须重启后生效。";
+          } else if (needsRestartForBootOrder) {
+            content =
+              "本次保存已调整磁盘启动顺序；运行中实例须重启后，新顺序方可在引导时生效。";
+          } else if (needsRestartForBus) {
+            content =
+              "本次保存已调整磁盘总线类型；运行中实例须重启后，新总线配置方可生效。";
+          } else {
+            content = undefined;
+          }
+          openRestartConfirmAfterDiskDetach(ns, name, {
+            runningOverride: running,
+            content,
+          });
         }, 0);
       }
     } catch (e: any) {

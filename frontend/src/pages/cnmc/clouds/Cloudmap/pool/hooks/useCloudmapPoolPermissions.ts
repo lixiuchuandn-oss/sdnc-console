@@ -6,13 +6,21 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { useLicense } from '../../../../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import {
+  CLOUD_CEPH_READ,
   CLOUD_CONTAINERS_READ,
+  CLOUD_PAAS_DATABASES_READ,
   CLOUD_PROVIDER_NETWORKS_READ,
+  CLOUD_VNE_READ,
   CLOUD_SUBNETS_FLAT_READ,
   CLOUD_SUBNETS_PUBLIC_READ,
   CLOUD_SUBNETS_VPC_READ,
 } from '../../../../../../constants/cloudPermissions';
 import { ALL_CLOUD_CONTAINER_SUB_READ } from '../../../../../../utils/permissionUtils';
+import type { CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import {
+  canAccessResourceHubSub,
+  firstAccessibleResourceHubSub,
+} from '../lib/poolPageReadAccess';
 
 export type CloudmapPoolPermissions = {
   checkPerm: (act: string) => boolean;
@@ -23,6 +31,10 @@ export type CloudmapPoolPermissions = {
   canReadNetworkScope: boolean;
   canReadLoadBalancers: boolean;
   canViewMonitoringTab: boolean;
+  /** 资源总览 · 总览（与 poolPageAction `clouds.monitoring.overview:read` 对齐） */
+  canViewMonitoringOverview: boolean;
+  canAccessResourceHubSub: (sub: CloudmapResourceSubKey) => boolean;
+  resolveResourceHubSubAccess: (requested: CloudmapResourceSubKey) => CloudmapResourceSubKey | null;
   canViewLoggingTab: boolean;
   canViewClusterGroup: boolean;
   canViewComputeGroup: boolean;
@@ -87,12 +99,28 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds.alert-receivers:read') ||
     checkPerm('clouds.alert-secrets:read');
 
+  const canAccessResourceHubSubFn = useCallback(
+    (sub: CloudmapResourceSubKey) => canAccessResourceHubSub(checkPerm, sub),
+    [checkPerm],
+  );
+
+  const resolveResourceHubSubAccess = useCallback(
+    (requested: CloudmapResourceSubKey) => {
+      if (canAccessResourceHubSub(checkPerm, requested)) return requested;
+      return firstAccessibleResourceHubSub(checkPerm);
+    },
+    [checkPerm],
+  );
+
+  const canViewMonitoringOverview = canAccessResourceHubSubFn('overview');
+
   const canViewLoggingTab =
     checkPerm('clouds.log-targets:read') ||
     checkPerm('clouds.log-receivers:read') ||
     checkPerm('clouds.log-configs:read');
 
   const canViewClusterGroup =
+    checkPerm('clouds.disks:read') ||
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds.cluster-services:read') ||
     checkPerm('clouds.cluster-networks:read') ||
@@ -117,10 +145,15 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds:read');
 
   const canViewCloudDatabaseTab =
-    checkPerm('clouds.ecs:read') || checkPerm('clouds:read');
+    checkPerm(CLOUD_PAAS_DATABASES_READ) ||
+    checkPerm('clouds.ecs:read') ||
+    checkPerm('clouds:read');
 
   const canViewOniaasNetworkTab =
-    checkPerm('clouds.ecs:read') || checkPerm('clouds:read') || canReadLoadBalancers;
+    checkPerm(CLOUD_VNE_READ) ||
+    checkPerm('clouds.ecs:read') ||
+    canReadLoadBalancers ||
+    checkPerm('clouds:read');
 
   const canViewContainersGroup =
     checkPerm(CLOUD_CONTAINERS_READ) ||
@@ -135,6 +168,7 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds:read');
 
   const canViewCephGroup =
+    checkPerm(CLOUD_CEPH_READ) ||
     checkPerm('clouds.disks:read') ||
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds:read');
@@ -178,6 +212,9 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     canReadNetworkScope,
     canReadLoadBalancers,
     canViewMonitoringTab,
+    canViewMonitoringOverview,
+    canAccessResourceHubSub: canAccessResourceHubSubFn,
+    resolveResourceHubSubAccess,
     canViewLoggingTab,
     canViewClusterGroup,
     canViewComputeGroup,

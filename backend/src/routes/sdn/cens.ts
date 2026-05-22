@@ -58,17 +58,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       description,
       tenantId,
       strategy: strategy || 'SRv6',
-      status: CenStatus.CREATING,
+      status: CenStatus.AVAILABLE,
     });
     await repo.save(cen);
 
-    // 模拟创建过程
-    setTimeout(async () => {
-      cen.status = CenStatus.AVAILABLE;
-      await repo.save(cen);
-    }, 3000);
-
-    res.status(201).json({ message: 'CEN 创建中', cen });
+    res.status(201).json({ message: 'CEN 创建成功', cen });
   } catch (err) {
     console.error('创建 CEN 失败:', err);
     res.status(500).json({ message: '创建 CEN 失败' });
@@ -202,24 +196,18 @@ router.post('/:id/attachments', async (req: AuthRequest, res: Response) => {
     const attachment = attachRepo.create({
       cenId: id,
       vpcId: vpcId || undefined,
-      status: CenAttachmentStatus.ATTACHING,
+      status: CenAttachmentStatus.ATTACHED,
       securityDomainId: securityDomainId || undefined,
       securityDomain: securityDomain || undefined,
     });
     await attachRepo.save(attachment);
-
-    // 模拟附加过程
-    setTimeout(async () => {
-      attachment.status = CenAttachmentStatus.ATTACHED;
-      await attachRepo.save(attachment);
-    }, 2000);
 
     // 返回包含关系的最新对象，便于前端渲染
     const created = await attachRepo.findOne({
       where: { id: attachment.id },
       relations: ['vpc', 'securityDomain'],
     });
-    res.status(201).json({ message: 'VPC 附加中', attachment: created || attachment });
+    res.status(201).json({ message: 'VPC 已附加', attachment: created || attachment });
   } catch (err) {
     console.error('附加失败:', err);
     res.status(500).json({ message: '附加失败' });

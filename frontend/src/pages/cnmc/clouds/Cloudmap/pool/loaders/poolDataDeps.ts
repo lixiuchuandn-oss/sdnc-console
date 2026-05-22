@@ -37,7 +37,6 @@ export type PoolEssentialsDeps = {
   setHarvesterNodes: Dispatch<SetStateAction<any[]>>;
   setRawNodes: Dispatch<SetStateAction<any | null>>;
   setHarvesterNamespaces: Dispatch<SetStateAction<any[]>>;
-  setRawNamespaces: Dispatch<SetStateAction<any | null>>;
   setCapabilities: Dispatch<SetStateAction<any | null>>;
 };
 
@@ -76,6 +75,8 @@ export type PoolPathResourceDeps = {
   setRawCloudInits: Dispatch<SetStateAction<any | null>>;
   setHarvesterTemplates: Dispatch<SetStateAction<any[]>>;
   setRawTemplates: Dispatch<SetStateAction<any | null>>;
+  setHarvesterImages: Dispatch<SetStateAction<any[]>>;
+  setRawImages: Dispatch<SetStateAction<any | null>>;
   setHarvesterGpuResources: Dispatch<SetStateAction<any[]>>;
   setRawGpu: Dispatch<SetStateAction<any | null>>;
   setHarvesterUsbDevices: Dispatch<SetStateAction<any[]>>;
@@ -93,7 +94,6 @@ export type PoolPathResourceDeps = {
   setRawIPPools: Dispatch<SetStateAction<any | null>>;
   setHarvesterClusterNetworks: Dispatch<SetStateAction<any[]>>;
   setRawClusterNetworks: Dispatch<SetStateAction<any | null>>;
-  setAswSwitchSummary: Dispatch<SetStateAction<any | null>>;
   setHarvesterNodes: Dispatch<SetStateAction<any[]>>;
   setRawNodes: Dispatch<SetStateAction<any | null>>;
   setHarvesterStorageClasses: Dispatch<SetStateAction<any[]>>;

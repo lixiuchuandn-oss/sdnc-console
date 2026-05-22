@@ -4,7 +4,63 @@
  */
 
 import type { PermissionDefinition } from '../hooks/usePermissionDefinitions';
+import { CLOUDMAP_POOL_NAV_ROWS } from '../routes/cloudmapPoolNavRows';
 import { hasPermissionForAction } from './accessMapping';
+
+/** 配置权限抽屉：与 Cloudmap 池内主页面 / 附加能力对齐（见 cloudmap-pool-page-rbac.md） */
+export type PoolNavLeafPermissionFeature = {
+  feature: string;
+  resourcePrefix: string;
+  read?: string;
+  write?: string;
+  readVisible: boolean;
+  writeVisible: boolean;
+  poolNavGroup: string;
+  /** 主页面 | 附加能力（仅影响标题前缀，卡片版式一致） */
+  capabilityKind?: 'main' | 'attached';
+  /** 池内路径，仅用于抽屉搜索，不在卡片上展示 */
+  pathSuffix?: string;
+};
+
+/** 侧栏分组出现顺序（与 cloudmapPoolNavRows.order 一致） */
+export function getCloudmapPoolNavGroupsInOrder(): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const row of CLOUDMAP_POOL_NAV_ROWS) {
+    if (!seen.has(row.poolNavGroup)) {
+      seen.add(row.poolNavGroup);
+      order.push(row.poolNavGroup);
+    }
+  }
+  return order;
+}
+
+/** 池内主页面（有 poolPageAction 的叶子）对应的 resourcePrefix */
+export function getPoolNavLeafResourcePrefixSet(): Set<string> {
+  const s = new Set<string>();
+  for (const row of CLOUDMAP_POOL_NAV_ROWS) {
+    if (row.poolPageAction) {
+      s.add(row.poolPageAction.split(':')[0]);
+    }
+  }
+  return s;
+}
+
+/**
+ * 非侧栏叶、挂在 poolNavGroup 下的附加能力（如创建向导）
+ * 与 deployment/docs/specs/cloudmap-pool-page-rbac.md 一致
+ */
+export const POOL_NAV_GROUP_ATTACHED_PREFIXES: Readonly<Record<string, readonly string[]>> = {
+  云主机: ['clouds.vm-create-wizard', 'clouds.vm-quick-create'],
+};
+
+export function getPoolNavAttachedResourcePrefixSet(): Set<string> {
+  const s = new Set<string>();
+  for (const prefixes of Object.values(POOL_NAV_GROUP_ATTACHED_PREFIXES)) {
+    for (const p of prefixes) s.add(p);
+  }
+  return s;
+}
 
 /**
  * 从权限定义中获取分组
@@ -60,13 +116,132 @@ export function normalizeFeatureName(name: string): string {
  * backend/src/constants/permissions.ts 中 PERMISSION_GROUPS.CNMC['资源池管理'] 与
  * ALL_PERMISSIONS 中的 clouds.* 前缀与此处一致；权限分组「资源控制台」见 CLOUDMAP_FEATURE_ORDER）
  */
+/** 角色配置抽屉内权限卡片关键字匹配（含 resourcePrefix / 权限 ID） */
+export function permissionFeatureMatchesKeyword(
+  feature: {
+    feature?: string;
+    resourcePrefix?: string;
+    read?: string;
+    write?: string;
+    pathSuffix?: string;
+    poolNavGroup?: string;
+  },
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (String(feature.feature || '').toLowerCase().includes(q)) return true;
+  if (String(feature.resourcePrefix || '').toLowerCase().includes(q)) return true;
+  if (feature.read && String(feature.read).toLowerCase().includes(q)) return true;
+  if (feature.write && String(feature.write).toLowerCase().includes(q)) return true;
+  if (feature.pathSuffix && String(feature.pathSuffix).toLowerCase().includes(q)) return true;
+  if (feature.poolNavGroup && String(feature.poolNavGroup).toLowerCase().includes(q)) return true;
+  return false;
+}
+
+function poolPageWriteAction(readAction: string): string {
+  if (readAction === 'clouds.console:read') return 'clouds.console:write';
+  if (readAction.endsWith(':read')) return `${readAction.slice(0, -':read'.length)}:write`;
+  return 'clouds.console:write';
+}
+
+/**
+ * 按 `cloudmapPoolNavRows` 的 poolNavGroup 生成抽屉卡片（一片侧栏叶子一张卡，标题=侧栏 title）
+ */
+export function buildPoolNavGroupLeafPermissionFeatures(
+  poolNavGroup: string,
+  actionSet: Set<string>,
+  permVerb: '全部' | 'read' | 'write',
+): PoolNavLeafPermissionFeature[] {
+  return CLOUDMAP_POOL_NAV_ROWS.filter(
+    (row) => row.poolNavGroup === poolNavGroup && row.poolPageAction,
+  )
+    .sort((a, b) => a.order - b.order)
+    .map((row) => {
+      const read = row.poolPageAction!;
+      const write = poolPageWriteAction(read);
+      const resourcePrefix = read.split(':')[0];
+      const readAction = actionSet.has(read) ? read : undefined;
+      const writeAction = actionSet.has(write) ? write : undefined;
+      return {
+        feature: row.title,
+        resourcePrefix,
+        read: readAction,
+        write: writeAction,
+        readVisible: permVerb === '全部' || permVerb === 'read',
+        writeVisible: permVerb === '全部' || permVerb === 'write',
+        poolNavGroup: row.poolNavGroup,
+        capabilityKind: 'main' as const,
+        pathSuffix: row.pathSuffix,
+      };
+    })
+    .filter((item) => item.read || item.write);
+}
+
+/** 分组下「附加能力」卡片（独立 resourcePrefix，无 pathSuffix） */
+export function buildPoolNavGroupAttachedPermissionFeatures(
+  poolNavGroup: string,
+  actionSet: Set<string>,
+  permVerb: '全部' | 'read' | 'write',
+  resolveFeatureLabel: (resourcePrefix: string) => string,
+): PoolNavLeafPermissionFeature[] {
+  const prefixes = POOL_NAV_GROUP_ATTACHED_PREFIXES[poolNavGroup];
+  if (!prefixes?.length) return [];
+
+  return prefixes
+    .map((resourcePrefix) => {
+      const read = `${resourcePrefix}:read`;
+      const write = `${resourcePrefix}:write`;
+      const readAction = actionSet.has(read) ? read : undefined;
+      const writeAction = actionSet.has(write) ? write : undefined;
+      return {
+        feature: resolveFeatureLabel(resourcePrefix),
+        resourcePrefix,
+        read: readAction,
+        write: writeAction,
+        readVisible: permVerb === '全部' || permVerb === 'read',
+        writeVisible: permVerb === '全部' || permVerb === 'write',
+        poolNavGroup,
+        capabilityKind: 'attached' as const,
+      };
+    })
+    .filter((item) => item.read || item.write);
+}
+
+/**
+ * 按 poolNavGroup 生成抽屉分组（主页面一叶一卡 + 附加能力），顺序与池内侧栏一致
+ */
+export function buildCloudmapPoolNavDrawerSections(
+  actionSet: Set<string>,
+  permVerb: '全部' | 'read' | 'write',
+  resolveAttachedFeatureLabel: (resourcePrefix: string) => string,
+): Array<{ group: string; features: PoolNavLeafPermissionFeature[] }> {
+  return getCloudmapPoolNavGroupsInOrder()
+    .map((group) => {
+      const leaves = buildPoolNavGroupLeafPermissionFeatures(group, actionSet, permVerb);
+      const attached = buildPoolNavGroupAttachedPermissionFeatures(
+        group,
+        actionSet,
+        permVerb,
+        resolveAttachedFeatureLabel,
+      );
+      const features = [...leaves, ...attached];
+      return features.length > 0 ? { group, features } : null;
+    })
+    .filter((x): x is { group: string; features: PoolNavLeafPermissionFeature[] } => x != null);
+}
+
 export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds',
   'clouds.dashboard',
   'clouds.resource-pools',
+  // 资源总览（与 cloudmapPoolNavRows resource_hub/* 对齐）
+  'clouds.monitoring.overview',
   // 云主机
   'clouds.ecs',
+  'clouds.paas-databases',
   'clouds.vm-create-wizard',
+  'clouds.vm-quick-create',
   'clouds.images',
   'clouds.templates',
   'clouds.cloudinits',
@@ -88,6 +263,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   // 存储与备份
   'clouds.disks',
   'clouds.snapshots',
+  'clouds.ceph',
   'clouds.backups',
   'clouds.schedules',
   'clouds.restore-tasks',
@@ -116,6 +292,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.security-groups.vpc',
   // VPC 扩展能力
   'clouds.load-balancers',
+  'clouds.vne',
   'clouds.vswitches',
   'clouds.enis',
   'clouds.route-tables',
@@ -143,7 +320,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
 ];
 
 /** 权限分组「资源控制台」内功能展示顺序（与 PERMISSION_GROUPS.CNMC['资源控制台'] 一致） */
-export const CLOUDMAP_FEATURE_ORDER: readonly string[] = ['clouds.console', 'clouds.cloudmap.ops-view'];
+export const CLOUDMAP_FEATURE_ORDER: readonly string[] = ['clouds.console'];
 
 function cloudmapFeatureOrderIndex(prefix: string): number {
   const i = CLOUDMAP_FEATURE_ORDER.indexOf(prefix);
@@ -254,6 +431,8 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
     prefixes: [
       'clouds.ecs',
       'clouds.vm-create-wizard',
+      'clouds.vm-quick-create',
+      'clouds.paas-databases',
       'clouds.images',
       'clouds.templates',
       'clouds.cloudinits',
@@ -284,6 +463,7 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
     prefixes: [
       'clouds.disks',
       'clouds.snapshots',
+      'clouds.ceph',
       'clouds.backups',
       'clouds.schedules',
       'clouds.restore-tasks',
@@ -328,6 +508,7 @@ const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = 
     label: 'VPC扩展',
     prefixes: [
       'clouds.load-balancers',
+      'clouds.vne',
       'clouds.vswitches',
       'clouds.enis',
       'clouds.route-tables',

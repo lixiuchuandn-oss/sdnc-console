@@ -1,4 +1,4 @@
-﻿/** 弹出 CD-ROM 确认框（与 VmDetailDrawerShell 同级抽屉壳层 UI） */
+/** 弹出 CD-ROM 确认框（与 VmDetailDrawerShell 同级抽屉壳层 UI） */
 import React from "react";
 import { Checkbox, Modal, message } from "antd";
 import { InfoCircleOutlined } from "@ant-design/icons";

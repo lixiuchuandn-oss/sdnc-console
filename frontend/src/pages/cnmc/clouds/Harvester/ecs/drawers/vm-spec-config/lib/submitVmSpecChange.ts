@@ -14,7 +14,14 @@ import {
 import { getVmReconfigureCurrentSpec } from '../../../lib/vmMutation/vmReconfigureCurrentSpec';
 import { parseQuantity } from '../../../lib/vmMutation/vmReconfigureQuantity';
 import { isVmStopped } from '../../../lib/vmInstanceStatus';
-import { VmReconfigureSubmitSkipFinalize } from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
+import {
+  VmReconfigureSubmitSkipFinalize,
+  type VmReconfigureRestartConfirmOptions,
+} from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
+import {
+  vmSpecExceedsHotplugCpu,
+  vmSpecExceedsHotplugMemory,
+} from './vmSpecHotplugRange';
 
 /** 仅规格变更提交所需依赖（不绑 NAD / 整包变配上下文）。 */
 export type VmSpecChangeSubmitCtx = {
@@ -26,6 +33,7 @@ export type VmSpecChangeSubmitCtx = {
     namespace: string,
     vmName: string,
     force?: boolean,
+    options?: VmReconfigureRestartConfirmOptions,
   ) => void;
   getCurrentSpec: () => ReturnType<typeof getVmReconfigureCurrentSpec>;
   getMemoryInGi: (q: any) => number;
@@ -94,20 +102,13 @@ export async function submitVmSpecChange(
       message.warning('热扩容模式下不允许减少内存，请先关闭热扩容后再修改');
       throw new VmReconfigureSubmitSkipFinalize();
     }
-    const maxSockets = currentDomain?.cpu?.maxSockets;
-    const maxMemory = currentDomain?.memory?.maxGuest;
-    if (cpuChanged && maxSockets && values.cpu > maxSockets) {
-      message.warning(`CPU数量不能超过热扩容上限 ${maxSockets} 核`);
-      throw new VmReconfigureSubmitSkipFinalize();
-    }
-    if (memoryChanged && maxMemory) {
-      const maxMemGi = parseQuantity(maxMemory) / 1024 ** 3;
-      if (Number(values.memory) > maxMemGi) {
-        message.warning(`内存数量不能超过热扩容上限 ${maxMemGi} GiB`);
-        throw new VmReconfigureSubmitSkipFinalize();
-      }
-    }
   }
+
+  const maxSocketsLimit = currentDomain?.cpu?.maxSockets as number | undefined;
+  const maxMemGuest = currentDomain?.memory?.maxGuest;
+  const maxMemGiLimit = maxMemGuest
+    ? parseQuantity(maxMemGuest) / 1024 ** 3
+    : undefined;
 
   const needTopologyFix =
     isCurrentlyHotPlug && (currentCores !== 1 || currentThreads !== 1);
@@ -155,6 +156,41 @@ export async function submitVmSpecChange(
       cpuThreads: values.cpuThreads,
       memory: `${values.memory}Gi`,
     };
+  }
+
+  const newCpuPreview =
+    values.cpu !== undefined ? Number(values.cpu) : currentTotalCpu;
+  const newMemGiPreview =
+    formMemory !== undefined ? Number(formMemory) : currentMemGi;
+  const exceedsHotplugRange =
+    vmSpecExceedsHotplugCpu({
+      hotPlugConfigured: isHotPlugConfiguredByAnnotation,
+      cpuChanged,
+      newCpu: newCpuPreview,
+      maxSockets: maxSocketsLimit,
+    }) ||
+    vmSpecExceedsHotplugMemory({
+      hotPlugConfigured: isHotPlugConfiguredByAnnotation,
+      memoryChanged,
+      newMemGi: newMemGiPreview,
+      maxMemoryGi: maxMemGiLimit,
+    });
+
+  if (exceedsHotplugRange && values.enableHotPlug !== false) {
+    payload.enableHotPlug = true;
+    payload.maxSockets = Math.max(
+      newCpuPreview,
+      Number(maxSocketsLimit ?? newCpuPreview),
+    );
+    const memCeilingGi = vmSpecExceedsHotplugMemory({
+      hotPlugConfigured: true,
+      memoryChanged,
+      newMemGi: newMemGiPreview,
+      maxMemoryGi: maxMemGiLimit,
+    })
+      ? newMemGiPreview
+      : maxMemGiLimit ?? newMemGiPreview;
+    payload.maxMemory = `${memCeilingGi}Gi`;
   }
 
   if (needTopologyFix) {
@@ -237,15 +273,22 @@ export async function submitVmSpecChange(
     isHotPlugActive && isMemHotAdd && (isMigratable || !finalMemChanged);
 
   const canUseHotPlug =
-    (finalCpuChanged && !finalMemChanged && canUseCpuHotPlug) ||
-    (!finalCpuChanged && finalMemChanged && canUseMemHotPlug) ||
-    (finalCpuChanged && finalMemChanged && canUseCpuHotPlug && canUseMemHotPlug) ||
-    (!finalCpuChanged && !finalMemChanged);
+    !exceedsHotplugRange &&
+    ((finalCpuChanged && !finalMemChanged && canUseCpuHotPlug) ||
+      (!finalCpuChanged && finalMemChanged && canUseMemHotPlug) ||
+      (finalCpuChanged &&
+        finalMemChanged &&
+        canUseCpuHotPlug &&
+        canUseMemHotPlug) ||
+      (!finalCpuChanged && !finalMemChanged));
+
+  const restartConfirmOptions: VmReconfigureRestartConfirmOptions | undefined =
+    exceedsHotplugRange ? { exceedsHotplugRange: true } : undefined;
 
   if (canUseHotPlug) {
     message.success('规格变更已提交（热扩容生效），无需重启实例');
   } else {
-    if (finalMemChanged && !isMigratable && isHotPlugActive) {
+    if (finalMemChanged && !isMigratable && isHotPlugActive && !exceedsHotplugRange) {
       message.warning(
         '内存热扩容需要 VM 可迁移，当前 VM 不可迁移，将需要重启生效',
       );
@@ -255,10 +298,10 @@ export async function submitVmSpecChange(
       if (isVmStopped(updatedVm)) {
         message.success('设置已保存，下次启动时将自动应用新配置');
       } else {
-        openRestartConfirm(namespace, vmName, false);
+        openRestartConfirm(namespace, vmName, false, restartConfirmOptions);
       }
     } catch {
-      openRestartConfirm(namespace, vmName, false);
+      openRestartConfirm(namespace, vmName, false, restartConfirmOptions);
     }
   }
 }

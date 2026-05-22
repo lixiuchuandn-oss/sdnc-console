@@ -5,7 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
-import { filterNonSystemNamespaces } from '../utils/namespaceFilter';
+import { filterNonSystemNamespaces } from '../lib/namespaceFilter';
 
 /** 通知方式标识，与后端 receiver 类型一致 */
 export const EMAIL_RECEIVER = 'email-receiver';

@@ -35,6 +35,8 @@ export type CloudmapKubeOvnGroupTabsProps = {
   cloudId: string;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
+  /** 许可证 network.ovn.vpc；业务 VPC / VPC 域 EIP·NAT 等 Tab 门控，与子网 RBAC 解耦 */
+  ovnVpcEnabled: boolean;
   canReadVpcSubnets: boolean;
   innerActiveKey: string;
   loadResource: (
@@ -99,6 +101,16 @@ function canViewKubeOvnInner(
   return checkPerm('clouds:read');
 }
 
+/** 须 network.ovn.vpc 许可证的 Kube-OVN Tab（业务 VPC 与 VPC 域南北向） */
+function kubeOvnTabNeedsVpcLicense(key: string): boolean {
+  return (
+    key === 'vpcs' ||
+    key === 'kubeovn_eips' ||
+    key === 'kubeovn_snat' ||
+    key === 'kubeovn_dnat'
+  );
+}
+
 const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
   props,
 ) => {
@@ -106,6 +118,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
     cloudId,
     showLog,
     checkPerm,
+    ovnVpcEnabled,
     canReadVpcSubnets,
     innerActiveKey,
     loadResource,
@@ -134,6 +147,15 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
 
   if (!canViewKubeOvnInner(innerActiveKey, checkPerm, canReadVpcSubnets)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+
+  if (kubeOvnTabNeedsVpcLicense(innerActiveKey) && !ovnVpcEnabled) {
+    return (
+      <Empty
+        description="当前未开通 VPC 网络能力，请在许可证中启用 network.ovn.vpc"
+        style={{ marginTop: 48 }}
+      />
+    );
   }
 
   if (innerActiveKey === 'vpcs') {
@@ -190,7 +212,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           )}
           vpcList={kubeOvnVpcs}
           loading={resourceLoading.subnets}
-          onRefresh={() =>
+          onRefresh={() => {
             loadResource(
               'subnets',
               () => fetchKubeOvnSubnets(cloudId, true),
@@ -199,8 +221,19 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
                 setRawSubnets(json || null);
               },
               true,
-            )
-          }
+            );
+            if (ovnVpcEnabled) {
+              loadResource(
+                'vpcs',
+                () => fetchKubeOvnVpcs(cloudId, true, false, 'vpc'),
+                (json) => {
+                  setKubeOvnVpcs(json?.data?.items || []);
+                  setRawVpcs(json || null);
+                },
+                true,
+              );
+            }
+          }}
         />
         <DebugJSON data={rawSubnets} show={showLog} />
       </>

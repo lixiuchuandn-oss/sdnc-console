@@ -14,7 +14,6 @@ import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * 组件入参说明
@@ -38,7 +37,6 @@ const CloudInitsSection: React.FC<Props> = ({
   onRefresh,
   isTenant = false,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -123,7 +121,7 @@ const CloudInitsSection: React.FC<Props> = ({
         </span>
       ),
     },
-    ...(hasOpsView ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
+    ...(!isTenant ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', className: 'std-time' },
     {
@@ -134,7 +132,7 @@ const CloudInitsSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 非租户模式显示运维信息入口
-        if (!isTenant && hasOpsView) {
+        if (!isTenant) {
           items.push({ 
             key: 'opsinfo', 
             label: '查看YAML', 
@@ -165,7 +163,7 @@ const CloudInitsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, hasCloudInitsWrite, hasOpsView]);
+  ], [isTenant, hasCloudInitsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_cloudinits_table');
@@ -184,7 +182,7 @@ const CloudInitsSection: React.FC<Props> = ({
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
         />
-          {!isTenant && hasOpsView && (
+          {!isTenant && (
             <Select
               allowClear
               showSearch

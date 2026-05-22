@@ -166,6 +166,35 @@ export function effectiveDiskBusForHotDetachPolicy(
 }
 
 /**
+ * 任一块设备（按 `name` 对齐）的总线是否与 baseline 快照中不同；用于运行中变配保存后的重启提示。
+ */
+export function blockDiskBusTypeChangedFromBaseline(
+  baselineJson: string,
+  currentDisks: any[],
+  currentUi: VmDiskEditorSlice[],
+): boolean {
+  let parsed: { disks?: any[]; ui?: VmDiskEditorSlice[] } = {};
+  try {
+    parsed = JSON.parse(baselineJson || "{}");
+  } catch {
+    return false;
+  }
+  const bd = Array.isArray(parsed.disks) ? parsed.disks : [];
+  const bu = Array.isArray(parsed.ui) ? parsed.ui : [];
+  for (let i = 0; i < currentDisks.length; i++) {
+    const d = currentDisks[i];
+    const name = String(d?.name || "").trim();
+    if (!name) continue;
+    const j = bd.findIndex((x: any) => String(x?.name || "").trim() === name);
+    if (j < 0) continue;
+    const beforeBus = effectiveDiskBusForHotDetachPolicy(bd[j], bu[j]);
+    const afterBus = effectiveDiskBusForHotDetachPolicy(d, currentUi[i]);
+    if (beforeBus !== afterBus) return true;
+  }
+  return false;
+}
+
+/**
  * 解绑此类总线的磁盘时，可不弹「立即重启 / 手动重启」（SCSI 热解绑常见；iscsi 作拼写兼容）。
  * 其余总线（virtio、sata 等）解绑后仍提示重启。
  */
@@ -189,6 +218,24 @@ export function orderVolumesForDisks(disks: any[], volumes: any[]): any[] {
   });
 }
 
+/**
+ * 与磁盘管理抽屉 `syncFromVm` 一致：块设备 `devices.disks` 的设备名顺序（跳过 Cloud-Init），
+ * 用于检测用户是否调整了列表中的磁盘启动顺序。
+ */
+export function blockDiskDeviceNamesInVmOrder(vm: any): string[] {
+  const dFull = vm?.spec?.template?.spec?.domain?.devices?.disks || [];
+  const volRaw = vm?.spec?.template?.spec?.volumes || [];
+  const volsFull = orderVolumesForDisks(dFull, volRaw);
+  const names: string[] = [];
+  dFull.forEach((disk: any, i: number) => {
+    const vol = volsFull[i];
+    if (isCloudInitVolume(vol)) return;
+    const n = String(disk?.name || "").trim();
+    if (n) names.push(n);
+  });
+  return names;
+}
+
 /** 合并后的 devices.disks：bootOrder=1 写在「第一个块设备槽位」，避免 Cloud-Init 排在首位时抢 bootOrder。 */
 export function applyBootOrderForFirstBlockSlot(
   mergedDisksInOrder: any[],
@@ -208,9 +255,15 @@ export function applyBootOrderForFirstBlockSlot(
 
 export function applySliceToDisk(disk: any, slice: VmDiskEditorSlice): any {
   const d = deepClone(disk);
-  const bus = slice.bus || "virtio";
+  const bus =
+    slice.bus || effectiveDomainDiskBusRaw(d) || "virtio";
   if (d.cdrom) {
     d.cdrom = { ...(d.cdrom || {}), bus };
+  } else if (d.lun) {
+    d.lun = { ...(d.lun || {}), bus };
+    if (d.disk) {
+      d.disk = { ...(d.disk || {}), bus };
+    }
   } else {
     d.disk = { ...(d.disk || {}), bus };
   }
@@ -229,6 +282,36 @@ export function isVolumeKindWithoutExtraFields(kind: VolumeKind): boolean {
  * 从合并模板中移除第 `blockUiIndex` 个块设备槽位（与 `disks`/`volumes` 不含 Cloud-Init 的下标一致）。
  * 解绑本地行后须调用，否则保存时块槽数量与编辑态不一致。
  */
+/** 块设备 UI 下标 → 合并模板中的数组下标（含 Cloud-Init 槽位） */
+export function templateIndexForBlockUiIndex(
+  tpl: DiskMergeTemplateSlot[],
+  blockUiIndex: number,
+): number {
+  let bi = 0;
+  for (let i = 0; i < tpl.length; i++) {
+    if (tpl[i].kind !== "block") continue;
+    if (bi === blockUiIndex) return i;
+    bi++;
+  }
+  return -1;
+}
+
+/** 与磁盘列表上移/下移同步调整合并模板中的块设备槽顺序（Cloud-Init 槽位不动） */
+export function moveMergeTemplateBlockAtUiIndex(
+  tpl: DiskMergeTemplateSlot[],
+  fromBlockUiIndex: number,
+  toBlockUiIndex: number,
+): DiskMergeTemplateSlot[] {
+  if (fromBlockUiIndex === toBlockUiIndex) return tpl;
+  const fromTpl = templateIndexForBlockUiIndex(tpl, fromBlockUiIndex);
+  const toTpl = templateIndexForBlockUiIndex(tpl, toBlockUiIndex);
+  if (fromTpl < 0 || toTpl < 0) return tpl;
+  const next = [...tpl];
+  const [slot] = next.splice(fromTpl, 1);
+  next.splice(toTpl, 0, slot);
+  return next;
+}
+
 export function removeMergeTemplateBlockAtUiIndex(
   tpl: DiskMergeTemplateSlot[],
   blockUiIndex: number,
@@ -251,15 +334,20 @@ export function mergeTemplateDisksAndVolumes(
 ): { nextDisks: any[]; nextVolumes: any[] } {
   const mergedDisksPreBoot: any[] = [];
   const mergedVolsScratch: any[] = [];
-  let bi = 0;
+  /** 按当前 UI 块盘顺序依次填入模板中的块槽（与 move 后模板块槽顺序一致） */
+  const blockQueue = editedBlocks.map((disk, i) => ({
+    disk: deepClone(disk),
+    vol: deepClone(blockVolumes[i]),
+  }));
   for (const slot of tpl) {
     if (slot.kind === "cloudInit") {
       mergedDisksPreBoot.push(deepClone(slot.disk));
       mergedVolsScratch.push(deepClone(slot.vol));
     } else {
-      mergedDisksPreBoot.push(deepClone(editedBlocks[bi]));
-      mergedVolsScratch.push(deepClone(blockVolumes[bi]));
-      bi++;
+      const pair = blockQueue.shift();
+      if (!pair) break;
+      mergedDisksPreBoot.push(pair.disk);
+      mergedVolsScratch.push(pair.vol);
     }
   }
   const nextDisks = applyBootOrderForFirstBlockSlot(

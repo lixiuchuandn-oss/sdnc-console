@@ -29,7 +29,6 @@ import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNames
 import { createHarvesterVmFromTemplate, deleteHarvesterResourceByLink } from '../../../../../../services/harvesterApi';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 /**
  * Props 定义
@@ -45,9 +44,9 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式
-  /** 租户控制台当前命名空间：从模板快速创建 VM 时写入 metadata.namespace，避免落到 default */
-  workspaceVmNamespace?: string;
+  mode?: 'standard' | 'ops';
   bordered?: boolean;
+  workspaceVmNamespace?: string; // 工作区VM命名空间
 }
 
 const getTemplateNamespace = (tpl: any): string =>
@@ -125,10 +124,9 @@ const TemplatesSection: React.FC<Props> = ({
   loading, 
   onRefresh, 
   isTenant = false,
-  workspaceVmNamespace,
+  mode = 'ops',
   bordered = true,
 }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
   const { modal } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -264,13 +262,9 @@ const TemplatesSection: React.FC<Props> = ({
     }
     try {
       setQuickCreating(true);
-      const vmNs =
-        isTenant && String(workspaceVmNamespace || '').trim()
-          ? String(workspaceVmNamespace).trim()
-          : tplNs;
       await createHarvesterVmFromTemplate(cloudId, tplNs, tplName, {
         name: vmName,
-        namespace: vmNs,
+        namespace: tplNs,
         autoStart: quickCreateAutoStart,
       });
       message.success('创建成功');
@@ -369,7 +363,7 @@ const TemplatesSection: React.FC<Props> = ({
         );
       }
     },
-    ...(hasOpsView ? [{
+    ...(mode === 'ops' ? [{
       title: '作用域',
       key: 'scope',
       render: (_: any, r: any) => {
@@ -378,7 +372,7 @@ const TemplatesSection: React.FC<Props> = ({
           return <Tag color={isPublic ? 'orange' : 'cyan'}>{scope}</Tag>;
       }
     }] : []),
-    ...(hasOpsView
+    ...(mode === 'ops'
       ? [{
           title: '命名空间',
           key: 'namespace',
@@ -412,6 +406,7 @@ const TemplatesSection: React.FC<Props> = ({
     {
       title: '操作',
       key: 'actions',
+      width: 80,
       render: (_: any, r: any) => {
         const items: any[] = [
           {
@@ -422,7 +417,7 @@ const TemplatesSection: React.FC<Props> = ({
         ];
 
         // 仅在非租户模式下显示运维信息
-        if (!isTenant && hasOpsView) {
+        if (!isTenant && mode === 'ops') {
           items.push({
             key: 'ops_info',
             label: '查看YAML',
@@ -460,7 +455,7 @@ const TemplatesSection: React.FC<Props> = ({
       },
     }
   ],
-    [isTenant, hasTemplatesWrite, hasOpsView, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete, isPublicNamespace],
+    [isTenant, hasTemplatesWrite, mode, handleOpenDrawer, handleOpenOpsInfo, openQuickCreate, handleDelete, isPublicNamespace],
   );
 
   /**
@@ -503,13 +498,13 @@ const TemplatesSection: React.FC<Props> = ({
    * - 应用名称关键字搜索
    */
   const filteredData = useMemo(() => {
-    const rows = baseData.filter((t: any) => {
+    return baseData.filter((t: any) => {
       // 1. 命名空间筛选
       const ns = getTemplateNamespace(t);
       if (selectedNamespace && ns !== selectedNamespace) return false;
       // 1.1 作用域筛选
-      if (hasOpsView && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
-      if (hasOpsView && selectedScope === 'private' && isPublicNamespace(ns)) return false;
+      if (mode === 'ops' && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
+      if (mode === 'ops' && selectedScope === 'private' && isPublicNamespace(ns)) return false;
 
       // 2. 关键字搜索
       if (searchText) {
@@ -519,12 +514,7 @@ const TemplatesSection: React.FC<Props> = ({
       
       return true;
     });
-    return [...rows].sort((a: any, b: any) => {
-      const ta = new Date(a?.metadata?.creationTimestamp || 0).getTime();
-      const tb = new Date(b?.metadata?.creationTimestamp || 0).getTime();
-      return tb - ta;
-    });
-  }, [baseData, searchText, selectedNamespace, selectedScope, hasOpsView, isPublicNamespace]);
+  }, [baseData, searchText, selectedNamespace, selectedScope, mode, isPublicNamespace]);
 
   return (
       <PageDetailSection
@@ -538,7 +528,7 @@ const TemplatesSection: React.FC<Props> = ({
               className="toolbar-search"
               allowClear
             />
-            {!isTenant && hasOpsView && (
+            {!isTenant && mode === 'ops' && (
               <Select
                 allowClear
                 showSearch
@@ -549,7 +539,7 @@ const TemplatesSection: React.FC<Props> = ({
                 className="toolbar-filter-sm"
               />
             )}
-            {hasOpsView && (
+            {mode === 'ops' && (
               <Select
                 allowClear
                 placeholder="作用域"
@@ -633,7 +623,6 @@ const TemplatesSection: React.FC<Props> = ({
       >
         <Table
           className="std-table"
-          scroll={{ x: true }}
           bordered={false}
           rowKey={(r) => r.metadata?.uid || r.metadata?.name}
           rowSelection={{
@@ -644,6 +633,7 @@ const TemplatesSection: React.FC<Props> = ({
           dataSource={filteredData}
           loading={loading}
           pagination={{
+            size: 'small',
             showTotal: (total) => `共 ${total} 条`,
           }}
         />

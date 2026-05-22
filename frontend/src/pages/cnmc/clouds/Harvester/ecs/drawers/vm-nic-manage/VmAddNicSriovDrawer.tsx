@@ -1,5 +1,6 @@
 /**
- * 添加辅助网卡 · 直通（PCI 物理网卡 + Multus SR-IOV/macvtap/macvlan，与创建向导 StepNetworks 直通一致）。
+ * 添加辅助网卡 · 直通（PCI 整卡 / SR-IOV VF + Multus SR-IOV/macvtap/macvlan，与创建向导 StepNetworks 直通一致）。
+ * 网卡类型在抽屉内用分段控件切换，入口可传入初始选中项。
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -8,6 +9,7 @@ import {
   Drawer,
   Flex,
   Form,
+  Segmented,
   Select,
   message,
 } from "antd";
@@ -16,6 +18,7 @@ import {
   fetchHarvesterNodes,
   fetchHarvesterPciDevices,
 } from "../../../../../../../services/harvesterApi";
+import { useAggregatedVmForReconfigureDrawer } from "../shared/lib/useAggregatedVmForReconfigureDrawer";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
 import "../shared/styles/vmManageDrawer.css";
 import {
@@ -35,21 +38,29 @@ import {
   buildPciNicPassthroughSelectOptions,
   passthroughExclusionToFilterOpts,
   pciPassthroughSelectScopeFromWizardNetMode,
+  resolveVmPassthroughSchedulingHost,
+  validateAppendPassthroughPciNodeAffinity,
+  wizardPassthroughPickFieldLabel,
+  wizardPassthroughPickRequiredMessage,
   type PassthroughSelectionExclusion,
-  type VmPciNicHostBinding,
 } from "../../lib/passthroughNicSelectOptions";
-import { VmPciPassthroughNicCards } from "./VmPciPassthroughNicCards";
 
 export type VmAddNicSriovPassthroughWizardMode = "passthrough" | "passthrough_sriov";
 
 export type VmAddNicSriovDrawerProps = VmAddNicDrawerBaseProps & {
-  /** 与创建向导一致：整卡 PCI 直通 vs SR-IOV VF PCI；默认整卡 */
-  passthroughWizardNetMode?: VmAddNicSriovPassthroughWizardMode;
+  /** 打开抽屉时的初始网卡类型（抽屉内可改） */
+  initialPassthroughWizardNetMode?: VmAddNicSriovPassthroughWizardMode;
   /** 主抽屉已选直通项（含未保存），添加时从下拉中排除 */
   passthroughExclude?: PassthroughSelectionExclusion;
-  /** 主抽屉 PCI 直通列表（含未保存），用于展示已选网卡 */
-  pciBindings?: VmPciNicHostBinding[];
 };
+
+const PASSTHROUGH_TYPE_SEGMENTED_OPTIONS: {
+  label: string;
+  value: VmAddNicSriovPassthroughWizardMode;
+}[] = [
+  { label: "直通", value: "passthrough" },
+  { label: "SR-IOV", value: "passthrough_sriov" },
+];
 
 const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
   open,
@@ -58,16 +69,26 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
   cloudId,
   hasEcsWrite,
   onApplied,
-  passthroughWizardNetMode = "passthrough",
+  initialPassthroughWizardNetMode = "passthrough",
   passthroughExclude,
-  pciBindings,
 }) => {
   const vmManageCssVars = useVmManageDrawerCssVars();
   const [form] = Form.useForm();
+  const [wizardNetMode, setWizardNetMode] =
+    useState<VmAddNicSriovPassthroughWizardMode>("passthrough");
   const [submitting, setSubmitting] = useState(false);
   const [pciDevices, setPciDevices] = useState<any[]>([]);
   const [nodes, setNodes] = useState<any[]>([]);
   const [nodesLoading, setNodesLoading] = useState(false);
+
+  const {
+    latestVm,
+    loading: vmSpecLoading,
+    fetchFailed: vmSpecFetchFailed,
+  } = useAggregatedVmForReconfigureDrawer(open, cloudId, vmData);
+  /** 拉取完成前不用父级 vmData，避免仍显示创建时 nodeSelector（如 node2） */
+  const activeVm = latestVm ?? (vmSpecFetchFailed ? vmData : null);
+
   const {
     localNads,
     localSubnets,
@@ -76,12 +97,17 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
     reloadSubnets,
     ensureNadsLoaded,
     isHotPlugInProgress,
-  } = useVmAddNicDrawerData({ vmData, cloudId });
+  } = useVmAddNicDrawerData({ vmData: activeVm, cloudId });
 
   const vmNs = String(vmData?.metadata?.namespace || "").trim();
   const vmName = String(
     vmData?.metadata?.name || vmData?.spec?.template?.metadata?.name || "",
   ).trim();
+
+  const schedulingHost = useMemo(
+    () => (activeVm ? resolveVmPassthroughSchedulingHost(activeVm) : ""),
+    [activeVm],
+  );
 
   const nadInfos = useMemo(() => buildVmAddNicNadInfos(localNads), [localNads]);
 
@@ -100,11 +126,6 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
     [passthroughExclude, passthroughPickWatch],
   );
 
-  const kubevirtIfaceCount = useMemo(() => {
-    const arr = vmData?.spec?.template?.spec?.domain?.devices?.interfaces;
-    return Array.isArray(arr) ? arr.length : 0;
-  }, [vmData]);
-
   const pciPassthroughOptsForBindNode = useMemo(() => {
     const bn = String(passthroughBindNode || "").trim();
     const list = Array.isArray(pciDevices) ? pciDevices : [];
@@ -114,23 +135,29 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
           return n === bn;
         })
       : [];
-    const pciScope = pciPassthroughSelectScopeFromWizardNetMode(passthroughWizardNetMode);
+    const pciScope = pciPassthroughSelectScopeFromWizardNetMode(wizardNetMode);
     return buildPciNicPassthroughSelectOptions(filtered, pciScope, passthroughSelectFilter);
-  }, [pciDevices, passthroughBindNode, passthroughWizardNetMode, passthroughSelectFilter]);
+  }, [pciDevices, passthroughBindNode, wizardNetMode, passthroughSelectFilter]);
 
   const groupedPassthrough = useMemo(() => {
-    const pciScope = pciPassthroughSelectScopeFromWizardNetMode(passthroughWizardNetMode);
-    const pciGroupLabel =
-      pciScope === "sriov_vf" ? "SR-IOV 虚拟网卡（VF，物理口启用 SR-IOV 后生成）" : undefined;
     return buildGroupedPassthroughSelectOptions(
       pciPassthroughOptsForBindNode,
       nadInfos as any,
       {
-        ...(pciGroupLabel ? { pciGroupLabel } : {}),
+        compactPassthroughLabels: true,
         ...passthroughSelectFilter,
       },
     );
-  }, [pciPassthroughOptsForBindNode, nadInfos, passthroughWizardNetMode, passthroughSelectFilter]);
+  }, [pciPassthroughOptsForBindNode, nadInfos, passthroughSelectFilter]);
+
+  /** 不使用分组：避免下拉中出现非可选的分组标题行 */
+  const flatPassthroughSelectOptions = useMemo(
+    () =>
+      groupedPassthrough.flatMap((g) =>
+        (Array.isArray(g.options) ? g.options : []) as { label?: unknown; value: string }[],
+      ),
+    [groupedPassthrough],
+  );
 
   const nodeOpts = useMemo(
     () =>
@@ -171,15 +198,8 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
 
   useEffect(() => {
     if (!open) return;
+    setWizardNetMode(initialPassthroughWizardNetMode ?? "passthrough");
     form.resetFields();
-    const pinned = String(
-      vmData?.spec?.template?.spec?.nodeSelector?.["kubernetes.io/hostname"] || "",
-    ).trim();
-    const runningOn = String(vmData?.status?.nodeName || "").trim();
-    const pre = pinned || runningOn || undefined;
-    if (pre) {
-      form.setFieldsValue({ passthroughBindNode: pre });
-    }
     void Promise.all([
       reloadNads(),
       reloadVpcs(),
@@ -187,7 +207,29 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
       reloadPciDevices(),
       reloadNodes(),
     ]);
-  }, [open, form, reloadNads, reloadVpcs, reloadSubnets, reloadPciDevices, reloadNodes, passthroughWizardNetMode]);
+  }, [
+    open,
+    initialPassthroughWizardNetMode,
+    form,
+    reloadNads,
+    reloadVpcs,
+    reloadSubnets,
+    reloadPciDevices,
+    reloadNodes,
+  ]);
+
+  /** 聚合 VM 就绪后，按最新调度/运行节点预填 */
+  useEffect(() => {
+    if (!open || !activeVm) return;
+    const pre = resolveVmPassthroughSchedulingHost(activeVm);
+    if (!pre) return;
+    const cur = String(form.getFieldValue("passthroughBindNode") || "").trim();
+    if (cur === pre) return;
+    form.setFieldsValue({
+      passthroughBindNode: pre,
+      ...(cur && cur !== pre ? { passthroughPick: undefined } : {}),
+    });
+  }, [open, activeVm, latestVm, schedulingHost, form]);
 
   const footerDisabled = !hasEcsWrite || isHotPlugInProgress;
 
@@ -210,34 +252,49 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
           pciResourceName: String(hit?._pciResourceName || "").trim(),
           pciNodeName: String(hit?._pciNodeName || "").trim(),
           passthroughPick: pick,
-          nicWizardMode: passthroughWizardNetMode,
+          nicWizardMode: wizardNetMode,
+          passthroughBindNode: String(v.passthroughBindNode || "").trim() || undefined,
         });
       } else if (pick.startsWith(PT_PREFIX_MULTUS)) {
         const multusVal = pick.slice(PT_PREFIX_MULTUS.length);
         row = buildSecondaryRowPassthroughMultus(multusVal);
       }
       if (!row || Object.keys(row).length === 0) {
-        message.error("请选择直通网络（PCI 或 Multus SR-IOV / macvtap / macvlan）");
+        message.error("请选择直通网络（PCI 或 Multus）");
         return;
+      }
+      if (pick.startsWith(PT_PREFIX_PCI)) {
+        const affinityErr = validateAppendPassthroughPciNodeAffinity({
+          vm: activeVm || vmData,
+          pciNodeName: String(row.pciNodeName || "").trim(),
+          bindNode: String(v.passthroughBindNode || "").trim(),
+          pciDevices,
+        });
+        if (affinityErr) {
+          message.error(affinityErr);
+          return;
+        }
       }
       const nadList = await ensureNadsLoaded();
       setSubmitting(true);
       await submitAppendSecondaryNicRow({
         cloudId,
-        vmData,
+        vmData: activeVm || vmData,
         newRow: row,
         subnets: localSubnets,
         nads: nadList,
         vmNs,
         vmName,
+        pciDevices,
       });
-      await onApplied();
       onClose();
+      await onApplied();
     } catch (e: any) {
       if (e?.errorFields) return;
       if (
         e?.message === "compute_secondary_nic_failed" ||
-        e?.message === "missing_nad"
+        e?.message === "missing_nad" ||
+        e?.message === "passthrough_pci_node_mismatch"
       )
         return;
       message.error(e?.message || "保存失败");
@@ -265,7 +322,7 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
           <Button
             type="primary"
             loading={submitting}
-            disabled={footerDisabled}
+            disabled={footerDisabled || vmSpecLoading}
             onClick={() => void handleSubmit()}
           >
             保存
@@ -273,7 +330,10 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
         </Flex>
       }
     >
-      <div className="vmManageDrawer vmNicManageDrawer" style={vmManageCssVars}>
+      <div
+        className="vmManageDrawer vmNicManageDrawer vmAddNicSriovDrawer"
+        style={vmManageCssVars}
+      >
         {isHotPlugInProgress ? (
           <Alert
             type="warning"
@@ -284,30 +344,45 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
             className="vmManageDrawer-stackGap"
           />
         ) : null}
-        <VmPciPassthroughNicCards
-          vmData={vmData}
-          bindings={pciBindings}
-          pciDevices={pciDevices}
-          kubevirtInterfaceCount={kubevirtIfaceCount}
-          readOnly
-        />
         <Form
+          className="vmAddNicSriovDrawer-form"
           form={form}
           layout="horizontal"
           labelAlign="left"
           labelCol={{ span: 6 }}
           wrapperCol={{ span: 18 }}
         >
+          <Form.Item label="网卡类型">
+            <Segmented
+              options={PASSTHROUGH_TYPE_SEGMENTED_OPTIONS}
+              value={wizardNetMode}
+              onChange={(v) => {
+                setWizardNetMode(v as VmAddNicSriovPassthroughWizardMode);
+                try {
+                  form.setFieldsValue({ passthroughPick: undefined });
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
+          </Form.Item>
           <Form.Item
             label="节点"
             name="passthroughBindNode"
             rules={[{ required: true, message: "请选择节点" }]}
+            extra={
+              schedulingHost
+                ? `当前调度/运行节点为 ${schedulingHost}，请在该节点上选择 PCI 直通网卡`
+                : undefined
+            }
           >
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="选择宿主机节点"
-              loading={nodesLoading}
+              placeholder={
+                vmSpecLoading ? "正在同步虚拟机最新调度…" : "选择宿主机节点"
+              }
+              loading={nodesLoading || vmSpecLoading}
               allowClear
               options={nodeOpts}
               onOpenChange={(o) => {
@@ -323,18 +398,21 @@ const VmAddNicSriovDrawer: React.FC<VmAddNicSriovDrawerProps> = ({
             />
           </Form.Item>
           <Form.Item
-            label="直通网络"
+            label={wizardPassthroughPickFieldLabel(wizardNetMode)}
             name="passthroughPick"
-            rules={[{ required: true, message: "请选择直通网络" }]}
+            rules={[
+              {
+                required: true,
+                message: wizardPassthroughPickRequiredMessage(wizardNetMode),
+              },
+            ]}
           >
             <Select
               showSearch
               placeholder={
-                String(passthroughBindNode || "").trim()
-                  ? "选择 PCI 网卡或 Multus 直通网络"
-                  : "请先选择节点，再选择本节点 PCI 直通网卡（Multus 可不依赖节点）"
+                String(passthroughBindNode || "").trim() ? "请选择" : "请先选择节点"
               }
-              options={groupedPassthrough}
+              options={flatPassthroughSelectOptions}
               optionFilterProp="label"
               onOpenChange={(o) => {
                 if (o) {

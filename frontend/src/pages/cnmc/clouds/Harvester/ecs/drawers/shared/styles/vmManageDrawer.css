@@ -301,6 +301,11 @@
   margin-bottom: var(--vm-drawer-gap-vertical, 24px);
 }
 
+/* 添加直通网卡抽屉：水平表单项控件区默认 margin-top 会形成约 32px 顶缝，与标签顶对齐 */
+.vmAddNicSriovDrawer .vmAddNicSriovDrawer-form .ant-form-item .ant-form-item-control-input {
+  margin-top: 0;
+}
+
 .vmManageDrawer-formFieldRow .ant-select {
   width: 100%;
 }

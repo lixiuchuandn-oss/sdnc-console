@@ -100,7 +100,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       key: 'name',
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
     },
@@ -158,7 +158,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       key: 'name',
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
     },
@@ -207,7 +207,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       key: 'name',
     },
     {
-      title: '命名空间',
+      title: '项目',
       dataIndex: ['metadata', 'namespace'],
       key: 'namespace',
     },
@@ -438,7 +438,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           allowClear
           showSearch
           optionFilterProp="label"
-          placeholder="筛选命名空间"
+          placeholder="筛选项目"
           value={nsValue || undefined}
           onChange={(v) => onNsChange?.(v)}
           options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}

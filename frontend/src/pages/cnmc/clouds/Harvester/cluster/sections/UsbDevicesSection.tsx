@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Input, Modal, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { ReloadOutlined, SearchOutlined, UsbTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -7,7 +7,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { claimHarvesterUsbDevice, unclaimHarvesterUsbDevice } from '../../../../../../services/harvesterApi';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { useCloudmapOpsViewWrite } from '../../hooks/useCloudmapOpsViewWrite';
 
 interface Props {
   cloudId: string;
@@ -17,11 +16,20 @@ interface Props {
   raw?: any;
   showLog?: boolean;
   bordered?: boolean;
+  /** 租户侧隐藏「查看 YAML」等运维入口 */
+  isTenant?: boolean;
 }
 
-const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRefresh, raw, showLog, bordered = true }) => {
-  const hasOpsView = useCloudmapOpsViewWrite();
-  const isStandardView = !hasOpsView;
+const UsbDevicesSection: React.FC<Props> = ({
+  cloudId,
+  usbDevices,
+  loading,
+  onRefresh,
+  raw,
+  showLog,
+  bordered = true,
+  isTenant = false,
+}) => {
   const [keyword, setKeyword] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -231,16 +239,27 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const enabled = r?.enabled ?? r?.raw?.status?.enabled ?? r?.rawData?.status?.enabled;
+          // 判断设备是否被虚拟机使用
+          const isUsedByVm = r?.claimed && r?.vmInfo;
+          const vmName = isUsedByVm ? (r.vmInfo.vmDisplayName || r.vmInfo.vmName) : '';
+          
           const items = [
-            ...(enabled === true ? [{ key: 'unclaim', label: '设为非直通', onClick: () => handleSetPassthrough([r], false) }] : []),
+            ...(enabled === true ? [{ 
+              key: 'unclaim', 
+              label: '设为非直通', 
+              onClick: () => handleSetPassthrough([r], false),
+              disabled: isUsedByVm,
+              tooltip: isUsedByVm ? `设备已被虚拟机（${vmName}）使用，不能设置为非直通` : undefined,
+            }] : []),
             ...(enabled === false ? [{ key: 'claim', label: '设为直通', onClick: () => handleSetPassthrough([r], true) }] : []),
-            ...(!isStandardView ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
+            ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenYaml(r) }] : []),
           ];
+          
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
         },
       },
     ];
-  }, [handleOpenYaml, handleSetPassthrough, isStandardView, vendorLabel, getUsbState, renderUnifiedStateTag]);
+  }, [handleOpenYaml, handleSetPassthrough, isTenant, vendorLabel, getUsbState, renderUnifiedStateTag]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, 'harvester_usb_devices_table');
 

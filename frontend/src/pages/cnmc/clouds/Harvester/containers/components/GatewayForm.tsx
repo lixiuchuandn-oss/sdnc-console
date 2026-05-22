@@ -85,8 +85,8 @@ const PROTOCOL_OPTIONS = [
 ];
 
 const ALLOWED_ROUTES_OPTIONS = [
-  { value: 'Same', label: 'Same (相同命名空间)' },
-  { value: 'All', label: 'All (所有命名空间)' },
+  { value: 'Same', label: 'Same (相同项目)' },
+  { value: 'All', label: 'All (所有项目)' },
 ];
 
 // ============================================================
@@ -213,11 +213,11 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
           <Col span={12}>
             <Form.Item
               name="namespace"
-              label="命名空间"
-              rules={[{ required: true, message: '请选择命名空间' }]}
+              label="项目"
+              rules={[{ required: true, message: '请选择项目' }]}
             >
               <Select
-                placeholder="选择命名空间"
+                placeholder="选择项目"
                 showSearch
                 options={namespacesOptions.filter(ns => !isSystemNamespace(ns)).map(ns => ({ label: ns, value: ns }))}
               />
