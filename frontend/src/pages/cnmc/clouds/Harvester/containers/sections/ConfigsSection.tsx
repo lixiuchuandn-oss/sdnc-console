@@ -1400,7 +1400,7 @@ const ConfigsSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
   const [secretTypeFilter, setSecretTypeFilter] = useState<string | undefined>();
   

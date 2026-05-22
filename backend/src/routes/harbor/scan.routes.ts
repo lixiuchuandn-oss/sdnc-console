@@ -82,7 +82,42 @@ router.get(
       
       try {
         const result = await proxy.getVulnerabilities(project, decodedRepo, decodedRef);
-        res.json({ message: '查询成功', data: result });
+        
+        // 转换 Harbor 返回的漏洞数据格式
+        // Harbor 返回格式: {"application/vnd.security.vulnerability.report; version=1.1": {...}}
+        // 前端期望格式: {vulnerabilities: [...], overview: {...}}
+        let vulnerabilities: any[] = [];
+        let overview: any = { summary: { critical: 0, high: 0, medium: 0, low: 0 } };
+        
+        const keys = Object.keys(result || {});
+        const reportKey = keys.find(k => k.includes('vulnerability.report') || k.includes('scanner.adapter'));
+        
+        if (reportKey && result[reportKey]) {
+          const report = result[reportKey];
+          vulnerabilities = report.vulnerabilities || [];
+          
+          // 从漏洞列表统计各级别数量
+          const severityCount: Record<string, number> = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+          for (const vuln of vulnerabilities) {
+            const severity = vuln.severity || 'Unknown';
+            if (severityCount[severity] !== undefined) {
+              severityCount[severity]++;
+            }
+          }
+          
+          overview = {
+            total: vulnerabilities.length,
+            fixable: vulnerabilities.filter((v: any) => v.fix_version).length,
+            summary: {
+              critical: severityCount.Critical,
+              high: severityCount.High,
+              medium: severityCount.Medium,
+              low: severityCount.Low,
+            },
+          };
+        }
+        
+        res.json({ message: '查询成功', data: { vulnerabilities, overview } });
       } catch (scanError: any) {
         // Harbor 返回 404 表示该制品尚未扫描，返回空结果
         if (scanError.response?.status === 404 || scanError.message?.includes('404')) {

@@ -584,7 +584,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
   const userClearedNamespaceRef = useRef(false);
 
   /** 表单默认命名空间 */
-  const formDefaultNs = nsValue || namespacesOptions[0] || 'default';
+  const formDefaultNs = nsValue ?? 'default';
 
   // 与父级受控命名空间同步
   useEffect(() => {

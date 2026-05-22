@@ -122,7 +122,7 @@ const ServicesSection: React.FC<Props> = ({
   onQueryAllChange,
 }) => {
   const hasOpsView = useCloudmapOpsViewWrite();
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { message } = App.useApp();
   const isStandardView = !hasOpsView;

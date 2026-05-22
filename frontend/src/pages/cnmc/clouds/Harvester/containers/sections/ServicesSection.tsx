@@ -511,7 +511,7 @@ const ServicesSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [createModalVisible, setCreateModalVisible] = useState(false);
 
   // 打开创建弹窗

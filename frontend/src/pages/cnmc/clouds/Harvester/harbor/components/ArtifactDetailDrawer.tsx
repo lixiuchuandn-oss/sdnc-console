@@ -123,15 +123,16 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
    * 渲染漏洞严重性标签
    */
   const renderSeverityTag = (severity: string) => {
-    const colorMap: Record<string, string> = {
-      Critical: 'error',
-      High: 'warning',
-      Medium: 'orange',
-      Low: 'default',
-      Negligible: 'success',
-      Unknown: 'default',
+    const severityMap: Record<string, { bgColor: string; textColor: string; label: string }> = {
+      Critical: { bgColor: '#ff4d2e', textColor: '#fff', label: '危急' },
+      High: { bgColor: '#ff8f3d', textColor: '#fff', label: '严重' },
+      Medium: { bgColor: '#ffce66', textColor: '#333', label: '中等' },
+      Low: { bgColor: '#fff5c8', textColor: '#333', label: '较低' },
+      Negligible: { bgColor: '#a7a7a7', textColor: '#fff', label: '可忽略' },
+      Unknown: { bgColor: '#a7a7a7', textColor: '#fff', label: '未知' },
     };
-    return <Tag color={colorMap[severity] || 'default'}>{severity}</Tag>;
+    const item = severityMap[severity] || { bgColor: '#a7a7a7', textColor: '#fff', label: severity };
+    return <Tag style={{ backgroundColor: item.bgColor, color: item.textColor, border: 'none' }}>{item.label}</Tag>;
   };
 
   /**
@@ -259,16 +260,16 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                   {vulnerabilityOverview && (
                     <Space style={{ marginBottom: 16 }} size="middle">
                       {vulnerabilityOverview.critical > 0 && (
-                        <Tag color="error">严重: {vulnerabilityOverview.critical}</Tag>
+                        <Tag style={{ backgroundColor: '#ff4d2e', color: '#fff', border: 'none' }}>危急: {vulnerabilityOverview.critical}</Tag>
                       )}
                       {vulnerabilityOverview.high > 0 && (
-                        <Tag color="warning">高危: {vulnerabilityOverview.high}</Tag>
+                        <Tag style={{ backgroundColor: '#ff8f3d', color: '#fff', border: 'none' }}>严重: {vulnerabilityOverview.high}</Tag>
                       )}
                       {vulnerabilityOverview.medium > 0 && (
-                        <Tag color="orange">中危: {vulnerabilityOverview.medium}</Tag>
+                        <Tag style={{ backgroundColor: '#ffce66', color: '#333', border: 'none' }}>中等: {vulnerabilityOverview.medium}</Tag>
                       )}
                       {vulnerabilityOverview.low > 0 && (
-                        <Tag>低危: {vulnerabilityOverview.low}</Tag>
+                        <Tag style={{ backgroundColor: '#fff5c8', color: '#333', border: 'none' }}>较低: {vulnerabilityOverview.low}</Tag>
                       )}
                     </Space>
                   )}
