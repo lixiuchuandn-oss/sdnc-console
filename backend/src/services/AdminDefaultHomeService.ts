@@ -4,6 +4,8 @@
  *
  * 若 RouteSpec 中首页候选或池内总览行变更，请同步更新下方 `HOME_PAGE_CANDIDATES`。
  */
+import { AppDataSource } from '../config/database';
+import { Cloud } from '../entities/Cloud';
 import { getSystemSetting } from '../config/systemSettings';
 import { licenseService } from './LicenseService';
 
@@ -194,15 +196,29 @@ function hasLicenseFeature(feature: string): boolean {
   return licenseService.hasFeature(feature);
 }
 
-export function resolveAdminDefaultHome(
+/** 默认资源池：系统设置 favorite.cloudId；未配置时取最早创建的云资源池 */
+async function resolveEffectiveFavoritePoolId(favoritePoolIdOverride?: string): Promise<string> {
+  const fav = String(favoritePoolIdOverride ?? getSystemSetting('favorite.cloudId') ?? '').trim();
+  if (fav) return fav;
+  try {
+    if (!AppDataSource.isInitialized) return '';
+    const repo = AppDataSource.getRepository(Cloud);
+    const rows = await repo.find({ order: { createdAt: 'ASC' }, take: 1 });
+    const id = rows[0]?.id;
+    return id ? String(id) : '';
+  } catch {
+    return '';
+  }
+}
+
+export async function resolveAdminDefaultHome(
   permissions: string[] = [],
   role?: string,
   favoritePoolIdOverride?: string,
-): AdminDefaultHomePayload {
+): Promise<AdminDefaultHomePayload> {
   const r = String(role || '').toLowerCase();
   const isSystemAdminRole = r === 'super_admin' || r === 'admin';
-  const fav =
-    String(favoritePoolIdOverride ?? getSystemSetting('favorite.cloudId') ?? '').trim();
+  const fav = await resolveEffectiveFavoritePoolId(favoritePoolIdOverride);
   const status = licenseService.getStatus();
   const licenseFeatures = status.payload?.features ? [...status.payload.features] : [];
   const hasFeature = (f: string) => hasLicenseFeature(f);

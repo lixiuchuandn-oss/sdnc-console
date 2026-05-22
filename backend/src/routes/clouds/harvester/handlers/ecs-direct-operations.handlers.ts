@@ -37,6 +37,7 @@ import {
   requestJson,
   logVmWatchStreamError,
   isBenignWatchDisconnect,
+  formatVmMigrateFailureMessage,
 } from '../../../../services/clouds/harvester/utils';
 import {
   checkTenantAccess,
@@ -622,7 +623,18 @@ export async function harvesterEcsMigrateHandler(req: Request, res: Response) {
     res.json(result);
   } catch (error: any) {
     if (res.headersSent) return;
-    res.status(500).json({ message: error.message });
+    const statusCode =
+      error?.status && Number(error.status) >= 400 && Number(error.status) < 600
+        ? Number(error.status)
+        : 500;
+    const message =
+      statusCode === 400 || statusCode === 403 || statusCode === 422
+        ? formatVmMigrateFailureMessage(error)
+        : error?.message || '迁移失败';
+    res.status(statusCode).json({
+      message,
+      error: error?.body ?? error?.message ?? String(error),
+    });
   }
 }
 

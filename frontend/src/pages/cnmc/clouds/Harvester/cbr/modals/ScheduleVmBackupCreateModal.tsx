@@ -17,7 +17,7 @@ import { formatCron } from '../../../../../../utils/cronFormatter';
 
 /**
  * 组件入参
- * - visible: 弹窗是否可见
+ * - open: 弹窗是否可见
  * - onCancel: 关闭回调
  * - onSuccess: 创建成功回调
  * - cloudId: 当前云 ID，用于调用 Harvester API

@@ -290,7 +290,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const adminDefaultHome =
-      role === 'sase_device' ? undefined : resolveAdminDefaultHome(permissions, role);
+      role === 'sase_device' ? undefined : await resolveAdminDefaultHome(permissions, role);
 
     res.json({
       message: '登录成功',
@@ -318,7 +318,7 @@ router.get('/admin-default-home', authMiddleware, async (req: AuthRequest, res: 
     }
     const role = u.isTenantUser ? 'tenant' : String(u.role || '').toLowerCase();
     const permissions = Array.isArray(u.permissions) ? u.permissions : [];
-    const adminDefaultHome = resolveAdminDefaultHome(permissions, role);
+    const adminDefaultHome = await resolveAdminDefaultHome(permissions, role);
     return res.json(adminDefaultHome);
   } catch (error: any) {
     return res.status(500).json({ message: error?.message || '解析失败' });

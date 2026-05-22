@@ -170,7 +170,7 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
   }
   if (innerActiveKey === 'vm_restores') {
     return (
-      <VmRestoreTasksSection cloudId={cloudId} isTenant={isTenant} />
+      <VmRestoreTasksSection cloudId={cloudId} isTenant={isTenant} vms={ecs} />
     );
   }
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;

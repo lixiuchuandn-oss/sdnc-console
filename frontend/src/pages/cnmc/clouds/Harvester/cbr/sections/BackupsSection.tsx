@@ -5,15 +5,21 @@
  */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone  } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { deleteHarvesterBackup } from 'services/harvester/cbr';
-import VmBackupCreateModal from '../../cbr/modals/VmBackupCreateModal';
-import VmRestoreModal from '../../cbr/modals/VmRestoreModal';
+import VmBackupCreateModal from '../modals/VmBackupCreateModal';
+import VmRestoreModal from '../modals/VmRestoreModal';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import {
+  harvesterBackupSourceVmName,
+  isHarvesterCephVmBackup,
+  isSystemNamespace,
+} from '../../../../../../utils/harvesterUtils';
+import { findHarvesterVmDisplayAlias } from '../lib/vmBackupDisplay';
+import { resolveHarvesterSteveViewLink } from '../../shared/lib/harvesterSteveViewLink';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
@@ -83,9 +89,7 @@ const BackupsSection: React.FC<Props> = ({
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState<string>('detail');
-  
-  // 列设置状态
-  
+
   /**
    * 将原始备份列表规范化为表格可直接使用的数据结构
    * 同时按照 type 区分 Backup / Snapshot
@@ -99,12 +103,12 @@ const BackupsSection: React.FC<Props> = ({
         if (itemType !== type) return false;
         // Filter by vmId if provided
         if (vmId) {
-             const target = raw.spec?.source?.name || b.targetVm;
-             if (target !== vmId) return false;
+          const target = harvesterBackupSourceVmName(b);
+          if (target !== vmId) return false;
         }
         if (targetVmPredicate) {
           const ns = raw.metadata?.namespace || b.namespace;
-          const targetName = raw.spec?.source?.name || b.targetVm || '';
+          const targetName = harvesterBackupSourceVmName(b);
           if (!targetName || !targetVmPredicate(ns, targetName)) return false;
         }
         return true;
@@ -113,18 +117,10 @@ const BackupsSection: React.FC<Props> = ({
       const raw = b.rawData || b;
       const itemType = raw.spec?.type || 'backup';
       const ns = raw.metadata?.namespace || b.namespace;
-      const targetName = raw.spec?.source?.name || b.targetVm || '';
-      let targetAlias = '-';
-      try {
-        const vm = (vms || []).find((vm: any) => {
-          const vmNs = vm?.metadata?.namespace || vm?.namespace;
-          const vmName = vm?.metadata?.name || vm?.name;
-          return vmNs === ns && vmName === targetName;
-        });
-        if (vm) {
-          targetAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || '-';
-        }
-      } catch {}
+      const targetName = harvesterBackupSourceVmName(b);
+      const targetAlias = targetName
+        ? findHarvesterVmDisplayAlias(vms, ns, targetName)
+        : '-';
 
       return {
         key: raw.metadata?.uid || b.id || `${ns}-${raw.metadata?.name || b.name}`,
@@ -221,6 +217,7 @@ const BackupsSection: React.FC<Props> = ({
       title: '名称',
       dataIndex: 'alias',
       key: 'alias',
+      fixed: 'left' as const,
       render: (t: string, r: any) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
           <CameraTwoTone/>
@@ -280,28 +277,18 @@ const BackupsSection: React.FC<Props> = ({
           items.push({
             key: 'opsinfo',
             label: '查看YAML',
-            onClick: () => { 
-              // 确保传递完整的 rawData，包含 status 信息
+            onClick: () => {
               const rawRecord = record.raw || record.rawData || record;
-              
-              // 创建新对象，避免直接修改原对象，并确保深度复制 links
+              const isCeph = isHarvesterCephVmBackup(rawRecord);
+              const kind = isCeph ? 'CephVmBackup' : 'VirtualMachineBackup';
+              const view = resolveHarvesterSteveViewLink({ ...rawRecord, kind });
               const recordWithLink = {
                 ...rawRecord,
-                links: rawRecord.links ? { ...rawRecord.links } : {}
+                kind,
+                links: { ...(rawRecord.links || {}), ...(view ? { view } : {}) },
               };
-              
-              // 生成 view link（如果不存在）
-              if (!recordWithLink.links.view) {
-                const ns = recordWithLink.metadata?.namespace || recordWithLink.namespace;
-                const name = recordWithLink.metadata?.name || recordWithLink.name;
-                if (ns && name) {
-                  // VirtualMachineBackup 的 API 路径
-                  recordWithLink.links.view = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`;
-                }
-              }
-              
-              setDrawerRecord(recordWithLink); 
-              setDrawerVisible(true); 
+              setDrawerRecord(recordWithLink);
+              setDrawerVisible(true);
             }
           });
           items.push({ type: 'divider' });
@@ -401,7 +388,7 @@ const BackupsSection: React.FC<Props> = ({
         key="table"
         className="std-table"
         scroll={{ x: true }}
-        bordered={false}
+        bordered={bordered}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}

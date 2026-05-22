@@ -260,7 +260,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({
       }
 
       const created: any = await apiPost('/api/clouds', cloudData);
-      const newId = created?.id ?? created?.data?.id;
+      const newId = created?.cloud?.id ?? created?.id ?? created?.data?.id;
       if (newId) {
         try {
           await updateSystemSetting('favorite.cloudId', String(newId));

@@ -62,7 +62,7 @@
  * ==============================================================================
  */
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -267,6 +267,15 @@ const VmSection: React.FC<Props> = ({
       quickCreate: hasPermissionForAction(perms, CLOUD_VM_QUICK_CREATE_WRITE),
     };
   }, [user?.permissions]);
+
+  useEffect(() => {
+    const onAliasApplied = () => {
+      onRefresh?.(true);
+    };
+    window.addEventListener('harvester:vm-alias-applied', onAliasApplied);
+    return () => window.removeEventListener('harvester:vm-alias-applied', onAliasApplied);
+  }, [onRefresh]);
+
   const handleQuickCreateClick = useCallback(() => {
     if (onCreateVmOverride) {
       onCreateVmOverride();

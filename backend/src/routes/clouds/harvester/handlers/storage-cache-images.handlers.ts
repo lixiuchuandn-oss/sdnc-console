@@ -10,13 +10,18 @@ import https from 'https';
 import os from 'os';
 import path from 'path';
 import { Readable, Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 
 import { Request, Response } from 'express';
 import multer from 'multer';
 import axios from 'axios';
 import { FindOptionsWhere } from 'typeorm';
 
-import { AppDataSource } from '../../../../config/database';
+import {
+  AppDataSource,
+  ensureImageUploadTaskTable,
+  ensureImageUploadTaskTableColumns,
+} from '../../../../config/database';
 import { HarvesterImageInventory } from '../../../../entities/harvester/HarvesterImageInventory';
 import { ImageUploadTask } from '../../../../entities/harvester/ImageUploadTask';
 import { UserSpace } from '../../../../entities/UserSpace';
@@ -25,6 +30,12 @@ import {
   getPublicScenarioNamespaceNames,
   mergePublicScenarioNamespacesFromQuery,
 } from '../../../../services/clouds/harvester/publicNamespaces';
+import {
+  resolveVmImageStorageProfile,
+  buildHarvesterVmImageSpecFields,
+  vmImageCephHarvesterExtraAnnotations,
+  type VmImageStorageProfile,
+} from '../../../../services/clouds/harvester/client';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 
 // ---------------------------------------------------------------------------
@@ -309,12 +320,17 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     const diskFmtLower = String(diskFormat || '').toLowerCase();
     const imageTypeLabel: 'iso' | 'disk' | undefined =
       diskFmtLower === 'iso' ? 'iso' : diskFmtLower === 'qcow2' || diskFmtLower === 'raw' ? 'disk' : undefined;
-    const scName = targetStorageClassName || 'longhorn';
+    const storageProfile = await resolveVmImageStorageProfile(
+      harvesterConn(cloud),
+      targetStorageClassName,
+    );
+    const scName = storageProfile.storageClassName;
     const { labels: createLabels, annotations: createAnnotations } = vmImageHarvesterMetadataLikeUi({
       displayName: displayStr,
       imageTypeLabel,
       imageNameForAnnotation: displayStr,
       storageClassName: scName,
+      storageProfile,
     });
     const body = {
       apiVersion: 'harvesterhci.io/v1beta1',
@@ -326,17 +342,13 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
         labels: createLabels,
         annotations: createAnnotations,
       },
-      spec: {
+      spec: buildHarvesterVmImageSpecFields({
+        profile: storageProfile,
         displayName: displayStr,
         sourceType: sourceType || (url ? 'download' : 'upload'),
         url: url || '',
-        ...(diskFormat ? { diskFormat } : {}),
-        targetStorageClassName: scName,
-        storageClassParameters:
-          storageClassParameters && Object.keys(storageClassParameters).length > 0
-            ? storageClassParameters
-            : DEFAULT_VM_IMAGE_STORAGE_CLASS_PARAMS,
-      },
+        diskFormat,
+      }),
     };
     let json: any;
     try {
@@ -607,13 +619,129 @@ function clampProgress(v: number): number {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
-/** Harvester UI 创建镜像时常用的 Longhorn 参数（与集群默认一致） */
-const DEFAULT_VM_IMAGE_STORAGE_CLASS_PARAMS: Record<string, string> = {
-  dataLocality: 'disabled',
-  migratable: 'true',
-  numberOfReplicas: '3',
-  staleReplicaTimeout: '30',
-};
+function formatImageUploadTaskError(e: any): string {
+  if (axios.isAxiosError(e) && e.response) {
+    const data = e.response.data;
+    const detail =
+      typeof data === 'string'
+        ? data
+        : data != null
+          ? JSON.stringify(data)
+          : e.message;
+    return `Harvester 上传失败 HTTP ${e.response.status}: ${String(detail).slice(0, 800)}`;
+  }
+  if (e?.status && e?.body != null) {
+    const detail = typeof e.body === 'string' ? e.body : JSON.stringify(e.body);
+    return `Harvester API HTTP ${e.status}: ${String(detail).slice(0, 800)}`;
+  }
+  return String(e?.message || e);
+}
+
+/** CDI DataVolume 准入：存储容量至少 1MiB（与 datavolume-validate.cdi.kubevirt.io 一致） */
+const CDI_MIN_UPLOAD_BYTES = 1024 * 1024;
+
+function resolveImageUploadByteTotal(task: ImageUploadTask, body: ImageUploadBodySource): number {
+  const fromBody = Math.max(0, Math.floor(Number(body.byteTotal) || 0));
+  if (fromBody > 0) return fromBody;
+  const fromTask = Math.max(0, Math.floor(Number(task.fileSize) || 0));
+  if (fromTask > 0) return fromTask;
+  if (body.unlinkPath) {
+    try {
+      if (fs.existsSync(body.unlinkPath)) {
+        return Math.max(0, fs.statSync(body.unlinkPath).size || 0);
+      }
+    } catch {
+      /* ignore stat errors */
+    }
+  }
+  return 0;
+}
+
+function assertCdiCompatibleUploadSize(total: number, profile: VmImageStorageProfile): void {
+  if (profile.kind !== 'ceph') return;
+  if (total >= CDI_MIN_UPLOAD_BYTES) return;
+  throw new Error(
+    total > 0
+      ? `镜像文件过小（${total} 字节）；Ceph/CDI 要求 DataVolume 容量至少 1MiB，请选择有效镜像文件`
+      : '无法确定镜像文件大小（0 字节）。请确认文件已完整上传，或检查 Content-Length / X-File-Size 请求头',
+  );
+}
+
+/** Longhorn backingimage 需 512 对齐；Ceph/CDI 使用真实文件字节数 */
+function computeProxyUploadByteSize(total: number, profile: VmImageStorageProfile): number {
+  if (profile.kind === 'ceph') return total;
+  const padding = total % 512 === 0 ? 0 : 512 - (total % 512);
+  return total + padding;
+}
+
+/** 覆盖 upload URL 中已有 size=0 等无效值，避免 CDI 创建 0 容量 DataVolume */
+function withUploadSizeQuery(uploadTarget: string, byteSize: number): string {
+  if (byteSize < 1) return uploadTarget;
+  try {
+    const absolute = /^https?:\/\//i.test(uploadTarget);
+    const u = new URL(uploadTarget, absolute ? undefined : 'http://upload.local');
+    u.searchParams.set('size', String(byteSize));
+    if (absolute) return u.href;
+    return `${u.pathname}${u.search}`;
+  } catch {
+    if (/[?&]size=\d+/i.test(uploadTarget)) {
+      return uploadTarget.replace(/([?&])size=\d+/i, `$1size=${byteSize}`);
+    }
+    const sep = uploadTarget.includes('?') ? '&' : '?';
+    return `${uploadTarget}${sep}size=${byteSize}`;
+  }
+}
+
+/** 将 application/octet-stream 请求体落盘（与 multer 路径一致，避免创建镜像轮询期间不读 body） */
+async function ingestOctetStreamToTempFile(
+  req: Request,
+  destPath: string,
+  expectedSize: number,
+  taskId: string,
+  abortController: AbortController,
+): Promise<void> {
+  bindClientDisconnectAbort(req, abortController);
+  let received = 0;
+  let lastUpdateAt = 0;
+  const counter = new Transform({
+    transform(chunk, _encoding, callback) {
+      if (abortController.signal.aborted) {
+        callback(new Error('CANCELLED'));
+        return;
+      }
+      const n = chunk.length || Buffer.byteLength(chunk);
+      received += n;
+      const now = Date.now();
+      if (now - lastUpdateAt > 400) {
+        lastUpdateAt = now;
+        const ingestProgress =
+          expectedSize > 0 ? clampProgress((received / expectedSize) * 100) : 0;
+        void updateTaskProgress(taskId, {
+          ingestProgress,
+          bytesUploaded: received,
+          progress: Math.max(0, Math.min(5, Math.floor(ingestProgress * 0.05))),
+        }).catch(() => {
+          /* ignore progress DB noise */
+        });
+      }
+      callback(null, chunk);
+    },
+  });
+  await pipeline(req, counter, fs.createWriteStream(destPath));
+  await updateTaskProgress(taskId, {
+    ingestProgress: 100,
+    bytesUploaded: expectedSize > 0 ? Math.min(received, expectedSize) : received,
+    progress: 5,
+  });
+}
+
+function harvesterConn(cloud: any) {
+  return {
+    endpoint: cloud.endpoint,
+    token: cloud.secretKey || '',
+    insecure: !!(cloud.config as any)?.ignoreTls,
+  };
+}
 
 /**
  * 从文件名/展示名猜测 os-type（与 Harvester 控制台展示风格接近；无法识别时为空字符串）
@@ -639,6 +767,7 @@ function vmImageHarvesterMetadataLikeUi(params: {
   imageTypeLabel?: 'iso' | 'disk';
   imageNameForAnnotation: string;
   storageClassName: string;
+  storageProfile?: VmImageStorageProfile;
 }): { labels: Record<string, string>; annotations: Record<string, string> } {
   const dn = String(params.displayName || '').trim() || 'image';
   const labels: Record<string, string> = {
@@ -652,6 +781,7 @@ function vmImageHarvesterMetadataLikeUi(params: {
 
   const annotations: Record<string, string> = {
     'harvesterhci.io/storageClassName': params.storageClassName || 'longhorn',
+    ...(params.storageProfile?.kind === 'ceph' ? vmImageCephHarvesterExtraAnnotations() : {}),
   };
   if (hint) {
     annotations['harvesterhci.io/image-name'] = hint;
@@ -818,11 +948,20 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     const displayLabel = task.displayName || task.filename || 'image-upload-task';
     const imageTypeLabel: 'iso' | 'disk' | undefined =
       uploadDiskFormat === 'iso' ? 'iso' : uploadDiskFormat === 'qcow2' ? 'disk' : undefined;
+    const uploadStorageProfile = await resolveVmImageStorageProfile(harvesterConn(cloud));
+    let uploadByteTotal = resolveImageUploadByteTotal(task, body);
+    assertCdiCompatibleUploadSize(uploadByteTotal, uploadStorageProfile);
+    if (uploadByteTotal > 0 && task.fileSize !== uploadByteTotal) {
+      task.fileSize = uploadByteTotal;
+      await repo.save(task);
+    }
+    const uploadScName = uploadStorageProfile.storageClassName;
     const { labels: uploadLabels, annotations: uploadAnnotations } = vmImageHarvesterMetadataLikeUi({
       displayName: displayLabel,
       imageTypeLabel,
       imageNameForAnnotation: task.filename || displayLabel,
-      storageClassName: 'longhorn',
+      storageClassName: uploadScName,
+      storageProfile: uploadStorageProfile,
     });
     const payload = {
       apiVersion: 'harvesterhci.io/v1beta1',
@@ -833,13 +972,12 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
         labels: uploadLabels,
         annotations: uploadAnnotations,
       },
-      spec: {
+      spec: buildHarvesterVmImageSpecFields({
+        profile: uploadStorageProfile,
         displayName: displayLabel,
         sourceType: 'upload',
-        ...(uploadDiskFormat ? { diskFormat: uploadDiskFormat } : {}),
-        targetStorageClassName: 'longhorn',
-        storageClassParameters: DEFAULT_VM_IMAGE_STORAGE_CLASS_PARAMS,
-      },
+        diskFormat: uploadDiskFormat,
+      }),
     };
     // 与 uploader 对齐：优先 Steve API 创建，兼容 K8s API
     const createCandidates = [
@@ -861,7 +999,9 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
         createLastErr = e;
       }
     }
-    if (!created && createLastErr) throw createLastErr;
+    if (!created && createLastErr) {
+      throw new Error(formatImageUploadTaskError(createLastErr));
+    }
     let uploadUrl = resolveUploadUrl(created);
 
     // 兼容不同 Harvester 版本：创建响应可能没有立即返回 upload URL，需要轮询详情
@@ -906,8 +1046,9 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
         }
       }
 
-      // 轮询 20 次（约 20 秒），等待 controller 回填 upload URL
-      for (let i = 0; i < 20 && !uploadUrl; i++) {
+      // CDI/Ceph 控制器回填 upload URL 通常慢于 Longhorn backingimage
+      const pollMax = uploadStorageProfile.kind === 'ceph' ? 90 : 20;
+      for (let i = 0; i < pollMax && !uploadUrl; i++) {
         await throwIfUploadCancelled(taskId, abortController);
         for (const detailUrl of directDetailCandidates) {
           try {
@@ -936,7 +1077,9 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     await throwIfUploadCancelled(taskId, abortController);
 
     // 2) 通过 Tower 代传文件到 Harvester upload URL
-    const total = body.byteTotal || task.fileSize || 0;
+    const total = uploadByteTotal;
+    assertCdiCompatibleUploadSize(total, uploadStorageProfile);
+    const proxyByteSize = computeProxyUploadByteSize(total, uploadStorageProfile);
     const uploadBasename =
       task.filename ||
       body.preferredBasename ||
@@ -976,12 +1119,9 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
 
     // action=upload 与 uploader 对齐：使用 multipart/form-data + 字段名 chunk + size 参数
     if (uploadTarget.includes('action=upload')) {
-      const padding = total % 512 === 0 ? 0 : 512 - (total % 512);
-      const finalSize = total + padding;
-      const sep = uploadTarget.includes('?') ? '&' : '?';
-      const finalTarget = uploadTarget.includes('size=')
-        ? uploadTarget
-        : `${uploadTarget}${sep}size=${finalSize}`;
+      const finalSize = proxyByteSize;
+      const finalTarget = withUploadSizeQuery(uploadTarget, finalSize);
+      const padding = Math.max(0, finalSize - total);
 
       const boundary = `HarvesterBoundary${Date.now()}${Math.random().toString(16).slice(2)}`;
       const filename = uploadBasename;
@@ -1092,6 +1232,8 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
           },
           validateStatus: (s) => s >= 200 && s < 300,
         });
+      } catch (uploadErr: any) {
+        throw new Error(formatImageUploadTaskError(uploadErr));
       } finally {
         clearInterval(harvesterProgressTimer);
       }
@@ -1109,6 +1251,11 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       const abortOnSignal = () => bump();
       abortController.signal.addEventListener('abort', abortOnSignal, { once: true });
       rawIn.pipe(progressStream);
+      if (total < 1) {
+        throw new Error(
+          '无法确定镜像文件大小，CDI 直传需要有效的 Content-Length（请确认文件已完整落盘）',
+        );
+      }
       try {
         await axios.put(uploadTarget, progressStream, {
           maxBodyLength: Infinity,
@@ -1119,10 +1266,12 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
           headers: {
             Authorization: `Bearer ${cloud.secretKey || ''}`,
             'Content-Type': 'application/octet-stream',
-            ...(total > 0 ? { 'Content-Length': String(total) } : {}),
+            'Content-Length': String(total),
           },
           validateStatus: (s) => s >= 200 && s < 300,
         });
+      } catch (uploadErr: any) {
+        throw new Error(formatImageUploadTaskError(uploadErr));
       } finally {
         abortController.signal.removeEventListener('abort', abortOnSignal);
       }
@@ -1193,10 +1342,12 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       taskStatus: 'failed',
       phase: 'finished',
       errorCode: 'UPLOAD_FAILED',
-      errorMessage: e?.message || String(e),
+      errorMessage: formatImageUploadTaskError(e),
       finishedAt: new Date(),
     });
-    if (body.onProxyComplete && !proxyCompleted) throw e;
+    if (body.onProxyComplete && !proxyCompleted) {
+      throw new Error(formatImageUploadTaskError(e));
+    }
   } finally {
     imageUploadInFlight.delete(taskId);
     imageUploadAbortControllers.delete(taskId);
@@ -1380,6 +1531,21 @@ export async function harvesterImageUploadTokenHandler(req: Request, res: Respon
 /**
  * POST /:id/resources/harvester/images/upload-tasks - 创建上传任务
  */
+async function saveImageUploadTaskRecord(task: ImageUploadTask): Promise<ImageUploadTask> {
+  const repo = AppDataSource.getRepository(ImageUploadTask);
+  try {
+    return await repo.save(task);
+  } catch (first: any) {
+    const msg = String(first?.message || first || '');
+    if (!/no column named/i.test(msg) && !/has no column/i.test(msg)) {
+      throw first;
+    }
+    await ensureImageUploadTaskTable();
+    await ensureImageUploadTaskTableColumns();
+    return await repo.save(task);
+  }
+}
+
 export async function harvesterImageUploadTaskCreateHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
@@ -1389,10 +1555,24 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
     const userId = String((req as any)?.user?.id || '');
     if (!userId) return res.status(401).json({ message: '未登录或用户无效' });
 
-    const repo = AppDataSource.getRepository(ImageUploadTask);
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({ message: '数据库未就绪，请稍后重试' });
+    }
+
+    try {
+      await ensureImageUploadTaskTable();
+    } catch (schemaErr: any) {
+      const detail = schemaErr?.message || String(schemaErr);
+      console.error('[image-upload-task-create] schema init failed:', detail, schemaErr);
+      return res.status(500).json({
+        message: '上传任务表初始化失败',
+        error: detail,
+      });
+    }
+
     const now = new Date();
     const expires = new Date(now.getTime() + 30 * 60 * 1000);
-    const task = repo.create({
+    const task = AppDataSource.getRepository(ImageUploadTask).create({
       cloudId: id,
       namespace,
       displayName: displayName || undefined,
@@ -1407,11 +1587,22 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
       expiresAt: expires,
       retryCount: 0,
     });
-    const saved = await repo.save(task);
+    const saved = await saveImageUploadTaskRecord(task);
     res.json({ message: '创建成功', data: sanitizeTask(saved) });
   } catch (error: any) {
     if (res.headersSent) return;
-    res.status(500).json({ message: '创建上传任务失败', error: error.message });
+    const detail = error?.message || String(error);
+    console.error('[image-upload-task-create]', detail, error);
+    res.status(500).json({
+      message: '创建上传任务失败',
+      error: detail,
+      hint:
+        /no metadata for/i.test(detail)
+          ? '后端未加载 ImageUploadTask 实体，请重新编译并重启服务'
+          : /no column named/i.test(detail) || /has no column/i.test(detail)
+            ? 'image_upload_tasks 表结构过旧；已尝试自动补列仍失败，请重启后端或执行 ALTER TABLE 补列'
+            : undefined,
+    });
   }
 }
 
@@ -1538,7 +1729,7 @@ function parseOctetStreamUploadSizeHeaders(req: Request): number {
   return fromMeta || fromLen;
 }
 
-/** application/octet-stream：校验任务并启动不落盘代传；成功时由 onProxyComplete 写 202 */
+/** application/octet-stream：先落盘再异步代传 Harvester（与 multipart file 路径一致） */
 async function handleHarvesterImageUploadTaskOctetStream(req: Request, res: Response): Promise<void> {
   const { id, taskId } = req.params;
   const user = (req as any)?.user;
@@ -1569,32 +1760,47 @@ async function handleHarvesterImageUploadTaskOctetStream(req: Request, res: Resp
   if (fileSize > 0) task.fileSize = fileSize;
   task.taskStatus = 'ingesting';
   task.phase = 'ingesting';
-  task.ingestProgress = 100;
-  task.progress = 1;
+  task.ingestProgress = 0;
+  task.progress = 0;
   task.bytesUploaded = 0;
   task.startedAt = task.startedAt || new Date();
   task.errorCode = undefined;
   task.errorMessage = undefined;
   await repo.save(task);
 
-  await runImageUploadTaskWithBody(task.id, cloud, {
-    byteTotal: fileSize,
-    preferredBasename: filename,
-    createBodyReadable: () => req,
-    bindRequestStream: req,
-    onProxyComplete: async () => {
-      res.status(202).json({
-        message: '文件已接收，任务执行中',
-        data: { taskId: task.id, status: 'proxying', phase: 'proxying' },
-      });
-    },
+  const tempPath = path.join(imageTaskTempRoot, `${task.id}-${Date.now()}`);
+  const ingestAbort = new AbortController();
+  try {
+    await ingestOctetStreamToTempFile(req, tempPath, fileSize, task.id, ingestAbort);
+  } catch (e: any) {
+    try {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    } catch {
+      /* ignore */
+    }
+    if (isCancelError(e)) return;
+    throw new Error(formatImageUploadTaskError(e) || '接收镜像文件失败');
+  }
+
+  const writtenSize = fs.statSync(tempPath).size || 0;
+  task.fileSize = writtenSize;
+  task.ingestProgress = 100;
+  task.progress = 5;
+  await repo.save(task);
+
+  void runImageUploadTask(task.id, cloud, tempPath).catch((err) => {
+    console.warn('[image-upload-task-octet]', task.id, err?.message || err);
+  });
+
+  res.status(202).json({
+    message: '文件已接收，任务执行中',
+    data: { taskId: task.id, status: 'ingesting', phase: 'ingesting' },
   });
 }
 
 /**
  * POST /:id/resources/harvester/images/upload-tasks/:taskId/file - 上传文件并异步执行
- * - Content-Type: application/octet-stream：请求体为原始流，元数据由 X-File-Name / X-File-Size 提供，Tower 不落盘直转 Harvester；
- *   字节全部转发完成后返回 202，导入进度仍由任务轮询展示。
+ * - Content-Type: application/octet-stream：元数据由 X-File-Name / X-File-Size 提供；先落盘再异步代传 Harvester，接收完成后返回 202。
  * - multipart field=file：兼容旧版浏览器 / 桌面工具（multer 落盘后再代传）。
  */
 export async function harvesterImageUploadTaskFileHandler(req: Request, res: Response) {
@@ -1605,7 +1811,10 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
     } catch (e: any) {
       if (!res.headersSent) {
         if (isCancelError(e)) return;
-        res.status(500).json({ message: '提交上传任务失败', error: e?.message || String(e) });
+        res.status(500).json({
+          message: '上传镜像文件失败',
+          error: formatImageUploadTaskError(e),
+        });
       }
     }
     return;

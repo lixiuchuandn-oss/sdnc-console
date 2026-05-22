@@ -17,14 +17,16 @@
 import React, { useCallback, useEffect, useState, type MutableRefObject } from 'react';
 import { Button, Col, Form, Input, message, Modal, Row, Select, Tabs, Typography, Upload } from 'antd';
 import { DownloadOutlined, PaperClipOutlined } from '@ant-design/icons';
-import { API_BASE_URL } from '../../../../../../services/api';
+import { API_BASE_URL, getApiErrorMessage } from '../../../../../../services/api';
 import {
   createHarvesterImage,
   createHarvesterImageUploadTask,
   fetchHarvesterImageUploadTask,
   fetchHarvesterImages,
+  fetchHarvesterStorageClasses,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
+import { pickDefaultStorageClassName } from '../../../../../../utils/harvesterUtils';
 import { getToken } from '../../../../../../utils/tokenStorage';
 
 // ---------------------------------------------------------------------------
@@ -139,6 +141,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   const [createTab, setCreateTab] = useState<'browser' | 'desktop' | 'url'>('browser');
   const [uploadingTask, setUploadingTask] = useState(false);
   const [toolFile, setToolFile] = useState<File | null>(null);
+  const [defaultStorageClassName, setDefaultStorageClassName] = useState<string | undefined>();
 
   // 每次打开弹窗：清空表单与本地文件，避免上次选择的文件残留
   useEffect(() => {
@@ -147,7 +150,16 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
     form.setFieldsValue({ toolNamespace: 'default', namespace: 'default' });
     setCreateTab('browser');
     setToolFile(null);
-  }, [open, form]);
+    void (async () => {
+      try {
+        const res = await fetchHarvesterStorageClasses(cloudId);
+        const items = res?.data?.items || res?.items || [];
+        setDefaultStorageClassName(pickDefaultStorageClassName(items));
+      } catch {
+        setDefaultStorageClassName(undefined);
+      }
+    })();
+  }, [open, form, cloudId]);
 
   /** URL 导入 Tab：校验 namespace / displayName / url 后创建集群拉取镜像 */
   /** URL 输入失焦：合法 http(s) 时自动补全空的「显示名 / 镜像类型」 */
@@ -178,6 +190,9 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
         sourceType: 'download',
         url: v.url || undefined,
         diskFormat,
+        ...(defaultStorageClassName
+          ? { targetStorageClassName: defaultStorageClassName }
+          : {}),
       });
       message.success('创建成功');
       onClose();
@@ -292,8 +307,8 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
           uploadControllersRef.current.delete(task.id);
         }
       })();
-    } catch (e: any) {
-      message.error(e?.message || '提交上传任务失败');
+    } catch (e: unknown) {
+      message.error(getApiErrorMessage(e, '提交上传任务失败'));
     } finally {
       setUploadingTask(false);
     }

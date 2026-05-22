@@ -91,3 +91,27 @@ export const deleteHarvesterVirtualMachineRestore = async (cloudId: string, name
   const path = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinerestores/${encodeURIComponent(name)}`;
   return await deleteHarvesterResourceByLink(cloudId, path);
 };
+
+const CEPH_VM_RESTORE_LIST_PATHS = [
+  '/apis/hms.rivercloud.com/v1/cephvmrestores',
+  '/v1/hms.rivercloud.com.cephvmrestores',
+] as const;
+
+/** 列出集群内 CephVmRestore（Steve / 标准 API 路径回退） */
+export const fetchHarvesterCephVmRestores = async (cloudId: string, force = false) => {
+  let lastErr: unknown;
+  for (const path of CEPH_VM_RESTORE_LIST_PATHS) {
+    try {
+      return await fetchHarvesterResourceByLink(cloudId, path, force);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (lastErr) throw lastErr;
+  return { items: [] };
+};
+
+export const deleteHarvesterCephVmRestore = async (cloudId: string, namespace: string, name: string) => {
+  const path = `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(namespace)}/cephvmrestores/${encodeURIComponent(name)}`;
+  return await deleteHarvesterResourceByLink(cloudId, path);
+};

@@ -510,7 +510,10 @@ export const fetchHarvesterVolumes = async (
  */
 export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?: string) => {
   const qs = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/available-volumes${qs}`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/available-volumes${qs}`,
+    { skipCache: true },
+  );
 };
 
 /**
@@ -685,7 +688,7 @@ export const createHarvesterVolumeSnapshot = async (cloudId: string, namespace: 
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
  * @param snapshotName 快照名称
- * @param payload 恢复配置，包含卷名称、存储类名称、大小、访问模式和卷模式
+ * @param payload 恢复配置（卷名称、存储类、别名等）；卷模式由后端按源 PVC 继承，访问模式固定 RWX
  * @returns Promise<any>
  */
 export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string; alias?: string }) => {

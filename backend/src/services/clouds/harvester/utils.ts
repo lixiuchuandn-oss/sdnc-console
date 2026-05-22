@@ -68,19 +68,111 @@ const getAgent = (target: string, insecure: boolean) => {
 };
 
 /**
+ * 从 Kubernetes / Harvester API 错误体解析 Status.message（及 reason、details）。
+ */
+export function extractKubernetesStatusMessage(body: unknown): string {
+  if (body == null) return '';
+  if (typeof body === 'string') {
+    const s = body.trim();
+    if (!s) return '';
+    try {
+      return extractKubernetesStatusMessage(JSON.parse(s));
+    } catch {
+      return s.length > 800 ? `${s.slice(0, 800)}…` : s;
+    }
+  }
+  if (typeof body !== 'object') return '';
+
+  const b = body as Record<string, unknown>;
+  const parts: string[] = [];
+
+  const push = (v: unknown) => {
+    const s = typeof v === 'string' ? v.trim() : '';
+    if (s && !parts.includes(s)) parts.push(s);
+  };
+
+  push(b.message);
+  if (b.reason && b.reason !== b.message) push(b.reason);
+  if (typeof b.status === 'string' && b.status !== 'Failure' && b.status !== b.message) {
+    push(b.status);
+  }
+
+  if (Array.isArray(b.details)) {
+    for (const d of b.details) {
+      if (!d || typeof d !== 'object') continue;
+      const item = d as Record<string, unknown>;
+      push(item.message);
+      if (Array.isArray(item.causes)) {
+        for (const c of item.causes) {
+          if (c && typeof c === 'object') {
+            push((c as Record<string, unknown>).message);
+          }
+        }
+      }
+    }
+  }
+
+  if (b.error && typeof b.error === 'object') {
+    const nested = extractKubernetesStatusMessage(b.error);
+    if (nested && !parts.includes(nested)) parts.push(nested);
+  }
+
+  return parts.join('；');
+}
+
+/** 热迁移失败时返回给前端的统一文案（含集群 Status.message） */
+export function formatVmMigrateFailureMessage(error: {
+  status?: number;
+  body?: unknown;
+  message?: string;
+}): string {
+  const kubeMsg = extractKubernetesStatusMessage(error?.body);
+  const raw = String(error?.message || '').trim();
+  let detail = kubeMsg;
+  if (!detail && raw && !/^HTTP \d+$/i.test(raw)) {
+    detail = raw
+      .replace(/^请求无效：/, '')
+      .replace(/^权限不足：/, '')
+      .replace(/^无法迁移：\s*/, '')
+      .trim();
+  }
+  if (detail) {
+    return `无法迁移：${detail.replace(/^无法迁移：\s*/, '')}`;
+  }
+  return '无法迁移：集群拒绝了本次热迁移请求，请检查虚拟机是否运行中、存储是否支持热迁移、目标节点是否满足调度与存储约束';
+}
+
+/**
  * [错误翻译]
  * 将常见的网络/系统错误代码转换为中文描述。
  */
 const translateErrorMessage = (error: any): string => {
   const code = error?.code || error?.message;
   const status = error?.status;
+  const kubeDetail = extractKubernetesStatusMessage(error?.body);
 
+  if (status === 400) {
+    return kubeDetail ? `请求无效：${kubeDetail}` : '请求无效：集群拒绝了该操作';
+  }
+  if (status === 422) {
+    return kubeDetail ? `请求无法处理：${kubeDetail}` : '请求无法处理：参数或状态不符合要求';
+  }
   if (status === 401) return '认证失败：Token 已过期或无效';
-  if (status === 403) return '权限不足：当前账号无权执行此操作';
-  if (status === 404) return '资源未找到：对象不存在或 API 路径不可用';
-  if (status === 409) return '资源版本冲突：对象有更新，请更新到最新的版本后重试';
+  if (status === 403) {
+    return kubeDetail ? `权限不足：${kubeDetail}` : '权限不足：当前账号无权执行此操作';
+  }
+  if (status === 404) {
+    return kubeDetail ? `资源未找到：${kubeDetail}` : '资源未找到：对象不存在或 API 路径不可用';
+  }
+  if (status === 409) {
+    return kubeDetail
+      ? `资源版本冲突：${kubeDetail}`
+      : '资源版本冲突：对象有更新，请更新到最新的版本后重试';
+  }
   if (status === 500) return '服务器内部错误：Harvester 集群响应异常';
   if (status === 502 || status === 503 || status === 504) return '网关错误：无法连接到 Harvester 控制平面';
+
+  if (kubeDetail) return kubeDetail;
 
   switch (code) {
     case 'ECONNRESET':
@@ -418,10 +510,14 @@ export const requestJson = (
             let errorBody = text;
             try { errorBody = JSON.parse(text); } catch {}
             
-            reject({ 
-                status, 
-                body: errorBody, 
-                message: translateErrorMessage({ status, message: `HTTP ${status}` }) 
+            reject({
+              status,
+              body: errorBody,
+              message: translateErrorMessage({
+                status,
+                body: errorBody,
+                message: `HTTP ${status}`,
+              }),
             });
           }
         });
