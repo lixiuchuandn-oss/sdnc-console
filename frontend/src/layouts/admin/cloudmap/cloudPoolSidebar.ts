@@ -147,7 +147,7 @@ export const LEGACY_CLOUDMAP_POOL_TAB_TO_CANONICAL: Record<string, CloudmapPoolT
 
 const CLOUDMAP_TAB_LABEL: Record<CloudmapPoolTabKey, string> = {
   resource_hub: '资源总览',
-  monitoring_alerts: '监控告警',
+  monitoring_alerts: '云监控',
   cluster: '集群',
   compute: '云主机',
   paas_databases: '云数据库',

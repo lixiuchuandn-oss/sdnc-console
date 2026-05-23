@@ -409,6 +409,59 @@ export function fetchAlertsRules(
   return apiGet(`${base(cloudId)}/alerts-rules${q ? `?${q}` : ''}`, options);
 }
 
+export interface MonitoringAccessPrometheusInstance {
+  name: string;
+  namespace: string;
+  version?: string;
+  image?: string;
+  replicas?: number;
+  availableReplicas?: number;
+  retention?: string;
+  retentionSize?: string;
+  externalUrl?: string;
+  scrapeInterval?: string;
+  evaluationInterval?: string;
+  serviceAccountName?: string;
+  cpuRequest?: string;
+  memoryRequest?: string;
+  cpuLimit?: string;
+  memoryLimit?: string;
+  serviceMonitorSelector?: string;
+  podMonitorSelector?: string;
+  podSummary?: {
+    total: number;
+    running: number;
+    ready: number;
+    notReady: number;
+  };
+  healthStatus?: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  healthReason?: string;
+  createdAt?: string;
+  labels?: Record<string, string>;
+}
+
+export interface MonitoringAccessTarget {
+  type: 'ServiceMonitor' | 'PodMonitor';
+  name: string;
+  namespace: string;
+  endpointsCount?: number;
+  createdAt?: string;
+  labels?: Record<string, string>;
+  selector?: Record<string, unknown>;
+}
+
+export function fetchMonitoringAccessManagement(
+  cloudId: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = `?_=${Date.now()}`;
+  return apiGet<{
+    prometheusInstances: MonitoringAccessPrometheusInstance[];
+    monitorTargets: MonitoringAccessTarget[];
+  }>(`${base(cloudId)}/access-management${q}`, { signal: options?.signal, cache: 'no-store' });
+}
+
 export function fetchVirtualMachines(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiGet(`${base(cloudId)}/virtualmachines`, options);
@@ -621,8 +674,10 @@ export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { si
 /** 告警密钥项：与后端 GET /monitoring/secrets 列表元素、GET /monitoring/secrets/:namespace/:name 详情一致。data 的值为 Base64 编码。 */
 export interface OpaqueSecretItem {
   name: string;
+  namespace?: string;
   type?: string;
   data: Record<string, string>;
+  annotations?: Record<string, string>;
 }
 
 /** 查-列表：告警密钥（labels: monitoring-receiver-secret=true）。GET /monitoring/secrets?namespace=&datasource=，返回 { name, data, type }[] */
@@ -646,20 +701,43 @@ export function fetchSecretDetail(
   options?: { signal?: AbortSignal }
 ) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiGet<OpaqueSecretItem & { namespace?: string }>(
+  return apiGet<OpaqueSecretItem>(
     `${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
     options
   );
 }
 
 /** 增：新增告警密钥。POST /monitoring/secrets，body.metadata.namespace/name 必填，body.data 为键值对且值需已 Base64 编码 */
-export function createSecret(cloudId: string, body: { metadata: { namespace: string; name: string; labels?: Record<string, string> }; data: Record<string, string>; type?: string }) {
+export function createSecret(
+  cloudId: string,
+  body: {
+    metadata: {
+      namespace: string;
+      name: string;
+      labels?: Record<string, string>;
+      annotations?: Record<string, string>;
+    };
+    data: Record<string, string>;
+    type?: string;
+  }
+) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiPostPut(`${base(cloudId)}/secrets`, 'POST', body);
 }
 
 /** 改：修改告警密钥。PUT /monitoring/secrets/:namespace/:name，body.data 为键值对且值需已 Base64 编码 */
-export function updateSecret(cloudId: string, namespace: string, name: string, body: { data: Record<string, string>; type?: string }) {
+export function updateSecret(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  body: {
+    data: Record<string, string>;
+    type?: string;
+    metadata?: {
+      annotations?: Record<string, string>;
+    };
+  }
+) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
   return apiPostPut(
     `${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,

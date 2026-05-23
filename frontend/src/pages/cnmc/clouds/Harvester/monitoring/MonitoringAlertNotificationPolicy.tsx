@@ -56,7 +56,7 @@ import {
   RECEIVER_NAME_OPTIONS,
   type ReceiverName,
   type ReceiverSpec,
-} from './utils/receivers';
+} from './lib/receivers';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 
@@ -962,7 +962,20 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           const alias = (row.metadata?.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString().trim();
           return (
             <Space size={6}>
-              <span>{alias || name || '-'}</span>
+              <span
+                className="cell-link"
+                onClick={() => handleOpenDetail(row)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleOpenDetail(row);
+                  }
+                }}
+              >
+                {alias || name || '-'}
+              </span>
               <Button
                 type="text"
                 size="small"

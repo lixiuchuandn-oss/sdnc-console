@@ -5,6 +5,7 @@ import MonitoringPrometheusRules from '../../../../Harvester/monitoring/Monitori
 import MonitoringAlertNotificationPolicy from '../../../../Harvester/monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from '../../../../Harvester/monitoring/MonitoringAlertNotificationTargets';
 import MonitoringAlertSecrets from '../../../../Harvester/monitoring/MonitoringAlertSecrets';
+import MonitoringAccessManagement from '../../../../Harvester/monitoring/MonitoringAccessManagement';
 import { MonitoringProvider } from '../../../../Harvester/monitoring/context/MonitoringContext';
 
 export type CloudmapMonitoringAlertsTabProps = {
@@ -19,6 +20,7 @@ function canViewMonitoringInner(key: string, checkPerm: (a: string) => boolean):
   if (key === 'notification-policy') return checkPerm('clouds.alert-policies:read');
   if (key === 'notification-targets') return checkPerm('clouds.alert-receivers:read');
   if (key === 'alert-secrets') return checkPerm('clouds.alert-secrets:read');
+  if (key === 'access-management') return checkPerm('clouds.alerts:read');
   return false;
 }
 
@@ -48,6 +50,9 @@ const CloudmapMonitoringAlertsTab: React.FC<CloudmapMonitoringAlertsTabProps> = 
       break;
     case 'alert-secrets':
       body = <MonitoringAlertSecrets cloudId={cloudId} />;
+      break;
+    case 'access-management':
+      body = <MonitoringAccessManagement cloudId={cloudId} />;
       break;
     default:
       body = <Empty description="未知页面" style={{ marginTop: 48 }} />;

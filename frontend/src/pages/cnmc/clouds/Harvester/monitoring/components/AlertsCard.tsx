@@ -22,7 +22,7 @@ export const AlertsCard: React.FC = () => {
       alertsList: list,
       levelConfig: {
         critical: { color: CRITICAL_COLOR, label: '严重', count: criticalCount },
-        warning: { color: WARNING_COLOR, label: '警告', count: warningCount },
+        warning: { color: WARNING_COLOR, label: '警告', count: warningCount }
       },
     };
   }, [alertsData]);

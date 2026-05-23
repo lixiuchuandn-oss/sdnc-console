@@ -109,10 +109,10 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     id: 'cloudmap-pool-mon-alerts',
     pathSuffix: 'monitoring_alerts/alerts-list',
     poolPageAction: 'clouds.alerts:read',
-    title: '告警列表',
+    title: '运维监控',
     order: 20,
     icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
+    poolNavGroup: '云监控',
     poolMenuParentKey: MON,
   },
   {
@@ -122,7 +122,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     title: '告警规则',
     order: 21,
     icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
+    poolNavGroup: '云监控',
     poolMenuParentKey: MON,
   },
   {
@@ -132,7 +132,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     title: '告警通知策略',
     order: 22,
     icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
+    poolNavGroup: '云监控',
     poolMenuParentKey: MON,
   },
   {
@@ -142,7 +142,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     title: '告警通知对象',
     order: 23,
     icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
+    poolNavGroup: '云监控',
     poolMenuParentKey: MON,
   },
   {
@@ -152,7 +152,17 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     title: '告警密钥',
     order: 24,
     icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
+    poolNavGroup: '云监控',
+    poolMenuParentKey: MON,
+  },
+  {
+    id: 'cloudmap-pool-mon-access-management',
+    pathSuffix: 'monitoring_alerts/access-management',
+    poolPageAction: 'clouds.alerts:read',
+    title: '接入管理',
+    order: 24.5,
+    icon: 'AlertOutlined',
+    poolNavGroup: '云监控',
     poolMenuParentKey: MON,
   },
 

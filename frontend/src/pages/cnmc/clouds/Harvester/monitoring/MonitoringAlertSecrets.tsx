@@ -387,7 +387,20 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         const name = (r.name ?? '').toString().trim();
         return (
           <Space size={6}>
-            <span>{alias || name || '-'}</span>
+            <span
+              className="cell-link"
+              onClick={() => handleDetail(r)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleDetail(r);
+                }
+              }}
+            >
+              {alias || name || '-'}
+            </span>
             <Button
               type="text"
               size="small"

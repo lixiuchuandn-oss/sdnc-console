@@ -95,6 +95,7 @@ import {
 } from './handlers/ceph-rgw-s3-gateway-binding.handlers';
 import {
   harvesterMonitoringAlertsRulesHandler,
+  harvesterMonitoringAccessManagementHandler,
   harvesterMonitoringPrometheusRulesHandler,
   harvesterMonitoringPrometheusRulesGroupsHandler,
   harvesterMonitoringVmCustomRulesHandler,
@@ -464,6 +465,13 @@ export function registerHarvesterServiceRoutesProvider(
     'cloudmap.edge': harvesterMonitoringAlertsRulesHandler,
   };
 
+  const monitoringAccessManagementHandlers = {
+    harvester: harvesterMonitoringAccessManagementHandler,
+    cloudmap: harvesterMonitoringAccessManagementHandler,
+    'cloudmap.private': harvesterMonitoringAccessManagementHandler,
+    'cloudmap.edge': harvesterMonitoringAccessManagementHandler,
+  };
+
   const monitoringPrometheusRulesHandlers = {
     harvester: harvesterMonitoringPrometheusRulesHandler,
     cloudmap: harvesterMonitoringPrometheusRulesHandler,
@@ -829,6 +837,7 @@ export function registerHarvesterServiceRoutesProvider(
 
   // Rules
   router.get('/:id/monitoring/alerts-rules', checkAdminPermission, createProviderRouter(monitoringAlertsRulesHandlers));
+  router.get('/:id/monitoring/access-management', checkAdminPermission, createProviderRouter(monitoringAccessManagementHandlers));
   router.get('/:id/monitoring/prometheusrules', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesHandlers));
   router.get('/:id/monitoring/prometheusrules-groups', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesGroupsHandlers));
   router.get('/:id/monitoring/prometheusrules/vm-custom-rules', checkAdminPermission, createProviderRouter(monitoringVmCustomRulesHandlers));
