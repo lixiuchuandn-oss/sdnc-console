@@ -3,7 +3,7 @@
  */
 import React, { useMemo } from 'react';
 import { Card, Typography, Progress, Spin } from 'antd';
-import { CloudServerOutlined } from '@ant-design/icons';
+import { DatabaseOutlined } from '@ant-design/icons';
 import { useMonitoringOverviewFastLane } from '../MonitoringOverviewLanesContext';
 import { parseNodesToHostSegments } from '../lib/hostSegments';
 
@@ -26,7 +26,7 @@ export const HostsCard: React.FC = () => {
       size="small"
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <CloudServerOutlined style={{ color: '#1677ff', fontSize: 20 }} />
+          <DatabaseOutlined style={{ color: '#1677ff', fontSize: 20 }} />
           <span style={{ fontSize: 16 }}>物理主机</span>
         </span>
       }

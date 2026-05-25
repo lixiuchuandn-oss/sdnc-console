@@ -67,7 +67,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Space, message, Modal, Tooltip, App, Badge, Input, Select, Button, Typography, Checkbox, Drawer } from 'antd';
 import { DeleteOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined, SettingOutlined } from '@ant-design/icons';
-import { restoreHarvesterVm, forceDeleteHarvesterVm } from '../../../../../../services/harvesterApi';
+import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/vm';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { cnVmStatus, isSystemNamespace } from '../../../../../../utils/harvesterUtils';

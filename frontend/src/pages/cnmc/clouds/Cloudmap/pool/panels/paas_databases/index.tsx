@@ -5,7 +5,7 @@ import React from 'react';
 import { Empty } from 'antd';
 import { PaasSection } from '../../../../Harvester/cloud-database';
 
-export type CloudmapCloudDatabaseTabsProps = {
+export type CloudmapCloudDatabaseRoutePanelProps = {
   cloudId: string;
   innerActiveKey: string;
 
@@ -29,7 +29,7 @@ export type CloudmapCloudDatabaseTabsProps = {
   capabilities?: any;
 };
 
-const CloudmapCloudDatabaseTabs: React.FC<CloudmapCloudDatabaseTabsProps> = ({
+const CloudmapCloudDatabaseRoutePanel: React.FC<CloudmapCloudDatabaseRoutePanelProps> = ({
   cloudId,
   innerActiveKey,
   ecs,
@@ -73,4 +73,4 @@ const CloudmapCloudDatabaseTabs: React.FC<CloudmapCloudDatabaseTabsProps> = ({
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapCloudDatabaseTabs;
+export default CloudmapCloudDatabaseRoutePanel;

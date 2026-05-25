@@ -5,7 +5,7 @@ import CephObjectStorageSection from '../../../../Harvester/ceph/sections/CephOb
 import RgwObjectStoreUsersSection from '../../../../Harvester/ceph/sections/RgwObjectStoreUsersSection';
 import RgwS3BucketsSection from '../../../../Harvester/ceph/sections/RgwS3BucketsSection';
 
-export type CloudmapObjectStorageGroupTabsProps = {
+export type CloudmapObjectStorageRoutePanelProps = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
@@ -30,7 +30,7 @@ function canViewObjectStorageInner(key: string, checkPerm: (a: string) => boolea
  * Cloudmap 池 — 对象存储：`object_storage/*`；网关/COSI 自拉 bundle。
  * 布局与各区块样式对齐云存储「虚拟云盘」等池内一级页（`PageDetailSection` + `std-table`）。
  */
-const CloudmapObjectStorageGroupTabs: React.FC<CloudmapObjectStorageGroupTabsProps> = ({
+const CloudmapObjectStorageRoutePanel: React.FC<CloudmapObjectStorageRoutePanelProps> = ({
   cloudId,
   checkPerm,
   innerActiveKey,
@@ -53,4 +53,4 @@ const CloudmapObjectStorageGroupTabs: React.FC<CloudmapObjectStorageGroupTabsPro
   }
 };
 
-export default CloudmapObjectStorageGroupTabs;
+export default CloudmapObjectStorageRoutePanel;

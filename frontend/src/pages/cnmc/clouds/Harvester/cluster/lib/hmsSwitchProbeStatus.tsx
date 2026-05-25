@@ -1,6 +1,7 @@
 /** HSM/ASW-CTL 单维度探测状态（与 PhysicalSwitchProbeTabs 语义一致） */
 import React from 'react';
 import { Tag } from 'antd';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import {
   parseSwitchProductModelFromInfoLines,
   switchRecordManagementHost,
@@ -9,7 +10,7 @@ import {
 export type HmsProbeDimState = 'ok' | 'err' | 'warn' | 'none';
 
 export function resolveHmsProbeDimState(
-  record: any | null | undefined,
+  record: AswCtlSwitchProbeRecord | null | undefined,
   opts: {
     errorKey: string;
     dataKey: string;
@@ -17,10 +18,11 @@ export function resolveHmsProbeDimState(
   },
 ): HmsProbeDimState {
   if (!record) return 'none';
-  if (record[opts.errorKey]) return 'err';
-  const data = record[opts.dataKey];
+  const row = record as Record<string, unknown>;
+  if (row[opts.errorKey]) return 'err';
+  const data = row[opts.dataKey] as { ok?: boolean } | undefined;
   if (data && data.ok === false) return 'err';
-  if (opts.naKey && record[opts.naKey]) return 'warn';
+  if (opts.naKey && row[opts.naKey]) return 'warn';
   if (data) return 'ok';
   return 'none';
 }
@@ -46,7 +48,9 @@ export function HmsProbeDimTag({
   return <Tag>{text}</Tag>;
 }
 
-export function hmsServiceHealthState(aggregate: any | null | undefined): HmsProbeDimState {
+export function hmsServiceHealthState(
+  aggregate: AswCtlSwitchProbeRecord | null | undefined,
+): HmsProbeDimState {
   if (!aggregate) return 'none';
   if (aggregate.healthError) return 'err';
   if (aggregate.healthNotApplicable) return 'warn';
@@ -54,12 +58,12 @@ export function hmsServiceHealthState(aggregate: any | null | undefined): HmsPro
   return 'none';
 }
 
-export function switchProbeProductModel(probe: any | null | undefined): string {
+export function switchProbeProductModel(probe: AswCtlSwitchProbeRecord | null | undefined): string {
   if (!probe) return '';
   return parseSwitchProductModelFromInfoLines(probe.info?.lines) || '';
 }
 
-export function switchProbeMatchedHost(probe: any | null | undefined): string {
+export function switchProbeMatchedHost(probe: AswCtlSwitchProbeRecord | null | undefined): string {
   if (!probe) return '';
   const h = switchRecordManagementHost(probe);
   return h !== '—' ? h : '';

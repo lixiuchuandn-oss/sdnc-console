@@ -4,6 +4,7 @@ import { API_BASE_URL } from '../services/api';
 import { getPublicAdminAuthConfig } from '../services/systemApi';
 import { usePageIdleLogout } from '../hooks/usePageIdleLogout';
 import { getToken, setToken as saveToken, removeToken } from '../utils/tokenStorage';
+import { buildLoginRequestBody } from '../utils/loginPasswordCipher';
 
 /**
  * 用户对象
@@ -200,12 +201,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (username: string, password: string): Promise<User> => {
     try {
+      const loginBody = await buildLoginRequestBody(API_BASE_URL, username, password);
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(loginBody),
       });
 
       if (!response.ok) {

@@ -7,7 +7,7 @@ import { Table, Button, Input, Badge, Tooltip, Dropdown, message, Modal, Select 
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CalendarOutlined } from '@ant-design/icons';
 import { formatCron } from '../../../../../../utils/cronFormatter';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
-import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';

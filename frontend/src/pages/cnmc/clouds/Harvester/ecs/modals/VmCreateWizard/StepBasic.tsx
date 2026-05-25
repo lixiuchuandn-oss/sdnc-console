@@ -31,7 +31,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert, Tooltip, Spin } from 'antd';
 import { ReloadOutlined, LoadingOutlined, QuestionCircleOutlined } from '@ant-design/icons';
-import { fetchHarvesterCapabilities } from '../../../../../../../services/harvesterApi';
+import { fetchHarvesterCapabilities } from 'services/harvester/vm';
 import {
   isSystemNamespace,
   pickFirstNamespaceRecordByScenarioForOptions,

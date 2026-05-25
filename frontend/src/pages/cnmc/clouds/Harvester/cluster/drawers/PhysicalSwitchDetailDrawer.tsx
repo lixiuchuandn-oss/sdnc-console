@@ -8,9 +8,11 @@ import PhysicalSwitchProbeTabs, {
   type PhysicalSwitchProbeTabKey,
 } from '../components/PhysicalSwitchProbeTabs';
 
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
+
 export type PhysicalSwitchDetailDrawerProps = {
   open: boolean;
-  record: any | null;
+  record: AswCtlSwitchProbeRecord | null;
   onClose: () => void;
   /** 本次打开抽屉时默认选中的 Tab（仅在 open 由关→开时应用一次） */
   initialTab?: PhysicalSwitchProbeTabKey;

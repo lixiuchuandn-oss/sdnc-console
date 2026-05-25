@@ -26,7 +26,8 @@ import HarvesterTemplateDetailDrawer from '../../shared/components/HarvesterTemp
 import HarvesterOpsinfoDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
-import { createHarvesterVmFromTemplate, deleteHarvesterResourceByLink } from '../../../../../../services/harvesterApi';
+import { createHarvesterVmFromTemplate } from 'services/harvester/vm';
+import { deleteHarvesterResourceByLink } from 'services/harvester/resource';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 

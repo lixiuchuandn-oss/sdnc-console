@@ -1,8 +1,13 @@
 /**
  * 物理交换机表格行 / ASW-CTL 实例 record 的字段读取（Harvester · cluster · ASW-CTL）。
  */
+import type { HmsSwitchCr } from 'services/harvester/types/cluster';
+import type {
+  AswCtlProbeLine,
+  AswCtlSwitchProbeRecord,
+} from 'services/harvester/types/aswProbe';
 
-export function switchRecordManagementHost(r: any): string {
+export function switchRecordManagementHost(r: AswCtlSwitchProbeRecord | null | undefined): string {
   const h =
     r?.info?.host ||
     r?.interfaces?.host ||
@@ -14,13 +19,16 @@ export function switchRecordManagementHost(r: any): string {
 }
 
 /** Switch CR 声明的管理地址（primaryHost 优先） */
-export function hmsSwitchCrManagementHost(cr: any): string {
+export function hmsSwitchCrManagementHost(cr: HmsSwitchCr | null | undefined): string {
   const spec = cr?.spec || {};
   return String(spec.primaryHost || spec.hosts?.[0] || '').trim();
 }
 
 /** 按管理地址在 ASW-CTL 探测列表中匹配单台交换机实例 */
-export function matchAswProbeRecordByCr(items: any[] | undefined, cr: any): any | null {
+export function matchAswProbeRecordByCr(
+  items: AswCtlSwitchProbeRecord[] | undefined,
+  cr: HmsSwitchCr | null | undefined,
+): AswCtlSwitchProbeRecord | null {
   if (!Array.isArray(items) || !cr) return null;
   const host = hmsSwitchCrManagementHost(cr);
   if (!host) return null;
@@ -33,7 +41,7 @@ export function matchAswProbeRecordByCr(items: any[] | undefined, cr: any): any 
   return null;
 }
 
-export function switchRecordDeviceProfile(r: any): string {
+export function switchRecordDeviceProfile(r: AswCtlSwitchProbeRecord | null | undefined): string {
   const p =
     r?.info?.device_profile ||
     r?.interfaces?.device_profile ||
@@ -44,7 +52,7 @@ export function switchRecordDeviceProfile(r: any): string {
 }
 
 /** 从 /v1/switch/info 的 lines[].stdout 抽取交换机展示名（WOS Name、Host/System Name、华为 sysname 等；威努特不用整段 Description 作名称）。 */
-export function parseSwitchDisplayNameFromInfoLines(lines: any[] | undefined): string {
+export function parseSwitchDisplayNameFromInfoLines(lines: AswCtlProbeLine[] | undefined): string {
   if (!Array.isArray(lines)) return '';
   for (const ln of lines) {
     const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
@@ -91,7 +99,7 @@ export function parseSwitchDisplayNameFromInfoLines(lines: any[] | undefined): s
 /**
  * 从 info 各命令 stdout 抽取硬件型号（如华为 `display version` 中的 `HUAWEI S5720S-28P-LI-AC`；威努特 WOS 的 `WES6300 V2R01C02`）。
  */
-export function parseSwitchProductModelFromInfoLines(lines: any[] | undefined): string {
+export function parseSwitchProductModelFromInfoLines(lines: AswCtlProbeLine[] | undefined): string {
   if (!Array.isArray(lines)) return '';
   for (const ln of lines) {
     const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
@@ -129,19 +137,19 @@ export function parseSwitchProductModelFromInfoLines(lines: any[] | undefined): 
   return '';
 }
 
-export function isWinicssecSwitchRecord(r: any): boolean {
+export function isWinicssecSwitchRecord(r: AswCtlSwitchProbeRecord | null | undefined): boolean {
   return /winicssec|winics|wos/i.test(switchRecordDeviceProfile(r));
 }
 
 /** 从 record 各探测块 stdout 拼成一段文本，供厂商指纹判断（不持久化）。 */
-function switchRecordStdoutsBlob(r: any): string {
+function switchRecordStdoutsBlob(r: AswCtlSwitchProbeRecord): string {
   if (!r || typeof r !== 'object') return '';
   const parts: string[] = [];
   for (const key of ['info', 'interfaces', 'performance', 'vlans'] as const) {
-    const lines = (r as any)?.[key]?.lines;
+    const lines = r[key]?.lines;
     if (!Array.isArray(lines)) continue;
     for (const ln of lines) {
-      const out = typeof (ln as any)?.stdout === 'string' ? (ln as any).stdout : '';
+      const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
       if (out.trim()) parts.push(out);
     }
   }
@@ -152,7 +160,7 @@ function switchRecordStdoutsBlob(r: any): string {
  * 华为交换机（VRP）：`device_profile` 或各命令回显中含 HUAWEI / VRP 等特征。
  * 与 Winicssec 互斥：已判为 Winicssec 则不再视为华为。
  */
-export function isHuaweiSwitchRecord(r: any): boolean {
+export function isHuaweiSwitchRecord(r: AswCtlSwitchProbeRecord | null | undefined): boolean {
   if (!r) return false;
   if (isWinicssecSwitchRecord(r)) return false;
   const p = switchRecordDeviceProfile(r);
@@ -282,7 +290,7 @@ function mergePsuFromStdout(text: string, out: PerformanceMetricsParsed) {
   if (line) out.psu = line.trim().slice(0, 96);
 }
 
-function parsePerformanceMetrics(lines: any[] | undefined): PerformanceMetricsParsed {
+function parsePerformanceMetrics(lines: AswCtlProbeLine[] | undefined): PerformanceMetricsParsed {
   const out: PerformanceMetricsParsed = {};
   if (!Array.isArray(lines)) return out;
   for (const ln of lines) {
@@ -305,10 +313,10 @@ function parsePerformanceMetrics(lines: any[] | undefined): PerformanceMetricsPa
 }
 
 /** 合并 performance；若仍缺 CPU/内存，再从 info 各命令 stdout 里扫一遍 */
-export function buildPerformanceMetrics(record: any): PerformanceMetricsParsed {
+export function buildPerformanceMetrics(record: AswCtlSwitchProbeRecord | null | undefined): PerformanceMetricsParsed {
   const out = parsePerformanceMetrics(record?.performance?.lines);
   if (record?.info?.lines && (!out.cpu || !out.memory)) {
-    for (const ln of record.info.lines as any[]) {
+    for (const ln of record.info.lines) {
       const stdout = typeof ln?.stdout === 'string' ? ln.stdout : '';
       if (!stdout.trim()) continue;
       mergeCpuMemoryFromStdout(stdout, out);

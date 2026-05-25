@@ -3,7 +3,7 @@
  */
 import React, { useMemo } from 'react';
 import { Card, Typography, Spin } from 'antd';
-import { ThunderboltOutlined } from '@ant-design/icons';
+import { DashboardOutlined } from '@ant-design/icons';
 import { useMonitoringOverviewFastLane } from '../MonitoringOverviewLanesContext';
 import { aggregateNodeResources, aggregateNodeMetrics } from '../lib/nodeResourceMetrics';
 
@@ -47,7 +47,7 @@ export const CPUCard: React.FC = () => {
       size="small"
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <ThunderboltOutlined style={{ color: '#1677ff', fontSize: 20, marginTop: 3 }} />
+          <DashboardOutlined style={{ color: '#1677ff', fontSize: 20, marginTop: 3 }} />
           <span style={{ fontSize: 16 }}>CPU</span>
         </span>
       }

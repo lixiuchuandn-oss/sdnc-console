@@ -2,8 +2,8 @@
  * Harvester cluster · NamespacesSection 纯逻辑（表格过滤、YAML link）。
  */
 
-import type { NamespaceSectionKind } from '../../../../../../utils/harvesterUtils';
-import { namespaceSectionType } from '../../../../../../utils/harvesterUtils';
+import type { NamespaceSectionKind } from 'utils/harvesterUtils';
+import { namespaceSectionType } from 'utils/harvesterUtils';
 
 /** 表格行最小形态（Kubernetes Namespace / Tower 摘要） */
 export type NamespaceListRow = {

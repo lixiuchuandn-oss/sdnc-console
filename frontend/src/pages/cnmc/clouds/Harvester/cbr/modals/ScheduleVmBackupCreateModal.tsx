@@ -10,7 +10,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Form, Input, InputNumber, Switch, Select, message, Alert, Radio, Row, Col } from 'antd';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
-import { fetchHarvesterNamespaces, createHarvesterScheduleVmBackup } from '../../../../../../services/harvesterApi';
+import { createHarvesterScheduleVmBackup } from 'services/harvester/cbr';
+import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { formatCron } from '../../../../../../utils/cronFormatter';
 

@@ -1,8 +1,8 @@
 import React from 'react';
 import type { ColumnsType } from 'antd/es/table';
 import { Tag } from 'antd';
-import type { HmsSwitchCr } from '../../../../../../services/harvesterApi';
-import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import type { HmsSwitchCr } from 'services/harvester/cluster';
+import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
 import {
   HmsProbeDimTag,
   resolveHmsProbeDimState,

@@ -1,44 +1,28 @@
 /**
- * Rancher 容器云（CNMC）：资源池根路径跳集群工作台 + 集群内 Tab 分区。
- * `RancherPoolVendorShell`（`clouds/vendor/rancher/:id`）挂载 `RancherPoolHomeRedirect`；`clouds/:poolId/clusters/:clusterId` 使用本文件 default。
- * 分区实现见 `./pool/`。
+ * Rancher 容器云（CNMC）：资源池根路径跳集群工作台 + 集群内分区（侧栏 + `?tab=&sub=`，与 Cloudmap 池同构）。
  */
 import type { CSSProperties } from 'react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Alert, Button, Space, Spin, Tabs } from 'antd';
+import { Alert, Button, Space, Spin } from 'antd';
 import { CloudUploadOutlined, HomeOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import { fetchRancherClustersForPool } from '../../../../services/api';
-import type { RancherK8sListKind } from '../../../../services/rancherClusterApi';
 import {
-  RANCHER_CLUSTER_TAB_KEYS,
-  RANCHER_CLUSTER_TAB_LABEL,
   normalizeRancherClusterSubParam,
-  normalizeRancherClusterTabParam,
+  normalizeRancherClusterNavParam,
   normalizeRancherClusterWorkloadsSubParam,
   normalizeRancherResourceSub,
-  resolveRancherK8sListKey,
+  type RancherClusterNavKey,
   type RancherClusterSubKey,
-  type RancherClusterTabKey,
   type RancherClusterWorkloadsSubKey,
 } from '../../../../layouts/admin/rancher/rancherClusterSidebar';
-import '../Cloudmap/pool/styles/layout.css';
 import './pool/styles/rancher-workspace.css';
-import ClusterEventsPanel from './pool/panels/cluster/ClusterEventsPanel';
-import ClusterMembersPanel from './pool/panels/cluster/ClusterMembersPanel';
-import ClusterNamespacesPanel from './pool/panels/cluster/ClusterNamespacesPanel';
-import ClusterNodesPanel from './pool/panels/cluster/ClusterNodesPanel';
-import ClusterProjectsPanel from './pool/panels/cluster/ClusterProjectsPanel';
-import ClusterToolsPanel from './pool/panels/cluster/ClusterToolsPanel';
-import RancherK8sListPanel from './pool/panels/k8s/RancherK8sListPanel';
-import RancherWorkloadsPanel from './pool/panels/workloads/RancherWorkloadsPanel';
-
-// --- 常量与纯函数 ---------------------------------------------------------------------------
+import RancherClusterRoutePanel from './pool/panels/RancherClusterRoutePanel';
 
 const RANCHER_HOME_QUERY = 'tab=cluster&sub=projects' as const;
 
-const RESOURCE_TAB_KEYS = new Set<RancherClusterTabKey>([
+const RESOURCE_NAV_KEYS = new Set<RancherClusterNavKey>([
   'apps',
   'service_discovery',
   'storage',
@@ -91,7 +75,18 @@ function poolGateBreadcrumbs(titleText: string) {
   ];
 }
 
-// --- 资源池根路径（导出供 `RancherPoolVendorShell`）---------------------------------------
+function buildNavSearchSnapshot(search: string) {
+  const sp = new URLSearchParams(search);
+  const rawTab = sp.get('tab');
+  const navKey = normalizeRancherClusterNavParam(rawTab);
+  const clusterSub = normalizeRancherClusterSubParam(rawTab, sp.get('sub'), rawTab);
+  const workloadsSub = normalizeRancherClusterWorkloadsSubParam(sp.get('sub'));
+  const resourceSub =
+    navKey !== 'cluster' && navKey !== 'workloads'
+      ? normalizeRancherResourceSub(navKey, sp.get('sub'))
+      : '';
+  return { clusterSub, navKey, resourceSub, sp, workloadsSub };
+}
 
 export type RancherPoolHomeRedirectProps = {
   boundClusterId?: string;
@@ -100,7 +95,6 @@ export type RancherPoolHomeRedirectProps = {
   providerLabel: string;
 };
 
-/** 解析集群列表后 Navigate 至工作台首页。 */
 export function RancherPoolHomeRedirect({
   poolId,
   cloudName,
@@ -119,60 +113,56 @@ export function RancherPoolHomeRedirect({
     let cancelled = false;
     void (async () => {
       try {
-        const list = await fetchRancherClustersForPool(poolId);
+        const json = await fetchRancherClustersForPool(poolId);
+        const items = (json as { data?: { items?: { id?: string }[] } })?.data?.items;
+        const first = Array.isArray(items) && items[0]?.id ? String(items[0].id) : null;
         if (cancelled) return;
-        if (!list.length) {
+        if (!first) {
           setPhase('empty');
           return;
         }
-        setTarget(clusterWorkbenchPath(poolId, list[0].id));
+        setTarget(clusterWorkbenchPath(poolId, first));
       } catch (e: unknown) {
         if (cancelled) return;
-        setErrorMsg(parseUnknownErrorMessage(e, '加载集群列表失败'));
         setPhase('error');
+        setErrorMsg(parseUnknownErrorMessage(e, '加载集群列表失败'));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [poolId, boundClusterId]);
+  }, [boundClusterId, poolId]);
 
   if (target) return <Navigate to={target} replace />;
 
-  const titleText = `${providerLabel} ${cloudName || '-'}`;
-
   if (phase === 'loading') {
     return (
-      <div style={POOL_GATE_LOADING_STYLE}>
-        <Spin size="large" tip="正在进入 Rancher 集群工作台…" />
-      </div>
+      <PageDetailContainer
+        breadcrumbs={poolGateBreadcrumbs(cloudName || providerLabel)}
+        title={cloudName || providerLabel}
+      >
+        <div style={POOL_GATE_LOADING_STYLE}>
+          <Spin tip="正在解析 Rancher 集群…" />
+        </div>
+      </PageDetailContainer>
     );
   }
 
   if (phase === 'error') {
     return (
       <PageDetailContainer
-        asCard={false}
-        backTooltip="返回列表"
-        breadcrumbs={poolGateBreadcrumbs(titleText)}
-        icon={<CloudUploadOutlined style={{ color: '#1890ff', fontSize: 24 }} />}
-        onBack={() => navigate('/admin/clouds')}
-        title={titleText}
-        titleLevel={3}
+        breadcrumbs={poolGateBreadcrumbs(cloudName || providerLabel)}
+        title={cloudName || providerLabel}
       >
         <Alert
-          action={
-            <Space>
-              <Button onClick={() => navigate('/admin/clouds')}>返回列表</Button>
-              <Button icon={<ReloadOutlined />} type="primary" onClick={() => window.location.reload()}>
-                重试
-              </Button>
-            </Space>
-          }
-          description={errorMsg}
+          type="error"
           message="无法进入集群工作台"
-          showIcon
-          type="warning"
+          description={errorMsg || '未知错误'}
+          action={
+            <Button icon={<ReloadOutlined />} onClick={() => window.location.reload()}>
+              重试
+            </Button>
+          }
         />
       </PageDetailContainer>
     );
@@ -180,69 +170,16 @@ export function RancherPoolHomeRedirect({
 
   return (
     <PageDetailContainer
-      asCard={false}
-      backTooltip="返回列表"
-      breadcrumbs={poolGateBreadcrumbs(titleText)}
-      icon={<CloudUploadOutlined style={{ color: '#1890ff', fontSize: 24 }} />}
-      onBack={() => navigate('/admin/clouds')}
-      title={titleText}
-      titleLevel={3}
+      breadcrumbs={poolGateBreadcrumbs(cloudName || providerLabel)}
+      title={cloudName || providerLabel}
     >
       <Alert
-        action={
-          <Button type="primary" onClick={() => navigate('/admin/clouds')}>
-            返回资源池列表
-          </Button>
-        }
-        description="请在 Rancher 中导入集群或检查 API 令牌权限后，从资源池列表再次进入。"
-        message="该 Rancher 资源池下暂无下游集群"
-        showIcon
+        message="未找到可用集群"
+        description="请确认资源池已绑定 Rancher 且存在至少一个集群。"
         type="info"
       />
     </PageDetailContainer>
   );
-}
-
-// --- 集群工作台 -----------------------------------------------------------------------------
-
-function EmptyTabHint({ text }: { text: string }): React.ReactElement {
-  return <div style={{ color: 'rgba(0,0,0,0.45)', margin: '16px 0' }}>{text}</div>;
-}
-
-function ClusterSectionPanel({
-  clusterId,
-  poolId,
-  sub,
-}: {
-  clusterId: string;
-  poolId: string;
-  sub: RancherClusterSubKey;
-}) {
-  switch (sub) {
-    case 'cluster_tools':
-      return <ClusterToolsPanel clusterId={clusterId} poolId={poolId} />;
-    case 'events':
-      return <ClusterEventsPanel clusterId={clusterId} poolId={poolId} />;
-    case 'members':
-      return <ClusterMembersPanel clusterId={clusterId} poolId={poolId} />;
-    case 'namespaces':
-      return <ClusterNamespacesPanel clusterId={clusterId} poolId={poolId} />;
-    case 'nodes':
-      return <ClusterNodesPanel clusterId={clusterId} poolId={poolId} />;
-    case 'projects':
-      return <ClusterProjectsPanel clusterId={clusterId} poolId={poolId} />;
-    default:
-      return <ClusterProjectsPanel clusterId={clusterId} poolId={poolId} />;
-  }
-}
-
-function buildTabSearchSnapshot(search: string) {
-  const sp = new URLSearchParams(search);
-  const rawTab = sp.get('tab');
-  const tab = normalizeRancherClusterTabParam(rawTab);
-  const clusterSub = normalizeRancherClusterSubParam(rawTab, sp.get('sub'), rawTab);
-  const workloadsSub = normalizeRancherClusterWorkloadsSubParam(sp.get('sub'));
-  return { clusterSub, sp, tab, workloadsSub };
 }
 
 const RancherClusterWorkspace = (): React.ReactElement => {
@@ -252,10 +189,10 @@ const RancherClusterWorkspace = (): React.ReactElement => {
   const pid = poolId ? decodeURIComponent(poolId) : '';
   const cid = clusterId ? decodeURIComponent(clusterId) : '';
 
-  const tabSnapshot = useMemo(() => buildTabSearchSnapshot(location.search), [location.search]);
+  const navSnapshot = useMemo(() => buildNavSearchSnapshot(location.search), [location.search]);
 
-  const [activeTabKey, setActiveTabKey] = useState<RancherClusterTabKey>(() =>
-    normalizeRancherClusterTabParam(
+  const [activeNavKey, setActiveNavKey] = useState<RancherClusterNavKey>(() =>
+    normalizeRancherClusterNavParam(
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null,
     ),
   );
@@ -271,26 +208,40 @@ const RancherClusterWorkspace = (): React.ReactElement => {
     if (typeof window === 'undefined') return 'cronjob';
     const sp = new URLSearchParams(window.location.search);
     const rawTab = sp.get('tab');
-    const tab = normalizeRancherClusterTabParam(rawTab);
-    if (tab !== 'workloads') return 'cronjob';
+    const nav = normalizeRancherClusterNavParam(rawTab);
+    if (nav !== 'workloads') return 'cronjob';
     return normalizeRancherClusterWorkloadsSubParam(sp.get('sub'));
   });
 
-  useEffect(() => {
-    const { clusterSub, sp, tab, workloadsSub } = tabSnapshot;
+  const [resourceSubKey, setResourceSubKey] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'catalog';
+    const sp = new URLSearchParams(window.location.search);
+    const rawTab = sp.get('tab');
+    const nav = normalizeRancherClusterNavParam(rawTab);
+    if (nav === 'cluster' || nav === 'workloads') return 'catalog';
+    return normalizeRancherResourceSub(nav, sp.get('sub'));
+  });
 
-    setActiveTabKey((prev) => (prev === tab ? prev : tab));
-    if (tab === 'cluster') setClusterSubKey((prev) => (prev === clusterSub ? prev : clusterSub));
-    if (tab === 'workloads') setWorkloadsSubKey((prev) => (prev === workloadsSub ? prev : workloadsSub));
+  useEffect(() => {
+    const { clusterSub, navKey, resourceSub, sp, workloadsSub } = navSnapshot;
+
+    setActiveNavKey((prev) => (prev === navKey ? prev : navKey));
+    if (navKey === 'cluster') setClusterSubKey((prev) => (prev === clusterSub ? prev : clusterSub));
+    if (navKey === 'workloads') {
+      setWorkloadsSubKey((prev) => (prev === workloadsSub ? prev : workloadsSub));
+    }
+    if (RESOURCE_NAV_KEYS.has(navKey)) {
+      setResourceSubKey((prev) => (prev === resourceSub ? prev : resourceSub));
+    }
 
     const next = new URLSearchParams(location.search);
-    next.set('tab', tab);
-    if (tab === 'cluster') {
+    next.set('tab', navKey);
+    if (navKey === 'cluster') {
       next.set('sub', clusterSub);
-    } else if (tab === 'workloads') {
+    } else if (navKey === 'workloads') {
       next.set('sub', workloadsSub);
-    } else if (RESOURCE_TAB_KEYS.has(tab)) {
-      next.set('sub', normalizeRancherResourceSub(tab, sp.get('sub')));
+    } else if (RESOURCE_NAV_KEYS.has(navKey)) {
+      next.set('sub', normalizeRancherResourceSub(navKey, sp.get('sub')));
     } else {
       next.delete('sub');
     }
@@ -299,29 +250,7 @@ const RancherClusterWorkspace = (): React.ReactElement => {
     const canon = searchStr ? `${location.pathname}?${searchStr}` : location.pathname;
     const curFull = `${location.pathname}${location.search}`;
     if (canon !== curFull) navigate(canon, { replace: true });
-  }, [location.pathname, location.search, navigate, tabSnapshot]);
-
-  const outerTabItems = useMemo(() => {
-    const { sp } = tabSnapshot;
-    return (RANCHER_CLUSTER_TAB_KEYS as readonly RancherClusterTabKey[]).map((key) => ({
-      children: (() => {
-        if (key === 'cluster') {
-          return <ClusterSectionPanel clusterId={cid} poolId={pid} sub={clusterSubKey} />;
-        }
-        if (key === 'workloads') {
-          return <RancherWorkloadsPanel clusterId={cid} kind={workloadsSubKey} poolId={pid} />;
-        }
-        if (RESOURCE_TAB_KEYS.has(key)) {
-          const sub = normalizeRancherResourceSub(key, sp.get('sub'));
-          const listKind = resolveRancherK8sListKey(key, sub) as RancherK8sListKind | null;
-          if (listKind) return <RancherK8sListPanel clusterId={cid} listKind={listKind} poolId={pid} />;
-        }
-        return <EmptyTabHint text="该分区暂无可用视图" />;
-      })(),
-      key,
-      label: RANCHER_CLUSTER_TAB_LABEL[key],
-    }));
-  }, [clusterSubKey, workloadsSubKey, cid, pid, tabSnapshot]);
+  }, [location.pathname, location.search, navigate, navSnapshot]);
 
   return (
     <div className="rancher-cluster-workspace">
@@ -331,28 +260,16 @@ const RancherClusterWorkspace = (): React.ReactElement => {
         hideHeader
         rootStyle={CLUSTER_WORKSPACE_OUTER_STYLE}
       >
-        <Tabs
-          activeKey={activeTabKey}
-          className="cloudmap-detail-outer-tabs"
-          destroyOnHidden
-          items={outerTabItems}
-          onChange={(key) => {
-            const k = key as RancherClusterTabKey;
-            setActiveTabKey(k);
-            const sp = new URLSearchParams();
-            sp.set('tab', k);
-            if (k === 'cluster') {
-              sp.set('sub', clusterSubKey);
-            } else if (k === 'workloads') {
-              sp.set('sub', workloadsSubKey);
-            } else if (RESOURCE_TAB_KEYS.has(k)) {
-              sp.set('sub', normalizeRancherResourceSub(k, null));
-            }
-            navigate(`${location.pathname}?${sp.toString()}`, { replace: true });
-          }}
-          tabBarStyle={{ display: 'none', height: 0, margin: 0, minHeight: 0, padding: 0 }}
-          type="line"
-        />
+        <div className="rancher-cluster-detail-main">
+          <RancherClusterRoutePanel
+            poolId={pid}
+            clusterId={cid}
+            navKey={activeNavKey}
+            clusterSub={clusterSubKey}
+            workloadsSub={workloadsSubKey}
+            resourceSub={resourceSubKey}
+          />
+        </div>
       </PageDetailContainer>
     </div>
   );

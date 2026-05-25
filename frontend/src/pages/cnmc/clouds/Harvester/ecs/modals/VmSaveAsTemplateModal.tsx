@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, message } from 'antd';
-import { saveHarvesterVmAsTemplate } from '../../../../../../services/harvesterApi';
+import { saveHarvesterVmAsTemplate } from 'services/harvester/vm';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 type Props = {
   open: boolean;

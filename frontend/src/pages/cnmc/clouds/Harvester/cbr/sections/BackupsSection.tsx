@@ -9,7 +9,7 @@ import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone } from 
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import { deleteHarvesterBackup } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterBackup } from 'services/harvester/cbr';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';

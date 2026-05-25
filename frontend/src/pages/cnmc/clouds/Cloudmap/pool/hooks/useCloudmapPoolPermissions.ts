@@ -31,7 +31,7 @@ export type CloudmapPoolPermissions = {
   canReadNetworkScope: boolean;
   canReadLoadBalancers: boolean;
   canViewMonitoringTab: boolean;
-  /** 资源总览 · 总览（与 poolPageAction `clouds.monitoring.overview:read` 对齐） */
+  /** 资源总览 · 集群总览（与 poolPageAction `clouds.monitoring.overview:read` 对齐） */
   canViewMonitoringOverview: boolean;
   canAccessResourceHubSub: (sub: CloudmapResourceSubKey) => boolean;
   resolveResourceHubSubAccess: (requested: CloudmapResourceSubKey) => CloudmapResourceSubKey | null;

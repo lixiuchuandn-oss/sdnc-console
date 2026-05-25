@@ -6,14 +6,14 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import {
   parseCloudmapPoolPath,
-  cloudmapPathForTab,
+  cloudmapPathForNav,
   cloudmapPoolBasePath,
   cloudmapRemapLegacyCephPoolPath,
   cloudmapRemapDroppedPoolLeafPath,
-  cloudmapTabUsesPoolInnerPath,
+  cloudmapNavUsesPoolInnerPath,
   cloudmapDefaultPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
-  type CloudmapPoolTabKey,
+  type CloudmapPoolNavKey,
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 
@@ -58,10 +58,10 @@ export function useCloudmapPoolPathSync({
   );
 
   const poolInnerActive = useCallback(
-    (tab: CloudmapPoolTabKey) =>
-      pathParsed?.tab === tab && pathParsed.poolInnerSeg
+    (nav: CloudmapPoolNavKey) =>
+      pathParsed?.tab === nav && pathParsed.poolInnerSeg
         ? pathParsed.poolInnerSeg
-        : cloudmapDefaultPoolInnerSeg(tab),
+        : cloudmapDefaultPoolInnerSeg(nav),
     [pathParsed?.tab, pathParsed?.poolInnerSeg],
   );
 
@@ -88,12 +88,12 @@ export function useCloudmapPoolPathSync({
     if (p.tab === 'oniaas_network' && !canViewOniaasNetworkTab) {
       const hub = resolveResourceHubSubAccess('overview');
       if (hub) {
-        navigate(cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: hub }), {
+        navigate(cloudmapPathForNav(cloudId, 'resource_hub', { resourceHubSub: hub }), {
           replace: true,
         });
       } else if (canViewComputeGroup) {
         navigate(
-          cloudmapPathForTab(cloudId, 'compute', {
+          cloudmapPathForNav(cloudId, 'compute', {
             poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
           }),
           { replace: true },
@@ -105,12 +105,12 @@ export function useCloudmapPoolPathSync({
     if (p.tab === 'object_storage' && !canViewObjectStorageGroup) {
       const hub = resolveResourceHubSubAccess('overview');
       if (hub) {
-        navigate(cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: hub }), {
+        navigate(cloudmapPathForNav(cloudId, 'resource_hub', { resourceHubSub: hub }), {
           replace: true,
         });
       } else if (canViewComputeGroup) {
         navigate(
-          cloudmapPathForTab(cloudId, 'compute', {
+          cloudmapPathForNav(cloudId, 'compute', {
             poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
           }),
           { replace: true },
@@ -119,11 +119,11 @@ export function useCloudmapPoolPathSync({
       return;
     }
 
-    if (cloudmapTabUsesPoolInnerPath(p.tab)) {
+    if (cloudmapNavUsesPoolInnerPath(p.tab)) {
       const inner = p.poolInnerSeg;
       if (!inner || !isValidCloudmapPoolInnerSeg(p.tab, inner)) {
         navigate(
-          cloudmapPathForTab(cloudId, p.tab, {
+          cloudmapPathForNav(cloudId, p.tab, {
             poolInnerSeg: cloudmapDefaultPoolInnerSeg(p.tab),
           }),
           { replace: true },
@@ -140,14 +140,14 @@ export function useCloudmapPoolPathSync({
       if (!resolved) {
         if (canViewComputeGroup) {
           navigate(
-            cloudmapPathForTab(cloudId, 'compute', {
+            cloudmapPathForNav(cloudId, 'compute', {
               poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
             }),
             { replace: true },
           );
         } else if (canViewClusterGroup) {
           navigate(
-            cloudmapPathForTab(cloudId, 'cluster', {
+            cloudmapPathForNav(cloudId, 'cluster', {
               poolInnerSeg: cloudmapDefaultPoolInnerSeg('cluster'),
             }),
             { replace: true },
@@ -157,7 +157,7 @@ export function useCloudmapPoolPathSync({
       }
       if (resolved !== requested) {
         navigate(
-          cloudmapPathForTab(cloudId, 'resource_hub', { resourceHubSub: resolved }),
+          cloudmapPathForNav(cloudId, 'resource_hub', { resourceHubSub: resolved }),
           { replace: true },
         );
         return;

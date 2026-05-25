@@ -1,36 +1,17 @@
-/**
- * ==============================================================================
- * 模块名称: 服务拓扑数据聚合工具测试
- * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/containers/components/serviceTopologyUtils.test.ts
- * ==============================================================================
- * 
- * [功能描述]
- * 测试服务拓扑数据聚合工具的各个函数
- */
-
 import {
-  extractBackendServices,
-  extractServiceSelector,
-  matchPodsBySelector,
+  buildNamespaceTopology,
   buildServiceTopology,
   buildServiceTopologyForService,
-  buildNamespaceTopology,
-  getTopologyStats,
+  extractBackendServices,
+  extractServiceSelector,
   getPodStatusStats,
+  getTopologyStats,
+  matchPodsBySelector,
 } from './serviceTopologyUtils';
 
-// ============================================================
-// 测试数据
-// ============================================================
-
-// 模拟 Ingress 数据
 const mockIngresses = [
   {
-    metadata: {
-      name: 'my-ingress',
-      namespace: 'default',
-      labels: { app: 'web' },
-    },
+    metadata: { name: 'my-ingress', namespace: 'default', labels: { app: 'web' } },
     spec: {
       rules: [
         {
@@ -39,21 +20,11 @@ const mockIngresses = [
             paths: [
               {
                 path: '/api',
-                backend: {
-                  service: {
-                    name: 'api-service',
-                    port: { number: 80 },
-                  },
-                },
+                backend: { service: { name: 'api-service', port: { number: 80 } } },
               },
               {
                 path: '/web',
-                backend: {
-                  service: {
-                    name: 'web-service',
-                    port: { number: 8080 },
-                  },
-                },
+                backend: { service: { name: 'web-service', port: { number: 8080 } } },
               },
             ],
           },
@@ -62,10 +33,7 @@ const mockIngresses = [
     },
   },
   {
-    metadata: {
-      name: 'test-ingress',
-      namespace: 'test',
-    },
+    metadata: { name: 'test-ingress', namespace: 'test' },
     spec: {
       rules: [
         {
@@ -74,12 +42,7 @@ const mockIngresses = [
             paths: [
               {
                 path: '/',
-                backend: {
-                  service: {
-                    name: 'test-service',
-                    port: { number: 80 },
-                  },
-                },
+                backend: { service: { name: 'test-service', port: { number: 80 } } },
               },
             ],
           },
@@ -89,69 +52,29 @@ const mockIngresses = [
   },
 ];
 
-// 模拟 Service 数据
 const mockServices = [
   {
-    metadata: {
-      name: 'api-service',
-      namespace: 'default',
-      labels: { app: 'api' },
-    },
-    spec: {
-      type: 'ClusterIP',
-      clusterIP: '10.96.0.1',
-      selector: { app: 'api' },
-    },
+    metadata: { name: 'api-service', namespace: 'default', labels: { app: 'api' } },
+    spec: { type: 'ClusterIP', clusterIP: '10.96.0.1', selector: { app: 'api' } },
   },
   {
-    metadata: {
-      name: 'web-service',
-      namespace: 'default',
-      labels: { app: 'web' },
-    },
-    spec: {
-      type: 'NodePort',
-      clusterIP: '10.96.0.2',
-      selector: { app: 'web' },
-    },
+    metadata: { name: 'web-service', namespace: 'default', labels: { app: 'web' } },
+    spec: { type: 'NodePort', clusterIP: '10.96.0.2', selector: { app: 'web' } },
   },
   {
-    metadata: {
-      name: 'test-service',
-      namespace: 'test',
-      labels: { app: 'test' },
-    },
-    spec: {
-      type: 'ClusterIP',
-      clusterIP: '10.96.0.3',
-      selector: { app: 'test' },
-    },
+    metadata: { name: 'test-service', namespace: 'test', labels: { app: 'test' } },
+    spec: { type: 'ClusterIP', clusterIP: '10.96.0.3', selector: { app: 'test' } },
   },
   {
-    metadata: {
-      name: 'standalone-service',
-      namespace: 'default',
-    },
-    spec: {
-      type: 'ClusterIP',
-      clusterIP: '10.96.0.4',
-      selector: { app: 'standalone' },
-    },
+    metadata: { name: 'standalone-service', namespace: 'default' },
+    spec: { type: 'ClusterIP', clusterIP: '10.96.0.4', selector: { app: 'standalone' } },
   },
   {
-    metadata: {
-      name: 'no-selector-service',
-      namespace: 'default',
-    },
-    spec: {
-      type: 'ExternalName',
-      externalName: 'external.example.com',
-      // 无 selector
-    },
+    metadata: { name: 'no-selector-service', namespace: 'default' },
+    spec: { type: 'ExternalName', externalName: 'external.example.com' },
   },
 ];
 
-// 模拟 Pod 数据
 const mockPods = [
   {
     metadata: {
@@ -160,13 +83,8 @@ const mockPods = [
       labels: { app: 'api' },
       creationTimestamp: '2024-01-01T00:00:00Z',
     },
-    spec: {
-      nodeName: 'node-1',
-    },
-    status: {
-      phase: 'Running',
-      podIP: '10.244.0.1',
-    },
+    spec: { nodeName: 'node-1' },
+    status: { phase: 'Running', podIP: '10.244.0.1' },
   },
   {
     metadata: {
@@ -175,13 +93,8 @@ const mockPods = [
       labels: { app: 'api' },
       creationTimestamp: '2024-01-01T00:00:00Z',
     },
-    spec: {
-      nodeName: 'node-2',
-    },
-    status: {
-      phase: 'Running',
-      podIP: '10.244.0.2',
-    },
+    spec: { nodeName: 'node-2' },
+    status: { phase: 'Running', podIP: '10.244.0.2' },
   },
   {
     metadata: {
@@ -190,13 +103,8 @@ const mockPods = [
       labels: { app: 'web' },
       creationTimestamp: '2024-01-01T00:00:00Z',
     },
-    spec: {
-      nodeName: 'node-1',
-    },
-    status: {
-      phase: 'Running',
-      podIP: '10.244.0.3',
-    },
+    spec: { nodeName: 'node-1' },
+    status: { phase: 'Running', podIP: '10.244.0.3' },
   },
   {
     metadata: {
@@ -205,13 +113,8 @@ const mockPods = [
       labels: { app: 'test' },
       creationTimestamp: '2024-01-01T00:00:00Z',
     },
-    spec: {
-      nodeName: 'node-3',
-    },
-    status: {
-      phase: 'Pending',
-      podIP: '',
-    },
+    spec: { nodeName: 'node-3' },
+    status: { phase: 'Pending', podIP: '' },
   },
   {
     metadata: {
@@ -220,234 +123,111 @@ const mockPods = [
       labels: { app: 'standalone' },
       creationTimestamp: '2024-01-01T00:00:00Z',
     },
-    spec: {
-      nodeName: 'node-1',
-    },
-    status: {
-      phase: 'Running',
-      podIP: '10.244.0.5',
-    },
+    spec: { nodeName: 'node-1' },
+    status: { phase: 'Running', podIP: '10.244.0.5' },
   },
   {
-    metadata: {
-      name: 'other-pod',
-      namespace: 'default',
-      labels: { app: 'other' },
-    },
-    status: {
-      phase: 'Running',
-    },
+    metadata: { name: 'other-pod', namespace: 'default', labels: { app: 'other' } },
+    status: { phase: 'Running' },
   },
 ];
 
-// ============================================================
-// 测试函数
-// ============================================================
+describe('serviceTopologyUtils', () => {
+  describe('extractBackendServices', () => {
+    it('extracts path backends from ingress rules', () => {
+      const backends = extractBackendServices(mockIngresses[0]);
+      expect(backends).toHaveLength(2);
+      expect(backends[0]).toMatchObject({ name: 'api-service', port: 80, host: 'example.com', path: '/api' });
+      expect(backends[1]).toMatchObject({ name: 'web-service', port: 8080, path: '/web' });
+    });
 
-/**
- * 测试 extractBackendServices
- */
-function testExtractBackendServices() {
-  console.log('=== 测试 extractBackendServices ===');
-  
-  // 测试正常 Ingress
-  const backends1 = extractBackendServices(mockIngresses[0]);
-  console.log('Ingress 1 后端服务:', backends1);
-  // 预期: 2 个后端服务 (api-service, web-service)
-  
-  // 测试包含默认后端的 Ingress
-  const ingressWithDefaultBackend = {
-    metadata: { namespace: 'default', name: 'default-ingress' },
-    spec: {
-      defaultBackend: {
-        service: {
-          name: 'default-service',
-          port: { number: 80 },
+    it('includes defaultBackend when present', () => {
+      const backends = extractBackendServices({
+        metadata: { namespace: 'default', name: 'default-ingress' },
+        spec: {
+          defaultBackend: { service: { name: 'default-service', port: { number: 80 } } },
         },
-      },
-    },
-  };
-  const backends2 = extractBackendServices(ingressWithDefaultBackend);
-  console.log('包含默认后端的 Ingress:', backends2);
-  
-  console.log('');
-}
-
-/**
- * 测试 extractServiceSelector
- */
-function testExtractServiceSelector() {
-  console.log('=== 测试 extractServiceSelector ===');
-  
-  // 测试有 selector 的 Service
-  const selector1 = extractServiceSelector(mockServices[0]);
-  console.log('Service 1 selector:', selector1);
-  // 预期: { app: 'api' }
-  
-  // 测试无 selector 的 Service
-  const selector2 = extractServiceSelector(mockServices[4]);
-  console.log('Service 5 (无 selector):', selector2);
-  // 预期: null
-  
-  console.log('');
-}
-
-/**
- * 测试 matchPodsBySelector
- */
-function testMatchPodsBySelector() {
-  console.log('=== 测试 matchPodsBySelector ===');
-  
-  // 测试匹配 api Pod
-  const matchedPods1 = matchPodsBySelector(mockPods, { app: 'api' }, 'default');
-  console.log('匹配 app=api 的 Pod 数量:', matchedPods1.length);
-  console.log('匹配的 Pod:', matchedPods1.map(p => p.metadata.name));
-  // 预期: 2 个 Pod (api-pod-1, api-pod-2)
-  
-  // 测试匹配 web Pod
-  const matchedPods2 = matchPodsBySelector(mockPods, { app: 'web' }, 'default');
-  console.log('匹配 app=web 的 Pod 数量:', matchedPods2.length);
-  // 预期: 1 个 Pod
-  
-  // 测试不指定命名空间
-  const matchedPods3 = matchPodsBySelector(mockPods, { app: 'test' });
-  console.log('匹配 app=test 的 Pod (不限命名空间):', matchedPods3.length);
-  // 预期: 1 个 Pod
-  
-  console.log('');
-}
-
-/**
- * 测试 buildServiceTopology
- */
-function testBuildServiceTopology() {
-  console.log('=== 测试 buildServiceTopology ===');
-  
-  // 测试全部命名空间
-  const topology1 = buildServiceTopology(mockIngresses, mockServices, mockPods);
-  console.log('全部拓扑节点数:', topology1.nodes.length);
-  console.log('全部拓扑边数:', topology1.edges.length);
-  console.log('节点详情:');
-  topology1.nodes.forEach(n => {
-    console.log(`  - [${n.type}] ${n.namespace}/${n.name}`, n.extra);
+      });
+      expect(backends).toEqual([
+        { namespace: 'default', name: 'default-service', port: 80, host: '*', path: '/' },
+      ]);
+    });
   });
-  
-  // 测试 default 命名空间
-  const topology2 = buildServiceTopology(mockIngresses, mockServices, mockPods, 'default');
-  console.log('\ndefault 命名空间拓扑节点数:', topology2.nodes.length);
-  console.log('节点详情:');
-  topology2.nodes.forEach(n => {
-    console.log(`  - [${n.type}] ${n.namespace}/${n.name}`);
+
+  describe('extractServiceSelector', () => {
+    it('returns selector or null', () => {
+      expect(extractServiceSelector(mockServices[0])).toEqual({ app: 'api' });
+      expect(extractServiceSelector(mockServices[4])).toBeNull();
+    });
   });
-  
-  console.log('');
-}
 
-/**
- * 测试 buildServiceTopologyForService
- */
-function testBuildServiceTopologyForService() {
-  console.log('=== 测试 buildServiceTopologyForService ===');
-  
-  // 测试 api-service
-  const topology1 = buildServiceTopologyForService(
-    'api-service',
-    'default',
-    mockIngresses,
-    mockServices,
-    mockPods
-  );
-  console.log('api-service 拓扑节点数:', topology1.nodes.length);
-  console.log('节点详情:');
-  topology1.nodes.forEach(n => {
-    console.log(`  - [${n.type}] ${n.namespace}/${n.name}`);
+  describe('matchPodsBySelector', () => {
+    it('matches pods by labels and optional namespace', () => {
+      expect(matchPodsBySelector(mockPods, { app: 'api' }, 'default')).toHaveLength(2);
+      expect(matchPodsBySelector(mockPods, { app: 'web' }, 'default')).toHaveLength(1);
+      expect(matchPodsBySelector(mockPods, { app: 'test' })).toHaveLength(1);
+    });
   });
-  
-  // 测试不存在的 Service
-  const topology2 = buildServiceTopologyForService(
-    'non-existent',
-    'default',
-    mockIngresses,
-    mockServices,
-    mockPods
-  );
-  console.log('non-existent 拓扑节点数:', topology2.nodes.length);
-  // 预期: 0
-  
-  console.log('');
-}
 
-/**
- * 测试 buildNamespaceTopology
- */
-function testBuildNamespaceTopology() {
-  console.log('=== 测试 buildNamespaceTopology ===');
-  
-  const topology = buildNamespaceTopology('default', mockIngresses, mockServices, mockPods);
-  console.log('default 命名空间拓扑节点数:', topology.nodes.length);
-  console.log('节点详情:');
-  topology.nodes.forEach(n => {
-    console.log(`  - [${n.type}] ${n.namespace}/${n.name}`);
+  describe('buildServiceTopology', () => {
+    it('builds ingress-service-pod graph', () => {
+      const topology = buildServiceTopology(mockIngresses, mockServices, mockPods);
+      expect(topology.nodes.length).toBeGreaterThan(0);
+      expect(topology.edges.length).toBeGreaterThan(0);
+      expect(topology.nodes.some((n) => n.type === 'ingress')).toBe(true);
+    });
+
+    it('filters by namespace when provided', () => {
+      const all = buildServiceTopology(mockIngresses, mockServices, mockPods);
+      const scoped = buildServiceTopology(mockIngresses, mockServices, mockPods, 'default');
+      expect(scoped.nodes.length).toBeLessThanOrEqual(all.nodes.length);
+      expect(scoped.nodes.every((n) => n.namespace === 'default')).toBe(true);
+    });
   });
-  
-  console.log('');
-}
 
-/**
- * 测试 getTopologyStats
- */
-function testGetTopologyStats() {
-  console.log('=== 测试 getTopologyStats ===');
-  
-  const topology = buildServiceTopology(mockIngresses, mockServices, mockPods);
-  const stats = getTopologyStats(topology);
-  console.log('拓扑统计:', stats);
-  
-  console.log('');
-}
+  describe('buildServiceTopologyForService', () => {
+    it('returns subgraph for existing service', () => {
+      const topology = buildServiceTopologyForService(
+        'api-service',
+        'default',
+        mockIngresses,
+        mockServices,
+        mockPods,
+      );
+      expect(topology.nodes.some((n) => n.type === 'service' && n.name === 'api-service')).toBe(true);
+    });
 
-/**
- * 测试 getPodStatusStats
- */
-function testGetPodStatusStats() {
-  console.log('=== 测试 getPodStatusStats ===');
-  
-  const stats = getPodStatusStats(mockPods);
-  console.log('Pod 状态统计:', stats);
-  // 预期: { Running: 4, Pending: 1 }
-  
-  console.log('');
-}
+    it('returns empty graph for missing service', () => {
+      const topology = buildServiceTopologyForService(
+        'non-existent',
+        'default',
+        mockIngresses,
+        mockServices,
+        mockPods,
+      );
+      expect(topology.nodes).toHaveLength(0);
+    });
+  });
 
-// ============================================================
-// 运行测试
-// ============================================================
+  describe('buildNamespaceTopology', () => {
+    it('scopes topology to namespace', () => {
+      const topology = buildNamespaceTopology('default', mockIngresses, mockServices, mockPods);
+      expect(topology.nodes.every((n) => n.namespace === 'default')).toBe(true);
+    });
+  });
 
-console.log('========================================');
-console.log('服务拓扑数据聚合工具测试');
-console.log('========================================\n');
+  describe('getTopologyStats', () => {
+    it('counts node types and edges', () => {
+      const topology = buildServiceTopology(mockIngresses, mockServices, mockPods);
+      const stats = getTopologyStats(topology);
+      expect(stats.ingressCount).toBeGreaterThan(0);
+      expect(stats.connectionCount).toBe(topology.edges.length);
+    });
+  });
 
-testExtractBackendServices();
-testExtractServiceSelector();
-testMatchPodsBySelector();
-testBuildServiceTopology();
-testBuildServiceTopologyForService();
-testBuildNamespaceTopology();
-testGetTopologyStats();
-testGetPodStatusStats();
-
-console.log('========================================');
-console.log('测试完成');
-console.log('========================================');
-
-// 导出测试函数供外部调用
-export {
-  testExtractBackendServices,
-  testExtractServiceSelector,
-  testMatchPodsBySelector,
-  testBuildServiceTopology,
-  testBuildServiceTopologyForService,
-  testBuildNamespaceTopology,
-  testGetTopologyStats,
-  testGetPodStatusStats,
-};
+  describe('getPodStatusStats', () => {
+    it('aggregates pod phases', () => {
+      expect(getPodStatusStats(mockPods)).toEqual({ Running: 5, Pending: 1 });
+    });
+  });
+});

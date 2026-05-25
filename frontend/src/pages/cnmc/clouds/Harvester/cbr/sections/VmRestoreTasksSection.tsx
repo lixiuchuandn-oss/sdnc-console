@@ -6,10 +6,12 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
+  deleteHarvesterBackup,
+  deleteHarvesterVirtualMachineRestore,
   fetchHarvesterBackups,
   fetchHarvesterCephVmRestores,
   fetchHarvesterVirtualMachineRestores,
-} from '../../../../../../services/harvesterApi';
+} from 'services/harvester/cbr';
 import {
   isHarvesterCephVmBackup,
   isHarvesterCephVmRestore,

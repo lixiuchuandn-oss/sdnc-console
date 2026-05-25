@@ -1,25 +1,8 @@
 /** 节点列表 Section 纯函数：角色/就绪、资源单位解析、View Link */
 
-export type NodeRow = {
-  name?: string;
-  metadata?: { name?: string; labels?: Record<string, string> };
-  roles?: string[];
-  ready?: boolean;
-  status?: {
-    conditions?: Array<{ type?: string; status?: string }>;
-    addresses?: Array<{ type?: string; address?: string }>;
-    allocatable?: { cpu?: string; memory?: string };
-    capacity?: { cpu?: string; memory?: string };
-    nodeInfo?: { architecture?: string; osImage?: string; kernelVersion?: string };
-  };
-  internalIP?: string;
-  cpu?: string;
-  memory?: string;
-  architecture?: string;
-  osImage?: string;
-  kernelVersion?: string;
-  links?: { view?: string };
-};
+import type { NodeRow } from 'services/harvester/types/inventoryRows';
+
+export type { NodeRow };
 
 /** Steve `links.view` 或 `/api/v1/nodes/{name}` */
 export function nodeRowToViewLink(row: unknown): string | undefined {
@@ -123,3 +106,53 @@ export type NodeRequests = {
   cpuRequestCores?: number;
   memRequestBytes?: number;
 };
+
+export function nodeRowKey(row: NodeRow, index: number): string {
+  const r = row as NodeRow & { metadata?: { uid?: string; name?: string } };
+  return (
+    String(r?.metadata?.uid || r?.metadata?.name || r?.name || '') ||
+    `row-${Number.isFinite(index) ? index : 0}`
+  );
+}
+
+export function nodeInternalIp(row: NodeRow): string {
+  return (
+    row?.internalIP ||
+    row?.status?.addresses?.find((a) => String(a?.type) === 'InternalIP')?.address ||
+    '-'
+  );
+}
+
+export type NodesTableFilters = {
+  keyword: string;
+  roleFilter: string;
+  readyFilter: string;
+};
+
+export function filterNodesForTable(nodes: readonly NodeRow[], f: NodesTableFilters): NodeRow[] {
+  const kw = f.keyword.trim().toLowerCase();
+  const role = f.roleFilter.trim().toLowerCase();
+  const rf = f.readyFilter.trim().toLowerCase();
+  return (nodes || []).filter((r) => {
+    const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
+    if (kw && !name.includes(kw)) return false;
+    if (role) {
+      const rolesLower = getRoles(r).map((s) => s.toLowerCase());
+      if (!rolesLower.includes(role)) return false;
+    }
+    if (rf) {
+      const ok = isReady(r);
+      if (rf === 'ready' && !ok) return false;
+      if (rf === 'notready' && ok) return false;
+    }
+    return true;
+  });
+}
+
+export function buildNodeRoleFilterOptions(nodes: readonly NodeRow[]): Array<{ label: string; value: string }> {
+  const set = new Set<string>();
+  for (const n of nodes || []) {
+    for (const r of getRoles(n)) set.add(r);
+  }
+  return Array.from(set).map((x) => ({ label: x, value: x }));
+}
