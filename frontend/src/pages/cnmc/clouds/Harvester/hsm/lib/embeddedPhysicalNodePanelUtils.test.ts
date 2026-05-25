@@ -25,7 +25,8 @@ describe('embeddedPhysicalNodePanelUtils', () => {
   });
 
   describe('isHmsVirtualDiskEntry', () => {
-    it('detects virtio and vda style names', () => {
+    it('treats missing model and virtio-style entries as virtual', () => {
+      expect(isHmsVirtualDiskEntry({ name: 'sda' })).toBe(true);
       expect(isHmsVirtualDiskEntry({ model: 'virtio-scsi' })).toBe(true);
       expect(isHmsVirtualDiskEntry({ name: 'vda' })).toBe(true);
       expect(isHmsVirtualDiskEntry({ name: 'sda', model: 'Samsung SSD' })).toBe(false);
@@ -33,10 +34,11 @@ describe('embeddedPhysicalNodePanelUtils', () => {
   });
 
   describe('physicalHardDisksOnly', () => {
-    it('filters virtual and non-physical disks', () => {
+    it('keeps only physical disks with HMS model', () => {
       const disks = physicalHardDisksOnly({
         disk: [
-          { name: 'sda', type: 'disk' },
+          { name: 'sda', type: 'disk', model: 'WDC WD1800' },
+          { name: 'sdb', type: 'disk' },
           { name: 'sda1', type: 'part' },
           { name: 'vda', model: 'virtio' },
         ],

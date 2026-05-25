@@ -8,10 +8,11 @@ import {
 } from '../../../../../../services/datacenterTopologyApi';
 import {
   buildNodeMetricsMapFromK8sMetrics,
-  type NodeLiveMetrics,
-} from './physicalNodeRackUtils';
+  normalizeHarvesterNodesList,
+  type HarvesterNodeRecord,
+} from './datacenterTopologySectionUtils';
+import { type NodeLiveMetrics } from './physicalNodeRackUtils';
 import { clearCache } from '../../../../../../utils/requestManager';
-import { normalizeHarvesterNodesList, type HarvesterNodeRecord } from './datacenterTopologySectionUtils';
 
 const aswSwitchesCachePath = (cloudId: string) =>
   `/api/clouds/${cloudId}/resources/harvester/asw-ctl/switches`;
