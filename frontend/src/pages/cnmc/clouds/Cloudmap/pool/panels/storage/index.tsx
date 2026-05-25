@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Empty } from 'antd';
 import { CLOUD_CEPH_READ } from '../../../../../../../constants/cloudPermissions';
 import VolumesSection from '../../../../Harvester/ebs/sections/VolumesSection';
 import SnapshotsSection from '../../../../Harvester/ebs/sections/SnapshotsSection';
 import CloudmapStorageCephRbdMirror from './CloudmapStorageCephRbdMirror';
-import { fetchCloudProviderEcs, fetchHarvesterVolumes } from '../../api';
+import { createStorageTabOnRefresh } from '../../loaders/storageRefresh';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -31,22 +31,13 @@ export type CloudmapStorageRoutePanelProps = {
   showLog: boolean;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
-  loadResource: (
-    key: string,
-    fn: () => Promise<any>,
-    cb: (json: any) => void,
-    force?: boolean,
-  ) => Promise<void>;
   loadTabResource: (
     key: string,
     force?: boolean,
     skipSync?: boolean,
   ) => Promise<void>;
   ecs: any[];
-  setEcs: (v: any[]) => void;
-  setRawEcs: (v: any) => void;
   harvesterVolumes: any[];
-  setHarvesterVolumes: (v: any[]) => void;
   harvesterStorageClasses: any[];
   harvesterSnapshots: any[];
   harvesterNamespaces: any[];
@@ -74,13 +65,9 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
     showLog,
     checkPerm,
     innerActiveKey,
-    loadResource,
     loadTabResource,
     ecs,
-    setEcs,
-    setRawEcs,
     harvesterVolumes,
-    setHarvesterVolumes,
     harvesterStorageClasses,
     harvesterSnapshots,
     harvesterNamespaces,
@@ -88,6 +75,39 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
     rawVolumes,
     rawSnapshots,
   } = props;
+
+  const refreshVolumesTabAuxiliaries = useCallback(() => {
+    if (
+      checkPerm('clouds.storage-classes:read') ||
+      checkPerm('clouds.ecs:read') ||
+      checkPerm('clouds:read')
+    ) {
+      void loadTabResource('storage_classes', true);
+    }
+  }, [checkPerm, loadTabResource]);
+
+  const storageTabOnRefresh = useMemo(() => {
+    const deps = { loadTabResource, refreshVolumesTabAuxiliaries };
+    return {
+      volumes: createStorageTabOnRefresh('volumes', deps),
+      snapshots: createStorageTabOnRefresh('snapshots', deps),
+    };
+  }, [loadTabResource, refreshVolumesTabAuxiliaries]);
+
+  const refreshImagesAfterExport = useCallback(
+    (force?: boolean, skipSync?: boolean) => {
+      if (!checkPerm('clouds.images:read')) return;
+      void loadTabResource('images', force !== false, skipSync);
+    },
+    [checkPerm, loadTabResource],
+  );
+
+  const refreshStorageClasses = useCallback(
+    (force?: boolean, skipSync?: boolean) => {
+      void loadTabResource('storage_classes', force !== false, skipSync);
+    },
+    [loadTabResource],
+  );
 
   if (!canViewStorageInner(innerActiveKey, checkPerm)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
@@ -105,30 +125,9 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
           loading={resourceLoading.volumes}
           vms={ecs}
           storageClasses={harvesterStorageClasses}
-          onRefresh={() => {
-            loadResource(
-              'volumes',
-              () => fetchHarvesterVolumes(cloudId, true),
-              (json) => setHarvesterVolumes(json?.data?.items || []),
-              true,
-            );
-            loadResource(
-              'ecs',
-              () => fetchCloudProviderEcs(cloudId, true),
-              (json) => {
-                const list: any[] = Array.isArray((json as any)?.data)
-                  ? (json as any).data
-                  : (json as any)?.data?.Instances?.Instance ||
-                    (json as any)?.data?.items ||
-                    (json as any)?.data?.data ||
-                    [];
-                setEcs(Array.isArray(list) ? list : []);
-                setRawEcs(json || null);
-              },
-              true,
-            );
-            void loadTabResource('storage_classes', true);
-          }}
+          onRefresh={storageTabOnRefresh.volumes}
+          onRefreshStorageClasses={refreshStorageClasses}
+          onRefreshImages={refreshImagesAfterExport}
         />
         <DebugJSON data={rawVolumes} show={showLog} />
       </>
@@ -142,7 +141,7 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
           snapshots={harvesterSnapshots}
           namespaces={harvesterNamespaces}
           loading={resourceLoading.snapshots}
-          onRefresh={() => void loadTabResource('snapshots', true)}
+          onRefresh={storageTabOnRefresh.snapshots}
         />
         <DebugJSON data={rawSnapshots} show={showLog} />
       </>

@@ -6,7 +6,10 @@ import {
   snapshotDisplayLabel,
   type SnapshotListRow,
 } from '../lib/snapshotsSectionUtils';
-import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import {
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/ebsSectionRefresh';
 
 export type UseSnapshotsSectionActionsParams = {
   cloudId: string;
@@ -66,7 +69,7 @@ export function useSnapshotsSectionActions({
           try {
             await deleteHarvesterSnapshot(cloudId, record.namespace, record.name);
             message.success('删除成功');
-            onRefresh?.(true);
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
             const err = e as { message?: string };
             message.error(err.message || '删除失败');
@@ -101,7 +104,7 @@ export function useSnapshotsSectionActions({
           if (ok > 0) message.success(`成功删除 ${ok} 个快照`);
           if (fail > 0) message.error(`${fail} 个快照删除失败`);
           setSelectedRowKeys([]);
-          onRefresh?.(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: unknown) {
           const err = e as { message?: string };
           message.error(err.message || '批量删除失败');

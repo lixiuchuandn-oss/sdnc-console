@@ -368,13 +368,9 @@ const StorageRoute: React.FC = () => {
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('storage')}
-      loadResource={p.loadResource}
       loadTabResource={p.loadTabResource}
       ecs={p.ecs}
-      setEcs={p.setEcs}
-      setRawEcs={p.setRawEcs}
       harvesterVolumes={p.harvesterVolumes}
-      setHarvesterVolumes={p.setHarvesterVolumes}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterSnapshots={p.harvesterSnapshots}
       harvesterNamespaces={p.harvesterNamespaces}

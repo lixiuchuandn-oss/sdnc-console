@@ -28,6 +28,12 @@ export {
   type PaasDatabasesSectionOnRefresh,
 } from './paasDatabasesRefresh';
 export {
+  createStorageTabOnRefresh,
+  type StorageInnerTabKey,
+  type StorageTabRefreshDeps,
+  type StorageSectionOnRefresh,
+} from './storageRefresh';
+export {
   fetchComputeEcsList,
   parseEcsListFromJson,
   syncCloudEcsBeforeLoad,
