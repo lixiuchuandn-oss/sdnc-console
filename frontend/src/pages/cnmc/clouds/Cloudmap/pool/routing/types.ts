@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type {
-  CloudmapPoolTabKey,
+  CloudmapPoolNavKey,
   CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 
@@ -32,7 +32,7 @@ export type CloudmapPoolPanelProps = {
   canViewKubeOvnGroup: boolean;
   canViewLoggingTab: boolean;
   ovnVpcEnabled: boolean;
-  poolInnerActive: (tab: CloudmapPoolTabKey) => string;
+  poolInnerActive: (nav: CloudmapPoolNavKey) => string;
   loadTabResource: (key: string, force?: boolean, skipSync?: boolean) => Promise<void>;
   loadResource: (
     key: string,

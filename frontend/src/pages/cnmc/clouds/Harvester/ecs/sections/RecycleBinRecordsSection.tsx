@@ -1,44 +1,25 @@
 /**
- * ==============================================================================
- * 模块名称: 回收站记录组件 (RecycleBinRecordsSection)
- * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/ecs/sections/RecycleBinRecordsSection.tsx
- * ==============================================================================
- *
- * 展示回收站自动关机任务写入库表中的记录：
- * - 列表由后端按租户命名空间、云环境过滤；skipped 类记录不返回
- * ==============================================================================
+ * 回收站自动关机任务记录（Tower 本机库表，非集群实时同步列表）。
  */
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Table, Badge, Input, Button, Select, DatePicker, message } from 'antd';
+import { Table, Input, Button, Select, DatePicker, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
-import PageDetailSection from '../../../../../../components/PageDetailSection';
+import type { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
+
+import PageDetailSection from 'components/PageDetailSection';
 import { getRecycleBinShutdownRecords } from 'services/harvester/vm';
-import { cnVmStatus } from '../../../../../../utils/harvesterUtils';
-import dayjs, { Dayjs } from 'dayjs';
+import {
+  filterShutdownRecordsByKeyword,
+  type ShutdownRecord,
+} from '../lib/recycleBinRecordsSectionUtils';
+import { buildRecycleBinRecordsTableColumns } from '../lib/recycleBinRecordsTableColumns';
 
 const { RangePicker } = DatePicker;
 
-interface Props {
+type Props = {
   cloudId?: string;
-}
-
-interface ShutdownRecord {
-  id: string;
-  cloudId: string;
-  cloudName: string;
-  namespace: string;
-  name: string;
-  displayName?: string;
-  instanceId: string;
-  uid: string;
-  shutdownAt: string;
-  status: 'success' | 'failed' | 'skipped';
-  errorMessage?: string;
-  previousStatus?: string;
-  taskId?: string;
-}
+};
 
 const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
   const [loading, setLoading] = useState(false);
@@ -56,33 +37,29 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
   }, [pagination.pageSize]);
 
   const [keyword, setKeyword] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
+
+  const columns = useMemo(() => buildRecycleBinRecordsTableColumns(), []);
 
   const loadData = useCallback(
     async (page = 1, pageSizeArg?: number) => {
       const size = pageSizeArg !== undefined ? pageSizeArg : pageSizeRef.current;
       setLoading(true);
       try {
-        const params: any = {
+        const params: Record<string, unknown> = {
           page,
           pageSize: size,
         };
-
-        if (cloudId) {
-          params.cloudId = cloudId;
-        }
-        if (statusFilter) {
-          params.status = statusFilter;
-        }
+        if (cloudId) params.cloudId = cloudId;
+        if (statusFilter) params.status = statusFilter;
         if (dateRange[0] && dateRange[1]) {
           params.startTime = dateRange[0].startOf('day').toISOString();
           params.endTime = dateRange[1].endOf('day').toISOString();
         }
 
         const res = await getRecycleBinShutdownRecords(params);
-
-        const records = res?.data?.records || res?.records || [];
+        const records = (res?.data?.records || res?.records || []) as ShutdownRecord[];
         const paginationData = res?.data?.pagination || res?.pagination || {};
 
         setData(records);
@@ -92,8 +69,9 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
           total: paginationData.total ?? 0,
           totalPages: paginationData.totalPages ?? 0,
         });
-      } catch (e: any) {
-        message.error(e?.message || '加载回收站记录失败');
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        message.error(err?.message || '加载回收站记录失败');
         setData([]);
       } finally {
         setLoading(false);
@@ -106,92 +84,14 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
     void loadData(1);
   }, [loadData]);
 
-  const filteredData = useMemo(() => {
-    if (!keyword) return data;
+  const filteredData = useMemo(
+    () => filterShutdownRecordsByKeyword(data, keyword),
+    [data, keyword],
+  );
 
-    const kw = keyword.toLowerCase();
-    return data.filter((record) => {
-      return (
-        record.cloudName?.toLowerCase().includes(kw) ||
-        record.displayName?.toLowerCase().includes(kw) ||
-        record.name?.toLowerCase().includes(kw) ||
-        record.namespace?.toLowerCase().includes(kw) ||
-        record.instanceId?.toLowerCase().includes(kw)
-      );
-    });
-  }, [data, keyword]);
-
-  const columns: ColumnsType<ShutdownRecord> = [
-    {
-      title: '命名空间',
-      key: 'namespace',
-      dataIndex: 'namespace',
-      ellipsis: true,
-    },
-    {
-      title: '云主机名称',
-      key: 'name',
-      dataIndex: 'name',
-      ellipsis: true,
-      render: (name: string, record: ShutdownRecord) => {
-        return record.displayName || name;
-      },
-    },
-    {
-      title: '云主机ID',
-      key: 'instanceId',
-      dataIndex: 'instanceId',
-      ellipsis: true,
-    },
-    {
-      title: '关机时间',
-      key: 'shutdownAt',
-      dataIndex: 'shutdownAt',
-      render: (time: string) => {
-        if (!time) return '-';
-        return dayjs(time).format('YYYY-MM-DD HH:mm:ss');
-      },
-      sorter: (a, b) => {
-        const timeA = dayjs(a.shutdownAt).valueOf();
-        const timeB = dayjs(b.shutdownAt).valueOf();
-        return timeA - timeB;
-      },
-    },
-    {
-      title: '状态',
-      key: 'status',
-      dataIndex: 'status',
-      render: (status: string) => {
-        if (status === 'success') {
-          return <Badge status="success" text="成功" />;
-        }
-        if (status === 'failed') {
-          return <Badge status="error" text="失败" />;
-        }
-        return <Badge status="default" text={status || '-'} />;
-      },
-    },
-    {
-      title: '原状态',
-      key: 'previousStatus',
-      dataIndex: 'previousStatus',
-      render: (previous: string) => (previous ? cnVmStatus(previous) : '-'),
-    },
-    {
-      title: '错误信息',
-      key: 'errorMessage',
-      dataIndex: 'errorMessage',
-      ellipsis: true,
-      render: (msg: string) => {
-        if (!msg) return '-';
-        return <span style={{ color: '#ff4d4f' }}>{msg}</span>;
-      },
-    },
-  ];
-
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     void loadData(pagination.page, pagination.pageSize);
-  };
+  }, [loadData, pagination.page, pagination.pageSize]);
 
   const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
     const nextPage = pag.current ?? 1;
@@ -202,6 +102,7 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
   return (
     <PageDetailSection
       title="回收站记录"
+      refreshLoading={loading}
       toolbarLeft={
         <>
           <Input

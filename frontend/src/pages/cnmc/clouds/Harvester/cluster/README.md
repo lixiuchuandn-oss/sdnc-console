@@ -7,7 +7,7 @@
 
 | 目录 | 职责 |
 |------|------|
-| `sections/` | Cloudmap 池「集群」Tab 下、**本域自有**的列表 Section |
+| `sections/` | Cloudmap 池「集群」导航（`cluster/:poolInnerSeg`）下、**本域自有**的列表 Section |
 | `drawers/` | 创建/编辑、详情侧栏（命名空间表单、物理节点/交换机、Vlan 列表等） |
 | `lib/` | 纯逻辑：过滤、列定义（`*TableColumns.tsx`）、ASW 解析、刷新 helper |
 | `hooks/` | 节点资源 bundle、物理交换机数据、交换机 CR 操作 |
@@ -39,7 +39,8 @@
 
 ## 列表刷新约定
 
-- 通用工具栏：**`lib/clusterSectionRefresh.ts`** → `createClusterToolbarRefresh(onRefresh)`，内部 **`onRefresh(true)`**。
+- 通用工具栏：**`Harvester/shared/lib/harvesterSectionRefresh.ts`** → `createHarvesterToolbarRefresh(onRefresh)`（`cluster/lib/clusterSectionRefresh.ts` 仅为 re-export）。
+- **其它 Harvester 域**（如 **`ecs/`**）直接 import shared，勿再拷贝刷新逻辑（见 **`AGENTS.md` · 不要重复造轮子**）。
 - 节点列表：工具栏 `before` 钩子额外调用 **`useNodesResourceBundle().reload(true)`**（metrics/pods 与列表同步）。
 - 命名空间写删：**`reloadHarvesterNamespacesList(cloudId, onRefresh)`**（`clearGetCacheForPath` + `onRefresh(true, true)`）。
 - 物理交换机：Section 内 **`loadAll()`** 自拉 ASW-CTL / HMS 数据，不依赖父级 `onRefresh`。

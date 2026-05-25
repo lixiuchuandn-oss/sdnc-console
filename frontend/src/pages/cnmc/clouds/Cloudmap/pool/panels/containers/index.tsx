@@ -31,7 +31,7 @@ import {
   fetchHarvesterImagePullSecrets,
 } from '../../../../../../../services/harvesterApi';
 
-export type CloudmapContainersTabsProps = {
+export type CloudmapContainersRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
   checkPerm: (act: string) => boolean;
@@ -96,7 +96,7 @@ export type CloudmapContainersTabsProps = {
   harvesterVolumes: any[];
 };
 
-const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
+const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -432,4 +432,4 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   );
 };
 
-export default CloudmapContainersTabs;
+export default CloudmapContainersRoutePanel;

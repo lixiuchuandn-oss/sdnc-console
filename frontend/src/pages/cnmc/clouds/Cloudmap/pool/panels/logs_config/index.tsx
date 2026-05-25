@@ -5,7 +5,7 @@ import LogsTarget from '../../../../Harvester/monitoring/LogsTarget';
 import LogOutputs from '../../../../Harvester/monitoring/LogOutputs';
 import { LoggingProvider } from '../../../../Harvester/monitoring/context/LoggingContext';
 
-export type CloudmapLogsConfigTabProps = {
+export type CloudmapLogsConfigRoutePanelProps = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
@@ -18,8 +18,8 @@ function canViewLogsInner(key: string, checkPerm: (a: string) => boolean): boole
   return false;
 }
 
-/** Cloudmap 详情 — 日志管理（侧栏路径驱动，无内层 Tabs） */
-const CloudmapLogsConfigTab: React.FC<CloudmapLogsConfigTabProps> = ({
+/** Cloudmap 池 — 日志管理（侧栏 + 路由 RoutePanel） */
+const CloudmapLogsConfigRoutePanel: React.FC<CloudmapLogsConfigRoutePanelProps> = ({
   cloudId,
   checkPerm,
   innerActiveKey,
@@ -46,4 +46,4 @@ const CloudmapLogsConfigTab: React.FC<CloudmapLogsConfigTabProps> = ({
   return <LoggingProvider cloudId={cloudId}>{body}</LoggingProvider>;
 };
 
-export default CloudmapLogsConfigTab;
+export default CloudmapLogsConfigRoutePanel;

@@ -1,5 +1,5 @@
 /**
- * Rancher 集群工作台侧栏：一级主导航 + 「集群」「工作负载」为二级子菜单；URL 仍用 `?tab=` 与 `?sub=`。
+ * Rancher 集群工作台侧栏：一级主导航 + 「集群」「工作负载」为二级子菜单；URL 仍用 `?tab=` 与 `?sub=`（与 Cloudmap 路径段语义对齐，非 antd Tabs）。
  * 路径：`/admin/clouds/:poolId/clusters/:clusterId` 时由 AdminLayout 注入。
  */
 import { createElement, type ReactNode } from 'react';
@@ -17,7 +17,7 @@ import type { AdminSidebarCenter } from '../AdminSidebar';
 export const RANCHER_CLUSTER_SIDEBAR_CENTER_KEY = '/admin/rancher_cluster_context';
 
 /** 一级（侧栏），与 Rancher 集群左侧主导航一致 */
-export const RANCHER_CLUSTER_TAB_KEYS = [
+export const RANCHER_CLUSTER_NAV_KEYS = [
   'cluster',
   'workloads',
   'apps',
@@ -27,9 +27,9 @@ export const RANCHER_CLUSTER_TAB_KEYS = [
   'more_resources',
 ] as const;
 
-export type RancherClusterTabKey = (typeof RANCHER_CLUSTER_TAB_KEYS)[number];
+export type RancherClusterNavKey = (typeof RANCHER_CLUSTER_NAV_KEYS)[number];
 
-export const RANCHER_CLUSTER_TAB_LABEL: Record<RancherClusterTabKey, string> = {
+export const RANCHER_CLUSTER_NAV_LABEL: Record<RancherClusterNavKey, string> = {
   cluster: '集群',
   workloads: '工作负载',
   apps: '应用',
@@ -131,7 +131,7 @@ export const RANCHER_STORAGE_MENU_GROUP_KEY = 'rancher_storage_nested';
 export const RANCHER_POLICIES_MENU_GROUP_KEY = 'rancher_policies_nested';
 export const RANCHER_MORE_MENU_GROUP_KEY = 'rancher_more_nested';
 
-const TAB_ICON: Record<RancherClusterTabKey, ReactNode> = {
+const NAV_ICON: Record<RancherClusterNavKey, ReactNode> = {
   cluster: createElement(ClusterOutlined),
   workloads: createElement(DeploymentUnitOutlined),
   apps: createElement(AppstoreOutlined),
@@ -142,7 +142,7 @@ const TAB_ICON: Record<RancherClusterTabKey, ReactNode> = {
 };
 
 /** 历史一级 `?tab=` → 现行 key */
-export const LEGACY_RANCHER_CLUSTER_TAB_TO_CANONICAL: Record<string, RancherClusterTabKey> = {
+export const LEGACY_RANCHER_CLUSTER_NAV_ALIASES: Record<string, RancherClusterNavKey> = {
   overview: 'cluster',
   configs: 'more_resources',
   users_rbac: 'cluster',
@@ -194,13 +194,13 @@ function clusterMenuItems(
   workloadCounts?: Partial<Record<RancherClusterWorkloadsSubKey, number>>,
 ): any[] {
   const base = `/admin/clouds/${encodeURIComponent(poolId)}/clusters/${encodeURIComponent(clusterId)}`;
-  return (RANCHER_CLUSTER_TAB_KEYS as readonly string[]).map((tab) => {
-    const k = tab as RancherClusterTabKey;
+  return (RANCHER_CLUSTER_NAV_KEYS as readonly string[]).map((tab) => {
+    const k = tab as RancherClusterNavKey;
     if (k === 'cluster') {
       return {
         key: RANCHER_CLUSTER_MENU_GROUP_KEY,
-        label: RANCHER_CLUSTER_TAB_LABEL[k],
-        icon: TAB_ICON[k],
+        label: RANCHER_CLUSTER_NAV_LABEL[k],
+        icon: NAV_ICON[k],
         children: (
           RANCHER_CLUSTER_SUB_KEYS as readonly RancherClusterSubKey[]
         ).map((sk) => ({
@@ -212,8 +212,8 @@ function clusterMenuItems(
     if (k === 'workloads') {
       return {
         key: RANCHER_CLUSTER_WORKLOADS_MENU_GROUP_KEY,
-        label: RANCHER_CLUSTER_TAB_LABEL[k],
-        icon: TAB_ICON[k],
+        label: RANCHER_CLUSTER_NAV_LABEL[k],
+        icon: NAV_ICON[k],
         children: (
           RANCHER_CLUSTER_WORKLOADS_SUB_KEYS as readonly RancherClusterWorkloadsSubKey[]
         ).map((sk) => ({
@@ -228,8 +228,8 @@ function clusterMenuItems(
     if (k === 'apps') {
       return {
         key: RANCHER_APPS_MENU_GROUP_KEY,
-        label: RANCHER_CLUSTER_TAB_LABEL[k],
-        icon: TAB_ICON[k],
+        label: RANCHER_CLUSTER_NAV_LABEL[k],
+        icon: NAV_ICON[k],
         children: (RANCHER_APPS_SUB_KEYS as readonly RancherAppsSubKey[]).map((sk) => ({
           key: `${base}?tab=apps&sub=${encodeURIComponent(sk)}`,
           label: RANCHER_APPS_SUB_LABEL[sk],
@@ -239,8 +239,8 @@ function clusterMenuItems(
     if (k === 'service_discovery') {
       return {
         key: RANCHER_SD_MENU_GROUP_KEY,
-        label: RANCHER_CLUSTER_TAB_LABEL[k],
-        icon: TAB_ICON[k],
+        label: RANCHER_CLUSTER_NAV_LABEL[k],
+        icon: NAV_ICON[k],
         children: (RANCHER_SD_SUB_KEYS as readonly RancherSdSubKey[]).map((sk) => ({
           key: `${base}?tab=service_discovery&sub=${encodeURIComponent(sk)}`,
           label: RANCHER_SD_SUB_LABEL[sk],
@@ -250,8 +250,8 @@ function clusterMenuItems(
     if (k === 'storage') {
       return {
         key: RANCHER_STORAGE_MENU_GROUP_KEY,
-        label: RANCHER_CLUSTER_TAB_LABEL[k],
-        icon: TAB_ICON[k],
+        label: RANCHER_CLUSTER_NAV_LABEL[k],
+        icon: NAV_ICON[k],
         children: (RANCHER_STORAGE_SUB_KEYS as readonly RancherStorageSubKey[]).map((sk) => ({
           key: `${base}?tab=storage&sub=${encodeURIComponent(sk)}`,
           label: RANCHER_STORAGE_SUB_LABEL[sk],
@@ -261,8 +261,8 @@ function clusterMenuItems(
     if (k === 'policies') {
       return {
         key: RANCHER_POLICIES_MENU_GROUP_KEY,
-        label: RANCHER_CLUSTER_TAB_LABEL[k],
-        icon: TAB_ICON[k],
+        label: RANCHER_CLUSTER_NAV_LABEL[k],
+        icon: NAV_ICON[k],
         children: (RANCHER_POLICIES_SUB_KEYS as readonly RancherPoliciesSubKey[]).map(
           (sk) => ({
             key: `${base}?tab=policies&sub=${encodeURIComponent(sk)}`,
@@ -274,8 +274,8 @@ function clusterMenuItems(
     if (k === 'more_resources') {
       return {
         key: RANCHER_MORE_MENU_GROUP_KEY,
-        label: RANCHER_CLUSTER_TAB_LABEL[k],
-        icon: TAB_ICON[k],
+        label: RANCHER_CLUSTER_NAV_LABEL[k],
+        icon: NAV_ICON[k],
         children: (RANCHER_MORE_SUB_KEYS as readonly RancherMoreSubKey[]).map((sk) => ({
           key: `${base}?tab=more_resources&sub=${encodeURIComponent(sk)}`,
           label: RANCHER_MORE_SUB_LABEL[sk],
@@ -284,8 +284,8 @@ function clusterMenuItems(
     }
     return {
       key: `${base}?tab=${encodeURIComponent(tab)}`,
-      label: RANCHER_CLUSTER_TAB_LABEL[k] || tab,
-      icon: TAB_ICON[k],
+      label: RANCHER_CLUSTER_NAV_LABEL[k] || tab,
+      icon: NAV_ICON[k],
     };
   });
 }
@@ -326,12 +326,12 @@ export function normalizeRancherClusterWorkloadsSubParam(
   return 'cronjob';
 }
 
-export function normalizeRancherClusterTabParam(tab: string | null): RancherClusterTabKey {
+export function normalizeRancherClusterNavParam(tab: string | null): RancherClusterNavKey {
   const t = String(tab || '').trim();
-  const legacy = LEGACY_RANCHER_CLUSTER_TAB_TO_CANONICAL[t];
+  const legacy = LEGACY_RANCHER_CLUSTER_NAV_ALIASES[t];
   if (legacy) return legacy;
-  if ((RANCHER_CLUSTER_TAB_KEYS as readonly string[]).includes(t)) {
-    return t as RancherClusterTabKey;
+  if ((RANCHER_CLUSTER_NAV_KEYS as readonly string[]).includes(t)) {
+    return t as RancherClusterNavKey;
   }
   return 'cluster';
 }
@@ -341,7 +341,7 @@ export function normalizeRancherClusterSubParam(
   subParam: string | null,
   legacyTabHint?: string | null,
 ): RancherClusterSubKey {
-  const tab = normalizeRancherClusterTabParam(tabParam);
+  const tab = normalizeRancherClusterNavParam(tabParam);
   if (tab !== 'cluster') {
     return 'projects';
   }
@@ -359,7 +359,7 @@ export function normalizeRancherClusterSubParam(
 
 /** 应用 / 服务发现 / 存储 / 策略 / 更多资源 的 `?sub=` 规范化 */
 export function normalizeRancherResourceSub(
-  tab: RancherClusterTabKey,
+  tab: RancherClusterNavKey,
   subParam: string | null,
 ): string {
   const s0 = String(subParam || '').trim().toLowerCase();
@@ -400,7 +400,7 @@ export function normalizeRancherResourceSub(
  * 与后端 `GET /rancher/.../k8s/:kind` 的 kind 一致；apps 的 sub=catalog → catalogapps
  */
 export function resolveRancherK8sListKey(
-  tab: RancherClusterTabKey,
+  tab: RancherClusterNavKey,
   resourceSub: string,
 ): string | null {
   const s = String(resourceSub || '').trim();

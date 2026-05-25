@@ -30,7 +30,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapFlatNetworkGroupTabsProps = {
+export type CloudmapFlatNetworkRoutePanelProps = {
   cloudId: string;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
@@ -85,7 +85,7 @@ function canViewFlatInner(
   return false;
 }
 
-const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> = (
+const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -230,4 +230,4 @@ const CloudmapFlatNetworkGroupTabs: React.FC<CloudmapFlatNetworkGroupTabsProps> 
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapFlatNetworkGroupTabs;
+export default CloudmapFlatNetworkRoutePanel;

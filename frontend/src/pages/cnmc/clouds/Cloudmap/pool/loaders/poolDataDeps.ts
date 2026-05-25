@@ -1,6 +1,6 @@
 /**
  * Cloudmap 池数据加载依赖类型。
- * 业务域与 `layouts/admin/cloudmap/cloudPoolSidebar` 的 `CLOUDMAP_POOL_TAB_KEYS`、
+ * 业务域与 `layouts/admin/cloudmap/cloudPoolSidebar` 的 `CLOUDMAP_POOL_NAV_KEYS`、
  * `panels/<域>/` 目录一一对应；路径内层段与侧栏 `pathSeg` 一致。
  */
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
