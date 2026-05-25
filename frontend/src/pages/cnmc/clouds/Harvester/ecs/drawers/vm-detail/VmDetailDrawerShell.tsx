@@ -10,7 +10,6 @@ import {
   Dropdown,
   Tag,
   Tooltip,
-  Card,
   message,
 } from "antd";
 import {
@@ -22,8 +21,6 @@ import {
   EllipsisOutlined,
   DesktopOutlined,
   DatabaseOutlined,
-  HddOutlined,
-  ExportOutlined,
   CloseOutlined,
   SyncOutlined,
   LineChartOutlined,
@@ -54,7 +51,6 @@ import VmRealtimeLogsDrawer from "../vm-realtime-logs";
 import { OsIcon } from "../../../../../../../components/OsIcon";
 import VmSaveAsTemplateModal from "../../modals/VmSaveAsTemplateModal";
 import {
-  VM_DETAIL_DRAWER_BLOCK_CARD_STYLE,
   VM_DETAIL_DRAWER_TEXT_SECONDARY,
 } from "./lib/uiTokens";
 import type { MenuProps } from "antd";
@@ -225,15 +221,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
         onClick: gated(() => p.setUsbManageOpen(true)),
       },
     ];
-  }, [
-    p.hasEcsWrite,
-    ecsWriteDenied,
-    p.setSpecConfigOpen,
-    p.setDiskManageOpen,
-    p.setNicManageOpen,
-    p.setGpuManageOpen,
-    p.setUsbManageOpen,
-  ]);
+  }, [p, ecsWriteDenied]);
 
   return (
     <>

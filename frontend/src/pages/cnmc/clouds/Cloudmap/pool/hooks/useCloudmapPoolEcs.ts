@@ -2,7 +2,7 @@
  * Cloudmap 资源池：虚拟机列表 + SSE 推送 + 定时合并 vm_status 缓冲。
  * 从 PoolDetailPage 抽出，便于单测与复用（例如将来独立 ecs 路由页）。
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../api';
 import { getToken } from '../../../../../../utils/tokenStorage';
 

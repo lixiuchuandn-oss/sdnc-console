@@ -4,8 +4,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { message } from 'antd';
-
 import type { CloudmapPoolDetailContextValue } from '../routing';
 import { runPathResourceLoad, runPoolEssentials } from '../loaders';
 
@@ -198,7 +196,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [rawClusterNetworks, setRawClusterNetworks] = useState<any | null>(
     null,
   );
-  const [rawIngresses, setRawIngresses] = useState<any | null>(null);
+  const [, setRawIngresses] = useState<any | null>(null);
 
   const loadedRef = React.useRef<Set<string>>(new Set());
 
@@ -289,6 +287,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       ovnVpcEnabled,
       canReadFlatSubnets,
       canReadVpcSubnets,
+      setEcs,
+      setRawEcs,
     ],
   );
 
@@ -391,6 +391,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       canViewFlatNetworkGroup,
       ovnVpcEnabled,
       harvesterSecrets,
+      setEcs,
+      setRawEcs,
     ],
   );
 
