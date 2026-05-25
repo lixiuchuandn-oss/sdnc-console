@@ -54,7 +54,23 @@ const ResourceHubRoute: React.FC = () => {
       );
     case 'datacenter_topology':
       return p.canAccessResourceHubSub('datacenter_topology') ? (
-        <ResourceOverviewDatacenterTopologyPanel cloudId={p.cloudId} checkPerm={p.checkPerm} />
+        <ResourceOverviewDatacenterTopologyPanel
+          cloudId={p.cloudId}
+          resourceHubSub="datacenter_topology"
+          loadTabResource={p.loadTabResource}
+          checkPerm={p.checkPerm}
+          canReadNetworkScope={p.canReadNetworkScope}
+          resourceLoading={p.resourceLoading}
+          datacenterRacks={p.datacenterRacks}
+          datacenterNodeMetricsMap={p.datacenterNodeMetricsMap}
+          harvesterAswSwitches={p.harvesterAswSwitches}
+          harvesterNodes={p.harvesterNodes}
+          rawNodes={p.rawNodes}
+          harvesterKubeOvnProviderNetworks={p.harvesterKubeOvnProviderNetworks}
+          harvesterVlans={p.harvesterVlans}
+          kubeOvnSubnets={p.kubeOvnSubnets}
+          harvesterClusterNetworks={p.harvesterClusterNetworks}
+        />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
@@ -62,7 +78,20 @@ const ResourceHubRoute: React.FC = () => {
       return p.canAccessResourceHubSub('network_topology') ? (
         <ResourceOverviewNetworkTopologyPanel
           cloudId={p.cloudId}
-          canReadNetworkScope={p.canAccessResourceHubSub('network_topology')}
+          resourceHubSub="network_topology"
+          loadTabResource={p.loadTabResource}
+          checkPerm={p.checkPerm}
+          canReadNetworkScope={p.canReadNetworkScope}
+          resourceLoading={p.resourceLoading}
+          datacenterRacks={p.datacenterRacks}
+          datacenterNodeMetricsMap={p.datacenterNodeMetricsMap}
+          harvesterAswSwitches={p.harvesterAswSwitches}
+          harvesterNodes={p.harvesterNodes}
+          rawNodes={p.rawNodes}
+          harvesterKubeOvnProviderNetworks={p.harvesterKubeOvnProviderNetworks}
+          harvesterVlans={p.harvesterVlans}
+          kubeOvnSubnets={p.kubeOvnSubnets}
+          harvesterClusterNetworks={p.harvesterClusterNetworks}
         />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />

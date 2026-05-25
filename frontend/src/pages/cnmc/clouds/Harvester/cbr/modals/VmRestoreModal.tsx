@@ -16,7 +16,7 @@ import { createHarvesterVirtualMachineRestore } from 'services/harvester/cbr';
 import { patchHarvesterVm, fetchHarvesterVmDetail } from 'services/harvester/vm';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import { isHarvesterCephVmBackup } from '../../../../../../utils/harvesterUtils';
-import { applyVmTowerAliasWhenReady } from '../../ecs/lib/vmTowerAlias';
+import { applyVmTowerAliasWhenReady, dispatchVmAliasApplied } from '../../ecs/lib/vmTowerAlias';
 
 /** 与回收站列表一致：finalizers 或 label 标记为回收站中的云主机 */
 function isHarvesterVmInRecycleBin(vm: any): boolean {
@@ -246,19 +246,10 @@ const VmRestoreModal: React.FC<Props> = ({
       const displayName =
         values.newVM === true ? String(values.displayName || '').trim() : '';
       if (displayName) {
-        void applyVmTowerAliasWhenReady(cloudId, namespace, targetName, displayName)
-          .then((ok) => {
-            if (ok) {
-              window.dispatchEvent(
-                new CustomEvent('harvester:vm-alias-applied', {
-                  detail: { namespace, name: targetName, alias: displayName },
-                }),
-              );
-            }
-          })
-          .catch((e) => {
-            console.warn('Failed to set alias for restored VM:', e);
-          });
+        dispatchVmAliasApplied({ namespace, name: targetName, alias: displayName });
+        void applyVmTowerAliasWhenReady(cloudId, namespace, targetName, displayName).catch((e) => {
+          console.warn('Failed to set alias for restored VM:', e);
+        });
       }
 
       message.success('恢复任务创建成功');

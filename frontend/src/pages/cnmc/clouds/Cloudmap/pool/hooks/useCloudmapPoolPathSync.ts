@@ -163,6 +163,9 @@ export function useCloudmapPoolPathSync({
         return;
       }
       setResourceHubSubKey(resolved);
+      if (resolved === 'datacenter_topology' || resolved === 'network_topology') {
+        handleTabChangeRef.current(resolved);
+      }
     }
   }, [
     locationPathname,

@@ -768,9 +768,24 @@ export function harvesterBackupSourceVmName(item: any): string {
   ).trim();
 }
 
-/** ScheduleVmBackup 关联的源虚拟机名 */
+/** 是否为 ScheduleCephVmBackup（hms.rivercloud.com） */
+export function isHarvesterCephScheduleVmBackup(item: any): boolean {
+  const raw = item?.rawData || item;
+  const kind = String(raw?.kind || '').toLowerCase();
+  if (kind === 'schedulecephvmbackup') return true;
+  if (String(raw?.metadata?.annotations?.['tower.io/scheduleBackupBackend'] || '') === 'ceph') {
+    return true;
+  }
+  const api = String(raw?.apiVersion || '').toLowerCase();
+  return api.includes('hms.rivercloud.com') && kind.includes('schedule') && kind.includes('ceph');
+}
+
+/** ScheduleVmBackup / ScheduleCephVmBackup 关联的源虚拟机名 */
 export function harvesterScheduleVmBackupSourceVmName(item: any): string {
   const raw = item?.rawData || item;
+  if (isHarvesterCephScheduleVmBackup(item)) {
+    return String(raw?.spec?.targetVm || raw?.spec?.vmbackup?.source?.name || item?.vmName || '').trim();
+  }
   return String(raw?.spec?.vmbackup?.source?.name || item?.vmName || '').trim();
 }
 

@@ -13,7 +13,8 @@ export const fetchHarvesterScheduleVmBackups = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  void skipSync;
+  /** 创建后刷新：后端已入库，跳过全量同步避免集群列表未就绪时 wipe 本地行 */
+  if (skipSync) params.append('skipSync', 'true');
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   const url = `/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`;
@@ -45,7 +46,8 @@ export const fetchHarvesterBackups = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  void skipSync;
+  /** 创建/变配后刷新：后端已入库，跳过全量同步避免集群列表未就绪时 wipe 本地行 */
+  if (skipSync) params.append('skipSync', 'true');
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
   return await apiRequest(

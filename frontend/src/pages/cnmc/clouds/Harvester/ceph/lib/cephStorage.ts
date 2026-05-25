@@ -174,44 +174,14 @@ function pickPrimaryClusterForDaemons(clusters: any[]): any | null {
   return pick;
 }
 
-function osdCountFromCephCluster(c: any): number {
-  const osdVer = c?.status?.ceph?.versions?.osd;
-  if (osdVer && typeof osdVer === 'object' && !Array.isArray(osdVer)) {
-    const k = Object.keys(osdVer);
-    if (k.length > 0) return k.length;
-  }
-  const storeType = c?.status?.storage?.osd?.storeType;
-  if (storeType && typeof storeType === 'object' && !Array.isArray(storeType)) {
-    let s = 0;
-    for (const v of Object.values(storeType)) {
-      const n = typeof v === 'number' ? v : Number(v);
-      if (Number.isFinite(n)) s += n;
-    }
-    if (s > 0) return Math.round(s);
-  }
-  return 0;
-}
-
-function monCountFromCephCluster(c: any): number {
-  const monVer = c?.status?.ceph?.versions?.mon;
-  if (monVer && typeof monVer === 'object' && !Array.isArray(monVer)) {
-    const k = Object.keys(monVer);
-    if (k.length > 0) return k.length;
-  }
-  const specCount = c?.spec?.mon?.count;
-  const n = typeof specCount === 'number' ? specCount : Number(specCount);
-  if (Number.isFinite(n) && n > 0) return Math.round(n);
-  return 0;
-}
-
 /**
- * Rook `status.ceph.versions.mgr` 多为「Ceph 版本摘要串 → 运行该版本的 mgr 数量」，不能拿 key 当 active_name。
- * 优先对 value 做数值求和；否则在 key 看似短守护进程名时退化为 key 个数。
+ * Rook `status.ceph.versions.<role>` 常见两种形态：
+ * - 「Ceph 版本摘要串 → 守护进程数量」：应对 value 求和（勿用 key 个数，否则 3 个 mon 会显示成 1）；
+ * - 「短守护进程名 → 版本串」：对 key 计数。
  */
-function mgrCountFromCephCluster(c: any): number {
-  const mgrVer = c?.status?.ceph?.versions?.mgr;
-  if (!mgrVer || typeof mgrVer !== 'object' || Array.isArray(mgrVer)) return 0;
-  const o = mgrVer as Record<string, unknown>;
+export function daemonCountFromCephVersionsField(ver: unknown): number {
+  if (!ver || typeof ver !== 'object' || Array.isArray(ver)) return 0;
+  const o = ver as Record<string, unknown>;
   let sum = 0;
   let anyNumeric = false;
   for (const v of Object.values(o)) {
@@ -228,6 +198,34 @@ function mgrCountFromCephCluster(c: any): number {
     (k) => k.length <= 32 && !/ceph\s+version/i.test(k),
   );
   return allShortDaemonish ? keys.length : 0;
+}
+
+function osdCountFromCephCluster(c: any): number {
+  const fromVer = daemonCountFromCephVersionsField(c?.status?.ceph?.versions?.osd);
+  if (fromVer > 0) return fromVer;
+  const storeType = c?.status?.storage?.osd?.storeType;
+  if (storeType && typeof storeType === 'object' && !Array.isArray(storeType)) {
+    let s = 0;
+    for (const v of Object.values(storeType)) {
+      const n = typeof v === 'number' ? v : Number(v);
+      if (Number.isFinite(n)) s += n;
+    }
+    if (s > 0) return Math.round(s);
+  }
+  return 0;
+}
+
+function monCountFromCephCluster(c: any): number {
+  const fromVer = daemonCountFromCephVersionsField(c?.status?.ceph?.versions?.mon);
+  if (fromVer > 0) return fromVer;
+  const specCount = c?.spec?.mon?.count;
+  const n = typeof specCount === 'number' ? specCount : Number(specCount);
+  if (Number.isFinite(n) && n > 0) return Math.round(n);
+  return 0;
+}
+
+function mgrCountFromCephCluster(c: any): number {
+  return daemonCountFromCephVersionsField(c?.status?.ceph?.versions?.mgr);
 }
 
 /**
@@ -331,6 +329,10 @@ const DASHBOARD_MINIMAL_PATCH_KEYS = [
   'scrub_status',
   'pg_info',
   'iscsi_daemons',
+  /** Dashboard 真值：覆盖 Rook 合成的 mon/osd/mgr 数量与仲裁 */
+  'mon_status',
+  'osd_map',
+  'mgr_map',
 ] as const;
 
 /**

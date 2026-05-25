@@ -7,8 +7,12 @@ import ClusterNetworkTopologyGraph from '../lib/networkTopology/ClusterNetworkTo
 import ProviderNetworkTopologyGraph from '../lib/networkTopology/ProviderNetworkTopologyGraph';
 import NetworkTopologyToolbar from '../lib/NetworkTopologyToolbar';
 import { useNetworkTopologyChartLayout } from '../hooks/useNetworkTopologyChartLayout';
-import { useNetworkTopologyData } from '../hooks/useNetworkTopologyData';
+import {
+  useNetworkTopologyData,
+  type NetworkTopologyPoolSnapshot,
+} from '../hooks/useNetworkTopologyData';
 import { NETWORK_TOPO_CHART_MIN_HEIGHT_PX } from '../lib/networkTopologySectionUtils';
+import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 
 const TAB_PANEL_TOPOLOGY: React.CSSProperties = {
   position: 'relative',
@@ -43,13 +47,20 @@ function chartHostStyle(chartHostHeight: number): React.CSSProperties {
 type Props = {
   cloudId: string;
   canReadNetworkScope: boolean;
+  snapshot: NetworkTopologyPoolSnapshot;
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
-const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope }) => {
+const NetworkTopologySection: React.FC<Props> = ({
+  cloudId,
+  canReadNetworkScope,
+  snapshot,
+  onRefresh,
+}) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const [topoView, setTopoView] = useState<'underlay' | 'cluster'>('underlay');
 
-  const data = useNetworkTopologyData(cloudId, canReadNetworkScope);
+  const data = useNetworkTopologyData(cloudId, canReadNetworkScope, snapshot, onRefresh);
 
   const chart = useNetworkTopologyChartLayout({
     enabled: canReadNetworkScope,

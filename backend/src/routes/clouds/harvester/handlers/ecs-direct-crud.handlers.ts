@@ -395,14 +395,15 @@ export async function harvesterVmPatchHandler(req: Request, res: Response) {
 
     try {
       const repo = AppDataSource.getRepository(HarvesterVmInventory);
-      await repo.update(
-        { cloudId: id, uid: data.metadata.uid },
-        {
-          labels: data.metadata?.labels,
-          annotations: data.metadata?.annotations,
-          rawData: data,
-        },
-      );
+      const cachePayload = {
+        labels: data.metadata?.labels,
+        annotations: data.metadata?.annotations,
+        rawData: data,
+      };
+      const byUid = await repo.update({ cloudId: id, uid: data.metadata.uid }, cachePayload);
+      if (!byUid.affected) {
+        await repo.update({ cloudId: id, namespace, name }, cachePayload);
+      }
     } catch (ignore) {
       // ignore cache update error
     }
