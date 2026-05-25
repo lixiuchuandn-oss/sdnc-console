@@ -640,11 +640,14 @@ const JobEventsViewer: React.FC<{
     {
       title: '类型',
       dataIndex: 'type',
+      width: 80,
       render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v}</Tag>,
     },
     {
       title: '原因',
       dataIndex: 'reason',
+      width: 160,
+      ellipsis: true,
     },
     {
       title: '消息',
@@ -655,11 +658,14 @@ const JobEventsViewer: React.FC<{
     {
       title: '来源',
       dataIndex: 'source',
+      width: 200,
+      ellipsis: true,
       render: (v: string) => <Tag>{v}</Tag>,
     },
     {
       title: '时间',
       dataIndex: 'lastTimestamp',
+      width: 180,
       render: formatTime,
     },
   ];
@@ -757,7 +763,7 @@ const JobDetailDrawer: React.FC<{
               style={{ marginBottom: 16 }}
             />
           )}
-          <Descriptions column={2} bordered size="small">
+          <Descriptions column={2} bordered size="small" labelStyle={{ whiteSpace: 'nowrap' }}>
             <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
             <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
             <Descriptions.Item label="状态">{renderJobStatus(job)}</Descriptions.Item>

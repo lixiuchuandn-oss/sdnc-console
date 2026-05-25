@@ -65,3 +65,7 @@ design/
 harvester-master/
 1.md
 2.md
+docs/harbor-api-2.13.0-swagger.yaml
+docs/harbor-api-2.13.0-reference.md
+docs/harvester-api-reference.md
+docs/kubernetes-container-api-reference.md

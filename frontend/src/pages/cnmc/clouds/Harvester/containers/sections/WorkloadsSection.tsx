@@ -30,7 +30,9 @@ import {
   fetchHarvesterStatefulSets,
   fetchHarvesterDaemonSets,
   scaleHarvesterDeployment,
+  scaleHarvesterStatefulSet,
   restartHarvesterDeployment,
+  restartHarvesterStatefulSet,
   deleteHarvesterContainerResource,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
@@ -65,6 +67,8 @@ type Props = {
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
+  onRefreshConfigMaps?: () => void;
+  onRefreshSecrets?: () => void;
 };
 
 /**
@@ -337,7 +341,11 @@ const WorkloadTable: React.FC<{
         const input = document.getElementById('replicas-input') as HTMLInputElement;
         const replicas = parseInt(input?.value || '0', 10);
         try {
-          await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
+          if (type === 'statefulset') {
+            await scaleHarvesterStatefulSet(cloudId, namespace, name, replicas);
+          } else {
+            await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
+          }
           message.success('扩缩容指令已下发');
           onRefresh(true);
         } catch (e: any) {
@@ -345,7 +353,7 @@ const WorkloadTable: React.FC<{
         }
       },
     });
-  }, [cloudId, modal, message, onRefresh]);
+  }, [cloudId, modal, message, onRefresh, type]);
   
   // 重启操作
   const handleRestart = useCallback(async (record: any) => {
@@ -353,13 +361,17 @@ const WorkloadTable: React.FC<{
     const name = record?.metadata?.name;
     
     try {
-      await restartHarvesterDeployment(cloudId, namespace, name);
+      if (type === 'statefulset') {
+        await restartHarvesterStatefulSet(cloudId, namespace, name);
+      } else {
+        await restartHarvesterDeployment(cloudId, namespace, name);
+      }
       message.success('重启指令已下发');
       onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '重启失败');
     }
-  }, [cloudId, message, onRefresh]);
+  }, [cloudId, message, onRefresh, type]);
   
   // 删除操作
   const handleDelete = useCallback(async (record: any) => {
@@ -699,6 +711,8 @@ const WorkloadsSection: React.FC<Props> = ({
   showAllSwitch,
   queryAll,
   onQueryAllChange,
+  onRefreshConfigMaps,
+  onRefreshSecrets,
 }) => {
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [activeTab, setActiveTab] = useState<'deployment' | 'statefulset' | 'daemonset'>('deployment');
@@ -795,6 +809,8 @@ const WorkloadsSection: React.FC<Props> = ({
         defaultNamespace={formDefaultNs}
         defaultType={createType}
         hideFlatSubnet={hideFlatSubnet}
+        onRefreshConfigMaps={onRefreshConfigMaps}
+        onRefreshSecrets={onRefreshSecrets}
         onSuccess={() => {
           onRefresh(true);
         }}
@@ -814,6 +830,8 @@ const WorkloadsSection: React.FC<Props> = ({
         defaultNamespace={formDefaultNs}
         editData={editRecord}
         hideFlatSubnet={hideFlatSubnet}
+        onRefreshConfigMaps={onRefreshConfigMaps}
+        onRefreshSecrets={onRefreshSecrets}
         onSuccess={() => {
           setEditModalVisible(false);
           setEditRecord(null);

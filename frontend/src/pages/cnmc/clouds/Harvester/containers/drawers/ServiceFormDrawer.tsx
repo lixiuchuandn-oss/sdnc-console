@@ -31,7 +31,7 @@ import {
 } from 'antd';
 import { createHarvesterService, updateHarvesterService, fetchHarvesterPodsBySelector } from '../../../../../../services/harvesterApi';
 import WorkloadImportDrawer, { type WorkloadInfo } from './WorkloadImportDrawer';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';
 import { getHarvesterDrawerSectionCardProps } from '../../shared/drawerSectionCard';
 
 const { Text } = Typography;
@@ -475,8 +475,8 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
       onSuccess();
     } catch (error: any) {
       console.error('[ServiceForm] 提交失败:', error);
-      const errorMsg = error?.response?.data?.message || error?.message || '操作失败';
-      message.error(errorMsg);
+      const errorMsg = translateK8sError(error);
+      message.error(`${editMode ? '更新' : '创建'} Service 失败: ${errorMsg}`);
     } finally {
       syncSubmitting(false);
     }

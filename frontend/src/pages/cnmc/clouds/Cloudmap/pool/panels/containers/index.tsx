@@ -247,6 +247,8 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
         showAllSwitch
         queryAll={workloadsAll}
         onQueryAllChange={(checked) => { setWorkloadsAll(checked); loadWorkloads(true, checked); }}
+        onRefreshConfigMaps={() => loadConfigs()}
+        onRefreshSecrets={() => loadConfigs()}
       />
     );
   } else if (innerActiveKey === 'pods') {

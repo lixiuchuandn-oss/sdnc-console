@@ -22,7 +22,7 @@
  * 步骤5: 高级配置 - 副本数、调度、健康检查
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, useReducer } from 'react';
 import {
   Form,
   Input,
@@ -44,6 +44,7 @@ import {
   Checkbox,
   Spin,
   Tooltip,
+  Modal,
 } from 'antd';
 import {
   PlusOutlined,
@@ -60,6 +61,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   GlobalOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 import yaml from 'js-yaml';
@@ -381,6 +383,69 @@ const MEMORY_UNITS = [
   { label: 'GiB', value: 'Gi' },
 ];
 
+// ============================================================
+// 资源比较函数
+// ============================================================
+
+/**
+ * 解析 CPU 资源字符串为核数
+ * 支持格式: '100m' (毫核), '0.5' (核), '1' (核)
+ */
+const parseCpuToCores = (value: string | undefined): number => {
+  if (!value || typeof value !== 'string') return 0;
+  const t = value.trim();
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*([mun])?$/i);
+  if (!m) return 0;
+  const num = parseFloat(m[1]);
+  if (Number.isNaN(num)) return 0;
+  const suffix = (m[2] || '').toLowerCase();
+  if (suffix === 'm') return num / 1000;
+  if (suffix === 'u') return num / 1e6;
+  if (suffix === 'n') return num / 1e9;
+  return num;
+};
+
+/**
+ * 解析内存资源字符串为字节数
+ * 支持格式: '128Mi', '1Gi', '1024' (字节)
+ */
+const parseMemoryToBytes = (value: string | undefined): number => {
+  if (!value || typeof value !== 'string') return 0;
+  const t = value.trim();
+  const m = t.match(/^(\d+)\s*([KMGTP]i?)?$/i);
+  if (!m) return 0;
+  const num = parseInt(m[1], 10);
+  if (Number.isNaN(num)) return 0;
+  const suffix = (m[2] || '').toLowerCase();
+  if (suffix === 'ki') return num * 1024;
+  if (suffix === 'mi') return num * 1024 ** 2;
+  if (suffix === 'gi') return num * 1024 ** 3;
+  if (suffix === 'ti') return num * 1024 ** 4;
+  if (suffix === 'pi') return num * 1024 ** 5;
+  if (suffix === 'k') return num * 1000;
+  if (suffix === 'm') return num * 1e6;
+  if (suffix === 'g') return num * 1e9;
+  if (suffix === 't') return num * 1e12;
+  if (suffix === 'p') return num * 1e15;
+  return num;
+};
+
+/**
+ * 比较 CPU 资源值
+ * @returns 正数表示 a > b，负数表示 a < b，0 表示相等
+ */
+const compareCpuResources = (a: string | undefined, b: string | undefined): number => {
+  return parseCpuToCores(a) - parseCpuToCores(b);
+};
+
+/**
+ * 比较内存资源值
+ * @returns 正数表示 a > b，负数表示 a < b，0 表示相等
+ */
+const compareMemoryResources = (a: string | undefined, b: string | undefined): number => {
+  return parseMemoryToBytes(a) - parseMemoryToBytes(b);
+};
+
 const K8S_ERROR_MAP: Record<string, string> = {
   'selector does not match template labels': '标签与选择器不匹配，请检查基本信息中的标签是否与系统自动生成的标签冲突',
   'is invalid': '资源配置无效',
@@ -658,6 +723,146 @@ const checkIpAvailability = (ip: string, subnet: any): { available: boolean; rea
 const CPU_RESOURCE_PATTERN = /^(\d+)(m)?$/;
 const MEMORY_RESOURCE_PATTERN = /^\d+(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)$/;
 
+// ============================================================
+// K8s 格式校验函数
+// ============================================================
+
+/**
+ * 校验 K8s 标签键 (Label Key)
+ * 格式: 可选前缀（DNS子域名格式）+ / + 键名
+ * 键名: 最多63字符，小写字母/数字开头结尾，中间可含连字符(-)、下划线(_)、点(.)
+ * 前缀: DNS子域名格式（如 example.com）
+ */
+const validateK8sLabelKey = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  // DNS子域名格式或无前缀的标签键
+  const labelKeyRegex = /^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/)?[a-z0-9]([-a-z0-9._]*[a-z0-9])?$/;
+  if (!labelKeyRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：可选DNS前缀（如 example.com/），键名须小写字母/数字开头结尾，中间可含连字符、下划线、点'));
+  }
+  // 检查键名部分（不含前缀）长度不超过63
+  const keyPart = value.includes('/') ? value.split('/')[1] : value;
+  if (keyPart.length > 63) {
+    return Promise.reject(new Error('键名长度不能超过63个字符'));
+  }
+  // 检查前缀部分长度不超过253
+  if (value.includes('/')) {
+    const prefixPart = value.split('/')[0];
+    if (prefixPart.length > 253) {
+      return Promise.reject(new Error('前缀长度不能超过253个字符'));
+    }
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验 K8s 标签值 (Label Value)
+ * 格式: 最多63字符，字母/数字开头结尾，中间可含连字符(-)、下划线(_)、点(.)
+ * 允许空字符串
+ */
+const validateK8sLabelValue = (_: any, value: string) => {
+  if (!value) return Promise.resolve(); // 空字符串是合法的标签值
+  const labelValueRegex = /^[a-zA-Z0-9]([-a-zA-Z0-9._]*[a-zA-Z0-9])?$/;
+  if (!labelValueRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：字母/数字开头结尾，中间可含连字符、下划线、点'));
+  }
+  if (value.length > 63) {
+    return Promise.reject(new Error('标签值长度不能超过63个字符'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验 K8s 端口名称 (Port Name)
+ * 格式: 最多63字符，小写字母开头结尾，中间可含小写字母、数字、连字符(-)
+ * 允许为空（非必填）
+ */
+const validateK8sPortName = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  const portNameRegex = /^[a-z]([a-z0-9-]*[a-z0-9])?$/;
+  if (!portNameRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：小写字母开头，仅含小写字母、数字和连字符，须字母或数字结尾'));
+  }
+  if (value.length > 63) {
+    return Promise.reject(new Error('端口名称长度不能超过63个字符'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验环境变量键名 (Env Var Name)
+ * 格式: 字母开头，可含字母、数字、下划线(_)
+ */
+const validateEnvVarName = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  const envNameRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  if (!envNameRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：须以字母或下划线开头，仅含字母、数字和下划线'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验健康检查 HTTP 路径 (httpGet.path)
+ * 格式: 必须以 / 开头
+ */
+const validateHttpProbePath = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  if (!value.startsWith('/')) {
+    return Promise.reject(new Error('路径必须以 / 开头'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验健康检查执行命令 (exec.command)
+ * 格式: 不能为空数组
+ */
+const validateExecCommand = (_: any, value: string[]) => {
+  if (!value || value.length === 0) {
+    return Promise.reject(new Error('执行命令不能为空，请输入至少一个命令'));
+  }
+  const filtered = value.filter((item: string) => item && item.trim());
+  if (filtered.length === 0) {
+    return Promise.reject(new Error('执行命令不能为空，请输入有效的命令'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验存储卷名称 (Volume Name)
+ * 格式: 小写字母开头结尾，中间可含小写字母、数字、连字符(-)，最多63字符
+ */
+const validateVolumeName = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  const volumeNameRegex = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+  if (!volumeNameRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：小写字母/数字开头结尾，中间仅含小写字母、数字和连字符'));
+  }
+  if (value.length > 63) {
+    return Promise.reject(new Error('卷名称长度不能超过63个字符'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验节点路径 (hostPath.path)
+ * 格式: 必须是有效的 Unix 路径格式（以 / 开头）
+ */
+const validateUnixPath = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  if (!value.startsWith('/')) {
+    return Promise.reject(new Error('路径必须以 / 开头'));
+  }
+  // 基本路径格式校验：不允许连续的斜杠（但允许 // 这种，某些K8s场景会用到）
+  // 校验路径中不包含非法字符
+  const unixPathRegex = /^\/[^\0]*$/;
+  if (!unixPathRegex.test(value)) {
+    return Promise.reject(new Error('请输入有效的 Unix 路径格式（如 /var/data）'));
+  }
+  return Promise.resolve();
+};
+
 const WORKLOAD_TYPE_OPTIONS = [
   { value: 'deployment', label: 'Deployment', desc: '无状态应用，支持弹性伸缩' },
   { value: 'statefulset', label: 'StatefulSet', desc: '有状态应用，稳定网络标识' },
@@ -828,14 +1033,20 @@ const LabelEditor: React.FC<{
             <Form.Item
               {...restField}
               name={[index, 'key']}
-              rules={[{ required: true, message: '请输入键' }]}
+              rules={[
+                { required: true, message: '请输入键' },
+                { validator: validateK8sLabelKey },
+              ]}
             >
-              <Input placeholder="键" style={{ width: 150 }} />
+              <Input placeholder="键 (如: app 或 example.com/key)" style={{ width: 180 }} />
             </Form.Item>
             <Form.Item
               {...restField}
               name={[index, 'value']}
-              rules={[{ required: true, message: '请输入值' }]}
+              rules={[
+                { required: true, message: '请输入值' },
+                { validator: validateK8sLabelValue },
+              ]}
             >
               <Input placeholder="值" style={{ width: 150 }} />
             </Form.Item>
@@ -869,8 +1080,9 @@ const PortsEditor: React.FC = () => (
               <Form.Item
                 {...restField}
                 name={[index, 'name']}
+                rules={[{ validator: validateK8sPortName }]}
               >
-                <Input placeholder="端口名称" />
+                <Input placeholder="端口名称 (可选)" />
               </Form.Item>
             </Col>
             <Col span={6}>
@@ -999,7 +1211,10 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               <Form.Item
                 {...restField}
                 name={[index, 'name']}
-                rules={[{ required: true, message: '变量名必填' }]}
+                rules={[
+                  { required: true, message: '变量名必填' },
+                  { validator: validateEnvVarName },
+                ]}
                 style={formItemStyle}
               >
               <Input placeholder="变量名 (如: ENV_KEY)" />
@@ -1349,6 +1564,7 @@ interface VolumesEditorProps {
   onRefreshSecrets: () => void;
   onOpenQuickCreateConfigMap: () => void;
   onOpenQuickCreateSecret: () => void;
+  refreshKey?: number; // 父组件传入的刷新标记，变化时重新读取数据
 }
 
 const VolumesEditor: React.FC<VolumesEditorProps> = ({
@@ -1362,9 +1578,9 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   onRefreshSecrets,
   onOpenQuickCreateConfigMap,
   onOpenQuickCreateSecret,
+  refreshKey = 0,
 }) => {
   const form = Form.useFormInstance();
-  const [, forceUpdate] = useState(0);
   
   // 按命名空间过滤资源
   const filteredConfigMaps = useMemo(() => {
@@ -1381,51 +1597,71 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     if (!selectedNamespace) return persistentVolumeClaims || [];
     return (persistentVolumeClaims || []).filter((pvc: any) => {
       const pvcNs = pvc?.metadata?.namespace || pvc?.namespace;
-      return pvcNs === selectedNamespace;
+      // 过滤掉 Block 类型的 PVC，只展示 Filesystem 类型
+      const source = pvc?.rawData || pvc || {};
+      const volumeMode = source?.spec?.volumeMode || pvc?.volumeMode || 'Block';
+      return pvcNs === selectedNamespace && volumeMode !== 'Block';
     });
   }, [persistentVolumeClaims, selectedNamespace]);
   
-  const formValues = Form.useWatch([], form);
-  void formValues;
-  const volumes = ((form.getFieldValue('volumes') as VolumeConfig[] | undefined) || []).filter(Boolean);
-  const volumeMounts = ((form.getFieldValue('volumeMounts') as VolumeMountConfig[] | undefined) || []).filter(Boolean);
+  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
+  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
+  // 同时使用 useReducer 强制刷新，确保 add/remove 后立即渲染
+  const watchedVolumes = Form.useWatch('volumes', form);
+  const watchedVolumeMounts = Form.useWatch('volumeMounts', form);
+  const [forceKey, forceUpdate] = useReducer((x: number) => x + 1, 0);
+  
+  const volumes = useMemo(() => {
+    void watchedVolumes;
+    const v = form.getFieldValue('volumes');
+    return Array.isArray(v) ? v.filter(Boolean) : [];
+  }, [watchedVolumes, forceKey, form]);
+  
+  const volumeMounts = useMemo(() => {
+    void watchedVolumeMounts;
+    const v = form.getFieldValue('volumeMounts');
+    return Array.isArray(v) ? v.filter(Boolean) : [];
+  }, [watchedVolumeMounts, forceKey, form]);
 
-  // 添加卷
-  const addVolume = (type: VolumeType) => {
+  // 添加卷 - 直接从 form 读取最新值，避免闭包问题
+  const addVolume = useCallback((type: VolumeType) => {
+    const currentVolumes = form.getFieldValue('volumes') || [];
     const newVolume: VolumeConfig = { name: '', type };
-    const updated = [...volumes, newVolume];
-    form.setFieldsValue({ volumes: updated });
-    forceUpdate((v) => v + 1);
-  };
+    form.setFieldsValue({ volumes: [...currentVolumes, newVolume] });
+    forceUpdate(); // 强制刷新
+  }, [form]);
 
   // 删除卷
-  const removeVolume = (index: number) => {
-    const volName = volumes[index]?.name;
-    const updated = volumes.filter((_: VolumeConfig, i: number) => i !== index);
+  const removeVolume = useCallback((index: number) => {
+    const currentVolumes = form.getFieldValue('volumes') || [];
+    const volName = currentVolumes[index]?.name;
+    const updated = currentVolumes.filter((_: VolumeConfig, i: number) => i !== index);
     form.setFieldsValue({ volumes: updated });
     
     // 同时删除对应的挂载
     if (volName) {
-      const updatedMounts = volumeMounts.filter((m: VolumeMountConfig) => m.name !== volName);
+      const currentMounts = form.getFieldValue('volumeMounts') || [];
+      const updatedMounts = currentMounts.filter((m: VolumeMountConfig) => m.name !== volName);
       form.setFieldsValue({ volumeMounts: updatedMounts });
     }
-    forceUpdate((v) => v + 1);
-  };
+    forceUpdate(); // 强制刷新
+  }, [form]);
 
   // 添加挂载
-  const addVolumeMount = () => {
-    const newMount: VolumeMountConfig = { name: '', mountPath: '' };
-    const updated = [...volumeMounts, newMount];
-    form.setFieldsValue({ volumeMounts: updated });
-    forceUpdate((v) => v + 1);
-  };
+  const addVolumeMount = useCallback(() => {
+    const currentMounts = form.getFieldValue('volumeMounts') || [];
+    const newMount: VolumeMountConfig = { name: '', mountPath: '', readOnly: false };
+    form.setFieldsValue({ volumeMounts: [...currentMounts, newMount] });
+    forceUpdate(); // 强制刷新
+  }, [form]);
 
   // 删除挂载
-  const removeVolumeMount = (index: number) => {
-    const updated = volumeMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
+  const removeVolumeMount = useCallback((index: number) => {
+    const currentMounts = form.getFieldValue('volumeMounts') || [];
+    const updated = currentMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
     form.setFieldsValue({ volumeMounts: updated });
-    forceUpdate((v) => v + 1);
-  };
+    forceUpdate(); // 强制刷新
+  }, [form]);
 
   // 获取可用的卷名称列表（用于挂载选择）
   const availableVolumeNames = volumes.filter((v: VolumeConfig) => v.name).map((v: VolumeConfig) => v.name);
@@ -1466,7 +1702,10 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             <Form.Item
               name={[...basePath, 'name']}
               label="卷名称"
-              rules={[{ required: true, message: '请输入卷名称' }]}
+              rules={[
+                { required: true, message: '请输入卷名称' },
+                { validator: validateVolumeName },
+              ]}
             >
               <Input placeholder="如: config-volume" />
             </Form.Item>
@@ -1485,7 +1724,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                   const currentName = updated[index]?.name;
                   updated[index] = { name: currentName || '', type: newType };
                   form.setFieldsValue({ volumes: updated });
-                  forceUpdate((v) => v + 1);
+                  forceUpdate();
                 }}
               />
             </Form.Item>
@@ -1532,7 +1771,11 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               <Col span={12}>
                 <Form.Item
                   name={[...basePath, 'configMapOptional']}
-                  label="可选"
+                  label={(
+                    <Tooltip title="开启：ConfigMap 不存在时容器仍能启动；关闭：ConfigMap 必须存在，否则容器启动失败">
+                      <span>允许不存在 <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} /></span>
+                    </Tooltip>
+                  )}
                   valuePropName="checked"
                 >
                   <Switch size="small" />
@@ -1587,7 +1830,11 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               <Col span={12}>
                 <Form.Item
                   name={[...basePath, 'secretOptional']}
-                  label="可选"
+                  label={(
+                    <Tooltip title="开启：Secret 不存在时容器仍能启动；关闭：Secret 必须存在，否则容器启动失败">
+                      <span>允许不存在 <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} /></span>
+                    </Tooltip>
+                  )}
                   valuePropName="checked"
                 >
                   <Switch size="small" />
@@ -1606,7 +1853,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
         {/* PVC 类型 */}
         {volume.type === 'persistentVolumeClaim' && (
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={24}>
               <Form.Item
                 name={[...basePath, 'claimName']}
                 label="PVC 名称"
@@ -1630,15 +1877,6 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                     };
                   })}
                 />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name={[...basePath, 'readOnly']}
-                label="只读"
-                valuePropName="checked"
-              >
-                <Switch size="small" />
               </Form.Item>
             </Col>
           </Row>
@@ -1674,7 +1912,10 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               <Form.Item
                 name={[...basePath, 'hostPath']}
                 label="节点路径"
-                rules={[{ required: true, message: '请输入节点路径' }]}
+                rules={[
+                  { required: true, message: '请输入节点路径' },
+                  { validator: validateUnixPath },
+                ]}
               >
                 <Input placeholder="如: /var/data" />
               </Form.Item>
@@ -1715,7 +1956,32 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
         <Col span={8}>
           <Form.Item
             name={[...basePath, 'mountPath']}
-            rules={[{ required: true, message: '请输入挂载路径' }]}
+            rules={[
+              { required: true, message: '请输入挂载路径' },
+              {
+                validator: (_, value) => {
+                  if (!value) return Promise.resolve();
+                  // 路径必须以 / 开头
+                  if (!value.startsWith('/')) {
+                    return Promise.reject(new Error('路径必须以 / 开头'));
+                  }
+                  // 不能是根路径 /
+                  if (value === '/') {
+                    return Promise.reject(new Error('不能挂载到根路径 /'));
+                  }
+                  // 不能包含 ..
+                  if (value.includes('..')) {
+                    return Promise.reject(new Error('路径不能包含 ..'));
+                  }
+                  // 不能包含连续的 //
+                  if (/\/\//.test(value)) {
+                    return Promise.reject(new Error('路径不能包含连续的 //'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+            validateTrigger={['onChange', 'onBlur']}
             style={{ marginBottom: 0 }}
           >
             <Input placeholder="挂载路径 (如: /etc/config)" />
@@ -1724,9 +1990,26 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
         <Col span={4}>
           <Form.Item
             name={[...basePath, 'subPath']}
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (!value) return Promise.resolve();
+                  // K8s subPath 不能以 / 开头，必须是相对路径
+                  if (value.startsWith('/')) {
+                    return Promise.reject(new Error('子路径不能以 / 开头，请使用相对路径'));
+                  }
+                  // 不能包含 ..
+                  if (value.includes('..')) {
+                    return Promise.reject(new Error('子路径不能包含 ..'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+            validateTrigger={['onChange', 'onBlur']}
             style={{ marginBottom: 0 }}
           >
-            <Input placeholder="子路径" />
+            <Input placeholder="子路径 (相对路径)" />
           </Form.Item>
         </Col>
         <Col span={4}>
@@ -1735,7 +2018,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             valuePropName="checked"
             style={{ marginBottom: 0 }}
           >
-            <Switch size="small" /> 只读
+            <Switch size="small" />
           </Form.Item>
         </Col>
         <Col span={2}>
@@ -1854,7 +2137,11 @@ const ProbeEditor: React.FC<{
               {probeType === 'httpGet' && (
                 <Row gutter={8}>
                   <Col span={12}>
-                    <Form.Item name={[name, 'httpGet', 'path']} label="HTTP 路径">
+                    <Form.Item 
+                      name={[name, 'httpGet', 'path']} 
+                      label="HTTP 路径"
+                      rules={[{ validator: validateHttpProbePath }]}
+                    >
                       <Input placeholder="/health" />
                     </Form.Item>
                   </Col>
@@ -1873,10 +2160,14 @@ const ProbeEditor: React.FC<{
               )}
               
               {probeType === 'exec' && (
-                <Form.Item name={[name, 'exec', 'command']} label="执行命令">
+                <Form.Item 
+                  name={[name, 'exec', 'command']} 
+                  label="执行命令"
+                  rules={[{ validator: validateExecCommand }]}
+                >
                   <Select
                     mode="tags"
-                    placeholder="输入命令后按回车添加"
+                    placeholder="输入命令后按回车添加 (如: /bin/sh, -c, ls)"
                     style={{ width: '100%' }}
                     tokenSeparators={[' ']}
                   />
@@ -3643,6 +3934,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const watchedImagePullSecretsValue = Form.useWatch('imagePullSecrets', form);
   const watchedImagePullSecrets = useMemo<string[]>(() => watchedImagePullSecretsValue || [], [watchedImagePullSecretsValue]);
   Form.useWatch('containers', form);
+  
+  // 存储配置刷新标记，用于通知 VolumesEditor 重新读取数据
+  const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
 
   /**
    * 加载 localStorage 中的仓库列表
@@ -3786,6 +4080,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const syncContainerEditorToForm = useCallback((container: Partial<WorkloadContainerFormValue> | undefined) => {
     syncingContainerRef.current = true;
     form.setFieldsValue(toContainerEditorFields(container));
+    // 刷新 VolumesEditor 数据
+    setVolumeRefreshKey(v => v + 1);
     queueMicrotask(() => {
       syncingContainerRef.current = false;
     });
@@ -4103,7 +4399,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         } else if (vol.persistentVolumeClaim) {
           result.type = 'persistentVolumeClaim';
           result.claimName = vol.persistentVolumeClaim.claimName;
-          result.readOnly = vol.persistentVolumeClaim.readOnly;
         } else if (vol.emptyDir) {
           result.type = 'emptyDir';
           result.emptyDirMedium = vol.emptyDir.medium === 'Memory' ? 'Memory' : 'default';
@@ -4165,7 +4460,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         podAffinity: parsePodAffinity(affinity?.podAffinity),
         podAntiAffinity: parsePodAffinity(affinity?.podAntiAffinity),
         tolerations: tolerations.length > 0 ? tolerations : undefined,
-        volumes: volumes.length > 0 ? volumes : undefined,
+        volumes: volumes, // 始终设置数组，确保 VolumesEditor 能正确读取
         // 网络配置
         networkType,
         flatSubnet,
@@ -4189,6 +4484,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       setYamlContent(yamlStr);
     }
   }, [editData, defaultType, form]);
+  
+  // 步骤切换时同步容器数据到顶级字段（特别是步骤3存储配置）
+  useEffect(() => {
+    if (currentStep === 3) {
+      const containers = form.getFieldValue('containers') || [];
+      const activeContainer = containers[activeContainerIndex];
+      if (activeContainer) {
+        syncContainerEditorToForm(activeContainer);
+      }
+    }
+  }, [currentStep, activeContainerIndex, form, syncContainerEditorToForm]);
   
   // 获取网络配置数据（扁平子网、VPC、NAD）
   useEffect(() => {
@@ -4718,7 +5024,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           case 'persistentVolumeClaim':
             volume.persistentVolumeClaim = {
               claimName: vol.claimName,
-              readOnly: vol.readOnly,
             };
             break;
           case 'emptyDir':
@@ -5538,6 +5843,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         ]);
 
         const syncedValues = getSyncedFormValues();
+        
+        // DEBUG: 打印表单中的 volumeMounts
         const invalidContainerIndex = (syncedValues.containers || []).findIndex((container) => !container.image);
         if (invalidContainerIndex >= 0) {
           setCurrentStep(1);
@@ -5558,6 +5865,16 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         if (duplicateNames.length > 0) {
           setCurrentStep(1); // 跳转到容器配置步骤
           message.error(`容器名称重复: ${[...new Set(duplicateNames)].join(', ')}，请使用不同的容器名称`);
+          setLoading(false);
+          return;
+        }
+        
+        // 校验存储卷挂载：如果定义了存储卷，则必须配置至少一个卷挂载
+        const volumes = syncedValues.volumes || [];
+        const volumeMounts = syncedValues.volumeMounts || [];
+        if (volumes.length > 0 && volumeMounts.length === 0) {
+          setCurrentStep(3); // 跳转到存储配置步骤
+          message.warning('已定义存储卷，请配置至少一个卷挂载');
           setLoading(false);
           return;
         }
@@ -5696,8 +6013,27 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       onSuccess();
     } catch (error: any) {
       console.error(isEditMode ? '更新工作负载失败:' : '创建工作负载失败:', error);
-      const friendlyMsg = parseK8sError(error);
-      message.error(friendlyMsg);
+      
+      // 检测版本冲突（409 Conflict）
+      const isConflict = error?.response?.status === 409
+        || error?.status === 409
+        || /conflict/i.test(error?.message || '')
+        || /resourceVersion/i.test(error?.message || '');
+      
+      if (isConflict) {
+        Modal.confirm({
+          title: '版本冲突',
+          content: '该资源已被其他用户修改，请刷新后重新编辑。',
+          okText: '确认刷新',
+          cancelText: '取消',
+          onOk: () => {
+            onSuccess(); // 刷新列表并关闭抽屉
+          },
+        });
+      } else {
+        const friendlyMsg = parseK8sError(error);
+        message.error(friendlyMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -5707,19 +6043,27 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const handleNext = useCallback(async () => {
     try {
       await form.validateFields();
+      // 切换步骤前持久化当前容器数据（包括 volumeMounts）
+      persistActiveContainerToForm();
       setCurrentStep((prev) => prev + 1);
     } catch {
       // 验证失败，不跳转
     }
-  }, [form]);
+  }, [form, persistActiveContainerToForm]);
   
   // 上一步
   const handlePrev = useCallback(() => {
+    // 切换步骤前持久化当前容器数据（包括 volumeMounts）
+    persistActiveContainerToForm();
     setCurrentStep((prev) => prev - 1);
-  }, []);
+  }, [persistActiveContainerToForm]);
 
   const handleStepClick = useCallback(async (targetStep: number) => {
     if (targetStep === currentStep) return;
+    
+    // 切换步骤前持久化当前容器数据（包括 volumeMounts）
+    persistActiveContainerToForm();
+    
     if (targetStep < currentStep) {
       setCurrentStep(targetStep);
       return;
@@ -5731,7 +6075,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } catch {
       // 当前步骤校验失败，不允许前进
     }
-  }, [currentStep, form]);
+  }, [currentStep, form, persistActiveContainerToForm]);
 
 
   const getFormSummary = useCallback(() => {
@@ -6095,24 +6439,88 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                             <>
                               <Row gutter={16}>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'requests', 'cpu']} label="CPU 请求">
+                                  <Form.Item
+                                    name={['resources', 'requests', 'cpu']}
+                                    label="CPU 请求"
+                                    dependencies={[['resources', 'limits', 'cpu']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const limit = form.getFieldValue(['resources', 'limits', 'cpu']);
+                                          if (limit && compareCpuResources(value, limit) > 0) {
+                                            return Promise.reject(new Error('请求值不能超过限制值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 100" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
                                   </Form.Item>
                                 </Col>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'limits', 'cpu']} label="CPU 限制">
+                                  <Form.Item
+                                    name={['resources', 'limits', 'cpu']}
+                                    label="CPU 限制"
+                                    dependencies={[['resources', 'requests', 'cpu']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const request = form.getFieldValue(['resources', 'requests', 'cpu']);
+                                          if (request && compareCpuResources(request, value) > 0) {
+                                            return Promise.reject(new Error('限制值不能小于请求值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 500" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
                                   </Form.Item>
                                 </Col>
                               </Row>
                               <Row gutter={16}>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'requests', 'memory']} label="内存请求">
+                                  <Form.Item
+                                    name={['resources', 'requests', 'memory']}
+                                    label="内存请求"
+                                    dependencies={[['resources', 'limits', 'memory']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const limit = form.getFieldValue(['resources', 'limits', 'memory']);
+                                          if (limit && compareMemoryResources(value, limit) > 0) {
+                                            return Promise.reject(new Error('请求值不能超过限制值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 128" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
                                   </Form.Item>
                                 </Col>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'limits', 'memory']} label="内存限制">
+                                  <Form.Item
+                                    name={['resources', 'limits', 'memory']}
+                                    label="内存限制"
+                                    dependencies={[['resources', 'requests', 'memory']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const request = form.getFieldValue(['resources', 'requests', 'memory']);
+                                          if (request && compareMemoryResources(request, value) > 0) {
+                                            return Promise.reject(new Error('限制值不能小于请求值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 512" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
                                   </Form.Item>
                                 </Col>
@@ -6126,12 +6534,48 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           children: (
                             <Row gutter={16}>
                               <Col span={12}>
-                                <Form.Item name="command" label="启动命令" extra="多个命令用逗号分隔">
+                                <Form.Item 
+                                  name="command" 
+                                  label="启动命令" 
+                                  extra="覆盖容器默认入口点，多个命令用逗号分隔"
+                                  rules={[
+                                    {
+                                      validator: (_, value) => {
+                                        if (!value || !Array.isArray(value)) return Promise.resolve();
+                                        const chineseRegex = /[\u4e00-\u9fa5]/;
+                                        for (let i = 0; i < value.length; i++) {
+                                          if (chineseRegex.test(value[i])) {
+                                            return Promise.reject(new Error('不能包含中文字符'));
+                                          }
+                                        }
+                                        return Promise.resolve();
+                                      },
+                                    },
+                                  ]}
+                                >
                                   <Select mode="tags" placeholder="如: /bin/sh" style={{ width: '100%' }} tokenSeparators={[',']} />
                                 </Form.Item>
                               </Col>
                               <Col span={12}>
-                                <Form.Item name="args" label="启动参数" extra="多个参数用逗号分隔">
+                                <Form.Item 
+                                  name="args" 
+                                  label="启动参数" 
+                                  extra="传递给入口点的参数，多个参数用逗号分隔"
+                                  rules={[
+                                    {
+                                      validator: (_, value) => {
+                                        if (!value || !Array.isArray(value)) return Promise.resolve();
+                                        const chineseRegex = /[\u4e00-\u9fa5]/;
+                                        for (let i = 0; i < value.length; i++) {
+                                          if (chineseRegex.test(value[i])) {
+                                            return Promise.reject(new Error('不能包含中文字符'));
+                                          }
+                                        }
+                                        return Promise.resolve();
+                                      },
+                                    },
+                                  ]}
+                                >
                                   <Select mode="tags" placeholder="如: -c, script.sh" style={{ width: '100%' }} tokenSeparators={[',']} />
                                 </Form.Item>
                               </Col>
@@ -6532,6 +6976,7 @@ return (
                       onRefreshSecrets={() => onRefreshSecrets?.()}
                       onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
                       onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+                      refreshKey={volumeRefreshKey}
                     />
                   ) : (
                     <div
