@@ -12,11 +12,12 @@ import { hasPermissionForAction } from 'utils/accessMapping';
 import { fetchHarvesterNamespaces } from 'services/harvesterApi';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import HarvesterVolumeDetailDrawer from '../../shared/components/HarvesterVolumeDetailDrawer';
+import VolumeDetailDrawer from '../drawers/VolumeDetailDrawer';
 import {
   createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
-} from '../../shared/lib/harvesterSectionRefresh';
+} from '../lib/ebsSectionRefresh';
 import VolumeCreateModal from '../modals/VolumeCreateModal';
 import VolumeAttachModal from '../modals/VolumeAttachModal';
 import VolumeCloneModal from '../modals/VolumeCloneModal';
@@ -165,6 +166,21 @@ const VolumesSection: React.FC<Props> = ({
     [cloudId, onRefresh],
   );
 
+  const refreshVolumesSilent = useMemo(
+    () => () => void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true }),
+    [onRefresh],
+  );
+
+  const refreshVolumesAfterWrite = useMemo(
+    () => () => void runHarvesterSectionRefresh(onRefresh, { force: true }),
+    [onRefresh],
+  );
+
+  const refreshImagesSilent = useMemo(
+    () => () => void runHarvesterSectionRefresh(onRefreshImages, { force: true, silent: true }),
+    [onRefreshImages],
+  );
+
   const resetFilters = useCallback(() => {
     setKeyword('');
     setStatusFilter('');
@@ -309,7 +325,7 @@ const VolumesSection: React.FC<Props> = ({
         storageClassOptions={actions.createVolumeStorageClassOptions}
         defaultStorageClassName={actions.defaultStorageClassName}
         onNamespacesListFetched={(list) => setFetchedNsOptions(list)}
-        onSuccess={onRefresh}
+        onSuccess={refreshVolumesSilent}
         seed={actions.volumeCreateSeed}
         isTenant={isTenant}
       />
@@ -323,7 +339,7 @@ const VolumesSection: React.FC<Props> = ({
         pvcName={actions.currentRecord?.name || ''}
         vms={vms || []}
         initialInstanceId={actions.attachInitialInstanceId}
-        onSuccess={onRefresh}
+        onSuccess={refreshVolumesAfterWrite}
       />
 
       <VolumeExportImageModal
@@ -334,7 +350,7 @@ const VolumesSection: React.FC<Props> = ({
         storageClassOptions={actions.createVolumeStorageClassOptions}
         defaultStorageClassName={actions.defaultStorageClassName}
         storageClasses={actions.storageClasses}
-        onSuccess={actions.onRefreshImages}
+        onSuccess={refreshImagesSilent}
       />
 
       <VolumeSnapshotCreateModal
@@ -343,7 +359,7 @@ const VolumesSection: React.FC<Props> = ({
         cloudId={cloudId}
         volume={actions.currentRecord}
         storageClasses={actions.storageClasses}
-        onSuccess={onRefresh}
+        onSuccess={refreshVolumesSilent}
       />
 
       <VolumeResizeModal
@@ -351,7 +367,7 @@ const VolumesSection: React.FC<Props> = ({
         onCancel={() => actions.setEditOpen(false)}
         cloudId={cloudId}
         volume={actions.currentRecord}
-        onSuccess={onRefresh}
+        onSuccess={refreshVolumesSilent}
       />
 
       <VolumeCloneModal
@@ -373,12 +389,12 @@ const VolumesSection: React.FC<Props> = ({
         }
         storageClasses={actions.storageClasses}
         nsOptions={nsOptions}
-        onCloneSuccess={() => onRefresh?.(true)}
+        onCloneSuccess={refreshVolumesAfterWrite}
         onBranchToCreateVolume={actions.handleBranchCloneToCreateVolume}
         isTenant={isTenant}
       />
 
-      <HarvesterVolumeDetailDrawer
+      <VolumeDetailDrawer
         open={actions.detailVisible && !actions.detailOpsMode}
         onClose={() => actions.setDetailVisible(false)}
         record={actions.detailRecord}

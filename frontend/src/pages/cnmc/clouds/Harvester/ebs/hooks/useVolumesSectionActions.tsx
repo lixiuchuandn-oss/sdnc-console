@@ -22,7 +22,10 @@ import { buildStorageClassSelectOptions } from '../lib/volumesStorageClassUtils'
 import type { VolumeView } from '../lib/volumesSectionTypes';
 import { volumeDetailRawRecord } from '../lib/volumesSectionUtils';
 import { useStableBurstVolumeRefresh } from './useVolumesListPoll';
-import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import {
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/ebsSectionRefresh';
 
 export type UseVolumesSectionActionsParams = {
   cloudId: string;
@@ -148,7 +151,7 @@ export function useVolumesSectionActions({
     (r: VolumeView) => {
       if (!ensureDisksWrite()) return;
       if (!vms || (vms as unknown[]).length === 0) {
-        onRefresh?.(true);
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
       }
       const vm = safeRead.attachedVm(r) as VmAttachRecord | undefined;
       setCurrentRecord(r);
@@ -169,7 +172,7 @@ export function useVolumesSectionActions({
     async (r: VolumeView) => {
       if (!ensureDisksWrite()) return;
       if (!vms || (vms as unknown[]).length === 0) {
-        onRefresh?.(true);
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
         msg.loading('正在同步云主机数据，请稍后重试...', 1);
         return;
       }
@@ -228,7 +231,7 @@ export function useVolumesSectionActions({
               }
             }
             msg.success('卸载成功');
-            onRefresh?.(true);
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
             const err = e as { message?: string };
             msg.error(err.message || '卸载失败');

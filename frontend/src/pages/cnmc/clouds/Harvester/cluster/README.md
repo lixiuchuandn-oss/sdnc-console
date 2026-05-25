@@ -37,9 +37,9 @@
 | `nads` / `load_balancers` / `ippools` | `nad` | `Harvester/nad/sections/` |
 | `storage_pools` | `ceph` | `Harvester/ceph/sections/` |
 
-## 列表刷新约定（Cloudmap 池样板域，与 **`ecs/`** 对称）
+## 列表刷新约定（Cloudmap 池样板域，与 **`ecs/`**、**`ebs/`** 对称）
 
-**两层**：池层 **`loadTabResource`** + Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。细则见 **`AGENTS.md` · Cloudmap 刷新样板（compute + cluster）**。
+**两层**：池层 **`loadTabResource`** + Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。细则见 **`Cloudmap/pool/README.md`**（及 **`AGENTS.md` · 数据展示与刷新** 摘要）。
 
 | 层 | 落点 |
 |----|------|

@@ -22,6 +22,12 @@ export {
   type ClusterSectionOnRefresh,
 } from './clusterRefresh';
 export {
+  createStorageTabOnRefresh,
+  type StorageInnerTabKey,
+  type StorageTabRefreshDeps,
+  type StorageSectionOnRefresh,
+} from './storageRefresh';
+export {
   fetchComputeEcsList,
   parseEcsListFromJson,
   syncCloudEcsBeforeLoad,
