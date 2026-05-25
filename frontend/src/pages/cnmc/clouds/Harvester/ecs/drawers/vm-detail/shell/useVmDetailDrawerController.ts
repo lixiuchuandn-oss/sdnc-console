@@ -15,7 +15,7 @@ import { getToken } from "../../../../../../../../utils/tokenStorage";
 import { useAuth } from "../../../../../../../../contexts/AuthContext";
 import { hasPermissionForAction } from "../../../../../../../../utils/accessMapping";
 import type { VmDetailDrawerProps } from "./types";
-import { runHarvesterSectionRefresh } from "../../../shared/lib/harvesterSectionRefresh";
+import { runHarvesterSectionRefresh } from "../../../../shared/lib/harvesterSectionRefresh";
 
 /**
  * 详情抽屉数据层：权限、vmData 同步、聚合拉取、SSE、Prometheus、备份 Tab 按需加载。

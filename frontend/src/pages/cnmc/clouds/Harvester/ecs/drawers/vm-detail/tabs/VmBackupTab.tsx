@@ -33,7 +33,7 @@ import {
   formatVmBackupRelativeAge,
   sortVmBackupItemsByCreationDesc,
 } from '../../../../cbr/lib/vmBackupDisplay';
-import { runHarvesterSectionRefresh } from '../../../shared/lib/harvesterSectionRefresh';
+import { runHarvesterSectionRefresh } from '../../../../shared/lib/harvesterSectionRefresh';
 
 interface VmBackupTabProps {
   cloudId: string;

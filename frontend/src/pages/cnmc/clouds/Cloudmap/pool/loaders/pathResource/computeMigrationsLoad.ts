@@ -1,7 +1,7 @@
 import {
   fetchHarvesterMigrations,
   fetchHarvesterMigrationsDirect,
-} from '../../../../../../services/harvester/vm';
+} from 'services/harvester/vm';
 
 /** 拉取迁移记录列表（与 MigrationsSection 原 loadData 一致） */
 export async function fetchComputeMigrationsList(

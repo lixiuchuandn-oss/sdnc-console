@@ -3,13 +3,18 @@ import { apiPost, fetchCloudProviderEcs } from '../../api';
 /** 解析 `GET /api/clouds/:id/resources/ecs` 响应为 VM 数组（与池内其它入口一致） */
 export function parseEcsListFromJson(json: unknown): any[] {
   const data = (json as { data?: unknown })?.data;
-  const list: unknown[] = Array.isArray(data)
-    ? data
-    : (data as { Instances?: { Instance?: unknown } })?.Instances?.Instance ||
-      (data as { items?: unknown })?.items ||
-      (data as { data?: unknown })?.data ||
-      [];
-  return Array.isArray(list) ? list : [];
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    const row = data as {
+      Instances?: { Instance?: unknown };
+      items?: unknown;
+      data?: unknown;
+    };
+    const candidate = row.Instances?.Instance ?? row.items ?? row.data ?? [];
+    if (Array.isArray(candidate)) return candidate;
+    return candidate != null ? [candidate] : [];
+  }
+  return [];
 }
 
 /** 强制刷新前可选 sync（Harvester / Cloudmap） */
