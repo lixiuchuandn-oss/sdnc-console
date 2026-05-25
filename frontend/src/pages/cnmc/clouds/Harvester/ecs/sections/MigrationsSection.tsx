@@ -1,7 +1,8 @@
 /**
  * Harvester - 虚拟机迁移记录列表 Section
+ * 列表数据由 Cloudmap 池 `loadTabResource('migrations')` 注入；刷新见 `computeRefresh.ts`。
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Table, Input, Button, Select, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
@@ -9,15 +10,14 @@ import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
-import {
-  abortHarvesterMigration,
-  fetchHarvesterMigrations,
-  fetchHarvesterMigrationsDirect,
-} from 'services/harvester/vm';
+import { abortHarvesterMigration } from 'services/harvester/vm';
 import { hasPermissionForAction } from 'utils/accessMapping';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
-import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import {
   buildMigrationNamespaceOptions,
@@ -32,14 +32,21 @@ const TABLE_SETTINGS_KEY = 'harvester_migrations_table';
 
 type Props = {
   cloudId: string;
-  onRefresh?: HarvesterSectionOnRefresh;
+  onRefresh: HarvesterSectionOnRefresh;
+  migrations: MigrationTableRow[];
+  loading?: boolean;
   vms?: unknown[];
   isTenant?: boolean;
 };
 
-const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant = false }) => {
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<MigrationTableRow[]>([]);
+const MigrationsSection: React.FC<Props> = ({
+  cloudId,
+  onRefresh,
+  migrations,
+  loading = false,
+  vms,
+  isTenant = false,
+}) => {
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
@@ -55,34 +62,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
     [user?.permissions],
   );
 
-  const loadData = useCallback(
-    async (force = false) => {
-      setLoading(true);
-      try {
-        const res = await fetchHarvesterMigrations(cloudId, force);
-        let list = res?.data?.items || [];
-        if (!Array.isArray(list) || list.length === 0) {
-          try {
-            const direct = await fetchHarvesterMigrationsDirect(cloudId, force);
-            list = direct?.data?.items || direct?.items || [];
-          } catch {
-            // direct fallback optional
-          }
-        }
-        setData(Array.isArray(list) ? (list as MigrationTableRow[]) : []);
-      } catch (e: unknown) {
-        const err = e as { message?: string };
-        message.error(err?.message || '加载迁移记录失败');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [cloudId],
-  );
-
-  useEffect(() => {
-    void loadData(true);
-  }, [loadData]);
+  const data = migrations;
 
   const handleOpenYaml = useCallback((record: MigrationTableRow) => {
     openYamlDrawer(
@@ -103,19 +83,18 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
         }
         await abortHarvesterMigration(cloudId, `${namespace}/${vmName}`);
         message.success('已发送取消请求');
-        void loadData(true);
-        onRefresh?.(true);
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
       } catch (e: unknown) {
         const err = e as { message?: string };
         message.error(err?.message || '取消失败');
       }
     },
-    [cloudId, loadData, onRefresh],
+    [cloudId, onRefresh],
   );
 
   const handleToolbarRefresh = useMemo(
-    () => createHarvesterToolbarRefresh(onRefresh, { before: () => void loadData(true) }),
-    [loadData, onRefresh],
+    () => createHarvesterToolbarRefresh(onRefresh),
+    [onRefresh],
   );
 
   const filteredData = useMemo(

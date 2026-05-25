@@ -85,7 +85,7 @@ const SshKeysSection: React.FC<Props> = ({
   );
 
   const handleListReloadAfterWrite = useCallback(() => {
-    runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
+    void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
   }, [onRefresh]);
 
   const handleOpenYaml = useCallback(
@@ -116,7 +116,7 @@ const SshKeysSection: React.FC<Props> = ({
           try {
             await deleteHarvesterSshKey(cloudId, record.namespace, record.name);
             message.success('删除成功');
-            runHarvesterSectionRefresh(onRefresh, { force: true });
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
             const err = e as { message?: string };
             message.error(err?.message || '删除失败');
@@ -151,7 +151,7 @@ const SshKeysSection: React.FC<Props> = ({
           if (successCount > 0) message.success(`成功删除 ${successCount} 个密钥`);
           if (failCount > 0) message.error(`${failCount} 个密钥删除失败`);
           setSelectedRowKeys([]);
-          runHarvesterSectionRefresh(onRefresh, { force: true });
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: unknown) {
           const err = e as { message?: string };
           message.error(err?.message || '批量删除失败');

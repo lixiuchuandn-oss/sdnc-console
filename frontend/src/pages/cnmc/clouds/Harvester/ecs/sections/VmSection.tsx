@@ -33,7 +33,10 @@ import {
   VM_STATUS_MAP,
 } from "../../../../../../utils/harvesterUtils";
 import { useHarvesterPublicNamespaces } from "../../context/HarvesterPublicNamespacesContext";
-import { createHarvesterToolbarRefresh } from "../../shared/lib/harvesterSectionRefresh";
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from "../../shared/lib/harvesterSectionRefresh";
 import { useAuth } from "../../../../../../contexts/AuthContext";
 import { hasPermissionForAction } from "../../../../../../utils/accessMapping";
 import {
@@ -169,7 +172,7 @@ const VmSection: React.FC<Props> = ({
 
   useEffect(() => {
     const onAliasApplied = () => {
-      onRefresh?.(true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true });
     };
     window.addEventListener('harvester:vm-alias-applied', onAliasApplied);
     return () => window.removeEventListener('harvester:vm-alias-applied', onAliasApplied);
@@ -185,7 +188,7 @@ const VmSection: React.FC<Props> = ({
 
   const handleInternalQuickVmCreated = useCallback(async () => {
     await Promise.resolve(onQuickVmCreated?.());
-    onRefresh(true);
+    void runHarvesterSectionRefresh(onRefresh, { force: true });
   }, [onQuickVmCreated, onRefresh]);
 
   const handleToolbarRefresh = useMemo(
@@ -597,7 +600,7 @@ const VmSection: React.FC<Props> = ({
         onCancel={() => setVmBackupModalVisible(false)}
         onSuccess={() => {
           setVmBackupModalVisible(false);
-          if (onRefresh) onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         }}
         cloudId={cloudId}
         namespaces={namespaces}
@@ -613,7 +616,7 @@ const VmSection: React.FC<Props> = ({
         onSuccess={() => {
           setCloneModalVisible(false);
           // 成功消息已在 VmCloneModal 中显示，这里不再重复显示
-          onRefresh && onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         }}
         cloudId={cloudId}
         sourceVm={cloneSourceVm}
@@ -625,7 +628,7 @@ const VmSection: React.FC<Props> = ({
         open={migrateModalVisible}
         onClose={() => setMigrateModalVisible(false)}
         onOk={() => {
-          onRefresh && onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         }}
         cloudId={cloudId}
         vm={currentMigrateVm}

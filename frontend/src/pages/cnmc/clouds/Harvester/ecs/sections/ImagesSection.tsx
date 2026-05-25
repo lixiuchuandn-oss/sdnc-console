@@ -43,6 +43,7 @@ import { buildImagesTableColumns } from '../lib/imagesTableColumns';
 import { useImagesSectionActions } from '../hooks/useImagesSectionActions';
 import {
   createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
 
@@ -309,8 +310,12 @@ const ImagesSection: React.FC<Props> = ({
         cloudId={cloudId}
         variant="full"
         ensureWrite={ensureImagesWrite}
-        onUrlImportSuccess={() => onRefresh?.(true, true)}
-        onBrowserUploadSuccess={() => onRefresh?.(true, true)}
+        onUrlImportSuccess={() =>
+          void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true })
+        }
+        onBrowserUploadSuccess={() =>
+          void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true })
+        }
         onUploadTaskUpsert={upsertTask}
         uploadControllersRef={uploadControllersRef}
       />
@@ -455,7 +460,9 @@ const ImagesSection: React.FC<Props> = ({
         onClose={() => setLabelEditModalOpen(false)}
         cloudId={cloudId}
         resource={labelEditRecord}
-        onSuccess={() => onRefresh?.(true, true)}
+        onSuccess={() =>
+          void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true })
+        }
       />
     </PageDetailSection>
   );

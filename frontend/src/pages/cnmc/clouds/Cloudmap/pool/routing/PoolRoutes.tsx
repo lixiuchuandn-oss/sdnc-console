@@ -191,6 +191,8 @@ const ComputeRoute: React.FC = () => {
       rawTemplates={p.rawTemplates}
       rawSshKeys={p.rawSshKeys}
       rawCloudInits={p.rawCloudInits}
+      harvesterMigrations={p.harvesterMigrations}
+      rawMigrations={p.rawMigrations}
     />
   );
 };
