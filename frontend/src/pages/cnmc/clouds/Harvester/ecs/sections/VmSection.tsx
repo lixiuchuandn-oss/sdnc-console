@@ -138,7 +138,7 @@ const VmSection: React.FC<Props> = ({
   namespaces = [],
   volumes = [],
   isTenant = false,
-  bordered = true,
+  bordered: _bordered = true,
   disableColumnSettings = false,
   onCreateVmOverride,
   storageClasses = [],
@@ -351,6 +351,7 @@ const VmSection: React.FC<Props> = ({
       handleOpenAliasModal,
       handleToggleImportant,
       handleDeleteConfirm,
+      getIid,
     ],
   );
 

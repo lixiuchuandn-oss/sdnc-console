@@ -2,7 +2,7 @@
  * Harvester ECS · 侧栏「资源管理」类抽屉共用样式（网卡 / 磁盘 / Cloud-Init 等）。
  * 根节点使用 class="vmManageDrawer"；网卡管理另加 vmNicManageDrawer（卡片壳层与磁盘 vmDiskManageDrawer 一致）；网卡表单分节使用 vmNicManageDrawer-*。
  * 磁盘 / 网卡卡片标题条：.vmManageDrawer-deviceCardHead（VmDiskManageDrawer / VmNicManageDrawer）；设备图标 .vmManageDrawer-panelHeadDeviceIcon。
- * 磁盘 / 网卡 / GPU / USB / 开机配置 等设备类抽屉列表为空：统一外层 `.vmDeviceManageDrawer-emptyState`（浅灰底 + 边框，见下文）。
+ * 磁盘 / 网卡 / GPU / USB / 开机配置 等设备类抽屉列表为空：统一 `VmDeviceManageDrawerEmpty`（`.vmDeviceManageDrawer-emptyState` + Empty.PRESENTED_IMAGE_SIMPLE）。
  * 主题色由 `.vmManageDrawer` 根节点上的 --vm-manage-* 注入（见 shared/lib/useVmManageDrawerCssVars）。
  * 块级垂直间距：`--vm-drawer-gap-vertical` 默认 24px（.vmManageDrawer）；网卡 / 磁盘 / GPU / USB / 开机配置等主抽屉覆写为 12px；子选择器用 var(..., 24px) 兜底。
  */
@@ -126,6 +126,10 @@
   border: 1px solid #e0e0e0;
   border-radius: var(--vm-manage-border-radius-lg);
   box-shadow: var(--vm-manage-box-shadow-tertiary);
+}
+
+.vmDeviceManageDrawer-emptyState .ant-empty {
+  margin: 0;
 }
 
 /* 网卡 / 磁盘抽屉：输入框前缀与弱化字同档浅灰 */

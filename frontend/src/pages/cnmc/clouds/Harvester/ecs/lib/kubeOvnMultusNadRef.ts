@@ -24,7 +24,6 @@ export function expectedMultusNadRefForSubnet(
     if (String(subnet?.vpc ?? subnet?.spec?.vpc) !== String(vpc)) return undefined;
   }
 
-  let netName = String(val);
   let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
   if (!subnetNs) {
     const provider = subnet?.provider || subnet?.spec?.provider;

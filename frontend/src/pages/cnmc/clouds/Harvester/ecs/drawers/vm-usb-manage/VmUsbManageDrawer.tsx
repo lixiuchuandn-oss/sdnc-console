@@ -2,11 +2,12 @@
  * 虚拟机 · USB 管理抽屉：顶栏「添加 USB」子抽屉（对齐 GPU / 网卡）；已绑定 USB 卡片展示，解绑即时 PATCH。
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Col, Drawer, Empty, Form, Input, Popconfirm, Row, Space, Tag, Tooltip, message } from "antd";
+import { Button, Col, Drawer, Form, Input, Popconfirm, Row, Space, Tag, Tooltip, message } from "antd";
 import { MinusCircleOutlined, ReloadOutlined, UsbOutlined } from "@ant-design/icons";
 import { fetchHarvesterUsbResources } from "../../../../../../../services/harvesterApi";
 import { useVmReconfigureVmDiskActions } from "../vm-disk-manage/lib/useVmDiskAttachActions";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
+import VmDeviceManageDrawerEmpty from "../shared/components/VmDeviceManageDrawerEmpty";
 import "../shared/styles/vmManageDrawer.css";
 import VmAddUsbDrawer from "./VmAddUsbDrawer";
 import { deriveVmUsbEditorState } from "./lib/deriveVmUsbEditorState";
@@ -198,9 +199,7 @@ const VmUsbManageDrawer: React.FC<VmUsbManageDrawerProps> = ({
         </div>
 
         {derived.resourceNames.length === 0 ? (
-          <div className="vmDeviceManageDrawer-emptyState">
-            <Empty description="当前未绑定 USB 设备。配置变更需重启虚拟机后生效。" />
-          </div>
+          <VmDeviceManageDrawerEmpty description="暂未绑定 USB 设备" />
         ) : null}
 
         {derived.resourceNames.map((rn, idx) => {

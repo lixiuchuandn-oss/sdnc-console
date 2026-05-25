@@ -13,16 +13,14 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip, Switch, Popover } from 'antd';
-import { FileTextOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Tag, Space, Input, App, Drawer, Descriptions, Tabs, Dropdown, Tooltip, Switch, Popover } from 'antd';
+import { FileTextOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import YamlEditor from '../../../../../../components/YamlEditor';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import {
-  fetchHarvesterPodDetail,
   fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
   deleteHarvesterContainerResource,
@@ -801,7 +799,7 @@ const PodsSection: React.FC<Props> = ({
   }, [cloudId, message, onRefresh]);
   
   // 安全驱逐 Pod (Eviction - 触发 PDB 保护)
-  const handleEvict = useCallback(async (pod: any) => {
+  const _handleEvict = useCallback(async (pod: any) => {
     const namespace = pod?.metadata?.namespace;
     const name = pod?.metadata?.name;
     
@@ -889,7 +887,7 @@ const PodsSection: React.FC<Props> = ({
   }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
   
   // 批量安全驱逐 Pod (用于测试 PDB 规则)
-  const handleBatchEvict = useCallback(() => {
+  const _handleBatchEvict = useCallback(() => {
     const selectedPods = pods.filter((pod: any) => 
       selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`)
     );
@@ -919,7 +917,7 @@ const PodsSection: React.FC<Props> = ({
           setSelectedKeys([]);
           
           // 显示详细结果
-          const { successCount = 0, blockedCount = 0, failedCount = 0, results = [] } = result?.data || {};
+          const { successCount = 0, blockedCount = 0, failedCount = 0 } = result?.data || {};
           
           if (blockedCount > 0) {
             modal.info({
@@ -1203,7 +1201,7 @@ const PodsSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal, getOwnerWorkload, operationsReadOnly]);
+  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleDelete, modal, getOwnerWorkload, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(

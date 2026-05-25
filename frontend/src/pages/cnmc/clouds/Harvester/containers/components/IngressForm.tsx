@@ -25,7 +25,6 @@ import {
   Select,
   Button,
   Space,
-  Divider,
   Row,
   Col,
   App,
@@ -38,7 +37,6 @@ import {
   PlusOutlined,
   MinusCircleOutlined,
   InfoCircleOutlined,
-  GlobalOutlined,
 } from '@ant-design/icons';
 import { createHarvesterIngress, updateHarvesterIngress } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';

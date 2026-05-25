@@ -121,7 +121,7 @@ const LicenseSettingsPage: React.FC = () => {
     axios.get(`${API_BASE_URL}/api/system/license/node-id`)
       .then(res => setNodeId(res?.data?.nodeId || null))
       .catch(() => setNodeId(null));
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     (async () => {
@@ -200,7 +200,7 @@ const LicenseSettingsPage: React.FC = () => {
   const enabledSet = new Set(payload?.features || []);
   const isEnabled = (k: string) => enabledSet.has(k);
 
-  const catalogColumns = [
+  const _catalogColumns = [
     { title: '模块', dataIndex: 'group', key: 'group', width: '16%' },
     { title: '功能', dataIndex: 'name', key: 'name', width: '22%' },
     { title: '状态', dataIndex: 'status', key: 'status', width: '10%' },
@@ -208,7 +208,7 @@ const LicenseSettingsPage: React.FC = () => {
     { title: '说明', dataIndex: 'desc', key: 'desc', width: '30%' },
   ];
 
-  const catalogDataSource = FEATURE_GROUPS.flatMap((g) =>
+  const _catalogDataSource = FEATURE_GROUPS.flatMap((g) =>
     g.sellable.map((k) => {
       const meta = FEATURE_MAP[k] || { label: k, icon: <CheckCircleOutlined />, desc: '-' };
       const enabled = isEnabled(k);

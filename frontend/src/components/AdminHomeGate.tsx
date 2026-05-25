@@ -34,7 +34,7 @@ const AdminHomeGate: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [loading, user?.id]);
+  }, [loading, user]);
 
   if (loading || !user || targetPath === null) {
     return (

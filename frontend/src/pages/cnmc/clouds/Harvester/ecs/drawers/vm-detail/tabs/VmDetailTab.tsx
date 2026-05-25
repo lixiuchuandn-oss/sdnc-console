@@ -16,6 +16,7 @@ import { ReactComponent as GpuIcon } from "../../../../../../../../assets/clouds
 import { ReactComponent as UsbIcon } from "../../../../../../../../assets/clouds/usb.svg";
 import { ReactComponent as NicIcon } from "../../../../../../../../assets/clouds/nic.svg";
 import { OsIcon } from "../../../../../../../../components/OsIcon";
+import BorderBeam from "../../../../../../../../components/BorderBeam";
 import { formatStorageSize, parseStorageSize } from "../../../lib/storageSize";
 import {
   VM_DETAIL_DRAWER_DETAIL_TAB_BLOCK_CARD_STYLE,
@@ -24,8 +25,6 @@ import {
   VM_DETAIL_DRAWER_BORDER_MUTED,
   VM_DETAIL_DRAWER_SECTION_TITLE_LABEL_STYLE,
   VM_DETAIL_DRAWER_SECTION_TITLE_ROW_STYLE,
-  VM_DETAIL_DRAWER_SUBSECTION_HEADING_STYLE,
-  VM_DETAIL_DRAWER_SUBSECTION_MUTED_LABEL_STYLE,
   VM_DETAIL_DRAWER_TAB_SECTION_GAP,
   VM_DETAIL_DRAWER_TEXT_SECONDARY,
   VM_DETAIL_DRAWER_TEXT_SPLIT,
@@ -155,16 +154,13 @@ const VmDetailTab: React.FC<VmDetailTabProps> = ({
                       </div>
                     </div>
                     {cpuCores > 0 && (
-                      <div
-                        style={{
-                          flex: 1,
-                          marginLeft: 24,
-                          background: "#ffffff",
-                          border: "1px solid #188fff80",
-                          borderRadius: 8,
-                          padding: 8,
-                        }}
+                      <BorderBeam
+                        style={{ flex: 1, marginLeft: 24 }}
+                        colorFrom="#1890ff"
+                        colorTo="#69c0ff"
+                        duration={5}
                       >
+                        <div style={{ padding: 8 }}>
                         <div
                           style={{
                             display: "flex",
@@ -196,7 +192,8 @@ const VmDetailTab: React.FC<VmDetailTabProps> = ({
                           trailColor={VM_DETAIL_DRAWER_DETAIL_TAB_DIVIDER_COLOR}
                           size="small"
                         />
-                      </div>
+                        </div>
+                      </BorderBeam>
                     )}
                   </div>
 
@@ -265,16 +262,13 @@ const VmDetailTab: React.FC<VmDetailTabProps> = ({
                       </div>
                     </div>
                     {parseStorageSize(memorySpec) > 0 && (
-                      <div
-                        style={{
-                          flex: 1,
-                          marginLeft: 24,
-                          background: "#ffffff",
-                          border: "1px solid #188fff80",
-                          borderRadius: 8,
-                          padding: 8,
-                        }}
+                      <BorderBeam
+                        style={{ flex: 1, marginLeft: 24 }}
+                        colorFrom="#1890ff"
+                        colorTo="#69c0ff"
+                        duration={5}
                       >
+                        <div style={{ padding: 8 }}>
                         <div
                           style={{
                             display: "flex",
@@ -310,7 +304,8 @@ const VmDetailTab: React.FC<VmDetailTabProps> = ({
                           trailColor={VM_DETAIL_DRAWER_DETAIL_TAB_DIVIDER_COLOR}
                           size="small"
                         />
-                      </div>
+                        </div>
+                      </BorderBeam>
                     )}
                   </div>
                 </div>
