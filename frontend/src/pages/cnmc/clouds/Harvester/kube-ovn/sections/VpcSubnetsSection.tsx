@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Form, Input, message, Modal, Select, Table, Tag, Typography } from 'antd';
 import { ApartmentOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
@@ -118,6 +118,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
   const [vpc, setVpc] = useState<string | undefined>(undefined);
   const [nat, setNat] = useState<string | undefined>(undefined);
   const [dhcp, setDhcp] = useState<string | undefined>(undefined);
+  
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -187,6 +188,21 @@ const VpcSubnetsSection: React.FC<Props> = ({
     });
     return [...rows].sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
   }, [vpcOnlySubnets, keyword, vpc, nat, dhcp]);
+
+  /** 安全组规则的优先级范围 */
+  const TOWER_SG_ACL_PRIORITY_MIN = 31000;
+  const TOWER_SG_ACL_PRIORITY_MAX = 39999;
+
+  /** 检查ACL规则是否来自安全组同步 */
+  const isRuleFromSecurityGroup = (acl: any): boolean => {
+    // 通过优先级范围判断是否来自安全组（安全组规则使用 31000-39999 范围）
+    const priority = Number(acl.priority);
+    return Number.isFinite(priority) && 
+           priority >= TOWER_SG_ACL_PRIORITY_MIN && 
+           priority <= TOWER_SG_ACL_PRIORITY_MAX;
+  };
+
+  
 
   const openCreateVpcSubnetModal = useCallback(() => {
     if (!hasVpcsWrite) return;
@@ -515,7 +531,11 @@ const VpcSubnetsSection: React.FC<Props> = ({
               key: 'acls',
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
-                const n = Array.isArray(acls) ? acls.length : 0;
+                const n = Array.isArray(acls) 
+                  ? acls
+                      .filter((a: any) => !isRuleFromSecurityGroup(a))
+                      .length 
+                  : 0;
                 if (!hasVpcsWrite) return <span>{n} 条</span>;
                 return (
                   <Typography.Link

@@ -145,6 +145,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
   const subnetKindLabel = isFlatMode ? '扁平子网' : '公共子网';
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [aclDrawerOpen, setAclDrawerOpen] = useState(false);
   const [aclSubnetRecord, setAclSubnetRecord] = useState<any | null>(null);
@@ -225,6 +226,19 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
     setAclDrawerOpen(false);
     setAclSubnetRecord(null);
   }, []);
+
+  /** 安全组规则的优先级范围 */
+  const TOWER_SG_ACL_PRIORITY_MIN = 31000;
+  const TOWER_SG_ACL_PRIORITY_MAX = 39999;
+
+  /** 检查ACL规则是否来自安全组同步 */
+  const isRuleFromSecurityGroup = (acl: any): boolean => {
+    // 通过优先级范围判断是否来自安全组（安全组规则使用 31000-39999 范围）
+    const priority = Number(acl.priority);
+    return Number.isFinite(priority) && 
+           priority >= TOWER_SG_ACL_PRIORITY_MIN && 
+           priority <= TOWER_SG_ACL_PRIORITY_MAX;
+  };
 
   const fetchData = useCallback(
     async (force = false, skipSync = false) => {
@@ -742,7 +756,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
               key: 'acls',
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
-                const n = Array.isArray(acls) ? acls.length : 0;
+                const n = Array.isArray(acls) 
+                  ? acls
+                      .filter((a: any) => !isRuleFromSecurityGroup(a))
+                      .length 
+                  : 0;
                 if (!hasUnderlayWrite) return <span>{n} 条</span>;
                 return (
                   <Typography.Link

@@ -62,6 +62,7 @@ type ParsedSimple = {
 export function normalizeAclRowForForm(row: Record<string, unknown>): SubnetAclFormRow {
   const m = String(row.match ?? '').trim();
   const parsed = parseSimpleMatch(m);
+  
   if (parsed !== null) {
     return {
       ...row,
@@ -271,8 +272,32 @@ const AclRuleOneRow: React.FC<{
     <div style={{ width: '100%', overflowX: 'auto', marginBottom: 10 }}>
       <Row wrap={false} align="top" gutter={[10, 8]} style={{ minWidth: 800, width: '100%' }}>
         <Col flex="88px" style={{ minWidth: 88 }}>
-          <Form.Item {...restField} name={[listIndex, 'priority']} rules={[{ required: true, message: '优先级' }]} style={itemNoMargin}>
-            <InputNumber size="middle" min={1} max={32767} placeholder="优先级" style={{ width: '100%' }} controls />
+          <Form.Item 
+            {...restField} 
+            name={[listIndex, 'priority']} 
+            rules={[
+              { required: true, message: '优先级' },
+              {
+                validator: (_, value) => {
+                  const p = Number(value);
+                  if (Number.isFinite(p) && p >= 31000 && p <= 39999) {
+                    return Promise.reject(new Error('优先级 31000-39999 为安全组专用'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+            style={{ marginBottom: 0 }}
+            validateTrigger={['onChange', 'onBlur']}
+          >
+            <InputNumber 
+              size="middle" 
+              min={1} 
+              max={32767} 
+              placeholder="优先级" 
+              style={{ width: '100%' }} 
+              controls 
+            />
           </Form.Item>
         </Col>
 
