@@ -40,7 +40,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapComputeGroupTabsProps = {
+export type CloudmapComputeRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
   showLog: boolean;
@@ -111,7 +111,7 @@ function canViewComputeInner(
   return false;
 }
 
-const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
+const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -567,4 +567,4 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapComputeGroupTabs;
+export default CloudmapComputeRoutePanel;

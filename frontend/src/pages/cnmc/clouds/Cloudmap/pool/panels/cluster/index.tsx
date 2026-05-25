@@ -109,7 +109,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapClusterTabsProps = {
+export type CloudmapClusterRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
   showLog: boolean;
@@ -164,7 +164,7 @@ export type CloudmapClusterTabsProps = {
   resourceLoading: Record<string, boolean>;
 };
 
-const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
+const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (props) => {
   const {
     cloudId,
     isTenant,
@@ -469,4 +469,4 @@ const CloudmapClusterTabs: React.FC<CloudmapClusterTabsProps> = (props) => {
   );
 };
 
-export default CloudmapClusterTabs;
+export default CloudmapClusterRoutePanel;

@@ -7,4 +7,4 @@
  * - `sections/` — 资源池级概览等可复用块（不挂在集群工作区内）
  * - `styles/` — 模块样式
  */
-export {};
+export { default as RancherClusterRoutePanel } from './panels/RancherClusterRoutePanel';

@@ -4,7 +4,7 @@
  * - PoolDetailPage.tsx — 布局与 Provider 包裹
  * - hooks/useCloudmapPoolDetailEngine.ts — 池级状态与加载编排
  * - routing/ — PoolRoutes、PoolDetailContext、types.ts
- * - panels/ — 主内容区视图；子目录 = `cloudPoolSidebar` 中 `CLOUDMAP_POOL_TAB_KEYS` 业务域
+ * - panels/ — 主内容区 `*RoutePanel`；子目录 = `cloudPoolSidebar` 中 `CLOUDMAP_POOL_NAV_KEYS` 业务域
  * - panels/index.ts — 视图导出入口
  * - loaders/ — 首屏底稿 + 按路径内层段按需拉数；`pathResource/*` 与 panels 域同名
  * - hooks/ — 池级 hooks

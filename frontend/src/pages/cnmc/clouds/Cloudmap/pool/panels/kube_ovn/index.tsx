@@ -31,7 +31,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapKubeOvnGroupTabsProps = {
+export type CloudmapKubeOvnRoutePanelProps = {
   cloudId: string;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
@@ -114,7 +114,7 @@ function kubeOvnTabNeedsVpcLicense(key: string): boolean {
   return KUBE_OVN_TABS_REQUIRE_VPC_LICENSE.has(key);
 }
 
-const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
+const CloudmapKubeOvnRoutePanel: React.FC<CloudmapKubeOvnRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -345,4 +345,4 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapKubeOvnGroupTabs;
+export default CloudmapKubeOvnRoutePanel;

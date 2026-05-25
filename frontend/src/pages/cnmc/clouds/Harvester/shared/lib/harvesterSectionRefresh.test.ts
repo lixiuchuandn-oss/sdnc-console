@@ -1,10 +1,10 @@
 import { message } from 'antd';
 import { clearGetCacheForPath } from 'utils/requestManager';
 import {
-  createClusterToolbarRefresh,
+  createHarvesterToolbarRefresh,
   reloadHarvesterNamespacesList,
-  runClusterSectionRefresh,
-} from './clusterSectionRefresh';
+  runHarvesterSectionRefresh,
+} from './harvesterSectionRefresh';
 
 jest.mock('antd', () => ({
   message: {
@@ -17,26 +17,19 @@ jest.mock('utils/requestManager', () => ({
   clearGetCacheForPath: jest.fn(),
 }));
 
-describe('clusterSectionRefresh', () => {
+describe('harvesterSectionRefresh', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it('warns when onRefresh is missing', () => {
-    runClusterSectionRefresh(undefined);
+    runHarvesterSectionRefresh(undefined);
     expect(message.warning).toHaveBeenCalled();
   });
 
-  it('calls onRefresh(true) by default', async () => {
+  it('createHarvesterToolbarRefresh passes silent when set', async () => {
     const onRefresh = jest.fn().mockResolvedValue(undefined);
-    runClusterSectionRefresh(onRefresh);
-    await Promise.resolve();
-    expect(onRefresh).toHaveBeenCalledWith(true, undefined);
-  });
-
-  it('createClusterToolbarRefresh passes silent when set', async () => {
-    const onRefresh = jest.fn().mockResolvedValue(undefined);
-    const click = createClusterToolbarRefresh(onRefresh, { silent: true });
+    const click = createHarvesterToolbarRefresh(onRefresh, { silent: true });
     click();
     await Promise.resolve();
     expect(onRefresh).toHaveBeenCalledWith(true, true);
@@ -47,7 +40,7 @@ describe('clusterSectionRefresh', () => {
     const onRefresh = jest.fn().mockImplementation(async () => {
       order.push('refresh');
     });
-    const click = createClusterToolbarRefresh(onRefresh, {
+    const click = createHarvesterToolbarRefresh(onRefresh, {
       before: () => order.push('before'),
       after: () => order.push('after'),
     });
