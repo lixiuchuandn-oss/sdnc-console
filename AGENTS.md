@@ -62,7 +62,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 
 | 平台 | 代码 | 说明 |
 |------|------|------|
-| 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**云数据库**（Cloudmap 资源池 VM，源码在 `pages/cnmc/clouds/Harvester/cloud-database/`） |
+| 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**云数据库**（Cloudmap 资源池 VM，源码在 `pages/cnmc/clouds/Harvester/database/`） |
 | 租户管理 | TENANTS | 租户、组织、租户用户等；与 CNMC **平级**的独立平台（`RouteSpec.platform` / 顶栏导航）；页面源码 **`pages/tenants/`** |
 | 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略 |
 | SDN 管理 | SDNCC | SRv6、IPsec、ACL、NAT、VR |
@@ -209,7 +209,7 @@ Compute.Tower/
 │   │   │   │   │       ├── hsm/           # Tower HSM：Cloudmap 资源总览（机房拓扑、网络拓扑）；拓扑图与样式见 `hsm/lib/networkTopology/`
 │   │   │   │   │       ├── shared/components/  # 跨域详情抽屉与 Tab
 │   │   │   │   │       ├── monitoring/    # 监控与日志
-│   │   │   │   │       └── cloud-database/  # 云数据库（Cloudmap 资源池 VM；与侧栏 paas_databases 对应）
+│   │   │   │   │       └── database/  # 云数据库（Cloudmap 资源池 VM；与侧栏 paas_databases 对应）
 │   │   │   │   ├── console/
 │   │   │   ├── tenants/       # TENANTS：租户、组织、租户用户（`pages/tenants/`）
 │   │   │   ├── sdncc/         # SDN 管理
@@ -446,7 +446,7 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 #### Cloudmap 刷新样板（compute + cluster）
 
-Harvester **弹性计算（`ecs`）** 与 **集群（`cluster`）** 为 Cloudmap 池内刷新能力的**对称样板**：池层 **`create*TabOnRefresh` → `loadTabResource`**，Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。其它业务域新增 Tab 时**优先对齐本模式**，勿在引擎再写平行 `refreshXxx` + 面板内联 `() => loadTabResource(...)`。
+Harvester **弹性计算（`ecs`）**、**集群（`cluster`）**、**云数据库（`paas_databases` / `database`）** 为 Cloudmap 池内刷新能力的**对称样板**（RDS 列表与 `ecs` 同源）：池层 **`create*TabOnRefresh` → `loadTabResource`**，Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。其它业务域新增 Tab 时**优先对齐本模式**，勿在引擎再写平行 `refreshXxx` + 面板内联 `() => loadTabResource(...)`。
 
 ##### 虚拟机（compute / `ecs`）
 
@@ -533,6 +533,19 @@ Harvester **集群**在 Cloudmap 资源池内装配（`panels/cluster` + `Harves
 与 compute 相同：**`createHarvesterToolbarRefresh`** / **`runHarvesterSectionRefresh`**；`cluster/lib/clusterSectionRefresh.ts` 仅 re-export shared。
 
 细则亦见 **`frontend/src/pages/cnmc/clouds/Harvester/cluster/README.md`**。
+
+##### 云数据库（paas_databases / `database`）
+
+Cloudmap 侧栏 **`paas_databases/rds`** → `panels/paas_databases` + `Harvester/database/sections/PaasSection.tsx`。列表数据为池 **`ecs`**，Section 内按 PaaS 标签过滤。
+
+| 职责 | 文件 |
+|------|------|
+| `onRefresh` 映射 | `loaders/paasDatabasesRefresh.ts` → **`createPaasDatabasesTabOnRefresh('rds')`** |
+| 拉数 | `loaders/pathResource/paasDatabasesPathLoads.ts`（**`rds` → `tryLoadComputeTab('ecs')`**） |
+| 装配 | `panels/paas_databases/index.tsx` → **`paasDatabasesTabOnRefresh.rds`** |
+| Section 写成功/刷新 | **`runHarvesterSectionRefresh`**（`PaasSection`）；勿裸 `onRefresh(true)` |
+
+细则亦见 **`frontend/src/pages/cnmc/clouds/Harvester/database/README.md`**。
 
 ### 组件开发
 - 公共逻辑提取到 `components/` 或 `hooks/`
@@ -690,7 +703,7 @@ const addRule = useCallback(() => {
 
 | 对象 | 约定 |
 |------|------|
-| **业务目录**（`pages/` 下通用） | 小写 **`kebab-case`**（如 `cloud-database`、`kube-ovn`） |
+| **业务目录**（`pages/` 下通用） | 小写 **`kebab-case`**（如 `database`、`kube-ovn`） |
 | **云厂商目录**（`clouds/` 下） | 与产品一致，多为 **`PascalCase`**（`Harvester/`、`Aliyun/`） |
 | **React 组件文件** | **`PascalCase.tsx`**（`VmSection.tsx`） |
 | **工具 / 纯逻辑 TS** | **`camelCase.ts`**（`nodesSectionUtils.ts`） |

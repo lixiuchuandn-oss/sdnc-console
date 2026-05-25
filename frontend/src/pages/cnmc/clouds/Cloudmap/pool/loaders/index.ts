@@ -22,6 +22,12 @@ export {
   type ClusterSectionOnRefresh,
 } from './clusterRefresh';
 export {
+  createPaasDatabasesTabOnRefresh,
+  type PaasDatabasesInnerTabKey,
+  type PaasDatabasesTabRefreshDeps,
+  type PaasDatabasesSectionOnRefresh,
+} from './paasDatabasesRefresh';
+export {
   fetchComputeEcsList,
   parseEcsListFromJson,
   syncCloudEcsBeforeLoad,
