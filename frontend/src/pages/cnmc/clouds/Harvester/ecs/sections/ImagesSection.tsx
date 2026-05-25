@@ -1,35 +1,24 @@
 /**
  * Harvester - 镜像 (Image) 列表 Section
- * frontend/src/pages/cnmc/clouds/Harvester/ecs/sections/ImagesSection.tsx
- *
- * === 功能描述 ===
- * 负责展示和管理 Harvester 集群中的虚拟机镜像资源。
- * 核心功能包括：
- * 1. 列表展示: 展示镜像名称、大小、状态、进度等信息。
- * 2. 镜像导入: 支持通过 URL 下载导入镜像，或使用“Cloudmap 直传工具”上传。
- * 3. 资源操作: 支持镜像的删除、编辑、查看详情。
- *
- * === 核心逻辑 ===
- * 1. [状态映射]:
- *    - 将后端状态 (Imported, Downloading, Failed 等) 映射为中文描述和 Antd Badge 颜色。
- *    - 特别处理下载进度展示 (Progress)，实时反馈导入状态。
- * 2. [创建流程]:
- *    - 具体表单与 Tab 由 `ImageCreateModal` 承担。
- *    - 租户：弹窗仅「浏览器上传」；管理员：含 URL 导入、Windows 桌面工具下载等完整能力。
- * 3. [详情抽屉]:
- *    - 点击行支持打开 `HarvesterResourceDrawer`，展示镜像的 YAML 和 Events。
- *    - 在打开抽屉前，自动补全 `kind: VirtualMachineImage` 以适配通用抽屉逻辑。
- *
- * === 交互依赖 ===
- * - 上游: 由资源池详情（如 Cloudmap）传入 `images` 列表。
- * - 下游: 列表侧调用 `deleteHarvesterImage` 等；新建镜像由 `ImageCreateModal` 内聚 API。
- * - 外部: 镜像列表与上传任务轮询相关 API；`uploadControllersRef` 与弹窗共用以便取消直传。
+ * 列表列与筛选逻辑见 `ecs/lib/imagesSectionUtils.ts`、`imagesTableColumns.tsx`。
  */
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Table, Input, Select, Tag, Button, message, Dropdown, Modal, Tooltip, Typography, Drawer, Progress } from 'antd';
+import {
+  Table,
+  Input,
+  Select,
+  Tag,
+  Button,
+  message,
+  Dropdown,
+  Modal,
+  Tooltip,
+  Typography,
+  Drawer,
+  Progress,
+} from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
@@ -41,53 +30,38 @@ import {
   cancelHarvesterImageUploadTask,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
-import {
-  isSystemNamespace,
-  isImagePublicByScenario,
-  resolveVmImageKind,
-  findVmsReferencingHarvesterImage,
-} from '../../../../../../utils/harvesterUtils';
-import { OsIcon, getOsKeywordGroups } from '../../../../../../components/OsIcon';
+import { findVmsReferencingHarvesterImage } from '../../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import ImageLabelEditModal from '../modals/ImageLabelEditModal';
 import ImageCreateModal from '../modals/ImageCreateModal';
 import { resolveImageListStateKey } from '../lib/vmImageStatus';
+import {
+  IMAGE_OS_FILTER_OPTIONS,
+  IMAGE_STATUS_FILTER_OPTIONS,
+  imageUploadTaskStatusLabel,
+} from '../lib/imagesSectionConstants';
+import {
+  filterAndSortImages,
+  getImageDisplayAlias,
+  getImageRowId,
+  getImageRowNamespace,
+  imageStatusLabelZh,
+  type ImageListRecord,
+} from '../lib/imagesSectionUtils';
+import { buildImagesTableColumns } from '../lib/imagesTableColumns';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 
-/**
- * Harvester 镜像底层文件占用：status.size / spec.size / 导入中 downloadedBytes；
- * Tower 列表 `listHarvesterImagesStandard` 还会在顶层镜像对象上回填 `size`。
- */
-function getImageActualFileBytes(r: any): number | undefined {
-  const raw = r?.status?.size ?? r?.spec?.size ?? r?.status?.downloadedBytes;
-  let n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
-  if (Number.isFinite(n) && n > 0) return n;
-  const topSize = r?.size;
-  n =
-    typeof topSize === 'number'
-      ? topSize
-      : typeof topSize === 'string'
-        ? Number(topSize)
-        : NaN;
-  if (Number.isFinite(n) && n > 0) return n;
-  return undefined;
-}
-
-/**
- * 组件入参说明
- * - cloudId: 当前云 ID，用于调用 Harvester 镜像相关 API
- * - images: 镜像列表（可能为原始对象或带 rawData 的包装对象）
- * - loading: 外层传入的加载状态
- * - onRefresh: 刷新回调，支持传入 force=true 强制从后端同步
- */
 type Props = {
   cloudId: string;
-  images: any[];
+  images: ImageListRecord[];
   loading: boolean;
-  onRefresh?: (force?: boolean, silent?: boolean) => void;
-  /** 用于删除镜像前判断是否仍被虚拟机引用 */
-  vms?: any[];
-
+  onRefresh?: HarvesterSectionOnRefresh;
+  vms?: ImageListRecord[];
   isTenant?: boolean;
   bordered?: boolean;
 };
@@ -104,7 +78,9 @@ const ImagesSection: React.FC<Props> = ({
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasImagesWrite = useMemo(
-    () => hasPermissionForAction(perms, 'clouds.images:write') || hasPermissionForAction(perms, 'clouds:write'),
+    () =>
+      hasPermissionForAction(perms, 'clouds.images:write') ||
+      hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
   const ensureImagesWrite = useCallback(() => {
@@ -113,93 +89,88 @@ const ImagesSection: React.FC<Props> = ({
     return false;
   }, [hasImagesWrite]);
 
-  // 本地镜像列表状态，用于删除后立即更新UI
-  const [localImages, setLocalImages] = useState<any[]>(images);
-  
-  // 同步外部传入的 images 到本地状态
+  const [localImages, setLocalImages] = useState<ImageListRecord[]>(images);
+
   React.useEffect(() => {
     setLocalImages(images);
   }, [images]);
 
-  // [自动刷新] 当有镜像处于进行中状态时，自动刷新列表以更新进度
   const prevProgressRef = React.useRef<Map<string, number>>(new Map());
   React.useEffect(() => {
     if (!onRefresh) return;
-    const hasProgressing = localImages.some((img: any) => {
+    const hasProgressing = localImages.some((img) => {
       const stateKey = resolveImageListStateKey(img);
       const progressingStates = ['downloading', 'uploading', 'importing', 'exporting', 'pending'];
       if (!progressingStates.includes(stateKey)) return false;
-      const progress = Number(img?.status?.progress ?? img?.progress ?? 0);
-      const prevProgress = prevProgressRef.current.get(img?.name || img?.metadata?.name || '');
-      // 如果进度有变化或者是进行中状态且首次检测到
+      const status = img?.status as Record<string, unknown> | undefined;
+      const progress = Number(status?.progress ?? img?.progress ?? 0);
+      const rowName = getImageRowId(img);
+      const prevProgress = prevProgressRef.current.get(rowName);
       if (prevProgress !== undefined && prevProgress !== progress) return true;
       if (progress > 0 && progress < 100 && prevProgress === undefined) {
-        prevProgressRef.current.set(img?.name || img?.metadata?.name || '', progress);
+        prevProgressRef.current.set(rowName, progress);
         return true;
       }
       if (prevProgress !== undefined) {
-        prevProgressRef.current.set(img?.name || img?.metadata?.name || '', progress);
+        prevProgressRef.current.set(rowName, progress);
       }
       return false;
     });
-    
+
     if (hasProgressing) {
       const timer = window.setTimeout(() => {
         onRefresh(true, true);
-      }, 3000); // 3秒刷新一次
+      }, 3000);
       return () => window.clearTimeout(timer);
     }
   }, [localImages, onRefresh]);
 
-  const [keyword, setKeyword] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>(''); // 默认不过滤，显示所有类型
-  const [osFilter, setOsFilter] = useState<string>('');
-  const [scopeFilter, setScopeFilter] = useState<string>(''); // all | public | private
-  // 创建镜像弹窗状态
-  const [creating, setCreating] = useState<boolean>(false);
-  // 批量选择的行 key
+  const [keyword, setKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [osFilter, setOsFilter] = useState('');
+  const [scopeFilter, setScopeFilter] = useState('');
+  const [creating, setCreating] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-
-  // 抽屉状态，用于展示镜像的 Harvester 详情与事件等
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [currentRecord, setCurrentRecord] = useState<any>(null);
+  const [currentRecord, setCurrentRecord] = useState<ImageListRecord | null>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
   const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
   const [taskProgressCache, setTaskProgressCache] = useState<Map<string, number>>(new Map());
-
-  const getSmoothProgress = useCallback((task: HarvesterImageUploadTask): number => {
-    const current = Number(task.progress || 0);
-    const cached = taskProgressCache.get(task.id) || 0;
-    const smooth = Math.max(current, cached);
-    if (smooth > cached) {
-      setTaskProgressCache((prev) => {
-        const next = new Map(prev);
-        next.set(task.id, smooth);
-        return next;
-      });
-    }
-    return smooth;
-  }, [taskProgressCache]);
-
-  // 标签编辑状态
   const [labelEditModalOpen, setLabelEditModalOpen] = useState(false);
-  const [labelEditRecord, setLabelEditRecord] = useState<any>(null);
-  /** 浏览器直传 fetch 的 AbortController；与 ImageCreateModal 共用，取消任务时可中止上传 */
+  const [labelEditRecord, setLabelEditRecord] = useState<ImageListRecord | null>(null);
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const toolTaskListRef = useRef<HarvesterImageUploadTask[]>([]);
   const onRefreshRef = useRef(onRefresh);
   toolTaskListRef.current = toolTaskList;
   onRefreshRef.current = onRefresh;
 
+  const getSmoothProgress = useCallback(
+    (task: HarvesterImageUploadTask): number => {
+      const current = Number(task.progress || 0);
+      const cached = taskProgressCache.get(task.id) || 0;
+      const smooth = Math.max(current, cached);
+      if (smooth > cached) {
+        setTaskProgressCache((prev) => {
+          const next = new Map(prev);
+          next.set(task.id, smooth);
+          return next;
+        });
+      }
+      return smooth;
+    },
+    [taskProgressCache],
+  );
+
   React.useEffect(() => {
     if (!cloudId) return;
     let stopped = false;
     const loadTasks = async () => {
       try {
-        const resp: any = await fetchHarvesterImageUploadTasks(cloudId, 20);
+        const resp: { data?: { items?: HarvesterImageUploadTask[] }; items?: HarvesterImageUploadTask[] } =
+          await fetchHarvesterImageUploadTasks(cloudId, 20);
         const items = resp?.data?.items || resp?.items || [];
         if (!stopped) setToolTaskList(Array.isArray(items) ? items : []);
       } catch {
@@ -215,11 +186,12 @@ const ImagesSection: React.FC<Props> = ({
   const loadUploadTasks = async (silent = true) => {
     try {
       if (!silent) setTaskDrawerLoading(true);
-      const resp: any = await fetchHarvesterImageUploadTasks(cloudId, 50);
+      const resp: { data?: { items?: HarvesterImageUploadTask[] }; items?: HarvesterImageUploadTask[] } =
+        await fetchHarvesterImageUploadTasks(cloudId, 50);
       const items = resp?.data?.items || resp?.items || [];
       setToolTaskList(Array.isArray(items) ? items : []);
-    } catch (e: any) {
-      if (!silent) message.error(e?.message || '加载上传任务失败');
+    } catch (e: unknown) {
+      if (!silent) message.error((e as { message?: string })?.message || '加载上传任务失败');
     } finally {
       if (!silent) setTaskDrawerLoading(false);
     }
@@ -231,15 +203,14 @@ const ImagesSection: React.FC<Props> = ({
       await deleteHarvesterImageUploadTask(cloudId, task.id);
       message.success('任务记录已删除');
       setToolTaskList((prev) => prev.filter((x) => x.id !== task.id));
-    } catch (e: any) {
-      message.error(e?.message || '删除任务记录失败');
+    } catch (e: unknown) {
+      message.error((e as { message?: string })?.message || '删除任务记录失败');
     }
   };
 
   React.useEffect(() => {
     if (!cloudId) return;
     const timer = window.setInterval(async () => {
-      // 轮询所有未完成的任务（包括成功状态，因为需要检测从进行中变为成功的瞬间）
       const active = toolTaskListRef.current.filter((t) =>
         ['pending', 'ingesting', 'proxying', 'success'].includes(String(t?.status || '')),
       );
@@ -256,18 +227,16 @@ const ImagesSection: React.FC<Props> = ({
             }
           }),
         );
-        // 检查是否有任务从非成功状态变为成功状态
-        const newlyCompleted = next.filter((x) => 
-          x.status === 'success' && 
-          !toolTaskListRef.current.some((t) => t.id === x.id && t.status === 'success')
+        const newlyCompleted = next.filter(
+          (x) =>
+            x.status === 'success' &&
+            !toolTaskListRef.current.some((t) => t.id === x.id && t.status === 'success'),
         );
-        
-        // 检查是否有任务进度发生变化
         const progressChanged = next.some((x) => {
           const oldTask = toolTaskListRef.current.find((t) => t.id === x.id);
           return oldTask && oldTask.progress !== x.progress;
         });
-        
+
         setToolTaskList((prev) => {
           const map = new Map(prev.map((x) => [x.id, x]));
           next.forEach((x) => map.set(x.id, x));
@@ -277,8 +246,7 @@ const ImagesSection: React.FC<Props> = ({
               new Date(a.createdAt || a.updatedAt || 0).getTime(),
           );
         });
-        
-        // 如果有任务进度变化或刚刚完成，刷新镜像列表
+
         if (progressChanged || newlyCompleted.length > 0) {
           onRefreshRef.current?.(true, true);
         }
@@ -289,214 +257,63 @@ const ImagesSection: React.FC<Props> = ({
     return () => window.clearInterval(timer);
   }, [cloudId]);
 
-  const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
-    // Ensure kind is present for Events tab
-    const r = { ...record, kind: record.kind || 'VirtualMachineImage' };
+  const handleOpenOpsinfo = useCallback((record: ImageListRecord, tab = 'detail') => {
+    const r = { ...record, kind: (record.kind as string) || 'VirtualMachineImage' };
     setCurrentRecord(r);
     setDrawerTab(tab);
     setDrawerOpen(true);
-  };
-
-  /**
-   * 将镜像状态英文 key 转为中文描述
-   */
-  const cnStatus = useCallback((s?: string): string => {
-    const k = String(s || '').toLowerCase();
-    const m: Record<string, string> = {
-      imported: '已导入',
-      pending: '等待',
-      downloading: '下载中',
-      uploading: '上传中',
-      importing: '导入中',
-      exporting: '导出中',
-      ready: '就绪',
-      failed: '失败',
-      cancelled: '已取消',
-      unknown: '未知',
-    };
-    return m[k] || (s || '-');
-  }, []);
-  /**
-   * 根据状态和sourceType获取状态文本
-   */
-  const getStatusText = useCallback((stateKey: string, sourceType?: string): string => {
-    const k = String(stateKey || '').toLowerCase();
-    const st = String(sourceType || '').toLowerCase();
-    
-    if (k === 'downloading' || k === 'importing') {
-      if (st === 'download') return '下载中';
-      if (st === 'export-from-volume') return '从磁盘导出中';
-      if (st === 'upload') return '上传中';
-    }
-    
-    const m: Record<string, string> = {
-      imported: '已导入',
-      pending: '等待',
-      downloading: '下载中',
-      uploading: '上传中',
-      importing: '导入中',
-      exporting: '导出中',
-      ready: '就绪',
-      failed: '失败',
-      cancelled: '已取消',
-      unknown: '未知',
-    };
-    return m[k] || (stateKey || '-');
   }, []);
 
-  /**
-   * 状态 Badge 渲染：根据状态选择不同颜色和中文文案
-   */
-  const statusBadge = useCallback(
-    (r?: any) => {
-      const stateKey = typeof r === 'string' ? r : resolveImageListStateKey(r);
-      const k = String(stateKey || '').toLowerCase();
-      const sourceType = typeof r !== 'string' ? (r?.sourceType || r?.spec?.sourceType) : undefined;
-      const text = getStatusText(stateKey, sourceType);
-      const color = (function () {
-        if (k === 'ready') return 'green';
-        if (k === 'failed') return 'red';
-        if (k === 'imported') return 'success';
-        if (k === 'downloading') return 'blue';
-        if (k === 'uploading') return 'blue';
-        if (k === 'importing') return 'blue';
-        if (k === 'exporting') return 'blue';
-        if (k === 'cancelled') return 'default';
-        if (k === 'pending') return 'gold';
-        return undefined;
-      })();
-      return <Tag color={color}>{text}</Tag>;
-    },
-    [getStatusText],
+  const filtered = useMemo(
+    () =>
+      filterAndSortImages(
+        localImages,
+        { keyword, statusFilter, typeFilter, osFilter, scopeFilter },
+        { isTenant },
+      ),
+    [localImages, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant],
   );
-  const gbText = (bytes?: number | string): string => {
-    const n = typeof bytes === 'number' ? bytes : (typeof bytes === 'string' ? Number(bytes) : NaN);
-    if (!isFinite(n) || n <= 0) return '-';
-    const gb = n / (1024 * 1024 * 1024);
-    return `${gb.toFixed(2)}GB`;
-  };
 
-  const expandOsKeywords = useCallback((val: string) => {
-    const v = (val || '').toLowerCase();
-    const groups = getOsKeywordGroups();
-    const g = groups.find((gr: string[]) => gr.includes(v));
-    return g ? g : v ? [v] : [];
-  }, []);
-
-  const getId = (r: any): string => String(r?.name || r?.metadata?.name || '');
-  const getNs = (r: any): string => String(r?.namespace || r?.metadata?.namespace || 'default');
-
-  /** 创建时间（毫秒），用于列表默认排序与表格列排序 */
-  const getImageCreatedMs = useCallback((r: any) => {
-    const t = r?.metadata?.creationTimestamp || r?.createdAt;
-    const ms = t ? new Date(t).getTime() : 0;
-    return Number.isFinite(ms) ? ms : 0;
-  }, []);
-
-  const filtered = useMemo(() => {
-    const base = Array.isArray(localImages) ? localImages : [];
-    // 如果没有过滤条件，直接返回所有镜像
-    const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || (!isTenant ? scopeFilter : '');
-    let list: any[];
-    if (!hasFilters && !isTenant) {
-      list = base;
-    } else {
-      const kw = keyword.trim().toLowerCase();
-      const st = statusFilter.trim().toLowerCase();
-      const osKey = osFilter.trim().toLowerCase();
-      list = base.filter((r: any) => {
-        const ns = getNs(r);
-
-        // [系统资源过滤]
-        // 租户模式: 严格隔离，禁止查看系统命名空间，但允许查看公共命名空间 (harvester-public)
-        if (isTenant) {
-          if (isSystemNamespace(ns) && !isImagePublicByScenario(r)) return false;
+  const handleDeleteRow = useCallback(
+    async (r: ImageListRecord) => {
+      const name = getImageRowId(r);
+      if (!name) return;
+      const ns = getImageRowNamespace(r);
+      const used = findVmsReferencingHarvesterImage(ns, name, vms);
+      if (used.length > 0) {
+        message.warning(
+          `镜像仍被以下虚拟机使用，无法删除：${used.map((u) => u.label).join('、')}`,
+        );
+        return;
+      }
+      try {
+        await deleteHarvesterImage(cloudId, ns, name);
+        message.success('删除成功');
+        setLocalImages((prev) =>
+          prev.filter((img) => {
+            const meta = img?.metadata as Record<string, unknown> | undefined;
+            return !(meta?.namespace === ns && meta?.name === name);
+          }),
+        );
+        runHarvesterSectionRefresh(onRefresh, { force: true });
+      } catch (e: unknown) {
+        const err = e as { message?: string; status?: number };
+        const errMsg = err?.message || '';
+        if (
+          err?.status === 422 ||
+          errMsg.includes('422') ||
+          errMsg.toLowerCase().includes('in use') ||
+          errMsg.includes('被使用')
+        ) {
+          message.error('删除镜像失败: 当前镜像正在被虚拟机使用，请先删除引用该镜像的虚拟机');
+        } else {
+          message.error(errMsg || '删除失败');
         }
+      }
+    },
+    [cloudId, onRefresh, vms],
+  );
 
-        // Scope Filter - 只有用户主动选择时才过滤
-        if (!isTenant && scopeFilter === 'public' && !isImagePublicByScenario(r)) return false;
-        if (!isTenant && scopeFilter === 'private') {
-          // Private: 非公共且非系统
-          if (isImagePublicByScenario(r) || isSystemNamespace(ns)) return false;
-        }
-
-        // 关键字过滤 - 只有用户输入时才过滤
-        // 搜索范围：displayName、spec.displayName、labels中的imageDisplayName、name、namespace
-        if (kw) {
-          const displayName = String(
-            r?.displayName ||
-              r?.spec?.displayName ||
-              r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-              '',
-          ).toLowerCase();
-          const imageName = String(r?.name || r?.metadata?.name || '').toLowerCase();
-          const namespace = String(ns).toLowerCase();
-          if (!displayName.includes(kw) && !imageName.includes(kw) && !namespace.includes(kw)) {
-            return false;
-          }
-        }
-
-        // 状态过滤 - 只有用户选择时才过滤
-        if (st) {
-          if (resolveImageListStateKey(r) !== st) return false;
-        }
-
-        // 镜像类型过滤 - 只有用户主动选择类型时才过滤
-        if (typeFilter) {
-          const kind = resolveVmImageKind(r);
-          if (kind !== typeFilter) return false;
-        }
-
-        // OS过滤 - 只有用户输入时才过滤
-        if (osKey) {
-          const osLabel = String(r?.metadata?.labels?.['harvesterhci.io/os'] || '').toLowerCase();
-          const iconName = String(r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.metadata?.name || r?.name || '').toLowerCase();
-          const keys = expandOsKeywords(osKey);
-          if (!keys.some((k) => osLabel.includes(k) || iconName.includes(k))) return false;
-        }
-        return true;
-      });
-    }
-    // 默认按创建时间降序（最新在前）；清除列排序时仍保持该顺序
-    return [...list].sort((a, b) => getImageCreatedMs(b) - getImageCreatedMs(a));
-  }, [localImages, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, expandOsKeywords, getImageCreatedMs]);
-
-  /** 与 resolveImageListStateKey 返回值一致（去掉易与 ready 混淆的 imported/pending） */
-  const statusOptions = ['ready', 'failed', 'uploading', 'importing', 'exporting', 'downloading', 'cancelled', 'unknown'];
-  const osOptions = [
-    { value: '', label: '全部' },
-    { value: 'windows', label: 'Windows' },
-    { value: 'ubuntu', label: 'Ubuntu' },
-    { value: 'centos', label: 'CentOS' },
-    { value: 'debian', label: 'Debian' },
-    { value: 'redhat', label: 'RedHat/RHEL' },
-    { value: 'rhel', label: 'RedHat/RHEL' },
-    { value: 'fedora', label: 'Fedora' },
-    { value: 'suse', label: 'SUSE/openSUSE/SLES' },
-    { value: 'opensuse', label: 'SUSE/openSUSE/SLES' },
-    { value: 'sles', label: 'SUSE/openSUSE/SLES' },
-    { value: 'android', label: 'Android' },
-    { value: 'freebsd', label: 'FreeBSD' },
-    { value: 'kylin', label: '麒麟' },
-    { value: 'neokylin', label: '中标麒麟' },
-    { value: 'uos', label: 'UOS' },
-    { value: 'openeuler', label: 'openEuler' },
-    { value: 'anolis', label: 'Anolis' },
-  ];
-
-  const getImageAlias = (r: any): string =>
-    String(
-      r?.displayName ||
-      r?.spec?.displayName ||
-      r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-      '',
-    ).trim();
-
-  /**
-   * 批量删除已选镜像
-   * - 根据 selectedKeys 从 images 中反查目标对象
-   * - 针对每个镜像调用删除接口，并统计成功/失败数量
-   */
   const batchDelete = async () => {
     if (!ensureImagesWrite()) return;
     if (!Array.isArray(images) || selectedKeys.length === 0) return;
@@ -504,166 +321,88 @@ const ImagesSection: React.FC<Props> = ({
       title: '确认批量删除所选镜像？',
       onOk: async () => {
         try {
-          const map = new Map<string, any>();
-          for (const r of (images || [])) map.set(getId(r), r);
-          const targets = selectedKeys.map(k => map.get(String(k))).filter(Boolean);
-          if (targets.length === 0) { message.warning('未找到可删除的镜像'); return; }
-          const results = await Promise.all(targets.map(async (r: any) => {
-            const ns = getNs(r); const name = getId(r);
-            const alias = getImageAlias(r);
-            const label = alias ? `${alias} (${name})` : name;
-            try { await deleteHarvesterImage(cloudId, ns, name); return { ok: true, name: label, ns, id: name }; }
-            catch (e: any) { return { ok: false, name: label, err: e?.message || String(e) }; }
-          }));
-          const okResults = results.filter(x => x.ok);
-          const fail = results.filter(x => !x.ok);
+          const map = new Map<string, ImageListRecord>();
+          for (const r of images || []) map.set(getImageRowId(r), r);
+          const targets = selectedKeys.map((k) => map.get(String(k))).filter(Boolean) as ImageListRecord[];
+          if (targets.length === 0) {
+            message.warning('未找到可删除的镜像');
+            return;
+          }
+          const results = await Promise.all(
+            targets.map(async (r) => {
+              const ns = getImageRowNamespace(r);
+              const name = getImageRowId(r);
+              const alias = getImageDisplayAlias(r);
+              const label = alias ? `${alias} (${name})` : name;
+              try {
+                await deleteHarvesterImage(cloudId, ns, name);
+                return { ok: true as const, name: label, ns, id: name };
+              } catch (e: unknown) {
+                return {
+                  ok: false as const,
+                  name: label,
+                  err: (e as { message?: string })?.message || String(e),
+                };
+              }
+            }),
+          );
+          const okResults = results.filter((x) => x.ok);
+          const fail = results.filter((x) => !x.ok);
           if (okResults.length > 0) {
             message.success(`删除成功 ${okResults.length} 条`);
-            // 删除成功后立即更新本地状态，实现即时反馈
-            const deletedIds = new Set(okResults.map(r => `${r.ns}/${r.id}`));
-            setLocalImages(prev => prev.filter(img => !deletedIds.has(`${img?.metadata?.namespace}/${img?.metadata?.name}`)));
+            const deletedIds = new Set(okResults.map((r) => `${r.ns}/${r.id}`));
+            setLocalImages((prev) =>
+              prev.filter((img) => {
+                const meta = img?.metadata as Record<string, unknown> | undefined;
+                return !deletedIds.has(`${meta?.namespace}/${meta?.name}`);
+              }),
+            );
           }
           if (fail.length > 0) {
             message.error(
-              `删除失败 ${fail.length} 条：${fail.map((f: any) => (f.err ? `${f.name}（${f.err}）` : f.name)).join('；')}`,
+              `删除失败 ${fail.length} 条：${fail.map((f) => (f.err ? `${f.name}（${f.err}）` : f.name)).join('；')}`,
             );
           }
           setSelectedKeys([]);
-          onRefresh?.(true);
-        } catch (e: any) {
-          message.error(e?.message || '批量删除失败');
+          runHarvesterSectionRefresh(onRefresh, { force: true });
+        } catch (e: unknown) {
+          message.error((e as { message?: string })?.message || '批量删除失败');
         }
-      }
+      },
     });
   };
 
-  /**
-   * 表格列定义
-   * - 显示名称列可点击打开 Harvester 资源详情抽屉
-   * - 操作列包含：详情、下载、删除三种操作
-   */
-  const allColumns = useMemo(() => [
-    { title: '镜像名称', key: 'display_name', render: (_:any, r:any)=> {
-        // 优先使用顶层的 displayName，然后检查 spec.displayName，最后检查 labels
-        const disp = r?.displayName || r?.spec?.displayName || r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.name || r?.metadata?.name || '-';
-        const nameForIcon = r?.displayName || r?.spec?.displayName || r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.name || r?.metadata?.name || '';
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-            <OsIcon osName={nameForIcon} style={{ flexShrink: 0, fontSize: 16 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{disp}</span>
-          </span>
-        );
-    } },
-    { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
-    ...(!isTenant
-      ? [
-          { title: '命名空间', key: 'namespace', render: (_: any, r: any) => getNs(r) },
-          { title: '作用域', key: 'scope', render: (_: any, r: any) => (isImagePublicByScenario(r) ? '公共镜像' : '私有镜像') },
-        ]
-      : []),
-    { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(r) },
-    { title: '进度', key: 'progress', render: (_:any, r:any)=> {
-        const progress = Number(r?.status?.progress ?? r?.progress);
-        if (!Number.isFinite(progress) || progress <= 0) return '-';
-        return <Progress percent={Math.round(progress)} size="small" status={progress >= 100 ? 'success' : 'active'} />;
-      } },
-    { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
-        const kind = resolveVmImageKind(r);
-        const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? 'Qcow2' : '其他';
-        const color = kind === 'iso' ? 'pink' : kind === 'disk' ? 'blue' : undefined;
-        return <Tag color={color}>{text}</Tag>;
-    } },
-    { title: '虚拟大小', key: 'vsize', render: (_:any, r:any)=> {
-        const vsize =
-          r?.virtualSize ??
-          r?.status?.virtualSize ??
-          r?.spec?.virtualSize;
-        if (vsize == null || vsize === '') return '-';
-        const num = typeof vsize === 'string' ? Number(vsize) : vsize;
-        return isFinite(num) && Number(num) > 0 ? gbText(num) : '-';
-      } },
-    {
-      title: '实际大小',
-      key: 'actual_size',
-      render: (_: any, r: any) => {
-        const bytes = getImageActualFileBytes(r);
-        return bytes != null ? gbText(bytes) : '-';
-      },
-    },
-    ...(!isTenant
-      ? [
-          {
-            title: '存储类',
-            key: 'sc',
-            render: (_: any, r: any) =>
-              r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-',
-          },
-        ]
-      : []),
-    {
-      title: '创建时间',
-      key: 'created_at',
-      sorter: (a: any, b: any) => getImageCreatedMs(a) - getImageCreatedMs(b),
-      defaultSortOrder: 'descend' as const,
-      render: (_: any, r: any) => {
-        const t = r?.metadata?.creationTimestamp || r?.createdAt;
-        return t ? new Date(t).toLocaleString() : '-';
-      },
-    },
-    { title: '操作', key: 'actions', align: 'left' as const, fixed: 'right' as const, render: (_:any, r:any)=> {
-      const name = r?.name || r?.metadata?.name || '';
-      const alias = getImageAlias(r);
-      const deleteLabel = alias ? `${alias} (${name})` : name;
-      const ns = getNs(r);
-      const handleDelete = async () => { 
-          if (!ensureImagesWrite()) return;
-          if (!name) return;
-          const used = findVmsReferencingHarvesterImage(ns, name, vms);
-          if (used.length > 0) {
-            message.warning(`镜像仍被以下虚拟机使用，无法删除：${used.map((u) => u.label).join('、')}`);
-            return;
-          }
-          try {
-            await deleteHarvesterImage(cloudId, ns, name);
-            message.success('删除成功');
-            // 删除成功后立即更新本地状态，实现即时反馈
-            setLocalImages(prev => prev.filter(img => !(img?.metadata?.namespace === ns && img?.metadata?.name === name)));
-            // 同时调用 onRefresh 从后端同步数据
-            onRefresh?.(true);
-          } catch (e: any) {
-            const errMsg = e?.message || '';
-            if (e?.status === 422 || errMsg.includes('422') || errMsg.toLowerCase().includes('in use') || errMsg.includes('被使用')) {
-              message.error('删除镜像失败: 当前镜像正在被虚拟机使用，请先删除引用该镜像的虚拟机');
-            } else {
-              message.error(errMsg || '删除失败');
-            }
-          }
-      };
+  const allColumns = useMemo(
+    () =>
+      buildImagesTableColumns({
+        isTenant,
+        hasImagesWrite,
+        ensureImagesWrite,
+        onOpenYaml: (r) => handleOpenOpsinfo(r, 'detail'),
+        onEditLabels: (r) => {
+          setLabelEditRecord(r);
+          setLabelEditModalOpen(true);
+        },
+        onDeleteRow: (r) => void handleDeleteRow(r),
+      }),
+    [isTenant, hasImagesWrite, ensureImagesWrite, handleOpenOpsinfo, handleDeleteRow],
+  );
 
-      return (
-        <ResourceActionsDropdown 
-          buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
-          items={[
-            ...(!isTenant ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
-            { key: 'editLabels', label: '编辑标签', disabled: !hasImagesWrite, onClick: () => { setLabelEditRecord(r); setLabelEditModalOpen(true); } },
-            { type: 'divider' },
-            { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: '确认删除镜像？', content: `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`, onOk: handleDelete }) },
-          ]} 
-        />
-      );
-    } },
-  ], [cloudId, onRefresh, vms, isTenant, hasImagesWrite, ensureImagesWrite, statusBadge, getImageCreatedMs]);
-
-  // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
 
-  /** 合并上传任务列表（新增镜像弹窗创建任务及轮询更新时调用） */
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(onRefresh),
+    [onRefresh],
+  );
+
   const upsertTask = (task: HarvesterImageUploadTask) => {
     setToolTaskList((prev) => {
       const map = new Map(prev.map((x) => [x.id, x]));
       map.set(task.id, task);
       return Array.from(map.values()).sort(
-        (a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime(),
+        (a, b) =>
+          new Date(b.createdAt || b.updatedAt || 0).getTime() -
+          new Date(a.createdAt || a.updatedAt || 0).getTime(),
       );
     });
   };
@@ -672,48 +411,44 @@ const ImagesSection: React.FC<Props> = ({
     try {
       if (!ensureImagesWrite()) return;
       uploadControllersRef.current.get(task.id)?.abort();
-      const resp: any = await cancelHarvesterImageUploadTask(cloudId, task.id);
+      const resp = (await cancelHarvesterImageUploadTask(cloudId, task.id)) as {
+        data?: HarvesterImageUploadTask;
+      };
       const next = (resp?.data || resp) as HarvesterImageUploadTask;
       if (next?.id) upsertTask(next);
       else {
-        const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
+        const latest = (await fetchHarvesterImageUploadTask(cloudId, task.id)) as {
+          data?: HarvesterImageUploadTask;
+        };
         upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
       }
-      // 取消任务后立即刷新镜像列表，确保镜像状态同步更新
       onRefreshRef.current?.(true, true);
-      // 清除进度缓存，防止已取消的任务继续触发自动刷新
       prevProgressRef.current.clear();
       message.success('已取消');
-    } catch (e: any) {
-      message.error(e?.message || '取消失败');
+    } catch (e: unknown) {
+      message.error((e as { message?: string })?.message || '取消失败');
     }
-  };
-
-  const uploadStatusText = (t: HarvesterImageUploadTask) => {
-    const s = String(t?.status || '').toLowerCase();
-    const map: Record<string, string> = {
-      pending: '等待上传',
-      ingesting: '文件接收中',
-      proxying: '后端代传中',
-      success: '完成',
-      failed: '失败',
-      cancelled: '已取消',
-    };
-    return map[s] || s || '-';
   };
 
   return (
     <PageDetailSection
       asCard={false}
-      toolbarLeft={(
+      toolbarLeft={
         <>
-          <Input allowClear placeholder="名称/命名空间" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
+          <Input
+            allowClear
+            placeholder="名称/命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="toolbar-search"
+          />
           {!isTenant && (
             <Select
               allowClear
               placeholder="作用域"
               value={scopeFilter || undefined}
-              onChange={(v)=> setScopeFilter(v || '')}
+              onChange={(v) => setScopeFilter(v || '')}
               className="toolbar-filter-sm"
               options={[
                 { value: '', label: '全部' },
@@ -726,15 +461,21 @@ const ImagesSection: React.FC<Props> = ({
             allowClear
             placeholder="镜像状态"
             value={statusFilter || undefined}
-            onChange={(v)=> setStatusFilter(v || '')}
+            onChange={(v) => setStatusFilter(v || '')}
             className="toolbar-filter-sm"
-            options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
+            options={[
+              { value: '', label: '全部' },
+              ...IMAGE_STATUS_FILTER_OPTIONS.map((k) => ({
+                value: k,
+                label: imageStatusLabelZh(k),
+              })),
+            ]}
           />
           <Select
             allowClear
             placeholder="镜像类型"
             value={typeFilter || undefined}
-            onChange={(v)=> setTypeFilter(v || '')}
+            onChange={(v) => setTypeFilter(v || '')}
             className="toolbar-filter-sm"
             options={[
               { value: '', label: '全部' },
@@ -747,9 +488,9 @@ const ImagesSection: React.FC<Props> = ({
             allowClear
             placeholder="操作系统类型"
             value={osFilter || undefined}
-            onChange={(v)=> setOsFilter(v || '')}
+            onChange={(v) => setOsFilter(v || '')}
             className="toolbar-filter-sm"
-            options={osOptions}
+            options={IMAGE_OS_FILTER_OPTIONS}
           />
           <button
             type="button"
@@ -758,15 +499,15 @@ const ImagesSection: React.FC<Props> = ({
               setKeyword('');
               setScopeFilter('');
               setStatusFilter('');
-              setTypeFilter(''); // 重置为空，显示所有类型
+              setTypeFilter('');
               setOsFilter('');
             }}
           >
             重置
           </button>
         </>
-      )}
-      toolbarRight={(
+      }
+      toolbarRight={
         <>
           <Button
             type="primary"
@@ -800,38 +541,44 @@ const ImagesSection: React.FC<Props> = ({
                 menu={{
                   items: [
                     { type: 'divider' },
-                    { key: 'batchDelete', label: '批量删除', disabled: !hasImagesWrite || selectedKeys.length === 0 },
+                    {
+                      key: 'batchDelete',
+                      label: '批量删除',
+                      disabled: !hasImagesWrite || selectedKeys.length === 0,
+                    },
                   ],
                   onClick: ({ key }) => {
                     if (!hasImagesWrite) {
-                      message.error('当前账号没有批量操作镜像的权限（需要 clouds.images:write 或 clouds:write 权限）');
+                      message.error(
+                        '当前账号没有批量操作镜像的权限（需要 clouds.images:write 或 clouds:write 权限）',
+                      );
                       return;
                     }
                     if (selectedKeys.length === 0) {
                       message.warning('请先选择镜像');
                       return;
                     }
-                    if (key === 'batchDelete') batchDelete();
+                    if (key === 'batchDelete') void batchDelete();
                   },
                 }}
               >
-                <Button icon={<EllipsisOutlined />} disabled={!hasImagesWrite || selectedKeys.length === 0} />
+                <Button
+                  icon={<EllipsisOutlined />}
+                  disabled={!hasImagesWrite || selectedKeys.length === 0}
+                />
               </Dropdown>
             </span>
           </Tooltip>
-          <TableColumnSettingsButton 
-            allColumns={allColumns} 
-            settingsKey="harvester_images_table"
-          />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+          <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_images_table" />
+          <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </>
-      )}
+      }
     >
       <ImageCreateModal
         open={creating}
         onClose={() => setCreating(false)}
         cloudId={cloudId}
-        variant='full'
+        variant="full"
         ensureWrite={ensureImagesWrite}
         onUrlImportSuccess={() => onRefresh?.(true, true)}
         onBrowserUploadSuccess={() => onRefresh?.(true, true)}
@@ -841,7 +588,7 @@ const ImagesSection: React.FC<Props> = ({
       <Table
         className="std-table"
         bordered={false}
-        rowKey={(r:any)=> getId(r)}
+        rowKey={(r) => getImageRowId(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
         columns={tableColumns}
         dataSource={filtered}
@@ -898,7 +645,7 @@ const ImagesSection: React.FC<Props> = ({
                             : 'blue'
                     }
                   >
-                    {uploadStatusText(t)}
+                    {imageUploadTaskStatusLabel(t.status)}
                   </Tag>
                 </div>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -923,11 +670,20 @@ const ImagesSection: React.FC<Props> = ({
                     {t.errorMessage}
                   </Typography.Text>
                 ) : null}
-                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                  }}
+                >
                   <Button
                     size="small"
                     disabled={
-                      !['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) || !hasImagesWrite
+                      !['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) ||
+                      !hasImagesWrite
                     }
                     onClick={() =>
                       Modal.confirm({
@@ -944,7 +700,10 @@ const ImagesSection: React.FC<Props> = ({
                   <Button
                     size="small"
                     danger
-                    disabled={['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) || !hasImagesWrite}
+                    disabled={
+                      ['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) ||
+                      !hasImagesWrite
+                    }
                     onClick={() =>
                       Modal.confirm({
                         title: '确认删除该上传任务记录？',

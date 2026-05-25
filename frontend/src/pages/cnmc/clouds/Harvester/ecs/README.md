@@ -19,7 +19,7 @@
 | `innerActiveKey` | Section | 阶段 A 规范状态 |
 |------------------|---------|-----------------|
 | `ecs` | `VmSection` | **未动**（核心列表，单独里程碑） |
-| `images` | `ImagesSection` | 待阶段 B |
+| `images` | `ImagesSection` | 已拆 `lib/imagesSectionUtils`、`imagesTableColumns`、统一刷新 |
 | `templates` | `TemplatesSection` | 待阶段 B |
 | `ssh_keys` | `SshKeysSection` | 已拆 `lib/`，统一刷新 |
 | `cloud_inits` | `CloudInitsSection` | 已拆 `lib/`，统一刷新 |
