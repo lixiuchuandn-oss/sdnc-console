@@ -25,6 +25,7 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
 
     // Remove sensitive fields
     if (details.body.password) details.body.password = '***';
+    if (details.body.cipher) details.body.cipher = '***';
     if (details.body.token) details.body.token = '***';
     if (details.body.confirmPassword) details.body.confirmPassword = '***';
     if (details.body.newPassword) details.body.newPassword = '***';
