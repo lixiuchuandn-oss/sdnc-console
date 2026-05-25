@@ -13,8 +13,9 @@ import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNames
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import {
   createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
-} from '../../shared/lib/harvesterSectionRefresh';
+} from '../lib/ebsSectionRefresh';
 import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
 import { useSnapshotsSectionActions } from '../hooks/useSnapshotsSectionActions';
 import {
@@ -208,7 +209,7 @@ const SnapshotsSection: React.FC<Props> = ({
         onSuccess={() => {
           snapshotActions.setRestoreVisible(false);
           message.success('已提交恢复任务，请前往“云盘”列表查看');
-          onRefresh?.(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         }}
       />
 

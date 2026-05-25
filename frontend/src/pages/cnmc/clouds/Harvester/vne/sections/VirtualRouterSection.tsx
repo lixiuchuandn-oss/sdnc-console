@@ -1,5 +1,5 @@
 /**
- * 虚拟网元 — 虚拟路由器实例列表（布局与 `cloud-database/sections/PaasSection` 对齐：工具栏 + 表格）。
+ * 虚拟网元 — 虚拟路由器实例列表（布局与 `database/sections/PaasSection` 对齐：工具栏 + 表格）。
  * 成员 VM：`tower.io/paas-category=vne` 或旧 `tower.io/vne-router=true`（与云数据库列表同一套 `paas-*` 键名）。
  */
 import React, { useCallback, useMemo, useState } from 'react';
@@ -11,10 +11,10 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import VirtualRouterCreateModal from '../modals/VirtualRouterCreateModal';
-import RdsInstanceLabelEditModal from '../../cloud-database/modals/RdsInstanceLabelEditModal';
+import RdsInstanceLabelEditModal from '../../database/modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal, {
   buildRdsDatabaseConsoleUrl,
-} from '../../cloud-database/modals/RdsDatabaseConsoleModal';
+} from '../../database/modals/RdsDatabaseConsoleModal';
 import { isTowerPaasVneVm } from '../../shared/harvesterTowerPaas';
 import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';

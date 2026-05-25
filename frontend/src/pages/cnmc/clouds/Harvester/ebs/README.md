@@ -1,24 +1,63 @@
 # Harvester · ebs 业务域（块存储）
 
 > 源码根：`frontend/src/pages/cnmc/clouds/Harvester/ebs/`  
-> 放置规则见 **`frontend/src/STRUCTURE.md`**；列表刷新见 **`Harvester/shared/lib/harvesterSectionRefresh.ts`**。
+> 放置规则见 **`frontend/src/STRUCTURE.md`**；列表刷新见 **`lib/ebsSectionRefresh.ts`**（re-export **`Harvester/shared/lib/harvesterSectionRefresh.ts`**）。
 
 ## 目录角色
 
 | 目录 | 职责 |
 |------|------|
 | `sections/` | 云盘、云盘快照列表（编排层） |
+| `drawers/` | 云盘详情侧栏（`VolumeDetailDrawer`） |
 | `modals/` | 创建/挂载/克隆/导出/快照/扩容/恢复 |
-| `lib/` | 归一化、筛选、列定义、卸载/存储类/PVC 名工具 |
+| `lib/` | 归一化、筛选、列定义、卸载/存储类/PVC 名工具；`ebsSectionRefresh.ts` |
 | `hooks/` | `useVolumesSectionActions`、`useSnapshotsSectionActions`、`useVolumesListPoll` |
 
 ## Cloudmap 池路径 ↔ Section（storage）
+
+由 **`Cloudmap/pool/panels/storage/index.tsx`** 装配（`pathSuffix: storage/...`）。
 
 | `innerActiveKey` | Section | 规范状态 |
 |------------------|---------|----------|
 | `volumes` | `VolumesSection` | 编排 ~380 行；`lib/` + `hooks/` + `modals/` |
 | `snapshots` | `SnapshotsSection` | 编排 ~230 行；`lib/` + `useSnapshotsSectionActions` |
 | `rbd_mirror` | （ceph 域） | 非本域 |
+
+## 刷新（Cloudmap storage 池）
+
+**两层**：池层 **`loadTabResource`** + Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。横切细则见 **`Cloudmap/pool/README.md`**；本域 Tab key 见下文。
+
+| 层 | 落点 |
+|----|------|
+| 池 · 各子 Tab `onRefresh` | `Cloudmap/pool/loaders/storageRefresh.ts` → **`createStorageTabOnRefresh`** |
+| 池 · 拉数 | `loaders/pathResource/storagePathLoads.ts`（经 `runPathResourceLoad`） |
+| 池 · 装配 | `Cloudmap/pool/panels/storage/index.tsx` → **`storageTabOnRefresh.volumes` / `.snapshots`** |
+| Section 工具栏 | **`createHarvesterToolbarRefresh(onRefresh)`**；云盘 Tab 刷新后异步补拉命名空间（`parseHarvesterNamespaceNames`） |
+| Section 写成功/删改 | **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**，禁止裸 `onRefresh(...)` |
+| PVC 中间态 / burst | **`useVolumesListPoll`**、**`useStableBurstVolumeRefresh`** 内部调用 **`runHarvesterSectionRefresh`**（`silent: true`） |
+| 导出镜像 | 池层注入 **`onRefreshImages`** → `loadTabResource('images', …)` |
+| 创建云盘前 | **`onRefreshStorageClasses`** → `loadTabResource('storage_classes', …)` |
+
+**storage 子 Tab 与 `loadTabResource` key**
+
+| `innerActiveKey` | `loadTabResource` key | 说明 |
+|------------------|----------------------|------|
+| `volumes` | `volumes` | 含关联 VM（`ecs`）直拉；强制刷新时顺带 `storage_classes` |
+| `snapshots` | `snapshots` | 快照列表 |
+
+## VolumesSection 阅读引导
+
+`VolumesSection.tsx` 负责云盘列表编排（筛选 / 工具栏 / Table / Modal / Drawer），建议阅读顺序：
+
+1. **Props** — 卷列表、VM、StorageClass、`onRefresh` / `onRefreshImages` 从池层注入  
+2. **`normalizeVolumeList` / `filterVolumesForTable`**（`volumesSectionUtils.ts`）  
+3. **`createVolumeSafeRead`**（`volumeSafeRead.ts`）— 挂载 VM、系统盘判定  
+4. **`useVolumesSectionActions`** — 行内操作、Modal 状态、批量删  
+5. **`buildVolumesTableColumns`** + `useTableColumnSettings`  
+6. **`useVolumesListPoll`** — PVC 中间态轮询（内部 `runHarvesterSectionRefresh`）  
+7. **JSX** — `PageDetailSection` + 弹窗 + `VolumeDetailDrawer` / `HarvesterOpsinfoDrawer`（YAML）
+
+快照 Tab 结构更简单：见 `SnapshotsSection` + `useSnapshotsSectionActions`。
 
 ## 规范状态（逐文件）
 
@@ -52,9 +91,6 @@
 
 ## 列表约定
 
-- 工具栏刷新：**`createHarvesterToolbarRefresh(onRefresh)`**；云盘 Tab 刷新后异步补拉命名空间（`parseHarvesterNamespaceNames`）。
-- 写成功后：`onRefresh(true)` 或 `onRefresh(true, true)`；删除/批量删使用 **`useStableBurstVolumeRefresh`**。
-- PVC 中间态：**`useVolumesListPoll`** 轮询 `onRefresh(true)`。
 - 主列表：**`std-table`** + **`scroll={{ x: true }}`** + 列冻结（`*TableColumns.tsx`）。
 
 ## 其它入口

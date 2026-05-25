@@ -2,6 +2,7 @@ import type { PoolPathResourceDeps } from './poolDataDeps';
 import { tryLoadStorageTab } from './pathResource/storagePathLoads';
 import { tryLoadBackupTab } from './pathResource/backupsPathLoads';
 import { tryLoadComputeTab } from './pathResource/computePathLoads';
+import { tryLoadPaasDatabasesTab } from './pathResource/paasDatabasesPathLoads';
 import { tryLoadClusterTab } from './pathResource/clusterPathLoads';
 import { tryLoadKubeOvnVpcTab } from './pathResource/kubeOvnPathLoads';
 import { tryLoadKubeOvnFlatTab } from './pathResource/flatNetworkPathLoads';
@@ -24,6 +25,7 @@ export async function runPathResourceLoad(
   if (await tryLoadStorageTab(key, force, skipSync, deps)) return;
   if (await tryLoadBackupTab(key, force, skipSync, deps)) return;
   if (await tryLoadComputeTab(key, force, skipSync, deps)) return;
+  if (await tryLoadPaasDatabasesTab(key, force, skipSync, deps)) return;
   if (await tryLoadClusterTab(key, force, skipSync, deps)) return;
   if (await tryLoadOniaasNetworkTab(key, force, skipSync, deps)) return;
   if (await tryLoadKubeOvnVpcTab(key, force, skipSync, deps)) return;
