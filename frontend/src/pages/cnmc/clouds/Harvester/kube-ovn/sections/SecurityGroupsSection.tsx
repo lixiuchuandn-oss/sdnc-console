@@ -574,6 +574,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         matchSrcIp: '',
       }));
       const rules = [...normalizeAclsForApi(inboundRows), ...normalizeAclsForApi(outboundRows)];
+      
       const saveRes: any = await replaceKubeOvnSecurityGroupRules(cloudId, rulesTarget.id, { rules });
       showAclPushWarning(saveRes);
 
