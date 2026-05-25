@@ -1,7 +1,8 @@
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import { loadDatacenterTopologyBundle } from '../../../../Harvester/hsm/lib/loadDatacenterTopologyBundle';
-import { fetchAswCtlSwitchesSummary, fetchKubeOvnSubnets } from '../../api';
+import { loadHarvesterAswSwitchesForTopology } from '../../../../Harvester/hsm/lib/loadHarvesterAswSwitchesForTopology';
+import { fetchKubeOvnSubnets } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 import { tryLoadClusterTab } from './clusterPathLoads';
 
@@ -31,9 +32,13 @@ export async function tryLoadResourceHubTab(
 
   switch (key) {
     case 'datacenter_topology': {
+      const canSyncAsw = checkPerm('clouds.cluster-networks:write');
       setResourceLoading((prev) => ({ ...prev, datacenter_topology: true }));
       try {
-        const bundle = await loadDatacenterTopologyBundle(cloudId, force);
+        const bundle = await loadDatacenterTopologyBundle(cloudId, force, {
+          skipSync,
+          canSyncToInventory: canSyncAsw,
+        });
         setDatacenterRacks(bundle.racks);
         setHarvesterNodes(bundle.nodes);
         setRawNodes({ data: { items: bundle.nodes } });
@@ -53,18 +58,12 @@ export async function tryLoadResourceHubTab(
           tryLoadClusterTab('clusterNetworks', force, skipSync, deps),
           tryLoadClusterTab('cluster_nodes', force, skipSync, deps),
           (async () => {
-            try {
-              if (force && cloudId) {
-                clearCache(
-                  `/api/clouds/${cloudId}/resources/harvester/asw-ctl/switches`,
-                  'GET',
-                );
-              }
-              const swJson = await fetchAswCtlSwitchesSummary(cloudId);
-              setHarvesterAswSwitches(Array.isArray(swJson?.items) ? swJson.items : []);
-            } catch {
-              setHarvesterAswSwitches([]);
-            }
+            const items = await loadHarvesterAswSwitchesForTopology(cloudId, {
+              force,
+              skipSync,
+              canSyncToInventory: checkPerm('clouds.cluster-networks:write'),
+            });
+            setHarvesterAswSwitches(items);
           })(),
           (async () => {
             if (
