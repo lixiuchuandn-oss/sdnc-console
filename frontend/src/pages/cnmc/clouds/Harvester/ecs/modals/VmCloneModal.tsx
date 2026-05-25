@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Form, Input, Alert, message } from 'antd';
-import { harvesterVmAction, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../../../services/harvesterApi';
+import { harvesterVmAction, patchHarvesterVm, fetchHarvesterVmDetail } from 'services/harvester/vm';
 
 interface Props {
   open: boolean;

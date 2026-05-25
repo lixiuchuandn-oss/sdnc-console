@@ -2,7 +2,7 @@
  * 更换系统盘 / 重装系统提交（`updateHarvesterVmSpec`）。
  */
 import { message } from 'antd';
-import { updateHarvesterVmSpec } from '../../../../../../../../services/harvesterApi';
+import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import type { VmReconfigureSubmitCtx } from '../../../lib/vmMutation/vmReconfigureSubmitContext';
 import { VmReconfigureSubmitSkipFinalize } from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
 

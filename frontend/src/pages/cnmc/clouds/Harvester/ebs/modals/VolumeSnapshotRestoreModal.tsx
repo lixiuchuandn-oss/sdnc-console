@@ -1,110 +1,89 @@
 /**
- * Harvester - 云盘快照恢复弹窗
- *
- * 基于 VolumeSnapshot 创建新 PVC：
- * - K8s 资源名自动生成（id-vol-xxxxxxxxxxx，与创建云盘一致），满足 DNS 子域规则；
- * - 用户填写「云盘名称」为展示别名，写入 annotations['tower.io/alias']，支持中文；
- * - 容量由快照原始大小决定；存储类可选。
+ * Harvester · 云盘快照恢复弹窗
+ * 基于 VolumeSnapshot 创建新 PVC；展示名写入 tower.io/alias，资源名自动生成。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
 import { restoreHarvesterVolumeSnapshot, fetchHarvesterStorageClasses } from '../../../../../../services/harvesterApi';
-import { isSystemStorageClass } from '../../../../../../utils/harvesterUtils';
+import { pickDefaultStorageClassName } from '../../../../../../utils/harvesterUtils';
+import { generateVolumePvcName } from '../lib/volumePvcNameUtils';
+import type { SnapshotListRow } from '../lib/snapshotsSectionUtils';
+import {
+  buildStorageClassSelectOptions,
+  pickExportTargetStorageClass,
+} from '../lib/volumesStorageClassUtils';
 
-/**
- * 组件入参
- * - visible: 弹窗是否可见
- * - onCancel: 关闭回调
- * - onSuccess: 恢复任务创建成功回调
- * - cloudId: 云 ID
- * - resource: 源快照记录
- */
-interface Props {
+type RestoreFormValues = {
+  alias: string;
+  storageClassName?: string;
+};
+
+type Props = {
   visible: boolean;
   onCancel: () => void;
   onSuccess: () => void;
   cloudId: string;
-  resource: any;
-}
-
-/** 与 VolumeCreateModal / 云盘创建一致的 PVC metadata.name 生成规则 */
-function generateVolumePvcName(): string {
-  let suffix = Math.random().toString(36).substring(2);
-  while (suffix.length < 11) suffix += Math.random().toString(36).substring(2);
-  return `id-vol-${suffix.substring(0, 11)}`;
-}
+  resource: SnapshotListRow | null;
+};
 
 const VolumeSnapshotRestoreModal: React.FC<Props> = ({
   visible,
   onCancel,
   onSuccess,
   cloudId,
-  resource
+  resource,
 }) => {
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<RestoreFormValues>();
   const [loading, setLoading] = useState(false);
-  const [storageClasses, setStorageClasses] = useState<any[]>([]);
+  const [storageClassOptions, setStorageClassOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [scLoading, setScLoading] = useState(false);
 
-  useEffect(() => {
-    if (visible && resource) {
-      form.resetFields();
-      form.setFieldsValue({
-        alias: '',
-      });
-      loadStorageClasses();
-    }
-  }, [visible, resource, form]);
-
-  const loadStorageClasses = async () => {
+  const loadStorageClasses = useCallback(async () => {
     try {
       setScLoading(true);
       const res = await fetchHarvesterStorageClasses(cloudId);
-      const rawItems = res?.data?.items || [];
-      const items = rawItems.filter((sc: any) => !isSystemStorageClass(sc?.metadata?.name || sc?.name || ''));
-      setStorageClasses(items);
+      const rawItems = (res as { data?: { items?: unknown[] } })?.data?.items || [];
+      const options = buildStorageClassSelectOptions(rawItems);
+      setStorageClassOptions(options);
 
       const currentSc = form.getFieldValue('storageClassName');
-      if (!currentSc && items.length > 0) {
-        const def = items.find((sc: any) => sc.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true');
-        if (def) {
-          form.setFieldsValue({ storageClassName: def.metadata.name });
-        } else {
-          const longhorn = items.find((sc: any) => sc.metadata?.name?.includes('longhorn'));
-          if (longhorn) {
-            form.setFieldsValue({ storageClassName: longhorn.metadata.name });
-          }
-        }
+      if (!currentSc) {
+        const defaultSc =
+          pickDefaultStorageClassName(rawItems) || pickExportTargetStorageClass(rawItems);
+        if (defaultSc) form.setFieldsValue({ storageClassName: defaultSc });
       }
-    } catch (e) {
-      console.warn('Failed to load storage classes', e);
+    } catch {
+      setStorageClassOptions([]);
     } finally {
       setScLoading(false);
     }
-  };
+  }, [cloudId, form]);
+
+  useEffect(() => {
+    if (!visible || !resource) return;
+    form.resetFields();
+    form.setFieldsValue({ alias: '' });
+    void loadStorageClasses();
+  }, [visible, resource, form, loadStorageClasses]);
 
   const handleOk = async () => {
+    if (!resource) return;
     try {
       const values = await form.validateFields();
       setLoading(true);
 
       const alias = String(values.alias ?? '').trim();
-      await restoreHarvesterVolumeSnapshot(
-        cloudId,
-        resource.namespace,
-        resource.name,
-        {
-          name: generateVolumePvcName(),
-          storageClassName: values.storageClassName,
-          alias,
-        }
-      );
+      await restoreHarvesterVolumeSnapshot(cloudId, resource.namespace, resource.name, {
+        name: generateVolumePvcName(),
+        storageClassName: values.storageClassName,
+        alias,
+      });
 
-      message.success('快照恢复任务已提交');
       onSuccess();
-    } catch (e: any) {
-      if (e?.errorFields) return;
-      message.error(`恢复失败: ${e.message}`);
+    } catch (e: unknown) {
+      const err = e as { errorFields?: unknown; message?: string };
+      if (err?.errorFields) return;
+      message.error(`恢复失败: ${err.message || '未知错误'}`);
     } finally {
       setLoading(false);
     }
@@ -121,10 +100,7 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
       confirmLoading={loading}
       destroyOnHidden
     >
-      <Form
-        form={form}
-        layout="vertical"
-      >
+      <Form form={form} layout="vertical">
         <Form.Item label="源快照">
           <Input value={resource.name} disabled />
         </Form.Item>
@@ -145,16 +121,15 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
         <Form.Item
           name="storageClassName"
           label="存储类"
-          extra="如果不指定，将使用集群默认存储类"
+          extra="卷模式与源云盘一致（Block/Filesystem）；访问模式为 ReadWriteMany。不指定存储类时使用集群默认。"
         >
           <Select
             loading={scLoading}
             placeholder="请选择存储类"
             allowClear
-            options={storageClasses.map(sc => ({
-              label: sc.metadata?.name,
-              value: sc.metadata?.name
-            }))}
+            showSearch
+            optionFilterProp="label"
+            options={storageClassOptions}
           />
         </Form.Item>
       </Form>

@@ -2,9 +2,7 @@
  * 将 UI `key` 列表转为 `submitVmGpuDevice` 所需表单值结构。
  */
 import type { VmGpuManageMode } from "./deriveVmGpuEditorState";
-
-const getGpuResourceName = (x: any) =>
-  x?.resourceName || x?.raw?.status?.resourceName || x?.raw?.spec?.resourceName;
+import { getGpuResourceName, gpuResourceCompositeKey } from "../../../lib/gpuResourceResolve";
 
 export function gpuKeysToSubmitValues(
   mode: VmGpuManageMode,
@@ -23,7 +21,7 @@ export function gpuKeysToSubmitValues(
 
   const list = gpuResources.filter((x: any) => String(x?.type) === String(mode));
   const data = list.map((x: any) => ({
-    key: `${(x?.raw?.metadata?.name || x?.name || x?.resourceName) || "-"}|${x?.node || x?.nodeName}|${x?.pciAddress || x?.address || x?.pci}`,
+    key: gpuResourceCompositeKey(x),
     resourceName: String(getGpuResourceName(x) || ""),
   }));
   const keyToResName = new Map<string, string>();

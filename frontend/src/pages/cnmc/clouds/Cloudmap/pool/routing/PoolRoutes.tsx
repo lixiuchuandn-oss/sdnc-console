@@ -10,18 +10,18 @@ import {
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { Empty } from 'antd';
 import {
-  CloudmapBackupsGroupTabs,
-  CloudmapCloudDatabaseTabs,
-  CloudmapOniaasNetworkTabs,
-  CloudmapClusterTabs,
-  CloudmapComputeGroupTabs,
-  CloudmapContainersTabs,
-  CloudmapFlatNetworkGroupTabs,
-  CloudmapKubeOvnGroupTabs,
-  CloudmapLogsConfigTab,
-  CloudmapMonitoringAlertsTab,
-  CloudmapObjectStorageGroupTabs,
-  CloudmapStorageGroupTabs,
+  CloudmapBackupsRoutePanel,
+  CloudmapCloudDatabaseRoutePanel,
+  CloudmapOniaasNetworkRoutePanel,
+  CloudmapClusterRoutePanel,
+  CloudmapComputeRoutePanel,
+  CloudmapContainersRoutePanel,
+  CloudmapFlatNetworkRoutePanel,
+  CloudmapKubeOvnRoutePanel,
+  CloudmapLogsConfigRoutePanel,
+  CloudmapMonitoringAlertsRoutePanel,
+  CloudmapObjectStorageRoutePanel,
+  CloudmapStorageRoutePanel,
   ResourceOverviewDatacenterTopologyPanel,
   ResourceOverviewMonitoringPanel,
   ResourceOverviewNetworkTopologyPanel,
@@ -84,7 +84,7 @@ const MonitoringAlertsRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapMonitoringAlertsTab
+    <CloudmapMonitoringAlertsRoutePanel
       cloudId={p.cloudId}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('monitoring_alerts')}
@@ -98,7 +98,7 @@ const ClusterRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapClusterTabs
+    <CloudmapClusterRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
@@ -110,14 +110,10 @@ const ClusterRoute: React.FC = () => {
       loadTabResource={p.loadTabResource}
       loadResource={p.loadResource}
       harvesterNodes={p.harvesterNodes}
-      nodesLoading={p.nodesLoading}
-      refreshNodes={p.refreshNodes}
       rawNodes={p.rawNodes}
       harvesterClusterNetworks={p.harvesterClusterNetworks}
       rawClusterNetworks={p.rawClusterNetworks}
       harvesterNads={p.harvesterNads}
-      nadsLoading={p.nadsLoading}
-      refreshNads={p.refreshNads}
       rawNads={p.rawNads}
       harvesterLoadBalancers={p.harvesterLoadBalancers}
       rawLoadBalancers={p.rawLoadBalancers}
@@ -129,7 +125,6 @@ const ClusterRoute: React.FC = () => {
       rawSubnets={p.rawSubnets}
       setKubeOvnSubnets={p.setKubeOvnSubnets}
       setRawSubnets={p.setRawSubnets}
-      refreshVlans={p.refreshVlans}
       harvesterNamespacesForManagement={p.harvesterNamespacesForManagement}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterGpuResources={p.harvesterGpuResources}
@@ -151,7 +146,7 @@ const ComputeRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapComputeGroupTabs
+    <CloudmapComputeRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
@@ -191,6 +186,8 @@ const ComputeRoute: React.FC = () => {
       rawTemplates={p.rawTemplates}
       rawSshKeys={p.rawSshKeys}
       rawCloudInits={p.rawCloudInits}
+      harvesterMigrations={p.harvesterMigrations}
+      rawMigrations={p.rawMigrations}
     />
   );
 };
@@ -201,7 +198,7 @@ const PaasDatabasesRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapCloudDatabaseTabs
+    <CloudmapCloudDatabaseRoutePanel
       cloudId={p.cloudId}
       innerActiveKey={p.poolInnerActive('paas_databases')}
       ecs={p.ecs}
@@ -271,7 +268,7 @@ const OniaasNetworkRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapOniaasNetworkTabs
+    <CloudmapOniaasNetworkRoutePanel
       cloudId={p.cloudId}
       innerActiveKey={p.poolInnerActive('oniaas_network')}
       ecs={p.ecs}
@@ -309,7 +306,7 @@ const ContainersRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapContainersTabs
+    <CloudmapContainersRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       checkPerm={p.checkPerm}
@@ -390,7 +387,7 @@ const ObjectStorageRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapObjectStorageGroupTabs
+    <CloudmapObjectStorageRoutePanel
       cloudId={p.cloudId}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('object_storage')}
@@ -404,7 +401,7 @@ const StorageRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapStorageGroupTabs
+    <CloudmapStorageRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
@@ -450,7 +447,7 @@ const BackupsRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapBackupsGroupTabs
+    <CloudmapBackupsRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
@@ -477,7 +474,7 @@ const FlatNetworkRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapFlatNetworkGroupTabs
+    <CloudmapFlatNetworkRoutePanel
       cloudId={p.cloudId}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
@@ -507,7 +504,7 @@ const KubeOvnRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapKubeOvnGroupTabs
+    <CloudmapKubeOvnRoutePanel
       cloudId={p.cloudId}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
@@ -546,7 +543,7 @@ const LogsConfigRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapLogsConfigTab
+    <CloudmapLogsConfigRoutePanel
       cloudId={p.cloudId}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('logs_config')}

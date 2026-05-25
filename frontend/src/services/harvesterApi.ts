@@ -1,13 +1,5 @@
 import { apiRequest, apiPost, apiDelete, apiPatch, apiPut } from './api';
-
-/** 租户控制台：与后端 `mergePublicScenarioNamespaces` 对齐；undefined 表示不传（非租户/兼容旧行为） */
-function appendMergePublicScenarioParam(
-  params: URLSearchParams,
-  mergePublicScenarioNamespaces?: boolean,
-) {
-  if (mergePublicScenarioNamespaces === undefined) return;
-  params.set('mergePublicScenarioNamespaces', mergePublicScenarioNamespaces ? 'true' : 'false');
-}
+import { appendMergePublicScenarioParam } from './harvester/internal/queryParams';
 
 /**
  * 创建 Harvester VPC
@@ -17,20 +9,6 @@ function appendMergePublicScenarioParam(
  */
 export const createHarvesterVpc = async (cloudId: string, payload: any) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/vpcs`, payload);
-};
-
-/**
- * 获取 Harvester 虚拟机的聚合信息
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @returns Promise<any>
- */
-export const fetchHarvesterVMAggregated = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(
-    `/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/aggregated`,
-    { skipCache: true }
-  );
 };
 
 /**
@@ -111,194 +89,7 @@ export const deleteHarvesterPVC = async (cloudId: string, namespace: string, nam
 };
 
 /**
- * 获取 Harvester 计划虚拟机备份列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
- * @returns Promise<any>
- */
-export const fetchHarvesterScheduleVmBackups = async (
-  cloudId: string,
-  force = false,
-  skipSync = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  void skipSync;
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const queryString = params.toString();
-  const url = `/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`;
-  // force=true 时，显式传递 skipCache=true 确保跳过前端缓存和去重
-  return await apiRequest(url, { skipCache: force });
-};
-
-/**
- * 创建 Harvester 计划虚拟机备份
- * @param cloudId 云环境 ID
- * @param payload 备份计划配置数据
- * @returns Promise<any>
- */
-export const createHarvesterScheduleVmBackup = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/schedulevmbackups`, payload);
-};
-
-/**
- * 删除 Harvester 计划虚拟机备份
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 备份计划名称
- * @returns Promise<any>
- */
-export const deleteHarvesterScheduleVmBackup = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/schedulevmbackups/${namespace}/${name}`);
-};
-
-/**
- * 更新 Harvester 计划虚拟机备份
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 备份计划名称
- * @param payload 更新的配置数据
- * @returns Promise<any>
- */
-export const updateHarvesterScheduleVmBackup = async (cloudId: string, namespace: string, name: string, payload: any) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/schedulevmbackups/${namespace}/${name}`, payload);
-};
-
-/**
- * 获取 Harvester 备份列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
- * @returns Promise<any>
- */
-export const fetchHarvesterBackups = async (
-  cloudId: string,
-  force = false,
-  skipSync = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  void skipSync;
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const queryString = params.toString();
-  return await apiRequest(
-    `/api/clouds/${cloudId}/resources/harvester/backups${queryString ? `?${queryString}` : ''}`,
-    { skipCache: force }
-  );
-};
-
-/**
- * 获取 Harvester 迁移列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterMigrations = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/migrations${force ? '?force=true' : ''}`);
-};
-
-/**
- * 查询回收站自动关机记录
- * @param params 查询参数
- * @returns Promise<any>
- */
-export const getRecycleBinShutdownRecords = async (params?: {
-  cloudId?: string;
-  status?: string;
-  startTime?: string;
-  endTime?: string;
-  page?: number;
-  pageSize?: number;
-}) => {
-  const queryParams = new URLSearchParams();
-  if (params?.cloudId) queryParams.append('cloudId', params.cloudId);
-  if (params?.status) queryParams.append('status', params.status);
-  if (params?.startTime) queryParams.append('startTime', params.startTime);
-  if (params?.endTime) queryParams.append('endTime', params.endTime);
-  if (params?.page) queryParams.append('page', String(params.page));
-  if (params?.pageSize) queryParams.append('pageSize', String(params.pageSize));
-  
-  const queryString = queryParams.toString();
-  return await apiRequest(`/api/system/recycle-bin/shutdown-records${queryString ? `?${queryString}` : ''}`);
-};
- 
-/**
- * 直接获取 Harvester 迁移列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterMigrationsDirect = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/migrations-direct${force ? '?force=true' : ''}`);
-};
-
-/**
- * 迁移 Harvester 虚拟机
- * @param cloudId 云环境 ID
- * @param instanceId 虚拟机实例 ID
- * @param targetNode 目标节点名称（可选）
- * @returns Promise<any>
- */
-export const migrateHarvesterVm = async (cloudId: string, instanceId: string, targetNode?: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/migrate`, { targetNode });
-};
-
-/**
- * 中止 Harvester 虚拟机迁移
- * @param cloudId 云环境 ID
- * @param instanceId 虚拟机实例 ID
- * @returns Promise<any>
- */
-export const abortHarvesterMigration = async (cloudId: string, instanceId: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/abort-migration`, {});
-};
-
-/**
- * 获取 Harvester SSH 密钥列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
- * @returns Promise<any>
- */
-export const fetchHarvesterSshKeys = async (
-  cloudId: string,
-  force = false,
-  skipSync = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  void skipSync;
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const queryString = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/sshkeys${queryString ? `?${queryString}` : ''}`);
-};
-
-
-
-/**
- * 获取 Harvester CloudInit 配置列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterCloudInits = async (
-  cloudId: string,
-  force = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const qs = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/cloudinits${qs ? `?${qs}` : ''}`);
-};
-
-/**
- * 获取 Harvester Service 列表
+ * 删除 Harvester Longhorn 卷
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
@@ -341,41 +132,6 @@ export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false
 };
 
 /**
- * 获取 Harvester 模板列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
- * @returns Promise<any>
- */
-export const fetchHarvesterTemplates = async (
-  cloudId: string,
-  force = false,
-  skipSync = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  void skipSync;
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const queryString = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/templates${queryString ? `?${queryString}` : ''}`);
-};
-
-export const createHarvesterVmFromTemplate = async (
-  cloudId: string,
-  namespace: string,
-  name: string,
-  payload: { name: string; namespace?: string; autoStart?: boolean },
-) => {
-  return await apiPost(
-    `/api/clouds/${cloudId}/resources/harvester/templates/${encodeURIComponent(namespace)}/${encodeURIComponent(
-      name,
-    )}/create-vm`,
-    payload,
-  );
-};
-
-/**
  * 获取 Harvester IP 池列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
@@ -409,101 +165,6 @@ export const fetchHarvesterNads = (cloudId: string, force = false, skipSync = fa
 };
 
 /**
- * 获取 Harvester 集群网络列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterClusterNetworks = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/cluster-networks${force ? '?force=true' : ''}`);
-};
-
-/** 物理交换机 / HSM：只读 Tower 已入库的末次实例快照（与 GET 是否带 cacheOnly 无差异；兼容旧入参） */
-export const fetchAswCtlSwitchesSummary = async (
-  cloudId: string,
-  _opts?: { cacheOnly?: boolean },
-) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/asw-ctl/switches`, {
-    skipCache: true,
-  });
-};
-
-/**
- * 物理交换机：实时探测 HSM/ASW-CTL 并写入 Tower SQLite，返回与 fetchAswCtlSwitchesSummary 对齐的摘要字段（source: live）。
- * 需 clouds.cluster-networks:write（与 probe 一致）；仅读权限请用 fetchAswCtlSwitchesSummary。
- */
-export const syncAswCtlSwitchesToInventory = async (cloudId: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/asw-ctl/sync`, {});
-};
-
-/** 按表单草稿探测 HSM（不写库）；与线上拉取一致，始终走资源池 API Endpoint + /v1/hms */
-export const probeAswCtlConnection = async (
-  cloudId: string,
-  body: { apiKey?: string; insecureTls?: boolean },
-) => {
-  return await apiPost(
-    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/probe`,
-    body,
-  );
-};
-
-export type HmsSwitchCrSpec = {
-  hosts?: string[];
-  primaryHost?: string;
-  user?: string;
-  port?: number;
-  password?: string;
-  vendor?: string;
-  deviceProfile?: string;
-  infoCommands?: string[];
-  interfaceCommands?: string[];
-  performanceCommands?: string[];
-  vlanCommands?: string[];
-  corsAllowedOrigins?: string[];
-  dialTimeout?: number;
-  execTimeout?: number;
-  passwordConfigured?: boolean;
-};
-
-export type HmsSwitchCr = {
-  apiVersion?: string;
-  kind?: string;
-  metadata?: { name?: string; uid?: string; resourceVersion?: string };
-  spec?: HmsSwitchCrSpec;
-};
-
-/** 列出集群内 HMS Switch CR（密码字段已脱敏） */
-export const fetchHmsSwitchCrs = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/hms/switches`, {
-    skipCache: true,
-  });
-};
-
-export const createHmsSwitchCr = async (
-  cloudId: string,
-  body: { name: string; spec: HmsSwitchCrSpec },
-) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/hms/switches`, body);
-};
-
-export const updateHmsSwitchCr = async (
-  cloudId: string,
-  name: string,
-  body: { spec: HmsSwitchCrSpec },
-) => {
-  return await apiPut(
-    `/api/clouds/${cloudId}/resources/harvester/hms/switches/${encodeURIComponent(name)}`,
-    body,
-  );
-};
-
-export const deleteHmsSwitchCr = async (cloudId: string, name: string) => {
-  return await apiDelete(
-    `/api/clouds/${cloudId}/resources/harvester/hms/switches/${encodeURIComponent(name)}`,
-  );
-};
-
-/**
  * 获取 Harvester NAD 详情
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
@@ -533,100 +194,6 @@ export const createHarvesterNad = async (cloudId: string, payload: any) => {
  */
 export const deleteHarvesterNad = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/nads/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-};
-
-/**
- * 创建 Harvester 虚拟机备份
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param payload 备份配置数据，包含名称、虚拟机名称、类型（备份或快照）和别名
- * @returns Promise<any>
- */
-export const createHarvesterVirtualMachineBackup = async (cloudId: string, namespace: string, payload: { name: string; vmName: string; type: 'backup' | 'snapshot'; alias?: string }) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/virtualmachinebackups/${encodeURIComponent(namespace)}`, payload);
-};
-
-/**
- * 创建 Harvester 虚拟机恢复
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param payload 恢复配置数据
- * @returns Promise<any>
- */
-export const createHarvesterVirtualMachineRestore = async (cloudId: string, namespace: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/virtualmachinerestores/${encodeURIComponent(namespace)}`, payload);
-};
-
-/**
- * 通过链接获取 Harvester 资源
- * @param cloudId 云环境 ID
- * @param path 资源路径
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterResourceByLink = async (cloudId: string, path: string, force = false) => {
-  const params = new URLSearchParams();
-  params.append('path', path);
-  if (force) params.append('force', 'true');
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/proxy?${params.toString()}`);
-};
-
-/**
- * 通过链接删除 Harvester 资源
- * @param cloudId 云环境 ID
- * @param path 资源路径
- * @returns Promise<any>
- */
-export const deleteHarvesterResourceByLink = async (cloudId: string, path: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`);
-};
-
-export const putHarvesterResourceByLink = async (cloudId: string, path: string, body: unknown) => {
-  return await apiPut(
-    `/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`,
-    body,
-  );
-};
-
-export const fetchHarvesterVirtualMachineRestores = async (cloudId: string, force = false) => {
-  const path = `/apis/harvesterhci.io/v1beta1/virtualmachinerestores`;
-  return await fetchHarvesterResourceByLink(cloudId, path, force);
-};
-
-export const deleteHarvesterVirtualMachineRestore = async (cloudId: string, namespace: string, name: string) => {
-  const path = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinerestores/${encodeURIComponent(name)}`;
-  return await deleteHarvesterResourceByLink(cloudId, path);
-};
-
-/**
- * 获取 Harvester USB 设备资源列表
- * @param cloudId 云环境 ID
- * @returns Promise<any>
- */
-export const fetchHarvesterUsbResources = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/usb-devices${force ? '?force=true' : ''}`);
-};
-
-export const claimHarvesterUsbDevice = async (cloudId: string, name: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/usb-devices/${encodeURIComponent(name)}/claim`, {});
-};
-
-export const unclaimHarvesterUsbDevice = async (cloudId: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/usb-devices/${encodeURIComponent(name)}/claim`);
-};
-
-export const fetchHarvesterPciDevices = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/pci-devices${force ? '?force=true' : ''}`);
-};
-
-/**
- * 获取 Harvester 节点详情
- * @param cloudId 云环境 ID
- * @param name 节点名称
- * @returns Promise<any>
- */
-export const fetchHarvesterNodeDetail = async (cloudId: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/nodes/${encodeURIComponent(name)}`);
 };
 
 /**
@@ -664,6 +231,15 @@ function mapUiScopeToCreateQuery(scope: CloudOvnNetworkScope): 'vpc' | 'underlay
   return 'vpc';
 }
 
+/** Section `networkScope` → API 分域（避免各 NAT/EIP 组件重复三元表达式） */
+export function uiNetworkScopeToCloudOvn(
+  networkScope?: 'flat' | 'vpc',
+): CloudOvnNetworkScope {
+  if (networkScope === 'flat') return 'flat';
+  if (networkScope === 'vpc') return 'vpc';
+  return 'legacy';
+}
+
 function ovnListUrl(
   cloudId: string,
   resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
@@ -694,8 +270,12 @@ function cloudOvnResourceItemPath(
   cloudId: string,
   resource: 'ovneips' | 'ovnfips' | 'ovnsnatrules' | 'ovndnatrules',
   name: string,
+  scope?: CloudOvnNetworkScope,
 ): string {
-  return `/api/clouds/${cloudId}/resources/${resource}/${encodeURIComponent(name)}`;
+  const base = `/api/clouds/${cloudId}/resources/${resource}/${encodeURIComponent(name)}`;
+  if (!scope || scope === 'legacy') return base;
+  const q = mapUiScopeToListQuery(scope);
+  return `${base}?ovnNetworkScope=${encodeURIComponent(q)}`;
 }
 
 /**
@@ -822,8 +402,12 @@ export const createCloudProviderOvnDnatRule = async (
  * @param name EIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnEip = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovneips', name));
+export const deleteCloudProviderOvnEip = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovneips', name, scope));
 };
 
 /**
@@ -832,8 +416,12 @@ export const deleteCloudProviderOvnEip = async (cloudId: string, name: string, _
  * @param name FIP 名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnFip = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnfips', name));
+export const deleteCloudProviderOvnFip = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnfips', name, scope));
 };
 
 /**
@@ -842,8 +430,12 @@ export const deleteCloudProviderOvnFip = async (cloudId: string, name: string, _
  * @param name SNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnSnatRule = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnsnatrules', name));
+export const deleteCloudProviderOvnSnatRule = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovnsnatrules', name, scope));
 };
 
 /**
@@ -852,42 +444,12 @@ export const deleteCloudProviderOvnSnatRule = async (cloudId: string, name: stri
  * @param name DNAT 规则名称
  * @returns Promise<any>
  */
-export const deleteCloudProviderOvnDnatRule = async (cloudId: string, name: string, _scope?: CloudOvnNetworkScope) => {
-  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovndnatrules', name));
-};
-
-/**
- * 获取 Harvester 事件列表
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param uid 资源 UID
- * @param name 资源名称
- * @param kind 资源类型
- * @returns Promise<any>
- */
-export const fetchHarvesterEvents = async (cloudId: string, namespace: string, uid: string, name: string, kind: string) => {
-  const query = new URLSearchParams({
-    namespace,
-    uid,
-    name,
-    kind,
-  }).toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/events?${query}`);
-};
-
-/**
- * 获取 Harvester 虚拟机的 VNC URL
- * @param cloudId 云环境 ID
- * @param id 虚拟机 ID（格式：namespace/name 或 name，默认为 default 命名空间）
- * @returns Promise<any>
- */
-export const fetchHarvesterVncUrl = async (cloudId: string, id: string) => {
-  let namespace = 'default';
-  let name = id;
-  if (id.includes('/')) {
-    [namespace, name] = id.split('/');
-  }
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(name)}/vnc-url?namespace=${encodeURIComponent(namespace)}`);
+export const deleteCloudProviderOvnDnatRule = async (
+  cloudId: string,
+  name: string,
+  scope?: CloudOvnNetworkScope,
+) => {
+  return await apiDelete(cloudOvnResourceItemPath(cloudId, 'ovndnatrules', name, scope));
 };
 
 /**
@@ -914,62 +476,6 @@ export const updateKubeOvnSubnet = async (cloudId: string, name: string, payload
  */
 export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(name)}`);
-};
-
-/**
- * 获取 Harvester 命名空间列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param excludeSystem 是否排除系统命名空间，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
- * @returns Promise<any>
- */
-export const fetchHarvesterNamespaces = async (
-  cloudId: string,
-  force = false,
-  excludeSystem = false,
-  skipSync = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  if (excludeSystem) params.append('excludeSystem', 'true');
-  void skipSync;
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const queryString = params.toString();
-  // 当 force=true 时，URL 中包含 force=true，requestManager 会自动跳过缓存
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/namespaces${queryString ? `?${queryString}` : ''}`);
-};
-
-/**
- * 创建 Harvester 命名空间
- * @param cloudId 云环境 ID
- * @param payload 命名空间配置数据
- * @returns Promise<any>
- */
-export const createHarvesterNamespace = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/namespaces`, payload || {});
-};
-
-/**
- * 更新 Harvester 命名空间
- * @param cloudId 云环境 ID
- * @param name 命名空间名称
- * @param payload 更新的配置数据
- * @returns Promise<any>
- */
-export const updateHarvesterNamespace = async (cloudId: string, name: string, payload: any) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/namespaces/${encodeURIComponent(name)}`, payload || {});
-};
-
-/**
- * 删除 Harvester 命名空间
- * @param cloudId 云环境 ID
- * @param name 命名空间名称
- * @returns Promise<any>
- */
-export const deleteHarvesterNamespace = async (cloudId: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/namespaces/${encodeURIComponent(name)}`);
 };
 
 /**
@@ -1004,42 +510,10 @@ export const fetchHarvesterVolumes = async (
  */
 export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?: string) => {
   const qs = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/available-volumes${qs}`);
-};
-
-/**
- * 获取 Harvester 存储类列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
- * @returns Promise<any>
- */
-export const fetchHarvesterStorageClasses = async (
-  cloudId: string,
-  force = false,
-  skipSync = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  void skipSync;
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const query = params.toString();
-  const mustBypassCache = !!force;
   return await apiRequest(
-    `/api/clouds/${cloudId}/resources/harvester/storage-classes${query ? `?${query}` : ''}`,
-    { skipCache: mustBypassCache }
+    `/api/clouds/${cloudId}/resources/harvester/available-volumes${qs}`,
+    { skipCache: true },
   );
-};
-
-/**
- * 获取 Harvester 存储类详情
- * @param cloudId 云环境 ID
- * @param name 存储类名称
- * @returns Promise<any>
- */
-export const fetchHarvesterStorageClassDetail = async (cloudId: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/storage-classes/${encodeURIComponent(name)}`);
 };
 
 /**
@@ -1214,7 +688,7 @@ export const createHarvesterVolumeSnapshot = async (cloudId: string, namespace: 
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
  * @param snapshotName 快照名称
- * @param payload 恢复配置，包含卷名称、存储类名称、大小、访问模式和卷模式
+ * @param payload 恢复配置（卷名称、存储类、别名等）；卷模式由后端按源 PVC 继承，访问模式固定 RWX
  * @returns Promise<any>
  */
 export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string; alias?: string }) => {
@@ -1408,50 +882,12 @@ export const patchHarvesterImage = async (cloudId: string, namespace: string, na
 };
 
 /**
- * 获取 Harvester 节点列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterNodes = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/nodes${force ? '?force=true' : ''}`);
-};
-
-/**
  * 获取 Harvester 健康状态
  * @param cloudId 云环境 ID
  * @returns Promise<any>
  */
 export const fetchHarvesterHealth = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/health`);
-};
-
-/**
- * 获取 Harvester 虚拟机详情
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @returns Promise<any>
- */
-export const fetchHarvesterVmDetail = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-};
-
-/**
- * 将 Harvester 虚拟机保存为模板
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @param payload 模板配置，包含别名、描述和目标命名空间
- * @returns Promise<any>
- */
-export const saveHarvesterVmAsTemplate = async (
-  cloudId: string,
-  namespace: string,
-  name: string,
-  payload?: { alias?: string; description?: string; namespace?: string },
-) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/save-as-template`, payload || {});
 };
 
 /**
@@ -1593,126 +1029,6 @@ export function normalizeHarvesterGpuResourcesResponse(res: any): any[] {
 }
 
 /**
- * 获取 Harvester GPU 资源列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterGpuResources = async (
-  cloudId: string,
-  force = false,
-  mergePublicScenarioNamespaces?: boolean,
-) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
-  const qs = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/gpus${qs ? `?${qs}` : ''}`);
-};
-
-/**
- * 获取 Harvester 能力信息
- * @param cloudId 云环境 ID
- * @returns Promise<any>
- */
-export const fetchHarvesterCapabilities = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/capabilities`);
-};
-
-/**
- * 更新 Harvester 虚拟机规格
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @param payload 更新的规格配置数据
- * @returns Promise<any>
- */
-export const updateHarvesterVmSpec = async (cloudId: string, namespace: string, name: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/update-spec`, payload);
-};
-
-/**
- * 创建 Harvester 虚拟机
- * @param cloudId 云环境 ID
- * @param payload 虚拟机配置数据
- * @returns Promise<any>
- */
-export const createHarvesterVm = async (cloudId: string, payload: any) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms`, payload);
-};
-
-/**
- * 使用 Patch 方式更新 Harvester 虚拟机
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @param payload 更新的配置数据
- * @param contentType 内容类型，默认为 'application/merge-patch+json'
- * @returns Promise<any>
- */
-export const patchHarvesterVm = async (cloudId: string, namespace: string, name: string, payload: any, contentType = 'application/merge-patch+json') => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, payload, { contentType });
-};
-
-/**
- * 恢复虚拟机（从回收站）
- * @param cloudId 云环境 ID
- * @param instanceId 虚拟机实例 ID
- * @returns Promise<any>
- */
-export const restoreHarvesterVm = async (cloudId: string, instanceId: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/restore`, {});
-};
-
-/**
- * 强制删除虚拟机（从回收站中真正删除）
- * @param cloudId 云环境 ID
- * @param instanceId 虚拟机实例 ID
- * @param deleteVolumes 是否同时删除关联的卷，默认 false
- * @returns Promise<any>
- */
-export const forceDeleteHarvesterVm = async (cloudId: string, instanceId: string, deleteVolumes = false) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/force?deleteVolumes=${deleteVolumes}`);
-};
-
-/**
- * 暂停 Harvester 虚拟机
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @returns Promise<any>
- */
-export const pauseHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
-  const instanceId = `${namespace}/${name}`;
-  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/pause`, {});
-};
-
-/**
- * 恢复暂停的 Harvester 虚拟机
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 虚拟机名称
- * @returns Promise<any>
- */
-export const unpauseHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
-  const instanceId = `${namespace}/${name}`;
-  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/unpause`, {});
-};
-
-// --- Added Delete Functions ---
-
-/**
- * 删除 Harvester 备份
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name 备份名称
- * @returns Promise<any>
- */
-export const deleteHarvesterBackup = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/backups/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-};
-
-/**
  * 删除 Harvester 快照
  * @param cloudId 云环境 ID
  * @param namespace 命名空间
@@ -1721,41 +1037,6 @@ export const deleteHarvesterBackup = async (cloudId: string, namespace: string, 
  */
 export const deleteHarvesterSnapshot = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/snapshots/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-};
-
-/**
- * 创建 Harvester SSH 密钥
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name SSH 密钥名称
- * @param publicKey 公钥内容
- * @param annotations 注解（可选）
- * @returns Promise<any>
- */
-export const createHarvesterSshKey = async (cloudId: string, namespace: string, name: string, publicKey: string, annotations?: Record<string, string>) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/sshkeys`, { namespace, name, publicKey, annotations });
-};
-
-/**
- * 删除 Harvester SSH 密钥
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name SSH 密钥名称
- * @returns Promise<any>
- */
-export const deleteHarvesterSshKey = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/sshkeys/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-};
-
-/**
- * 删除 Harvester CloudInit 配置
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name CloudInit 配置名称
- * @returns Promise<any>
- */
-export const deleteHarvesterCloudInit = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/cloudinits/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
 
 /**
@@ -1788,28 +1069,6 @@ export const deleteHarvesterService = async (cloudId: string, namespace: string,
  */
 export const createHarvesterIPPool = async (cloudId: string, payload: any) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/ippools`, payload);
-};
-
-/**
- * 执行 Harvester VM 操作（热插拔等）
- * @param cloudId 云环境 ID
- * @param namespace 虚拟机命名空间
- * @param name 虚拟机名称
- * @param action 操作类型：addNic, removeNic, findHotunpluggableNics 等
- * @param payload 操作参数
- * @returns Promise<any>
- */
-export const harvesterVmAction = async (
-  cloudId: string,
-  namespace: string,
-  name: string,
-  action: string,
-  payload: any
-) => {
-  return await apiPost(
-    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/action?action=${action}`,
-    payload
-  );
 };
 
 /**
@@ -3040,3 +2299,6 @@ export const getHarborSelectorTags = async (harborId: string, project: string, r
 export const syncHarborSecret = async (harborId: string, params: { cloudId: string; namespace: string }) => {
   return await apiPost(`/api/harbor/registries/${harborId}/sync-secret`, params);
 };
+
+/** 集群 / HMS 物理交换机等（域拆分；新代码优先 `services/harvester/cluster`） */
+export * from './harvester';

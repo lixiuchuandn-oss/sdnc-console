@@ -1,4 +1,5 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
+import { createComputeTabOnRefresh } from '../../loaders/computeRefresh';
 import { Empty, message } from 'antd';
 import VmSection from '../../../../Harvester/ecs/sections/VmSection';
 import ImagesSection from '../../../../Harvester/ecs/sections/ImagesSection';
@@ -40,7 +41,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapComputeGroupTabsProps = {
+export type CloudmapComputeRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
   showLog: boolean;
@@ -76,7 +77,9 @@ export type CloudmapComputeGroupTabsProps = {
   setHarvesterImages: (v: any[]) => void;
   setHarvesterVolumes: (v: any[]) => void;
   setHarvesterNamespaces: (v: any[]) => void;
-  refreshVms: (force?: boolean) => void | Promise<void>;
+  refreshVms: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  harvesterMigrations: any[];
+  rawMigrations: any;
   harvesterImages: any[];
   harvesterNamespaces: any[];
   harvesterVolumes: any[];
@@ -111,7 +114,7 @@ function canViewComputeInner(
   return false;
 }
 
-const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
+const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -154,50 +157,61 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
     rawTemplates,
     rawSshKeys,
     rawCloudInits,
+    harvesterMigrations,
+    rawMigrations,
   } = props;
 
   const reloadVmListAfterMutation = useCallback(() => {
     void refreshVms(true);
   }, [refreshVms]);
 
-  const handleVmSectionRefresh = useCallback(
-    (force?: boolean) => {
-      const shouldForce = force !== false;
-      void refreshVms(shouldForce);
-      if (!shouldForce) return;
-      if (checkPerm('clouds.images:read')) {
-        void loadResource(
-          'images',
-          () => fetchHarvesterImages(cloudId, true),
-          (json) => setHarvesterImages(json?.data?.items || []),
-          true,
-        );
-      }
-      if (checkPerm('clouds.disks:read')) {
-        void loadResource(
-          'volumes',
-          () => fetchHarvesterVolumes(cloudId, true),
-          (json) => setHarvesterVolumes(json?.data?.items || []),
-          true,
-        );
-      }
+  const refreshVmSectionAuxiliaries = useCallback(() => {
+    if (checkPerm('clouds.images:read')) {
       void loadResource(
-        'namespaces',
-        () => fetchHarvesterNamespaces(cloudId, true, true),
-        (json) => setHarvesterNamespaces(json?.data?.items || []),
+        'images',
+        () => fetchHarvesterImages(cloudId, true),
+        (json) => setHarvesterImages(json?.data?.items || []),
         true,
       );
-    },
-    [
-      refreshVms,
-      checkPerm,
-      loadResource,
-      cloudId,
-      setHarvesterImages,
-      setHarvesterVolumes,
-      setHarvesterNamespaces,
-    ],
-  );
+    }
+    if (checkPerm('clouds.disks:read')) {
+      void loadResource(
+        'volumes',
+        () => fetchHarvesterVolumes(cloudId, true),
+        (json) => setHarvesterVolumes(json?.data?.items || []),
+        true,
+      );
+    }
+    void loadResource(
+      'namespaces',
+      () => fetchHarvesterNamespaces(cloudId, true, true),
+      (json) => setHarvesterNamespaces(json?.data?.items || []),
+      true,
+    );
+  }, [
+    checkPerm,
+    loadResource,
+    cloudId,
+    setHarvesterImages,
+    setHarvesterVolumes,
+    setHarvesterNamespaces,
+  ]);
+
+  const computeTabOnRefresh = useMemo(() => {
+    const deps = {
+      loadTabResource,
+      refreshVmSectionAuxiliaries,
+    };
+    return {
+      ecs: createComputeTabOnRefresh('ecs', deps),
+      images: createComputeTabOnRefresh('images', deps),
+      templates: createComputeTabOnRefresh('templates', deps),
+      ssh_keys: createComputeTabOnRefresh('ssh_keys', deps),
+      cloud_inits: createComputeTabOnRefresh('cloud_inits', deps),
+      recycle_bin: createComputeTabOnRefresh('recycle_bin', deps),
+      migrations: createComputeTabOnRefresh('migrations', deps),
+    };
+  }, [loadTabResource, refreshVmSectionAuxiliaries]);
 
   if (!canViewComputeInner(innerActiveKey, checkPerm)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
@@ -248,7 +262,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
                 }
                 onNsChange={(v) => setNsFilter(v || '')}
                 onNodeChange={(v) => setNodeFilter(v || '')}
-                onRefresh={handleVmSectionRefresh}
+                onRefresh={computeTabOnRefresh.ecs}
                 onStart={async (iid: string) => {
                   try {
                     const vm = ecs.find((v: any) => {
@@ -454,14 +468,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           images={harvesterImages}
           loading={resourceLoading.images}
           vms={ecs}
-          onRefresh={(force?: boolean) =>
-            loadResource(
-              'images',
-              () => fetchHarvesterImages(cloudId, force ?? true),
-              (json) => setHarvesterImages(json?.data?.items || []),
-              force ?? true,
-            )
-          }
+          onRefresh={computeTabOnRefresh.images}
           isTenant={isTenant}
         />
         <DebugJSON data={rawImages} show={showLog} />
@@ -476,7 +483,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           cloudId={cloudId}
           templates={harvesterTemplates}
           loading={resourceLoading.templates}
-          onRefresh={() => loadTabResource('templates', true)}
+          onRefresh={computeTabOnRefresh.templates}
           isTenant={isTenant}
           workspaceVmNamespace={isTenant ? (nsFilter || undefined) : undefined}
         />
@@ -492,7 +499,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           cloudId={cloudId}
           sshKeys={harvesterSshKeys}
           loading={resourceLoading.sshKeys}
-          onRefresh={() => loadTabResource('ssh_keys', true)}
+          onRefresh={computeTabOnRefresh.ssh_keys}
         />
         <DebugJSON data={rawSshKeys} show={showLog} />
       </>
@@ -506,7 +513,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           cloudId={cloudId}
           cloudInits={harvesterCloudInits}
           loading={resourceLoading.cloudInits}
-          onRefresh={() => loadTabResource('cloud_inits', true)}
+          onRefresh={computeTabOnRefresh.cloud_inits}
         />
         <DebugJSON data={rawCloudInits} show={showLog} />
       </>
@@ -521,11 +528,7 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
           loading={resourceLoading.ecs}
           cloudId={cloudId}
           isTenant={isTenant}
-          onRefresh={(force?: boolean) => {
-            // 必须与 useCloudmapPoolEcs.refreshVms(force) 对齐：recover/彻底删除等需 skipCache，
-            // 否则 fetchCloudProviderEcs(cloudId, false) 易返回缓存，列表不更新。
-            void refreshVms(force !== false);
-          }}
+          onRefresh={computeTabOnRefresh.recycle_bin}
           namespaces={harvesterNamespaces}
           volumes={harvesterVolumes}
           images={harvesterImages}
@@ -561,10 +564,22 @@ const CloudmapComputeGroupTabs: React.FC<CloudmapComputeGroupTabsProps> = (
   }
 
   if (innerActiveKey === 'migrations') {
-    return <MigrationsSection cloudId={cloudId} vms={ecs} />;
+    return (
+      <>
+        <MigrationsSection
+          cloudId={cloudId}
+          vms={ecs}
+          migrations={harvesterMigrations}
+          loading={resourceLoading.migrations}
+          onRefresh={computeTabOnRefresh.migrations}
+          isTenant={isTenant}
+        />
+        <DebugJSON data={rawMigrations} show={showLog} />
+      </>
+    );
   }
 
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapComputeGroupTabs;
+export default CloudmapComputeRoutePanel;

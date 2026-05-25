@@ -14,7 +14,7 @@ import {
   fetchKubeOvnSubnets,
 } from '../../api';
 
-export type CloudmapOniaasNetworkTabsProps = {
+export type CloudmapOniaasNetworkRoutePanelProps = {
   cloudId: string;
   innerActiveKey: string;
   /** 与云数据库 `PaasSection` 同源：全量 VM，虚拟路由页内按 `tower.io/vne-router` 筛选 */
@@ -51,7 +51,7 @@ export type CloudmapOniaasNetworkTabsProps = {
   capabilities?: any;
 };
 
-const CloudmapOniaasNetworkTabs: React.FC<CloudmapOniaasNetworkTabsProps> = ({
+const CloudmapOniaasNetworkRoutePanel: React.FC<CloudmapOniaasNetworkRoutePanelProps> = ({
   cloudId,
   innerActiveKey,
   ecs,
@@ -171,4 +171,4 @@ const CloudmapOniaasNetworkTabs: React.FC<CloudmapOniaasNetworkTabsProps> = ({
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapOniaasNetworkTabs;
+export default CloudmapOniaasNetworkRoutePanel;

@@ -7,6 +7,7 @@ import {
   fetchKubeOvnVlans,
   fetchKubeOvnProviderNetworks,
   fetchHarvesterIPPools,
+  fetchHarvesterNads,
   fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchHarvesterStorageClasses,
@@ -16,7 +17,7 @@ import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** ????`panels/cluster`????????????????VLAN/????? */
+/** Cloudmap `panels/cluster` 子路径按需加载（节点/命名空间/GPU/USB/PCI/存储/VLAN/网络等） */
 export async function tryLoadClusterTab(
   key: string,
   force: boolean,
@@ -45,6 +46,8 @@ export async function tryLoadClusterTab(
     setHarvesterKubeOvnProviderNetworks,
     setHarvesterIPPools,
     setRawIPPools,
+    setHarvesterNads,
+    setRawNads,
     setHarvesterClusterNetworks,
     setRawClusterNetworks,
     setHarvesterNodes,
@@ -204,6 +207,22 @@ export async function tryLoadClusterTab(
               ? (json as any).data.items
               : [];
             setHarvesterKubeOvnProviderNetworks(Array.isArray(list) ? list : []);
+          },
+          force,
+        );
+      }
+      return true;
+    case 'nads':
+      if (checkPerm('clouds.nads:read')) {
+        loadResource(
+          'nads',
+          () => fetchHarvesterNads(cloudId, force, skipSync),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : [];
+            setHarvesterNads(Array.isArray(list) ? list : []);
+            setRawNads(json || null);
           },
           force,
         );

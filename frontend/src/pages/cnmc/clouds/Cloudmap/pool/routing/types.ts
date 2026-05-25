@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type {
-  CloudmapPoolTabKey,
+  CloudmapPoolNavKey,
   CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 
@@ -32,7 +32,7 @@ export type CloudmapPoolPanelProps = {
   canViewKubeOvnGroup: boolean;
   canViewLoggingTab: boolean;
   ovnVpcEnabled: boolean;
-  poolInnerActive: (tab: CloudmapPoolTabKey) => string;
+  poolInnerActive: (nav: CloudmapPoolNavKey) => string;
   loadTabResource: (key: string, force?: boolean, skipSync?: boolean) => Promise<void>;
   loadResource: (
     key: string,
@@ -47,10 +47,8 @@ export type CloudmapPoolPanelProps = {
   rawEcs: any;
   setEcs: Dispatch<SetStateAction<any[]>>;
   setRawEcs: Dispatch<SetStateAction<any | null>>;
-  refreshVms: (force?: boolean) => void | Promise<void>;
+  refreshVms: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNodes: any[];
-  nodesLoading: boolean;
-  refreshNodes: (force?: boolean) => void | Promise<void>;
   rawNodes: any;
   harvesterServices: any[];
   setHarvesterServices: Dispatch<SetStateAction<any[]>>;
@@ -64,8 +62,6 @@ export type CloudmapPoolPanelProps = {
   rawClusterNetworks: any;
   harvesterNads: any[];
   setHarvesterNads: Dispatch<SetStateAction<any[]>>;
-  nadsLoading: boolean;
-  refreshNads: (force?: boolean, silent?: boolean) => Promise<void>;
   rawNads: any;
   harvesterLoadBalancers: any[];
   rawLoadBalancers: any;
@@ -77,7 +73,6 @@ export type CloudmapPoolPanelProps = {
   rawSubnets: any;
   setKubeOvnSubnets: Dispatch<SetStateAction<any[]>>;
   setRawSubnets: Dispatch<SetStateAction<any | null>>;
-  refreshVlans: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNamespacesForManagement: any[];
   harvesterStorageClasses: any[];
   setHarvesterStorageClasses: Dispatch<SetStateAction<any[]>>;
@@ -96,6 +91,8 @@ export type CloudmapPoolPanelProps = {
   harvesterTemplates: any[];
   harvesterSshKeys: any[];
   harvesterCloudInits: any[];
+  harvesterMigrations: any[];
+  rawMigrations: any;
   rawImages: any;
   rawTemplates: any;
   rawSshKeys: any;

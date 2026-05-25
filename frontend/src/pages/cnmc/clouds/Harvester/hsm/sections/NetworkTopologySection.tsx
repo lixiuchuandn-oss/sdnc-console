@@ -1,40 +1,15 @@
 /**
  * 网络拓扑：Cloudmap 资源总览；物理网络（Kube-OVN）与集群网络拓扑。
  */
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ExpandOutlined, ReloadOutlined, ZoomInOutlined, ZoomOutOutlined } from '@ant-design/icons';
-import { Alert, Button, Empty, Segmented, Select, message } from 'antd';
-import type { ReactFlowInstance } from 'react-flow-renderer';
-import {
-  fetchAswCtlSwitchesSummary,
-  fetchHarvesterClusterNetworks,
-  fetchHarvesterNodes,
-  fetchKubeOvnProviderNetworks,
-  fetchKubeOvnSubnets,
-  fetchKubeOvnVlans,
-} from '../../../../../../services/harvesterApi';
-import { clearCache } from '../../../../../../utils/requestManager';
-import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
-import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../../kube-ovn/lib/kubeOvnSubnetConstants';
-import ClusterNetworkTopologyGraph, {
-  clusterNetworkTopologyLabel,
-} from '../lib/networkTopology/ClusterNetworkTopologyGraph';
+import React, { useRef, useState } from 'react';
+import { Alert, Empty } from 'antd';
+import ClusterNetworkTopologyGraph from '../lib/networkTopology/ClusterNetworkTopologyGraph';
 import ProviderNetworkTopologyGraph from '../lib/networkTopology/ProviderNetworkTopologyGraph';
-import { parseProviderNetworkOriginNics } from '../../kube-ovn/lib/providerNetworkOriginNics';
-import { buildHsmLldpPhysicalLinks } from '../lib/buildHsmLldpPhysicalLinks';
+import NetworkTopologyToolbar from '../lib/NetworkTopologyToolbar';
+import { useNetworkTopologyChartLayout } from '../hooks/useNetworkTopologyChartLayout';
+import { useNetworkTopologyData } from '../hooks/useNetworkTopologyData';
+import { NETWORK_TOPO_CHART_MIN_HEIGHT_PX } from '../lib/networkTopologySectionUtils';
 
-/** 画板最小高度（px），与 ProviderNetworkTopologyGraph 外层 minHeight 语义对齐 */
-const CHART_MIN_HEIGHT_PX = 280;
-
-/** 与 ProviderNetworkTopologyGraph 中 fitViewOptions 一致，悬浮条「适配画布」与之对齐 */
-const FLOW_FIT_VIEW_OPTIONS = { padding: 0.18, maxZoom: 1.05 } as const;
-
-/** 悬浮缩放：`title` 仅在无画布时提示 */
-function flowZoomButtonTitle(canvasMissing: boolean, verb: string): string {
-  return canvasMissing ? '暂无拓扑画布' : verb;
-}
-
-/** 外层面板：相对定位供工具条悬浮；画板高度由 ResizeObserver 写像素 */
 const TAB_PANEL_TOPOLOGY: React.CSSProperties = {
   position: 'relative',
   display: 'flex',
@@ -45,24 +20,6 @@ const TAB_PANEL_TOPOLOGY: React.CSSProperties = {
   flex: 1,
 };
 
-/** 物理网络、缩放、刷新：叠在画板左上角，不占文档流高度，画板可铺满面板 */
-const FLOAT_TOOLBAR: React.CSSProperties = {
-  position: 'absolute',
-  top: 10,
-  left: 10,
-  zIndex: 10,
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  gap: 6,
-  padding: 0,
-  borderRadius: 8,
-  background: 'transparent',
-  boxShadow: 'none',
-  maxWidth: 'min(720px, calc(100% - 20px))',
-  pointerEvents: 'auto',
-};
-
 const NO_PN_EMPTY_WRAP: React.CSSProperties = {
   flex: 1,
   minHeight: 200,
@@ -71,626 +28,114 @@ const NO_PN_EMPTY_WRAP: React.CSSProperties = {
   justifyContent: 'center',
 };
 
-type KubeListItem = Record<string, unknown>;
-
-function errMessage(e: unknown, fallback: string): string {
-  if (e instanceof Error && e.message) return e.message;
-  if (typeof e === 'object' && e !== null && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
-    return (e as { message: string }).message;
-  }
-  return fallback;
-}
-
-function kubeMetaName(item: KubeListItem | undefined): string {
-  if (!item) return '';
-  return String((item.metadata as { name?: string } | undefined)?.name || '').trim();
+function chartHostStyle(chartHostHeight: number): React.CSSProperties {
+  return {
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    flex: 1,
+    minHeight: 0,
+    height: chartHostHeight >= NETWORK_TOPO_CHART_MIN_HEIGHT_PX ? chartHostHeight : undefined,
+  };
 }
 
 type Props = {
   cloudId: string;
-  /** 与 Cloudmap PoolDetailPage 中 canReadNetworkScope 一致，无则不发请求 */
   canReadNetworkScope: boolean;
 };
 
 const NetworkTopologySection: React.FC<Props> = ({ cloudId, canReadNetworkScope }) => {
   const panelRef = useRef<HTMLDivElement>(null);
-  const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
-  /** 首轮并行拉数结束后再做 React Flow 尺寸与 fitView，避免骨架/隐藏阶段宽高为 0 */
-  const [chartLayoutGate, setChartLayoutGate] = useState(false);
-
-  const [chartHostHeight, setChartHostHeight] = useState(0);
-  const [providers, setProviders] = useState<KubeListItem[]>([]);
-  const [userSelectedPn, setUserSelectedPn] = useState<string | undefined>();
-  /** 集群网络拓扑在多条集群网络时与物理网络一样用 Select 切换 */
-  const [userSelectedClusterNetwork, setUserSelectedClusterNetwork] = useState<string | undefined>();
-  const [vlanItems, setVlanItems] = useState<KubeListItem[]>([]);
-  const [vlanLoading, setVlanLoading] = useState(false);
-  const [subnetItems, setSubnetItems] = useState<KubeListItem[]>([]);
-  const [subnetLoading, setSubnetLoading] = useState(false);
-  const [providersLoading, setProvidersLoading] = useState(false);
-  /** 交换机与节点 LLDP 联合得到的物理边 */
-  const [clusterNodes, setClusterNodes] = useState<any[]>([]);
-  const [aswSwitchItems, setAswSwitchItems] = useState<any[]>([]);
-  const [physicalTopoLoading, setPhysicalTopoLoading] = useState(false);
-  /** 集群网络（含 vlanConfigs 聚合） */
-  const [clusterNetworks, setClusterNetworks] = useState<any[]>([]);
-  const [clusterNetworksLoading, setClusterNetworksLoading] = useState(false);
-  /** 物理网络 / 集群网络 */
   const [topoView, setTopoView] = useState<'underlay' | 'cluster'>('underlay');
 
-  const recalcChartHostHeight = useCallback(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const ph = panel.getBoundingClientRect().height;
-    setChartHostHeight(Math.max(CHART_MIN_HEIGHT_PX, Math.floor(ph)));
-  }, []);
+  const data = useNetworkTopologyData(cloudId, canReadNetworkScope);
 
-  const loadVlans = useCallback(
-    async (force = true) => {
-      if (!cloudId || !canReadNetworkScope) return;
-      setVlanLoading(true);
-      try {
-        const res = await fetchKubeOvnVlans(cloudId, force, false);
-        const items = Array.isArray(res?.data?.items) ? res.data.items : [];
-        setVlanItems(items as KubeListItem[]);
-        if (force && cloudId) {
-          clearCache(`/api/clouds/${cloudId}/resources/vlans`, 'GET');
-        }
-      } catch (e: unknown) {
-        message.error(errMessage(e, '加载 VLAN 列表失败'));
-        setVlanItems([]);
-      } finally {
-        setVlanLoading(false);
-      }
-    },
-    [cloudId, canReadNetworkScope],
-  );
-
-  const loadProviders = useCallback(async () => {
-    if (!cloudId || !canReadNetworkScope) return;
-    setProvidersLoading(true);
-    try {
-      const res = await fetchKubeOvnProviderNetworks(cloudId);
-      setProviders((Array.isArray(res?.data?.items) ? res.data.items : []) as KubeListItem[]);
-    } catch {
-      setProviders([]);
-    } finally {
-      setProvidersLoading(false);
-    }
-  }, [cloudId, canReadNetworkScope]);
-
-  const loadSubnets = useCallback(async () => {
-    if (!cloudId || !canReadNetworkScope) return;
-    setSubnetLoading(true);
-    try {
-      const res = await fetchKubeOvnSubnets(cloudId, true, true);
-      setSubnetItems((Array.isArray(res?.data?.items) ? res.data.items : []) as KubeListItem[]);
-      clearCache(`/api/clouds/${cloudId}/resources/subnets`, 'GET');
-    } catch {
-      setSubnetItems([]);
-    } finally {
-      setSubnetLoading(false);
-    }
-  }, [cloudId, canReadNetworkScope]);
-
-  const loadPhysicalUnderlay = useCallback(async () => {
-    if (!cloudId || !canReadNetworkScope) return;
-    setPhysicalTopoLoading(true);
-    try {
-      const [nodeJson, swJson] = await Promise.all([
-        fetchHarvesterNodes(cloudId, false).catch(() => null),
-        fetchAswCtlSwitchesSummary(cloudId).catch(() => null),
-      ]);
-      const raw = (nodeJson as { data?: { items?: unknown } })?.data?.items ?? (nodeJson as { items?: unknown })?.items ?? [];
-      setClusterNodes(Array.isArray(raw) ? (raw as any[]) : []);
-      setAswSwitchItems(Array.isArray((swJson as { items?: unknown[] })?.items) ? (swJson as { items: any[] }).items : []);
-    } catch {
-      setClusterNodes([]);
-      setAswSwitchItems([]);
-    } finally {
-      setPhysicalTopoLoading(false);
-    }
-  }, [cloudId, canReadNetworkScope]);
-
-  const loadClusterNetworks = useCallback(async () => {
-    if (!cloudId || !canReadNetworkScope) return;
-    setClusterNetworksLoading(true);
-    try {
-      const res = (await fetchHarvesterClusterNetworks(cloudId, true)) as {
-        items?: unknown[];
-        data?: { items?: unknown[] };
-      };
-      // 与 NadCreateModal / clusterPathLoads 一致：API 体为 { items }，无 axios 的 .data 包裹
-      const items = Array.isArray(res?.items)
-        ? res.items
-        : Array.isArray(res?.data?.items)
-          ? (res.data?.items as unknown[])
-          : [];
-      setClusterNetworks(items);
-      if (cloudId) {
-        clearCache(`/api/clouds/${cloudId}/resources/cluster-networks`, 'GET');
-      }
-    } catch {
-      setClusterNetworks([]);
-    } finally {
-      setClusterNetworksLoading(false);
-    }
-  }, [cloudId, canReadNetworkScope]);
-
-  const physicalLldpLinks = useMemo(
-    () => buildHsmLldpPhysicalLinks(clusterNodes, aswSwitchItems),
-    [clusterNodes, aswSwitchItems],
-  );
-
-  const reloadAll = useCallback(() => {
-    void loadVlans(true);
-    void loadProviders();
-    void loadSubnets();
-    void loadPhysicalUnderlay();
-    void loadClusterNetworks();
-  }, [loadClusterNetworks, loadPhysicalUnderlay, loadProviders, loadSubnets, loadVlans]);
-
-  useEffect(() => {
-    setChartLayoutGate(false);
-  }, [cloudId, canReadNetworkScope]);
-
-  useEffect(() => {
-    if (!cloudId || !canReadNetworkScope) {
-      setChartLayoutGate(true);
-    }
-  }, [cloudId, canReadNetworkScope]);
-
-  useEffect(() => {
-    if (!cloudId || !canReadNetworkScope) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await Promise.all([
-          loadVlans(true),
-          loadProviders(),
-          loadSubnets(),
-          loadPhysicalUnderlay(),
-          loadClusterNetworks(),
-        ]);
-      } finally {
-        if (!cancelled) setChartLayoutGate(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    cloudId,
-    canReadNetworkScope,
-    loadClusterNetworks,
-    loadPhysicalUnderlay,
-    loadProviders,
-    loadSubnets,
-    loadVlans,
-  ]);
-
-  useEffect(() => {
-    if (providers.length === 0) return;
-    setUserSelectedPn((prev) => prev ?? (kubeMetaName(providers[0]) || undefined));
-  }, [providers]);
-
-  useEffect(() => {
-    if (clusterNetworks.length === 0) return;
-    setUserSelectedClusterNetwork((prev) => {
-      if (prev && clusterNetworks.some((cn) => kubeMetaName(cn as KubeListItem) === prev)) {
-        return prev;
-      }
-      return kubeMetaName(clusterNetworks[0] as KubeListItem) || undefined;
-    });
-  }, [clusterNetworks]);
-
-  const providerOptions = useMemo(() => {
-    const options: { label: string; value: string }[] = [];
-    (providers || []).forEach((p) => {
-      const meta = p.metadata as { name?: string; annotations?: Record<string, string> } | undefined;
-      const name = String(meta?.name ?? '').trim();
-      if (!name) return;
-      const ann = meta?.annotations || {};
-      const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
-      const display = alias || name;
-      const label = alias && alias !== name ? `${alias} (${name})` : display;
-      options.push({ label, value: name });
-    });
-    return options;
-  }, [providers]);
-
-  const clusterNetworkOptions = useMemo(() => {
-    const options: { label: string; value: string }[] = [];
-    (clusterNetworks || []).forEach((raw) => {
-      const name = kubeMetaName(raw as KubeListItem);
-      if (!name) return;
-      const friendly = clusterNetworkTopologyLabel(name);
-      const label = friendly && friendly !== name ? `${friendly} (${name})` : name;
-      options.push({ label, value: name });
-    });
-    return options;
-  }, [clusterNetworks]);
-
-  const effectiveProviderName = useMemo(() => {
-    const first = kubeMetaName(providers[0]);
-    return String(userSelectedPn || first || '').trim();
-  }, [userSelectedPn, providers]);
-
-  const effectiveClusterNetworkName = useMemo(() => {
-    const first = clusterNetworks[0] ? kubeMetaName(clusterNetworks[0] as KubeListItem) : '';
-    return String(userSelectedClusterNetwork || first || '').trim();
-  }, [userSelectedClusterNetwork, clusterNetworks]);
-
-  /** 拓扑图一次只画当前选中的集群网络（多选时与物理网络一致用下拉切换） */
-  const displayedClusterNetworks = useMemo(() => {
-    if (!effectiveClusterNetworkName) return [] as KubeListItem[];
-    const found = (clusterNetworks || []).find(
-      (cn) => kubeMetaName(cn as KubeListItem) === effectiveClusterNetworkName,
-    );
-    return found ? [found] : [];
-  }, [clusterNetworks, effectiveClusterNetworkName]);
-
-  const effectivePn = useMemo(
-    () => providers.find((p) => kubeMetaName(p) === effectiveProviderName),
-    [providers, effectiveProviderName],
-  );
-
-  const pnDerived = useMemo(() => {
-    const pn = effectivePn as
-      | {
-          metadata?: { name?: string; annotations?: Record<string, string> };
-          status?: { ready?: boolean; readyNodes?: string[] };
-        }
-      | undefined;
-    if (!pn) {
-      return { displayName: '', metaName: '', ready: false };
-    }
-    const ann = pn.metadata?.annotations || {};
-    return {
-      displayName: String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim(),
-      metaName: String(pn.metadata?.name || '').trim(),
-      ready: !!pn.status?.ready,
-    };
-  }, [effectivePn]);
-
-  const pnReadyNodes = useMemo(() => {
-    const nodes = (effectivePn as { status?: { readyNodes?: string[] } } | undefined)?.status?.readyNodes;
-    return Array.isArray(nodes) ? nodes : [];
-  }, [effectivePn]);
-
-  const pnOriginNics = useMemo(() => {
-    const ann = (effectivePn as { metadata?: { annotations?: Record<string, string> } } | undefined)?.metadata
-      ?.annotations;
-    return parseProviderNetworkOriginNics(ann);
-  }, [effectivePn]);
-
-  const headerTitle = useMemo(() => {
-    if (pnDerived.metaName) return pnDerived.displayName || pnDerived.metaName;
-    return '网络规划';
-  }, [pnDerived.displayName, pnDerived.metaName]);
-
-  const displayedVlans = useMemo(() => {
-    if (!effectiveProviderName) return [];
-    return vlanItems.filter(
-      (v) => String((v.spec as { provider?: string } | undefined)?.provider || '').trim() === effectiveProviderName,
-    );
-  }, [vlanItems, effectiveProviderName]);
-
-  const { publicSubnetsForPn, flatSubnetsForPn } = useMemo(() => {
-    const providerName = String(effectiveProviderName || '').trim();
-    const vlanByName = new Map<string, KubeListItem>();
-    const vlanById = new Map<string, KubeListItem>();
-    for (const v of vlanItems || []) {
-      const meta = v.metadata as { name?: string } | undefined;
-      const vn = String(meta?.name || '').trim();
-      if (vn) vlanByName.set(vn, v);
-      const vid = (v.spec as { id?: unknown } | undefined)?.id;
-      if (vid !== undefined && vid !== null && String(vid).trim() !== '') {
-        vlanById.set(String(vid).trim(), v);
-      }
-    }
-    const related = (subnetItems || [])
-      .filter((sn) => {
-        const snMeta = sn.metadata as { name?: string } | undefined;
-        if (String(snMeta?.name || '').trim() === 'external') return false;
-        const snVlan = String((sn.spec as { vlan?: string } | undefined)?.vlan ?? '').trim();
-        if (!snVlan) return false;
-        const vlanItem = vlanByName.get(snVlan) || vlanById.get(snVlan);
-        if (!vlanItem) return false;
-        const vlanProvider = String((vlanItem.spec as { provider?: string } | undefined)?.provider || '').trim();
-        return !!providerName && vlanProvider === providerName;
-      })
-      .map((sn) => {
-        const snAnn = (sn.metadata as { annotations?: Record<string, string> } | undefined)?.annotations || {};
-        const vlanName = String((sn.spec as { vlan?: string } | undefined)?.vlan || '').trim();
-        const vlanItem = vlanByName.get(vlanName) || vlanById.get(vlanName);
-        const vlanMeta = vlanItem?.metadata as { name?: string } | undefined;
-        const vlanMetaName = String(vlanMeta?.name || '').trim();
-        const vlanId = (vlanItem?.spec as { id?: unknown } | undefined)?.id;
-        const snSpec = sn.spec as { cidrBlock?: string; cidr?: string; gateway?: string; excludeIps?: unknown[] } | undefined;
-        const excludeIpsRaw = snSpec?.excludeIps;
-
-        return {
-          name: String((sn.metadata as { name?: string } | undefined)?.name || '-'),
-          alias: String(snAnn[TOWER_ALIAS_ANNOTATION] || '').trim(),
-          vlan: vlanMetaName || vlanName || '-',
-          vlanId: vlanId !== undefined && vlanId !== null ? String(vlanId) : null,
-          cidr: String(snSpec?.cidrBlock || snSpec?.cidr || '-'),
-          gateway: String(snSpec?.gateway || '-'),
-          excludeIps: Array.isArray(excludeIpsRaw) ? excludeIpsRaw : [],
-          type: String(snAnn[SUBNET_TYPE_ANNOTATION_KEY] || '').trim().toLowerCase(),
-        };
-      });
-    return {
-      publicSubnetsForPn: related.filter((s) => s.type === 'public'),
-      flatSubnetsForPn: related.filter((s) => s.type === 'flat'),
-    };
-  }, [effectiveProviderName, subnetItems, vlanItems]);
-
-  const pnNicTopology = useMemo(() => {
-    if (!effectivePn) return null;
-    const spec = (effectivePn.spec || {}) as {
-      defaultInterface?: string;
-      customInterfaces?: Array<{ interface?: string; nodes?: unknown[] }>;
-    };
-    const defaultIf = String(spec.defaultInterface || '').trim();
-    const customList = Array.isArray(spec.customInterfaces) ? spec.customInterfaces : [];
-    const nodesInCustom = new Set<string>();
-    customList.forEach((c) => {
-      (Array.isArray(c?.nodes) ? c.nodes : []).forEach((n: unknown) => {
-        const s = String(n ?? '').trim();
-        if (s) nodesInCustom.add(s);
-      });
-    });
-    const nodesOnDefault = pnReadyNodes.filter((n: string) => !nodesInCustom.has(String(n).trim()));
-    return { defaultIf, customList, nodesOnDefault };
-  }, [effectivePn, pnReadyNodes]);
-
-  const bootstrapping = providersLoading && providers.length === 0;
-
-  /**
-   * 画布实例代数指纹（与内部 React Flow `flowKey` 对齐）；变更时清空实例引用，避免指向已卸载画布。
-   * 不再维护「画布加载中」UI 状态或据此禁用缩放按钮。
-   */
-  const flowStaleFingerprint = useMemo(() => {
-    if (topoView === 'underlay') {
-      return `underlay:${effectiveProviderName}:${vlanLoading}:${subnetLoading}:${physicalTopoLoading}`;
-    }
-    return `cluster:${effectiveClusterNetworkName}:${clusterNetworksLoading}:${physicalTopoLoading}`;
-  }, [
+  const chart = useNetworkTopologyChartLayout({
+    enabled: canReadNetworkScope,
+    panelRef,
+    chartLayoutGate: data.chartLayoutGate,
     topoView,
-    effectiveProviderName,
-    vlanLoading,
-    subnetLoading,
-    physicalTopoLoading,
-    effectiveClusterNetworkName,
-    clusterNetworksLoading,
-  ]);
-
-  useLayoutEffect(() => {
-    flowInstanceRef.current = null;
-  }, [flowStaleFingerprint]);
-
-  /** 当前 Tab 无可绘制画布时不持有失效实例引用 */
-  useLayoutEffect(() => {
-    if (topoView === 'underlay' && (bootstrapping || !effectivePn)) {
-      flowInstanceRef.current = null;
-      return;
-    }
-    if (topoView === 'cluster' && (clusterNetworksLoading || clusterNetworks.length === 0)) {
-      flowInstanceRef.current = null;
-    }
-  }, [
-    topoView,
-    bootstrapping,
-    effectivePn,
-    clusterNetworksLoading,
-    clusterNetworks.length,
-  ]);
-
-  /** Provider 首轮拉取结束或集群列表请求结束后展示缩放条；仅「无画布」时禁用按钮 */
-  const showFlowZoomToolbar =
-    (topoView === 'underlay' && !bootstrapping) ||
-    (topoView === 'cluster' && !clusterNetworksLoading);
-
-  const flowCanvasMissing =
-    (topoView === 'underlay' && !effectivePn) ||
-    (topoView === 'cluster' && clusterNetworks.length === 0);
-
-  const flowZoomButtonsDisabled = flowCanvasMissing;
-
-  const onFlowReady = useCallback((inst: ReactFlowInstance) => {
-    flowInstanceRef.current = inst;
-  }, []);
-
-  const handleFlowZoomIn = useCallback(() => {
-    flowInstanceRef.current?.zoomIn?.();
-  }, []);
-  const handleFlowZoomOut = useCallback(() => {
-    flowInstanceRef.current?.zoomOut?.();
-  }, []);
-  const handleFlowFitView = useCallback(() => {
-    flowInstanceRef.current?.fitView?.(FLOW_FIT_VIEW_OPTIONS);
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!canReadNetworkScope) return;
-    const panel = panelRef.current;
-    if (!panel) return;
-    recalcChartHostHeight();
-    const ro = new ResizeObserver(() => {
-      recalcChartHostHeight();
-    });
-    ro.observe(panel);
-    window.addEventListener('resize', recalcChartHostHeight);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', recalcChartHostHeight);
-    };
-  }, [recalcChartHostHeight, canReadNetworkScope, bootstrapping, effectivePn]);
-
-  /** 骨架阶段子树为 display:none，React Flow 初次 fitView 尺寸为 0；可见后需重算宿主高度并再次 fitView */
-  useLayoutEffect(() => {
-    if (!chartLayoutGate || !canReadNetworkScope) return;
-    recalcChartHostHeight();
-  }, [chartLayoutGate, canReadNetworkScope, recalcChartHostHeight]);
-
-  useEffect(() => {
-    if (!chartLayoutGate || !canReadNetworkScope) return;
-    const run = () => {
-      flowInstanceRef.current?.fitView?.(FLOW_FIT_VIEW_OPTIONS);
-    };
-    const id = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(run);
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [
-    chartLayoutGate,
-    canReadNetworkScope,
-    chartHostHeight,
-    topoView,
-    effectiveProviderName,
-    effectiveClusterNetworkName,
-  ]);
+    bootstrapping: data.bootstrapping,
+    effectivePn: data.effectivePn,
+    effectiveProviderName: data.effectiveProviderName,
+    effectiveClusterNetworkName: data.effectiveClusterNetworkName,
+    vlanLoading: data.vlanLoading,
+    subnetLoading: data.subnetLoading,
+    physicalTopoLoading: data.physicalTopoLoading,
+    clusterNetworksLoading: data.clusterNetworksLoading,
+    clusterNetworksLength: data.clusterNetworks.length,
+  });
 
   if (!canReadNetworkScope) {
     return (
       <div style={{ padding: '16px 0 0' }}>
-        <Alert type="warning" showIcon message="无权限查看网络拓扑" description="需要具备物理网络、子网或 VLAN 等相关读权限。" />
+        <Alert
+          type="warning"
+          showIcon
+          message="无权限查看网络拓扑"
+          description="需要具备物理网络、子网或 VLAN 等相关读权限。"
+        />
       </div>
     );
   }
 
   return (
     <div ref={panelRef} style={TAB_PANEL_TOPOLOGY}>
-      <div style={FLOAT_TOOLBAR}>
-        <Segmented
-          size="middle"
-          value={topoView}
-          onChange={(v) => setTopoView(v as 'underlay' | 'cluster')}
-          options={[
-            { label: '物理网络', value: 'underlay' },
-            { label: '集群网络', value: 'cluster' },
-          ]}
-        />
-        {topoView === 'underlay' && providerOptions.length > 1 ? (
-          <Select
-            size="middle"
-            style={{ width: 150 }}
-            placeholder="选择物理网络"
-            value={effectiveProviderName || undefined}
-            onChange={(v) => setUserSelectedPn(String(v))}
-            options={providerOptions}
-          />
-        ) : null}
-        {topoView === 'cluster' && clusterNetworkOptions.length > 1 ? (
-          <Select
-            size="middle"
-            style={{ width: 150 }}
-            placeholder="选择集群网络"
-            value={effectiveClusterNetworkName || undefined}
-            onChange={(v) => setUserSelectedClusterNetwork(String(v))}
-            options={clusterNetworkOptions}
-          />
-        ) : null}
-        {showFlowZoomToolbar ? (
-          <>
-            <Button
-              type="default"
-              size="middle"
-              icon={<ZoomInOutlined />}
-              disabled={flowZoomButtonsDisabled}
-              onClick={handleFlowZoomIn}
-              title={flowZoomButtonTitle(flowCanvasMissing, '放大')}
-            />
-            <Button
-              type="default"
-              size="middle"
-              icon={<ZoomOutOutlined />}
-              disabled={flowZoomButtonsDisabled}
-              onClick={handleFlowZoomOut}
-              title={flowZoomButtonTitle(flowCanvasMissing, '缩小')}
-            />
-            <Button
-              type="default"
-              size="middle"
-              icon={<ExpandOutlined />}
-              disabled={flowZoomButtonsDisabled}
-              onClick={handleFlowFitView}
-              title={flowZoomButtonTitle(flowCanvasMissing, '适配画布')}
-            />
-          </>
-        ) : null}
-        <Button
-          type="default"
-          size="middle"
-          icon={<ReloadOutlined />}
-          loading={
-            providersLoading ||
-            vlanLoading ||
-            subnetLoading ||
-            physicalTopoLoading ||
-            clusterNetworksLoading
-          }
-          onClick={reloadAll}
-        />
-      </div>
+      <NetworkTopologyToolbar
+        topoView={topoView}
+        onTopoViewChange={setTopoView}
+        providerOptions={data.providerOptions}
+        effectiveProviderName={data.effectiveProviderName}
+        onProviderChange={(name) => data.setUserSelectedPn(name)}
+        clusterNetworkOptions={data.clusterNetworkOptions}
+        effectiveClusterNetworkName={data.effectiveClusterNetworkName}
+        onClusterNetworkChange={(name) => data.setUserSelectedClusterNetwork(name)}
+        showFlowZoomToolbar={chart.showFlowZoomToolbar}
+        flowZoomButtonsDisabled={chart.flowZoomButtonsDisabled}
+        flowCanvasMissing={chart.flowCanvasMissing}
+        onZoomIn={chart.handleFlowZoomIn}
+        onZoomOut={chart.handleFlowZoomOut}
+        onFitView={chart.handleFlowFitView}
+        reloadLoading={data.anyLoading}
+        onReload={data.reloadAll}
+      />
 
       {topoView === 'underlay' ? (
-        !effectivePn ? (
+        !data.effectivePn ? (
           <div style={{ ...NO_PN_EMPTY_WRAP, flex: 1, minHeight: 0 }}>
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无物理网络数据" />
           </div>
         ) : (
-          <div
-            style={{
-              minWidth: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              flex: 1,
-              minHeight: 0,
-              height: chartHostHeight >= CHART_MIN_HEIGHT_PX ? chartHostHeight : undefined,
-            }}
-          >
+          <div style={chartHostStyle(chart.chartHostHeight)}>
             <ProviderNetworkTopologyGraph
-              pnDisplayTitle={headerTitle}
-              pnMetaName={pnDerived.metaName}
-              pnReady={pnDerived.ready}
-              pnNicTopology={pnNicTopology}
-              pnReadyNodes={pnReadyNodes}
-              displayedVlans={displayedVlans}
-              publicSubnetsForPn={publicSubnetsForPn}
-              flatSubnetsForPn={flatSubnetsForPn}
-              vlanLoading={vlanLoading}
-              physicalLldpLinks={physicalLldpLinks}
-              pnOriginNics={pnOriginNics}
-              harvesterNodes={clusterNodes}
+              pnDisplayTitle={data.headerTitle}
+              pnMetaName={data.pnDerived.metaName}
+              pnReady={data.pnDerived.ready}
+              pnNicTopology={data.pnNicTopology}
+              pnReadyNodes={data.pnReadyNodes}
+              displayedVlans={data.displayedVlans}
+              publicSubnetsForPn={data.publicSubnetsForPn}
+              flatSubnetsForPn={data.flatSubnetsForPn}
+              vlanLoading={data.vlanLoading}
+              physicalLldpLinks={data.physicalLldpLinks}
+              pnOriginNics={data.pnOriginNics}
+              harvesterNodes={data.clusterNodes}
               hideBuiltinFlowControls
-              onFlowReady={onFlowReady}
+              onFlowReady={chart.onFlowReady}
               visualTheme="dark"
             />
           </div>
         )
       ) : (
-        <div
-          style={{
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            flex: 1,
-            minHeight: 0,
-            height: chartHostHeight >= CHART_MIN_HEIGHT_PX ? chartHostHeight : undefined,
-          }}
-        >
+        <div style={chartHostStyle(chart.chartHostHeight)}>
           <ClusterNetworkTopologyGraph
-            clusterNetworks={displayedClusterNetworks}
-            nodes={clusterNodes}
-            physicalLldpLinks={physicalLldpLinks}
-            loading={clusterNetworksLoading}
+            clusterNetworks={data.displayedClusterNetworks}
+            nodes={data.clusterNodes}
+            physicalLldpLinks={data.physicalLldpLinks}
+            loading={data.clusterNetworksLoading}
             hideBuiltinFlowControls
-            onFlowReady={onFlowReady}
+            onFlowReady={chart.onFlowReady}
             visualTheme="dark"
           />
         </div>

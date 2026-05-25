@@ -24,7 +24,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapBackupsGroupTabsProps = {
+export type CloudmapBackupsRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
   showLog: boolean;
@@ -63,7 +63,7 @@ function canViewBackupsInner(key: string, checkPerm: (a: string) => boolean): bo
   return false;
 }
 
-const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
+const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -170,10 +170,10 @@ const CloudmapBackupsGroupTabs: React.FC<CloudmapBackupsGroupTabsProps> = (
   }
   if (innerActiveKey === 'vm_restores') {
     return (
-      <VmRestoreTasksSection cloudId={cloudId} isTenant={isTenant} />
+      <VmRestoreTasksSection cloudId={cloudId} isTenant={isTenant} vms={ecs} />
     );
   }
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapBackupsGroupTabs;
+export default CloudmapBackupsRoutePanel;

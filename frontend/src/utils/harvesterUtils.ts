@@ -159,6 +159,58 @@ export const isSystemStorageClass = (name: string): boolean => {
   return false;
 };
 
+export type HarvesterVolumeStorageKind = 'longhorn' | 'ceph' | 'unknown';
+
+export const HARVESTER_LONGHORN_VOLUME_SNAPSHOT_CLASS = 'longhorn-snapshot';
+export const HARVESTER_CEPH_RBD_VOLUME_SNAPSHOT_CLASS = 'rook-ceph-rbd-snapshot';
+
+/** 与后端 classifyVmImageStorageKindFromProvisioner 一致 */
+export function classifyStorageKindFromProvisioner(provisioner: string): HarvesterVolumeStorageKind {
+  const pl = String(provisioner || '').trim().toLowerCase();
+  if (!pl) return 'unknown';
+  if (pl.includes('longhorn') || pl.includes('driver.longhorn.io')) return 'longhorn';
+  if (
+    pl.includes('rook-ceph') ||
+    pl.includes('rbd.csi.ceph.com') ||
+    pl.includes('cephfs.csi.ceph.com') ||
+    pl.includes('csi.ceph.com') ||
+    pl.includes('ceph.csi')
+  ) {
+    return 'ceph';
+  }
+  return 'unknown';
+}
+
+/** 根据 PVC 的 StorageClass 与存储类列表解析卷存储大类 */
+export function classifyStorageKindFromStorageClassName(
+  storageClassName: string,
+  storageClasses?: any[],
+): HarvesterVolumeStorageKind {
+  const sc = String(storageClassName || '').trim();
+  if (!sc) return 'unknown';
+  const hit = (storageClasses || []).find((item: any) => {
+    const n = String(item?.metadata?.name || item?.name || '').trim();
+    return n === sc;
+  });
+  const prov = String(hit?.provisioner || hit?.spec?.provisioner || '');
+  const fromProv = classifyStorageKindFromProvisioner(prov);
+  if (fromProv !== 'unknown') return fromProv;
+  const lower = sc.toLowerCase();
+  if (lower.includes('longhorn')) return 'longhorn';
+  if (lower.includes('rook-ceph') || lower.includes('ceph') || lower.includes('rbd')) return 'ceph';
+  return 'unknown';
+}
+
+/** 创建 VolumeSnapshot 时按源卷存储类型选择快照类（Longhorn 不变，Ceph 用 rook-ceph-rbd-snapshot） */
+export function resolveVolumeSnapshotClassName(
+  storageClassName?: string,
+  storageClasses?: any[],
+): string {
+  const kind = classifyStorageKindFromStorageClassName(storageClassName || '', storageClasses);
+  if (kind === 'ceph') return HARVESTER_CEPH_RBD_VOLUME_SNAPSHOT_CLASS;
+  return HARVESTER_LONGHORN_VOLUME_SNAPSHOT_CLASS;
+}
+
 /**
  * 判断存储类是否被集群标记为 default StorageClass（metadata/annotations 上的 is-default-class）
  */
@@ -706,4 +758,38 @@ export function translateK8sError(error: any): string {
     console.error('解析 K8s 错误信息失败:', e);
     return errorMsg;
   }
+}
+
+/** 备份/快照条目关联的源 VM 名称（兼容 VirtualMachineBackup 与 CephVmBackup） */
+export function harvesterBackupSourceVmName(item: any): string {
+  const raw = item?.rawData || item;
+  return String(
+    raw?.spec?.source?.name || raw?.spec?.sourceVm || item?.targetVm || item?.sourceVm || '',
+  ).trim();
+}
+
+/** ScheduleVmBackup 关联的源虚拟机名 */
+export function harvesterScheduleVmBackupSourceVmName(item: any): string {
+  const raw = item?.rawData || item;
+  return String(raw?.spec?.vmbackup?.source?.name || item?.vmName || '').trim();
+}
+
+/** 是否为 CephVmBackup（hms.rivercloud.com） */
+export function isHarvesterCephVmBackup(item: any): boolean {
+  const raw = item?.rawData || item;
+  const kind = String(raw?.kind || '').toLowerCase();
+  if (kind === 'cephvmbackup') return true;
+  if (String(raw?.metadata?.annotations?.['tower.io/backupBackend'] || '') === 'ceph') return true;
+  const api = String(raw?.apiVersion || '').toLowerCase();
+  return api.includes('hms.rivercloud.com') && kind !== 'cephvmrestore';
+}
+
+/** 是否为 CephVmRestore（hms.rivercloud.com） */
+export function isHarvesterCephVmRestore(item: any): boolean {
+  const raw = item?.rawData || item;
+  const kind = String(raw?.kind || '').toLowerCase();
+  if (kind === 'cephvmrestore') return true;
+  if (String(raw?.metadata?.annotations?.['tower.io/restoreBackend'] || '') === 'ceph') return true;
+  const api = String(raw?.apiVersion || '').toLowerCase();
+  return api.includes('hms.rivercloud.com') && kind === 'cephvmrestore';
 }

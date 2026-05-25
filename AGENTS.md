@@ -37,7 +37,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 
 | 文档 | 职责 |
 |------|------|
-| **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、开发与质量约定 |
+| **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、**开发规范**与 **代码质量自查（PR）** |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
 | **`deployment/docs/specs/...`** | Harvester 前端子树、权限、API 规格等专题文档；**列表/数据区块加载态（骨架屏）**见 **`deployment/docs/specs/frontend-loading-skeleton.md`** |
@@ -55,7 +55,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 3 | **版本管理（平台发布版本）** | 平台 `version`、离线包与发版约定 |
 | 4 | **API 规范** | HTTP / WebSocket 路径索引 |
 | 5 | **Harvester 云详情 · 前端落位** | 多云 Harvester 详情 Tab ↔ `Harvester/` 下 Section |
-| 6 | **开发规范** | 落位、请求与缓存、数据展示与刷新、页面容器、表格版式、API 对接、前端质量工具 |
+| 6 | **开发规范**（含 **代码质量自查**） | 落位、刷新与缓存、表格版式、API、PR/专项清理清单 |
 | 7 | **认证与权限**、**后台服务**、**注意事项** | 角色与 Token、后台定时任务、运维提示 |
 
 ## 平台模块
@@ -413,21 +413,21 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
    于上述成功后的重载中须**强制新读**：`apiRequest(path, { skipCache: true })`，或对 `frontend/src/utils/requestManager.ts` 中 `clearCache` 所支持的精确 path 先 `clearCache` 再 GET。
 
 3. **Harvester 云详情内各 Section / Tab**  
-   成功回调中重载列表时，与现有一致：使用 **`onRefresh(true, …)`**（第一参为 force，由内部配合 `skipCache` 与/或查询参数 `force=true` 等，以项目内既有实现为准）。
+   成功回调中重载列表时：经父级 `onRefresh` 触发池层/对端拉取；**禁止**在 Section 内裸调 `onRefresh(true)`，须用 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（见下节 **Cloudmap 刷新样板（compute + cluster）**）。工具栏仍用 **`createHarvesterToolbarRefresh(onRefresh)`**。
 
 | 场景 | 要求 |
 |------|------|
 | 新增/编辑/删除成功 | 同一次成功路径内执行列表重载，不得仅关弹窗或仅提示成功。 |
 | 读列表可能走前端缓存 | 重载时 `skipCache: true` 或 `clearCache` 后再请求。 |
-| Harvester 子模块 | 使用 `onRefresh(true, …)` 等既有约定，不另起一套。 |
+| Harvester 子模块（含 `ecs`） | 写成功/删改后 **`runHarvesterSectionRefresh`**；工具栏 **`createHarvesterToolbarRefresh`**；池层 **`loadTabResource`**。 |
 
 **自测**：完成一条增/删/改后，当前页列表应已更新，无需 F5 / Ctrl+F5。
 
 **全站检索（审计同类问题时用）**  
 在 `frontend/src` 内可配合检索（命中后人工判断是否应在成功路径上强制重载）：
 
-- 无参 `onRefresh()` / `onRefresh?.()`：成功路径与工具栏「刷新」应使用 `onRefresh(true)` 或 `onRefresh(true, true)`（与子组件、父级数据加载约定一致）。**勿**将 `onClick={onRefresh}` 直接绑到 Button（会把点击事件当第一参传入）。
-- `onSuccess={onRefresh}`：以**子组件在成功时如何调用**为准；若子组件已传 `(true, true)` 则与上表「Harvester 子模块」及本节第 3 条约定一致。
+- 无参 `onRefresh()` / `onRefresh?.()`：成功路径与工具栏「刷新」应经 **`runHarvesterSectionRefresh` / `createHarvesterToolbarRefresh`**，勿裸调 `onRefresh(true)`（**`ecs` / `cluster` 样板域**已统一，见下节）。**勿**将 `onClick={onRefresh}` 直接绑到 Button（会把点击事件当第一参传入）。
+- `onSuccess={onRefresh}`：若子组件仅调用无参 `onRefresh()`，须改为包装为 `() => runHarvesterSectionRefresh(onRefresh, { force: true })` 或等价实现。
 - 个别 `apiRequest(…, { enableCache: true })` 仍见 `hooks`、仪表盘等；与列表强一致时写操作后重载须 `skipCache: true` 或 `clearCache`（见本节写操作重载第 2 条）。
 
 `services/api.ts` 中 **`fetchTenants` / `fetchUsers` / `fetchAvailableResourcePools` / `fetchUserSpaces` 对 GET 未再默认叠一层 `enableCache`**，与其它列表读法一致，避免多入口改数据后仍读内存旧值。`pages/tenants/hooks/useTenantsPage.tsx` 内本地 `fetchTenants(force)` 与 `?force=true` 行为保留。新改列表与增删改仍须依本节写操作三条与**自测**；合入前可抽查检索上面两条。
@@ -443,6 +443,96 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 - **后端/集群最终一致**：K8s 等对象晚几秒才出现在 list 接口，前端只能 **延迟重试/轮询**，与 F5 无关。
 
 新功能合入时仍应做**自测**与上表「全站检索」抽查；旧页不可能在某次提交里全部穷举改完。
+
+#### Cloudmap 刷新样板（compute + cluster）
+
+Harvester **弹性计算（`ecs`）** 与 **集群（`cluster`）** 为 Cloudmap 池内刷新能力的**对称样板**：池层 **`create*TabOnRefresh` → `loadTabResource`**，Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。其它业务域新增 Tab 时**优先对齐本模式**，勿在引擎再写平行 `refreshXxx` + 面板内联 `() => loadTabResource(...)`。
+
+##### 虚拟机（compute / `ecs`）
+
+Harvester **弹性计算**在 Cloudmap 资源池内装配（`panels/compute` + `Harvester/ecs/`）。刷新分 **两层**，新增 Tab 或改刷新逻辑时须按层落位，**禁止**在 Section 内再写一套 `fetch` + `setState` 拉列表（迁移记录等已收口为例）。
+
+**语义（产品）**
+
+| 视图类型 | 刷新应对齐的数据源 | 是否算「反映集群」 |
+|----------|-------------------|-------------------|
+| 云主机、回收站 VM、镜像、模板、SSH、CloudInit、迁移记录 | 集群（`force=true` 时后端 **sync** 或 **直拉 Steve/KubeVirt**） | **是**（sync 通常在数秒内完成即视为已对齐；集群自身最终一致晚几秒属正常） |
+| 回收站 **关机记录**子表（`RecycleBinRecordsSection`） | **Tower 平台任务库**（`GET /api/system/recycle-bin/shutdown-records`） | **不适用**（平台审计/任务流水，**不是**集群 VM 列表；勿与上表混谈） |
+
+**第 1 层 — 池层：拉什么数据（`frontend/.../Cloudmap/pool/loaders/`）**
+
+| 职责 | 文件 |
+|------|------|
+| 各 compute 子 Tab 的 `onRefresh` 映射 | `loaders/computeRefresh.ts` → **`createComputeTabOnRefresh(tab, deps)`** |
+| 按 `innerKey` 拉数（`runPathResourceLoad` → `tryLoadComputeTab`） | `loaders/pathResource/computePathLoads.ts` |
+| 云主机列表 sync + GET | `loaders/pathResource/computeEcsListLoad.ts` |
+| 迁移记录列表 fetch | `loaders/pathResource/computeMigrationsLoad.ts` |
+| 池引擎入口 | `hooks/useCloudmapPoolDetailEngine.ts` 的 **`loadTabResource`**；**`refreshVms` ≡ `loadTabResource('ecs', force, skipSync)`**（勿再在 `useCloudmapPoolEcs` 内重复实现拉列表） |
+| 装配与注入 `onRefresh` | `panels/compute/index.tsx` → **`computeTabOnRefresh.*`** |
+
+**compute 子 Tab 与 `loadTabResource` key**
+
+| `innerActiveKey` | `loadTabResource` key | 说明 |
+|------------------|----------------------|------|
+| `ecs` | `ecs` | 先可选 `POST /api/clouds/:id/sync`，再 `GET .../resources/ecs`（Harvester 直拉 VM/VMI）；强制刷新时可顺带拉镜像/卷/命名空间（`refreshVmSectionAuxiliaries`） |
+| `recycle_bin`（VM 列表） | `ecs` | 与云主机同一份 `ecs`，前端按回收站标记过滤 |
+| `images` / `templates` / `ssh_keys` / `cloud_inits` | 同名 key | `force=true` 时后端 inventory **sync 后读库** |
+| `migrations` | `migrations` | `force=true` 时 sync；列表空时 loader 可回退 `migrations-direct` 直拉集群 |
+
+**第 2 层 — Section 层：怎么点刷新（`Harvester/ecs/sections/` + shared）**
+
+| 场景 | 用法 |
+|------|------|
+| 工具栏「刷新」 | **`createHarvesterToolbarRefresh(onRefresh)`**（`Harvester/shared/lib/harvesterSectionRefresh.ts`） |
+| 写成功 / 删改 / 弹窗 `onSuccess` | **`runHarvesterSectionRefresh(onRefresh, { force: true })`**；静默刷新加 **`silent: true`**。**禁止**裸写 `onRefresh(true)` / `onRefresh(true, true)` |
+| 需等待刷新结束 | `await runHarvesterSectionRefresh(...)`（该函数返回 `Promise<void>`） |
+
+父组件传入的 **`onRefresh`** 来自 **`computeTabOnRefresh`**，内部统一 **`void loadTabResource(innerKey, force)`**。
+
+**数据与实时推送**
+
+- 云主机列表状态：池 hook **`useCloudmapPoolEcs`** 除参与 `ecs` 拉取外，仍负责 **SSE**（`/api/clouds/:id/resources/ecs/stream`）与 vm 状态缓冲；与工具栏刷新并存，不互相替代。
+- 详情抽屉内改 VM 后刷新列表：仍通过注入的 **`onRefresh`** 走上述第 2 层 → 第 1 层（与列表 Tab 一致）。
+
+**新增 / 修改检查清单**
+
+1. 列表数据是否进入池状态并由 `computePathLoads` 拉取？（勿在 Section 内长期 `loadData` 自拉，除非明确为 **Tower 自有记录** 如关机记录。）
+2. `panels/compute` 是否为该 Tab 配置 **`computeTabOnRefresh.<tab>`**？
+3. Section 工具栏与写成功路径是否仅用 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**？
+4. 读接口在 `force` 路径是否 **`skipCache: true`**（或 `fetchCloudProviderEcs` 等等价无缓存）？
+
+细则亦见 **`frontend/src/pages/cnmc/clouds/Harvester/ecs/README.md`**（compute 刷新专章）。
+
+##### 集群（cluster）
+
+Harvester **集群**在 Cloudmap 资源池内装配（`panels/cluster` + `Harvester/cluster/`）。与 compute 同 **两层**；**禁止**在引擎为单 Tab 再维护独立 `refreshNodes` / `refreshNads` 等（已收口为 **`loadTabResource`**）。
+
+**第 1 层 — 池层**
+
+| 职责 | 文件 |
+|------|------|
+| 各 cluster 子 Tab 的 `onRefresh` 映射 | `loaders/clusterRefresh.ts` → **`createClusterTabOnRefresh(tab, deps)`** |
+| 按 `innerKey` 拉数 | `loaders/pathResource/clusterPathLoads.ts`（含 **`nads`**，与侧栏 `cluster/nads` 一致） |
+| 池引擎入口 | `hooks/useCloudmapPoolDetailEngine.ts` 的 **`loadTabResource`**（**勿**再导出节点/NAD/VLAN 专用 refresh） |
+| 装配 | `panels/cluster/index.tsx` → **`clusterTabOnRefresh.*`** |
+
+**cluster 子 Tab 与 `loadTabResource` key（本域 Section）**
+
+| `innerActiveKey` | `loadTabResource` key | 说明 |
+|------------------|----------------------|------|
+| `cluster_nodes` | `cluster_nodes` | `?force=true` → sync 节点库存后读库；列表工具栏另触发 **`useNodesResourceBundle`** 拉 metrics/pods |
+| `namespaces` | `namespaces` | sync 后读库；写删用 **`reloadHarvesterNamespacesList`** |
+| `gpu` / `cluster_usb` / `cluster_pci` / `cluster_sriov` / `clusterNetworks` / `storage_classes` / `nads` / `load_balancers` / `ippools` | 同名 key | `force=true` 时 inventory **sync 后读库**（USB/PCI 写操作经 Steve，列表仍走 sync+库） |
+| `cluster_vlans` | `cluster_vlans` | 可同时刷新 VLAN + ProviderNetwork（loader 内并行） |
+| `kubeovn_public_networks` | `kubeovn_public_networks` | Provider 网络 Tab（`kube-ovn` Section，池层 key 归 cluster 导航） |
+
+**有意不走路径 `onRefresh` 的例外**：**物理交换机**（Section 内 `loadAll`）、**Ceph `storage_pools`**、**Underlay 子网**（`kubeovn_public_subnets` 自拉）——在 README 标明，勿强行并入 `clusterTabOnRefresh`。
+
+**第 2 层 — Section 层**
+
+与 compute 相同：**`createHarvesterToolbarRefresh`** / **`runHarvesterSectionRefresh`**；`cluster/lib/clusterSectionRefresh.ts` 仅 re-export shared。
+
+细则亦见 **`frontend/src/pages/cnmc/clouds/Harvester/cluster/README.md`**。
 
 ### 组件开发
 - 公共逻辑提取到 `components/` 或 `hooks/`
@@ -529,7 +619,7 @@ const addRule = useCallback(() => {
    - 是否实际存在该接口，只是未总结到文档
    - 是否可以用其他接口替代
    - 确认后再决定是否需要新增
-3. **避免重复造轮子**： 不要一上来就从零开始开发，优先复用已有的 API 和代码
+3. **避免重复造轮子**： 不要一上来就从零开始开发，优先复用已有的 API 和代码；细则见下文 **代码质量自查 · 不要重复造轮子（复用优先）**。
 
 ### 全局样式
 通用 CSS 样式文件：`frontend/src/global-new.css`
@@ -578,6 +668,148 @@ const addRule = useCallback(() => {
 #### 浏览器兼容性
 - 生产环境：`>0.2%, not dead, not op_mini all`
 - 开发环境：`last 1 chrome version, last 1 firefox version, last 1 safari version`
+
+### 代码质量自查（PR / 专项清理）
+
+本节为**合入前与专项治理**用的检查清单；日常开发仍以本文 **开发规范** 各专章及 **`frontend/src/STRUCTURE.md`**、**`backend/src/STRUCTURE.md`** 为**唯一权威**。清单条目与上述文档冲突时，**以 STRUCTURE 专章与本文件已写明的强制约定为准**。
+
+**推荐阅读顺序（自查时）**：① 落位与依赖 → ② 命名 → ③ 文件内结构 → **④ 不要重复造轮子（复用优先）** → ⑤ 本仓强制行为（刷新/API/表格）→ ⑥ 质量与 TS → ⑦ 性能与泄漏 → ⑧ 安全 → ⑨ 构建与合入。
+
+#### 1. 落位、结构与依赖
+
+- **不私自改目录拓扑**：新增/搬迁遵循 **`frontend/src/STRUCTURE.md`** / **`backend/src/STRUCTURE.md`**；禁止无业务理由的跨平台乱迁、散落「垃圾文件」。
+- **业务域内角色**：Harvester 等大域使用 `sections/`、`drawers/`、`modals/`、`lib/`、`hooks/`；跨 **≥2 个业务域** 的复用再上浮 `shared/` 或 `src/components/`（见 Harvester 修改纪要）。
+- **路由与文件夹**：对外 URL 以 **`RouteSpec` / `backend/src/index.ts` 挂载**为准；**不要求** URL 与 `pages/` 路径逐段同构（见 `STRUCTURE.md` §3）。
+- **依赖方向**：`routes` → `services` → 云 SDK/实体；前端 `pages` 经 `services/` 调 API；避免循环依赖、反向引用、跨模块抄近路。
+- **模块入口**：优先小写 **`index.ts` / `index.tsx`**；存量 **`Index.tsx`**（如 `settings/`）允许保留，新代码与**同级目录**习惯一致。
+- **静态资源**：图片、字体、全局样式放在约定目录（如 `assets/`、`global-new.css`）；清理未引用静态文件与废弃依赖。
+
+#### 2. 命名（与仓库一致）
+
+细则与**已登记例外**以 **`STRUCTURE.md` §4** 为准；勿将下列规则理解为「全仓一刀切」：
+
+| 对象 | 约定 |
+|------|------|
+| **业务目录**（`pages/` 下通用） | 小写 **`kebab-case`**（如 `cloud-database`、`kube-ovn`） |
+| **云厂商目录**（`clouds/` 下） | 与产品一致，多为 **`PascalCase`**（`Harvester/`、`Aliyun/`） |
+| **React 组件文件** | **`PascalCase.tsx`**（`VmSection.tsx`） |
+| **工具 / 纯逻辑 TS** | **`camelCase.ts`**（`nodesSectionUtils.ts`） |
+| **变量、函数** | **camelCase**；**常量** 可用 **UPPER_SNAKE_CASE** |
+| **布尔量** | 优先 **is / has / can / should** 前缀 |
+| **事件** | Props 用 **onXxx**；组件内处理用 **handleXxx** |
+| **CSS** | 列表等全站样式以 **`global-new.css`**（如 **`.std-table`**）为准，**非**强制全仓 BEM |
+
+禁止拼音、无意义单字母、自创缩写；命名须能表达业务含义。
+
+#### 3. 文件内部结构
+
+建议顺序（可按文件类型微调）：**第三方导入 → 项目内导入（`components` / `hooks` / `services` / `utils`）→ 类型 → 常量 → 状态 → 回调/方法 → JSX → 导出**。
+
+- **类型**：共享类型放 `types/` 或域内 `lib/*Types.ts` / `types.ts`，避免在 Section 内堆巨型内联类型。
+- **逻辑分层**：过滤、列构建、提交编排等放 **`lib/`**、**`hooks/`**；Section/页面负责状态与组合，**非**「零逻辑模板」（复杂表格、向导除外）。
+- **工具分类**：全站 `utils/`、业务 `pages/.../lib/`、请求 `services/`、缓存 `requestManager` —— 勿混在同一文件。
+
+#### 4. 不要重复造轮子（复用优先）
+
+**原则**：新增能力前**先查再写**；已有等价实现则**扩展或调用**，禁止为同一语义再写一套（拷贝粘贴、平行 helper、页面内裸 `fetch` 等）。与上文 **API 开发原则** 一致：接口缺失先核对文档与现有路由，确认无替代再新增。
+
+**动手前检索（建议顺序）**
+
+1. **`services/`**、**`deployment/docs/specs/api/`**：是否已有标准 HTTP / 代理读写的封装。
+2. **同业务域 `pages/.../<域>/lib/`、`hooks/`**：是否已有列表过滤、列构建、提交编排（如 Harvester **`shared/lib/harvesterSectionRefresh.ts`**、域内 `*TableColumns.tsx`、`*SectionUtils.ts`）。
+3. **`src/components/`、`hooks/`、`utils/`**：是否已有 `PageDetailSection`、`useTableColumnSettings`、`requestManager`、`harvesterUtils` 等横切能力。
+4. **Harvester `shared/` 或其它云 `shared/`**：仅当 **≥2 个业务域** 已需要同一 UI/逻辑再上浮（见 `STRUCTURE.md`、Harvester 修改纪要）。
+5. **后端**：`routes` 是否已有薄路由 + `services/clouds/<厂商>/` 实现；优先扩 `handlers/` 而非新起一条代理链。
+
+**禁止与鼓励**
+
+| 避免 | 应做 |
+|------|------|
+| 每个 Section 自写一套工具栏刷新、`message.error` 文案与 `onRefresh(true)` 分支 | 域内或全站统一的 refresh helper；父级注入 `onRefresh`，子组件调用约定方法 |
+| 在页面里拼 `/api/clouds/...` 或复制 Steve 路径 | 使用 **`services/`** 已有函数；路径常量集中在 service 或域内 `lib` |
+| 再包一层「仅包 Skeleton / 仅包 Table」的薄组件 | 直接用 **antd** `Table` `loading` / `Skeleton`（见 **加载态与骨架屏**） |
+| 为单次使用抽「万能 utils」到 `src/utils` | 逻辑留在**本域 `lib/`**；确属第二处相同语义再抽共享 |
+| 未读现有代码即新增 npm 依赖 | 优先用仓库已依赖的 Ant Design、现有工具库 |
+
+**何时允许新建共享**
+
+- 同一语义在**第二处**出现且行为应对齐（如第二个 Harvester 域也要「工具栏强制刷新 + 写后清缓存」）→ 抽到该域 `lib/` 或 `shared/`，并**替换**第一处拷贝，避免三套并存。
+- 现有函数缺参数（如要多 `silent`）→ **扩展原函数签名**，勿平行新增 `createXxxRefresh2`。
+
+**PR 必答（若无则说明原因）**：本改动是否检索过上述层级？复用了哪些已有模块？为何不能复用？
+
+#### 5. 本仓强制行为（合入必查）
+
+以下在本文 **开发规范** 中已有专章，自查时**逐项对照**，此处不重复全文：
+
+| 主题 | 要点 |
+|------|------|
+| **数据刷新** | 显式刷新与写成功后列表重载须对端拉取/同步；`onRefresh(true)`、`skipCache: true` / `clearCache`；禁止假刷新（见 **数据展示与刷新**） |
+| **API** | 经 **`services/`** + **`requestManager`**；优先标准 API，避免页面内裸 `fetch`（见 **§4 不要重复造轮子**） |
+| **列表表格** | **`std-table`**、首列左冻结、操作列右冻结、`scroll.x`；勿擅自 `Table size="small"` |
+| **加载态** | 列表用 **`Table` `loading`**；非表格占位用 **`Skeleton`**，禁止封装「仅包 Skeleton」的组件 |
+| **格式与 Lint** | 以 **Prettier + ESLint + lint-staged** 为准；合入前修复**本次改动引入**的告警，全仓零 warning 作为**专项**目标而非每条 PR 硬性要求 |
+
+#### 6. 可维护性、TypeScript 与注释
+
+- 消除死代码、大块注释掉的旧实现、未引用文件与**重复拷贝逻辑**（与 **§4** 一致：第二处相同语义须抽复用，而非复制第三份）。
+- 控制圈复杂度：减少深层嵌套，优先 `async/await` 与早返回。
+- **单一职责**：函数/组件一事一责；巨型 Section 拆 `lib/*Columns.tsx`、`*SectionUtils.ts`（参考 `Harvester/cluster`）。
+- **TypeScript**：减少无必要的 `any`；对外 Props 与 API 响应应有明确类型。
+- **注释**：只保留非显而易见业务说明；删除过期、重复注释。
+
+#### 7. 性能与资源
+
+- 避免重复请求、无意义的并行重复 GET；轮询须可停止；`useEffect` 清理定时器、订阅与监听。
+- 列表读缓存与 **强制刷新** 语义一致（见 §4）；大数据列表评估分页、防抖/节流，勿在 render 中做昂贵全量计算。
+- React：避免不必要的重渲染（稳定 `useCallback`/`useMemo` 依赖、合理 `key`）。
+
+#### 8. 健壮性与安全
+
+- 边界与空值：列表空态、缺少 `cloudId`、接口失败须有用户可感知提示（**用户触发的刷新/提交**不得静默失败）。
+- Hook 内兜底 `catch` 若仅重置状态，须在 PR 中说明；**不得**吞掉本应展示给用户的错误。
+- **密钥、Token、密码**：禁止进仓库；环境变量与运行时配置见 **构建与运行**、**注意事项**。
+- API **路径**集中在 `services/` 可接受；**敏感凭据**不得硬编码。魔法数字/字符串抽常量或枚举。
+
+#### 9. 构建、依赖与合入标准
+
+- 清理未使用 npm 依赖；前后端改动后 **`npm run build`** / **`tsc --noEmit`**（按改动范围）应通过。
+- 构建优化以各包现有 `package.json`、CI 为准，不在业务 PR 中随意改构建策略。
+- **不破坏既有业务**；列表增删改后按 **数据展示与刷新 · 自测** 验证，无需 F5。
+- 日志与线上排查：后端审计/错误处理遵循现有中间件；新增关键路径须有可追踪错误信息。
+
+**合入前最小检查（可复制到 PR 描述）**：
+
+1. 文件落位是否符合 STRUCTURE / 本文件 **开发规范**？
+2. 是否已 **先查再写**、复用已有 API/组件/域内 `lib`（**§4 不要重复造轮子**）？
+3. 列表/写操作是否满足 **刷新与缓存**、**std-table**？
+4. 是否引入 ESLint/类型/构建错误？
+5. 是否删除本次改动产生的死代码与重复逻辑？
+6. 是否做过相关路径的手动冒烟（尤其 Harvester 云详情 Tab）？
+
+#### 附录：五十条清单 ↔ 本节约束（PR 勾选）
+
+下列为**合入/专项清理**用的编号索引；细则以本节 **§1–§9** 及 **`STRUCTURE.md`** 为准。**全仓一次性满足 50 条**属长期专项，**非**单条 PR 的硬性门槛（见 **§5 · 格式与 Lint**）。
+
+| 大类 | 条号 | 要点 | 对应 |
+|------|------|------|------|
+| 一、基础代码 | 1 | ESLint/Prettier、废弃语法 | **§5**、lint-staged；本次改动零新增告警 |
+| | 2 | 死代码、注释代码、未引用文件 | **§6** |
+| | 3–4 | 排版、编码/换行/引号 | Prettier；仓库 **`.editorconfig`** / Git 属性 |
+| | 5–7 | 去重、降圈复杂度、单一职责 | **§4**、**§6**；巨型 Section 拆 `lib/` |
+| 二、工程结构 | 8–10 | 目录不乱迁、层级合理 | **§1**、**`STRUCTURE.md` §3** |
+| | 11–12 | index 导出、无循环/反向依赖 | **§1** |
+| | 13–15 | 静态资源、路由可维护 | **§1**；URL 以 RouteSpec 为准 |
+| 三、命名 | 16–24 | kebab / Pascal / camel 等 | **§2**（**React 组件文件仍为 PascalCase**，非全仓 kebab 文件名） |
+| | 24 | CSS 类名 | **`.std-table`** 等 **`global-new.css`**，非强制全仓 BEM |
+| 四、文件内部 | 25–28 | 导入顺序、类型抽离、逻辑分层 | **§3** |
+| 五、质量可维护 | 29–34 | 耦合、TS、注释、拆巨型组件 | **§4**、**§6** |
+| 六、性能 | 35–39 | 重复请求、渲染、泄漏、列表优化 | **§7**、**数据展示与刷新** |
+| 七、健壮安全 | 40–43 | 边界、异常、无硬编码密钥 | **§8** |
+| 八、构建依赖 | 44–46 | 依赖、构建、无报错 | **§9** |
+| 九、业务上线 | 47–50 | 日志排查、无回归、可维护 | **§9**、**§5 自测** |
+
+**与本仓命名清单的差异（勿误用「全仓 kebab 文件名」）**：条 16 在 Compute Tower 中**仅**约束 `pages/` 下**业务目录**与通用工具文件；**`VmSection.tsx` 等 React 组件**、**`clouds/Harvester/`** 等见 **`STRUCTURE.md` §4** 与 **§2** 表格。
 
 ## 认证与权限
 

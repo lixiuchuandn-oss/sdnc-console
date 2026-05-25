@@ -5,7 +5,11 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnFip, deleteCloudProviderOvnFip } from '../../../../../../services/harvesterApi';
+import {
+  createCloudProviderOvnFip,
+  deleteCloudProviderOvnFip,
+  uiNetworkScopeToCloudOvn,
+} from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import MetadataModal from '../modals/MetadataModal';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -267,7 +271,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
     }
     try {
       const values = await form.validateFields();
-      const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+      const scope = uiNetworkScopeToCloudOvn(networkScope);
       const displayName = String(values.displayName ?? '').trim();
       const subnetName = String(values.subnetName || '').trim();
       const subnet = subnetChoicesForFip.find(
@@ -346,9 +350,11 @@ export const FipSection: React.FC<FipSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              const apiScope =
-                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
-              await deleteCloudProviderOvnFip(cloudId, record.metadata?.name, apiScope);
+              await deleteCloudProviderOvnFip(
+                cloudId,
+                record.metadata?.name,
+                uiNetworkScopeToCloudOvn(networkScope),
+              );
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {

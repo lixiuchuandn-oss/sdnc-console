@@ -1,6 +1,6 @@
 /**
  * Cloudmap 池数据加载依赖类型。
- * 业务域与 `layouts/admin/cloudmap/cloudPoolSidebar` 的 `CLOUDMAP_POOL_TAB_KEYS`、
+ * 业务域与 `layouts/admin/cloudmap/cloudPoolSidebar` 的 `CLOUDMAP_POOL_NAV_KEYS`、
  * `panels/<域>/` 目录一一对应；路径内层段与侧栏 `pathSeg` 一致。
  */
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
@@ -77,6 +77,8 @@ export type PoolPathResourceDeps = {
   setRawTemplates: Dispatch<SetStateAction<any | null>>;
   setHarvesterImages: Dispatch<SetStateAction<any[]>>;
   setRawImages: Dispatch<SetStateAction<any | null>>;
+  setHarvesterMigrations: Dispatch<SetStateAction<any[]>>;
+  setRawMigrations: Dispatch<SetStateAction<any | null>>;
   setHarvesterGpuResources: Dispatch<SetStateAction<any[]>>;
   setRawGpu: Dispatch<SetStateAction<any | null>>;
   setHarvesterUsbDevices: Dispatch<SetStateAction<any[]>>;
@@ -92,6 +94,8 @@ export type PoolPathResourceDeps = {
   setHarvesterKubeOvnProviderNetworks: Dispatch<SetStateAction<any[]>>;
   setHarvesterIPPools: Dispatch<SetStateAction<any[]>>;
   setRawIPPools: Dispatch<SetStateAction<any | null>>;
+  setHarvesterNads: Dispatch<SetStateAction<any[]>>;
+  setRawNads: Dispatch<SetStateAction<any | null>>;
   setHarvesterClusterNetworks: Dispatch<SetStateAction<any[]>>;
   setRawClusterNetworks: Dispatch<SetStateAction<any | null>>;
   setHarvesterNodes: Dispatch<SetStateAction<any[]>>;

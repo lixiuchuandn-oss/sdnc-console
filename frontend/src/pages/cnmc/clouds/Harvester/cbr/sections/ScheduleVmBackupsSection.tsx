@@ -1,43 +1,20 @@
 /**
- * ==============================================================================
- * 模块名称: Harvester 定时备份策略列表 (ScheduleVmBackupsSection)
- * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/cbr/sections/ScheduleVmBackupsSection.tsx
- * ==============================================================================
- * 
- * [功能描述]
- * 这个组件是“定时备份/快照”功能的列表展示页面。
- * 它就像一个“日程表”，列出了所有给虚拟机设定的自动备份计划。
- * 
- * [核心功能]
- * 1. 列表展示: 显示所有定时策略，包括名字、针对哪台虚拟机、备份频率(Cron表达式)等。
- * 2. 过滤搜索: 可以只看“备份”或“快照”，也可以搜索名字。
- * 3. 增删改查: 
- *    - 创建: 弹出一个对话框新建策略。
- *    - 修改: 修改备份频率或保留数量。
- *    - 停用/启用: 就像闹钟开关一样，暂时关闭策略但不删除。
- *    - 删除: 彻底移除策略。
- * 4. 租户适配:
- *    - 通过 showYaml 属性控制，如果是租户看，就隐藏复杂的 YAML/详情入口。
- * 
- * [关键逻辑 - 乐观更新 (Optimistic UI)]
- * Harvester 的 API 有时候反应比较慢（异步），比如点了“删除”，后端可能要过几秒才真正删掉。
- * 为了让用户感觉“秒删”，我们在界面上会先“假装”它已经删了（从列表中移除），
- * 然后在后台悄悄轮询后端，直到后端真的删掉了，或者出错了再滚回。
- * 
- * ==============================================================================
+ * Harvester - 虚拟机定时备份/快照策略列表
+ * 支持筛选、增删改、停用/启用；创建/删除采用乐观更新并轮询对端直至一致。
  */
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Table, Button, Input, Badge, Tooltip, Dropdown, message, Modal, Select } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CalendarOutlined } from '@ant-design/icons';
 import { formatCron } from '../../../../../../utils/cronFormatter';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
-import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import ScheduleVmBackupCreateModal from '../../cbr/modals/ScheduleVmBackupCreateModal';
-import ScheduleVmBackupEditModal from '../../cbr/modals/ScheduleVmBackupEditModal';
+import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
+import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
+import { findHarvesterVmDisplayAlias, formatVmBackupRelativeAge } from '../lib/vmBackupDisplay';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 
@@ -88,26 +65,6 @@ interface Props {
    */
   isTenant?: boolean;
 }
-
-/**
- * [辅助函数] 计算“存活时间”
- * 把枯燥的时间戳（2023-10-01...）转换成“5 分钟前”、“3 天前”这种人话。
- */
-const formatAge = (timestamp: string) => {
-  if (!timestamp) return '-';
-  const created = new Date(timestamp).getTime();
-  const now = Date.now();
-  const diff = now - created;
-  
-  if (diff < 0) return '0 分钟';
-
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes} 分钟`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时`;
-  const days = Math.floor(hours / 24);
-  return `${days} 天`;
-};
 
 const ScheduleVmBackupsSection: React.FC<Props> = ({ 
   cloudId, 
@@ -182,7 +139,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
    * 2. 检查列表里有没有我们需要找的那个名字 (pollingTarget)。
    * 3. 如果找到了，或者试了 15 次还没找到，就停止轮询。
    */
-  React.useEffect(() => {
+  useEffect(() => {
     if (!pollingTarget) return;
     let tries = 0;
     const maxTries = 15;
@@ -216,7 +173,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
    * [轮询逻辑 2] 检查停用/启用状态是否生效
    * 逻辑同上，只是检查的是 suspend 字段是否变成了我们预期的值。
    */
-  React.useEffect(() => {
+  useEffect(() => {
     if (!suspendPollingTarget) return;
     let tries = 0;
     const maxTries = 15;
@@ -346,17 +303,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       const vmNameRaw = raw.spec?.vmbackup?.source?.name || b.vmName || '';
       
       // [别名查找逻辑] 拿着 VM 的 ID 去 vms 列表里查它的中文名
-      let vmAlias = vmNameRaw || '-';
-      try {
-        const vm = (vms || []).find((x: any) => {
-          const vmNs = x?.metadata?.namespace || x?.namespace;
-          const vmName = x?.metadata?.name || x?.name;
-          return vmNs === ns && vmName === vmNameRaw;
-        });
-        if (vm) {
-          vmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || vmNameRaw || '-';
-        }
-      } catch {}
+      const vmAlias = vmNameRaw
+        ? findHarvesterVmDisplayAlias(vms, ns, vmNameRaw)
+        : '-';
 
       // 判断是否停用：优先看我们的“乐观覆盖状态”，没有覆盖再看真实状态
       let isSuspended = raw.spec?.suspend === true || b.status === 'Suspended';
@@ -376,7 +325,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         cron: raw.spec?.cron || b.cron || '-',
         suspended: isSuspended,
         creationTimestamp: raw.metadata?.creationTimestamp || b.createdAt,
-        age: formatAge(raw.metadata?.creationTimestamp || b.createdAt),
+        age: formatVmBackupRelativeAge(raw.metadata?.creationTimestamp || b.createdAt),
         raw,
         links: b.links || {},
       };
@@ -620,7 +569,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         key="table"
         className="std-table"
         scroll={{ x: true }}
-        bordered={false}
+        bordered={bordered}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
@@ -652,12 +601,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
           setPollingTarget(created);
           
           // [乐观创建] 立即在列表里造一个假数据，让用户觉得"秒创建"
-          const vm = (vms || []).find((x: any) => {
-            const vmNs = x?.metadata?.namespace || x?.namespace;
-            const vmName = x?.metadata?.name || x?.name;
-            return vmNs === created.namespace && vmName === created.vmName;
-          });
-          const vmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || created.vmName || '-';
+          const vmAlias = findHarvesterVmDisplayAlias(vms, created.namespace, created.vmName);
           const now = new Date().toISOString();
           // 使用从创建结果中获取的K8s资源名称，如果没有则使用'-'作为占位符
           const resourceName = created.resourceName || '-';

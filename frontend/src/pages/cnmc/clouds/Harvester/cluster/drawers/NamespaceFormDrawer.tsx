@@ -11,46 +11,15 @@ import {
   Form,
   Input,
   Row,
-  message,
 } from 'antd';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
-import { createHarvesterNamespace, updateHarvesterNamespace } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
-import { clearGetCacheForPath } from '../../../../../../utils/requestManager';
 import { getHarvesterDrawerSectionCardProps } from '../../shared/drawerSectionCard';
-
-/** 表单「键值对」转为 K8s labels/annotations（忽略空键） */
-function labelPairsToRecord(
-  pairs: Array<{ key?: string; value?: string } | undefined> | undefined,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const p of pairs || []) {
-    const k = String(p?.key ?? '').trim();
-    if (!k) continue;
-    out[k] = String(p?.value ?? '').trim();
-  }
-  return out;
-}
-
-/** 收集重复的键 */
-function collectDuplicatePairKeys(pairs: Array<{ key?: string } | undefined> | undefined): string[] {
-  const keys = (pairs || []).map((p) => String(p?.key ?? '').trim()).filter(Boolean);
-  const seen = new Set<string>();
-  const dup = new Set<string>();
-  for (const k of keys) {
-    if (seen.has(k)) dup.add(k);
-    seen.add(k);
-  }
-  return [...dup];
-}
-
-/** K8s 标签/注解 metadata 键校验（非空键时） */
-async function validatePairKeyField(_: unknown, value: unknown) {
-  const k = String(value || '').trim();
-  if (!k) return;
-  if (k.length > 253) throw new Error('键最长 253 个字符');
-  if (/[\s=]/.test(k)) throw new Error('键不能包含空格或 =');
-}
+import {
+  namespaceRecordToFormValues,
+  submitNamespaceForm,
+  validateNamespacePairKeyField,
+  type NamespaceFormValues,
+} from '../lib/submitNamespaceForm';
 
 export type NamespaceFormDrawerProps = {
   open: boolean;
@@ -61,32 +30,6 @@ export type NamespaceFormDrawerProps = {
   /** 成功后由父级刷新列表（建议使用 onRefresh(true, true)） */
   onCommitted?: () => void;
 };
-
-function recordToPairs(record: unknown): {
-  name?: string;
-  labelPairs: Array<{ key?: string; value?: string }>;
-  annotationPairs: Array<{ key?: string; value?: string }>;
-} {
-  const r = record as {
-    metadata?: { name?: string; labels?: Record<string, string>; annotations?: Record<string, string> };
-    name?: string;
-  };
-  const name = r?.metadata?.name || r?.name;
-  const labels = r?.metadata?.labels || {};
-  const annotations = r?.metadata?.annotations || {};
-  const labelPairs = Object.keys(labels)
-    .sort()
-    .map((k) => ({ key: k, value: String(labels[k] ?? '') }));
-  const annotationPairs = Object.keys(annotations)
-    .sort()
-    .map((k) => ({ key: k, value: String(annotations[k] ?? '') }));
-
-  return {
-    name,
-    labelPairs: labelPairs.length ? labelPairs : [{ key: '', value: '' }],
-    annotationPairs: annotationPairs.length ? annotationPairs : [{ key: '', value: '' }],
-  };
-}
 
 const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
   open,
@@ -102,7 +45,7 @@ const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
   useEffect(() => {
     if (!open) return;
     if (editingRecord) {
-      form.setFieldsValue(recordToPairs(editingRecord));
+      form.setFieldsValue(namespaceRecordToFormValues(editingRecord));
     } else {
       form.resetFields();
       form.setFieldsValue({
@@ -112,73 +55,21 @@ const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
     }
   }, [open, editingRecord, form]);
 
-  const handleFinish = useCallback(async (values: {
-    name?: string;
-    labelPairs?: Array<{ key?: string; value?: string }>;
-    annotationPairs?: Array<{ key?: string; value?: string }>;
-  }) => {
-    const name = String(values.name || '').trim();
-
-    if (isSystemNamespace(name)) {
-      message.error('禁止创建系统或受保护的项目');
-      return;
-    }
-
-    const labelDups = collectDuplicatePairKeys(values.labelPairs);
-    if (labelDups.length > 0) {
-      message.error(`标签键不能重复：${labelDups.join(', ')}`);
-      return;
-    }
-    const annotationDups = collectDuplicatePairKeys(values.annotationPairs);
-    if (annotationDups.length > 0) {
-      message.error(`注解键不能重复：${annotationDups.join(', ')}`);
-      return;
-    }
-
-    const parsedLabels = labelPairsToRecord(values.labelPairs);
-    const parsedAnnotations = labelPairsToRecord(values.annotationPairs);
-
-    // 新建时写入 Tower 管理标签（与租户分配 scenario 区分）
-    const labels = isEdit
-      ? parsedLabels
-      : {
-          ...parsedLabels,
-          'kubernetes.io/metadata.name': name,
-          'tower.io/managed': 'true',
-          'tower.io/creator': 'compute-tower',
-          'tower.io/scenario': 'admin',
-        };
-
-    const payload = {
-      apiVersion: 'v1',
-      kind: 'Namespace',
-      metadata: {
-        name,
-        labels,
-        annotations: parsedAnnotations,
-      },
-    };
-
-    setSubmitting(true);
-    try {
-      if (isEdit) {
-        await updateHarvesterNamespace(cloudId, name, payload);
-        message.success('更新成功');
-      } else {
-        await createHarvesterNamespace(cloudId, payload);
-        message.success('创建成功');
+  const handleFinish = useCallback(
+    async (values: NamespaceFormValues) => {
+      setSubmitting(true);
+      try {
+        const result = await submitNamespaceForm({ cloudId, isEdit, values });
+        if (!result.ok) return;
+        onCommitted?.();
+        form.resetFields();
+        onClose();
+      } finally {
+        setSubmitting(false);
       }
-      clearGetCacheForPath(`/api/clouds/${cloudId}/resources/harvester/namespaces`);
-      onCommitted?.();
-      form.resetFields();
-      onClose();
-    } catch (e: unknown) {
-      const err = e as { message?: string };
-      message.error(err?.message || (isEdit ? '更新失败' : '创建失败'));
-    } finally {
-      setSubmitting(false);
-    }
-  }, [cloudId, form, isEdit, onClose, onCommitted]);
+    },
+    [cloudId, form, isEdit, onClose, onCommitted],
+  );
 
   return (
     <Drawer
@@ -224,7 +115,7 @@ const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
                       <Col flex="1 1 0">
                         <Form.Item
                           name={[rowName, 'key']}
-                          rules={[{ validator: validatePairKeyField }]}
+                          rules={[{ validator: validateNamespacePairKeyField }]}
                           noStyle
                         >
                           <Input placeholder="键，如 env 或 example.com/name" allowClear />
@@ -264,7 +155,7 @@ const NamespaceFormDrawer: React.FC<NamespaceFormDrawerProps> = ({
                       <Col flex="1 1 0">
                         <Form.Item
                           name={[rowName, 'key']}
-                          rules={[{ validator: validatePairKeyField }]}
+                          rules={[{ validator: validateNamespacePairKeyField }]}
                           noStyle
                         >
                           <Input placeholder="键，如 description 或 example.com/note" allowClear />

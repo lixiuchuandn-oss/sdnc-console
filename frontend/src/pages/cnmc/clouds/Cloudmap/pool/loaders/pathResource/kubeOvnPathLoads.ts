@@ -48,10 +48,10 @@ export async function tryLoadKubeOvnVpcTab(
       }
       return true;
     case 'subnets':
-      if (checkPerm('clouds.networks:read')) {
+      if (checkPerm('clouds.networks:read') && ovnVpcEnabled) {
         loadResource(
           'subnets',
-          () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+          () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'vpc'),
           (json) => {
             const list: any[] = (json as any)?.data?.items || [];
             setKubeOvnSubnets(Array.isArray(list) ? list : []);
@@ -92,7 +92,7 @@ export async function tryLoadKubeOvnVpcTab(
         if (needsEipSubnetContext && checkPerm('clouds.networks:read')) {
           loadResource(
             'subnets',
-            () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+            () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'vpc'),
             (json) => {
               const list: any[] = (json as any)?.data?.items || [];
               setKubeOvnSubnets(Array.isArray(list) ? list : []);
@@ -136,7 +136,7 @@ export async function tryLoadKubeOvnVpcTab(
             force,
           );
         }
-        /* Cloudmapï¼šFIP å…¥å£æš‚ç¼“è”è°ƒ
+        /* Cloudmap：FIP 入口暂缓联调
         if (key === 'fips' || key === 'kubeovn_fips') { ... }
         */
         if (key === 'snat' || key === 'kubeovn_snat') {

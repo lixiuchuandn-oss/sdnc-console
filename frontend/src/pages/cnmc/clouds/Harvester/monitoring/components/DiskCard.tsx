@@ -3,7 +3,7 @@
  */
 import React, { useMemo } from 'react';
 import { Card, Typography, Spin } from 'antd';
-import { HddOutlined, CheckCircleOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, CheckCircleOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useMonitoringOverviewFastLane, useMonitoringOverviewSlowLane } from '../MonitoringOverviewLanesContext';
 import { resolveMonitoringDiskSummary } from '../lib/diskSummary';
 import type { DiskCardAggregateMode, DiskSummary } from '../lib/diskSummary';
@@ -51,7 +51,7 @@ export const DiskCard: React.FC = () => {
       size="small"
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <HddOutlined style={{ color: '#1677ff', fontSize: 20 }} />
+          <CloudServerOutlined style={{ color: '#1677ff', fontSize: 20 }} />
           <span style={{ fontSize: 16 }}>存储设备</span>
         </span>
       }

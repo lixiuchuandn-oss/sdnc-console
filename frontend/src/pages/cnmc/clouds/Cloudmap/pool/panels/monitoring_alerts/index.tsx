@@ -7,7 +7,7 @@ import MonitoringAlertNotificationTargets from '../../../../Harvester/monitoring
 import MonitoringAlertSecrets from '../../../../Harvester/monitoring/MonitoringAlertSecrets';
 import { MonitoringProvider } from '../../../../Harvester/monitoring/context/MonitoringContext';
 
-export type CloudmapMonitoringAlertsTabProps = {
+export type CloudmapMonitoringAlertsRoutePanelProps = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
   innerActiveKey: string;
@@ -22,8 +22,8 @@ function canViewMonitoringInner(key: string, checkPerm: (a: string) => boolean):
   return false;
 }
 
-/** Cloudmap 详情 — 监控告警（侧栏路径驱动，无内层 Tabs） */
-const CloudmapMonitoringAlertsTab: React.FC<CloudmapMonitoringAlertsTabProps> = ({
+/** Cloudmap 池 — 监控告警（侧栏 + 路由 RoutePanel） */
+const CloudmapMonitoringAlertsRoutePanel: React.FC<CloudmapMonitoringAlertsRoutePanelProps> = ({
   cloudId,
   checkPerm,
   innerActiveKey,
@@ -56,4 +56,4 @@ const CloudmapMonitoringAlertsTab: React.FC<CloudmapMonitoringAlertsTabProps> = 
   return <MonitoringProvider cloudId={cloudId}>{body}</MonitoringProvider>;
 };
 
-export default CloudmapMonitoringAlertsTab;
+export default CloudmapMonitoringAlertsRoutePanel;

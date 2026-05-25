@@ -25,7 +25,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapStorageGroupTabsProps = {
+export type CloudmapStorageRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
   showLog: boolean;
@@ -67,7 +67,7 @@ function canViewStorageInner(key: string, checkPerm: (a: string) => boolean): bo
   return false;
 }
 
-const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (props) => {
+const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (props) => {
   const {
     cloudId,
     isTenant,
@@ -151,4 +151,4 @@ const CloudmapStorageGroupTabs: React.FC<CloudmapStorageGroupTabsProps> = (props
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapStorageGroupTabs;
+export default CloudmapStorageRoutePanel;

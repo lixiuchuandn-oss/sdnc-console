@@ -93,7 +93,6 @@ function validateIpCidr(value: string): boolean {
 }
 
 const SG_L4_OPTIONS = [
-  { label: '全部', value: 'ip4' },
   { label: 'TCP', value: 'tcp' },
   { label: 'UDP', value: 'udp' },
   { label: 'ICMP', value: 'icmp' },
@@ -628,6 +627,8 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
                         overflow: 'hidden',
                         background: '#fff',
                         minHeight: 56,
+                        maxHeight: 200,
+                        overflowY: 'auto',
                       }}
                     >
                       {joinedRows.length === 0 ? (
@@ -677,6 +678,8 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
                         overflow: 'hidden',
                         background: '#fff',
                         minHeight: 56,
+                        maxHeight: 200,
+                        overflowY: 'auto',
                       }}
                     >
                       {availableRows.length === 0 ? (

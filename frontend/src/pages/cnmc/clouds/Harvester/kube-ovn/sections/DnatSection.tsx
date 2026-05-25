@@ -5,7 +5,11 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnDnatRule, deleteCloudProviderOvnDnatRule } from '../../../../../../services/harvesterApi';
+import {
+  createCloudProviderOvnDnatRule,
+  deleteCloudProviderOvnDnatRule,
+  uiNetworkScopeToCloudOvn,
+} from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import MetadataModal from '../modals/MetadataModal';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -442,7 +446,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         );
         return;
       }
-      const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+      const scope = uiNetworkScopeToCloudOvn(networkScope);
       const displayName = String(values.displayName ?? '').trim();
       const subnetName = String(values.subnetName || '').trim();
       const subnetList = networkScope === 'vpc' ? subnetChoicesForDnatByVpc : subnetChoicesForDnat;
@@ -545,9 +549,11 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              const apiScope =
-                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
-              await deleteCloudProviderOvnDnatRule(cloudId, record.metadata?.name, apiScope);
+              await deleteCloudProviderOvnDnatRule(
+                cloudId,
+                record.metadata?.name,
+                uiNetworkScopeToCloudOvn(networkScope),
+              );
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {

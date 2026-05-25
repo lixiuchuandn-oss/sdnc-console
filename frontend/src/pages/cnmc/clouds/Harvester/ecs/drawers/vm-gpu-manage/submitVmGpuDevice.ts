@@ -2,9 +2,10 @@
  * 「变更 GPU」：解析表单并调用 `updateHarvesterVmSpec`（与 `VmGpuManageDrawer` 同域）。
  */
 import { message } from "antd";
-import { updateHarvesterVmSpec } from "../../../../../../../services/harvesterApi";
+import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import type { VmReconfigureSubmitCtx } from "../../lib/vmMutation/vmReconfigureSubmitContext";
 import { tryFinalizePassthroughNodeAffinity } from "../shared/lib/passthroughNodeAffinity";
+import { getGpuNodeName } from "../../lib/gpuResourceResolve";
 
 export async function submitVmGpuDevice(
   ctx: VmReconfigureSubmitCtx,
@@ -27,8 +28,10 @@ export async function submitVmGpuDevice(
       vmName,
       activeVm,
       resourceNames: names,
+      deviceCrNames: deviceNames,
+      targetNodeHint: gpuNodeName,
       resources: gpuResources,
-      getNodeFromResource: (g: any) => String(g?.node || g?.nodeName || "").trim(),
+      getNodeFromResource: (g: any) => getGpuNodeName(g),
       buildPatchWithPinnedNode: (targetNode: string) => ({
         gpuMode: mode,
         gpuResourceNames: names,

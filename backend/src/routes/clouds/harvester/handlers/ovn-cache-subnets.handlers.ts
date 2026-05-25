@@ -21,8 +21,9 @@
  * 即：读权限按「子网总权 + 分域 + VPC 读」做并集，不在本 handler 内再按 subnet-type 细分。
  *
  * 【许可证 License】
- * 本 handler **不**校验 `network.ovn.vpc`。未开通虚拟专有云授权时，仍可拉取子网缓存（与 VPC 列表 handler 不同），
- * 前端再按注解过滤出公共/扁平/VPC 子网视图。
+ * - `ovnNetworkScope=vpc`：须已开通 `network.ovn.vpc`，否则 403。
+ * - `ovnNetworkScope=underlay`：不占用该授权。
+ * - `ovnNetworkScope=all`：未开通时仅返回 underlay 侧（扁平/公共等），不含业务 VPC 子网。
  *
  * 【本 handler 内租户过滤】
  * 租户用户：返回 `spec.namespaces` 与「租户授权命名空间」有交集的 Subnet；当 `mergePublicScenarioNamespaces=true`（默认，兼容旧客户端）
@@ -39,7 +40,9 @@ import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubn
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
 import {
-  filterItemsByOvnNetworkScopeForApi,
+  denyOvnVpcLicenseForVpcListScope,
+  filterOvnListItemsForListQuery,
+  isOvnVpcLicenseEnabled,
   parseRequiredOvnNetworkScopeListQuery,
 } from '../../../../services/clouds/harvester/kubeOvnNetworkScope';
 import {
@@ -61,6 +64,10 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
     if (!parsedScope.ok) {
       return res.status(parsedScope.status).json({ message: parsedScope.message });
     }
+
+    const scopeQ = parsedScope.scope;
+    if (denyOvnVpcLicenseForVpcListScope(res, scopeQ)) return;
+    const vpcLicenseEnabled = isOvnVpcLicenseEnabled();
 
     const cloud = (req as any).cloud;
     const { id } = req.params;
@@ -132,14 +139,7 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
       });
     }
 
-    let items = list;
-    const scopeQ = parsedScope.scope;
-    if (scopeQ === 'vpc') {
-      items = filterItemsByOvnNetworkScopeForApi(items, 'vpc');
-    } else if (scopeQ === 'underlay') {
-      items = filterItemsByOvnNetworkScopeForApi(items, 'underlay');
-    }
-    // scopeQ === 'all'：不分域
+    let items = filterOvnListItemsForListQuery(list, scopeQ, vpcLicenseEnabled);
 
     if (vpcId) {
       items = items.filter(

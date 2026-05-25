@@ -31,7 +31,7 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapKubeOvnGroupTabsProps = {
+export type CloudmapKubeOvnRoutePanelProps = {
   cloudId: string;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
@@ -101,17 +101,20 @@ function canViewKubeOvnInner(
   return checkPerm('clouds:read');
 }
 
-/** 须 network.ovn.vpc 许可证的 Kube-OVN Tab（业务 VPC 与 VPC 域南北向） */
+/** 须 network.ovn.vpc 许可证的池内 Tab（与 cloudmapPoolNavRows.requiredFeature 对齐） */
+const KUBE_OVN_TABS_REQUIRE_VPC_LICENSE = new Set([
+  'vpcs',
+  'subnets',
+  'kubeovn_eips',
+  'kubeovn_snat',
+  'kubeovn_dnat',
+]);
+
 function kubeOvnTabNeedsVpcLicense(key: string): boolean {
-  return (
-    key === 'vpcs' ||
-    key === 'kubeovn_eips' ||
-    key === 'kubeovn_snat' ||
-    key === 'kubeovn_dnat'
-  );
+  return KUBE_OVN_TABS_REQUIRE_VPC_LICENSE.has(key);
 }
 
-const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
+const CloudmapKubeOvnRoutePanel: React.FC<CloudmapKubeOvnRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -185,7 +188,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
             );
             loadResource(
               'subnets',
-              () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+              () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'vpc'),
               (json) => {
                 setKubeOvnSubnets(json?.data?.items || []);
                 setRawSubnets(json || null);
@@ -215,7 +218,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           onRefresh={() => {
             loadResource(
               'subnets',
-              () => fetchKubeOvnSubnets(cloudId, true),
+              () => fetchKubeOvnSubnets(cloudId, true, false, 'vpc'),
               (json) => {
                 setKubeOvnSubnets(json?.data?.items || []);
                 setRawSubnets(json || null);
@@ -342,4 +345,4 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapKubeOvnGroupTabs;
+export default CloudmapKubeOvnRoutePanel;

@@ -5,7 +5,6 @@ import React from 'react';
 import { Button, Dropdown, Form, Input, Modal, Select, Table, Transfer } from 'antd';
 import {
   ReloadOutlined,
-  UserAddOutlined,
   EllipsisOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
@@ -106,7 +105,7 @@ const TenantUsersWorkspace: React.FC = () => {
       }
       toolbarRight={
         <div className="toolbar-actions">
-          <Button type="primary" icon={<UserAddOutlined />} onClick={() => setCreateModalOpen(true)}>
+          <Button type="primary" onClick={() => setCreateModalOpen(true)}>
             创建组织用户
           </Button>
           <Dropdown menu={bulkActionsMenu}>

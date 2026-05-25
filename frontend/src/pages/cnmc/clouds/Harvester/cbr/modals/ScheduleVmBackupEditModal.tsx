@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Form, Input, InputNumber, Switch, Select, message, Alert, Radio, Row, Col } from 'antd';
-import { updateHarvesterScheduleVmBackup } from '../../../../../../services/harvesterApi';
+import { updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import { formatCron } from '../../../../../../utils/cronFormatter';
 
 /**

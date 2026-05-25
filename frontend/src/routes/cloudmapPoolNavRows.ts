@@ -53,6 +53,8 @@ export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>>
   cluster_device_passthrough: '直通设备',
   /** 存储池、存储类 */
   cluster_storage: '存储服务',
+  /** SSH 密钥、CloudInit、迁移记录 */
+  compute_advanced_config: '高级配置',
 };
 
 /** 并入 `routeSpecs` 的唯一表（按 `order` 升序、与侧栏分组一致） */
@@ -61,7 +63,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-rh-overview',
     pathSuffix: 'resource_hub/overview',
-    title: '总览',
+    title: '集群总览',
     order: 10,
     icon: 'DashboardOutlined',
     poolNavGroup: '资源总览',
@@ -95,7 +97,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-rh-ceph-overview',
     pathSuffix: 'resource_hub/ceph_storage_overview',
-    title: '存储仪表板',
+    title: '存储总览',
     order: 13,
     icon: 'DatabaseOutlined',
     poolNavGroup: '资源总览',
@@ -364,34 +366,47 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolMenuParentKey: COMPUTE,
   },
   {
-    id: 'cloudmap-pool-compute-ssh',
-    pathSuffix: 'compute/ssh_keys',
-    poolPageAction: 'clouds.sshkeys:read',
-    title: 'SSH 密钥',
+    id: 'cloudmap-pool-compute-bin',
+    pathSuffix: 'compute/recycle_bin',
+    poolPageAction: 'clouds.recycle-bin:read',
+    title: '回收站',
     order: 44,
     icon: 'DesktopOutlined',
     poolNavGroup: '云主机',
     poolMenuParentKey: COMPUTE,
   },
   {
-    id: 'cloudmap-pool-compute-bin',
-    pathSuffix: 'compute/recycle_bin',
-    poolPageAction: 'clouds.recycle-bin:read',
-    title: '回收站',
+    id: 'cloudmap-pool-compute-ssh',
+    pathSuffix: 'compute/ssh_keys',
+    poolPageAction: 'clouds.sshkeys:read',
+    title: 'SSH 密钥',
     order: 45,
     icon: 'DesktopOutlined',
     poolNavGroup: '云主机',
     poolMenuParentKey: COMPUTE,
+    poolNavSubgroup: 'compute_advanced_config',
+  },
+  {
+    id: 'cloudmap-pool-compute-cloud-inits',
+    pathSuffix: 'compute/cloud_inits',
+    poolPageAction: 'clouds.cloudinits:read',
+    title: 'CloudInit 配置',
+    order: 46,
+    icon: 'DesktopOutlined',
+    poolNavGroup: '云主机',
+    poolMenuParentKey: COMPUTE,
+    poolNavSubgroup: 'compute_advanced_config',
   },
   {
     id: 'cloudmap-pool-compute-mig',
     pathSuffix: 'compute/migrations',
     poolPageAction: 'clouds.migrations:read',
     title: '迁移记录',
-    order: 46,
+    order: 47,
     icon: 'DesktopOutlined',
     poolNavGroup: '云主机',
     poolMenuParentKey: COMPUTE,
+    poolNavSubgroup: 'compute_advanced_config',
   },
 
   // --- 云数据库 ---
@@ -733,6 +748,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'GlobalOutlined',
     poolNavGroup: 'VPC网络',
     poolMenuParentKey: KUBE,
+    requiredFeature: 'network.ovn.vpc',
   },
   {
     id: 'cloudmap-pool-ovn-eip',

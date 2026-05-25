@@ -1,12 +1,7 @@
-/**
- * Harvester EBS — 克隆云盘（含「仅元数据」转创建云盘分支）
- * 路径: `ebs/modals/VolumeCloneModal.tsx`
- *
- * 【页面位置】云详情「虚拟云盘」表格行操作 →「克隆云盘」
- */
 import React, { useCallback, useEffect, useState } from 'react';
 import { App, Checkbox, Form, Input, Modal } from 'antd';
-import { cloneHarvesterVolume } from '../../../../../../services/harvesterApi';
+import { cloneHarvesterVolume } from 'services/harvesterApi';
+import { pickExportTargetStorageClass } from '../lib/volumesStorageClassUtils';
 import type { VolumeCreateSeed } from './VolumeCreateModal';
 
 export type VolumeCloneSource = {
@@ -24,13 +19,14 @@ export type VolumeCloneModalProps = {
   onCancel: () => void;
   cloudId: string;
   source: VolumeCloneSource | null;
-  storageClasses: any[];
+  storageClasses: unknown[];
   nsOptions: { value: string; label: string }[];
   onCloneSuccess?: () => void;
-  /** 取消「克隆数据」时关闭本弹窗并打开创建云盘，传入预填 seed */
   onBranchToCreateVolume: (seed: VolumeCreateSeed) => void;
   isTenant?: boolean;
 };
+
+type CloneFormValues = { newName: string; cloneData: boolean };
 
 const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
   open,
@@ -45,7 +41,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
   isTenant = false,
 }) => {
   const { message } = App.useApp();
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<CloneFormValues>();
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -58,13 +54,13 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
   }, [open, openNonce, source, form]);
 
   const handleFinish = useCallback(
-    async (v: any) => {
+    async (values: CloneFormValues) => {
       if (!source) return;
       try {
         setSubmitting(true);
-        if (v.cloneData) {
+        if (values.cloneData) {
           await cloneHarvesterVolume(cloudId, source.namespace, source.name, {
-            newName: v.newName,
+            newName: values.newName,
             sizeGi: source.capacityBytes / 1024 ** 3,
             storageClassName: source.storageClass,
             accessModes: source.accessModes || ['ReadWriteOnce'],
@@ -74,17 +70,15 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
           onCancel();
           onCloneSuccess?.();
         } else {
-          const scNames = storageClasses.map((s) => s?.metadata?.name || s?.name).filter(Boolean);
-          const defaultSc =
-            scNames.find((n) => n.toLowerCase() === 'longhorn') ||
-            scNames.find((n) => n.toLowerCase().includes('longhorn')) ||
-            scNames[0];
+          const defaultSc = pickExportTargetStorageClass(storageClasses);
           const defaultNs = !isTenant
-              ? (nsOptions.length > 0 ? nsOptions[0].value : source.namespace)
-              : 'default';
+            ? nsOptions.length > 0
+              ? nsOptions[0].value
+              : source.namespace
+            : 'default';
           onCancel();
           onBranchToCreateVolume({
-            alias: v.newName,
+            alias: values.newName,
             namespace: defaultNs,
             sizeGi: source.capacityBytes / 1024 ** 3,
             accessModes: 'ReadWriteMany',
@@ -92,8 +86,9 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
             storageClassName: source.storageClass || defaultSc,
           });
         }
-      } catch (e: any) {
-        message.error(e.message || '操作失败');
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        message.error(err.message || '操作失败');
       } finally {
         setSubmitting(false);
       }
@@ -125,31 +120,31 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
       styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
       <Form form={form} layout="vertical" onFinish={handleFinish}>
-      <Form.Item
-        name="newName"
-        label="新云盘名称"
-        rules={[
-          {
-            required: true,
-            message: '请输入新云盘名称',
-            validator: (_, value) => {
-              const cloneData = form.getFieldValue('cloneData');
-              if (cloneData && !value) {
-                return Promise.reject(new Error('请输入新云盘名称'));
-              }
-              if (cloneData && String(value || '').length > 128) {
-                return Promise.reject(new Error('名称过长（最多 128 字符）'));
-              }
-              return Promise.resolve();
+        <Form.Item
+          name="newName"
+          label="新云盘名称"
+          rules={[
+            {
+              required: true,
+              message: '请输入新云盘名称',
+              validator: (_, value) => {
+                const cloneData = form.getFieldValue('cloneData');
+                if (cloneData && !value) {
+                  return Promise.reject(new Error('请输入新云盘名称'));
+                }
+                if (cloneData && String(value || '').length > 128) {
+                  return Promise.reject(new Error('名称过长（最多 128 字符）'));
+                }
+                return Promise.resolve();
+              },
             },
-          },
-        ]}
-      >
-        <Input placeholder="请输入新云盘名称" />
-      </Form.Item>
-      <Form.Item name="cloneData" valuePropName="checked">
-        <Checkbox>克隆云盘数据</Checkbox>
-      </Form.Item>
+          ]}
+        >
+          <Input placeholder="请输入新云盘名称" />
+        </Form.Item>
+        <Form.Item name="cloneData" valuePropName="checked">
+          <Checkbox>克隆云盘数据</Checkbox>
+        </Form.Item>
       </Form>
     </Modal>
   );

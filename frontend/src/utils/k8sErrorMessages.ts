@@ -161,5 +161,23 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return 'Cloud-init 配置不完整：请在「高级设置」中为 Cloud-init 配置至少一个用户数据源（userDataSource）或网络数据源（networkDataSource）。';
   }
 
+  // --- KubeVirt / Harvester：热迁移不可执行（含 Status.message 常见英文）---
+  if (
+    lower.includes('virtualmachineinstancemigration') ||
+    lower.includes('not migratable') ||
+    lower.includes('cannot be migrated') ||
+    lower.includes('can\'t be migrated') ||
+    lower.includes('live migration') && (lower.includes('not allowed') || lower.includes('not supported') || lower.includes('failed')) ||
+    lower.includes('storagelivemigratable') ||
+    lower.includes('storage live migrat') ||
+    lower.includes('addednodeselector') && lower.includes('node')
+  ) {
+    if (msg.startsWith('无法迁移')) return msg;
+    const body = msg.replace(/^无法迁移：\s*/, '').replace(/^请求无效：\s*/, '').trim();
+    return body ? `无法迁移：${body}` : '无法迁移：当前虚拟机或目标节点不满足热迁移条件（存储、调度约束或运行状态）。';
+  }
+
+  if (msg.startsWith('无法迁移')) return msg;
+
   return msg;
 }

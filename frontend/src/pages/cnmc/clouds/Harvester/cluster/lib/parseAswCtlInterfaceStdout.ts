@@ -6,6 +6,8 @@
  * 以及 WOS 风格 Interface / Status 表（见 deployment/docs/specs/api/ASW-CTL简明完整说明.md §5.4）。
  */
 
+import type { AswCtlProbeLine } from 'services/harvester/types/aswProbe';
+
 export type ParsedSwitchPort = {
   name: string;
   status: string;
@@ -284,7 +286,7 @@ export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
 
 /** 从探测行 record 中取接口探测 stdout（优先匹配含端口表特征的块） */
 export function extractInterfacesStdoutFromRecord(record: {
-  interfaces?: { lines?: any[] } | null;
+  interfaces?: { lines?: AswCtlProbeLine[] } | null;
 }): { stdout: string; command?: string } | null {
   const lines = record?.interfaces?.lines;
   if (!Array.isArray(lines) || lines.length === 0) return null;

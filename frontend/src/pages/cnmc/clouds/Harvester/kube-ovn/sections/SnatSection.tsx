@@ -17,7 +17,11 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnSnatRule, deleteCloudProviderOvnSnatRule } from '../../../../../../services/harvesterApi';
+import {
+  createCloudProviderOvnSnatRule,
+  deleteCloudProviderOvnSnatRule,
+  uiNetworkScopeToCloudOvn,
+} from '../../../../../../services/harvesterApi';
 import MetadataModal from '../modals/MetadataModal';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
@@ -274,7 +278,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
         }
       }
       setCreateLoading(true);
-      const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+      const scope = uiNetworkScopeToCloudOvn(networkScope);
       const displayName = String(values.displayName ?? '').trim();
       const payload = {
         ...values,
@@ -332,9 +336,11 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              const apiScope =
-                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
-              await deleteCloudProviderOvnSnatRule(cloudId, record.metadata?.name, apiScope);
+              await deleteCloudProviderOvnSnatRule(
+                cloudId,
+                record.metadata?.name,
+                uiNetworkScopeToCloudOvn(networkScope),
+              );
               message.success('删除成功');
               onRefresh(true);
             } catch (e: any) {

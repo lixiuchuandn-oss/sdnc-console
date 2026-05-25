@@ -47,6 +47,7 @@ import cloudmapKeyImage from '../../../../assets/clouds/cloudmapkey.png';
 import cloudmapApiImage from '../../../../assets/clouds/cloudmapapi.png';
 import { provinces, cityOptionsByProvince } from '../../../../constants/chinaRegions';
 import { apiPost, apiRequest } from '../../../../services/api';
+import { updateSystemSetting } from '../../../../services/systemApi';
 import { handleApiError } from '../../../../utils/errorHandler';
 import { isCloudWizardOpenProvider, poolTypeToApiType } from '../lib/cloudWizardUtils';
 
@@ -390,7 +391,15 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
 
 
       // 调用API创建云资源
-      await apiPost('/api/clouds', cloudData);
+      const created: any = await apiPost('/api/clouds', cloudData);
+      const newId = created?.cloud?.id ?? created?.id ?? created?.data?.id;
+      if (newId) {
+        try {
+          await updateSystemSetting('favorite.cloudId', String(newId));
+        } catch {
+          /* ignore */
+        }
+      }
       message.success('云资源创建成功！');
       onSuccess();
       handleCancel();

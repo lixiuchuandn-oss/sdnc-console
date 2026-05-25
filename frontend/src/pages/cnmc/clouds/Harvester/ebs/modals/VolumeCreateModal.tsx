@@ -1,29 +1,13 @@
 /**
- * =============================================================================
- * Harvester / 虚拟云盘（EBS）—「创建云盘」弹窗
- * 路径: `ebs/modals/VolumeCreateModal.tsx`
- *
- * 【在云详情中的位置】
- * 由 `VolumesSection`（云详情 Tab「虚拟云盘」）工具栏「创建云盘」打开；亦可在「克隆云盘 → 不克隆数据」
- * 流程中作为第二步表单出现。
- *
- * 【职责边界】
- * - 仅负责 PVC 创建表单与 `createHarvesterVolume` 调用；
- * - 命名空间列表由父组件聚合（本组件通过接口拉取后 `onNamespacesListFetched` 回传）。
- * 目录约定见：`deployment/修改纪要_Harvester前端目录结构_域优先与shared.md`
- * =============================================================================
+ * Harvester · 创建云盘弹窗
+ * 由 VolumesSection 工具栏「创建云盘」或克隆流程打开。
  */
-
-// -----------------------------------------------------------------------------
-// 依赖：React / Ant Design / 工程内 UI 与 API
-// -----------------------------------------------------------------------------
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Form, Input, Select, InputNumber, App, Modal } from 'antd';
 import { createHarvesterVolume, fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
+import { parseHarvesterNamespaceNames } from '../lib/parseHarvesterNamespaceNames';
+import { generateVolumePvcName } from '../lib/volumePvcNameUtils';
 
-// -----------------------------------------------------------------------------
-// 类型：预填字段（例如从「克隆」跳转创建时传入）
-// -----------------------------------------------------------------------------
 export type VolumeCreateSeed = Partial<{
   alias: string;
   namespace: string;
@@ -33,12 +17,17 @@ export type VolumeCreateSeed = Partial<{
   storageClassName: string;
 }>;
 
-// -----------------------------------------------------------------------------
-// 类型：弹窗 Props（与父组件 `VolumesSection` 状态对接）
-// -----------------------------------------------------------------------------
+type VolumeCreateFormValues = {
+  alias: string;
+  namespace: string;
+  sizeGi: number;
+  accessModes: string | string[];
+  volumeMode: string;
+  storageClassName?: string;
+};
+
 export type VolumeCreateModalProps = {
   open: boolean;
-  /** 父组件每次打开前自增，与 `open` 共同决定「新一轮」表单重置（避免仅依赖 open 时序问题） */
   openNonce: number;
   onCancel: () => void;
   cloudId: string;
@@ -48,25 +37,11 @@ export type VolumeCreateModalProps = {
   onNamespacesListFetched?: (names: string[]) => void;
   onSuccess?: (force?: boolean, silent?: boolean) => void;
   seed?: VolumeCreateSeed | null;
-  /** 租户模式：固定 default 项目，不展示项目下拉 */
   isTenant?: boolean;
 };
 
-// -----------------------------------------------------------------------------
-// 工具：生成 Tower 侧 PVC 资源名（与原 VolumesSection 逻辑一致）
-// -----------------------------------------------------------------------------
-function generateVolumePvcName(): string {
-  let suffix = Math.random().toString(36).substring(2);
-  while (suffix.length < 11) suffix += Math.random().toString(36).substring(2);
-  return `id-vol-${suffix.substring(0, 11)}`;
-}
-
-/** 无 seed 或未带 sizeGi 时的默认容量（GiB，与表单「容量(GB)」一致） */
 const DEFAULT_VOLUME_SIZE_GIB = 40;
 
-// -----------------------------------------------------------------------------
-// 组件：创建云盘 Modal（表单主体 + 提交）
-// -----------------------------------------------------------------------------
 const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
   open,
   openNonce,
@@ -80,34 +55,28 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
   seed,
   isTenant = false,
 }) => {
-  // --- Ant Design App 上下文（message 等）---
   const { message } = App.useApp();
-
-  // --- 表单实例 / 提交中状态 ---
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<VolumeCreateFormValues>();
   const [creating, setCreating] = useState(false);
 
-  // --- Ref：seed 与回调随渲染更新，但不驱动「整表重置」effect 重复执行 ---
   const seedRef = useRef(seed);
   seedRef.current = seed;
   const onNamespacesListFetchedRef = useRef(onNamespacesListFetched);
   onNamespacesListFetchedRef.current = onNamespacesListFetched;
 
-  // --- 拉取集群命名空间并通知父组件（用于刷新工具栏/下拉数据源）---
   const refreshNamespaces = useCallback(async () => {
     try {
-      const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
-      const items: any[] = res?.data?.items || res?.items || [];
-      const list = items.map((x: any) => x?.metadata?.name || x?.name).filter((s: any) => !!s);
-      onNamespacesListFetchedRef.current?.(list);
+      const res = await fetchHarvesterNamespaces(cloudId, true, true);
+      const items =
+        (res as { data?: { items?: unknown[] }; items?: unknown[] })?.data?.items ||
+        (res as { items?: unknown[] })?.items ||
+        [];
+      onNamespacesListFetchedRef.current?.(parseHarvesterNamespaceNames(items));
     } catch {
-      /* 静默失败：父级仍可能使用已缓存的 nsOptions */
+      /* 父级仍可能使用已缓存的 nsOptions */
     }
   }, [cloudId]);
 
-  // --- 打开弹窗（open + openNonce）：拉取 NS、重置并写入初始值 ---
-  // 说明：不把 `nsOptions`/`seed` 列入依赖，避免异步 options 更新时把用户已编辑内容清空；
-  // `seedRef` 与当前渲染的 `nsOptions[0]` 仅在「打开瞬间」读取即可。
   useEffect(() => {
     if (!open) return;
     void refreshNamespaces();
@@ -123,10 +92,9 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
       volumeMode: s?.volumeMode ?? 'Block',
       storageClassName: s?.storageClassName ?? defaultStorageClassName,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：避免 nsOptions 异步补丁触发整表重置
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 避免 nsOptions 异步补丁触发整表重置
   }, [open, openNonce, isTenant, defaultStorageClassName, form, refreshNamespaces]);
 
-  // --- 非租户：首轮父级 nsOptions 仍为空时，待 options 到达后补默认 namespace ---
   useEffect(() => {
     if (!open || isTenant) return;
     const cur = form.getFieldValue('namespace');
@@ -135,7 +103,6 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
     if (first) form.setFieldValue('namespace', first);
   }, [open, isTenant, nsOptions, form]);
 
-  // --- 默认存储类：若当前未选且集群有推荐值，则填入 ---
   useEffect(() => {
     if (!open) return;
     const current = form.getFieldValue('storageClassName');
@@ -144,9 +111,8 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
     }
   }, [open, openNonce, form, defaultStorageClassName]);
 
-  // --- 提交：组装 API payload（无运维视图权限时强制 default 命名空间）---
   const handleFinish = useCallback(
-    async (v: any) => {
+    async (v: VolumeCreateFormValues) => {
       try {
         setCreating(true);
         const modes = Array.isArray(v.accessModes)
@@ -170,8 +136,9 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
         message.success('创建成功');
         onCancel();
         onSuccess?.(true, true);
-      } catch (e: any) {
-        message.error(e.message || '创建失败');
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        message.error(err.message || '创建失败');
       } finally {
         setCreating(false);
       }
@@ -179,7 +146,6 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
     [cloudId, isTenant, message, onCancel, onSuccess],
   );
 
-  // --- 渲染：Modal + Form（云详情弹层）---
   return (
     <Modal
       title="创建云盘"
@@ -194,66 +160,60 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
       styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
     >
       <Form form={form} layout="vertical" onFinish={handleFinish}>
-      {/* 区块：展示名 → 写入 annotations['tower.io/alias'] */}
-      <Form.Item label="名称" name="alias" rules={[{ required: true }]}>
-        <Input placeholder="例如: 测试pvc" />
-      </Form.Item>
+        <Form.Item label="名称" name="alias" rules={[{ required: true }]}>
+          <Input placeholder="例如: 测试pvc" />
+        </Form.Item>
 
-      {/* 区块：项目 — 管理员可选；租户固定 default */}
-      <Form.Item label="项目" name="namespace" rules={[{ required: true, message: '请选择项目' }]}>
-        {!isTenant ? (
+        <Form.Item label="项目" name="namespace" rules={[{ required: true, message: '请选择项目' }]}>
+          {!isTenant ? (
+            <Select
+              showSearch
+              options={nsOptions}
+              style={{ width: '100%' }}
+              onOpenChange={(dropdownOpen) => {
+                if (dropdownOpen) void refreshNamespaces();
+              }}
+            />
+          ) : (
+            <Input disabled style={{ width: '100%' }} />
+          )}
+        </Form.Item>
+
+        <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: '100%' }} />
+        </Form.Item>
+
+        <Form.Item label="访问模式" name="accessModes" initialValue="ReadWriteMany">
           <Select
-            showSearch
-            options={nsOptions}
+            options={[
+              { value: 'ReadWriteOnce', label: 'RWO' },
+              { value: 'ReadWriteMany', label: 'RWX' },
+              { value: 'ReadOnlyMany', label: 'ROX' },
+            ]}
             style={{ width: '100%' }}
-            onOpenChange={async (dropdownOpen) => {
-              if (dropdownOpen) await refreshNamespaces();
-            }}
           />
-        ) : (
-          <Input disabled style={{ width: '100%' }} />
-        )}
-      </Form.Item>
+        </Form.Item>
 
-      {/* 区块：容量 */}
-      <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}>
-        <InputNumber min={1} style={{ width: '100%' }} />
-      </Form.Item>
+        <Form.Item label="云盘类型" name="volumeMode" initialValue="Block">
+          <Select
+            options={[
+              { value: 'Block', label: 'Block' },
+              { value: 'Filesystem', label: 'Filesystem' },
+            ]}
+            style={{ width: '100%' }}
+          />
+        </Form.Item>
 
-      {/* 区块：访问模式 RWO/RWX/ROX */}
-      <Form.Item label="访问模式" name="accessModes" initialValue="ReadWriteMany">
-        <Select
-          options={[
-            { value: 'ReadWriteOnce', label: 'RWO' },
-            { value: 'ReadWriteMany', label: 'RWX' },
-            { value: 'ReadOnlyMany', label: 'ROX' },
-          ]}
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
-
-      {/* 区块：Block / Filesystem */}
-      <Form.Item label="云盘类型" name="volumeMode" initialValue="Block">
-        <Select
-          options={[
-            { value: 'Block', label: 'Block' },
-            { value: 'Filesystem', label: 'Filesystem' },
-          ]}
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
-
-      {/* 区块：StorageClass（选项由父组件根据集群 StorageClass 列表生成） */}
-      <Form.Item label="存储类" name="storageClassName">
-        <Select
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          placeholder="选择存储类"
-          options={storageClassOptions}
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
+        <Form.Item label="存储类" name="storageClassName">
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="选择存储类"
+            options={storageClassOptions}
+            style={{ width: '100%' }}
+          />
+        </Form.Item>
       </Form>
     </Modal>
   );
