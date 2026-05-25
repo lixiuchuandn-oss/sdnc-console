@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Table, Input, Descriptions, Badge, Tag, DatePicker, Form, Select, InputNumber, Button, Space, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
-import dayjs from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import { apiRequest } from '../../services/api';
 import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
@@ -751,6 +750,17 @@ const AuditLogs: React.FC = () => {
     }
   };
 
+  // 格式化 IP 地址：将 IPv6 映射格式转换为标准 IPv4
+  const formatIpAddress = (ipAddress: string): string => {
+    if (!ipAddress) return '-';
+    // 移除 IPv6 映射前缀 ::ffff:
+    if (ipAddress.startsWith('::ffff:')) {
+      return ipAddress.substring(7);
+    }
+    // 处理完整的 IPv6 地址（如果需要）
+    return ipAddress;
+  };
+
   // 格式化时间为标准格式
   const formatTime = (text: string): string => {
     const date = new Date(text);
@@ -843,10 +853,20 @@ const AuditLogs: React.FC = () => {
       title: '动作',
       dataIndex: 'action',
       key: 'action',
+      ellipsis: { showTitle: true },
       render: (text, record) => {
         const friendlyAction = formatAction(text, record.details);
         const chineseAction = formatActionToChinese(text, record.details);
-        return <span className={getActionBadgeClass(friendlyAction)}>{chineseAction}</span>;
+        const displayText = chineseAction.length > 20 ? chineseAction.substring(0, 20) + '...' : chineseAction;
+        return (
+          <span 
+            className={getActionBadgeClass(friendlyAction)} 
+            title={chineseAction}
+            style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}
+          >
+            {displayText}
+          </span>
+        );
       },
     },
     {
@@ -883,6 +903,7 @@ const AuditLogs: React.FC = () => {
       title: 'IP地址',
       dataIndex: 'ipAddress',
       key: 'ipAddress',
+      render: (text) => formatIpAddress(text),
     },
     {
       title: '详情',
