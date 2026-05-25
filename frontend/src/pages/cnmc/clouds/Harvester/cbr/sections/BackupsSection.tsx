@@ -29,7 +29,7 @@ import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
  * - cloudId: 当前云 ID，用于调用后端 Harvester API
  * - backups: 后端返回的备份/快照列表（可能是原始数据或带 rawData 的包装对象）
  * - loading: 数据加载中标记，用于控制表格与按钮的 loading 状态
- * - onRefresh: 外层传入的刷新回调，支持强制刷新
+ * - onRefresh: 外层传入的刷新回调；`force` 跳过前端缓存，`skipSync` 为 true 时仅读 Tower 库存（写成功后应用，避免全量同步抹掉刚入库的备份）
  * - namespaces: 命名空间列表，用于创建备份弹窗中的下拉框
  * - vms: 虚拟机列表，用于创建/恢复时选择目标 VM
  * - type: 列表类型，'backup' 或 'snapshot'，默认展示备份
@@ -412,8 +412,8 @@ const BackupsSection: React.FC<Props> = ({
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={() => {
           setCreateModalVisible(false);
-          onRefresh?.(true, true);
-          window.setTimeout(() => onRefresh?.(true, true), 2500);
+          void onRefresh?.(true, true);
+          window.setTimeout(() => void onRefresh?.(true, true), 2500);
         }}
         cloudId={cloudId}
         namespaces={namespaces}

@@ -2,7 +2,11 @@
  * 从列表行解析 Steve `links.view`（供 ResourceLinkYamlDrawer 使用）。
  */
 
-import { isHarvesterCephVmBackup, isHarvesterCephVmRestore } from '../../../../../../utils/harvesterUtils';
+import {
+  isHarvesterCephVmBackup,
+  isHarvesterCephVmRestore,
+  isHarvesterCephScheduleVmBackup,
+} from '../../../../../../utils/harvesterUtils';
 
 type LinkRecord = {
   links?: { view?: string };
@@ -67,6 +71,10 @@ const NAMESPACED_KIND_PATH: Record<string, (ns: string, name: string) => string>
     `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmrestores/${encodeURIComponent(name)}`,
   ScheduleVirtualMachineBackup: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/schedulevirtualmachinebackups/${encodeURIComponent(name)}`,
+  ScheduleVMBackup: (ns, name) =>
+    `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/schedulevmbackups/${encodeURIComponent(name)}`,
+  ScheduleCephVmBackup: (ns, name) =>
+    `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/schedulecephvmbackups/${encodeURIComponent(name)}`,
   IPPool: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/ippools/${encodeURIComponent(name)}`,
   NetworkAttachmentDefinition: (ns, name) =>
@@ -96,8 +104,14 @@ export function resolveHarvesterSteveViewLink(record: unknown): string | undefin
     if (isHarvesterCephVmRestore(raw) || kind === 'CephVmRestore') {
       return NAMESPACED_KIND_PATH.CephVmRestore(ns, name);
     }
+    if (isHarvesterCephScheduleVmBackup(raw) || kind === 'ScheduleCephVmBackup') {
+      return NAMESPACED_KIND_PATH.ScheduleCephVmBackup(ns, name);
+    }
     if (isHarvesterCephVmBackup(raw) || kind === 'CephVmBackup') {
       return NAMESPACED_KIND_PATH.CephVmBackup(ns, name);
+    }
+    if (kind === 'ScheduleVMBackup') {
+      return NAMESPACED_KIND_PATH.ScheduleVMBackup(ns, name);
     }
     if (
       kind === 'VirtualMachineBackup' ||

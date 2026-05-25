@@ -9,6 +9,13 @@ import {
   fetchCloudProviderEcs,
 } from '../api';
 import { getToken } from '../../../../../../utils/tokenStorage';
+import {
+  applyPendingAliasToVmRow,
+  HARVESTER_VM_ALIAS_APPLIED_EVENT,
+  mergeTowerAliasIntoVmList,
+  vmAliasInventoryKey,
+  type VmAliasAppliedDetail,
+} from '../../../Harvester/ecs/lib/vmTowerAlias';
 
 export type UseCloudmapPoolEcsParams = {
   cloudId: string;
@@ -34,10 +41,24 @@ export function useCloudmapPoolEcs({
   const [ecs, setEcs] = useState<any[]>([]);
   const [rawEcs, setRawEcs] = useState<any | null>(null);
   const vmStatusBuffer = useRef<Map<string, any>>(new Map());
+  const pendingVmAliasRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     vmStatusBuffer.current.clear();
+    pendingVmAliasRef.current.clear();
   }, [cloudId]);
+
+  useEffect(() => {
+    const onAliasApplied = (ev: Event) => {
+      const d = (ev as CustomEvent<VmAliasAppliedDetail>).detail;
+      if (!d?.namespace || !d?.name || !d?.alias) return;
+      const key = vmAliasInventoryKey(d.namespace, d.name);
+      pendingVmAliasRef.current.set(key, String(d.alias).trim());
+      setEcs((prev) => mergeTowerAliasIntoVmList(prev, d.namespace, d.name, d.alias));
+    };
+    window.addEventListener(HARVESTER_VM_ALIAS_APPLIED_EVENT, onAliasApplied);
+    return () => window.removeEventListener(HARVESTER_VM_ALIAS_APPLIED_EVENT, onAliasApplied);
+  }, []);
 
   const refreshVms = useCallback(
     async (force: boolean = false) => {
@@ -56,7 +77,11 @@ export function useCloudmapPoolEcs({
             (json as any)?.data?.items ||
             (json as any)?.data?.data ||
             [];
-        setEcs(Array.isArray(list) ? list : []);
+        const pending = pendingVmAliasRef.current;
+        const merged = (Array.isArray(list) ? list : []).map((row) =>
+          applyPendingAliasToVmRow(row, pending),
+        );
+        setEcs(merged);
         setRawEcs(json || null);
       } catch (e) {
         console.warn(`Failed to load ecs`, e);
@@ -86,7 +111,8 @@ export function useCloudmapPoolEcs({
         try {
           const json = JSON.parse(String(ev.data || '{}'));
           const items: any[] = Array.isArray(json?.items) ? json.items : [];
-          setEcs(items);
+          const pending = pendingVmAliasRef.current;
+          setEcs(items.map((row) => applyPendingAliasToVmRow(row, pending)));
         } catch {}
       });
 
@@ -104,7 +130,9 @@ export function useCloudmapPoolEcs({
               )
             )
               return prev;
-            return [r, ...(prev || [])];
+            const pending = pendingVmAliasRef.current;
+            const merged = applyPendingAliasToVmRow(r, pending);
+            return [merged, ...(prev || [])];
           });
         } catch {}
       });

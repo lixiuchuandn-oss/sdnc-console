@@ -169,7 +169,8 @@ const VmSection: React.FC<Props> = ({
 
   useEffect(() => {
     const onAliasApplied = () => {
-      onRefresh?.(true);
+      // 别名由 useCloudmapPoolEcs 乐观合并；延迟全量拉取以对齐运行状态，避免过早 sync 覆盖未入库的 alias
+      window.setTimeout(() => onRefresh?.(true), 4000);
     };
     window.addEventListener('harvester:vm-alias-applied', onAliasApplied);
     return () => window.removeEventListener('harvester:vm-alias-applied', onAliasApplied);

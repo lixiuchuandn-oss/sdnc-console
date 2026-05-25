@@ -6,12 +6,14 @@ import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Table, Button, Input, Badge, Tooltip, Dropdown, message, Modal, Select } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CalendarOutlined } from '@ant-design/icons';
 import { formatCron } from '../../../../../../utils/cronFormatter';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, isHarvesterCephScheduleVmBackup } from '../../../../../../utils/harvesterUtils';
 import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
+import { resolveHarvesterSteveViewLink } from '../../shared/lib/harvesterSteveViewLink';
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
 import { findHarvesterVmDisplayAlias, formatVmBackupRelativeAge } from '../lib/vmBackupDisplay';
@@ -38,9 +40,9 @@ interface Props {
   /** 
    * 刷新数据的回调函数
    * @param force - 如果为 true，强制后端从 Harvester 重新拉取最新数据，不走缓存
-   * @param silent - 如果为 true，静默刷新（创建后刷新），跳过全量同步，直接查询数据库
+   * @param skipSync - 如果为 true，跳过后端全量同步（创建后刷新：数据已入库，直接读库）
    */
-  onRefresh?: (force?: boolean, silent?: boolean) => void;
+  onRefresh?: (force?: boolean, skipSync?: boolean) => void;
   
   /** 
    * 虚拟机列表
@@ -66,7 +68,26 @@ interface Props {
   isTenant?: boolean;
 }
 
-const ScheduleVmBackupsSection: React.FC<Props> = ({ 
+function buildScheduleVmBackupYamlRecord(raw: any) {
+  const ceph = isHarvesterCephScheduleVmBackup(raw);
+  const kind = ceph ? 'ScheduleCephVmBackup' : 'ScheduleVMBackup';
+  const ns = String(raw?.metadata?.namespace || '').trim();
+  const name = String(raw?.metadata?.name || '').trim();
+  const view =
+    resolveHarvesterSteveViewLink({ ...raw, kind }) ||
+    (ns && name
+      ? ceph
+        ? `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/schedulecephvmbackups/${encodeURIComponent(name)}`
+        : `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/schedulevmbackups/${encodeURIComponent(name)}`
+      : undefined);
+  return {
+    ...raw,
+    kind,
+    links: { ...(raw?.links || {}), ...(view ? { view } : {}) },
+  };
+}
+
+const ScheduleVmBackupsSection: React.FC<Props> = ({
   cloudId, 
   data, 
   loading, 
@@ -102,9 +123,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   const [namespaceFilter, setNamespaceFilter] = useState<string | undefined>(undefined);
   
   // 控制各种弹窗的显示/隐藏
-  const [drawerVisible, setDrawerVisible] = useState(false); // 侧边详情抽屉
   const [createModalVisible, setCreateModalVisible] = useState(false); // 创建弹窗
   const [editModalVisible, setEditModalVisible] = useState(false); // 编辑弹窗
+
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
   
   // 当前正在操作的那一行数据（比如点击了某行的编辑，这里就存那一行的数据）
   const [currentRecord, setCurrentRecord] = useState<any>(null);
@@ -115,7 +138,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   // ==============================================================================
   
   // [创建轮询]: 刚创建完策略，后端列表里可能还没刷出来，这个变量记下“我要找谁”
-  const [pollingTarget, setPollingTarget] = useState<{ namespace: string; alias: string } | null>(null);
+  const [pollingTarget, setPollingTarget] = useState<{
+    namespace: string;
+    alias: string;
+    resourceName?: string;
+  } | null>(null);
   // [临时列表]: 刚创建还没刷出来的项，先临时存在这，手动拼到表格里显示
   const [optimisticItems, setOptimisticItems] = useState<any[]>([]);
   
@@ -135,7 +162,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
    * [轮询逻辑 1] 检查新创建的项是否出现了
    * 场景：用户刚创建了一个策略，后端还没同步过来。
    * 逻辑：
-   * 1. 每 3 秒刷新一次列表 (onRefresh(true))。
+   * 1. 每 3 秒刷新一次列表 (onRefresh(true, true)，跳过后端全量同步)。
    * 2. 检查列表里有没有我们需要找的那个名字 (pollingTarget)。
    * 3. 如果找到了，或者试了 15 次还没找到，就停止轮询。
    */
@@ -150,19 +177,33 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         const ns = raw.metadata?.namespace || x.namespace;
         const name = raw.metadata?.name || x.name;
         const alias = raw.metadata?.annotations?.['tower.io/alias'];
-        return ns === pollingTarget.namespace && (name === pollingTarget.alias || alias === pollingTarget.alias);
+        return (
+          ns === pollingTarget.namespace &&
+          (name === pollingTarget.resourceName ||
+            name === pollingTarget.alias ||
+            alias === pollingTarget.alias)
+        );
       });
 
       if (exists || tries >= maxTries) {
-        setPollingTarget(null); // 停止寻找
+        setPollingTarget(null);
         if (exists) {
-          // 如果真数据里已经有了，就把“临时伪造的数据”删掉，避免重复显示
-          setOptimisticItems(prev => prev.filter(o => !(o.namespace === pollingTarget.namespace && o.name === pollingTarget.alias)));
+          setOptimisticItems((prev) =>
+            prev.filter(
+              (o) =>
+                !(
+                  o.namespace === pollingTarget.namespace &&
+                  (o.name === pollingTarget.alias ||
+                    o.id === pollingTarget.resourceName ||
+                    o.id === pollingTarget.alias)
+                ),
+            ),
+          );
         }
         return;
       }
       tries++;
-      onRefresh?.(true); // 强制刷新
+      onRefresh?.(true, true);
     };
     tick();
     const timer = setInterval(tick, 3000);
@@ -202,7 +243,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         return;
       }
       tries++;
-      onRefresh?.(true);
+      onRefresh?.(true, true);
     };
     tick();
     const timer = setInterval(tick, 3000);
@@ -300,7 +341,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       const displayName = alias || id;
 
       const ns = raw.metadata?.namespace || b.namespace;
-      const vmNameRaw = raw.spec?.vmbackup?.source?.name || b.vmName || '';
+      const vmNameRaw =
+        raw.spec?.targetVm ||
+        raw.spec?.vmbackup?.source?.name ||
+        b.vmName ||
+        '';
       
       // [别名查找逻辑] 拿着 VM 的 ID 去 vms 列表里查它的中文名
       const vmAlias = vmNameRaw
@@ -321,7 +366,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         vmName: vmNameRaw, // 原始 VM ID，用于过滤
         retention: retentionCount,
         maxFailure: raw.spec?.maxFailure || b.maxFailure || '-',
-        type: raw.spec?.vmbackup?.type || 'backup', // backup 或 snapshot
+        type: raw.spec?.vmbackup?.type || raw.spec?.type || 'backup', // backup 或 snapshot
         cron: raw.spec?.cron || b.cron || '-',
         suspended: isSuspended,
         creationTimestamp: raw.metadata?.creationTimestamp || b.createdAt,
@@ -453,7 +498,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
            items.push({
              key: 'opsinfo',
              label: '查看YAML',
-             onClick: () => { setCurrentRecord(r.raw); setDrawerVisible(true); }
+             onClick: () => {
+               openYamlDrawer(buildScheduleVmBackupYamlRecord(r.raw), { title: '定时策略 YAML' });
+             },
            });
          }
          
@@ -492,7 +539,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       );
       }
     }
-  ], [handleDelete, handleSuspend, isTenant, hasBackupsWrite]);
+  ], [handleDelete, handleSuspend, isTenant, hasBackupsWrite, openYamlDrawer]);
 
   // 用户自定义的列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_schedule_backups_list', defaultHiddenColumns);
@@ -580,13 +627,13 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       />
       </PageDetailSection>
 
-      {/* 侧边详情抽屉 */}
-      <HarvesterResourceDrawer
-        open={drawerVisible}
-        onClose={() => setDrawerVisible(false)}
-        resourceType="ScheduleVmBackup"
-        record={currentRecord}
+      {/* YAML 查看抽屉（与云主机等 ResourceLinkYamlDrawer 一致，支持滚动） */}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
         cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle}
       />
 
       {/* 创建弹窗 */}
@@ -597,10 +644,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         onSuccess={(created) => {
         setCreateModalVisible(false);
         if (created) {
-          // 设置轮询目标，等待后端创建完成
-          setPollingTarget(created);
-          
-          // [乐观创建] 立即在列表里造一个假数据，让用户觉得"秒创建"
+          setPollingTarget({
+            namespace: created.namespace,
+            alias: created.alias,
+            resourceName: created.resourceName,
+          });
           const vmAlias = findHarvesterVmDisplayAlias(vms, created.namespace, created.vmName);
           const now = new Date().toISOString();
           // 使用从创建结果中获取的K8s资源名称，如果没有则使用'-'作为占位符
@@ -631,9 +679,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
           };
           setOptimisticItems(prev => prev.concat(optimistic));
         }
-        // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
-        // 静默刷新，不显示提示信息
-        onRefresh?.(true, true); // force=true, silent=true
+        onRefresh?.(true, true);
       }}
       />
 
@@ -642,6 +688,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         open={editModalVisible}
         cloudId={cloudId}
         record={currentRecord}
+        vms={vms}
         onCancel={() => setEditModalVisible(false)}
         onSuccess={() => {
           setEditModalVisible(false);
