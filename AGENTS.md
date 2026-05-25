@@ -413,21 +413,21 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
    于上述成功后的重载中须**强制新读**：`apiRequest(path, { skipCache: true })`，或对 `frontend/src/utils/requestManager.ts` 中 `clearCache` 所支持的精确 path 先 `clearCache` 再 GET。
 
 3. **Harvester 云详情内各 Section / Tab**  
-   成功回调中重载列表时，与现有一致：使用 **`onRefresh(true, …)`**（第一参为 force，由内部配合 `skipCache` 与/或查询参数 `force=true` 等，以项目内既有实现为准）。
+   成功回调中重载列表时：经父级 `onRefresh` 触发池层/对端拉取；**禁止**在 Section 内裸调 `onRefresh(true)`，须用 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（见下节 **Cloudmap 虚拟机业务域刷新落地**）。工具栏仍用 **`createHarvesterToolbarRefresh(onRefresh)`**。
 
 | 场景 | 要求 |
 |------|------|
 | 新增/编辑/删除成功 | 同一次成功路径内执行列表重载，不得仅关弹窗或仅提示成功。 |
 | 读列表可能走前端缓存 | 重载时 `skipCache: true` 或 `clearCache` 后再请求。 |
-| Harvester 子模块 | 使用 `onRefresh(true, …)` 等既有约定，不另起一套。 |
+| Harvester 子模块（含 `ecs`） | 写成功/删改后 **`runHarvesterSectionRefresh`**；工具栏 **`createHarvesterToolbarRefresh`**；池层 **`loadTabResource`**。 |
 
 **自测**：完成一条增/删/改后，当前页列表应已更新，无需 F5 / Ctrl+F5。
 
 **全站检索（审计同类问题时用）**  
 在 `frontend/src` 内可配合检索（命中后人工判断是否应在成功路径上强制重载）：
 
-- 无参 `onRefresh()` / `onRefresh?.()`：成功路径与工具栏「刷新」应使用 `onRefresh(true)` 或 `onRefresh(true, true)`（与子组件、父级数据加载约定一致）。**勿**将 `onClick={onRefresh}` 直接绑到 Button（会把点击事件当第一参传入）。
-- `onSuccess={onRefresh}`：以**子组件在成功时如何调用**为准；若子组件已传 `(true, true)` 则与上表「Harvester 子模块」及本节第 3 条约定一致。
+- 无参 `onRefresh()` / `onRefresh?.()`：成功路径与工具栏「刷新」应经 **`runHarvesterSectionRefresh` / `createHarvesterToolbarRefresh`**，勿裸调 `onRefresh(true)`（`ecs` 域已统一，见下节）。**勿**将 `onClick={onRefresh}` 直接绑到 Button（会把点击事件当第一参传入）。
+- `onSuccess={onRefresh}`：若子组件仅调用无参 `onRefresh()`，须改为包装为 `() => runHarvesterSectionRefresh(onRefresh, { force: true })` 或等价实现。
 - 个别 `apiRequest(…, { enableCache: true })` 仍见 `hooks`、仪表盘等；与列表强一致时写操作后重载须 `skipCache: true` 或 `clearCache`（见本节写操作重载第 2 条）。
 
 `services/api.ts` 中 **`fetchTenants` / `fetchUsers` / `fetchAvailableResourcePools` / `fetchUserSpaces` 对 GET 未再默认叠一层 `enableCache`**，与其它列表读法一致，避免多入口改数据后仍读内存旧值。`pages/tenants/hooks/useTenantsPage.tsx` 内本地 `fetchTenants(force)` 与 `?force=true` 行为保留。新改列表与增删改仍须依本节写操作三条与**自测**；合入前可抽查检索上面两条。
@@ -443,6 +443,61 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 - **后端/集群最终一致**：K8s 等对象晚几秒才出现在 list 接口，前端只能 **延迟重试/轮询**，与 F5 无关。
 
 新功能合入时仍应做**自测**与上表「全站检索」抽查；旧页不可能在某次提交里全部穷举改完。
+
+#### Cloudmap 虚拟机业务域（compute / `ecs`）刷新落地
+
+Harvester **弹性计算**在 Cloudmap 资源池内装配（`panels/compute` + `Harvester/ecs/`）。刷新分 **两层**，新增 Tab 或改刷新逻辑时须按层落位，**禁止**在 Section 内再写一套 `fetch` + `setState` 拉列表（迁移记录等已收口为例）。
+
+**语义（产品）**
+
+| 视图类型 | 刷新应对齐的数据源 | 是否算「反映集群」 |
+|----------|-------------------|-------------------|
+| 云主机、回收站 VM、镜像、模板、SSH、CloudInit、迁移记录 | 集群（`force=true` 时后端 **sync** 或 **直拉 Steve/KubeVirt**） | **是**（sync 通常在数秒内完成即视为已对齐；集群自身最终一致晚几秒属正常） |
+| 回收站 **关机记录**子表（`RecycleBinRecordsSection`） | **Tower 平台任务库**（`GET /api/system/recycle-bin/shutdown-records`） | **不适用**（平台审计/任务流水，**不是**集群 VM 列表；勿与上表混谈） |
+
+**第 1 层 — 池层：拉什么数据（`frontend/.../Cloudmap/pool/loaders/`）**
+
+| 职责 | 文件 |
+|------|------|
+| 各 compute 子 Tab 的 `onRefresh` 映射 | `loaders/computeRefresh.ts` → **`createComputeTabOnRefresh(tab, deps)`** |
+| 按 `innerKey` 拉数（`runPathResourceLoad` → `tryLoadComputeTab`） | `loaders/pathResource/computePathLoads.ts` |
+| 云主机列表 sync + GET | `loaders/pathResource/computeEcsListLoad.ts` |
+| 迁移记录列表 fetch | `loaders/pathResource/computeMigrationsLoad.ts` |
+| 池引擎入口 | `hooks/useCloudmapPoolDetailEngine.ts` 的 **`loadTabResource`**；**`refreshVms` ≡ `loadTabResource('ecs', force, skipSync)`**（勿再在 `useCloudmapPoolEcs` 内重复实现拉列表） |
+| 装配与注入 `onRefresh` | `panels/compute/index.tsx` → **`computeTabOnRefresh.*`** |
+
+**compute 子 Tab 与 `loadTabResource` key**
+
+| `innerActiveKey` | `loadTabResource` key | 说明 |
+|------------------|----------------------|------|
+| `ecs` | `ecs` | 先可选 `POST /api/clouds/:id/sync`，再 `GET .../resources/ecs`（Harvester 直拉 VM/VMI）；强制刷新时可顺带拉镜像/卷/命名空间（`refreshVmSectionAuxiliaries`） |
+| `recycle_bin`（VM 列表） | `ecs` | 与云主机同一份 `ecs`，前端按回收站标记过滤 |
+| `images` / `templates` / `ssh_keys` / `cloud_inits` | 同名 key | `force=true` 时后端 inventory **sync 后读库** |
+| `migrations` | `migrations` | `force=true` 时 sync；列表空时 loader 可回退 `migrations-direct` 直拉集群 |
+
+**第 2 层 — Section 层：怎么点刷新（`Harvester/ecs/sections/` + shared）**
+
+| 场景 | 用法 |
+|------|------|
+| 工具栏「刷新」 | **`createHarvesterToolbarRefresh(onRefresh)`**（`Harvester/shared/lib/harvesterSectionRefresh.ts`） |
+| 写成功 / 删改 / 弹窗 `onSuccess` | **`runHarvesterSectionRefresh(onRefresh, { force: true })`**；静默刷新加 **`silent: true`**。**禁止**裸写 `onRefresh(true)` / `onRefresh(true, true)` |
+| 需等待刷新结束 | `await runHarvesterSectionRefresh(...)`（该函数返回 `Promise<void>`） |
+
+父组件传入的 **`onRefresh`** 来自 **`computeTabOnRefresh`**，内部统一 **`void loadTabResource(innerKey, force)`**。
+
+**数据与实时推送**
+
+- 云主机列表状态：池 hook **`useCloudmapPoolEcs`** 除参与 `ecs` 拉取外，仍负责 **SSE**（`/api/clouds/:id/resources/ecs/stream`）与 vm 状态缓冲；与工具栏刷新并存，不互相替代。
+- 详情抽屉内改 VM 后刷新列表：仍通过注入的 **`onRefresh`** 走上述第 2 层 → 第 1 层（与列表 Tab 一致）。
+
+**新增 / 修改检查清单**
+
+1. 列表数据是否进入池状态并由 `computePathLoads` 拉取？（勿在 Section 内长期 `loadData` 自拉，除非明确为 **Tower 自有记录** 如关机记录。）
+2. `panels/compute` 是否为该 Tab 配置 **`computeTabOnRefresh.<tab>`**？
+3. Section 工具栏与写成功路径是否仅用 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**？
+4. 读接口在 `force` 路径是否 **`skipCache: true`**（或 `fetchCloudProviderEcs` 等等价无缓存）？
+
+细则亦见 **`frontend/src/pages/cnmc/clouds/Harvester/ecs/README.md`**（compute 刷新专章）。
 
 ### 组件开发
 - 公共逻辑提取到 `components/` 或 `hooks/`

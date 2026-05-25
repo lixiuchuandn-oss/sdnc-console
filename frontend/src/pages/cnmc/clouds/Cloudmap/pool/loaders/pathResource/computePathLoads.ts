@@ -5,18 +5,26 @@ import {
   fetchHarvesterTemplates,
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
+import {
+  fetchComputeEcsList,
+  parseEcsListFromJson,
+  syncCloudEcsBeforeLoad,
+} from './computeEcsListLoad';
+import { fetchComputeMigrationsList } from './computeMigrationsLoad';
 
 /** 云主机域（`panels/compute`）：`CLOUDMAP_COMPUTE_INNER_MENU` 中按需项 */
 export async function tryLoadComputeTab(
   key: string,
   force: boolean,
-  _skipSync: boolean,
+  skipSync: boolean,
   deps: PoolPathResourceDeps,
 ): Promise<boolean> {
   const {
     cloudId,
     checkPerm,
     loadResource,
+    setEcs,
+    setRawEcs,
     setHarvesterSshKeys,
     setRawSshKeys,
     setHarvesterCloudInits,
@@ -25,9 +33,43 @@ export async function tryLoadComputeTab(
     setRawTemplates,
     setHarvesterImages,
     setRawImages,
+    setHarvesterMigrations,
+    setRawMigrations,
   } = deps;
 
   switch (key) {
+    case 'ecs':
+      if (checkPerm('clouds.ecs:read')) {
+        void loadResource(
+          'ecs',
+          async () => {
+            await syncCloudEcsBeforeLoad(cloudId, force, skipSync);
+            return fetchComputeEcsList(cloudId, force);
+          },
+          (json) => {
+            setEcs(parseEcsListFromJson(json));
+            setRawEcs(json || null);
+          },
+          force,
+        );
+      }
+      return true;
+    case 'migrations':
+      if (
+        checkPerm('clouds.migrations:read') ||
+        checkPerm('clouds.ecs:read')
+      ) {
+        void loadResource(
+          'migrations',
+          () => fetchComputeMigrationsList(cloudId, force),
+          (list) => {
+            setHarvesterMigrations(Array.isArray(list) ? list : []);
+            setRawMigrations({ items: list });
+          },
+          force,
+        );
+      }
+      return true;
     case 'images':
       if (checkPerm('clouds.images:read') || checkPerm('clouds.ecs:read')) {
         loadResource(

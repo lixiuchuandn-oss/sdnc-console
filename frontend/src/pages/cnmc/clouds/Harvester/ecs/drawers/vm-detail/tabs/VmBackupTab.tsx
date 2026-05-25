@@ -33,6 +33,7 @@ import {
   formatVmBackupRelativeAge,
   sortVmBackupItemsByCreationDesc,
 } from '../../../../cbr/lib/vmBackupDisplay';
+import { runHarvesterSectionRefresh } from '../../../shared/lib/harvesterSectionRefresh';
 
 interface VmBackupTabProps {
   cloudId: string;
@@ -130,7 +131,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
         try {
           await deleteHarvesterBackup(cloudId, ns, name);
           message.success('删除成功');
-          onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -174,7 +175,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
         try {
           await deleteHarvesterScheduleVmBackup(cloudId, ns, name);
           message.success('删除成功');
-          onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -196,7 +197,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
     try {
       await updateHarvesterScheduleVmBackup(cloudId, ns, name, { suspend: newSuspend });
       message.success(`${newSuspend ? '停用' : '启用'}成功`);
-      onRefresh(true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(`操作失败: ${e.message}`);
     }
@@ -346,7 +347,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
               <span style={VM_DETAIL_DRAWER_SECTION_TITLE_LABEL_STYLE}>快照</span>
               <Space size={0}>
                   <Tooltip title="刷新">
-                      <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={backupsLoading} />
+                      <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
                   <Tooltip title={hasBackupsWrite ? '创建快照' : undefined}>
                       <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateSnapshotVisible(true)} />
@@ -374,7 +375,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
               <span style={VM_DETAIL_DRAWER_SECTION_TITLE_LABEL_STYLE}>备份</span>
               <Space size={0}>
                   <Tooltip title="刷新">
-                      <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={backupsLoading} />
+                      <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
                   <Tooltip title={hasBackupsWrite ? '创建备份' : undefined}>
                       <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateBackupVisible(true)} />
@@ -402,7 +403,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
               <span style={VM_DETAIL_DRAWER_SECTION_TITLE_LABEL_STYLE}>定时策略</span>
               <Space size={0}>
                   <Tooltip title="刷新">
-                      <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={schedulesLoading} />
+                      <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={schedulesLoading} />
                   </Tooltip>
                   <Tooltip title={hasBackupsWrite ? '创建定时策略' : undefined}>
                       <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateScheduleVisible(true)} />
@@ -435,7 +436,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
         onSuccess={() => {
           setCreateBackupVisible(false);
           message.success('备份创建指令已发送');
-          onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         }}
         initialNamespace={namespace}
         initialVm={record}
@@ -452,7 +453,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
           setCreateSnapshotVisible(false);
           message.success('快照创建指令已发送');
           // 刷新数据列表：force=true 跳过前端缓存；silent=true 不弹提示
-          onRefresh(true, true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
         }}
         initialNamespace={namespace}
         initialVm={record}
@@ -466,7 +467,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
           setCreateScheduleVisible(false);
           message.success('定时策略创建成功');
           // 刷新数据列表：force=true 跳过前端缓存；silent=true 不弹提示
-          onRefresh(true, true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
         }}
         initialNamespace={namespace}
         initialVmName={vmId}
@@ -484,7 +485,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
             setRestoreVisible(false);
             setCurrentRestoreItem(null);
             message.success('恢复指令已发送');
-            onRefresh(true);
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
           }}
         />
       )}
@@ -499,7 +500,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
             setEditScheduleVisible(false);
             setCurrentScheduleItem(null);
             message.success('策略修改成功');
-            onRefresh(true);
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
           }}
         />
       )}

@@ -74,10 +74,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   >({});
   const [error] = useState<string | null>(null);
 
-  const { ecs, setEcs, rawEcs, setRawEcs, refreshVms } = useCloudmapPoolEcs({
+  const { ecs, setEcs, rawEcs, setRawEcs } = useCloudmapPoolEcs({
     cloudId,
-    checkPerm,
-    setResourceLoading,
   });
 
   const [harvesterNads, setHarvesterNads] = useState<any[]>([]);
@@ -121,6 +119,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     any[]
   >([]);
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]);
+  const [harvesterMigrations, setHarvesterMigrations] = useState<any[]>([]);
+  const [rawMigrations, setRawMigrations] = useState<any | null>(null);
   const [harvesterScheduleVmBackups, setHarvesterScheduleVmBackups] = useState<
     any[]
   >([]);
@@ -361,6 +361,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawTemplates,
         setHarvesterImages,
         setRawImages,
+        setHarvesterMigrations,
+        setRawMigrations,
         setHarvesterGpuResources,
         setRawGpu,
         setHarvesterUsbDevices,
@@ -424,6 +426,12 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       ovnVpcEnabled,
       harvesterSecrets,
     ],
+  );
+
+  /** 云主机列表刷新：与切 Tab / computePathLoads `ecs` 同一路径 */
+  const refreshVms = React.useCallback(
+    (force = false, skipSync = false) => loadTabResource('ecs', force, skipSync),
+    [loadTabResource],
   );
 
   const refreshVlans = async (force = false, skipSync = false) => {
@@ -623,6 +631,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterTemplates,
     harvesterSshKeys,
     harvesterCloudInits,
+    harvesterMigrations,
+    rawMigrations,
     rawImages,
     rawTemplates,
     rawSshKeys,

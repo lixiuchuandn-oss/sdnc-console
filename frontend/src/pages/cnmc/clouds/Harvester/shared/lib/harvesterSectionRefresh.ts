@@ -18,26 +18,27 @@ export type RunHarvesterSectionRefreshOptions = {
 /**
  * 执行一次列表刷新（可指定 force / silent）。
  * 未配置 onRefresh 时仅 warning，不抛错。
+ * Section 写成功/删改后须用本函数，勿直接 `onRefresh(true)`。
  */
 export function runHarvesterSectionRefresh(
   onRefresh: HarvesterSectionOnRefresh | undefined,
   options?: RunHarvesterSectionRefreshOptions,
-): void {
+): Promise<void> {
   if (!onRefresh) {
     message.warning('刷新功能未配置');
-    return;
+    return Promise.resolve();
   }
   const force = options?.force ?? true;
   const silent = options?.silent;
   options?.before?.();
-  void Promise.resolve(onRefresh(force, silent))
+  return Promise.resolve(onRefresh(force, silent))
     .catch((e: unknown) => {
       const err = e as { message?: string };
       message.error(`刷新失败: ${err?.message || '未知错误'}`);
     })
     .finally(() => {
       options?.after?.();
-    });
+    }) as Promise<void>;
 }
 
 /**

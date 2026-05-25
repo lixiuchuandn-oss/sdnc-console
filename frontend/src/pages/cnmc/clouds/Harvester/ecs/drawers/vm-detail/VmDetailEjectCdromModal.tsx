@@ -9,6 +9,7 @@ import {
 import { rebootCloudProviderEcs } from "../../../../../../../services/api";
 import { VM_DETAIL_DRAWER_TEXT_SECONDARY } from "./lib/uiTokens";
 import type { VmDetailDrawerSafeRead } from "../../lib/vmSafeRead";
+import { runHarvesterSectionRefresh } from "../../shared/lib/harvesterSectionRefresh";
 
 export function openVmDetailEjectCdromModal(opts: {
   vmData: any;
@@ -143,7 +144,7 @@ export function openVmDetailEjectCdromModal(opts: {
         message.success(
           isRunning ? "弹出CD-ROM成功，等待完成重启" : "弹出CD-ROM成功",
         );
-        onRefresh && onRefresh(true);
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
       } catch (e: any) {
         message.error(`弹出失败: ${e.message}`);
       } finally {

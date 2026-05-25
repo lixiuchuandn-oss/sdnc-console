@@ -10,3 +10,13 @@
 export type { PoolEssentialsDeps, PoolPathResourceDeps } from './poolDataDeps';
 export { runPoolEssentials } from './runPoolEssentials';
 export { runPathResourceLoad } from './runPathResourceLoad';
+export {
+  createComputeTabOnRefresh,
+  type ComputeInnerTabKey,
+  type ComputeTabRefreshDeps,
+} from './computeRefresh';
+export {
+  fetchComputeEcsList,
+  parseEcsListFromJson,
+  syncCloudEcsBeforeLoad,
+} from './pathResource/computeEcsListLoad';

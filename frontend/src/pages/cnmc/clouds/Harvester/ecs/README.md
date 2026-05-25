@@ -52,11 +52,17 @@
 
 | `recycle_bin` | `RecycleBinSection` | `recycleBinTableColumns` + `recycleBinSectionUtils` + 共用 `vmSectionUtils` |
 
-| `migrations` | `MigrationsSection` | `migrationsSectionUtils`，自拉数据 + 统一刷新 |
+| `migrations` | `MigrationsSection` | `migrationsSectionUtils` + 池 `loadTabResource('migrations')` |
 
 
 
-回收站关机**记录**子表：`RecycleBinRecordsSection`（读 Tower 库，非 `onRefresh` 父级列表）。
+回收站关机**记录**子表：`RecycleBinRecordsSection`（读 Tower 库，分页自拉；与 compute 统一刷新约定除外）。
+
+## 刷新（Cloudmap compute 池）
+
+- 池层：`Cloudmap/pool/loaders/computeRefresh.ts` → 各 Tab 均 `loadTabResource(innerKey, force)`，拉数在 `loaders/pathResource/computePathLoads.ts`。
+- 云主机列表：`ecs`；`refreshVms` 即 `loadTabResource('ecs', …)`（SSE 仍在 `useCloudmapPoolEcs`）。
+- Section 工具栏：`createHarvesterToolbarRefresh(onRefresh)`；写成功：`runHarvesterSectionRefresh(onRefresh, { force: true })`。
 
 
 
@@ -104,7 +110,7 @@
 
 - 工具栏刷新：**全部** compute 列表 Section 使用 **`createHarvesterToolbarRefresh(onRefresh)`**（`Harvester/shared/lib/harvesterSectionRefresh.ts`）；自拉数据的 Tab（如迁移记录）可在 `before` 中先 `loadData(true)`。  
 
-- 写成功后：`onRefresh(true)` 或 `onRefresh(true, true)`（静默），与 **AGENTS · 数据展示与刷新** 一致。  
+- 写成功后：**禁止**裸调 `onRefresh(...)`，一律 `runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`。  
 
 - 主列表：**`std-table`** + **`scroll={{ x: true }}`** + 首列/操作列 `fixed`（见 `*TableColumns.tsx`）。
 

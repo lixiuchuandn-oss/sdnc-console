@@ -47,7 +47,7 @@ export type CloudmapPoolPanelProps = {
   rawEcs: any;
   setEcs: Dispatch<SetStateAction<any[]>>;
   setRawEcs: Dispatch<SetStateAction<any | null>>;
-  refreshVms: (force?: boolean) => void | Promise<void>;
+  refreshVms: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNodes: any[];
   nodesLoading: boolean;
   refreshNodes: (force?: boolean) => void | Promise<void>;
@@ -96,6 +96,8 @@ export type CloudmapPoolPanelProps = {
   harvesterTemplates: any[];
   harvesterSshKeys: any[];
   harvesterCloudInits: any[];
+  harvesterMigrations: any[];
+  rawMigrations: any;
   rawImages: any;
   rawTemplates: any;
   rawSshKeys: any;
