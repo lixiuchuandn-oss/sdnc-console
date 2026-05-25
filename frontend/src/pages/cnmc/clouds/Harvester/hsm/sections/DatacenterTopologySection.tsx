@@ -1,6 +1,6 @@
 /**
  * 机房拓扑（HSM 机柜 + 内嵌面板）
- * 归属 `hsm/`，与 `kube-ovn/` 一致：`sections/` 入口 + `../lib` 可复用块 + 域级 `hsm.css`。
+ * Cloudmap 池：数据来自池状态 + `onRefresh` → `loadTabResource('datacenter_topology')`。
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -15,35 +15,53 @@ import {
   filterSelectOptionsExcludingTakenRefs,
   harvesterNodeName,
   nextRackSortOrderDefault as calcNextRackSortOrderDefault,
+  buildHarvesterNodeSelectOptions,
+  buildSwitchSelectOptions,
   type HarvesterNodeRecord,
 } from '../lib/datacenterTopologySectionUtils';
 import DatacenterRackGrid from '../lib/DatacenterRackGrid';
 import { useDatacenterRackCarousel } from '../hooks/useDatacenterRackCarousel';
-import { useDatacenterTopologyData } from '../hooks/useDatacenterTopologyData';
+import {
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import '../hsm.css';
 import AddRackDeviceModal from '../modals/AddRackDeviceModal';
 import RackFormModal from '../modals/RackFormModal';
 import type { DatacenterRack, DatacenterRackDevice } from '../../../../../../services/datacenterTopologyApi';
+import type { NodeLiveMetrics } from '../lib/physicalNodeRackUtils';
 
 type Props = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
+  racks: DatacenterRack[];
+  nodes: HarvesterNodeRecord[];
+  switches: AswCtlSwitchProbeRecord[];
+  nodeMetricsMap: Record<string, NodeLiveMetrics>;
+  loading: boolean;
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
-const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
+const DatacenterTopologySection: React.FC<Props> = ({
+  cloudId,
+  checkPerm,
+  racks,
+  nodes,
+  switches,
+  nodeMetricsMap,
+  loading,
+  onRefresh,
+}) => {
   const location = useLocation();
   const canWrite = checkPerm('clouds.cluster-networks:write') || checkPerm('clouds:read');
 
-  const {
-    loading,
-    racks,
-    nodes,
-    switches,
-    nodeMetricsMap,
-    loadAll,
-    nodeOptions,
-    switchOptions,
-  } = useDatacenterTopologyData(cloudId);
+  const refreshList = useCallback(
+    () => runHarvesterSectionRefresh(onRefresh, { force: true }),
+    [onRefresh],
+  );
+
+  const nodeOptions = useMemo(() => buildHarvesterNodeSelectOptions(nodes), [nodes]);
+  const switchOptions = useMemo(() => buildSwitchSelectOptions(switches), [switches]);
 
   const { setRackCarouselIndex, carouselCursor } = useDatacenterRackCarousel(
     cloudId,
@@ -165,7 +183,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
               switches={switches}
               nodeMetricsMap={nodeMetricsMap}
               activeRackIdForDock={activeRackIdForDock}
-              onRefresh={loadAll}
+              onRefresh={refreshList}
               onRackSelect={handleRackSelect}
               onRenameRack={setRenameRack}
               onAddToRack={(rack) => setDeviceModal({ rack, editingDevice: null })}
@@ -181,7 +199,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
           mode="create"
           open={rackModalOpen}
           onClose={() => setRackModalOpen(false)}
-          onSuccess={() => void loadAll()}
+          onSuccess={() => void refreshList()}
           cloudId={cloudId}
           defaultSortOrder={nextRackSortOrderDefault}
         />
@@ -190,7 +208,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
           open={!!renameRack}
           rack={renameRack}
           onClose={() => setRenameRack(null)}
-          onSuccess={() => void loadAll()}
+          onSuccess={() => void refreshList()}
           cloudId={cloudId}
         />
         <AddRackDeviceModal
@@ -198,7 +216,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
           rack={deviceModal?.rack ?? null}
           editingDevice={deviceModal?.editingDevice ?? null}
           onClose={() => setDeviceModal(null)}
-          onSuccess={() => void loadAll()}
+          onSuccess={() => void refreshList()}
           cloudId={cloudId}
           nodeOptions={nodeSelectOptions}
           switchSelectOptions={switchSelectOptions}
@@ -212,7 +230,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
         }}
         record={nodeDrawerRecord}
         metrics={nodeDrawerRecord ? nodeMetricsMap[harvesterNodeName(nodeDrawerRecord)] : undefined}
-        onRefreshFromCluster={() => void loadAll()}
+        onRefreshFromCluster={() => void refreshList()}
         refreshLoading={loading}
       />
       <PhysicalSwitchDetailDrawer
@@ -223,7 +241,7 @@ const DatacenterTopologySection: React.FC<Props> = ({ cloudId, checkPerm }) => {
           setSwitchDrawerRecord(null);
         }}
         initialTab="overview"
-        onRefreshFromCluster={() => void loadAll()}
+        onRefreshFromCluster={() => void refreshList()}
         refreshLoading={loading}
       />
     </>

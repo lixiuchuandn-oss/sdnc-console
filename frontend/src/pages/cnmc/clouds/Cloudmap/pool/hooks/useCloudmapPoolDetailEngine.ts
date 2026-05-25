@@ -13,6 +13,9 @@ import {
   parseCloudmapPoolPath,
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
+import type { DatacenterRack } from '../../../../../../services/datacenterTopologyApi';
+import type { NodeLiveMetrics } from '../../../Harvester/hsm/lib/physicalNodeRackUtils';
 import { fetchCloudById } from '../api';
 import { useCloudmapPoolEcs } from './useCloudmapPoolEcs';
 import { useCloudmapPoolPermissions } from './useCloudmapPoolPermissions';
@@ -116,6 +119,13 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [harvesterIPPools, setHarvesterIPPools] = useState<any[]>([]);
   const [harvesterClusterNetworks, setHarvesterClusterNetworks] = useState<
     any[]
+  >([]);
+  const [datacenterRacks, setDatacenterRacks] = useState<DatacenterRack[]>([]);
+  const [datacenterNodeMetricsMap, setDatacenterNodeMetricsMap] = useState<
+    Record<string, NodeLiveMetrics>
+  >({});
+  const [harvesterAswSwitches, setHarvesterAswSwitches] = useState<
+    AswCtlSwitchProbeRecord[]
   >([]);
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]);
   const [harvesterMigrations, setHarvesterMigrations] = useState<any[]>([]);
@@ -297,6 +307,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       await runPathResourceLoad(key, force, skipSync, {
         cloudId,
         checkPerm,
+        canReadNetworkScope,
         loadResource,
         loadedRef,
         setResourceLoading,
@@ -380,11 +391,15 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setGateways,
         setHttpRoutes,
         setGrpcRoutes,
+        setDatacenterRacks,
+        setDatacenterNodeMetricsMap,
+        setHarvesterAswSwitches,
       });
     },
     [
       cloudId,
       checkPerm,
+      canReadNetworkScope,
       loadResource,
       canReadLoadBalancers,
       canViewKubeOvnGroup,
@@ -649,6 +664,9 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawEips,
     rawSnatRules,
     rawDnatRules,
+    datacenterRacks,
+    datacenterNodeMetricsMap,
+    harvesterAswSwitches,
   };
 
   return { cloudmapPoolDetailValue, error };

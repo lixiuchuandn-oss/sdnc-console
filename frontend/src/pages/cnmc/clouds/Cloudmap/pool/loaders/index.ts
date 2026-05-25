@@ -34,6 +34,12 @@ export {
   type StorageSectionOnRefresh,
 } from './storageRefresh';
 export {
+  createResourceHubTabOnRefresh,
+  type ResourceHubInnerTabKey,
+  type ResourceHubTabRefreshDeps,
+  type ResourceHubSectionOnRefresh,
+} from './resourceHubRefresh';
+export {
   fetchComputeEcsList,
   parseEcsListFromJson,
   syncCloudEcsBeforeLoad,

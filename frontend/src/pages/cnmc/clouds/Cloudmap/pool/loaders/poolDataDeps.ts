@@ -4,6 +4,9 @@
  * `panels/<域>/` 目录一一对应；路径内层段与侧栏 `pathSeg` 一致。
  */
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
+import type { DatacenterRack } from '../../../../../../services/datacenterTopologyApi';
+import type { NodeLiveMetrics } from '../../../Harvester/hsm/lib/physicalNodeRackUtils';
 
 /** 首屏/池级必备数据：`runPoolEssentials` 注入（由 `useCloudmapPoolDetailEngine` 组装） */
 export type PoolEssentialsDeps = {
@@ -44,6 +47,7 @@ export type PoolEssentialsDeps = {
 export type PoolPathResourceDeps = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
+  canReadNetworkScope: boolean;
   canReadLoadBalancers: boolean;
   canViewKubeOvnGroup: boolean;
   canViewFlatNetworkGroup: boolean;
@@ -142,4 +146,7 @@ export type PoolPathResourceDeps = {
   setGateways: Dispatch<SetStateAction<any[]>>;
   setHttpRoutes: Dispatch<SetStateAction<any[]>>;
   setGrpcRoutes: Dispatch<SetStateAction<any[]>>;
+  setDatacenterRacks: Dispatch<SetStateAction<DatacenterRack[]>>;
+  setDatacenterNodeMetricsMap: Dispatch<SetStateAction<Record<string, NodeLiveMetrics>>>;
+  setHarvesterAswSwitches: Dispatch<SetStateAction<AswCtlSwitchProbeRecord[]>>;
 };
