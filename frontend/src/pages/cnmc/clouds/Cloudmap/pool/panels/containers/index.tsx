@@ -247,6 +247,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         showAllSwitch
         queryAll={workloadsAll}
         onQueryAllChange={(checked) => { setWorkloadsAll(checked); loadWorkloads(true, checked); }}
+        onRefreshConfigMaps={() => loadConfigs()}
+        onRefreshSecrets={() => loadConfigs()}
       />
     );
   } else if (innerActiveKey === 'pods') {

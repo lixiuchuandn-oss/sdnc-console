@@ -95,9 +95,11 @@ const renderContainerStatus = (state: any) => {
 
 const isPodRunning = (pod: any): boolean => {
   const phase = pod?.status?.phase;
-  if (phase !== 'Running') return false;
-  const containerStatuses = pod?.status?.containerStatuses || [];
-  return containerStatuses.some((c: any) => c?.state?.running);
+  // 正在终止中的 Pod 禁用终端（deletionTimestamp 存在时 phase 仍可能为 Running）
+  if (pod?.metadata?.deletionTimestamp) return false;
+  // 只有 Running 阶段才允许终端操作
+  // Pending / Failed / Succeeded / Unknown 等状态均禁用
+  return phase === 'Running';
 };
 
 const getPodContainerSummary = (pod: any): { running: number; total: number; hasRunning: boolean } => {
@@ -1168,7 +1170,7 @@ const PodsSection: React.FC<Props> = ({
             key: 'terminal',
             label: '终端',
             disabled: !isPodRunning(record),
-            tooltip: isPodRunning(record) ? undefined : '仅运行中的容器可打开终端',
+            tooltip: isPodRunning(record) ? undefined : '仅 Running 状态的 Pod 可打开终端',
             onClick: () => handleOpenTerminal(record),
           },
           // 安全驱逐功能 - PDB 规则验证完成后隐藏入口

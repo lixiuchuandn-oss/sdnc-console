@@ -41,7 +41,7 @@ import {
   GlobalOutlined,
 } from '@ant-design/icons';
 import { createHarvesterIngress, updateHarvesterIngress } from '../../../../../../services/harvesterApi';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -325,8 +325,8 @@ const IngressForm: React.FC<IngressFormProps> = ({
       }
       onSuccess();
     } catch (error: any) {
-      const errorMsg = error?.response?.data?.message || error?.message || '操作失败';
-      message.error(errorMsg);
+      const errorMsg = translateK8sError(error);
+      message.error(`${editMode ? '更新' : '创建'} Ingress 失败: ${errorMsg}`);
     } finally {
       setLoading(false);
     }

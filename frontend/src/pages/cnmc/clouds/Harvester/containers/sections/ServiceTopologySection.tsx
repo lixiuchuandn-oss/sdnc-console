@@ -796,16 +796,12 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
         extra={
           <Space>
             {type === 'ingress' && (
-              <>
-                <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>编辑</Button>
-                <Button size="small" icon={<CodeOutlined />} onClick={() => handleYamlEdit(selectedNode)}>YAML</Button>
-              </>
+              <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>编辑</Button>
             )}
             {type === 'service' && (
               <>
                 <Button size="small" icon={<EyeOutlined />} onClick={handleViewServiceDetail}>运维信息</Button>
                 <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>编辑</Button>
-                <Button size="small" icon={<CodeOutlined />} onClick={() => handleYamlEdit(selectedNode)}>YAML</Button>
               </>
             )}
           </Space>

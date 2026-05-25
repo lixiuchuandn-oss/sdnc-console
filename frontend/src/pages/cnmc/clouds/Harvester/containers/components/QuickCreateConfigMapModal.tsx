@@ -22,7 +22,7 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons';
 import { createHarvesterConfigMap } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';
 import CodeEditor, { 
   CodeLanguage, 
   LANGUAGE_OPTIONS, 
@@ -306,8 +306,8 @@ const QuickCreateConfigMapModal: React.FC<QuickCreateConfigMapModalProps> = ({
       onSuccess({ name: values.name, namespace: values.namespace });
     } catch (error: any) {
       console.error('[QuickCreateConfigMapModal] 提交失败:', error);
-      const errorMsg = error?.response?.data?.message || error?.message || '创建失败';
-      message.error(errorMsg);
+      const friendlyMsg = translateK8sError(error) || '创建 ConfigMap 失败';
+      message.error(friendlyMsg);
     } finally {
       setLoading(false);
     }
