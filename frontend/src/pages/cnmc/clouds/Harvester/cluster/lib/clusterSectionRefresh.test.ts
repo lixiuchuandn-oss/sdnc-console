@@ -53,6 +53,7 @@ describe('clusterSectionRefresh', () => {
     });
     click();
     await Promise.resolve();
+    await Promise.resolve();
     expect(order).toEqual(['before', 'refresh', 'after']);
   });
 

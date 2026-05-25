@@ -11,7 +11,7 @@ import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe'
 import { clearCache } from '../../../../../../utils/requestManager';
 import { parseProviderNetworkOriginNics } from '../../kube-ovn/lib/providerNetworkOriginNics';
 import { buildHsmLldpPhysicalLinks } from '../lib/buildHsmLldpPhysicalLinks';
-import { clusterNetworkTopologyLabel } from '../lib/networkTopology/ClusterNetworkTopologyGraph';
+import { clusterNetworkTopologyLabel } from '../lib/networkTopology/clusterNetworkTopologyGraphUtils';
 import {
   buildClusterNetworkOptions,
   buildPnNicTopology,

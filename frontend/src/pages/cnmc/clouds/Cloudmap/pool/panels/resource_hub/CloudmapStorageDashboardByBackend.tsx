@@ -7,21 +7,13 @@ import { Alert, Button } from 'antd';
 import { fetchCephClusters } from '../../../../../../../services/monitoringApi';
 import CephStorageSection from '../../../../Harvester/ceph/sections/CephStorageSection';
 import LonghornStorageSection from '../../../../Harvester/longhorn/sections/LonghornStorageSection';
+import { interpretCephClusterProbe } from './lib/cloudmapStorageDashboardProbe';
 
 export type CloudmapStorageDashboardByBackendProps = {
   cloudId: string;
 };
 
 type Phase = 'loading' | 'ceph' | 'longhorn' | 'error';
-
-/** Steve / 后端封装：列表可能在 data 或 items */
-function interpretCephClusterProbe(payload: unknown): 'ceph' | 'longhorn' | 'forbidden' {
-  if (!payload || typeof payload !== 'object') return 'longhorn';
-  const o = payload as { _tower?: { cephHint?: string }; data?: unknown; items?: unknown };
-  if (o._tower?.cephHint === 'forbidden') return 'forbidden';
-  const raw = Array.isArray(o.data) ? o.data : Array.isArray(o.items) ? o.items : [];
-  return raw.length > 0 ? 'ceph' : 'longhorn';
-}
 
 const CloudmapStorageDashboardByBackend: React.FC<CloudmapStorageDashboardByBackendProps> = ({ cloudId }) => {
   const [phase, setPhase] = useState<Phase>('loading');
