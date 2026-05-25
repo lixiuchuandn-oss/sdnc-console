@@ -31,7 +31,11 @@
 
 **禁止**在 Section 内再维护平行 `fetch` + `setState` 拉整页数据（选网、画布布局等 UI 状态除外）。
 
-强制刷新（`force=true`）：`loadDatacenterTopologyBundle` / `resourceHubPathLoads` 在 **GET 前** `clearCache`（机柜、ASW、子网）；节点走 `fetchHarvesterNodes(cloudId, force)`；VLAN/集群网络等由 `tryLoadClusterTab` 既有逻辑处理。
+强制刷新（`force=true`）：
+
+- **GET 前** `clearCache`：机柜、ASW、子网；节点 `fetchHarvesterNodes(cloudId, force)`；节点 metrics `fetchHarvesterResourceByLink(..., force)`。
+- **ASW**：有 `clouds.cluster-networks:write` 且未 `skipSync` 时与集群物理交换机一致，走 `syncAswCtlSwitchesToInventory`；否则 `fetchAswCtlSwitchesSummary`（`loadHarvesterAswSwitchesForTopology`）。
+- VLAN/集群网络等由 `tryLoadClusterTab` 既有逻辑处理。
 
 ### 跨域复用
 

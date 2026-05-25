@@ -188,8 +188,8 @@ Cloudmap **资源总览** 内 **机房拓扑**、**网络拓扑**（`Harvester/h
 
 | 侧栏 / URL | `loadTabResource` key | 说明 |
 |------------|----------------------|------|
-| `datacenter_topology` | `datacenter_topology` | `loadDatacenterTopologyBundle` → 池 `datacenterRacks`、节点、ASW、metrics |
-| `network_topology` | `network_topology` | 并行刷新 VLAN/物理网络、集群网络、节点、子网、ASW（写入既有池状态） |
+| `datacenter_topology` | `datacenter_topology` | `loadDatacenterTopologyBundle` → 池 `datacenterRacks`、节点、ASW、metrics（`force` 时 metrics 代理 `force`；ASW 同网络拓扑） |
+| `network_topology` | `network_topology` | 并行刷新 VLAN/物理网络、集群网络、节点、子网、ASW（写入既有池状态；`force` 且有 `cluster-networks:write` 时 ASW 走 HSM 探测写库） |
 
 ### 第 2 层 — Section 层
 
