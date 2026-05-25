@@ -9,7 +9,7 @@ import {
 import { rebootCloudProviderEcs } from "../../../../../../../services/api";
 import { VM_DETAIL_DRAWER_TEXT_SECONDARY } from "./lib/uiTokens";
 import type { VmDetailDrawerSafeRead } from "../../lib/vmSafeRead";
-import { runHarvesterSectionRefresh } from "../../shared/lib/harvesterSectionRefresh";
+import { runHarvesterSectionRefresh } from "../../../shared/lib/harvesterSectionRefresh";
 
 export function openVmDetailEjectCdromModal(opts: {
   vmData: any;

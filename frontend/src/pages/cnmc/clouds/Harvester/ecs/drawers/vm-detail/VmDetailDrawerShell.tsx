@@ -32,7 +32,7 @@ import {
   SlidersOutlined,
 } from "@ant-design/icons";
 import { cnVmStatus } from "../../../../../../../utils/harvesterUtils";
-import { runHarvesterSectionRefresh } from "../../shared/lib/harvesterSectionRefresh";
+import { runHarvesterSectionRefresh } from "../../../shared/lib/harvesterSectionRefresh";
 import { VmPerformance } from "./tabs/VmPerformance";
 import VmBackupTab from "./tabs/VmBackupTab";
 import VmDetailTab from "./tabs/VmDetailTab";

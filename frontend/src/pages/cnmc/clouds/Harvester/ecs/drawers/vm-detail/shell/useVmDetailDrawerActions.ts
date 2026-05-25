@@ -12,7 +12,7 @@ import {
   stopCloudProviderEcs,
 } from "../../../../../../../../services/api";
 import type { VmDetailDrawerSafeRead } from "../../../lib/vmSafeRead";
-import { runHarvesterSectionRefresh } from "../../../shared/lib/harvesterSectionRefresh";
+import { runHarvesterSectionRefresh } from "../../../../shared/lib/harvesterSectionRefresh";
 import { openVmDetailEjectCdromModal } from "../VmDetailEjectCdromModal";
 
 export function useVmDetailDrawerActions(opts: {
