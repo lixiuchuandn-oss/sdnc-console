@@ -80,9 +80,11 @@ Harvester **弹性计算**在 Cloudmap 资源池内装配（`panels/compute` + `
 
 ---
 
-## 集群（cluster）
+## 集群（cluster · 导航聚合体）
 
-Harvester **集群**在 Cloudmap 资源池内装配（`panels/cluster` + `Harvester/cluster/`）。**禁止**在引擎为单 Tab 再维护独立 `refreshNodes` / `refreshNads` 等。
+Cloudmap 侧栏「**集群**」是**产品导航与池层的聚合体**：URL 前缀 `cluster/...`，统一由 **`panels/cluster`** + **`clusterRefresh`** 装配与刷新；**不等于**单一源码目录 `Harvester/cluster/`。节点、命名空间、直通设备在本目录；**NAD、Kube-OVN 物理网络、Ceph 存储池**等子页路径也归 cluster 导航，实现仍在 **`Harvester/nad/`**、**`kube-ovn/`**、**`ceph/`**（域优先）。聚合地图与 Section 收口状态见 **`Harvester/cluster/README.md`**。
+
+**禁止**在引擎为单 Tab 再维护独立 `refreshNodes` / `refreshNads` 等。
 
 ### 第 1 层 — 池层
 
@@ -93,21 +95,23 @@ Harvester **集群**在 Cloudmap 资源池内装配（`panels/cluster` + `Harves
 | 池引擎入口 | **`loadTabResource`** |
 | 装配 | `panels/cluster/index.tsx` → **`clusterTabOnRefresh.*`** |
 
-### cluster 子 Tab 与 `loadTabResource` key（本域 Section）
+### cluster 子 Tab 与 `loadTabResource` key
 
-| `innerActiveKey` | `loadTabResource` key | 说明 |
-|------------------|----------------------|------|
-| `cluster_nodes` | `cluster_nodes` | sync 后读库；工具栏另触发 **`useNodesResourceBundle`** |
-| `namespaces` | `namespaces` | 写删用 **`reloadHarvesterNamespacesList`** |
-| `gpu` / `cluster_usb` / `cluster_pci` / `cluster_sriov` / `clusterNetworks` / `storage_classes` / `nads` / `load_balancers` / `ippools` | 同名 key | `force=true` 时 inventory **sync 后读库** |
-| `cluster_vlans` | `cluster_vlans` | 可同时刷新 VLAN + ProviderNetwork |
-| `kubeovn_public_networks` | `kubeovn_public_networks` | `kube-ovn` Section，路径归 cluster 导航 |
+| 实现域 | `innerActiveKey` | `loadTabResource` key | 说明 |
+|--------|------------------|----------------------|------|
+| **cluster** | `cluster_nodes` | `cluster_nodes` | sync 后读库；工具栏另触发 **`useNodesResourceBundle`** |
+| **cluster** | `namespaces` | `namespaces` | 写删用 **`reloadHarvesterNamespacesList`** |
+| **cluster** | `gpu` / `cluster_usb` / `cluster_pci` / `cluster_sriov` / `clusterNetworks` / `storage_classes` | 同名 key | `force=true` 时 inventory **sync 后读库** |
+| **nad** | `nads` / `load_balancers` / `ippools` | 同名 key | 路径归 cluster 导航；Section 在 **`Harvester/nad/`** |
+| **kube-ovn** | `cluster_vlans` | `cluster_vlans` | 可同时刷新 VLAN + ProviderNetwork |
+| **kube-ovn** | `kubeovn_public_networks` | `kubeovn_public_networks` | Provider 网络 Tab |
 
 **有意不走路径 `onRefresh` 的例外**：**物理交换机**（Section 内 `loadAll`）、**Ceph `storage_pools`**、**Underlay 子网**（`kubeovn_public_subnets` 自拉）。
 
 ### 第 2 层 — Section 层
 
-与 compute 相同；`cluster/lib/clusterSectionRefresh.ts` 仅 re-export shared。
+- **本域**（`Harvester/cluster/sections/`）：与 compute 相同；`cluster/lib/clusterSectionRefresh.ts` 仅 re-export shared。
+- **聚合子域**（nad / kube-ovn / ceph）：池 `onRefresh` 已注入，Section 内仍须 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**；待收口清单见 **`Harvester/cluster/README.md`**。
 
 细则亦见 **`Harvester/cluster/README.md`**。
 
