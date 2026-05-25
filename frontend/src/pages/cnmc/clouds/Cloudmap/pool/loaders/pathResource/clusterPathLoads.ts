@@ -7,6 +7,7 @@ import {
   fetchKubeOvnVlans,
   fetchKubeOvnProviderNetworks,
   fetchHarvesterIPPools,
+  fetchHarvesterNads,
   fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchHarvesterStorageClasses,
@@ -45,6 +46,8 @@ export async function tryLoadClusterTab(
     setHarvesterKubeOvnProviderNetworks,
     setHarvesterIPPools,
     setRawIPPools,
+    setHarvesterNads,
+    setRawNads,
     setHarvesterClusterNetworks,
     setRawClusterNetworks,
     setHarvesterNodes,
@@ -204,6 +207,22 @@ export async function tryLoadClusterTab(
               ? (json as any).data.items
               : [];
             setHarvesterKubeOvnProviderNetworks(Array.isArray(list) ? list : []);
+          },
+          force,
+        );
+      }
+      return true;
+    case 'nads':
+      if (checkPerm('clouds.nads:read')) {
+        loadResource(
+          'nads',
+          () => fetchHarvesterNads(cloudId, force, skipSync),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : [];
+            setHarvesterNads(Array.isArray(list) ? list : []);
+            setRawNads(json || null);
           },
           force,
         );

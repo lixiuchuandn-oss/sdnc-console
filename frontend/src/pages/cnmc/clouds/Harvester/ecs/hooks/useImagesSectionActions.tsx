@@ -86,7 +86,7 @@ export function useImagesSectionActions({
     }
     if (!shouldRefresh) return;
     const timer = window.setTimeout(() => {
-      onRefresh(true, true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [localImages, onRefresh]);
@@ -243,7 +243,7 @@ export function useImagesSectionActions({
         await deleteHarvesterImage(cloudId, ns, name);
         message.success('删除成功');
         setLocalImages((prev) => filterImageListAfterDelete(prev, new Set([`${ns}/${name}`])));
-        runHarvesterSectionRefresh(onRefresh, { force: true });
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
       } catch (e: unknown) {
         if (isImageDeleteInUseHttpError(e)) {
           message.error(getImageDeleteInUseErrorMessage());
@@ -280,7 +280,7 @@ export function useImagesSectionActions({
             }
             if (error) message.error(error);
             onDone?.();
-            runHarvesterSectionRefresh(onRefresh, { force: true });
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
             message.error((e as { message?: string })?.message || '批量删除失败');
           }

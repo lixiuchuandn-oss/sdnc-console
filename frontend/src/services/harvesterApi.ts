@@ -1321,6 +1321,10 @@ export const scaleHarvesterDeployment = async (cloudId: string, namespace: strin
   return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/containers/deployments/scale`, { namespace, name, replicas });
 };
 
+export const scaleHarvesterStatefulSet = async (cloudId: string, namespace: string, name: string, replicas: number) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/containers/statefulsets/scale`, { namespace, name, replicas });
+};
+
 /**
  * 重启 Deployment
  * @param cloudId 云环境 ID
@@ -1330,6 +1334,10 @@ export const scaleHarvesterDeployment = async (cloudId: string, namespace: strin
  */
 export const restartHarvesterDeployment = async (cloudId: string, namespace: string, name: string) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/deployments/restart`, { namespace, name });
+};
+
+export const restartHarvesterStatefulSet = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/statefulsets/restart`, { namespace, name });
 };
 
 /**

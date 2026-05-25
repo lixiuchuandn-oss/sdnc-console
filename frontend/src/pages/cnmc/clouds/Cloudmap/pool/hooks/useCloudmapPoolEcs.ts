@@ -3,11 +3,7 @@
  * 从 PoolDetailPage 抽出，便于单测与复用（例如将来独立 ecs 路由页）。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  API_BASE_URL,
-  apiPost,
-  fetchCloudProviderEcs,
-} from '../api';
+import { API_BASE_URL } from '../api';
 import { getToken } from '../../../../../../utils/tokenStorage';
 import {
   applyPendingAliasToVmRow,
@@ -19,10 +15,6 @@ import {
 
 export type UseCloudmapPoolEcsParams = {
   cloudId: string;
-  checkPerm: (act: string) => boolean;
-  setResourceLoading: React.Dispatch<
-    React.SetStateAction<Record<string, boolean>>
-  >;
 };
 
 export type UseCloudmapPoolEcsResult = {
@@ -30,13 +22,10 @@ export type UseCloudmapPoolEcsResult = {
   setEcs: React.Dispatch<React.SetStateAction<any[]>>;
   rawEcs: any | null;
   setRawEcs: React.Dispatch<React.SetStateAction<any | null>>;
-  refreshVms: (force?: boolean) => Promise<void>;
 };
 
 export function useCloudmapPoolEcs({
   cloudId,
-  checkPerm,
-  setResourceLoading,
 }: UseCloudmapPoolEcsParams): UseCloudmapPoolEcsResult {
   const [ecs, setEcs] = useState<any[]>([]);
   const [rawEcs, setRawEcs] = useState<any | null>(null);
@@ -59,38 +48,6 @@ export function useCloudmapPoolEcs({
     window.addEventListener(HARVESTER_VM_ALIAS_APPLIED_EVENT, onAliasApplied);
     return () => window.removeEventListener(HARVESTER_VM_ALIAS_APPLIED_EVENT, onAliasApplied);
   }, []);
-
-  const refreshVms = useCallback(
-    async (force: boolean = false) => {
-      if (!checkPerm('clouds.ecs:read')) return;
-      setResourceLoading((prev) => ({ ...prev, ecs: true }));
-      try {
-        if (force) {
-          try {
-            await apiPost(`/api/clouds/${cloudId}/sync`);
-          } catch {}
-        }
-        const json = await fetchCloudProviderEcs(cloudId, force);
-        const list: any[] = Array.isArray((json as any)?.data)
-          ? (json as any).data
-          : (json as any)?.data?.Instances?.Instance ||
-            (json as any)?.data?.items ||
-            (json as any)?.data?.data ||
-            [];
-        const pending = pendingVmAliasRef.current;
-        const merged = (Array.isArray(list) ? list : []).map((row) =>
-          applyPendingAliasToVmRow(row, pending),
-        );
-        setEcs(merged);
-        setRawEcs(json || null);
-      } catch (e) {
-        console.warn(`Failed to load ecs`, e);
-      } finally {
-        setResourceLoading((prev) => ({ ...prev, ecs: false }));
-      }
-    },
-    [cloudId, checkPerm, setResourceLoading],
-  );
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -270,5 +227,5 @@ export function useCloudmapPoolEcs({
     return () => clearInterval(timer);
   }, []);
 
-  return { ecs, setEcs, rawEcs, setRawEcs, refreshVms };
+  return { ecs, setEcs, rawEcs, setRawEcs };
 }

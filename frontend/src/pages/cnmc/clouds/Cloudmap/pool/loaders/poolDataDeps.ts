@@ -77,6 +77,8 @@ export type PoolPathResourceDeps = {
   setRawTemplates: Dispatch<SetStateAction<any | null>>;
   setHarvesterImages: Dispatch<SetStateAction<any[]>>;
   setRawImages: Dispatch<SetStateAction<any | null>>;
+  setHarvesterMigrations: Dispatch<SetStateAction<any[]>>;
+  setRawMigrations: Dispatch<SetStateAction<any | null>>;
   setHarvesterGpuResources: Dispatch<SetStateAction<any[]>>;
   setRawGpu: Dispatch<SetStateAction<any | null>>;
   setHarvesterUsbDevices: Dispatch<SetStateAction<any[]>>;
@@ -92,6 +94,8 @@ export type PoolPathResourceDeps = {
   setHarvesterKubeOvnProviderNetworks: Dispatch<SetStateAction<any[]>>;
   setHarvesterIPPools: Dispatch<SetStateAction<any[]>>;
   setRawIPPools: Dispatch<SetStateAction<any | null>>;
+  setHarvesterNads: Dispatch<SetStateAction<any[]>>;
+  setRawNads: Dispatch<SetStateAction<any | null>>;
   setHarvesterClusterNetworks: Dispatch<SetStateAction<any[]>>;
   setRawClusterNetworks: Dispatch<SetStateAction<any | null>>;
   setHarvesterNodes: Dispatch<SetStateAction<any[]>>;

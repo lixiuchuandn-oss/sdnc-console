@@ -977,6 +977,43 @@ export const registerHarvesterContainerRoutes = (
   );
 
   /**
+   * [API] 获取 CronJob 关联的 Job 列表
+   * GET /:id/resources/harvester/containers/cronjobs/:namespace/:name/jobs
+   * 说明: 查询由该 CronJob 创建的所有 Job
+   */
+  router.get(
+    '/:id/resources/harvester/containers/cronjobs/:namespace/:name/jobs',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+
+        // 查询该命名空间下所有 Job，筛选 label 'cronjob-name' === name 的
+        const jobsUrl = buildK8sUrl(base, '/apis/batch/v1/jobs', namespace);
+        const allJobs = await getJsonOnce(jobsUrl, token, insecure, true);
+
+        const items = (allJobs?.items || []).filter((job: any) => {
+          const labels = job?.metadata?.labels || {};
+          return labels['cronjob-name'] === name;
+        });
+
+        res.json({ message: '查询成功', data: { items } });
+      } catch (error: any) {
+        console.error('[CronJob Jobs] Error:', error);
+        res.status(500).json({ message: '获取关联 Job 失败', error: error.message });
+      }
+    },
+  );
+
+  /**
    * [API] 手动触发 CronJob
    * POST /:id/resources/harvester/containers/cronjobs/:namespace/:name/trigger
    * 说明: 创建一个关联的 Job，手动执行一次 CronJob
@@ -1244,8 +1281,29 @@ export const registerHarvesterContainerRoutes = (
         res.json({ message: '创建 ConfigMap 成功', data: result });
       } catch (error: any) {
         console.error('[ConfigMap 创建] 错误:', JSON.stringify(error, null, 2));
-        const errorMsg = error?.body || error?.message || '创建 ConfigMap 失败';
-        res.status(error?.status || 500).json({ message: '创建 ConfigMap 失败', error: errorMsg });
+        const status = error?.status || 500;
+        const k8sBody = error?.body;
+        
+        // 如果是 K8s Status 对象，提取关键信息
+        if (k8sBody?.kind === 'Status') {
+          const reason = k8sBody.reason || '';
+          const message = k8sBody.message || '';
+          const name = k8sBody?.details?.name || '';
+          const kind = k8sBody?.details?.kind || 'ConfigMap';
+          
+          if (reason === 'AlreadyExists') {
+            return res.status(409).json({ 
+              message: `${kind} "${name}" 已存在`, 
+              reason: 'AlreadyExists',
+              details: k8sBody.details 
+            });
+          }
+          
+          return res.status(status).json({ message: message || '创建 ConfigMap 失败' });
+        }
+        
+        const errorMsg = typeof error?.body === 'string' ? error.body : error?.message || '创建 ConfigMap 失败';
+        res.status(status).json({ message: '创建 ConfigMap 失败', error: errorMsg });
       }
     },
   );
@@ -1425,8 +1483,29 @@ export const registerHarvesterContainerRoutes = (
         res.json({ message: '创建 Secret 成功', data: result });
       } catch (error: any) {
         console.error('[Secret 创建] 错误:', JSON.stringify(error, null, 2));
-        const errorMsg = error?.body || error?.message || '创建 Secret 失败';
-        res.status(error?.status || 500).json({ message: '创建 Secret 失败', error: errorMsg });
+        const status = error?.status || 500;
+        const k8sBody = error?.body;
+        
+        // 如果是 K8s Status 对象，提取关键信息
+        if (k8sBody?.kind === 'Status') {
+          const reason = k8sBody.reason || '';
+          const message = k8sBody.message || '';
+          const name = k8sBody?.details?.name || '';
+          const kind = k8sBody?.details?.kind || 'Secret';
+          
+          if (reason === 'AlreadyExists') {
+            return res.status(409).json({ 
+              message: `${kind} "${name}" 已存在`, 
+              reason: 'AlreadyExists',
+              details: k8sBody.details 
+            });
+          }
+          
+          return res.status(status).json({ message: message || '创建 Secret 失败' });
+        }
+        
+        const errorMsg = typeof error?.body === 'string' ? error.body : error?.message || '创建 Secret 失败';
+        res.status(status).json({ message: '创建 Secret 失败', error: errorMsg });
       }
     },
   );
@@ -3740,6 +3819,99 @@ export const registerHarvesterContainerRoutes = (
         
         // 更新 annotation 触发滚动重启
         const url = buildK8sUrl(base, '/apis/apps/v1/deployments', namespace, name);
+        const now = new Date().toISOString();
+        const patchBody = {
+          spec: {
+            template: {
+              metadata: {
+                annotations: {
+                  'kubectl.kubernetes.io/restartedAt': now,
+                },
+              },
+            },
+          },
+        };
+        
+        const result = await requestJson('PATCH', url, token, insecure, patchBody, {
+          'Content-Type': 'application/strategic-merge-patch+json',
+        });
+        
+        res.json({ message: '重启指令已下发', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '重启失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 扩缩容 StatefulSet
+   * PATCH /:id/resources/harvester/containers/statefulsets/scale
+   * Body: { namespace, name, replicas }
+   */
+  router.patch(
+    '/:id/resources/harvester/containers/statefulsets/scale',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { namespace, name, replicas } = req.body;
+        
+        if (!namespace || !name || typeof replicas !== 'number') {
+          return res.status(400).json({ message: '缺少必要参数: namespace, name, replicas' });
+        }
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        const url = buildK8sUrl(base, '/apis/apps/v1/statefulsets', namespace, name);
+        const patchBody = {
+          spec: {
+            replicas: replicas,
+          },
+        };
+        
+        const result = await requestJson('PATCH', url, token, insecure, patchBody, {
+          'Content-Type': 'application/strategic-merge-patch+json',
+        });
+        
+        res.json({ message: '扩缩容成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '扩缩容失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 重启 StatefulSet (通过更新 annotation 触发滚动更新)
+   * POST /:id/resources/harvester/containers/statefulsets/restart
+   * Body: { namespace, name }
+   */
+  router.post(
+    '/:id/resources/harvester/containers/statefulsets/restart',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { namespace, name } = req.body;
+        
+        if (!namespace || !name) {
+          return res.status(400).json({ message: '缺少必要参数: namespace, name' });
+        }
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        const url = buildK8sUrl(base, '/apis/apps/v1/statefulsets', namespace, name);
         const now = new Date().toISOString();
         const patchBody = {
           spec: {

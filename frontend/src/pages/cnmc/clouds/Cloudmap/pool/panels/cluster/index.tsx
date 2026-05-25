@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
-import { Empty, message } from 'antd';
+import React, { useEffect, useMemo } from 'react';
+import { Empty } from 'antd';
+import { createClusterTabOnRefresh } from '../../loaders/clusterRefresh';
 import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
 import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
 import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
@@ -131,14 +132,10 @@ export type CloudmapClusterRoutePanelProps = {
     force?: boolean,
   ) => Promise<void>;
   harvesterNodes: any[];
-  nodesLoading: boolean;
-  refreshNodes: (force?: boolean) => void | Promise<void>;
   rawNodes: any;
   harvesterClusterNetworks: any[];
   rawClusterNetworks: any;
   harvesterNads: any[];
-  nadsLoading: boolean;
-  refreshNads: (force?: boolean, silent?: boolean) => Promise<void>;
   rawNads: any;
   harvesterLoadBalancers: any[];
   rawLoadBalancers: any;
@@ -150,7 +147,6 @@ export type CloudmapClusterRoutePanelProps = {
   rawSubnets: any;
   setKubeOvnSubnets: (v: any[]) => void;
   setRawSubnets: (v: any) => void;
-  refreshVlans: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNamespacesForManagement: any[];
   harvesterStorageClasses: any[];
   harvesterGpuResources: any[];
@@ -177,14 +173,10 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     loadTabResource,
     loadResource,
     harvesterNodes,
-    nodesLoading,
-    refreshNodes,
     rawNodes,
     harvesterClusterNetworks,
     rawClusterNetworks,
     harvesterNads,
-    nadsLoading,
-    refreshNads,
     rawNads,
     harvesterLoadBalancers,
     rawLoadBalancers,
@@ -196,7 +188,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     rawSubnets,
     setKubeOvnSubnets,
     setRawSubnets,
-    refreshVlans,
     harvesterNamespacesForManagement,
     harvesterStorageClasses,
     harvesterGpuResources,
@@ -226,6 +217,28 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 门控对象按字段展开会冗长；与切换子路径/池一致即可
   }, [section, cloudId, loadTabResource]);
 
+  const clusterTabOnRefresh = useMemo(() => {
+    const deps = { loadTabResource };
+    return {
+      cluster_nodes: createClusterTabOnRefresh('cluster_nodes', deps),
+      namespaces: createClusterTabOnRefresh('namespaces', deps),
+      gpu: createClusterTabOnRefresh('gpu', deps),
+      cluster_usb: createClusterTabOnRefresh('cluster_usb', deps),
+      clusterNetworks: createClusterTabOnRefresh('clusterNetworks', deps),
+      storage_classes: createClusterTabOnRefresh('storage_classes', deps),
+      nads: createClusterTabOnRefresh('nads', deps),
+      load_balancers: createClusterTabOnRefresh('load_balancers', deps),
+      ippools: createClusterTabOnRefresh('ippools', deps),
+      cluster_pci: createClusterTabOnRefresh('cluster_pci', deps),
+      cluster_sriov: createClusterTabOnRefresh('cluster_sriov', deps),
+      cluster_vlans: createClusterTabOnRefresh('cluster_vlans', deps),
+      kubeovn_public_networks: createClusterTabOnRefresh(
+        'kubeovn_public_networks',
+        deps,
+      ),
+    };
+  }, [loadTabResource]);
+
   const sectionBody = (seg: string): React.ReactNode => {
     switch (seg) {
       case 'cluster_nodes':
@@ -233,8 +246,8 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
           <>
             <NodesSection
               nodes={harvesterNodes}
-              loading={resourceLoading.nodes || nodesLoading}
-              onRefresh={refreshNodes}
+              loading={resourceLoading.nodes}
+              onRefresh={clusterTabOnRefresh.cluster_nodes}
               cloudId={cloudId}
               isTenant={isTenant}
             />
@@ -255,9 +268,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               parentNetworks={harvesterKubeOvnProviderNetworks}
               parentVlans={harvesterVlans}
               parentLoading={!!resourceLoading.providerNetworksTab}
-              onParentRefresh={(f, s) => {
-                void loadTabResource('kubeovn_public_networks', f ?? false, s ?? false);
-              }}
+              onParentRefresh={clusterTabOnRefresh.kubeovn_public_networks}
             />
             <DebugJSON data={rawSubnets} show={showLog} />
           </>
@@ -268,12 +279,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             cloudId={cloudId}
             namespaces={harvesterNamespacesForManagement}
             loading={resourceLoading.namespaces}
-            onRefresh={async (force = false, silent = false) => {
-              await loadTabResource('namespaces', force, silent);
-              if (force && !silent) {
-                message.success('刷新成功');
-              }
-            }}
+            onRefresh={clusterTabOnRefresh.namespaces}
             isTenant={isTenant}
           />
         );
@@ -307,7 +313,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               vlans={harvesterVlans}
               providerNetworks={harvesterKubeOvnProviderNetworks}
               loading={resourceLoading.vlans}
-              onRefresh={refreshVlans}
+              onRefresh={clusterTabOnRefresh.cluster_vlans}
             />
             <DebugJSON data={rawVlans} show={showLog} />
           </>
@@ -318,7 +324,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             cloudId={cloudId}
             resources={harvesterGpuResources}
             loading={resourceLoading.gpu}
-            onRefresh={() => loadTabResource('gpu', true)}
+            onRefresh={clusterTabOnRefresh.gpu}
             raw={rawGpu}
             showLog={showLog}
             isTenant={isTenant}
@@ -330,7 +336,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             cloudId={cloudId}
             usbDevices={harvesterUsbDevices}
             loading={resourceLoading.usbDevices}
-            onRefresh={() => loadTabResource('cluster_usb', true)}
+            onRefresh={clusterTabOnRefresh.cluster_usb}
             raw={rawUsbDevices}
             showLog={showLog}
             bordered={false}
@@ -344,7 +350,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               cloudId={cloudId}
               clusterNetworks={harvesterClusterNetworks}
               loading={resourceLoading.clusterNetworks}
-              onRefresh={() => loadTabResource('clusterNetworks', true)}
+              onRefresh={clusterTabOnRefresh.clusterNetworks}
               isTenant={isTenant}
             />
             <DebugJSON data={rawClusterNetworks} show={showLog} />
@@ -359,7 +365,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               cloudId={cloudId}
               storageClasses={harvesterStorageClasses}
               loading={resourceLoading.storageClasses}
-              onRefresh={() => loadTabResource('storage_classes', true)}
+              onRefresh={clusterTabOnRefresh.storage_classes}
             />
             <DebugJSON data={harvesterStorageClasses} show={showLog} />
           </>
@@ -369,8 +375,8 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
           <>
             <NadsSection
               nads={harvesterNads}
-              loading={resourceLoading.nads || nadsLoading}
-              onRefresh={refreshNads}
+              loading={resourceLoading.nads}
+              onRefresh={clusterTabOnRefresh.nads}
               cloudId={cloudId}
             />
             <DebugJSON data={rawNads} show={showLog} />
@@ -383,7 +389,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               cloudId={cloudId}
               loadBalancers={harvesterLoadBalancers}
               loading={resourceLoading.loadBalancers}
-              onRefresh={() => loadTabResource('load_balancers', true)}
+              onRefresh={clusterTabOnRefresh.load_balancers}
             />
             <DebugJSON data={rawLoadBalancers} show={showLog} />
           </>
@@ -395,7 +401,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               cloudId={cloudId}
               ippools={harvesterIPPools}
               loading={resourceLoading.ippools}
-              onRefresh={() => loadTabResource('ippools', true)}
+              onRefresh={clusterTabOnRefresh.ippools}
             />
             <DebugJSON data={rawIPPools} show={showLog} />
           </>
@@ -407,7 +413,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               cloudId={cloudId}
               devices={harvesterPciDevices}
               loading={resourceLoading.pciDevices}
-              onRefresh={() => loadTabResource('cluster_pci', true)}
+              onRefresh={clusterTabOnRefresh.cluster_pci}
               raw={rawPciDevices}
               showLog={showLog}
               bordered={false}
@@ -423,7 +429,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               cloudId={cloudId}
               devices={harvesterPciDevices}
               loading={resourceLoading.pciDevices}
-              onRefresh={() => loadTabResource('cluster_sriov', true)}
+              onRefresh={clusterTabOnRefresh.cluster_sriov}
               raw={rawPciDevices}
               showLog={showLog}
               bordered={false}

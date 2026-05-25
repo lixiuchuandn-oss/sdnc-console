@@ -11,7 +11,10 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import HarvesterTemplateDetailDrawer from '../../shared/components/HarvesterTemplateDetailDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
-import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { createHarvesterVmFromTemplate } from 'services/harvester/vm';
@@ -117,7 +120,7 @@ const TemplatesSection: React.FC<Props> = ({
           try {
             await deleteHarvesterResourceByLink(cloudId, path);
             message.success('删除成功');
-            onRefresh?.(true);
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: any) {
             message.error(`删除失败: ${e.message}`);
           }
@@ -153,7 +156,9 @@ const TemplatesSection: React.FC<Props> = ({
         if (success) message.success(success);
         if (error) message.error(error);
         setSelectedRowKeys([]);
-        if (results.some((x) => x.ok) || results.some((x) => !x.ok)) onRefresh?.(true);
+        if (results.some((x) => x.ok) || results.some((x) => !x.ok)) {
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
+        }
       },
     });
   }, [hasTemplatesWrite, selectedRowKeys, modal, filteredData, cloudId, onRefresh]);

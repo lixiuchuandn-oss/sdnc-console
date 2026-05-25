@@ -6,7 +6,7 @@ import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { canAccessTenantConsoleDatabaseNav } from '../lib/tenantConsolePageAccess';
-import { PaasSection } from '../../clouds/Harvester/cloud-database';
+import { PaasSection } from '../../clouds/Harvester/database';
 
 type NavResource = { key: string; label: string; paasType: string };
 

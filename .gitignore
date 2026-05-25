@@ -1,17 +1,34 @@
+# =============================================================================
+# Compute.Tower · .gitignore
+# 可提交文档：AGENTS.md（入口）、docs/（Hub 子文档）、源码内 README / STRUCTURE.md
+# =============================================================================
+
+# --- 操作系统 / 编辑器 ---
+.DS_Store
+Thumbs.db
+
+# --- 通用构建产物与日志（任意目录）---
 node_modules/
 dist/
 build/
 coverage/
 *.log
+
+# --- 环境变量（任意目录）---
 .env
 .env*
-.DS_Store
-Thumbs.db
 
+# --- 仓库根：运行期数据与本地专用目录（勿入库）---
 # 运行期数据请使用 backend/data（在 backend 目录启动）；勿在仓库根再落 data/
 /data/
-docs/
 /doc/
+/deployment/
+/release/
+/remote/
+/bug/
+/design/
+
+# --- backend/ ---
 /backend/node_modules/
 /backend/dist/
 /backend/coverage/
@@ -26,10 +43,14 @@ docs/
 /backend/data.sqlite-wal
 /backend/_boot-err.txt
 /backend/_boot-out.txt
+/backend/temp_uploads/
+/backend/uploads/
+/backend/tests/
+/backend/scripts/
+/backend/verify_acl.js
+/backend/public/
 
-# 本地/运维部署脚本与密钥（勿入库）
-/remote/
-
+# --- frontend/ ---
 /frontend/node_modules/
 /frontend/node_modules/.cache/
 /frontend/build/
@@ -37,34 +58,14 @@ docs/
 /frontend/.env
 /frontend/.env*
 
-# Ignore temporary test artifacts and debug scripts in backend
-/backend/tests/
-/backend/scripts/
-/backend/verify_acl.js
-/backend/public/
-
-# Ignore deployment directory (local only)
-/deployment/
-
-# Ignore release artifacts
-/release/
-
-# Documentation and Bugs
-/docs/
-/bug/
-/design/
-
-# Temporary Upload Directories
-/backend/temp_uploads/
-/backend/uploads/
-
-# Do directory (Tasks & Tracking)
+# --- 本地任务 / 草稿 / 外部快照 ---
 do/
 plan/
-
+design/
 harvester-master/
-
 1.md
 2.md
-
-design/
+docs/harbor-api-2.13.0-swagger.yaml
+docs/harbor-api-2.13.0-reference.md
+docs/harvester-api-reference.md
+docs/kubernetes-container-api-reference.md

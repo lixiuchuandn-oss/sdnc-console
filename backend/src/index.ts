@@ -78,6 +78,10 @@ const app = express();
 const PORT = Number(process.env.PORT) || 5001;
 const server = http.createServer(app);
 
+// 信任代理：允许解析 X-Forwarded-For 等头信息获取真实客户端 IP
+// 当服务部署在 Nginx 等反向代理后面时需要此配置
+app.set('trust proxy', true);
+
 // CORS 配置：
 // - 开发阶段放宽为允许任意 Origin，方便本地或不同域前端调试
 // - 线上可按需收紧为固定前端域名

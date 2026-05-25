@@ -14,7 +14,10 @@ import {
   usbDeviceRowKey,
   usbStateLabel,
 } from '../lib/usbDevicesSectionUtils';
-import { createClusterToolbarRefresh } from '../lib/clusterSectionRefresh';
+import {
+  createClusterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../lib/clusterSectionRefresh';
 import { buildUsbDevicesTableColumns } from '../lib/usbDevicesTableColumns';
 
 interface Props {
@@ -103,7 +106,7 @@ const UsbDevicesSection: React.FC<Props> = ({
               if (passthrough) await claimHarvesterUsbDevice(cloudId, deviceName);
               else await unclaimHarvesterUsbDevice(cloudId, deviceName);
             }
-            await onRefresh?.(true);
+            await runHarvesterSectionRefresh(onRefresh, { force: true });
             message.success('操作成功');
           } catch (e: unknown) {
             const err = e as { body?: { message?: string; error?: string }; message?: string };

@@ -25,7 +25,7 @@ import {
   EyeInvisibleOutlined,
 } from '@ant-design/icons';
 import { createHarvesterSecret } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -338,8 +338,8 @@ const QuickCreateSecretModal: React.FC<QuickCreateSecretModalProps> = ({
         namespace: values.namespace,
       });
     } catch (error: any) {
-      const errorMsg = error?.response?.data?.message || error?.message || '创建失败';
-      message.error(errorMsg);
+      const friendlyMsg = translateK8sError(error) || '创建 Secret 失败';
+      message.error(friendlyMsg);
     } finally {
       setLoading(false);
     }

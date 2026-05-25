@@ -13,6 +13,10 @@ import RdsCreateModal from '../modals/RdsCreateModal';
 import RdsInstanceLabelEditModal from '../modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal from '../modals/RdsDatabaseConsoleModal';
 import { isTowerPaasDatabaseVm } from '../../shared/harvesterTowerPaas';
+import {
+  type HarvesterSectionOnRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 import { cnVmStatus } from '../../../../../../utils/harvesterUtils';
 
@@ -20,7 +24,7 @@ type Props = {
   vms: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
   images?: any[];
   storageClasses?: any[];
   kubeSubnets?: any[];
@@ -29,6 +33,7 @@ type Props = {
   onReloadSubnets?: () => void | Promise<void>;
   onReloadNads?: () => void | Promise<void>;
   onReloadStorageClasses?: () => void | Promise<void>;
+  /** @deprecated 与 `onRefresh({ force: true })` 等价；Cloudmap 池请只传 `paasDatabasesTabOnRefresh.rds` */
   onForceRefresh?: () => void | Promise<void>;
   isTenant?: boolean;
   /** 与镜像 `tower.io/paas-type` 一致；不传则展示全部云数据库托管实例（新 `paas-category` 或旧 `rds`） */
@@ -388,7 +393,7 @@ const PaasSection: React.FC<Props> = ({
     setCreateModalVisible(true);
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     const msgKey = `paas-vm-refresh-${cloudId}`;
     setRefreshing(true);
     message.loading({ content: '正在同步云数据库实例...', key: msgKey, duration: 0 });
@@ -396,7 +401,7 @@ const PaasSection: React.FC<Props> = ({
       if (onForceRefresh) {
         await Promise.resolve(onForceRefresh());
       } else {
-        await Promise.resolve(onRefresh(true));
+        await runHarvesterSectionRefresh(onRefresh, { force: true });
       }
       message.success({ content: '云数据库实例已刷新', key: msgKey });
     } catch (e: any) {
@@ -404,7 +409,15 @@ const PaasSection: React.FC<Props> = ({
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [cloudId, onForceRefresh, onRefresh]);
+
+  const reloadListAfterWrite = useCallback(() => {
+    if (onForceRefresh) {
+      void Promise.resolve(onForceRefresh());
+      return;
+    }
+    void runHarvesterSectionRefresh(onRefresh, { force: true });
+  }, [onForceRefresh, onRefresh]);
 
   return (
     <PageDetailSection
@@ -479,7 +492,7 @@ const PaasSection: React.FC<Props> = ({
       <RdsCreateModal
         open={createModalVisible}
         onClose={() => setCreateModalVisible(false)}
-        onCreated={() => onRefresh(true)}
+        onCreated={reloadListAfterWrite}
         cloudId={cloudId}
         images={images}
         storageClasses={storageClasses}
@@ -499,7 +512,7 @@ const PaasSection: React.FC<Props> = ({
         }}
         cloudId={cloudId}
         resource={labelEditRecord}
-        onSuccess={() => onRefresh(true)}
+        onSuccess={reloadListAfterWrite}
       />
       <RdsDatabaseConsoleModal
         open={!!dbConsoleVm}
@@ -520,7 +533,11 @@ const PaasSection: React.FC<Props> = ({
           images={images || []}
           activeTab={vmDetailActiveTab}
           onTabChange={setVmDetailActiveTab}
-          onRefresh={onRefresh}
+          onRefresh={(force) => {
+            void runHarvesterSectionRefresh(onRefresh, {
+              force: force !== false,
+            });
+          }}
         />
       ) : null}
     </PageDetailSection>

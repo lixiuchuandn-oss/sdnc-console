@@ -110,14 +110,10 @@ const ClusterRoute: React.FC = () => {
       loadTabResource={p.loadTabResource}
       loadResource={p.loadResource}
       harvesterNodes={p.harvesterNodes}
-      nodesLoading={p.nodesLoading}
-      refreshNodes={p.refreshNodes}
       rawNodes={p.rawNodes}
       harvesterClusterNetworks={p.harvesterClusterNetworks}
       rawClusterNetworks={p.rawClusterNetworks}
       harvesterNads={p.harvesterNads}
-      nadsLoading={p.nadsLoading}
-      refreshNads={p.refreshNads}
       rawNads={p.rawNads}
       harvesterLoadBalancers={p.harvesterLoadBalancers}
       rawLoadBalancers={p.rawLoadBalancers}
@@ -129,7 +125,6 @@ const ClusterRoute: React.FC = () => {
       rawSubnets={p.rawSubnets}
       setKubeOvnSubnets={p.setKubeOvnSubnets}
       setRawSubnets={p.setRawSubnets}
-      refreshVlans={p.refreshVlans}
       harvesterNamespacesForManagement={p.harvesterNamespacesForManagement}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterGpuResources={p.harvesterGpuResources}
@@ -191,6 +186,8 @@ const ComputeRoute: React.FC = () => {
       rawTemplates={p.rawTemplates}
       rawSshKeys={p.rawSshKeys}
       rawCloudInits={p.rawCloudInits}
+      harvesterMigrations={p.harvesterMigrations}
+      rawMigrations={p.rawMigrations}
     />
   );
 };
@@ -204,60 +201,21 @@ const PaasDatabasesRoute: React.FC = () => {
     <CloudmapCloudDatabaseRoutePanel
       cloudId={p.cloudId}
       innerActiveKey={p.poolInnerActive('paas_databases')}
+      loadTabResource={p.loadTabResource}
+      loadResource={p.loadResource}
+      checkPerm={p.checkPerm}
+      canReadFlatSubnets={p.canReadFlatSubnets}
+      canReadVpcSubnets={p.canReadVpcSubnets}
       ecs={p.ecs}
       ecsLoading={!!p.resourceLoading.ecs}
-      onRefreshVms={() => p.refreshVms(true)}
-      onForceRefreshVms={() => p.refreshVms(true)}
       harvesterImages={p.harvesterImages}
       harvesterStorageClasses={p.harvesterStorageClasses}
       kubeOvnSubnets={p.kubeOvnSubnets}
       harvesterNads={p.harvesterNads}
-      onReloadImages={
-        p.checkPerm('clouds.images:read') || p.checkPerm('clouds.ecs:read')
-          ? () =>
-              p.loadResource(
-                'images',
-                () => fetchHarvesterImages(p.cloudId, true),
-                (json: any) => p.setHarvesterImages((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
-      onReloadSubnets={
-        p.canReadFlatSubnets ||
-        p.canReadVpcSubnets ||
-        p.checkPerm('clouds.networks:read')
-          ? () =>
-              p.loadResource(
-                'subnets',
-                () => fetchKubeOvnSubnets(p.cloudId, true),
-                (json) => p.setKubeOvnSubnets((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
-      onReloadNads={
-        p.checkPerm('clouds.networks:read')
-          ? () =>
-              p.loadResource(
-                'nads',
-                () => fetchHarvesterNads(p.cloudId, true),
-                (json: any) => p.setHarvesterNads((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
-      onReloadStorageClasses={
-        p.checkPerm('clouds.disks:read') || p.checkPerm('clouds.ecs:read')
-          ? () =>
-              p.loadResource(
-                'storageClasses',
-                () => fetchHarvesterStorageClasses(p.cloudId, true),
-                (json: any) => p.setHarvesterStorageClasses((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
+      setHarvesterImages={p.setHarvesterImages}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setHarvesterNads={p.setHarvesterNads}
+      setHarvesterStorageClasses={p.setHarvesterStorageClasses}
       isTenant={p.isTenant}
       namespacesOptions={p.namespacesOptions}
       capabilities={p.capabilities}
@@ -410,13 +368,9 @@ const StorageRoute: React.FC = () => {
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('storage')}
-      loadResource={p.loadResource}
       loadTabResource={p.loadTabResource}
       ecs={p.ecs}
-      setEcs={p.setEcs}
-      setRawEcs={p.setRawEcs}
       harvesterVolumes={p.harvesterVolumes}
-      setHarvesterVolumes={p.setHarvesterVolumes}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterSnapshots={p.harvesterSnapshots}
       harvesterNamespaces={p.harvesterNamespaces}

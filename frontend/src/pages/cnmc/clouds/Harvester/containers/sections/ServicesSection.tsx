@@ -482,14 +482,6 @@ const ServicesSection: React.FC<Props> = ({
                 : [
                 { key: 'view_pods', label: '查看 Pod', onClick: () => openRelatedPodsDrawer(record) },
                 { key: 'edit', label: '编辑服务', disabled: isSystem, tooltip: systemHint, onClick: () => handleEdit(record) },
-                {
-                  key: 'yaml',
-                  label: '编辑 YAML',
-                  danger: true,
-                  disabled: isSystem,
-                  tooltip: isSystem ? systemHint : '直接修改集群资源 YAML，请谨慎操作',
-                  onClick: () => handleYamlEdit(record),
-                },
                 { 
                   key: 'delete', 
                   label: '删除', 

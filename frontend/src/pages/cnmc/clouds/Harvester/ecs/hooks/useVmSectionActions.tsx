@@ -15,6 +15,7 @@ import {
 } from '../../../../../../services/harvesterApi';
 import type { VmListSafeRead } from '../lib/vmSafeRead';
 import { getVmInstanceId } from '../lib/vmSectionUtils';
+import { runHarvesterSectionRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import {
   assessVmMigrateEligibility,
   buildVmAliasPatch,
@@ -144,7 +145,7 @@ export function useVmSectionActions({
               ? '已取消重要实例标记 (防删锁已移除)'
               : '已设为重要实例 (防删锁已启用)',
           );
-          onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         }
       } catch (e: any) {
         console.error(e);
@@ -290,7 +291,7 @@ export function useVmSectionActions({
         message.success(next ? '名称修改成功' : '已清空别名');
         setAliasModalVisible(false);
         setAliasVm(null);
-        onRefresh(true);
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
         return true;
       } catch (e: any) {
         console.error(e);
@@ -430,7 +431,7 @@ export function useVmSectionActions({
             message.error(error);
           }
           setSelectedKeys([]);
-          onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(e?.message || '批量移入回收站失败');
         }

@@ -20,7 +20,10 @@ import {
   nodeRowKey,
   nodeRowToViewLink,
 } from '../lib/nodesSectionUtils';
-import { createClusterToolbarRefresh } from '../lib/clusterSectionRefresh';
+import {
+  createClusterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../lib/clusterSectionRefresh';
 import { buildNodesTableColumns } from '../lib/nodesTableColumns';
 
 const COLUMN_SETTINGS_KEY = 'harvester_nodes_table';
@@ -186,7 +189,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
         metrics={metricsMap[String(nodeDetailRecord?.name || nodeDetailRecord?.metadata?.name || '')]}
         onRefreshFromCluster={(force) => {
           reload(!!force);
-          onRefresh?.(force);
+          void runHarvesterSectionRefresh(onRefresh, { force: force !== false });
         }}
         refreshLoading={tableLoading}
       />

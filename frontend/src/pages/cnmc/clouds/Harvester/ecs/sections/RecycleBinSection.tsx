@@ -71,7 +71,10 @@ import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/v
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
-import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
@@ -246,7 +249,7 @@ const RecycleBinSection: React.FC<Props> = ({
     try {
       await restoreHarvesterVm(cloudId, instanceId);
       message.success('恢复成功');
-      await Promise.resolve(onRefresh(true));
+      await runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(`恢复失败: ${e.message}`);
     }
@@ -339,7 +342,7 @@ const RecycleBinSection: React.FC<Props> = ({
         try {
           await forceDeleteHarvesterVm(cloudId, instanceId, shouldDeleteVolumes);
           message.success('虚拟机已彻底删除');
-          await Promise.resolve(onRefresh(true));
+          await runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(`彻底删除失败: ${e.message}`);
         }
