@@ -3,6 +3,24 @@ export type LoginPublicKeyResponse = {
   publicKey: string;
 };
 
+const INSECURE_CONTEXT_LOGIN_HINT =
+  '当前页面无法使用登录加密（浏览器 Web Crypto 不可用）。请通过 HTTPS 或 localhost 访问后再登录；若必须使用 HTTP，需由管理员在后端开启 LOGIN_ALLOW_PLAINT_PASSWORD=1（仅建议开发环境）。';
+
+function getWebCryptoSubtle(): SubtleCrypto {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle && typeof subtle.importKey === 'function') {
+    return subtle;
+  }
+  throw new Error(INSECURE_CONTEXT_LOGIN_HINT);
+}
+
+function createLoginNonce(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
 function pemToSpkiArrayBuffer(pem: string): ArrayBuffer {
   const b64 = pem
     .replace(/-----BEGIN PUBLIC KEY-----/, '')
@@ -38,7 +56,8 @@ export async function fetchLoginPublicKey(apiBase: string): Promise<LoginPublicK
 
 /** 使用 RSA-OAEP(SHA-256) 加密登录密码；Network Payload 中为 Base64 密文 */
 export async function encryptLoginPassword(publicKeyPem: string, password: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
+  const subtle = getWebCryptoSubtle();
+  const key = await subtle.importKey(
     'spki',
     pemToSpkiArrayBuffer(publicKeyPem),
     { name: 'RSA-OAEP', hash: 'SHA-256' },
@@ -49,10 +68,10 @@ export async function encryptLoginPassword(publicKeyPem: string, password: strin
   const payload = JSON.stringify({
     password,
     ts: Date.now(),
-    nonce: crypto.randomUUID(),
+    nonce: createLoginNonce(),
   });
 
-  const encrypted = await crypto.subtle.encrypt(
+  const encrypted = await subtle.encrypt(
     { name: 'RSA-OAEP' },
     key,
     new TextEncoder().encode(payload),
@@ -75,6 +94,9 @@ export async function buildLoginRequestBody(
   const trimmedPwd = String(password ?? '').trim();
   const keyInfo = await fetchLoginPublicKey(apiBase);
   if (keyInfo?.publicKey) {
+    if (!globalThis.crypto?.subtle?.importKey) {
+      throw new Error(INSECURE_CONTEXT_LOGIN_HINT);
+    }
     const cipher = await encryptLoginPassword(keyInfo.publicKey, trimmedPwd);
     return { username: trimmedUser, keyId: keyInfo.keyId, cipher };
   }
