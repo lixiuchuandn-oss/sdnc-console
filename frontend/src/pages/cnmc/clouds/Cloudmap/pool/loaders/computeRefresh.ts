@@ -1,5 +1,5 @@
 /**
- * 虚拟机（compute）业务域统一刷新约定：
+ * 虚拟机（compute）业务域统一刷新约定（与 `clusterRefresh.ts` 对称，Cloudmap 样板域）：
  * - 池层：一律 `loadTabResource(innerKey, force, skipSync)`，实现见 `pathResource/computePathLoads.ts`
  * - Section：工具栏 `createHarvesterToolbarRefresh(onRefresh)`；写成功/删改后**禁止**裸调 `onRefresh(...)`，一律 `runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`
  */

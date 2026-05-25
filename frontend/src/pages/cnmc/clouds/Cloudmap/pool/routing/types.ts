@@ -49,8 +49,6 @@ export type CloudmapPoolPanelProps = {
   setRawEcs: Dispatch<SetStateAction<any | null>>;
   refreshVms: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNodes: any[];
-  nodesLoading: boolean;
-  refreshNodes: (force?: boolean) => void | Promise<void>;
   rawNodes: any;
   harvesterServices: any[];
   setHarvesterServices: Dispatch<SetStateAction<any[]>>;
@@ -64,8 +62,6 @@ export type CloudmapPoolPanelProps = {
   rawClusterNetworks: any;
   harvesterNads: any[];
   setHarvesterNads: Dispatch<SetStateAction<any[]>>;
-  nadsLoading: boolean;
-  refreshNads: (force?: boolean, silent?: boolean) => Promise<void>;
   rawNads: any;
   harvesterLoadBalancers: any[];
   rawLoadBalancers: any;
@@ -77,7 +73,6 @@ export type CloudmapPoolPanelProps = {
   rawSubnets: any;
   setKubeOvnSubnets: Dispatch<SetStateAction<any[]>>;
   setRawSubnets: Dispatch<SetStateAction<any | null>>;
-  refreshVlans: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterNamespacesForManagement: any[];
   harvesterStorageClasses: any[];
   setHarvesterStorageClasses: Dispatch<SetStateAction<any[]>>;

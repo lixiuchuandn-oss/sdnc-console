@@ -13,11 +13,10 @@ import {
   parseCloudmapPoolPath,
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
-import { fetchCloudById, fetchHarvesterNads, fetchHarvesterNodes } from '../api';
+import { fetchCloudById } from '../api';
 import { useCloudmapPoolEcs } from './useCloudmapPoolEcs';
 import { useCloudmapPoolPermissions } from './useCloudmapPoolPermissions';
 import { useCloudmapPoolPathSync } from './useCloudmapPoolPathSync';
-import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
 
 const REQUEST_TIMEOUT = 30000;
 
@@ -203,41 +202,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
 
   const loadedRef = React.useRef<Set<string>>(new Set());
 
-  const [nodesLoading, setNodesLoading] = useState(false);
-  const refreshNodes = async (force = false) => {
-    if (nodesLoading) return;
-    setNodesLoading(true);
-    try {
-      const nodesJson = await fetchHarvesterNodes(cloudId, force);
-      const nodesList: any[] = (nodesJson as any)?.data?.items || [];
-      setHarvesterNodes(Array.isArray(nodesList) ? nodesList : []);
-      setRawNodes(nodesJson || null);
-      message.success('节点刷新成功');
-    } catch (e: any) {
-      message.error(`刷新节点失败: ${e?.message || '未知错误'}`);
-    } finally {
-      setNodesLoading(false);
-    }
-  };
-
-  const [nadsLoading, setNadsLoading] = useState(false);
-  const refreshNads = async (force = false, silent = false): Promise<void> => {
-    if (nadsLoading) return;
-    setNadsLoading(true);
-    try {
-      const skipSync = silent || false;
-      const nadsJson = await fetchHarvesterNads(cloudId, force, skipSync);
-      const nadsList: any[] = (nadsJson as any)?.data?.items || [];
-      setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
-      setRawNads(nadsJson || null);
-      if (!silent) message.success('NAD网络刷新成功');
-    } catch (e: any) {
-      message.error(`刷新NAD网络失败: ${e?.message || '未知错误'}`);
-    } finally {
-      setNadsLoading(false);
-    }
-  };
-
   const loadResource = React.useCallback(
     async (
       key: string,
@@ -378,6 +342,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setHarvesterKubeOvnProviderNetworks,
         setHarvesterIPPools,
         setRawIPPools,
+        setHarvesterNads,
+        setRawNads,
         setHarvesterClusterNetworks,
         setRawClusterNetworks,
         setHarvesterNodes,
@@ -433,15 +399,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     (force = false, skipSync = false) => loadTabResource('ecs', force, skipSync),
     [loadTabResource],
   );
-
-  const refreshVlans = async (force = false, skipSync = false) => {
-    if (
-      !checkPerm('clouds.vlans:read') &&
-      !checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
-    )
-      return;
-    await loadTabResource('cluster_vlans', force, skipSync);
-  };
 
   useEffect(() => {
     loadedRef.current.clear();
@@ -584,8 +541,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     setRawEcs,
     refreshVms,
     harvesterNodes,
-    nodesLoading,
-    refreshNodes,
     rawNodes,
     harvesterServices,
     setHarvesterServices,
@@ -599,8 +554,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawClusterNetworks,
     harvesterNads,
     setHarvesterNads,
-    nadsLoading,
-    refreshNads,
     rawNads,
     harvesterLoadBalancers,
     rawLoadBalancers,
@@ -612,7 +565,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawSubnets,
     setKubeOvnSubnets,
     setRawSubnets,
-    refreshVlans,
     harvesterNamespacesForManagement,
     harvesterStorageClasses,
     setHarvesterStorageClasses,

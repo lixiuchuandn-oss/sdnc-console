@@ -413,7 +413,7 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
    于上述成功后的重载中须**强制新读**：`apiRequest(path, { skipCache: true })`，或对 `frontend/src/utils/requestManager.ts` 中 `clearCache` 所支持的精确 path 先 `clearCache` 再 GET。
 
 3. **Harvester 云详情内各 Section / Tab**  
-   成功回调中重载列表时：经父级 `onRefresh` 触发池层/对端拉取；**禁止**在 Section 内裸调 `onRefresh(true)`，须用 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（见下节 **Cloudmap 虚拟机业务域刷新落地**）。工具栏仍用 **`createHarvesterToolbarRefresh(onRefresh)`**。
+   成功回调中重载列表时：经父级 `onRefresh` 触发池层/对端拉取；**禁止**在 Section 内裸调 `onRefresh(true)`，须用 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（见下节 **Cloudmap 刷新样板（compute + cluster）**）。工具栏仍用 **`createHarvesterToolbarRefresh(onRefresh)`**。
 
 | 场景 | 要求 |
 |------|------|
@@ -426,7 +426,7 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 **全站检索（审计同类问题时用）**  
 在 `frontend/src` 内可配合检索（命中后人工判断是否应在成功路径上强制重载）：
 
-- 无参 `onRefresh()` / `onRefresh?.()`：成功路径与工具栏「刷新」应经 **`runHarvesterSectionRefresh` / `createHarvesterToolbarRefresh`**，勿裸调 `onRefresh(true)`（`ecs` 域已统一，见下节）。**勿**将 `onClick={onRefresh}` 直接绑到 Button（会把点击事件当第一参传入）。
+- 无参 `onRefresh()` / `onRefresh?.()`：成功路径与工具栏「刷新」应经 **`runHarvesterSectionRefresh` / `createHarvesterToolbarRefresh`**，勿裸调 `onRefresh(true)`（**`ecs` / `cluster` 样板域**已统一，见下节）。**勿**将 `onClick={onRefresh}` 直接绑到 Button（会把点击事件当第一参传入）。
 - `onSuccess={onRefresh}`：若子组件仅调用无参 `onRefresh()`，须改为包装为 `() => runHarvesterSectionRefresh(onRefresh, { force: true })` 或等价实现。
 - 个别 `apiRequest(…, { enableCache: true })` 仍见 `hooks`、仪表盘等；与列表强一致时写操作后重载须 `skipCache: true` 或 `clearCache`（见本节写操作重载第 2 条）。
 
@@ -444,7 +444,11 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 新功能合入时仍应做**自测**与上表「全站检索」抽查；旧页不可能在某次提交里全部穷举改完。
 
-#### Cloudmap 虚拟机业务域（compute / `ecs`）刷新落地
+#### Cloudmap 刷新样板（compute + cluster）
+
+Harvester **弹性计算（`ecs`）** 与 **集群（`cluster`）** 为 Cloudmap 池内刷新能力的**对称样板**：池层 **`create*TabOnRefresh` → `loadTabResource`**，Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。其它业务域新增 Tab 时**优先对齐本模式**，勿在引擎再写平行 `refreshXxx` + 面板内联 `() => loadTabResource(...)`。
+
+##### 虚拟机（compute / `ecs`）
 
 Harvester **弹性计算**在 Cloudmap 资源池内装配（`panels/compute` + `Harvester/ecs/`）。刷新分 **两层**，新增 Tab 或改刷新逻辑时须按层落位，**禁止**在 Section 内再写一套 `fetch` + `setState` 拉列表（迁移记录等已收口为例）。
 
@@ -498,6 +502,37 @@ Harvester **弹性计算**在 Cloudmap 资源池内装配（`panels/compute` + `
 4. 读接口在 `force` 路径是否 **`skipCache: true`**（或 `fetchCloudProviderEcs` 等等价无缓存）？
 
 细则亦见 **`frontend/src/pages/cnmc/clouds/Harvester/ecs/README.md`**（compute 刷新专章）。
+
+##### 集群（cluster）
+
+Harvester **集群**在 Cloudmap 资源池内装配（`panels/cluster` + `Harvester/cluster/`）。与 compute 同 **两层**；**禁止**在引擎为单 Tab 再维护独立 `refreshNodes` / `refreshNads` 等（已收口为 **`loadTabResource`**）。
+
+**第 1 层 — 池层**
+
+| 职责 | 文件 |
+|------|------|
+| 各 cluster 子 Tab 的 `onRefresh` 映射 | `loaders/clusterRefresh.ts` → **`createClusterTabOnRefresh(tab, deps)`** |
+| 按 `innerKey` 拉数 | `loaders/pathResource/clusterPathLoads.ts`（含 **`nads`**，与侧栏 `cluster/nads` 一致） |
+| 池引擎入口 | `hooks/useCloudmapPoolDetailEngine.ts` 的 **`loadTabResource`**（**勿**再导出节点/NAD/VLAN 专用 refresh） |
+| 装配 | `panels/cluster/index.tsx` → **`clusterTabOnRefresh.*`** |
+
+**cluster 子 Tab 与 `loadTabResource` key（本域 Section）**
+
+| `innerActiveKey` | `loadTabResource` key | 说明 |
+|------------------|----------------------|------|
+| `cluster_nodes` | `cluster_nodes` | `?force=true` → sync 节点库存后读库；列表工具栏另触发 **`useNodesResourceBundle`** 拉 metrics/pods |
+| `namespaces` | `namespaces` | sync 后读库；写删用 **`reloadHarvesterNamespacesList`** |
+| `gpu` / `cluster_usb` / `cluster_pci` / `cluster_sriov` / `clusterNetworks` / `storage_classes` / `nads` / `load_balancers` / `ippools` | 同名 key | `force=true` 时 inventory **sync 后读库**（USB/PCI 写操作经 Steve，列表仍走 sync+库） |
+| `cluster_vlans` | `cluster_vlans` | 可同时刷新 VLAN + ProviderNetwork（loader 内并行） |
+| `kubeovn_public_networks` | `kubeovn_public_networks` | Provider 网络 Tab（`kube-ovn` Section，池层 key 归 cluster 导航） |
+
+**有意不走路径 `onRefresh` 的例外**：**物理交换机**（Section 内 `loadAll`）、**Ceph `storage_pools`**、**Underlay 子网**（`kubeovn_public_subnets` 自拉）——在 README 标明，勿强行并入 `clusterTabOnRefresh`。
+
+**第 2 层 — Section 层**
+
+与 compute 相同：**`createHarvesterToolbarRefresh`** / **`runHarvesterSectionRefresh`**；`cluster/lib/clusterSectionRefresh.ts` 仅 re-export shared。
+
+细则亦见 **`frontend/src/pages/cnmc/clouds/Harvester/cluster/README.md`**。
 
 ### 组件开发
 - 公共逻辑提取到 `components/` 或 `hooks/`

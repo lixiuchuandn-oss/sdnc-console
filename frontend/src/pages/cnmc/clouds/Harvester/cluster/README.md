@@ -37,13 +37,22 @@
 | `nads` / `load_balancers` / `ippools` | `nad` | `Harvester/nad/sections/` |
 | `storage_pools` | `ceph` | `Harvester/ceph/sections/` |
 
-## 列表刷新约定
+## 列表刷新约定（Cloudmap 池样板域，与 **`ecs/`** 对称）
 
-- 通用工具栏：**`Harvester/shared/lib/harvesterSectionRefresh.ts`** → `createHarvesterToolbarRefresh(onRefresh)`（`cluster/lib/clusterSectionRefresh.ts` 仅为 re-export）。
-- **其它 Harvester 域**（如 **`ecs/`**）直接 import shared，勿再拷贝刷新逻辑（见 **`AGENTS.md` · 不要重复造轮子**）。
-- 节点列表：工具栏 `before` 钩子额外调用 **`useNodesResourceBundle().reload(true)`**（metrics/pods 与列表同步）。
-- 命名空间写删：**`reloadHarvesterNamespacesList(cloudId, onRefresh)`**（`clearGetCacheForPath` + `onRefresh(true, true)`）。
-- 物理交换机：Section 内 **`loadAll()`** 自拉 ASW-CTL / HMS 数据，不依赖父级 `onRefresh`。
+**两层**：池层 **`loadTabResource`** + Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。细则见 **`AGENTS.md` · Cloudmap 刷新样板（compute + cluster）**。
+
+| 层 | 落点 |
+|----|------|
+| 池 · 各子 Tab `onRefresh` | `Cloudmap/pool/loaders/clusterRefresh.ts` → **`createClusterTabOnRefresh`** |
+| 池 · 拉数 | `loaders/pathResource/clusterPathLoads.ts`（经 `runPathResourceLoad`） |
+| 池 · 装配 | `Cloudmap/pool/panels/cluster/index.tsx` → **`clusterTabOnRefresh.*`** |
+| Section 工具栏 | **`Harvester/shared/lib/harvesterSectionRefresh.ts`**（`cluster/lib/clusterSectionRefresh.ts` 仅 re-export） |
+| Section 写成功/删改 | **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**，禁止裸 `onRefresh(true)` |
+
+- 节点列表：工具栏 `before` 额外 **`useNodesResourceBundle().reload(true)`**（metrics/pods）；详情抽屉刷新同样经 **`runHarvesterSectionRefresh`**。
+- 命名空间写删：**`reloadHarvesterNamespacesList(cloudId, onRefresh)`**（清 GET 缓存 + silent 刷新）。
+- **物理交换机**：Section 内 **`loadAll()`**，不走路径 `onRefresh`（有意例外）。
+- **Ceph `storage_pools`**、**`kubeovn_public_subnets`**（Underlay 子网自拉）：挂在 cluster 导航下但刷新不在 `clusterTabOnRefresh` 表内，按各自域实现。
 
 ## 列表表格
 

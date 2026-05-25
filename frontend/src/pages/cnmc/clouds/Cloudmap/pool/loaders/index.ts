@@ -16,6 +16,12 @@ export {
   type ComputeTabRefreshDeps,
 } from './computeRefresh';
 export {
+  createClusterTabOnRefresh,
+  type ClusterInnerTabKey,
+  type ClusterTabRefreshDeps,
+  type ClusterSectionOnRefresh,
+} from './clusterRefresh';
+export {
   fetchComputeEcsList,
   parseEcsListFromJson,
   syncCloudEcsBeforeLoad,

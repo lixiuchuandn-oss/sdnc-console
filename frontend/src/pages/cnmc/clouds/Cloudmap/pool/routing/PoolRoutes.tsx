@@ -110,14 +110,10 @@ const ClusterRoute: React.FC = () => {
       loadTabResource={p.loadTabResource}
       loadResource={p.loadResource}
       harvesterNodes={p.harvesterNodes}
-      nodesLoading={p.nodesLoading}
-      refreshNodes={p.refreshNodes}
       rawNodes={p.rawNodes}
       harvesterClusterNetworks={p.harvesterClusterNetworks}
       rawClusterNetworks={p.rawClusterNetworks}
       harvesterNads={p.harvesterNads}
-      nadsLoading={p.nadsLoading}
-      refreshNads={p.refreshNads}
       rawNads={p.rawNads}
       harvesterLoadBalancers={p.harvesterLoadBalancers}
       rawLoadBalancers={p.rawLoadBalancers}
@@ -129,7 +125,6 @@ const ClusterRoute: React.FC = () => {
       rawSubnets={p.rawSubnets}
       setKubeOvnSubnets={p.setKubeOvnSubnets}
       setRawSubnets={p.setRawSubnets}
-      refreshVlans={p.refreshVlans}
       harvesterNamespacesForManagement={p.harvesterNamespacesForManagement}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterGpuResources={p.harvesterGpuResources}

@@ -94,6 +94,8 @@ export type PoolPathResourceDeps = {
   setHarvesterKubeOvnProviderNetworks: Dispatch<SetStateAction<any[]>>;
   setHarvesterIPPools: Dispatch<SetStateAction<any[]>>;
   setRawIPPools: Dispatch<SetStateAction<any | null>>;
+  setHarvesterNads: Dispatch<SetStateAction<any[]>>;
+  setRawNads: Dispatch<SetStateAction<any | null>>;
   setHarvesterClusterNetworks: Dispatch<SetStateAction<any[]>>;
   setRawClusterNetworks: Dispatch<SetStateAction<any | null>>;
   setHarvesterNodes: Dispatch<SetStateAction<any[]>>;
