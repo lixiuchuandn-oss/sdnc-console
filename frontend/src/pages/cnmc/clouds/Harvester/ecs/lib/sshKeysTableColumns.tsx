@@ -56,7 +56,7 @@ export function buildSshKeysTableColumns(actions: SshKeysTableActions): ColumnsT
         const items: { key: string; label: string; danger?: boolean; disabled?: boolean; onClick?: () => void; type?: 'divider' }[] = [];
         if (!isTenant) {
           items.push({
-            key: 'opsinfo',
+            key: 'yaml',
             label: '查看YAML',
             onClick: () => onOpenYaml(record),
           });

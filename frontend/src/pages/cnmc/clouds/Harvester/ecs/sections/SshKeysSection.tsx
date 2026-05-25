@@ -12,7 +12,8 @@ import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { deleteHarvesterSshKey } from 'services/harvester/vm';
 import { hasPermissionForAction } from 'utils/accessMapping';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
@@ -24,7 +25,6 @@ import {
   filterSshKeysBaseRows,
   filterSshKeysForTable,
   mapSshKeysToTableRows,
-  sshKeyRowViewLink,
   type SshKeyTableRow,
 } from '../lib/sshKeysSectionUtils';
 import { buildSshKeysTableColumns } from '../lib/sshKeysTableColumns';
@@ -62,9 +62,8 @@ const SshKeysSection: React.FC<Props> = ({
   const [namespaceFilter, setNamespaceFilter] = useState('');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [detailVisible, setDetailVisible] = useState(false);
-  const [detailRecord, setDetailRecord] = useState<unknown>(null);
-  const [detailActiveTab, setDetailActiveTab] = useState('detail');
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const dataSource = useMemo(() => mapSshKeysToTableRows(sshKeys), [sshKeys]);
 
@@ -89,21 +88,16 @@ const SshKeysSection: React.FC<Props> = ({
     runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
   }, [onRefresh]);
 
-  const handleOpenOpsinfo = useCallback((record: SshKeyTableRow) => {
-    const raw = (record.raw as Record<string, unknown>) || record;
-    const viewLink = sshKeyRowViewLink(record);
-    const r = {
-      ...(raw as object),
-      kind: (raw as { kind?: string }).kind || 'KeyPair',
-      links: {
-        ...((raw as { links?: Record<string, string> }).links || {}),
-        ...(viewLink ? { view: viewLink } : {}),
-      },
-    };
-    setDetailRecord(r);
-    setDetailActiveTab('detail');
-    setDetailVisible(true);
-  }, []);
+  const handleOpenYaml = useCallback(
+    (record: SshKeyTableRow) => {
+      const raw = (record.raw as Record<string, unknown>) || record;
+      openYamlDrawer(
+        { ...(raw as object), kind: (raw as { kind?: string }).kind || 'KeyPair' },
+        { title: 'SSH 密钥 YAML' },
+      );
+    },
+    [openYamlDrawer],
+  );
 
   const handleDeleteOne = useCallback(
     (record: SshKeyTableRow) => {
@@ -171,10 +165,10 @@ const SshKeysSection: React.FC<Props> = ({
       buildSshKeysTableColumns({
         isTenant,
         hasSshKeysWrite,
-        onOpenYaml: handleOpenOpsinfo,
+        onOpenYaml: handleOpenYaml,
         onDelete: handleDeleteOne,
       }),
-    [handleDeleteOne, handleOpenOpsinfo, hasSshKeysWrite, isTenant],
+    [handleDeleteOne, handleOpenYaml, hasSshKeysWrite, isTenant],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, TABLE_SETTINGS_KEY);
@@ -282,17 +276,12 @@ const SshKeysSection: React.FC<Props> = ({
         }}
         isTenant={isTenant}
       />
-      <HarvesterResourceDrawer
-        open={detailVisible}
-        onClose={() => {
-          setDetailVisible(false);
-          setDetailActiveTab('detail');
-        }}
-        resourceType="KeyPair"
-        record={detailRecord}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
         cloudId={cloudId}
-        activeTab={detailActiveTab}
-        onTabChange={setDetailActiveTab}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle || 'SSH 密钥 YAML'}
       />
     </PageDetailSection>
   );

@@ -49,6 +49,10 @@ const NAMESPACED_KIND_PATH: Record<string, (ns: string, name: string) => string>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/cloudinits/${encodeURIComponent(name)}`,
   VirtualMachineTemplate: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinetemplates/${encodeURIComponent(name)}`,
+  VirtualMachineInstanceMigration: (ns, name) =>
+    `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachineinstancemigrations/${encodeURIComponent(name)}`,
+  VirtualMachine: (ns, name) =>
+    `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachines/${encodeURIComponent(name)}`,
   VirtualMachineBackup: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`,
   CephVmBackup: (ns, name) =>

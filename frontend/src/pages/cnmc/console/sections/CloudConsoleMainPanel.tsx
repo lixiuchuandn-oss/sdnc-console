@@ -199,6 +199,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
           { key: 'template', label: '模板' },
           { key: 'image', label: '镜像' },
           { key: 'ssh', label: 'SSH密钥' },
+          { key: 'cloudinit', label: 'CloudInit 配置' },
         ],
       },
       {

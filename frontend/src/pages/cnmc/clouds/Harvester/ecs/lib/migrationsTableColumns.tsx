@@ -16,14 +16,14 @@ export type MigrationsTableActions = {
   isTenant?: boolean;
   vms?: readonly unknown[];
   canWrite: boolean;
-  onOpenDrawer: (record: MigrationTableRow, tab?: string) => void;
+  onOpenYaml: (record: MigrationTableRow) => void;
   onAbort: (record: MigrationTableRow) => void;
 };
 
 export function buildMigrationsTableColumns(
   actions: MigrationsTableActions,
 ): ColumnsType<MigrationTableRow> {
-  const { isTenant, vms, canWrite, onOpenDrawer, onAbort } = actions;
+  const { isTenant, vms, canWrite, onOpenYaml, onAbort } = actions;
 
   return [
     {
@@ -64,7 +64,7 @@ export function buildMigrationsTableColumns(
             <span
               className="cell-link"
               style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, fontWeight: 600 }}
-              onClick={() => onOpenDrawer(r, 'detail')}
+              onClick={() => onOpenYaml(r)}
             >
               {displayName}
             </span>
@@ -109,8 +109,8 @@ export function buildMigrationsTableColumns(
         const phase = row.status?.phase || migrationRowFields.phase(r);
         const running = isMigrationRunning(String(phase));
         const actionNodes: React.ReactNode[] = [
-          <Button key="detail" type="link" size="small" onClick={() => onOpenDrawer(r, 'detail')}>
-            详情
+          <Button key="yaml" type="link" size="small" onClick={() => onOpenYaml(r)}>
+            查看YAML
           </Button>,
         ];
         if (running && canWrite) {

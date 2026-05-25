@@ -206,7 +206,7 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
             buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
             items={[
               ...(!isTenant
-                ? [{ key: 'opsinfo', label: '查看YAML', onClick: () => onOpenYaml(r) }]
+                ? [{ key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }]
                 : []),
               {
                 key: 'editLabels',

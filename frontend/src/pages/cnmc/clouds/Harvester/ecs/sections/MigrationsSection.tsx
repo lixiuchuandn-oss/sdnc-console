@@ -15,7 +15,8 @@ import {
   fetchHarvesterMigrationsDirect,
 } from 'services/harvester/vm';
 import { hasPermissionForAction } from 'utils/accessMapping';
-import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import {
@@ -43,9 +44,8 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
   const [statusFilter, setStatusFilter] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
   const { user } = useAuth();
-  const [detailVisible, setDetailVisible] = useState(false);
-  const [detailRecord, setDetailRecord] = useState<unknown>(null);
-  const [detailActiveTab, setDetailActiveTab] = useState('detail');
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const canWrite = useMemo(
     () =>
@@ -84,22 +84,12 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
     void loadData(true);
   }, [loadData]);
 
-  const handleOpenDrawer = useCallback((record: MigrationTableRow, tab = 'detail') => {
-    const row = record as { metadata?: { namespace?: string; name?: string }; links?: { view?: string } };
-    const ns = row?.metadata?.namespace;
-    const name = row?.metadata?.name;
-    const view =
-      ns && name
-        ? `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachineinstancemigrations/${encodeURIComponent(name)}`
-        : undefined;
-    setDetailRecord({
-      ...row,
-      kind: 'VirtualMachineInstanceMigration',
-      links: { ...(row?.links || {}), ...(view ? { view } : {}) },
-    });
-    setDetailActiveTab(tab);
-    setDetailVisible(true);
-  }, []);
+  const handleOpenYaml = useCallback((record: MigrationTableRow) => {
+    openYamlDrawer(
+      { ...record, kind: 'VirtualMachineInstanceMigration' },
+      { title: '迁移任务 YAML' },
+    );
+  }, [openYamlDrawer]);
 
   const handleAbort = useCallback(
     async (record: MigrationTableRow) => {
@@ -142,10 +132,10 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
         isTenant,
         vms,
         canWrite,
-        onOpenDrawer: handleOpenDrawer,
+        onOpenYaml: handleOpenYaml,
         onAbort: handleAbort,
       }),
-    [canWrite, handleAbort, handleOpenDrawer, isTenant, vms],
+    [canWrite, handleAbort, handleOpenYaml, isTenant, vms],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, TABLE_SETTINGS_KEY);
@@ -215,14 +205,12 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
           showTotal: (total) => `共 ${total} 条`,
         }}
       />
-      <HarvesterResourceDrawer
-        open={detailVisible}
-        onClose={() => setDetailVisible(false)}
-        resourceType="VirtualMachineInstanceMigration"
-        record={detailRecord}
-        activeTab={detailActiveTab}
-        onTabChange={setDetailActiveTab}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
         cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle || '迁移任务 YAML'}
       />
     </PageDetailSection>
   );

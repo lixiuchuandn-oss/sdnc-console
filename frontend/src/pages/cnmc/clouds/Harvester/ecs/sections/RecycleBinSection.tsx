@@ -65,21 +65,27 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Space, message, Modal, Tooltip, App, Badge, Input, Select, Button, Typography, Checkbox, Drawer } from 'antd';
-import { DeleteOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined, SettingOutlined } from '@ant-design/icons';
+import { Table, Space, message, Modal, Tooltip, App, Input, Select, Button, Typography, Checkbox, Drawer } from 'antd';
+import { DeleteOutlined, SearchOutlined, ReloadOutlined, WarningOutlined, SettingOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/vm';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import { cnVmStatus, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
-import { OsIcon } from '../../../../../../components/OsIcon';
-import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
+import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import RecycleBinTaskConfigModal from '../../ecs/modals/RecycleBinTaskConfigModal';
 import RecycleBinRecordsSection from './RecycleBinRecordsSection';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { formatStorageSize, parseStorageSize } from '../lib/storageSize';
+import { getVmInstanceId, selectRecycledVmRows, filterRecycledVmListRows } from '../lib/vmSectionUtils';
+import { createVmRecycleBinListSafeRead } from '../lib/vmSafeRead';
+import {
+  buildRecycleBinTableColumns,
+  HARVESTER_RECYCLE_BIN_TABLE_SETTINGS_KEY,
+} from '../lib/recycleBinTableColumns';
+import { buildRecycledVmNamespaceOptions } from '../lib/recycleBinSectionUtils';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -97,7 +103,7 @@ interface Props {
   vms: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void | Promise<void>;
+  onRefresh: HarvesterSectionOnRefresh;
   namespaces?: any[];
   volumes?: any[];
   images?: any[];
@@ -139,9 +145,9 @@ const RecycleBinSection: React.FC<Props> = ({
     if (statusFilter && statusFilter !== 'stopped') setStatusFilter('');
   }, [statusFilter]);
 
-  // [运维信息抽屉状态] 控制资源详情抽屉的显示
-  const [drawerVisible, setDrawerVisible] = useState(false); // 抽屉是否可见
-  const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null); // 当前查看的 VM 记录
+  // [YAML 抽屉] 查看虚拟机 CRD
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
   // [配置模态框状态] 控制任务配置模态框的显示
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [recordsDrawerVisible, setRecordsDrawerVisible] = useState(false);
@@ -161,287 +167,20 @@ const RecycleBinSection: React.FC<Props> = ({
    * 
    * @returns 回收站中的虚拟机数组
    */
-  const recycledVms = useMemo(() => {
-    return vms.filter((vm: any) => {
-      const finalizers = vm?.metadata?.finalizers || [];
-      const labels = vm?.metadata?.labels || {};
-      return finalizers.includes('tower.io/recycle-bin') || labels['tower.io/recycle-bin'] === 'true';
-    });
-  }, [vms]);
+  const recycledVms = useMemo(() => selectRecycledVmRows(vms), [vms]);
 
   // ==========================================
   // [工具函数] 3. 辅助函数 (Utility Functions)
   // ==========================================
-  
-  /**
-   * 获取虚拟机的唯一标识符
-   * 
-   * 优先级顺序:
-   * 1. namespace/name 格式 (Kubernetes 标准格式)
-   * 2. InstanceId (兼容旧格式)
-   * 3. id (兜底)
-   * 
-   * @param r - 虚拟机对象
-   * @returns 唯一标识符字符串
-   */
-  const getIid = (r: any): string => {
-    if (r?.metadata?.name && r?.metadata?.namespace) {
-      return `${r.metadata.namespace}/${r.metadata.name}`;
-    }
-    return String(r?.InstanceId || r?.id || '');
-  };
 
-  /**
-   * 安全读取辅助函数对象
-   * 
-   * 目的: 统一处理 Harvester VM 对象的复杂嵌套结构，避免 undefined 错误
-   * 
-   * 设计原因:
-   * - Harvester (基于 KubeVirt) 的资源对象结构非常深 (如 spec.template.spec.domain.cpu)
-   * - 不同版本的 API 可能返回不同的数据结构
-   * - 需要兼容多种数据格式（原始 K8s 对象、抽象后的对象等）
-   * 
-   * 使用方式:
-   * - 所有字段读取都通过 SafeRead 对象的方法
-   * - 每个方法都有多个回退路径，确保总能返回有效值
-   * - 与 VmSection.tsx 保持完全一致，确保数据展示的一致性
-   * 
-   * 依赖项: namespaces, volumes, images - 用于解析关联信息
-   */
-  const SafeRead = useMemo(() => ({
-    /**
-     * 获取虚拟机显示名称
-     * 优先级: 别名 > InstanceName > name > metadata.name
-     */
-    name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.InstanceName || r?.name || r?.metadata?.name || '',
-    vmId: (r: any) => r?.metadata?.name || '',
-    namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
-    uid: (r: any) => r?.metadata?.uid || r?.InstanceId || r?.id || '',
-    tenant: (r: any) => {
-      const nsName = r?.metadata?.namespace || r?.namespace || '';
-      const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
-      if (nsObj?.metadata?.annotations?.['tower.io/tenant']) {
-        return nsObj.metadata.annotations['tower.io/tenant'];
-      }
-      return '';
-    },
-    organization: (r: any) => {
-      const nsName = r?.metadata?.namespace || r?.namespace || '';
-      const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
-      if (nsObj?.metadata?.annotations?.['tower.io/organization']) {
-        return nsObj.metadata.annotations['tower.io/organization'];
-      }
-      return '';
-    },
-    creationTimestamp: (r: any) => r?.createdAt || r?.metadata?.creationTimestamp,
-    /**
-     * 回收站视图：无论从删除前是何状态，列表与筛选均一律展示为「已停止」（与产品设计一致）。
-     */
-    status: (_r: any) => 'Stopped',
-    node: (r: any) => r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || '',
-    cpu: (r: any) => {
-      const cpu = r?.spec?.template?.spec?.domain?.cpu;
-      if (cpu?.cores && cpu?.sockets && cpu?.threads) {
-        return Number(cpu.cores) * Number(cpu.sockets) * Number(cpu.threads);
-      }
-      return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores;
-    },
-    memory: (r: any) => {
-      const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
-      if (lim) return lim;
-      const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
-      if (guest) return guest;
-      return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest;
-    },
-    memSpec: (r: any) => {
-      const req = r?.spec?.template?.spec?.domain?.resources?.requests;
-      const lim = r?.spec?.template?.spec?.domain?.resources?.limits;
-      return `Request: ${req?.memory || '-'} / Limit: ${lim?.memory || '-'}`;
-    },
-    image: (r: any) => {
-      const specImg = r?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId'];
-      if (specImg) return specImg;
-      const metaImg = r?.metadata?.annotations?.['harvesterhci.io/imageId'];
-      if (metaImg) return metaImg;
-      try {
-        const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
-        if (annot) {
-          const arr = JSON.parse(annot);
-          for (const item of arr) {
-            const img = item?.metadata?.annotations?.['harvesterhci.io/imageId'];
-            if (img) return img;
-          }
-        }
-      } catch (e) {}
-      return '';
-    },
-    /**
-     * 获取镜像显示名称
-     * 
-     * 逻辑:
-     * 1. 先获取镜像 ID (通过 image 方法)
-     * 2. 在 images 列表中查找对应的镜像对象
-     * 3. 按优先级返回显示名称:
-     *    - labels['harvesterhci.io/imageDisplayName']
-     *    - annotations['harvesterhci.io/image-name']
-     *    - annotations['field.cattle.io/displayName']
-     *    - spec.displayName
-     *    - displayName
-     * 
-     * 注意: 内联实现 image 逻辑，避免循环依赖
-     */
-    imageDisplayName: (r: any) => {
-      let imgId = '';
-      const specImg = r?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId'];
-      if (specImg) imgId = specImg;
-      else {
-        const metaImg = r?.metadata?.annotations?.['harvesterhci.io/imageId'];
-        if (metaImg) imgId = metaImg;
-        else {
-          try {
-            const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
-            if (annot) {
-              const arr = JSON.parse(annot);
-              for (const item of arr) {
-                const img = item?.metadata?.annotations?.['harvesterhci.io/imageId'];
-                if (img) { imgId = img; break; }
-              }
-            }
-          } catch (e) {}
-        }
-      }
-      if (!imgId) return '';
-      const found = images.find((i: any) => {
-        const id = i?.metadata?.name;
-        const ns = i?.metadata?.namespace;
-        const fullId = `${ns}/${id}`;
-        return fullId === imgId || id === imgId || i.id === imgId;
-      });
-      if (found) {
-        const labels = found.metadata?.labels || {};
-        const ann = found.metadata?.annotations || {};
-        const labelName = labels['harvesterhci.io/imageDisplayName'];
-        if (labelName) return labelName;
-        const imageName = ann['harvesterhci.io/image-name'];
-        if (imageName) return imageName;
-        const displayName = ann['field.cattle.io/displayName'];
-        if (displayName) return displayName;
-        if (found.spec?.displayName) return found.spec.displayName;
-        if (found.displayName) return found.displayName;
-      }
-      return '';
-    },
-    imageSize: (r: any) => {
-      try {
-        const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
-        if (annot) {
-          const arr = JSON.parse(annot);
-          for (const item of arr) {
-            const img = item?.metadata?.annotations?.['harvesterhci.io/imageId'];
-            if (img) {
-              return item?.spec?.resources?.requests?.storage || '';
-            }
-          }
-        }
-      } catch (e) {}
-      return '';
-    },
-    /**
-     * 获取存储卷详细信息
-     * 
-     * 返回每个卷的:
-     * - name: 卷名称
-     * - claimName: PVC 名称
-     * - capacity: 容量字符串
-     * - capacityBytes: 容量（GiB 数值）
-     * - phase: PVC 状态（Bound/Pending 等）
-     * - kind: 卷类型（system/data/cloudinit）
-     * 
-     * 逻辑:
-     * 1. 从 spec.template.spec.volumes 获取卷定义
-     * 2. 从 spec.template.spec.domain.devices.disks 确定启动卷（bootOrder 最小）
-     * 3. 在 volumes 列表中查找对应的 PVC，获取实际容量和状态
-     * 4. 区分系统卷、数据卷和 cloudinit 卷
-     */
-    volumeDetails: (r: any) => {
-      const vols = r?.spec?.template?.spec?.volumes || [];
-      let vmNs = r?.metadata?.namespace || r?.namespace;
-      if (!vmNs) {
-        const iid = r?.id || r?.metadata?.uid || '';
-        if (iid && iid.includes('/')) {
-          vmNs = iid.split('/')[0];
-        }
-      }
-      const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
-      let bootVolumeName = '';
-      let minOrder = Number.POSITIVE_INFINITY;
-      for (const d of disks) {
-        const order = typeof d?.bootOrder === 'number' ? d.bootOrder : Number.POSITIVE_INFINITY;
-        if (order < minOrder) { minOrder = order; bootVolumeName = d?.name || ''; }
-      }
-      if (!bootVolumeName && disks.length > 0) bootVolumeName = disks[0]?.name || '';
-      return vols.map((v: any) => {
-        const claimName = v?.persistentVolumeClaim?.claimName;
-        let capacity = '';
-        let capacityBytes = 0;
-        let phase = '';
-        if (claimName && volumes && volumes.length > 0) {
-          const pvc = volumes.find((p: any) => {
-            const pName = p?.metadata?.name || p?.name;
-            const pNs = p?.metadata?.namespace || p?.namespace;
-            if (pName === claimName && pNs === vmNs) return true;
-            const pId = p?.id;
-            if (pId && pId === `${vmNs}/${claimName}`) return true;
-            if (p?.name === claimName && p?.namespace === vmNs) return true;
-            return false;
-          });
-          if (pvc) {
-            const actualPvc = pvc?.rawData || pvc;
-            const capStr = actualPvc?.status?.capacity?.storage || actualPvc?.spec?.resources?.requests?.storage || pvc?.size || '';
-            if (capStr) {
-              capacityBytes = parseStorageSize(capStr);
-              capacity = capStr;
-            }
-            phase = actualPvc?.status?.phase || pvc?.state || 'Bound';
-          }
-        }
-        const isCloudInit = v?.cloudInitNoCloud || v?.cloudInitConfigDrive;
-        const kind = isCloudInit ? 'cloudinit' : (claimName ? (v?.name === bootVolumeName ? 'system' : 'data') : 'data');
-        return { name: v.name, claimName, capacity, capacityBytes, phase, kind };
-      });
-    },
-    ip: (r: any) => {
-      if (Array.isArray(r?.ips) && r.ips.length > 0) return r.ips.join(', ');
-      try {
-        const annot = r?.metadata?.annotations?.['network.harvesterhci.io/ips'];
-        if (annot) {
-          const arr = JSON.parse(annot);
-          if (Array.isArray(arr) && arr.length > 0) return arr.join(', ');
-        }
-        if (r?.vmi?.status?.interfaces) {
-          const ips = r.vmi.status.interfaces.flatMap((i:any) => i.ipAddress || i.ipAddresses || []).filter(Boolean);
-          if (ips.length > 0) return ips.join(', ');
-        }
-      } catch (e) {}
-      return '';
-    },
-    macAddress: (r: any) => {
-      if (Array.isArray(r?.macAddresses) && r.macAddresses.length > 0) return r.macAddresses.join(', ');
-      try {
-        if (r?.status?.interfaces && r.status.interfaces.length > 0) {
-          const macs = r.status.interfaces.map((i:any) => i.mac).filter(Boolean);
-          if (macs.length > 0) return macs.join(', ');
-        }
-        const annot = r?.metadata?.annotations?.['harvesterhci.io/mac-address'];
-        if (annot) {
-          const json = JSON.parse(annot);
-          return Object.values(json).join(', ');
-        }
-      } catch (e) {}
-      return '';
-    },
-    os: (r: any) => r?.vmi?.status?.guestOSInfo?.name || r?.vmi?.status?.guestOSInfo?.prettyName || '',
-  }), [namespaces, volumes, images]);
+  /** 与 VmSection 共用 `vmSectionUtils.getVmInstanceId` */
+  const getIid = getVmInstanceId;
+
+  /** 列表字段读取：基于 createVmListSafeRead，回收站 status 固定 Stopped */
+  const SafeRead = useMemo(
+    () => createVmRecycleBinListSafeRead(namespaces || [], volumes || [], images || []),
+    [namespaces, volumes, images],
+  );
 
   // ==========================================
   // [筛选选项] 4. 动态筛选选项生成 (Filter Options)
@@ -453,12 +192,10 @@ const RecycleBinSection: React.FC<Props> = ({
    * 从回收站中的 VM 提取所有唯一的命名空间，生成下拉选项
    * 用于工具栏的命名空间筛选器
    */
-  const namespaceOptions = useMemo(() => {
-    const uniqueNamespaces = Array.from(new Set(recycledVms.map((vm: any) => {
-      return vm?.metadata?.namespace || vm?.namespace || '';
-    }).filter((ns: string) => Boolean(ns) && !isSystemNamespace(ns))));
-    return uniqueNamespaces.map((ns: string) => ({ value: ns, label: ns }));
-  }, [recycledVms]);
+  const namespaceOptions = useMemo(
+    () => buildRecycledVmNamespaceOptions(recycledVms),
+    [recycledVms],
+  );
 
   /**
    * 状态筛选选项：回收站在界面上统一为「已停止」，不再罗列删除前的运行中等状态。
@@ -475,46 +212,16 @@ const RecycleBinSection: React.FC<Props> = ({
    * 
    * 所有筛选条件都是可选的，未设置时不进行筛选
    */
-  const filteredVms = useMemo(() => {
-    return recycledVms.filter((vm: any) => {
-      // 关键字筛选
-      if (keyword) {
-        const searchText = keyword.toLowerCase();
-        const name = SafeRead.name(vm).toLowerCase();
-        const vmId = SafeRead.vmId(vm).toLowerCase();
-        const namespace = SafeRead.namespace(vm).toLowerCase();
-        if (!name.includes(searchText) && !vmId.includes(searchText) && !namespace.includes(searchText)) {
-          return false;
-        }
-      }
-      // 命名空间筛选
-      if (namespaceFilter) {
-        if (SafeRead.namespace(vm) !== namespaceFilter) {
-          return false;
-        }
-      }
-      // 状态筛选
-      if (statusFilter) {
-        const vmStatus = String(SafeRead.status(vm)).toLowerCase();
-        if (vmStatus !== statusFilter) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [recycledVms, keyword, namespaceFilter, statusFilter]);
-
-  /**
-   * 抽屉中显示的记录（确保数据最新）
-   * 
-   * 当用户打开抽屉后，如果数据刷新了，需要从最新的 filteredVms 中查找对应记录
-   * 这样可以确保抽屉中显示的是最新数据，而不是打开时的快照
-   */
-  const drawerRecord = useMemo(() => {
-    if (!currentDrawerRecord) return null;
-    const currentId = SafeRead.uid(currentDrawerRecord);
-    return filteredVms.find((v: any) => SafeRead.uid(v) === currentId) || currentDrawerRecord;
-  }, [filteredVms, currentDrawerRecord, SafeRead]);
+  const filteredVms = useMemo(
+    () =>
+      filterRecycledVmListRows(recycledVms, {
+        keyword,
+        namespaceFilter,
+        statusFilter,
+        safeRead: SafeRead,
+      }),
+    [recycledVms, keyword, namespaceFilter, statusFilter, SafeRead],
+  );
 
   /**
    * 恢复虚拟机
@@ -545,16 +252,17 @@ const RecycleBinSection: React.FC<Props> = ({
     }
   }, [cloudId, hasRecycleBinWrite, onRefresh]);
 
-  /**
-   * 显示运维信息抽屉
-   * 
-   * 打开 CRD / 注解 / 标签 抽屉
-   * 在租户模式下，此功能会被隐藏
-   */
-  const handleShowOpsinfo = useCallback((record: any) => {
-    setCurrentDrawerRecord(record);
-    setDrawerVisible(true);
-  }, []);
+  const handleOpenYaml = useCallback(
+    (record: any) => {
+      openYamlDrawer({ ...record, kind: 'VirtualMachine' }, { title: '云主机 YAML' });
+    },
+    [openYamlDrawer],
+  );
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(onRefresh),
+    [onRefresh],
+  );
 
   /**
    * 彻底删除虚拟机
@@ -643,294 +351,23 @@ const RecycleBinSection: React.FC<Props> = ({
   // [表格定义] 7. 表格列配置 (Table Columns)
   // ==========================================
   
-  /**
-   * 表格列定义
-   * 
-   * 设计原则:
-   * 1. 与 VmSection.tsx 保持一致的列定义和渲染逻辑
-   * 2. 额外添加回收站特有的列: "删除时间" 和 "剩余时间"
-   * 3. 使用 useMemo 稳定引用，避免不必要的重新计算
-   * 4. 所有列都通过 SafeRead 对象读取数据，确保兼容性
-   * 
-   * 列说明:
-   * - 基础信息: 名称、ID、状态、命名空间、租户、组织
-   * - 资源信息: 节点、CPU、内存、镜像、操作系统
-   * - 网络信息: IP地址、MAC地址
-   * - 存储信息: 存储卷详情
-   * - 时间信息: 创建时间、删除时间（回收站特有）、剩余时间（回收站特有）
-   * - 操作列: 恢复、运维信息（租户模式隐藏）、彻底删除
-   * 
-   * 固定列:
-   * - 名称列: fixed='left' - 始终显示在左侧
-   * - 状态列: fixed='left' - 始终显示在左侧
-   * - 操作列: fixed='right' - 始终显示在右侧
-   */
-  const allColumns = useMemo(() => {
-    const cols = [
-    {
-      title: '云主机名称',
-      key: 'name',
-      fixed: 'left' as any,
-      ellipsis: true,
-      render: (_: any, r: any) => {
-        const text = SafeRead.name(r) || '-';
-        const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
-        const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <OsIcon osName={osName} style={{ flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{text}</span>
-            {isImportant && (
-              <Tooltip title="重要实例">
-                <SafetyCertificateFilled style={{ color: '#faad14', fontSize: 14, flexShrink: 0 }} />
-              </Tooltip>
-            )}
-          </span>
-        );
-      },
-    },
-    {
-      title: '云主机ID',
-      key: 'vmId',
-      ellipsis: true,
-      render: (_: any, r: any) => {
-        const id = SafeRead.vmId(r);
-        return id ? <Tooltip title={id}>{id}</Tooltip> : '-';
-      },
-    },
-    {
-      title: '状态',
-      key: 'status',
-      fixed: 'left' as any,
-      render: (_: any, r: any) => {
-        const s = String(SafeRead.status(r));
-        const k = s.toLowerCase();
-        const status = (function(){
-          if (k==='running') return 'success';
-          if (k==='starting') return 'processing';
-          if (k==='migrating') return 'processing';
-          if (k==='stopping') return 'warning';
-          if (k==='terminating') return 'warning';
-          if (k==='error' || k==='errorunschedulable') return 'error';
-          return 'default';
-        })();
-        return <Badge status={status as any} text={cnVmStatus(s)} />;
-      },
-    },
-    ...(!isTenant ? [
-      {
-        title: '项目',
-        key: 'namespace',
-        ellipsis: true,
-        render: (_: any, r: any) => SafeRead.namespace(r) || '-',
-      },
-      {
-        title: '租户',
-        key: 'tenant',
-        ellipsis: true,
-        render: (_: any, r: any) => SafeRead.tenant(r) || '-',
-      },
-      {
-        title: '组织',
-        key: 'organization',
-        ellipsis: true,
-        render: (_: any, r: any) => SafeRead.organization(r) || '-',
-      },
-    ] : []),
-    {
-      title: '节点',
-      key: 'node',
-      ellipsis: true,
-      render: (_: any, r: any) => {
-        const node = String(SafeRead.node(r)).trim();
-        return node ? <span className="std-badge std-badge-info">{node}</span> : '-';
-      },
-    },
-    {
-      title: 'CPU',
-      key: 'cpu',
-      render: (_: any, r: any) => {
-        const v = SafeRead.cpu(r);
-        return v ? `${v} C` : '-';
-      },
-    },
-    {
-      title: '内存',
-      key: 'memory',
-      render: (_: any, r: any) => SafeRead.memory(r) || '-',
-    },
-    {
-      title: '说明',
-      key: 'memSpec',
-      ellipsis: true,
-      render: (_: any, r: any) => SafeRead.memSpec(r) || '-',
-    },
-    {
-      title: '镜像',
-      key: 'image',
-      ellipsis: true,
-      render: (_: any, r: any) => {
-        const displayName = SafeRead.imageDisplayName(r);
-        const img = SafeRead.image(r);
-        const size = SafeRead.imageSize(r);
-        if (!displayName && !img) return '-';
-        const content = (
-          <div>
-            {displayName && <div>{displayName}</div>}
-            <div>
-              {img && <span className="std-time">{img}</span>}
-              {size && <span style={{ marginLeft: 6 }} className="std-badge std-badge-default">{size}</span>}
-            </div>
-          </div>
-        );
-        return <Tooltip title={content}><div style={{ maxWidth: 210, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName || img}</div></Tooltip>;
-      },
-    },
-    {
-      title: '操作系统',
-      key: 'os',
-      ellipsis: true,
-      render: (_: any, r: any) => SafeRead.os(r) || '-',
-    },
-    {
-      title: 'IP地址',
-      key: 'ip',
-      ellipsis: true,
-      render: (_: any, r: any) => {
-        const ip = SafeRead.ip(r);
-        return ip ? <Tooltip title={ip}><div style={{ maxWidth: 210, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ip}</div></Tooltip> : '-';
-      },
-    },
-    {
-      title: 'MAC地址',
-      key: 'mac',
-      ellipsis: true,
-      render: (_: any, r: any) => {
-        const mac = SafeRead.macAddress(r);
-        return mac ? <Tooltip title={mac}>{mac}</Tooltip> : '-';
-      },
-    },
-    {
-      title: '存储卷',
-      key: 'volumes',
-      ellipsis: false,
-      render: (_: any, r: any) => {
-        const details = SafeRead.volumeDetails(r);
-        if (!details || details.length === 0) return '-';
-        const content = (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {details.map((v: any, i: number) => (
-              v.kind !== 'cloudinit' ? (
-                <Tooltip title={v.claimName || v.name} key={i}>
-                  <span className={`std-badge ${v.kind === 'data' ? 'std-badge-success' : 'std-badge-info'}`}>
-                    {[v.kind === 'system' ? '系统卷' : (v.kind === 'data' ? '数据卷' : ''), formatStorageSize(v.capacityBytes), v.phase]
-                      .filter(Boolean).join(' | ')}
-                  </span>
-                </Tooltip>
-              ) : null
-            ))}
-          </div>
-        );
-        return content;
-      },
-    },
-    {
-      title: '创建时间',
-      key: 'created',
-      render: (_: any, r: any) => {
-        const t = SafeRead.creationTimestamp(r);
-        if (!t) return '-';
-        const date = new Date(t);
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        return <span className="std-time">{`${year}-${month}-${day} ${hours}:${minutes}:${seconds}`}</span>;
-      },
-    },
-    /**
-     * [回收站特有列] 删除时间
-     * 
-     * 显示虚拟机被删除的时间，从 metadata.annotations['tower.io/deletion-scheduled'] 读取
-     * 这是回收站机制记录的时间点，用于追踪删除操作
-     */
-    {
-      title: '删除时间',
-      key: 'deletedAt',
-      render: (_: any, r: any) => {
-        const deletedAtStr = r?.metadata?.annotations?.['tower.io/deletion-scheduled'];
-        if (!deletedAtStr) return '-';
-        const deletedAt = new Date(deletedAtStr);
-        const year = deletedAt.getFullYear();
-        const month = String(deletedAt.getMonth() + 1).padStart(2, '0');
-        const day = String(deletedAt.getDate()).padStart(2, '0');
-        const hours = String(deletedAt.getHours()).padStart(2, '0');
-        const minutes = String(deletedAt.getMinutes()).padStart(2, '0');
-        const seconds = String(deletedAt.getSeconds()).padStart(2, '0');
-        return <span className="std-time">{`${year}-${month}-${day} ${hours}:${minutes}:${seconds}`}</span>;
-      },
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right' as const,
-      render: (_: any, r: any) => {
-        const hasAnyPermission = hasRecycleBinWrite;
-        const items: any[] = [
-          {
-            key: 'restore',
-            label: '恢复',
-            onClick: () => handleRestore(r),
-          },
-          ...(!isTenant ? [
-            { type: 'divider' },
-            {
-              key: 'opsinfo',
-              label: '查看YAML',
-              onClick: () => handleShowOpsinfo(r),
-            },
-          ] : []),
-          { type: 'divider' },
-          {
-            key: 'force_delete',
-            label: '彻底删除',
-            danger: true,
-            onClick: () => handleForceDelete(r),
-          },
-        ];
-        return (
-          <Tooltip title={undefined}>
-            <span>
-              <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 }, disabled: !hasAnyPermission }} />
-            </span>
-          </Tooltip>
-        );
-      },
-    },
-    ];
-    return cols;
-  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasRecycleBinWrite, isTenant]);
+  const allColumns = useMemo(
+    () =>
+      buildRecycleBinTableColumns({
+        safeRead: SafeRead,
+        isTenant,
+        hasRecycleBinWrite,
+        onRestore: handleRestore,
+        onForceDelete: handleForceDelete,
+        onOpenYaml: handleOpenYaml,
+      }),
+    [SafeRead, handleRestore, handleForceDelete, handleOpenYaml, hasRecycleBinWrite, isTenant],
+  );
 
-  /**
-   * 使用 useTableColumnSettings hook 管理列显示/隐藏
-   * 
-   * 功能:
-   * - 从 localStorage 读取用户保存的列设置
-   * - 根据用户选择过滤列
-   * - 自动保存用户的选择到 localStorage
-   * 
-   * 优势:
-   * - 避免使用旧的 TableColumnSettings 组件（防止死锁问题）
-   * - 使用单向数据流，避免循环更新
-   * - 初始化只执行一次，性能更好
-   * 
-   * @param allColumns - 所有列定义
-   * @param 'harvester_recycle_bin_table' - localStorage 的 key
-   * @returns displayColumns - 过滤后的列数组，用于表格显示
-   */
-  const { displayColumns } = useTableColumnSettings(allColumns, 'harvester_recycle_bin_table');
+  const { displayColumns } = useTableColumnSettings(
+    allColumns,
+    HARVESTER_RECYCLE_BIN_TABLE_SETTINGS_KEY,
+  );
 
   // ==========================================
   // [UI渲染] 8. 组件结构返回 (Render)
@@ -1030,7 +467,7 @@ const RecycleBinSection: React.FC<Props> = ({
             allColumns={allColumns}
             settingsKey="harvester_recycle_bin_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </div>
       }
     >
@@ -1050,27 +487,13 @@ const RecycleBinSection: React.FC<Props> = ({
         }}
       />
       
-      {/* 
-        ========================================
-        运维信息抽屉 (Resource Detail Drawer)
-        ========================================
-        
-        用于显示虚拟机的 CRD（YAML）、注解与标签编辑（HarvesterCrdMetadataDrawer）。
-        
-        注意: 在租户模式下，此抽屉不会显示（isTenant 控制）
-      */}
-      {drawerRecord && (
-        <HarvesterCrdMetadataDrawer
-          open={drawerVisible}
-          onClose={() => {
-            setDrawerVisible(false);
-            setCurrentDrawerRecord(null);
-          }}
-          cloudId={cloudId}
-          record={drawerRecord}
-          onSuccess={() => void onRefresh(true)}
-        />
-      )}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle || '云主机 YAML'}
+      />
       {!isTenant && (
         <RecycleBinTaskConfigModal
           open={configModalVisible}

@@ -7,16 +7,63 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const DEFAULT_PRIVATE_PATH = path.join(DATA_DIR, 'login-private.pem');
 const DEFAULT_PUBLIC_PATH = path.join(DATA_DIR, 'login-public.pem');
 
-/** 密文有效窗口（毫秒） */
-const CIPHER_MAX_AGE_MS = 2 * 60 * 1000;
-/** nonce 去重保留时间（毫秒） */
-const NONCE_TTL_MS = 5 * 60 * 1000;
+/** 默认密文有效窗口：10 分钟（原 2 分钟；内网终端时钟偏差时易误报过期） */
+const DEFAULT_CIPHER_MAX_AGE_MS = 10 * 60 * 1000;
+/** 允许客户端时钟比服务器快的最大偏差（毫秒） */
+const DEFAULT_CIPHER_MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+/** nonce 去重保留时间下限（毫秒） */
+const DEFAULT_NONCE_TTL_MS = 15 * 60 * 1000;
+
+function parsePositiveIntEnv(raw: string | undefined): number | undefined {
+  if (raw == null || String(raw).trim() === '') return undefined;
+  const n = Number.parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
+}
+
+/** 密文自客户端 ts 起最大可接受年龄（毫秒）；`LOGIN_CIPHER_MAX_AGE_MS` */
+export function getLoginCipherMaxAgeMs(): number {
+  return parsePositiveIntEnv(process.env.LOGIN_CIPHER_MAX_AGE_MS) ?? DEFAULT_CIPHER_MAX_AGE_MS;
+}
+
+/** 客户端时间领先服务器时的容差（毫秒）；`LOGIN_CIPHER_MAX_CLOCK_SKEW_MS` */
+export function getLoginCipherMaxClockSkewMs(): number {
+  return parsePositiveIntEnv(process.env.LOGIN_CIPHER_MAX_CLOCK_SKEW_MS) ?? DEFAULT_CIPHER_MAX_CLOCK_SKEW_MS;
+}
+
+/** nonce 去重 TTL（毫秒）；默认 ≥ maxAge + maxSkew */
+export function getLoginCipherNonceTtlMs(): number {
+  const fromEnv = parsePositiveIntEnv(process.env.LOGIN_CIPHER_NONCE_TTL_MS);
+  if (fromEnv != null) return fromEnv;
+  return Math.max(
+    DEFAULT_NONCE_TTL_MS,
+    getLoginCipherMaxAgeMs() + getLoginCipherMaxClockSkewMs(),
+  );
+}
 
 type LoginCipherPayload = {
   password: string;
   ts: number;
   nonce: string;
 };
+
+export class LoginCipherError extends Error {
+  code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function assertLoginCipherTimestampFresh(ts: number): void {
+  const age = Date.now() - ts;
+  const maxAge = getLoginCipherMaxAgeMs();
+  const maxSkew = getLoginCipherMaxClockSkewMs();
+  if (age < -maxSkew || age > maxAge) {
+    throw new LoginCipherError('LOGIN_CIPHER_EXPIRED', '登录凭据已过期，请重试');
+  }
+}
 
 let privateKeyPem: string | null = null;
 let publicKeyPem: string | null = null;
@@ -88,17 +135,8 @@ function consumeNonce(nonce: string): boolean {
   const now = Date.now();
   purgeExpiredNonces(now);
   if (usedNonces.has(nonce)) return false;
-  usedNonces.set(nonce, now + NONCE_TTL_MS);
+  usedNonces.set(nonce, now + getLoginCipherNonceTtlMs());
   return true;
-}
-
-export class LoginCipherError extends Error {
-  code: string;
-
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
 }
 
 export function decryptLoginPassword(cipherB64: string): string {
@@ -136,10 +174,7 @@ export function decryptLoginPassword(cipherB64: string): string {
     throw new LoginCipherError('LOGIN_CIPHER_INVALID', '登录凭据不完整');
   }
 
-  const age = Date.now() - ts;
-  if (age < 0 || age > CIPHER_MAX_AGE_MS) {
-    throw new LoginCipherError('LOGIN_CIPHER_EXPIRED', '登录凭据已过期，请重试');
-  }
+  assertLoginCipherTimestampFresh(ts);
 
   if (!consumeNonce(nonce)) {
     throw new LoginCipherError('LOGIN_CIPHER_REPLAY', '登录凭据已使用，请重试');

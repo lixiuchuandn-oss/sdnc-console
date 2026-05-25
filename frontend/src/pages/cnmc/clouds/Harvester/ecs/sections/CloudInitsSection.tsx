@@ -1,7 +1,7 @@
 /**
  * Harvester - Cloud Init 模板列表 Section
  */
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Table, Button, Input, Select } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
@@ -11,6 +11,8 @@ import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { hasPermissionForAction } from 'utils/accessMapping';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import {
@@ -18,6 +20,7 @@ import {
   filterCloudInitsBaseRows,
   filterCloudInitsForTable,
   mapCloudInitsToTableRows,
+  type CloudInitTableRow,
 } from '../lib/cloudInitsSectionUtils';
 import { buildCloudInitsTableColumns } from '../lib/cloudInitsTableColumns';
 
@@ -32,14 +35,15 @@ type Props = {
 };
 
 const CloudInitsSection: React.FC<Props> = ({
-  cloudId: _cloudId,
+  cloudId,
   cloudInits,
   loading,
   onRefresh,
   isTenant = false,
 }) => {
-  void _cloudId;
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasCloudInitsWrite = useMemo(
@@ -71,9 +75,27 @@ const CloudInitsSection: React.FC<Props> = ({
     [onRefresh],
   );
 
+  const handleOpenYaml = useCallback(
+    (record: CloudInitTableRow) => {
+      openYamlDrawer(
+        {
+          ...(record.raw as object),
+          kind: 'CloudInit',
+          metadata: {
+            ...(((record.raw as { metadata?: object })?.metadata) || {}),
+            name: record.name,
+            namespace: record.namespace,
+          },
+        },
+        { title: 'CloudInit YAML' },
+      );
+    },
+    [openYamlDrawer],
+  );
+
   const allColumns = useMemo(
-    () => buildCloudInitsTableColumns({ isTenant, hasCloudInitsWrite }),
-    [hasCloudInitsWrite, isTenant],
+    () => buildCloudInitsTableColumns({ isTenant, hasCloudInitsWrite, onOpenYaml: handleOpenYaml }),
+    [hasCloudInitsWrite, handleOpenYaml, isTenant],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, TABLE_SETTINGS_KEY);
@@ -136,9 +158,19 @@ const CloudInitsSection: React.FC<Props> = ({
         columns={tableColumns}
         rowKey="key"
         loading={loading}
+        locale={{
+          emptyText: '暂无 CloudInit 模板记录',
+        }}
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
+      />
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle || 'CloudInit YAML'}
       />
     </PageDetailSection>
   );

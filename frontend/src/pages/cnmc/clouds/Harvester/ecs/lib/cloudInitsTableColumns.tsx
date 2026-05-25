@@ -9,12 +9,13 @@ import type { CloudInitTableRow } from './cloudInitsSectionUtils';
 export type CloudInitsTableActions = {
   isTenant?: boolean;
   hasCloudInitsWrite: boolean;
+  onOpenYaml?: (record: CloudInitTableRow) => void;
 };
 
 export function buildCloudInitsTableColumns(
   actions: CloudInitsTableActions,
 ): ColumnsType<CloudInitTableRow> {
-  const { isTenant, hasCloudInitsWrite } = actions;
+  const { isTenant, hasCloudInitsWrite, onOpenYaml } = actions;
 
   return [
     {
@@ -43,13 +44,13 @@ export function buildCloudInitsTableColumns(
       title: '操作',
       key: 'action',
       fixed: 'right',
-      render: () => {
+      render: (_: unknown, record: CloudInitTableRow) => {
         const items: { key: string; label: string; danger?: boolean; disabled?: boolean; onClick: () => void }[] = [];
-        if (!isTenant) {
+        if (!isTenant && onOpenYaml) {
           items.push({
-            key: 'opsinfo',
+            key: 'view_yaml',
             label: '查看YAML',
-            onClick: () => message.info('详情功能开发中'),
+            onClick: () => onOpenYaml(record),
           });
         }
         items.push({
