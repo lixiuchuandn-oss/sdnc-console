@@ -9,17 +9,20 @@ import {
   migrationRowFields,
   resolveVmDisplayName,
   translateMigrationPhase,
+  type MigrationTableRow,
 } from './migrationsSectionUtils';
 
 export type MigrationsTableActions = {
   isTenant?: boolean;
   vms?: readonly unknown[];
   canWrite: boolean;
-  onOpenDrawer: (record: unknown, tab?: string) => void;
-  onAbort: (record: unknown) => void;
+  onOpenDrawer: (record: MigrationTableRow, tab?: string) => void;
+  onAbort: (record: MigrationTableRow) => void;
 };
 
-export function buildMigrationsTableColumns(actions: MigrationsTableActions): ColumnsType<unknown> {
+export function buildMigrationsTableColumns(
+  actions: MigrationsTableActions,
+): ColumnsType<MigrationTableRow> {
   const { isTenant, vms, canWrite, onOpenDrawer, onAbort } = actions;
 
   return [
@@ -27,7 +30,7 @@ export function buildMigrationsTableColumns(actions: MigrationsTableActions): Co
       title: '任务ID',
       key: 'taskId',
       fixed: 'left',
-      render: (_: unknown, r: unknown) => {
+      render: (_: unknown, r: MigrationTableRow) => {
         const text = migrationRowFields.taskId(r);
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -40,7 +43,7 @@ export function buildMigrationsTableColumns(actions: MigrationsTableActions): Co
     {
       title: '状态',
       key: 'status',
-      render: (_: unknown, r: unknown) => {
+      render: (_: unknown, r: MigrationTableRow) => {
         const phase = migrationRowFields.phase(r);
         const running = isMigrationRunning(phase);
         let status: 'success' | 'error' | 'processing' | 'default' = 'default';
@@ -53,7 +56,7 @@ export function buildMigrationsTableColumns(actions: MigrationsTableActions): Co
     {
       title: '虚拟机',
       key: 'vmName',
-      render: (_: unknown, r: unknown) => {
+      render: (_: unknown, r: MigrationTableRow) => {
         const displayName = resolveVmDisplayName(r, vms);
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
@@ -72,19 +75,19 @@ export function buildMigrationsTableColumns(actions: MigrationsTableActions): Co
     {
       title: '源节点',
       key: 'sourceNode',
-      render: (_: unknown, r: unknown) => migrationRowFields.sourceNode(r),
+      render: (_: unknown, r: MigrationTableRow) => migrationRowFields.sourceNode(r),
     },
     {
       title: '目标节点',
       key: 'targetNode',
-      render: (_: unknown, r: unknown) => migrationRowFields.targetNode(r),
+      render: (_: unknown, r: MigrationTableRow) => migrationRowFields.targetNode(r),
     },
     ...(!isTenant
       ? [
           {
             title: '命名空间',
             key: 'namespace',
-            render: (_: unknown, r: unknown) => migrationRowFields.namespace(r),
+            render: (_: unknown, r: MigrationTableRow) => migrationRowFields.namespace(r),
           },
         ]
       : []),
@@ -92,7 +95,7 @@ export function buildMigrationsTableColumns(actions: MigrationsTableActions): Co
       title: '创建时间',
       key: 'createdAt',
       className: 'std-time',
-      render: (_: unknown, r: unknown) => {
+      render: (_: unknown, r: MigrationTableRow) => {
         const t = migrationRowFields.createdAt(r);
         return t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-';
       },
@@ -101,7 +104,7 @@ export function buildMigrationsTableColumns(actions: MigrationsTableActions): Co
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      render: (_: unknown, r: unknown) => {
+      render: (_: unknown, r: MigrationTableRow) => {
         const row = r as { status?: { phase?: string } };
         const phase = row.status?.phase || migrationRowFields.phase(r);
         const running = isMigrationRunning(String(phase));

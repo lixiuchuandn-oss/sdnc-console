@@ -1,6 +1,9 @@
 import dayjs from 'dayjs';
 import { isSystemNamespace } from 'utils/harvesterUtils';
 
+/** 列表行（K8s VirtualMachineInstanceMigration 及兼容结构） */
+export type MigrationTableRow = Record<string, unknown>;
+
 /** 迁移对象字段读取（兼容多种后端结构） */
 export const migrationRowFields = {
   base: (r: unknown) => {
@@ -124,10 +127,10 @@ export type MigrationsFilterState = {
 };
 
 export function filterMigrationsForTable(
-  items: readonly unknown[],
+  items: readonly MigrationTableRow[],
   f: MigrationsFilterState,
   vms: readonly unknown[] | undefined,
-): unknown[] {
+): MigrationTableRow[] {
   const k = f.keyword.trim().toLowerCase();
   const filtered = items.filter((item) => {
     const ns = String(migrationRowFields.namespace(item) || '');

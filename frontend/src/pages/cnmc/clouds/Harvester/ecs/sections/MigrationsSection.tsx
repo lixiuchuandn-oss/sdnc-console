@@ -23,6 +23,7 @@ import {
   buildMigrationStatusOptions,
   filterMigrationsForTable,
   migrationRowFields,
+  type MigrationTableRow,
 } from '../lib/migrationsSectionUtils';
 import { buildMigrationsTableColumns } from '../lib/migrationsTableColumns';
 
@@ -37,7 +38,7 @@ type Props = {
 
 const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant = false }) => {
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<unknown[]>([]);
+  const [data, setData] = useState<MigrationTableRow[]>([]);
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
@@ -68,7 +69,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
             // direct fallback optional
           }
         }
-        setData(Array.isArray(list) ? list : []);
+        setData(Array.isArray(list) ? (list as MigrationTableRow[]) : []);
       } catch (e: unknown) {
         const err = e as { message?: string };
         message.error(err?.message || '加载迁移记录失败');
@@ -83,7 +84,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
     void loadData(true);
   }, [loadData]);
 
-  const handleOpenDrawer = useCallback((record: unknown, tab = 'detail') => {
+  const handleOpenDrawer = useCallback((record: MigrationTableRow, tab = 'detail') => {
     const row = record as { metadata?: { namespace?: string; name?: string }; links?: { view?: string } };
     const ns = row?.metadata?.namespace;
     const name = row?.metadata?.name;
@@ -101,7 +102,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, vms, isTenant 
   }, []);
 
   const handleAbort = useCallback(
-    async (record: unknown) => {
+    async (record: MigrationTableRow) => {
       try {
         const row = record as { spec?: { vmiName?: string }; metadata?: { namespace?: string } };
         const vmName = row.spec?.vmiName;
