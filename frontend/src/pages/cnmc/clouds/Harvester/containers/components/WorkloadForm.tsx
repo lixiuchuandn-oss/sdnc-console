@@ -60,7 +60,6 @@ import {
   CheckOutlined,
   CopyOutlined,
   DeleteOutlined,
-  GlobalOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { Dropdown } from 'antd';
@@ -720,9 +719,6 @@ const checkIpAvailability = (ip: string, subnet: any): { available: boolean; rea
   return { available: false, reason: `IP 不在可用范围内。可用范围: ${rangeDesc}` };
 };
 
-const CPU_RESOURCE_PATTERN = /^(\d+)(m)?$/;
-const MEMORY_RESOURCE_PATTERN = /^\d+(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)$/;
-
 // ============================================================
 // K8s 格式校验函数
 // ============================================================
@@ -1147,13 +1143,13 @@ interface EnvEditorProps {
 }
 
 const EnvEditor: React.FC<EnvEditorProps> = ({
-  cloudId,
-  namespacesOptions,
+  cloudId: _cloudId,
+  namespacesOptions: _namespacesOptions,
   selectedNamespace,
   configMaps,
   secrets,
-  onRefreshConfigMaps,
-  onRefreshSecrets,
+  onRefreshConfigMaps: _onRefreshConfigMaps,
+  onRefreshSecrets: _onRefreshSecrets,
   onOpenQuickCreateConfigMap,
   onOpenQuickCreateSecret,
 }) => {
@@ -1467,7 +1463,7 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
                 </div>
               )}
 
-              {fields.map(({ key, name, ...restField }, index) =>
+              {fields.map(({ key, name, ...restField }, _index) =>
                 renderEnvVar(normalizedEnvVars[name] as EnvVarValue, name as number, key, restField, remove)
               )}
             </>
@@ -1565,20 +1561,22 @@ interface VolumesEditorProps {
   onOpenQuickCreateConfigMap: () => void;
   onOpenQuickCreateSecret: () => void;
   refreshKey?: number; // 父组件传入的刷新标记，变化时重新读取数据
+  onVolumeChange?: () => void; // 卷变化时通知父组件
 }
 
 const VolumesEditor: React.FC<VolumesEditorProps> = ({
-  cloudId,
-  namespacesOptions,
+  cloudId: _cloudId,
+  namespacesOptions: _namespacesOptions,
   selectedNamespace,
   configMaps,
   secrets,
   persistentVolumeClaims = [],
-  onRefreshConfigMaps,
-  onRefreshSecrets,
+  onRefreshConfigMaps: _onRefreshConfigMaps,
+  onRefreshSecrets: _onRefreshSecrets,
   onOpenQuickCreateConfigMap,
   onOpenQuickCreateSecret,
-  refreshKey = 0,
+  refreshKey: _refreshKey = 0,
+  onVolumeChange,
 }) => {
   const form = Form.useFormInstance();
   
@@ -1604,32 +1602,25 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     });
   }, [persistentVolumeClaims, selectedNamespace]);
   
-  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
-  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
-  // 同时使用 useReducer 强制刷新，确保 add/remove 后立即渲染
-  const watchedVolumes = Form.useWatch('volumes', form);
-  const watchedVolumeMounts = Form.useWatch('volumeMounts', form);
-  const [forceKey, forceUpdate] = useReducer((x: number) => x + 1, 0);
+  // 使用 refreshKey 确保 add/remove 后立即重新读取数据
   
   const volumes = useMemo(() => {
-    void watchedVolumes;
     const v = form.getFieldValue('volumes');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [watchedVolumes, forceKey, form]);
+  }, [form, _refreshKey]);
   
   const volumeMounts = useMemo(() => {
-    void watchedVolumeMounts;
     const v = form.getFieldValue('volumeMounts');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [watchedVolumeMounts, forceKey, form]);
+  }, [form, _refreshKey]);
 
   // 添加卷 - 直接从 form 读取最新值，避免闭包问题
   const addVolume = useCallback((type: VolumeType) => {
     const currentVolumes = form.getFieldValue('volumes') || [];
     const newVolume: VolumeConfig = { name: '', type };
     form.setFieldsValue({ volumes: [newVolume, ...currentVolumes] });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.();
+  }, [form, onVolumeChange]);
 
   // 删除卷
   const removeVolume = useCallback((index: number) => {
@@ -1644,24 +1635,24 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
       const updatedMounts = currentMounts.filter((m: VolumeMountConfig) => m.name !== volName);
       form.setFieldsValue({ volumeMounts: updatedMounts });
     }
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 添加挂载
   const addVolumeMount = useCallback(() => {
     const currentMounts = form.getFieldValue('volumeMounts') || [];
     const newMount: VolumeMountConfig = { name: '', mountPath: '', readOnly: false };
     form.setFieldsValue({ volumeMounts: [newMount, ...currentMounts] });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.();
+  }, [form, onVolumeChange]);
 
   // 删除挂载
   const removeVolumeMount = useCallback((index: number) => {
     const currentMounts = form.getFieldValue('volumeMounts') || [];
     const updated = currentMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
     form.setFieldsValue({ volumeMounts: updated });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 获取可用的卷名称列表（用于挂载选择）
   const availableVolumeNames = volumes.filter((v: VolumeConfig) => v.name).map((v: VolumeConfig) => v.name);
@@ -1724,7 +1715,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                   const currentName = updated[index]?.name;
                   updated[index] = { name: currentName || '', type: newType };
                   form.setFieldsValue({ volumes: updated });
-                  forceUpdate();
+                  onVolumeChange?.(); // 通知父组件刷新
                 }}
               />
             </Form.Item>
@@ -3463,7 +3454,6 @@ const HostAliasesEditor: React.FC = () => {
   const renderHostAlias = (index: number) => {
     const basePath = ['hostAliases', index];
     const ipValue = form.getFieldValue([...basePath, 'ip']);
-    const hostnamesValue = form.getFieldValue([...basePath, 'hostnames']) || [];
 
     return (
       <Card
@@ -3891,7 +3881,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   onRefreshSecrets,
   // PVC 相关 props
   persistentVolumeClaims = [],
-  onRefreshPVCs,
+  onRefreshPVCs: _onRefreshPVCs,
   // 网络配置相关 props
   hideFlatSubnet = false,
 }) => {
@@ -3935,7 +3925,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 监听表单字段变化
   const enableStaticIPWatch = Form.useWatch('enableStaticIP', form);
 
-  const [containersVersion, setContainersVersion] = useState(0);
+  const [, setContainersVersion] = useState(0);
   
   const editMetadata = editData?.metadata;
   const syncingContainerRef = useRef(false);
@@ -4172,7 +4162,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     setContainersVersion((v) => v + 1);
   }, [form, getSyncedFormValues, syncContainerEditorToForm]);
 
-  const handleDuplicateContainer = useCallback(() => {
+  const _handleDuplicateContainer = useCallback(() => {
     const syncedValues = getSyncedFormValues();
     const nextContainers = [...(syncedValues.containers || [])];
     const current = nextContainers[activeContainerIndex];
@@ -4196,7 +4186,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     setContainersVersion((v) => v + 1);
   }, [activeContainerIndex, form, getSyncedFormValues, syncContainerEditorToForm]);
 
-  const handleRemoveContainer = useCallback(() => {
+  const _handleRemoveContainer = useCallback(() => {
     const syncedValues = getSyncedFormValues();
     const nextContainers = [...(syncedValues.containers || [])];
     if (nextContainers.length <= 1) {
@@ -4896,7 +4886,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       // 网络配置
       networkType,
       flatSubnet,
-      vpcName,
+      vpcName: _vpcName,
       vpcSubnet,
       customNad,
       enableStaticIP,
@@ -5781,7 +5771,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       }
     }
     setMode(newMode);
-  }, [mode, form, formToYaml, yamlToForm, yamlContent, message, getDefaultYaml, workloadType, isEditMode, editData, buildK8sResource, getSyncedFormValues, watchedImagePullSecrets]);
+  }, [mode, form, formToYaml, yamlToForm, yamlContent, message, getDefaultYaml, workloadType, isEditMode, editData, buildK8sResource, getSyncedFormValues]);
   
   // 验证 YAML 格式
   const validateYaml = useCallback((content: string): boolean => {
@@ -6045,7 +6035,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, modal, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata]);
+  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, modal, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata, editData?.spec?.selector, editData?.spec?.template?.metadata?.labels, flatSubnetOptions, kubeSubnets]);
   
   // 下一步
   const handleNext = useCallback(async () => {
@@ -6631,7 +6621,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       case 2:
         // 网络配置步骤
         const networkType = form.getFieldValue('networkType') || 'default';
-        const enableStaticIP = enableStaticIPWatch ?? false;
         
         return (
           <div>
@@ -6948,7 +6937,6 @@ return (
         
       case 3:
         const containersForStorage = getSyncedFormValues().containers || [];
-        const activeContainerForStorage = containersForStorage[activeContainerIndex];
         return (
           <div>
             <Alert
@@ -6985,6 +6973,7 @@ return (
                       onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
                       onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
                       refreshKey={volumeRefreshKey}
+                      onVolumeChange={() => setVolumeRefreshKey(v => v + 1)}
                     />
                   ) : (
                     <div

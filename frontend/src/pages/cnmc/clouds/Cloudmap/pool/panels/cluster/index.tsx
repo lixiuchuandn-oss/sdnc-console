@@ -196,8 +196,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     rawUsbDevices,
     harvesterPciDevices,
     rawPciDevices,
-    cloudConfig,
-    onReloadCloudMeta,
     resourceLoading,
   } = props;
 

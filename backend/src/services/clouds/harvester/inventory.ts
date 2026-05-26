@@ -86,6 +86,9 @@ import {
   listHarvesterPciDevices,
   listHarvesterTemplatesRaw,
   listHarvesterScheduleVmBackupsStandard,
+  listHarvesterScheduleCephVmBackupsRaw,
+  normalizeCephScheduleVmBackupForInventory,
+  scheduleInventoryFieldsFromRaw,
   listHarvesterClusterNetworks,
   listHarvesterClusterNetworkConfigs,
 } from './client';
@@ -217,39 +220,59 @@ export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
  * @param insecure 是否忽略 TLS 校验
  */
 export const syncHarvesterScheduleVmBackups = async (cloud: any, insecure: boolean) => {
-  let items: any[] = [];
+  const conn = {
+    endpoint: cloud.endpoint,
+    token: cloud.secretKey,
+    insecure,
+  } as any;
+
+  let longhornItems: any[] = [];
   try {
-    items = await listHarvesterScheduleVmBackupsStandard({
-      endpoint: cloud.endpoint,
-      token: cloud.secretKey,
-      insecure,
-    } as any);
+    longhornItems = await listHarvesterScheduleVmBackupsStandard(conn);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    invLog.warn(`${cloud.name}: 定时备份策略获取失败:`, e.message);
+    invLog.warn(`${cloud.name}: Longhorn 定时备份策略获取失败:`, e.message);
     return;
   }
 
-  invLog.debug(`${cloud.name}: 定时备份策略同步完成，共 ${items.length} 条`);
+  let cephItems: any[] = [];
+  try {
+    cephItems = await listHarvesterScheduleCephVmBackupsRaw(conn);
+  } catch (e: any) {
+    if (Number(e?.status) !== 401 && !String(e?.message).includes('401')) {
+      invLog.warn(`${cloud.name}: Ceph 定时备份策略获取失败:`, e.message);
+    }
+  }
 
-  // Filter out items that are marked for deletion
+  const items = [
+    ...longhornItems,
+    ...cephItems.map((c) => normalizeCephScheduleVmBackupForInventory(c)),
+  ];
+
+  invLog.debug(
+    `${cloud.name}: 定时备份策略同步完成，Longhorn ${longhornItems.length} 条，Ceph ${cephItems.length} 条`,
+  );
+
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
 
   const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
-  await upsertItems(repo, cloud.id, validItems, (item) => ({
-    uid: item.metadata?.uid || item.id,
-    name: item.metadata?.name,
-    namespace: item.metadata?.namespace,
-    cron: item.spec?.cron,
-    vmName: item.spec?.vmbackup?.source?.name,
-    retention: String(item.spec?.retain || ''),
-    status: item.spec?.suspend ? 'Suspended' : 'Active',
-    maxFailure: item.spec?.maxFailure,
-    links: item.links,
-    labels: item.metadata?.labels,
-    annotations: item.metadata?.annotations,
-    rawData: item,
-  }));
+  await upsertItems(repo, cloud.id, validItems, (item) => {
+    const fields = scheduleInventoryFieldsFromRaw(item);
+    return {
+      uid: item.metadata?.uid || item.id,
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      cron: fields.cron,
+      vmName: fields.vmName,
+      retention: fields.retention,
+      status: fields.status,
+      maxFailure: fields.maxFailure,
+      links: item.links,
+      labels: item.metadata?.labels,
+      annotations: item.metadata?.annotations,
+      rawData: item,
+    };
+  });
 };
 
 /**

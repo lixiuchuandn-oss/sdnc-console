@@ -3,7 +3,6 @@ import { Empty } from 'antd';
 import BackupsSection from '../../../../Harvester/cbr/sections/BackupsSection';
 import ScheduleVmBackupsSection from '../../../../Harvester/cbr/sections/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from '../../../../Harvester/cbr/sections/VmRestoreTasksSection';
-import { apiPost, fetchHarvesterScheduleVmBackups } from '../../api';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -73,13 +72,10 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
     checkPerm,
     loadTabResource,
     innerActiveKey,
-    setResourceLoading,
     ecs,
     harvesterBackups,
     harvesterNamespaces,
     harvesterScheduleVmBackups,
-    setHarvesterScheduleVmBackups,
-    setRawScheduleVmBackups,
     resourceLoading,
     rawBackups,
     rawScheduleVmBackups,
@@ -96,7 +92,9 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
           cloudId={cloudId}
           backups={harvesterBackups}
           loading={resourceLoading.backups}
-          onRefresh={() => loadTabResource('backups', true)}
+          onRefresh={(force = true, skipSync = false) => {
+            void loadTabResource('backups', force, skipSync);
+          }}
           namespaces={harvesterNamespaces}
           vms={ecs}
           type="backup"
@@ -112,7 +110,9 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
           cloudId={cloudId}
           backups={harvesterBackups}
           loading={resourceLoading.backups}
-          onRefresh={() => loadTabResource('backups', true)}
+          onRefresh={(force = true, skipSync = false) => {
+            void loadTabResource('backups', force, skipSync);
+          }}
           namespaces={harvesterNamespaces}
           vms={ecs}
           type="snapshot"
@@ -128,39 +128,8 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
           cloudId={cloudId}
           data={harvesterScheduleVmBackups}
           loading={resourceLoading.scheduleVmBackups}
-          onRefresh={async (force = true, silent = false) => {
-            const skipSync = false;
-            if (!checkPerm('clouds.backups:read')) return;
-            if (!silent)
-              setResourceLoading((prev) => ({
-                ...prev,
-                scheduleVmBackups: true,
-              }));
-            try {
-              if (force && !skipSync) {
-                try {
-                  await apiPost(`/api/clouds/${cloudId}/sync`);
-                } catch {}
-              }
-              const json = await fetchHarvesterScheduleVmBackups(
-                cloudId,
-                force,
-                skipSync,
-              );
-              const list: any[] = Array.isArray((json as any)?.data?.items)
-                ? (json as any).data.items
-                : [];
-              setHarvesterScheduleVmBackups(Array.isArray(list) ? list : []);
-              setRawScheduleVmBackups(json || null);
-            } catch (e) {
-              console.warn('Failed to load schedule vm backups', e);
-            } finally {
-              if (!silent)
-                setResourceLoading((prev) => ({
-                  ...prev,
-                  scheduleVmBackups: false,
-                }));
-            }
+          onRefresh={(force = true, skipSync = false) => {
+            void loadTabResource('backups', force, skipSync);
           }}
           vms={ecs}
         />

@@ -436,7 +436,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
         onSuccess={() => {
           setCreateBackupVisible(false);
           message.success('备份创建指令已发送');
-          void runHarvesterSectionRefresh(onRefresh, { force: true });
+          void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
         }}
         initialNamespace={namespace}
         initialVm={record}
@@ -452,7 +452,6 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
         onSuccess={() => {
           setCreateSnapshotVisible(false);
           message.success('快照创建指令已发送');
-          // 刷新数据列表：force=true 跳过前端缓存；silent=true 不弹提示
           void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
         }}
         initialNamespace={namespace}
@@ -496,6 +495,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
           onCancel={() => { setEditScheduleVisible(false); setCurrentScheduleItem(null); }}
           cloudId={cloudId}
           record={currentScheduleItem}
+          vms={[record]}
           onSuccess={() => {
             setEditScheduleVisible(false);
             setCurrentScheduleItem(null);

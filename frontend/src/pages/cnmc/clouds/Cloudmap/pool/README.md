@@ -21,7 +21,7 @@
 | **池层** | `create*TabOnRefresh(tab, { loadTabResource, … })` → `void loadTabResource(innerKey, force, skipSync)` |
 | **Section 层** | 工具栏 **`createHarvesterToolbarRefresh(onRefresh)`**；写成功/删改 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（`Harvester/shared/lib/harvesterSectionRefresh.ts`） |
 
-样板域：**`ecs`（compute）**、**`cluster`**、**`ebs`（storage 池）**、**`paas_databases`（云数据库 / RDS）**。其它域新增 Tab 时**优先对齐本模式**。
+样板域：**`ecs`（compute）**、**`cluster`**、**`ebs`（storage 池）**、**`paas_databases`（云数据库 / RDS）**、**`hsm`（resource_hub · 机房/网络拓扑）**。其它域新增 Tab 时**优先对齐本模式**。
 
 ---
 
@@ -169,6 +169,36 @@ Cloudmap 侧栏 **`paas_databases/rds`** → `panels/paas_databases` + `Harveste
 | 写成功 / 删改 | **`runHarvesterSectionRefresh(onRefresh, { force: true })`**；**禁止**裸 `onRefresh(true)` |
 
 细则亦见 **`Harvester/database/README.md`**。
+
+---
+
+## 资源总览拓扑（resource_hub / `hsm`）
+
+Cloudmap **资源总览** 内 **机房拓扑**、**网络拓扑**（`Harvester/hsm/`）。监控大盘、Ceph 存储总览仍各自面板内拉取（`ceph_storage_overview` 在 `runPathResourceLoad` 早退）。
+
+### 第 1 层 — 池层
+
+| 职责 | 文件 |
+|------|------|
+| 各子页的 `onRefresh` | `loaders/resourceHubRefresh.ts` → **`createResourceHubTabOnRefresh`** |
+| 按 key 拉数 | `loaders/pathResource/resourceHubPathLoads.ts` |
+| 装配 | `panels/resource_hub/CloudmapResourceHubTopologyPanels.tsx` |
+
+### resource_hub 子页与 `loadTabResource` key
+
+| 侧栏 / URL | `loadTabResource` key | 说明 |
+|------------|----------------------|------|
+| `datacenter_topology` | `datacenter_topology` | `loadDatacenterTopologyBundle` → 池 `datacenterRacks`、节点、ASW、metrics（`force` 时 metrics 代理 `force`；ASW 同网络拓扑） |
+| `network_topology` | `network_topology` | 并行刷新 VLAN/物理网络、集群网络、节点、子网、ASW（写入既有池状态；`force` 且有 `cluster-networks:write` 时 ASW 走 HSM 探测写库） |
+
+### 第 2 层 — Section 层
+
+| 场景 | 用法 |
+|------|------|
+| 工具栏「刷新」 | **`createHarvesterToolbarRefresh(onRefresh)`**（网络拓扑工具栏 `onReload`） |
+| 写成功 / 机柜 CRUD | **`runHarvesterSectionRefresh(onRefresh, { force: true })`** |
+
+细则亦见 **`Harvester/hsm/README.md`**。
 
 ---
 

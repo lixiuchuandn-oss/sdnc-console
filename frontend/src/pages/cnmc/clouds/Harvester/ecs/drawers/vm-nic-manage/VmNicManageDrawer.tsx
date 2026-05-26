@@ -8,7 +8,6 @@ import {
   Col,
   Divider,
   Drawer,
-  Empty,
   Input,
   message,
   Popconfirm,
@@ -58,6 +57,7 @@ import { subnetKey } from "../../lib/kubeOvnSubnetNadSelect";
 import SubnetDetailDrawer from "../../../kube-ovn/drawers/subnet-detail-drawer";
 import { TOWER_ALIAS_ANNOTATION } from "../../../kube-ovn/lib/kubeOvnSubnetConstants";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
+import VmDeviceManageDrawerEmpty from "../shared/components/VmDeviceManageDrawerEmpty";
 import "../shared/styles/vmManageDrawer.css";
 import VmAddNicFlatSubnetDrawer from "./VmAddNicFlatSubnetDrawer";
 import VmAddNicNadDrawer from "./VmAddNicNadDrawer";
@@ -1033,9 +1033,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
         </div>
 
         {interfaces.length === 0 && pciHostBindingCount === 0 ? (
-          <div className="vmDeviceManageDrawer-emptyState">
-            <Empty description="当前无网卡。请使用顶部「添加」入口进行配置；编辑后需点保存，移除网卡可点卡片上解绑立即生效。" />
-          </div>
+          <VmDeviceManageDrawerEmpty description="暂无网卡" />
         ) : null}
 
         {/* ===== 网卡卡片：每块一块 vmManageDrawer-panel ===== */}

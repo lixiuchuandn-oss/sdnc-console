@@ -19,7 +19,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Modal, Tooltip, Alert, Spin, Divider, Typography, Form, Switch } from 'antd';
 import yaml from 'js-yaml';
 import YamlEditor from '../../../../../../components/YamlEditor';
-import { ReloadOutlined, ClockCircleOutlined, FileTextOutlined, ExclamationCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, SearchOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, ClockCircleOutlined, FileTextOutlined, ExclamationCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
@@ -31,7 +31,6 @@ import {
   resumeHarvesterCronJob,
   triggerHarvesterCronJob,
   fetchHarvesterJobPods,
-  fetchHarvesterJobEvents,
   fetchHarvesterPodLog,
   fetchHarvesterCronJobJobs,
   createHarvesterContainerResource,
@@ -181,9 +180,9 @@ const parseJobFailure = (job: any): FailureInfo | null => {
 };
 
 /**
- * 获取错误类型颜色
+ * 获取错误类型颜色（预留）
  */
-const getErrorColor = (type: string): string => {
+const _getErrorColor = (type: string): string => {
   switch (type) {
     case 'image_pull': return '#ff4d4f';
     case 'crash_loop': return '#faad14';
@@ -326,9 +325,9 @@ const calculateAge = (timestamp?: string) => {
 };
 
 /**
- * Job 失败详情组件
+ * Job 失败详情组件（预留）
  */
-const JobFailureDetails: React.FC<{ job: any }> = ({ job }) => {
+const _JobFailureDetails: React.FC<{ job: any }> = ({ job }) => {
   const failureInfo = parseJobFailure(job);
   const status = job?.status || {};
   const conditions = status?.conditions || [];

@@ -14,8 +14,8 @@
  * - 配置存储卷时快速创建 Secret
  */
 
-import React, { useRef, useCallback, useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, Button, Space, App, Card, Row, Col, Tooltip, Alert, Spin } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Modal, Form, Input, Select, Button, Space, App, Card, Row, Col, Tooltip, Alert } from 'antd';
 import {
   PlusOutlined,
   MinusCircleOutlined,
@@ -134,7 +134,6 @@ interface DataEditorProps {
 const DataEditor: React.FC<DataEditorProps> = ({ secretType }) => {
   const requiredKeys = SECRET_TYPE_REQUIRED_KEYS[secretType] || [];
   const isOpaqueType = secretType === 'Opaque';
-  const form = Form.useFormInstance();
 
   return (
     <Form.List name="stringData">

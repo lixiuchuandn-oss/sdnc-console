@@ -185,8 +185,8 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
       setLoading(true);
       const result = await createHarvesterScheduleVmBackup(cloudId, values);
       message.success('创建成功');
-      // 从返回结果中提取K8s资源名称（metadata.name）
-      const resourceName = result?.metadata?.name || result?.data?.metadata?.name || '';
+      const resultData = (result as any)?.data ?? result;
+      const resourceName = resultData?.metadata?.name || '';
       onSuccess({
         namespace: values.namespace,
         alias: values.name,

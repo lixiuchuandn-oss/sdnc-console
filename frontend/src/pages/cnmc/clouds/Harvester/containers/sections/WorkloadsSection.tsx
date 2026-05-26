@@ -26,9 +26,6 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
-  fetchHarvesterDeployments,
-  fetchHarvesterStatefulSets,
-  fetchHarvesterDaemonSets,
   scaleHarvesterDeployment,
   scaleHarvesterStatefulSet,
   restartHarvesterDeployment,
@@ -528,12 +525,12 @@ const WorkloadTable: React.FC<{
           : itemsAll
         )
           .filter((item: any) => !item.show || item.show === true)
-          .map(({ show, ...rest }: any) => rest);
+          .map(({ show: _show, ...rest }: any) => rest);
 
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, onEdit, modal, typeLabel, operationsReadOnly]);
+  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, handleOpenAliasModal, onEdit, modal, typeLabel, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(

@@ -10,6 +10,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Form, Input, InputNumber, Switch, Select, message, Alert, Radio, Row, Col } from 'antd';
 import { updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import { formatCron } from '../../../../../../utils/cronFormatter';
+import {
+  harvesterScheduleVmBackupSourceVmName,
+  isHarvesterCephScheduleVmBackup,
+} from '../../../../../../utils/harvesterUtils';
+import { findHarvesterVmDisplayAlias } from '../lib/vmBackupDisplay';
 
 /**
  * 组件入参
@@ -25,9 +30,11 @@ interface Props {
   onSuccess: () => void;
   cloudId: string;
   record: any;
+  /** VM 列表，用于解析源虚拟机 tower 别名 */
+  vms?: any[];
 }
 
-const ScheduleVmBackupEditModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, record }) => {
+const ScheduleVmBackupEditModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, record, vms }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   
@@ -69,18 +76,32 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ open, onCancel, onSuccess,
       setCronMode(initialMode);
       setUiCron(initialUi);
 
+      const cephSchedule = isHarvesterCephScheduleVmBackup(record);
+      const vmId =
+        harvesterScheduleVmBackupSourceVmName(record) ||
+        spec.vmbackup?.source?.name ||
+        spec.targetVm ||
+        '';
+      const vmNamespace = metadata.namespace || record.namespace || '';
+      const vmDisplayRaw = findHarvesterVmDisplayAlias(vms, vmNamespace, vmId);
+      const vmDisplay =
+        vmDisplayRaw !== vmId
+          ? vmDisplayRaw
+          : record?.vmAlias && record.vmAlias !== '-'
+            ? record.vmAlias
+            : vmDisplayRaw;
       form.setFieldsValue({
         namespace: metadata.namespace,
         name: metadata.name,
         alias: metadata.annotations?.['tower.io/alias'] || '',
-        vmName: spec.vmbackup?.source?.name || '',
-        retain: spec.retain || 10,
-        maxFailure: spec.maxFailure || 5,
+        vmName: vmDisplay,
+        retain: spec.retain ?? (cephSchedule ? 8 : 10),
+        maxFailure: spec.maxFailure ?? (cephSchedule ? 4 : 5),
         suspend: !!spec.suspend,
         cron: currentCron
       });
     }
-  }, [open, record, form]);
+  }, [open, record, form, vms]);
 
   // 根据当前 cronMode + uiCron 同步计算 cron 字符串到表单字段
   useEffect(() => {

@@ -7,7 +7,7 @@
  */
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Table, Button, Input, Select, App, Modal, Form, Tooltip, Tag, Space, Switch } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -150,7 +150,7 @@ const ServicesSection: React.FC<Props> = ({
   const [podTerminalContainers, setPodTerminalContainers] = useState<string[]>([]);
   
   // 删除 Service
-  const handleDelete = async (record: any) => {
+  const handleDelete = useCallback(async (record: any) => {
     try {
       await deleteHarvesterService(cloudId, record.namespace, record.name);
       message.success('删除成功');
@@ -158,14 +158,14 @@ const ServicesSection: React.FC<Props> = ({
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
-  };
+  }, [cloudId, message, onRefresh]);
   
   // 创建 / 编辑 Service（抽屉 · `containers/drawers/ServiceFormDrawer`）
-  const handleEdit = (record: any) => {
+  const handleEdit = useCallback((record: any) => {
     setServiceFormDrawerMode('edit');
     setEditingRecord(record);
     setServiceFormDrawerOpen(true);
-  };
+  }, []);
 
   const handleOpenCreateService = () => {
     setServiceFormDrawerMode('create');
@@ -187,7 +187,7 @@ const ServicesSection: React.FC<Props> = ({
     [message],
   );
 
-  const handleYamlEdit = useCallback(
+  const _handleYamlEdit = useCallback(
     (record: any) => {
       openServiceYamlDrawer(record);
     },
@@ -518,11 +518,11 @@ const ServicesSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, handleOpenAliasModal, openRelatedPodsDrawer, handleEdit, handleYamlEdit, handleDelete]);
+  ], [isTenant, handleOpenAliasModal, openRelatedPodsDrawer, handleEdit, handleDelete]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_services_table');
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
+  const [, setPagination] = useState({ current: 1, pageSize: 10 });
 
   return (
     <PageDetailSection

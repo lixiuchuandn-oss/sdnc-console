@@ -21,8 +21,14 @@ export type DatacenterRack = {
   updatedAt?: string;
 };
 
-export async function fetchDatacenterRacks(cloudId: string): Promise<{ racks: DatacenterRack[] }> {
-  const json: any = await apiRequest(`/api/clouds/${encodeURIComponent(cloudId)}/datacenter-topology/racks`);
+export async function fetchDatacenterRacks(
+  cloudId: string,
+  force = false,
+): Promise<{ racks: DatacenterRack[] }> {
+  const json: any = await apiRequest(
+    `/api/clouds/${encodeURIComponent(cloudId)}/datacenter-topology/racks`,
+    { skipCache: force },
+  );
   return json?.data || { racks: [] };
 }
 

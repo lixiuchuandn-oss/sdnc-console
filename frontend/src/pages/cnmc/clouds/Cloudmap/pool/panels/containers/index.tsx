@@ -28,7 +28,6 @@ import {
   fetchNetworkPolicies,
   fetchHarvesterConfigMaps,
   fetchHarvesterSecrets,
-  fetchHarvesterImagePullSecrets,
 } from '../../../../../../../services/harvesterApi';
 
 export type CloudmapContainersRoutePanelProps = {
@@ -145,7 +144,6 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     harvesterSecrets,
     setHarvesterSecrets,
     harvesterImagePullSecrets,
-    setHarvesterImagePullSecrets,
     harvesterVolumes,
   } = props;
 

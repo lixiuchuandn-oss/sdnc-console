@@ -1,8 +1,11 @@
 import type { Dispatch, SetStateAction } from 'react';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import type {
   CloudmapPoolNavKey,
   CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import type { DatacenterRack } from '../../../../../../services/datacenterTopologyApi';
+import type { NodeLiveMetrics } from '../../../Harvester/hsm/lib/physicalNodeRackUtils';
 
 /** 池主内容区面板 props（由 `useCloudmapPoolDetailEngine` 组装，经 Context 注入子路由） */
 export type CloudmapPoolPanelProps = {
@@ -158,4 +161,7 @@ export type CloudmapPoolPanelProps = {
   rawEips: any;
   rawSnatRules: any;
   rawDnatRules: any;
+  datacenterRacks: DatacenterRack[];
+  datacenterNodeMetricsMap: Record<string, NodeLiveMetrics>;
+  harvesterAswSwitches: AswCtlSwitchProbeRecord[];
 };

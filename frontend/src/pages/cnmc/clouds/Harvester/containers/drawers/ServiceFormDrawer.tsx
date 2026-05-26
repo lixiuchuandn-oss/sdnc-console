@@ -277,43 +277,57 @@ const KeyValueEditor: React.FC<{
   return (
     <Form.List name={name}>
       {(fields, { add, remove }) => (
-        <Flex vertical gap="small" style={{ width: '100%' }}>
+        <Flex vertical gap="middle" style={{ width: '100%' }}>
           {label ? (
             <Text strong style={{ display: 'block' }}>
               {label}
             </Text>
           ) : null}
           {fields.map(({ key, name: index, ...restField }) => (
-            <Row key={key} gutter={[12, 8]} align="middle" wrap={false}>
-              <Col flex="1 1 0">
+            <Row key={key} gutter={[12, 8]}>
+              <Col xs={24} sm={10}>
                 <Form.Item
                   {...restField}
                   name={[index, 'key']}
-                  rules={[{ required: true, message: '请输入键' }, getDuplicateKeyValidator()]}
-                  style={{ marginBottom: 0 }}
+                  validateTrigger="onChange"
+                  rules={[
+                    { required: true, message: '请输入键' },
+                    {
+                      pattern: /^[a-zA-Z0-9]([-_.a-zA-Z0-9]*[a-zA-Z0-9])?$/,
+                      message: '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾'
+                    },
+                    getDuplicateKeyValidator(),
+                  ]}
                 >
                   <Input placeholder="键 (如: app)" />
                 </Form.Item>
               </Col>
-              <Col flex="1 1 0">
+              <Col xs={24} sm={10}>
                 <Form.Item
                   {...restField}
                   name={[index, 'value']}
-                  rules={[{ required: true, message: '请输入值' }]}
-                  style={{ marginBottom: 0 }}
+                  validateTrigger="onChange"
+                  rules={[
+                    { required: true, message: '请输入值' },
+                    {
+                      pattern: /^[a-zA-Z0-9]([-_.a-zA-Z0-9]*[a-zA-Z0-9])?$/,
+                      message: '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾'
+                    },
+                  ]}
                 >
                   <Input placeholder="值 (如: nginx)" />
                 </Form.Item>
               </Col>
-              <Col flex="none">
+              <Col xs={24} sm={4} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                 <Button
-                  type="text"
+                  type="link"
                   danger
                   size="small"
                   icon={<MinusCircleOutlined />}
                   onClick={() => remove(index)}
-                  aria-label="删除此行"
-                />
+                >
+                  删除
+                </Button>
               </Col>
             </Row>
           ))}

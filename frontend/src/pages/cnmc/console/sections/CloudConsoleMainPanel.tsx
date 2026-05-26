@@ -95,8 +95,8 @@ interface Props {
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: (force?: boolean) => void;
   onRefreshSnapshots?: () => void;
-  onRefreshBackups?: () => void;
-  onRefreshSchedules?: () => void;
+  onRefreshBackups?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  onRefreshSchedules?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
   onRefreshVpcs?: () => void;

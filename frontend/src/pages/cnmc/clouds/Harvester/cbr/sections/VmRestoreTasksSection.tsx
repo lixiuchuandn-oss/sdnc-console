@@ -13,7 +13,6 @@ import {
   fetchHarvesterVirtualMachineRestores,
 } from 'services/harvester/cbr';
 import {
-  isHarvesterCephVmBackup,
   isHarvesterCephVmRestore,
   isSystemNamespace,
 } from '../../../../../../utils/harvesterUtils';
@@ -498,37 +497,26 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const ns = String(r.namespace || '');
-        const items: MenuProps['items'] = [
-          ...(r.backupRaw ? [{
-            key: 'backup_yaml',
-            label: '查看YAML',
-            onClick: () => {
-              const name = String(r.backupName || '');
-              const rawBackup = r.backupRaw || {};
-              const kind = isHarvesterCephVmBackup(rawBackup) ? 'CephVmBackup' : 'VirtualMachineBackup';
-              const view =
-                resolveHarvesterSteveViewLink({ ...rawBackup, kind }) ||
-                `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`;
-              openYamlFromTask({ ...rawBackup, kind }, kind, view, '备份 YAML');
-            },
-          }] : []),
-          ...(r.restoreRaw ? [{
-            key: 'restore_yaml',
-            label: '查看YAML',
-            onClick: () => {
-              const name = String(r.restoreName || '');
-              const rawRestore = r.restoreRaw || {};
-              const isCeph = r.restoreBackend === 'ceph' || isHarvesterCephVmRestore(rawRestore);
-              const kind = isCeph ? 'CephVmRestore' : 'VirtualMachineRestore';
-              const view =
-                resolveHarvesterSteveViewLink({ ...rawRestore, kind }) ||
-                (isCeph
-                  ? `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmrestores/${encodeURIComponent(name)}`
-                  : `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinerestores/${encodeURIComponent(name)}`);
-              openYamlFromTask({ ...rawRestore, kind }, kind, view, '恢复任务 YAML');
-            },
-          }] : []),
-        ];
+        const items: MenuProps['items'] = r.restoreRaw
+          ? [
+              {
+                key: 'restore_yaml',
+                label: '查看YAML',
+                onClick: () => {
+                  const name = String(r.restoreName || '');
+                  const rawRestore = r.restoreRaw || {};
+                  const isCeph = r.restoreBackend === 'ceph' || isHarvesterCephVmRestore(rawRestore);
+                  const kind = isCeph ? 'CephVmRestore' : 'VirtualMachineRestore';
+                  const view =
+                    resolveHarvesterSteveViewLink({ ...rawRestore, kind }) ||
+                    (isCeph
+                      ? `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmrestores/${encodeURIComponent(name)}`
+                      : `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinerestores/${encodeURIComponent(name)}`);
+                  openYamlFromTask({ ...rawRestore, kind }, kind, view, '恢复任务 YAML');
+                },
+              },
+            ]
+          : [];
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
             <Button className="row-actions-trigger" icon={<EllipsisOutlined />} />

@@ -4,8 +4,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { message } from 'antd';
-
 import type { CloudmapPoolDetailContextValue } from '../routing';
 import { runPathResourceLoad, runPoolEssentials } from '../loaders';
 
@@ -13,6 +11,9 @@ import {
   parseCloudmapPoolPath,
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
+import type { DatacenterRack } from '../../../../../../services/datacenterTopologyApi';
+import type { NodeLiveMetrics } from '../../../Harvester/hsm/lib/physicalNodeRackUtils';
 import { fetchCloudById } from '../api';
 import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { useCloudmapPoolEcs } from './useCloudmapPoolEcs';
@@ -118,6 +119,13 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [harvesterClusterNetworks, setHarvesterClusterNetworks] = useState<
     any[]
   >([]);
+  const [datacenterRacks, setDatacenterRacks] = useState<DatacenterRack[]>([]);
+  const [datacenterNodeMetricsMap, setDatacenterNodeMetricsMap] = useState<
+    Record<string, NodeLiveMetrics>
+  >({});
+  const [harvesterAswSwitches, setHarvesterAswSwitches] = useState<
+    AswCtlSwitchProbeRecord[]
+  >([]);
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]);
   const [harvesterMigrations, setHarvesterMigrations] = useState<any[]>([]);
   const [rawMigrations, setRawMigrations] = useState<any | null>(null);
@@ -200,7 +208,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [rawClusterNetworks, setRawClusterNetworks] = useState<any | null>(
     null,
   );
-  const [rawIngresses, setRawIngresses] = useState<any | null>(null);
+  const [, setRawIngresses] = useState<any | null>(null);
 
   const loadedRef = React.useRef<Set<string>>(new Set());
 
@@ -291,6 +299,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       ovnVpcEnabled,
       canReadFlatSubnets,
       canReadVpcSubnets,
+      setEcs,
+      setRawEcs,
     ],
   );
 
@@ -299,6 +309,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       await runPathResourceLoad(key, force, skipSync, {
         cloudId,
         checkPerm,
+        canReadNetworkScope,
         loadResource,
         loadedRef,
         setResourceLoading,
@@ -382,17 +393,23 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setGateways,
         setHttpRoutes,
         setGrpcRoutes,
+        setDatacenterRacks,
+        setDatacenterNodeMetricsMap,
+        setHarvesterAswSwitches,
       });
     },
     [
       cloudId,
       checkPerm,
+      canReadNetworkScope,
       loadResource,
       canReadLoadBalancers,
       canViewKubeOvnGroup,
       canViewFlatNetworkGroup,
       ovnVpcEnabled,
       harvesterSecrets,
+      setEcs,
+      setRawEcs,
     ],
   );
 
@@ -672,6 +689,9 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawEips,
     rawSnatRules,
     rawDnatRules,
+    datacenterRacks,
+    datacenterNodeMetricsMap,
+    harvesterAswSwitches,
   };
 
   return { cloudmapPoolDetailValue, error };

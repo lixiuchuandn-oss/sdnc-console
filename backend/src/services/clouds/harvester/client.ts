@@ -136,6 +136,16 @@ export {
   deleteHarvesterCephVmRestore,
 } from './cephVmBackup';
 export {
+  isCephScheduleVmBackupResource,
+  scheduleInventoryFieldsFromRaw,
+  normalizeCephScheduleVmBackupForInventory,
+  listHarvesterScheduleCephVmBackupsRaw,
+  getHarvesterScheduleCephVmBackup,
+  createHarvesterScheduleCephVmBackup,
+  updateHarvesterScheduleCephVmBackup,
+  deleteHarvesterScheduleCephVmBackup,
+} from './cephVmScheduleBackup';
+export {
   listHarvesterNodesStandard,
   listK8sNodesRaw,
   listHarvesterServices,
