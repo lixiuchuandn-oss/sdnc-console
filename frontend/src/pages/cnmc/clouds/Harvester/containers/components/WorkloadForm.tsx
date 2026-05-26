@@ -1435,13 +1435,13 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 500 }}>环境变量</span>
                 <Space>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'keyValue' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'keyValue' }, 0)} icon={<PlusOutlined />}>
                     键值对
                   </Button>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'configMapKeyRef' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'configMapKeyRef' }, 0)} icon={<PlusOutlined />}>
                     从 ConfigMap 引入
                   </Button>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'secretKeyRef' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'secretKeyRef' }, 0)} icon={<PlusOutlined />}>
                     从 Secret 引入
                   </Button>
                 </Space>
@@ -1546,8 +1546,8 @@ interface VolumesEditorProps {
   cloudId: string;
   namespacesOptions: string[];
   selectedNamespace: string;
-  configMaps: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
-  secrets: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  configMaps: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
+  secrets: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
   persistentVolumeClaims?: Array<{
     metadata: { name: string; namespace: string; annotations?: Record<string, string> };
     raw?: { metadata?: { annotations?: Record<string, string> } };
@@ -1618,8 +1618,8 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   const addVolume = useCallback((type: VolumeType) => {
     const currentVolumes = form.getFieldValue('volumes') || [];
     const newVolume: VolumeConfig = { name: '', type };
-    form.setFieldsValue({ volumes: [...currentVolumes, newVolume] });
-    onVolumeChange?.(); // 通知父组件刷新
+    form.setFieldsValue({ volumes: [newVolume, ...currentVolumes] });
+    onVolumeChange?.();
   }, [form, onVolumeChange]);
 
   // 删除卷
@@ -1642,8 +1642,8 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   const addVolumeMount = useCallback(() => {
     const currentMounts = form.getFieldValue('volumeMounts') || [];
     const newMount: VolumeMountConfig = { name: '', mountPath: '', readOnly: false };
-    form.setFieldsValue({ volumeMounts: [...currentMounts, newMount] });
-    onVolumeChange?.(); // 通知父组件刷新
+    form.setFieldsValue({ volumeMounts: [newMount, ...currentMounts] });
+    onVolumeChange?.();
   }, [form, onVolumeChange]);
 
   // 删除挂载
@@ -1736,10 +1736,14 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                     placeholder="选择 ConfigMap"
                     showSearch
                     optionFilterProp="label"
-                    options={filteredConfigMaps.map(cm => ({
-                      label: cm.metadata.name,
-                      value: cm.metadata.name,
-                    }))}
+                    options={filteredConfigMaps.map(cm => {
+                      const alias = cm?.metadata?.annotations?.['tower.io/alias'];
+                      const name = cm.metadata.name;
+                      return {
+                        label: alias ? `${alias} (${name})` : name,
+                        value: name,
+                      };
+                    })}
                     dropdownRender={(menu) => (
                       <>
                         {menu}
@@ -1796,10 +1800,14 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                                   placeholder="选择 Secret"
                                   showSearch
                                   optionFilterProp="label"
-                                  options={filteredSecrets.map(s => ({
-                                    label: s.metadata.name,
-                                    value: s.metadata.name,
-                                  }))}                    dropdownRender={(menu) => (
+                                  options={filteredSecrets.map(s => {
+                                    const alias = s?.metadata?.annotations?.['tower.io/alias'];
+                                    const name = s.metadata.name;
+                                    return {
+                                      label: alias ? `${alias} (${name})` : name,
+                                      value: name,
+                                    };
+                                  })}                    dropdownRender={(menu) => (
                       <>
                         {menu}
                         <Divider style={{ margin: '8px 0' }} />

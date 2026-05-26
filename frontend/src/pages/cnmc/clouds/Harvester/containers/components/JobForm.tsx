@@ -49,6 +49,93 @@ import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSy
 import { RegistryBrowserDrawer } from './index';
 
 // ============================================================
+// 常量定义
+// ============================================================
+
+const CPU_UNITS = [
+  { label: 'm (毫核)', value: 'm' },
+  { label: '核', value: '' },
+];
+
+const MEMORY_UNITS = [
+  { label: 'Mi', value: 'Mi' },
+  { label: 'Gi', value: 'Gi' },
+  { label: 'Ki', value: 'Ki' },
+  { label: 'M', value: 'M' },
+  { label: 'G', value: 'G' },
+];
+
+const ResourceInput: React.FC<{
+  value?: string;
+  onChange?: (value: string | undefined) => void;
+  placeholder?: string;
+  units: Array<{ label: string; value: string }>;
+  defaultUnit: string;
+  unitTooltip?: string;
+}> = ({ value, onChange, placeholder, units, defaultUnit, unitTooltip }) => {
+  const [num, setNum] = useState<string>('');
+  const [unit, setUnit] = useState<string>(defaultUnit);
+
+  useEffect(() => {
+    if (!value) {
+      setNum('');
+      setUnit(defaultUnit);
+      return;
+    }
+    const match = value.match(/^(\d+\.?\d*)(.*)$/);
+    if (match) {
+      setNum(match[1]);
+      const suffix = match[2];
+      if (suffix !== undefined && suffix !== '') {
+        setUnit(suffix);
+      } else {
+        if (defaultUnit === 'm') {
+          setUnit('');
+        } else {
+          setUnit(defaultUnit);
+        }
+      }
+    }
+  }, [value, defaultUnit]);
+
+  const handleNumChange = (newNum: string) => {
+    setNum(newNum);
+    if (newNum) {
+      onChange?.(newNum + unit);
+    } else {
+      onChange?.(undefined);
+    }
+  };
+
+  const handleUnitChange = (newUnit: string) => {
+    setUnit(newUnit);
+    if (num) {
+      onChange?.(num + newUnit);
+    }
+  };
+
+  return (
+    <Input.Group compact style={{ display: 'flex' }}>
+      <InputNumber
+        value={num ? Number(num) : undefined}
+        onChange={(v) => handleNumChange(v ? String(v) : '')}
+        placeholder={placeholder}
+        min={0}
+        step={unit === 'm' ? 100 : 0.5}
+        precision={unit === 'm' ? 0 : 2}
+        style={{ flex: 1, minWidth: 60 }}
+      />
+      <Tooltip title={unitTooltip}>
+        <Select
+          value={unit}
+          onChange={handleUnitChange}
+          options={units}
+          style={{ width: 110 }}
+        />
+      </Tooltip>
+    </Input.Group>
+  );
+};
 // 类型定义
 // ============================================================
 
@@ -687,24 +774,24 @@ const JobForm: React.FC<JobFormProps> = ({
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item name={['resources', 'requests', 'cpu']} label="CPU 请求">
-                  <Input placeholder="100m (0.1 核)" />
+                  <ResourceInput placeholder="如: 100" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
                 </Form.Item>
               </Col>
               <Col span={12}>
                 <Form.Item name={['resources', 'requests', 'memory']} label="内存请求">
-                  <Input placeholder="128Mi" />
+                  <ResourceInput placeholder="如: 128" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item name={['resources', 'limits', 'cpu']} label="CPU 限制">
-                  <Input placeholder="500m (0.5 核)" />
+                  <ResourceInput placeholder="如: 500" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
                 </Form.Item>
               </Col>
               <Col span={12}>
                 <Form.Item name={['resources', 'limits', 'memory']} label="内存限制">
-                  <Input placeholder="512Mi" />
+                  <ResourceInput placeholder="如: 512" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
                 </Form.Item>
               </Col>
             </Row>

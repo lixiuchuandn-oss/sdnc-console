@@ -541,7 +541,7 @@ const PodDetailDrawer: React.FC<{
             key: 'overview',
             label: '概览',
             children: (
-              <Descriptions column={2} bordered size="small">
+              <Descriptions column={2} bordered size="small" labelStyle={{ whiteSpace: 'nowrap' }}>
                 <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
                 <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
                 <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>

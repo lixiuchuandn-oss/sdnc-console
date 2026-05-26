@@ -129,14 +129,7 @@ const formatPodSelector = (selector: any): React.ReactNode => {
     const text = `${k}=${v}`;
     return (
       <Tooltip title={renderStyledLabel(k, String(v))}>
-        <Tag
-          style={{
-            maxWidth: 160,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
+        <Tag>
           {text}
         </Tag>
       </Tooltip>
@@ -149,19 +142,11 @@ const formatPodSelector = (selector: any): React.ReactNode => {
   const remaining = entries.length - displayCount;
   
   const content = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 4 }}>
       {displayEntries.map(([k, v]) => {
         const text = `${k}=${v}`;
         return (
-          <Tag
-            key={k}
-            style={{
-              maxWidth: 160,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <Tag key={k}>
             {text}
           </Tag>
         );
