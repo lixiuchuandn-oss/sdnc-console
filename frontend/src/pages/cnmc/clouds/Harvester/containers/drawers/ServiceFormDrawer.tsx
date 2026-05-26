@@ -274,7 +274,14 @@ const KeyValueEditor: React.FC<{
               <Form.Item
                 {...restField}
                 name={[index, 'key']}
-                rules={[{ required: true, message: '请输入键' }]}
+                validateTrigger="onChange"
+                rules={[
+                  { required: true, message: '请输入键' },
+                  { 
+                    pattern: /^[a-zA-Z0-9]([-_.a-zA-Z0-9]*[a-zA-Z0-9])?$/, 
+                    message: '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾' 
+                  },
+                ]}
               >
                 <Input placeholder="键 (如: app)" />
               </Form.Item>
@@ -283,7 +290,14 @@ const KeyValueEditor: React.FC<{
               <Form.Item
                 {...restField}
                 name={[index, 'value']}
-                rules={[{ required: true, message: '请输入值' }]}
+                validateTrigger="onChange"
+                rules={[
+                  { required: true, message: '请输入值' },
+                  { 
+                    pattern: /^[a-zA-Z0-9]([-_.a-zA-Z0-9]*[a-zA-Z0-9])?$/, 
+                    message: '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾' 
+                  },
+                ]}
               >
                 <Input placeholder="值 (如: nginx)" />
               </Form.Item>
