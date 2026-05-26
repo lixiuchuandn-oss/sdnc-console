@@ -685,7 +685,15 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                           </Flex>
                           <Row gutter={[12, 8]}>
                             <Col xs={24} sm={12}>
-                              <Form.Item {...restField} name={[index, 'name']} label="名称">
+                              <Form.Item 
+                                {...restField} 
+                                name={[index, 'name']} 
+                                label="名称"
+                                rules={[{
+                                  pattern: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+                                  message: '端口名称格式无效，只能包含小写字母、数字和连字符(-)，且必须以字母或数字开头和结尾',
+                                }]}
+                              >
                                 <Input placeholder="如: http" />
                               </Form.Item>
                             </Col>
@@ -709,7 +717,22 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                                 {...restField}
                                 name={[index, 'targetPort']}
                                 label="容器内部端口"
-                                rules={[{ required: true, message: '请输入容器内部端口' }]}
+                                rules={[
+                                  { required: true, message: '请输入容器内部端口' },
+                                  {
+                                    validator: (_, value) => {
+                                      if (!value) return Promise.resolve();
+                                      const numValue = Number(value);
+                                      if (isNaN(numValue)) {
+                                        return Promise.reject(new Error('容器内部端口格式无效，必须为数字'));
+                                      }
+                                      if (numValue < 1 || numValue > 65535) {
+                                        return Promise.reject(new Error('端口号必须在 1-65535 范围内'));
+                                      }
+                                      return Promise.resolve();
+                                    },
+                                  },
+                                ]}
                               >
                                 <Select
                                   placeholder="选择或输入端口"
@@ -719,7 +742,7 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                                   maxTagCount={1}
                                   options={discoveredPorts.map((p) => ({
                                     label: p.name ? `${p.name} (${p.port})` : `${p.port}`,
-                                    value: p.name || p.port,
+                                    value: p.port,
                                   }))}
                                   filterOption={(input, option) =>
                                     (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase()) ||
