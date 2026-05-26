@@ -524,7 +524,7 @@ const WorkloadTable: React.FC<{
           ? itemsAll.filter((i) => i.key === 'yaml')
           : itemsAll
         )
-          .filter((item: any) => !item.show || item.show === true)
+          .filter((item: any) => item.show === undefined || item.show === true)
           .map(({ show: _show, ...rest }: any) => rest);
 
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
