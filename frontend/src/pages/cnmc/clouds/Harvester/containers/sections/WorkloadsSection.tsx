@@ -30,6 +30,7 @@ import {
   scaleHarvesterStatefulSet,
   restartHarvesterDeployment,
   restartHarvesterStatefulSet,
+  restartHarvesterDaemonSet,
   deleteHarvesterContainerResource,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
@@ -360,6 +361,8 @@ const WorkloadTable: React.FC<{
     try {
       if (type === 'statefulset') {
         await restartHarvesterStatefulSet(cloudId, namespace, name);
+      } else if (type === 'daemonset') {
+        await restartHarvesterDaemonSet(cloudId, namespace, name);
       } else {
         await restartHarvesterDeployment(cloudId, namespace, name);
       }
@@ -499,7 +502,6 @@ const WorkloadTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => handleRestart(record),
-            show: type === 'deployment' || type === 'statefulset',
           },
           {
             key: 'delete',
