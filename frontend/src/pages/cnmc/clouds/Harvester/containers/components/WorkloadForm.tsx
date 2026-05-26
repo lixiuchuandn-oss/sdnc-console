@@ -1561,6 +1561,7 @@ interface VolumesEditorProps {
   onOpenQuickCreateConfigMap: () => void;
   onOpenQuickCreateSecret: () => void;
   refreshKey?: number; // 父组件传入的刷新标记，变化时重新读取数据
+  onVolumeChange?: () => void; // 卷变化时通知父组件
 }
 
 const VolumesEditor: React.FC<VolumesEditorProps> = ({
@@ -1575,6 +1576,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   onOpenQuickCreateConfigMap,
   onOpenQuickCreateSecret,
   refreshKey: _refreshKey = 0,
+  onVolumeChange,
 }) => {
   const form = Form.useFormInstance();
   
@@ -1600,32 +1602,25 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     });
   }, [persistentVolumeClaims, selectedNamespace]);
   
-  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
-  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
-  // 同时使用 useReducer 强制刷新，确保 add/remove 后立即渲染
-  const watchedVolumes = Form.useWatch('volumes', form);
-  const watchedVolumeMounts = Form.useWatch('volumeMounts', form);
-  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
+  // 使用 refreshKey 确保 add/remove 后立即重新读取数据
   
   const volumes = useMemo(() => {
-    void watchedVolumes;
     const v = form.getFieldValue('volumes');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [watchedVolumes, form]);
+  }, [form, _refreshKey]);
   
   const volumeMounts = useMemo(() => {
-    void watchedVolumeMounts;
     const v = form.getFieldValue('volumeMounts');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [watchedVolumeMounts, form]);
+  }, [form, _refreshKey]);
 
   // 添加卷 - 直接从 form 读取最新值，避免闭包问题
   const addVolume = useCallback((type: VolumeType) => {
     const currentVolumes = form.getFieldValue('volumes') || [];
     const newVolume: VolumeConfig = { name: '', type };
     form.setFieldsValue({ volumes: [...currentVolumes, newVolume] });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 删除卷
   const removeVolume = useCallback((index: number) => {
@@ -1640,24 +1635,24 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
       const updatedMounts = currentMounts.filter((m: VolumeMountConfig) => m.name !== volName);
       form.setFieldsValue({ volumeMounts: updatedMounts });
     }
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 添加挂载
   const addVolumeMount = useCallback(() => {
     const currentMounts = form.getFieldValue('volumeMounts') || [];
     const newMount: VolumeMountConfig = { name: '', mountPath: '', readOnly: false };
     form.setFieldsValue({ volumeMounts: [...currentMounts, newMount] });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 删除挂载
   const removeVolumeMount = useCallback((index: number) => {
     const currentMounts = form.getFieldValue('volumeMounts') || [];
     const updated = currentMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
     form.setFieldsValue({ volumeMounts: updated });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 获取可用的卷名称列表（用于挂载选择）
   const availableVolumeNames = volumes.filter((v: VolumeConfig) => v.name).map((v: VolumeConfig) => v.name);
@@ -1720,7 +1715,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                   const currentName = updated[index]?.name;
                   updated[index] = { name: currentName || '', type: newType };
                   form.setFieldsValue({ volumes: updated });
-                  forceUpdate();
+                  onVolumeChange?.(); // 通知父组件刷新
                 }}
               />
             </Form.Item>
@@ -6970,6 +6965,7 @@ return (
                       onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
                       onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
                       refreshKey={volumeRefreshKey}
+                      onVolumeChange={() => setVolumeRefreshKey(v => v + 1)}
                     />
                   ) : (
                     <div
