@@ -247,6 +247,15 @@ const DataEditor: React.FC<DataEditorProps> = ({ secretType, editMode }) => {
                         rules={[
                           { required: true, message: '请输入键名' },
                           { pattern: /^[a-zA-Z0-9_.-]+$/, message: '只允许字母、数字、下划线、点和连字符' },
+                          {
+                            validator: (_, value) => {
+                              if (!value) return Promise.resolve();
+                              const allData = form.getFieldValue('stringData') || [];
+                              const duplicateCount = allData.filter((item: any) => item?.key === value).length;
+                              if (duplicateCount > 1) return Promise.reject('键名已存在');
+                              return Promise.resolve();
+                            },
+                          },
                         ]}
                       >
                         <Input placeholder="如: password" disabled={editMode && !isNewItem} />

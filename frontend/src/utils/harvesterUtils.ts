@@ -563,7 +563,7 @@ export function getSystemResourceProtectionHint(resource: any, resourceType?: st
   const namespace = metadata.namespace || '';
 
   if (isSystemNamespace(namespace)) {
-    return `系统命名空间 "${namespace}" 中的资源受保护，禁止删除`;
+    return `系统项目 "${namespace}" 中的资源受保护，禁止删除`;
   }
 
   if (namespace === 'default' && name === 'kubernetes') {

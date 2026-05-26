@@ -91,7 +91,7 @@ const parseDayOfWeekToChinese = (dayOfWeek: string): string => {
 /**
  * 解析 Cron 表达式为中文描述
  */
-const parseToChinese = (expression: string): string => {
+export const parseToChinese = (expression: string): string => {
   // 检查是否为宏表达式
   const macroInfo = getMacroInfo(expression);
   if (macroInfo) {

@@ -332,7 +332,12 @@ const ServicesSection: React.FC<Props> = ({
       })
       .map((s: any, index: number) => {
       const raw = s.rawData || s;
-      const ports = (raw.spec?.ports || []).map((p: any) => `${p.port}:${p.targetPort}/${p.protocol}`).join(', ');
+      const ports = (raw.spec?.ports || []).map((p: any) => {
+        return `${p.port}/${p.protocol}`;
+      }).join(', ');
+      const nodePorts = raw.spec?.type === 'NodePort'
+        ? (raw.spec?.ports || []).filter((p: any) => p.nodePort).map((p: any) => p.nodePort).join(', ')
+        : '';
       const externalIPs = (raw.status?.loadBalancer?.ingress || []).map((i: any) => i.ip || i.hostname).join(', ');
       const name = raw.metadata?.name || s.name;
       const namespace = raw.metadata?.namespace || s.namespace;
@@ -347,6 +352,7 @@ const ServicesSection: React.FC<Props> = ({
         clusterIP: raw.spec?.clusterIP || '-',
         externalIPs: externalIPs || '-',
         ports: ports || '-',
+        nodePorts: nodePorts || '-',
         creationTimestamp: raw.metadata?.creationTimestamp || s.createdAt,
         raw,
         originalRecord: s, // 保留原始数据库记录
@@ -452,6 +458,12 @@ const ServicesSection: React.FC<Props> = ({
     { title: '外部 IP', dataIndex: 'externalIPs', key: 'externalIPs' },
     { title: '端口', dataIndex: 'ports', key: 'ports', ellipsis: true },
     { 
+      title: 'NodePort', 
+      dataIndex: 'nodePorts', 
+      key: 'nodePorts',
+      render: (val: string) => val && val !== '-' ? <Tag color="green">{val}</Tag> : '-',
+    },
+    { 
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
       key: 'creationTimestamp',
@@ -491,7 +503,7 @@ const ServicesSection: React.FC<Props> = ({
                   onClick: () => {
                     Modal.confirm({
                       title: '确认删除',
-                      content: `确定要删除 Service "${record.name}" 吗？`,
+                      content: `确定要删除 服务 "${record.name}" 吗？`,
                       okText: '删除',
                       okType: 'danger',
                       cancelText: '取消',

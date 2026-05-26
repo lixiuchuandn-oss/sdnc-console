@@ -95,20 +95,21 @@ const ipv6ToSegments = (ip: string): number[] => {
   return expanded.split(':').map((seg) => parseInt(seg, 16));
 };
 
-const isCidrInRange = (subCidr: string, parentCidr: string): boolean => {
-  if (!isValidCidr(subCidr) || !isValidCidr(parentCidr)) return false;
+const checkCidrInRange = (subCidr: string, parentCidr: string): string => {
+  if (!isValidCidr(subCidr) || !isValidCidr(parentCidr)) return 'CIDR 格式无效';
   const [subIp, subMaskStr] = subCidr.split('/');
   const [parentIp, parentMaskStr] = parentCidr.split('/');
   const subIsV6 = subIp.includes(':');
   const parentIsV6 = parentIp.includes(':');
-  if (subIsV6 !== parentIsV6) return false;
+  if (subIsV6 !== parentIsV6) return 'IP 协议版本不一致';
   const subMask = parseInt(subMaskStr, 10);
   const parentMask = parseInt(parentMaskStr, 10);
-  if (subMask < parentMask) return false;
+  if (subMask < parentMask) return `排除 CIDR 的掩码 /${subMask} 小于主 CIDR 的掩码 /${parentMask}，排除范围不能比主 CIDR 范围更大`;
   if (!subIsV6) {
     const subNet = (ipv4ToInt(subIp) >>> (32 - parentMask));
     const parentNet = (ipv4ToInt(parentIp) >>> (32 - parentMask));
-    return subNet === parentNet;
+    if (subNet !== parentNet) return `排除 CIDR "${subCidr}" 的网络地址不在主 CIDR "${parentCidr}" 范围内`;
+    return '';
   }
   const subSegs = ipv6ToSegments(subIp);
   const parentSegs = ipv6ToSegments(parentIp);
@@ -117,10 +118,10 @@ const isCidrInRange = (subCidr: string, parentCidr: string): boolean => {
     const segBits = Math.min(16, parentMask - bitsChecked);
     const subSeg = (subSegs[i] >> (16 - segBits)) & ((1 << segBits) - 1);
     const parentSeg = (parentSegs[i] >> (16 - segBits)) & ((1 << segBits) - 1);
-    if (subSeg !== parentSeg) return false;
+    if (subSeg !== parentSeg) return `排除 CIDR "${subCidr}" 的网络地址不在主 CIDR "${parentCidr}" 范围内`;
     bitsChecked += 16;
   }
-  return true;
+  return '';
 };
 
 // ============================================================
@@ -393,8 +394,11 @@ const PeerCard: React.FC<{
           }
           return Promise.reject(new Error(`"${ex}" 不是有效的 CIDR 格式`));
         }
-        if (cidr && !isCidrInRange(ex, cidr)) {
-          return Promise.reject(new Error(`"${ex}" 不在主 CIDR "${cidr}" 范围内`));
+        if (cidr) {
+          const reason = checkCidrInRange(ex, cidr);
+          if (reason) {
+            return Promise.reject(new Error(reason));
+          }
         }
       }
       return Promise.resolve();

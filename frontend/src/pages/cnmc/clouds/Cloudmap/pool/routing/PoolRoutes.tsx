@@ -276,6 +276,7 @@ const ContainersRoute: React.FC = () => {
       loadResource={p.loadResource}
       resourceLoading={p.resourceLoading}
       namespacesOptions={p.namespacesOptions}
+      tenantNamespaces={p.tenantNamespaces}
       nodesOptions={p.nodesOptions}
       nsFilter={p.nsFilter}
       setNsFilter={p.setNsFilter}

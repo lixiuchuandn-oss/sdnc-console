@@ -215,8 +215,8 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
 
     if (deletableTargets.length === 0) {
       const reasons: string[] = [];
-      if (systemTargets.length > 0) reasons.push(`${systemTargets.length} 个系统命名空间`);
-      if (publicTargets.length > 0) reasons.push(`${publicTargets.length} 个公共命名空间`);
+      if (systemTargets.length > 0) reasons.push(`${systemTargets.length} 个系统项目`);
+      if (publicTargets.length > 0) reasons.push(`${publicTargets.length} 个公共项目`);
       message.warning(`选中的地址池无法删除：${reasons.join('，')}`);
       setSelectedRowKeys([]);
       return;
@@ -229,7 +229,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
           <div>{`确定要删除选中的 ${deletableTargets.length} 个地址池吗？此操作不可恢复。`}</div>
           {systemTargets.length > 0 && (
             <div style={{ color: '#faad14', marginTop: 8 }}>
-              {`注意：${systemTargets.length} 个系统命名空间的地址池将被跳过。`}
+              {`注意：${systemTargets.length} 个系统项目的地址池将被跳过。`}
             </div>
           )}
           {publicTargets.length > 0 && (

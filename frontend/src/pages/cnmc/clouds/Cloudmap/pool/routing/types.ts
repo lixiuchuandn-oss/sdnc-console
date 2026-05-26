@@ -56,6 +56,7 @@ export type CloudmapPoolPanelProps = {
   harvesterPods: any[];
   setHarvesterPods: Dispatch<SetStateAction<any[]>>;
   namespacesOptions: string[];
+  tenantNamespaces: string[];
   nsFilter: string;
   setNsFilter: (v: string) => void;
   harvesterClusterNetworks: any[];

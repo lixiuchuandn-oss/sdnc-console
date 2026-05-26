@@ -14,6 +14,7 @@ import {
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { fetchCloudById } from '../api';
+import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { useCloudmapPoolEcs } from './useCloudmapPoolEcs';
 import { useCloudmapPoolPermissions } from './useCloudmapPoolPermissions';
 import { useCloudmapPoolPathSync } from './useCloudmapPoolPathSync';
@@ -157,6 +158,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [httpRoutes, setHttpRoutes] = useState<any[]>([]);
   const [grpcRoutes, setGrpcRoutes] = useState<any[]>([]);
 
+  const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
   const [nsFilter, setNsFilter] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [showLog] = useState<boolean>(false);
@@ -408,6 +410,20 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     loadEssentials();
   }, [loadEssentials]);
 
+  useEffect(() => {
+    if (!cloudId || !isTenant) {
+      setTenantNamespaces([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, ok } = await fetchAllowedNamespaces(cloudId);
+      if (!cancelled && ok && data?.namespaces) setTenantNamespaces(data.namespaces);
+      else if (!cancelled) setTenantNamespaces([]);
+    })();
+    return () => { cancelled = true; };
+  }, [cloudId, isTenant]);
+
   const handleTabChange = (key: string) => {
     if (key === '') return;
     if (
@@ -486,7 +502,11 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterConfigMaps.forEach(addNamespace);
     harvesterSecrets.forEach(addNamespace);
     harvesterImagePullSecrets.forEach(addNamespace);
-    return Array.from(nsSet).filter(Boolean).sort();
+    const all = Array.from(nsSet).filter(Boolean).sort();
+    if (isTenant && tenantNamespaces.length > 0) {
+      return all.filter((ns) => tenantNamespaces.includes(ns));
+    }
+    return all;
   }, [
     harvesterNamespaces,
     harvesterDeployments,
@@ -500,6 +520,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterConfigMaps,
     harvesterSecrets,
     harvesterImagePullSecrets,
+    isTenant,
+    tenantNamespaces,
   ]);
 
   const cloudmapPoolDetailValue: CloudmapPoolDetailContextValue = {
@@ -548,6 +570,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterPods,
     setHarvesterPods,
     namespacesOptions,
+    tenantNamespaces,
     nsFilter,
     setNsFilter,
     harvesterClusterNetworks,
