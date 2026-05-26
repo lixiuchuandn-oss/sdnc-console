@@ -262,43 +262,42 @@ const KeyValueEditor: React.FC<{
 }> = ({ name, label, addButtonText = '添加' }) => (
   <Form.List name={name}>
     {(fields, { add, remove }) => (
-      <Flex vertical gap="small" style={{ width: '100%' }}>
+      <Flex vertical gap="middle" style={{ width: '100%' }}>
         {label ? (
           <Text strong style={{ display: 'block' }}>
             {label}
           </Text>
         ) : null}
         {fields.map(({ key, name: index, ...restField }) => (
-          <Row key={key} gutter={[12, 8]} align="middle" wrap={false}>
-            <Col flex="1 1 0">
+          <Row key={key} gutter={[12, 8]}>
+            <Col xs={24} sm={10}>
               <Form.Item
                 {...restField}
                 name={[index, 'key']}
                 rules={[{ required: true, message: '请输入键' }]}
-                style={{ marginBottom: 0 }}
               >
                 <Input placeholder="键 (如: app)" />
               </Form.Item>
             </Col>
-            <Col flex="1 1 0">
+            <Col xs={24} sm={10}>
               <Form.Item
                 {...restField}
                 name={[index, 'value']}
                 rules={[{ required: true, message: '请输入值' }]}
-                style={{ marginBottom: 0 }}
               >
                 <Input placeholder="值 (如: nginx)" />
               </Form.Item>
             </Col>
-            <Col flex="none">
+            <Col xs={24} sm={4} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
               <Button
-                type="text"
+                type="link"
                 danger
                 size="small"
                 icon={<MinusCircleOutlined />}
                 onClick={() => remove(index)}
-                aria-label="删除此行"
-              />
+              >
+                删除
+              </Button>
             </Col>
           </Row>
         ))}
