@@ -6038,11 +6038,31 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       await form.validateFields();
       // 切换步骤前持久化当前容器数据（包括 volumeMounts）
       persistActiveContainerToForm();
+      
+      // 在存储配置页面（步骤3）点击下一步时，检查是否有存储卷但没有卷挂载
+      if (currentStep === 3) {
+        const volumes = form.getFieldValue('volumes') || [];
+        const containers = form.getFieldValue('containers') || [];
+        let hasVolumeMounts = false;
+        
+        for (const container of containers) {
+          if ((container.volumeMounts || []).length > 0) {
+            hasVolumeMounts = true;
+            break;
+          }
+        }
+        
+        if (volumes.length > 0 && !hasVolumeMounts) {
+          message.warning('已定义存储卷，请配置至少一个卷挂载');
+          return;
+        }
+      }
+      
       setCurrentStep((prev) => prev + 1);
     } catch {
       // 验证失败，不跳转
     }
-  }, [form, persistActiveContainerToForm]);
+  }, [form, persistActiveContainerToForm, currentStep, message]);
   
   // 上一步
   const handlePrev = useCallback(() => {
