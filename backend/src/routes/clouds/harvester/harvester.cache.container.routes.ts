@@ -2252,6 +2252,15 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         const url = buildK8sUrl(base, '/api/v1/services', namespace, name);
+
+        try {
+          const current = await getJsonOnce(url, token, insecure, true);
+          if (current?.metadata?.resourceVersion) {
+            body.metadata = body.metadata || {};
+            body.metadata.resourceVersion = current.metadata.resourceVersion;
+          }
+        } catch {}
+
         const result = await requestJson('PUT', url, token, insecure, body);
         
         res.json({ message: '更新 Service 成功', data: result });
@@ -2400,6 +2409,15 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         const url = buildK8sUrl(base, '/apis/networking.k8s.io/v1/ingresses', namespace, name);
+
+        try {
+          const current = await getJsonOnce(url, token, insecure, true);
+          if (current?.metadata?.resourceVersion) {
+            body.metadata = body.metadata || {};
+            body.metadata.resourceVersion = current.metadata.resourceVersion;
+          }
+        } catch {}
+
         const result = await requestJson('PUT', url, token, insecure, body);
         
         res.json({ message: '更新 Ingress 成功', data: result });
@@ -2639,6 +2657,15 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         const url = buildK8sUrl(base, '/apis/networking.k8s.io/v1/networkpolicies', namespace, name);
+
+        try {
+          const current = await getJsonOnce(url, token, insecure, true);
+          if (current?.metadata?.resourceVersion) {
+            body.metadata = body.metadata || {};
+            body.metadata.resourceVersion = current.metadata.resourceVersion;
+          }
+        } catch {}
+
         const result = await requestJson('PUT', url, token, insecure, body);
         
         res.json({ message: '更新 NetworkPolicy 成功', data: result });
@@ -3504,6 +3531,15 @@ export const registerHarvesterContainerRoutes = (
         const base = cloud.endpoint || '';
         
         const url = buildK8sUrl(base, apiPath, namespace, name);
+
+        try {
+          const current = await getJsonOnce(url, token, insecure, true);
+          if (current?.metadata?.resourceVersion) {
+            body.metadata = body.metadata || {};
+            body.metadata.resourceVersion = current.metadata.resourceVersion;
+          }
+        } catch {}
+
         const result = await requestJson('PUT', url, token, insecure, body);
         
         res.json({ message: '更新成功', data: result });

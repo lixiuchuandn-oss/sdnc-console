@@ -4526,7 +4526,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         
         setKubeSubnets(normalizedSubnets);
         setKubeVpcs(normalizedVpcs);
-        setNads(Array.isArray(nadsRes?.items) ? nadsRes.items : (Array.isArray(nadsRes) ? nadsRes : []));
+        setNads(nadsRes?.data?.items || nadsRes?.items || (Array.isArray(nadsRes) ? nadsRes : []));
       } catch (error) {
         console.error('获取网络数据失败:', error);
       } finally {
@@ -4787,7 +4787,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   }, [cloudId, form, flatSubnetOptions, kubeSubnets, selectedVpc, message]);
   
   
-  // NAD 选项（排除 kube-ovn 类型，参考 VM 创建向导）
   const allNadOptions = useMemo(() => {
     const selectedNamespace = form.getFieldValue('namespace') || defaultNamespace || 'default';
     return (nads || [])
@@ -4796,7 +4795,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         const ns = n?.metadata?.namespace || n?.namespace || 'default';
         const displayName = n?.spec?.displayName || n?.metadata?.annotations?.['tower.io/alias'] || '';
         
-        // 解析 config 获取 type 和 vlan
         let type = 'unknown';
         let vlan: any = undefined;
         try {
@@ -4804,9 +4802,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           type = String(cfg?.type || 'unknown').toLowerCase();
           vlan = cfg?.vlan;
         } catch {}
-        
-        // 排除 kube-ovn 类型的 NAD
-        if (type === 'kube-ovn') return null;
         
         const isCurrentNs = ns === selectedNamespace;
         const tag = type || '-';
@@ -4822,9 +4817,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           _type: type,
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null) // 过滤掉 null
+      .filter((x): x is NonNullable<typeof x> => x !== null)
       .sort((a, b) => {
-        // 当前命名空间的NAD排在前面
         const aNs = a.value.split('/')[0];
         const bNs = b.value.split('/')[0];
         if (aNs === selectedNamespace && bNs !== selectedNamespace) return -1;
@@ -5430,16 +5424,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           break;
           
         case 'custom_nad':
-          // 自定义 NAD：设置 networks 注解
           if (customNad) {
             annotations['k8s.v1.cni.cncf.io/networks'] = customNad;
+            const selectedNadOption = allNadOptions.find((o: any) => o.value === customNad);
+            if (selectedNadOption?._type === 'kube-ovn') {
+              const nadParts = customNad.split('/');
+              if (nadParts.length === 2) {
+                annotations['ovn.kubernetes.io/logical_switch'] = nadParts[1];
+              }
+            }
           }
           break;
-      }
-      
-      // 静态 IP 配置（仅自定义NAD，扁平子网和VPC子网已在case中处理）
-      if (enableStaticIP && staticIP && networkType === 'custom_nad') {
-        annotations['ovn.kubernetes.io/ip_address'] = staticIP;
       }
       
       return annotations;
@@ -6089,7 +6084,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } else if (values.networkType === 'custom_nad') {
       networkSummary = values.customNad ? `NAD: ${values.customNad}` : '自定义NAD';
     }
-    if (values.enableStaticIP && values.staticIP) {
+    if (values.enableStaticIP && values.staticIP && values.networkType !== 'custom_nad') {
       networkSummary += ` (静态IP: ${values.staticIP})`;
     }
     
@@ -6801,7 +6796,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 
                 <Divider />
                 
-                {networkType !== 'default' && (() => {
+                {networkType !== 'default' && networkType !== 'custom_nad' && (() => {
                   // 获取当前子网的 CIDR 信息
                   let currentCidr: string | undefined;
                   
@@ -6921,7 +6916,7 @@ return (
                           <div style={{ marginTop: 8 }}>VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。</div>
                         )}
                         {networkType === 'custom_nad' && (
-                          <div style={{ marginTop: 8 }}>自定义 NAD 需要预先创建 NetworkAttachmentDefinition 资源。</div>
+                          <div style={{ marginTop: 8 }}>自定义 NAD 需要预先创建 NetworkAttachmentDefinition 资源。Kube-OVN 类型的 NAD 将自动补充子网注解。</div>
                         )}
                       </div>
                     }
