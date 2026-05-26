@@ -828,6 +828,7 @@ const WorkloadsSection: React.FC<Props> = ({
         onRefreshImagePullSecrets={() => onRefresh(true)}
         defaultNamespace={formDefaultNs}
         editData={editRecord}
+        defaultType={activeTab as WorkloadType}
         hideFlatSubnet={hideFlatSubnet}
         onRefreshConfigMaps={onRefreshConfigMaps}
         onRefreshSecrets={onRefreshSecrets}

@@ -2253,17 +2253,29 @@ export const registerHarvesterContainerRoutes = (
         
         const url = buildK8sUrl(base, '/api/v1/services', namespace, name);
 
-        try {
-          const current = await getJsonOnce(url, token, insecure, true);
-          if (current?.metadata?.resourceVersion) {
-            body.metadata = body.metadata || {};
-            body.metadata.resourceVersion = current.metadata.resourceVersion;
-          }
-        } catch {}
+        const maxRetries = 3;
+        let lastError: any;
 
-        const result = await requestJson('PUT', url, token, insecure, body);
-        
-        res.json({ message: '更新 Service 成功', data: result });
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            const current = await getJsonOnce(url, token, insecure, true);
+            if (current?.metadata?.resourceVersion) {
+              body.metadata = body.metadata || {};
+              body.metadata.resourceVersion = current.metadata.resourceVersion;
+            }
+          } catch {}
+
+          try {
+            const result = await requestJson('PUT', url, token, insecure, body);
+            res.json({ message: '更新 Service 成功', data: result });
+            return;
+          } catch (putError: any) {
+            lastError = putError;
+            if (putError?.status !== 409) throw putError;
+          }
+        }
+
+        throw lastError;
       } catch (error: any) {
         res.status(500).json({ message: '更新 Service 失败', error: error.message });
       }
@@ -2410,17 +2422,29 @@ export const registerHarvesterContainerRoutes = (
         
         const url = buildK8sUrl(base, '/apis/networking.k8s.io/v1/ingresses', namespace, name);
 
-        try {
-          const current = await getJsonOnce(url, token, insecure, true);
-          if (current?.metadata?.resourceVersion) {
-            body.metadata = body.metadata || {};
-            body.metadata.resourceVersion = current.metadata.resourceVersion;
-          }
-        } catch {}
+        const maxRetries = 3;
+        let lastError: any;
 
-        const result = await requestJson('PUT', url, token, insecure, body);
-        
-        res.json({ message: '更新 Ingress 成功', data: result });
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            const current = await getJsonOnce(url, token, insecure, true);
+            if (current?.metadata?.resourceVersion) {
+              body.metadata = body.metadata || {};
+              body.metadata.resourceVersion = current.metadata.resourceVersion;
+            }
+          } catch {}
+
+          try {
+            const result = await requestJson('PUT', url, token, insecure, body);
+            res.json({ message: '更新 Ingress 成功', data: result });
+            return;
+          } catch (putError: any) {
+            lastError = putError;
+            if (putError?.status !== 409) throw putError;
+          }
+        }
+
+        throw lastError;
       } catch (error: any) {
         // 尝试提取 Kubernetes 返回的详细错误信息
         let errorDetail = error.message;
@@ -2658,17 +2682,29 @@ export const registerHarvesterContainerRoutes = (
         
         const url = buildK8sUrl(base, '/apis/networking.k8s.io/v1/networkpolicies', namespace, name);
 
-        try {
-          const current = await getJsonOnce(url, token, insecure, true);
-          if (current?.metadata?.resourceVersion) {
-            body.metadata = body.metadata || {};
-            body.metadata.resourceVersion = current.metadata.resourceVersion;
-          }
-        } catch {}
+        const maxRetries = 3;
+        let lastError: any;
 
-        const result = await requestJson('PUT', url, token, insecure, body);
-        
-        res.json({ message: '更新 NetworkPolicy 成功', data: result });
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            const current = await getJsonOnce(url, token, insecure, true);
+            if (current?.metadata?.resourceVersion) {
+              body.metadata = body.metadata || {};
+              body.metadata.resourceVersion = current.metadata.resourceVersion;
+            }
+          } catch {}
+
+          try {
+            const result = await requestJson('PUT', url, token, insecure, body);
+            res.json({ message: '更新 NetworkPolicy 成功', data: result });
+            return;
+          } catch (putError: any) {
+            lastError = putError;
+            if (putError?.status !== 409) throw putError;
+          }
+        }
+
+        throw lastError;
       } catch (error: any) {
         // 尝试提取 Kubernetes 返回的详细错误信息
         let errorDetail = error.message;
@@ -3532,18 +3568,41 @@ export const registerHarvesterContainerRoutes = (
         
         const url = buildK8sUrl(base, apiPath, namespace, name);
 
-        try {
-          const current = await getJsonOnce(url, token, insecure, true);
-          if (current?.metadata?.resourceVersion) {
-            body.metadata = body.metadata || {};
-            body.metadata.resourceVersion = current.metadata.resourceVersion;
-          }
-        } catch {}
+        const maxRetries = 3;
+        let lastError: any;
 
-        const result = await requestJson('PUT', url, token, insecure, body);
-        
-        res.json({ message: '更新成功', data: result });
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          let freshRv: string | undefined;
+          try {
+            const current = await getJsonOnce(url, token, insecure, true);
+            freshRv = current?.metadata?.resourceVersion;
+            if (freshRv) {
+              body.metadata = body.metadata || {};
+              body.metadata.resourceVersion = freshRv;
+            }
+          } catch (getErr: any) {
+            console.warn(`[更新容器] GET resourceVersion 失败 (attempt ${attempt + 1}/${maxRetries + 1}): ${getErr?.status || getErr?.message}`);
+          }
+
+          try {
+            const result = await requestJson('PUT', url, token, insecure, body);
+            if (attempt > 0) console.log(`[更新容器] 第 ${attempt + 1} 次尝试成功, resourceVersion: ${freshRv}`);
+            res.json({ message: '更新成功', data: result });
+            return;
+          } catch (putError: any) {
+            lastError = putError;
+            if (putError?.status !== 409) {
+              console.error(`[更新容器] PUT 非 409 错误 (attempt ${attempt + 1}):`, putError?.status, putError?.message?.substring(0, 200));
+              throw putError;
+            }
+            console.warn(`[更新容器] 版本冲突 409 (attempt ${attempt + 1}/${maxRetries + 1}, rv=${freshRv}), 重试中...`);
+          }
+        }
+
+        console.error(`[更新容器] 所有 ${maxRetries + 1} 次重试均失败，最后错误:`, lastError?.message?.substring(0, 200));
+        throw lastError;
       } catch (error: any) {
+        console.error(`[更新容器] 最终失败:`, error?.status, error?.message?.substring(0, 200));
         res.status(500).json({ message: '更新资源失败', error: error.message });
       }
     },
