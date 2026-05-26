@@ -19,6 +19,14 @@ import {
 import { resolveHarvesterSteveViewLink } from '../../shared/lib/harvesterSteveViewLink';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { findHarvesterVmDisplayAlias } from '../lib/vmBackupDisplay';
+import {
+  getHarvesterRestoreTaskStatus,
+  isHarvesterRestoreTaskRecord,
+} from '../lib/vmRestoreTaskStatus';
+import {
+  ensureHarvesterRestoreTargetVmAlias,
+  parseHarvesterRestoreTargetAlias,
+} from '../../ecs/lib/vmTowerAlias';
 
 type Props = {
   cloudId: string;
@@ -61,87 +69,8 @@ const EllipsisTooltip: React.FC<{
   </span>
 );
 
-/**
- * 是否已终态失败。恢复/替换 VM 过程中源机关机、磁盘替换、目标机再启动等阶段
- * Ready 经常为 false，消息里也可能出现 error 子串（如 “no error”），不能据此判失败。
- * 仅在 phase 明确失败，或存在 type=Failed/Error 且 status=True 的条件时判失败。
- */
-const isFailedByConditions = (raw: any) => {
-  const phase = String(raw?.status?.phase || '').toLowerCase();
-  if (phase === 'failed' || phase === 'error') return true;
-  const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
-  return conds.some((c: any) => {
-    const type = String(c?.type || '').toLowerCase();
-    const status = String(c?.status || '').toLowerCase();
-    if (status === 'true' && (type === 'failed' || type === 'error')) return true;
-    // Ready=false 仅表示尚未完成，不等价于失败（与列表“进行中”语义一致）
-    return false;
-  });
-};
-
-/** CephVmRestore.status.phase → 展示文案（Completed 为终态完成） */
-const CEPH_RESTORE_PHASE_LABEL: Record<string, string> = {
-  Syncing: '同步中',
-  Ready: '就绪',
-  Stopping: '停止源机',
-  WaitingOldCleanup: '等待清理',
-  RestoringVolumes: '恢复卷',
-  RestoringMetadata: '恢复元数据',
-  StartingVM: '启动虚拟机',
-  Completed: '完成',
-};
-
-const CEPH_RESTORE_PHASE_PROGRESS: Record<string, number> = {
-  Syncing: 10,
-  Ready: 20,
-  Stopping: 30,
-  WaitingOldCleanup: 40,
-  RestoringVolumes: 55,
-  RestoringMetadata: 70,
-  StartingVM: 85,
-  Completed: 100,
-};
-
-const getCephRestoreStatus = (raw: any) => {
-  const phase = String(raw?.status?.phase || '').trim();
-  const phaseLower = phase.toLowerCase();
-  if (phaseLower === 'failed' || phaseLower === 'error') {
-    return { phase: 'failed' as const, text: '失败' as const, progress: 0, cephPhase: phase };
-  }
-  if (phase === 'Completed') {
-    return { phase: 'ready' as const, text: '完成' as const, progress: 100, cephPhase: phase };
-  }
-  const text = (CEPH_RESTORE_PHASE_LABEL[phase] || phase || '进行中') as string;
-  const progress = CEPH_RESTORE_PHASE_PROGRESS[phase] ?? 70;
-  return { phase: 'pending' as const, text, progress, cephPhase: phase };
-};
-
-const getRestoreStatus = (raw: any) => {
-  if (isHarvesterCephVmRestore(raw)) return getCephRestoreStatus(raw);
-  const failed = isFailedByConditions(raw);
-  if (failed) return { phase: 'failed', text: '失败' as const, progress: 0 };
-  const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
-  const ready = conds.some((c: any) => String(c?.type || '').toLowerCase() === 'ready' && String(c?.status || '').toLowerCase() === 'true');
-  const completed = conds.some((c: any) => String(c?.type || '').toLowerCase() === 'completed' && String(c?.status || '').toLowerCase() === 'true');
-  if (ready || completed) return { phase: 'ready', text: '完成' as const, progress: 100 };
-
-  const rawProgress = typeof raw?.status?.progress === 'number' ? raw.status.progress : undefined;
-  const progress = rawProgress !== undefined ? rawProgress : 70;
-  return { phase: 'pending', text: '进行中' as const, progress: Math.max(0, Math.min(100, progress)) };
-};
-
-const isRestoreTaskRecord = (raw: any) => {
-  const hasCloneMark = !!raw?.metadata?.annotations?.['tower.io/cloneTask'] || !!raw?.metadata?.annotations?.['tower.io/clone'];
-  if (hasCloneMark) return false;
-  const ann = raw?.metadata?.annotations || {};
-  const hasRestoreMark = !!ann['tower.io/restoreTask'];
-  const name = String(raw?.metadata?.name || '');
-  const looksLikeRestore = name.startsWith('restore-');
-  if (isHarvesterCephVmRestore(raw)) {
-    return hasRestoreMark || ann['tower.io/restoreBackend'] === 'ceph' || looksLikeRestore;
-  }
-  return hasRestoreMark || looksLikeRestore;
-};
+const getRestoreStatus = getHarvesterRestoreTaskStatus;
+const isRestoreTaskRecord = isHarvesterRestoreTaskRecord;
 
 const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
@@ -157,6 +86,9 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const timerRef = useRef<any>(null);
+  /** 已成功写入 tower.io/alias 的目标 VM（ns/name） */
+  const restoreAliasAppliedRef = useRef<Set<string>>(new Set());
+  const restoreAliasInflightRef = useRef<Set<string>>(new Set());
 
   // 过滤出恢复任务（排除克隆任务）
   const normalizeRestores = useMemo(() => {
@@ -354,6 +286,30 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       window.removeEventListener('harvester:restore-created', handleRestoreCreated);
     };
   }, [refresh]);
+
+  // 新建恢复：任务进行中/完成时持续尝试写入显示别名（VM 往往在恢复末期才创建）
+  useEffect(() => {
+    filtered.forEach((row: any) => {
+      if (row.restoreMode !== '新建') return;
+      if (row.restoreStatus?.phase === 'failed') return;
+      const parsed = parseHarvesterRestoreTargetAlias(row.restoreRaw);
+      if (!parsed) return;
+      const key = `${parsed.namespace}/${parsed.vmName}`;
+      if (restoreAliasAppliedRef.current.has(key)) return;
+      if (restoreAliasInflightRef.current.has(key)) return;
+      restoreAliasInflightRef.current.add(key);
+      void ensureHarvesterRestoreTargetVmAlias(cloudId, row.restoreRaw)
+        .then((ok) => {
+          if (ok) restoreAliasAppliedRef.current.add(key);
+        })
+        .catch((e) => {
+          console.warn('[RestoreTasks] apply VM alias failed:', e);
+        })
+        .finally(() => {
+          restoreAliasInflightRef.current.delete(key);
+        });
+    });
+  }, [filtered, cloudId]);
 
   useEffect(() => {
     const hasPending = filtered.some((x: any) => {

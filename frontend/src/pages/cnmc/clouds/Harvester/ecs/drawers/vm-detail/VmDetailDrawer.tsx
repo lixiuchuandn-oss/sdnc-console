@@ -48,6 +48,7 @@ const VmDetailDrawer: React.FC<VmDetailDrawerProps> = (props) => {
     cloudId = "",
     namespaces = [],
     onRefresh,
+    onBackupsInventoryChanged,
     onBackup,
     onSnapshot,
     onClone,
@@ -130,6 +131,7 @@ const VmDetailDrawer: React.FC<VmDetailDrawerProps> = (props) => {
       cloudId={cloudId}
       namespaces={namespaces}
       onRefresh={onRefresh}
+      onBackupsInventoryChanged={onBackupsInventoryChanged}
       vmData={ctrl.vmData}
       SafeRead={SafeRead}
       refreshing={ctrl.refreshing}

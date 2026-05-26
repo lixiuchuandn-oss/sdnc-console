@@ -1390,11 +1390,13 @@ const CloudConsolePage: React.FC = () => {
         break;
       case 'snapshot':
         if (!canAccessMainResource('snapshot')) break;
-        loadBackups(currentCloudId, true);
+        loadBackups(currentCloudId, true, true);
+        window.setTimeout(() => loadBackups(currentCloudId, true, false), 8000);
         break;
       case 'backup':
         if (!canAccessMainResource('backup')) break;
-        loadBackups(currentCloudId, true);
+        loadBackups(currentCloudId, true, true);
+        window.setTimeout(() => loadBackups(currentCloudId, true, false), 8000);
         break;
       case 'schedule':
         if (!canAccessMainResource('schedule')) break;

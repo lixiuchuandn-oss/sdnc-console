@@ -81,3 +81,66 @@ export function reloadHarvesterNamespacesList(
   clearGetCacheForPath(harvesterNamespacesListCachePath(cloudId));
   runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
 }
+
+export function harvesterBackupsListCachePath(cloudId: string): string {
+  return `/api/clouds/${cloudId}/resources/harvester/backups`;
+}
+
+/** 云主机备份/快照列表刷新（第二参为 skipSync，与 `fetchHarvesterBackups` 一致） */
+export type HarvesterBackupsInventoryReload = (
+  force?: boolean,
+  skipSync?: boolean,
+) => void | Promise<void>;
+
+export type NotifyHarvesterBackupsInventoryOptions = {
+  /** 仅读 Tower 库存（skipSync），用于尽快展示新行 */
+  inventoryDelaysMs?: number[];
+  /** 对端全量同步（skipSync=false），刷新 readyToUse 等状态；须晚于集群可列出对象 */
+  statusSyncDelaysMs?: number[];
+};
+
+function runHarvesterBackupsInventoryReload(
+  cloudId: string,
+  reload: HarvesterBackupsInventoryReload,
+  skipSync: boolean,
+  showError: boolean,
+): void {
+  clearGetCacheForPath(harvesterBackupsListCachePath(cloudId));
+  Promise.resolve(reload(true, skipSync)).catch((e: unknown) => {
+    if (!showError) return;
+    const err = e as { message?: string };
+    message.error(`刷新备份列表失败: ${err?.message || '未知错误'}`);
+  });
+}
+
+/**
+ * 虚拟机备份/快照写操作后：先 skipSync 拉库存（新行），再延迟 force 同步刷新状态。
+ * 过早全量 sync 会在集群尚未列出对象时清空本地行（见 inventory upsertItems）。
+ */
+export function notifyHarvesterBackupsInventoryChanged(
+  cloudId: string,
+  reload?: HarvesterBackupsInventoryReload,
+  options?: NotifyHarvesterBackupsInventoryOptions,
+): void {
+  if (!cloudId || !reload) return;
+
+  const inventoryDelays = options?.inventoryDelaysMs ?? [0, 2500];
+  const statusSyncDelays = options?.statusSyncDelaysMs ?? [6000, 12000, 20000];
+
+  for (const ms of inventoryDelays) {
+    if (ms <= 0) {
+      runHarvesterBackupsInventoryReload(cloudId, reload, true, true);
+    } else {
+      window.setTimeout(
+        () => runHarvesterBackupsInventoryReload(cloudId, reload, true, false),
+        ms,
+      );
+    }
+  }
+  for (const ms of statusSyncDelays) {
+    window.setTimeout(
+      () => runHarvesterBackupsInventoryReload(cloudId, reload, false, false),
+      ms,
+    );
+  }
+}

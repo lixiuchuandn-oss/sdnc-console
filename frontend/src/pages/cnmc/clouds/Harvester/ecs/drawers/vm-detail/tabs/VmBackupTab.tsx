@@ -33,7 +33,11 @@ import {
   formatVmBackupRelativeAge,
   sortVmBackupItemsByCreationDesc,
 } from '../../../../cbr/lib/vmBackupDisplay';
-import { runHarvesterSectionRefresh } from '../../../../shared/lib/harvesterSectionRefresh';
+import {
+  notifyHarvesterBackupsInventoryChanged,
+  runHarvesterSectionRefresh,
+  type HarvesterBackupsInventoryReload,
+} from '../../../../shared/lib/harvesterSectionRefresh';
 
 interface VmBackupTabProps {
   cloudId: string;
@@ -43,6 +47,7 @@ interface VmBackupTabProps {
   backupsLoading: boolean;
   schedulesLoading: boolean;
   onRefresh: (force?: boolean, silent?: boolean) => void;
+  onBackupsInventoryChanged?: HarvesterBackupsInventoryReload;
   namespaces: any[];
 }
 
@@ -54,7 +59,8 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
   backupsLoading,
   schedulesLoading,
   onRefresh,
-  namespaces
+  onBackupsInventoryChanged,
+  namespaces,
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -437,6 +443,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
           setCreateBackupVisible(false);
           message.success('备份创建指令已发送');
           void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
+          notifyHarvesterBackupsInventoryChanged(cloudId, onBackupsInventoryChanged);
         }}
         initialNamespace={namespace}
         initialVm={record}
@@ -453,6 +460,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
           setCreateSnapshotVisible(false);
           message.success('快照创建指令已发送');
           void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
+          notifyHarvesterBackupsInventoryChanged(cloudId, onBackupsInventoryChanged);
         }}
         initialNamespace={namespace}
         initialVm={record}

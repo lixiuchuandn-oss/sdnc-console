@@ -20,8 +20,14 @@ import {
   isCephVmBackupResource,
   resolveCephBackupSourceVm,
   shouldFallbackToCephVmRestore,
+  listHarvesterVirtualMachineRestoresRaw,
+  listHarvesterCephVmRestoresRaw,
 } from '../../../../services/clouds/harvester/client';
-import { applyVmTowerAliasWhenReady } from '../../../../services/clouds/harvester/vmAlias';
+import { findInProgressHarvesterRestoreForBackup } from '../../../../services/clouds/harvester/vmRestoreTaskStatus';
+import {
+  applyVmTowerAliasWhenReady,
+  RESTORE_VM_ALIAS_MAX_WAIT_MS,
+} from '../../../../services/clouds/harvester/vmAlias';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
 
 function backupResourceType(record: HarvesterBackupInventory | null, body: any): 'backup' | 'snapshot' {
@@ -50,6 +56,24 @@ export async function harvesterRestoreCreateHandler(req: Request, res: Response)
       backupRecord = await repo.findOne({
         where: { cloudId: id, namespace: backupNs, name: backupName },
       });
+    }
+
+    if (backupName) {
+      const [longhornRestores, cephRestores] = await Promise.all([
+        listHarvesterVirtualMachineRestoresRaw(conn).catch(() => [] as any[]),
+        listHarvesterCephVmRestoresRaw(conn).catch(() => [] as any[]),
+      ]);
+      const inProgress = findInProgressHarvesterRestoreForBackup(
+        [...longhornRestores, ...cephRestores],
+        backupNs,
+        backupName,
+      );
+      if (inProgress) {
+        const resourceLabel = backupResourceType(backupRecord, req.body) === 'snapshot' ? '快照' : '备份';
+        return res.status(409).json({
+          message: `该${resourceLabel}已有进行中的恢复任务（${inProgress.namespace}/${inProgress.name}，${inProgress.statusText}），请等待完成后再试`,
+        });
+      }
     }
 
     let useCeph =
@@ -109,7 +133,13 @@ export async function harvesterRestoreCreateHandler(req: Request, res: Response)
       const targetNs = restoreTarget.slice(0, slash);
       const targetVm = restoreTarget.slice(slash + 1);
       if (targetNs && targetVm) {
-        void applyVmTowerAliasWhenReady(conn, targetNs, targetVm, displayName).catch((err) => {
+        void applyVmTowerAliasWhenReady(
+          conn,
+          targetNs,
+          targetVm,
+          displayName,
+          RESTORE_VM_ALIAS_MAX_WAIT_MS,
+        ).catch((err) => {
           console.warn(
             `[Restore-Create] 恢复后写入 VM 显示名称失败 ${targetNs}/${targetVm}:`,
             err?.message || err,
