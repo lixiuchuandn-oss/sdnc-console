@@ -724,8 +724,7 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                                       if (!value) return Promise.resolve();
                                       const numValue = Number(value);
                                       if (isNaN(numValue)) {
-                                        // 如果是字符串（端口名称），不做数字校验
-                                        return Promise.resolve();
+                                        return Promise.reject(new Error('容器内部端口格式无效，必须为数字'));
                                       }
                                       if (numValue < 1 || numValue > 65535) {
                                         return Promise.reject(new Error('端口号必须在 1-65535 范围内'));
@@ -743,7 +742,7 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                                   maxTagCount={1}
                                   options={discoveredPorts.map((p) => ({
                                     label: p.name ? `${p.name} (${p.port})` : `${p.port}`,
-                                    value: p.name || p.port,
+                                    value: p.port,
                                   }))}
                                   filterOption={(input, option) =>
                                     (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase()) ||
