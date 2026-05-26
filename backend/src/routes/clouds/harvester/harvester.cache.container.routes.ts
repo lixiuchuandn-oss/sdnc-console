@@ -3936,6 +3936,56 @@ export const registerHarvesterContainerRoutes = (
     },
   );
 
+  /**
+   * [API] 重启 DaemonSet (通过更新 annotation 触发滚动更新)
+   * POST /:id/resources/harvester/containers/daemonsets/restart
+   * Body: { namespace, name }
+   */
+  router.post(
+    '/:id/resources/harvester/containers/daemonsets/restart',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { namespace, name } = req.body;
+        
+        if (!namespace || !name) {
+          return res.status(400).json({ message: '缺少必要参数: namespace, name' });
+        }
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        const url = buildK8sUrl(base, '/apis/apps/v1/daemonsets', namespace, name);
+        const now = new Date().toISOString();
+        const patchBody = {
+          spec: {
+            template: {
+              metadata: {
+                annotations: {
+                  'kubectl.kubernetes.io/restartedAt': now,
+                },
+              },
+            },
+          },
+        };
+        
+        const result = await requestJson('PATCH', url, token, insecure, patchBody, {
+          'Content-Type': 'application/strategic-merge-patch+json',
+        });
+        
+        res.json({ message: '重启指令已下发', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '重启失败', error: error.message });
+      }
+    },
+  );
+
   // ============================================================
   // [Docker Registry V2 API 代理]
   // ============================================================
