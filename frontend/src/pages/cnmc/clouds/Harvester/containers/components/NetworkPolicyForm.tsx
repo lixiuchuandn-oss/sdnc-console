@@ -49,6 +49,80 @@ import { createNetworkPolicy, updateNetworkPolicy } from '../../../../../../serv
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 
+const isValidCidr = (cidr: string): boolean => {
+  if (!cidr || typeof cidr !== 'string') return false;
+  const parts = cidr.split('/');
+  if (parts.length !== 2) return false;
+  const [ip, maskStr] = parts;
+  const mask = parseInt(maskStr, 10);
+  if (isNaN(mask) || maskStr !== String(mask)) return false;
+  const isV4 = ip.includes('.');
+  const isV6 = ip.includes(':');
+  if (isV4 && !isV6) {
+    if (mask < 0 || mask > 32) return false;
+    const octets = ip.split('.');
+    if (octets.length !== 4) return false;
+    return octets.every((o) => {
+      const n = parseInt(o, 10);
+      return !isNaN(n) && n >= 0 && n <= 255 && String(n) === o;
+    });
+  }
+  if (isV6) {
+    if (mask < 0 || mask > 128) return false;
+    const fullIp = expandIPv6(ip);
+    return /^([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}$/i.test(fullIp);
+  }
+  return false;
+};
+
+const expandIPv6 = (ip: string): string => {
+  if (ip === '::') return '0000:0000:0000:0000:0000:0000:0000:0000';
+  const halves = ip.split('::');
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length > 1 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - left.length - right.length;
+  const expanded = [...left, ...Array(missing).fill('0000'), ...right];
+  return expanded.map((seg) => seg.padStart(4, '0')).join(':');
+};
+
+const ipv4ToInt = (ip: string): number => {
+  const parts = ip.split('.').map(Number);
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+};
+
+const ipv6ToSegments = (ip: string): number[] => {
+  const expanded = expandIPv6(ip);
+  return expanded.split(':').map((seg) => parseInt(seg, 16));
+};
+
+const isCidrInRange = (subCidr: string, parentCidr: string): boolean => {
+  if (!isValidCidr(subCidr) || !isValidCidr(parentCidr)) return false;
+  const [subIp, subMaskStr] = subCidr.split('/');
+  const [parentIp, parentMaskStr] = parentCidr.split('/');
+  const subIsV6 = subIp.includes(':');
+  const parentIsV6 = parentIp.includes(':');
+  if (subIsV6 !== parentIsV6) return false;
+  const subMask = parseInt(subMaskStr, 10);
+  const parentMask = parseInt(parentMaskStr, 10);
+  if (subMask < parentMask) return false;
+  if (!subIsV6) {
+    const subNet = (ipv4ToInt(subIp) >>> (32 - parentMask));
+    const parentNet = (ipv4ToInt(parentIp) >>> (32 - parentMask));
+    return subNet === parentNet;
+  }
+  const subSegs = ipv6ToSegments(subIp);
+  const parentSegs = ipv6ToSegments(parentIp);
+  let bitsChecked = 0;
+  for (let i = 0; i < 8 && bitsChecked < parentMask; i++) {
+    const segBits = Math.min(16, parentMask - bitsChecked);
+    const subSeg = (subSegs[i] >> (16 - segBits)) & ((1 << segBits) - 1);
+    const parentSeg = (parentSegs[i] >> (16 - segBits)) & ((1 << segBits) - 1);
+    if (subSeg !== parentSeg) return false;
+    bitsChecked += 16;
+  }
+  return true;
+};
+
 // ============================================================
 // 步骤定义
 // ============================================================
@@ -121,58 +195,74 @@ const LabelEditor: React.FC<{
   label: string;
   tooltip?: string;
   required?: boolean;
-}> = ({ name, label, tooltip, required }) => (
-  <div style={{ marginBottom: 8 }}>
+}> = ({ name, label, tooltip, required }) => {
+  const form = Form.useFormInstance();
+
+  const getDuplicateKeyValidator = () => ({
+    validator: (_: any, value: string) => {
+      if (!value) return Promise.resolve();
+      const allLabels: LabelItem[] = form.getFieldValue(name as any) || [];
+      const sameKeyCount = allLabels.filter((item: LabelItem) => item && item.key === value).length;
+      if (sameKeyCount > 1) {
+        return Promise.reject(new Error('相同键名的标签会被覆盖，请使用不同的键名'));
+      }
+      return Promise.resolve();
+    },
+  });
+
+  return (
     <div style={{ marginBottom: 8 }}>
-      <Space>
-        <span style={{ fontWeight: 500 }}>{label}</span>
-        {required && <Tag color="red">必填</Tag>}
-        {tooltip && (
-          <Tooltip title={tooltip}>
-            <InfoCircleOutlined style={{ color: '#999' }} />
-          </Tooltip>
+      <div style={{ marginBottom: 8 }}>
+        <Space>
+          <span style={{ fontWeight: 500 }}>{label}</span>
+          {required && <Tag color="red">必填</Tag>}
+          {tooltip && (
+            <Tooltip title={tooltip}>
+              <InfoCircleOutlined style={{ color: '#999' }} />
+            </Tooltip>
+          )}
+        </Space>
+      </div>
+      <Form.List name={name as any}>
+        {(fields, { add, remove }) => (
+          <div>
+            {fields.map(({ key, name: index, ...restField }) => (
+              <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                <Form.Item
+                  {...restField}
+                  name={[index, 'key']}
+                  rules={[{ required: true, message: '请输入键' }, getDuplicateKeyValidator()]}
+                >
+                  <Input placeholder="键 (如: app)" style={{ width: 140 }} />
+                </Form.Item>
+                <Form.Item
+                  {...restField}
+                  name={[index, 'value']}
+                  rules={[{ required: true, message: '请输入值' }]}
+                >
+                  <Input placeholder="值 (如: nginx)" style={{ width: 140 }} />
+                </Form.Item>
+                <MinusCircleOutlined
+                  onClick={() => remove(index)}
+                  style={{ color: '#ff4d4f', cursor: 'pointer' }}
+                />
+              </Space>
+            ))}
+            <Button
+              type="dashed"
+              size="small"
+              htmlType="button"
+              onClick={() => add()}
+              icon={<PlusOutlined />}
+            >
+              添加标签
+            </Button>
+          </div>
         )}
-      </Space>
+      </Form.List>
     </div>
-    <Form.List name={name as any}>
-      {(fields, { add, remove }) => (
-        <div>
-          {fields.map(({ key, name: index, ...restField }) => (
-            <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-              <Form.Item
-                {...restField}
-                name={[index, 'key']}
-                rules={[{ required: true, message: '请输入键' }]}
-              >
-                <Input placeholder="键 (如: app)" style={{ width: 140 }} />
-              </Form.Item>
-              <Form.Item
-                {...restField}
-                name={[index, 'value']}
-                rules={[{ required: true, message: '请输入值' }]}
-              >
-                <Input placeholder="值 (如: nginx)" style={{ width: 140 }} />
-              </Form.Item>
-              <MinusCircleOutlined
-                onClick={() => remove(index)}
-                style={{ color: '#ff4d4f', cursor: 'pointer' }}
-              />
-            </Space>
-          ))}
-          <Button
-            type="dashed"
-            size="small"
-            htmlType="button"
-            onClick={() => add()}
-            icon={<PlusOutlined />}
-          >
-            添加标签
-          </Button>
-        </div>
-      )}
-    </Form.List>
-  </div>
-);
+  );
+};
 
 // ============================================================
 // 子组件: 端口配置编辑器
@@ -260,7 +350,6 @@ const PeerCard: React.FC<{
     const newType = e.target.value;
     form.setFieldValue(peerTypePath, newType);
     
-    // 清空之前的配置
     if (newType === 'all') {
       form.setFieldValue([...absoluteFieldPath, 'podSelectorLabels'], []);
       form.setFieldValue([...absoluteFieldPath, 'namespaceSelectorLabels'], []);
@@ -268,6 +357,49 @@ const PeerCard: React.FC<{
       form.setFieldValue([...absoluteFieldPath, 'ipBlockExcept'], undefined);
     }
   };
+
+  const getDuplicateKeyValidator = (labelsPath: (string | number)[]) => ({
+    validator: (_: any, value: string) => {
+      if (!value) return Promise.resolve();
+      const allLabels: LabelItem[] = form.getFieldValue(labelsPath) || [];
+      const sameKeyCount = allLabels.filter((item: LabelItem) => item && item.key === value).length;
+      if (sameKeyCount > 1) {
+        return Promise.reject(new Error('相同键名的标签会被覆盖，请使用不同的键名'));
+      }
+      return Promise.resolve();
+    },
+  });
+
+  const getCidrValidator = () => ({
+    validator: (_: any, value: string) => {
+      if (!value) return Promise.resolve();
+      if (!isValidCidr(value)) {
+        return Promise.reject(new Error('请输入有效的 CIDR 格式，如 10.9.8.0/24 或 2001:db8::/64'));
+      }
+      return Promise.resolve();
+    },
+  });
+
+  const getExceptValidator = () => ({
+    validator: (_: any, value: string) => {
+      if (!value) return Promise.resolve();
+      const cidr = form.getFieldValue([...absoluteFieldPath, 'ipBlockCidr']);
+      const excepts = value.split(',').map((s: string) => s.trim()).filter(Boolean);
+      for (const ex of excepts) {
+        if (!isValidCidr(ex)) {
+          const hasSlash = ex.includes('/');
+          if (!hasSlash) {
+            return Promise.reject(new Error(`"${ex}" 不是有效的 CIDR 格式，排除 IP 必须带掩码，如 10.0.0.1/32`));
+          }
+          return Promise.reject(new Error(`"${ex}" 不是有效的 CIDR 格式`));
+        }
+        if (cidr && !isCidrInRange(ex, cidr)) {
+          return Promise.reject(new Error(`"${ex}" 不在主 CIDR "${cidr}" 范围内`));
+        }
+      }
+      return Promise.resolve();
+    },
+  });
 
   return (
     <Card
@@ -293,7 +425,6 @@ const PeerCard: React.FC<{
         </Radio.Group>
       </Form.Item>
       
-      {/* 全部 */}
       {peerType === 'all' && (
         <Alert
           message="允许所有来源/目标（不限制）"
@@ -303,7 +434,6 @@ const PeerCard: React.FC<{
         />
       )}
       
-      {/* Pod 选择器 */}
       {peerType === 'podSelector' && (
         <Form.Item label="Pod 标签">
           <Form.List name={[index, 'podSelectorLabels']}>
@@ -318,11 +448,12 @@ const PeerCard: React.FC<{
                   />
                 )}
                 {labelFields.map(({ key: lKey, name: lIndex, ...lRest }) => (
-                  <Space key={lKey} style={{ marginBottom: 4 }} align="baseline">
+                  <div key={lKey} style={{ display: 'flex', marginBottom: 4, alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
                     <Form.Item
                       {...lRest}
                       name={[lIndex, 'key']}
-                      rules={[{ required: true, message: '请输入键' }]}
+                      rules={[{ required: true, message: '请输入键' }, getDuplicateKeyValidator([...absoluteFieldPath, 'podSelectorLabels'])]}
+                      style={{ marginBottom: 0 }}
                     >
                       <Input placeholder="键" style={{ width: 100 }} />
                     </Form.Item>
@@ -330,6 +461,7 @@ const PeerCard: React.FC<{
                       {...lRest}
                       name={[lIndex, 'value']}
                       rules={[{ required: true, message: '请输入值' }]}
+                      style={{ marginBottom: 0 }}
                     >
                       <Input placeholder="值" style={{ width: 100 }} />
                     </Form.Item>
@@ -337,7 +469,7 @@ const PeerCard: React.FC<{
                       onClick={() => removeLabel(lIndex)}
                       style={{ color: '#ff4d4f', cursor: 'pointer' }}
                     />
-                  </Space>
+                  </div>
                 ))}
                 <Button
                   type="dashed"
@@ -354,7 +486,6 @@ const PeerCard: React.FC<{
         </Form.Item>
       )}
       
-      {/* 项目选择器 */}
       {peerType === 'namespaceSelector' && (
         <Form.Item label="项目标签">
           <Form.List name={[index, 'namespaceSelectorLabels']}>
@@ -369,11 +500,12 @@ const PeerCard: React.FC<{
                   />
                 )}
                 {labelFields.map(({ key: lKey, name: lIndex, ...lRest }) => (
-                  <Space key={lKey} style={{ marginBottom: 4 }} align="baseline">
+                  <div key={lKey} style={{ display: 'flex', marginBottom: 4, alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
                     <Form.Item
                       {...lRest}
                       name={[lIndex, 'key']}
-                      rules={[{ required: true, message: '请输入键' }]}
+                      rules={[{ required: true, message: '请输入键' }, getDuplicateKeyValidator([...absoluteFieldPath, 'namespaceSelectorLabels'])]}
+                      style={{ marginBottom: 0 }}
                     >
                       <Input placeholder="键" style={{ width: 100 }} />
                     </Form.Item>
@@ -381,6 +513,7 @@ const PeerCard: React.FC<{
                       {...lRest}
                       name={[lIndex, 'value']}
                       rules={[{ required: true, message: '请输入值' }]}
+                      style={{ marginBottom: 0 }}
                     >
                       <Input placeholder="值" style={{ width: 100 }} />
                     </Form.Item>
@@ -388,7 +521,7 @@ const PeerCard: React.FC<{
                       onClick={() => removeLabel(lIndex)}
                       style={{ color: '#ff4d4f', cursor: 'pointer' }}
                     />
-                  </Space>
+                  </div>
                 ))}
                 <Button
                   type="dashed"
@@ -405,14 +538,13 @@ const PeerCard: React.FC<{
         </Form.Item>
       )}
       
-      {/* IP 地址块 */}
       {peerType === 'ipBlock' && (
         <>
           <Form.Item
             {...restField}
             name={[index, 'ipBlockCidr']}
             label="CIDR"
-            rules={[{ required: true, message: '请输入 CIDR' }]}
+            rules={[{ required: true, message: '请输入 CIDR' }, getCidrValidator()]}
           >
             <Input placeholder="如: 10.0.0.0/24" />
           </Form.Item>
@@ -420,7 +552,8 @@ const PeerCard: React.FC<{
             {...restField}
             name={[index, 'ipBlockExcept']}
             label="排除"
-            tooltip="排除的 IP 范围，多个用逗号分隔"
+            tooltip="排除的 IP 范围，必须为带掩码的 CIDR 格式，多个用逗号分隔"
+            rules={[getExceptValidator()]}
           >
             <Input placeholder="如: 10.0.0.1/32, 10.0.0.2/32" />
           </Form.Item>

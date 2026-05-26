@@ -259,56 +259,72 @@ const KeyValueEditor: React.FC<{
   name: string;
   label?: string;
   addButtonText?: string;
-}> = ({ name, label, addButtonText = '添加' }) => (
-  <Form.List name={name}>
-    {(fields, { add, remove }) => (
-      <Flex vertical gap="small" style={{ width: '100%' }}>
-        {label ? (
-          <Text strong style={{ display: 'block' }}>
-            {label}
-          </Text>
-        ) : null}
-        {fields.map(({ key, name: index, ...restField }) => (
-          <Row key={key} gutter={[12, 8]} align="middle" wrap={false}>
-            <Col flex="1 1 0">
-              <Form.Item
-                {...restField}
-                name={[index, 'key']}
-                rules={[{ required: true, message: '请输入键' }]}
-                style={{ marginBottom: 0 }}
-              >
-                <Input placeholder="键 (如: app)" />
-              </Form.Item>
-            </Col>
-            <Col flex="1 1 0">
-              <Form.Item
-                {...restField}
-                name={[index, 'value']}
-                rules={[{ required: true, message: '请输入值' }]}
-                style={{ marginBottom: 0 }}
-              >
-                <Input placeholder="值 (如: nginx)" />
-              </Form.Item>
-            </Col>
-            <Col flex="none">
-              <Button
-                type="text"
-                danger
-                size="small"
-                icon={<MinusCircleOutlined />}
-                onClick={() => remove(index)}
-                aria-label="删除此行"
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" block onClick={() => add()} icon={<PlusOutlined />}>
-          {addButtonText}
-        </Button>
-      </Flex>
-    )}
-  </Form.List>
-);
+}> = ({ name, label, addButtonText = '添加' }) => {
+  const form = Form.useFormInstance();
+
+  const getDuplicateKeyValidator = () => ({
+    validator: (_: any, value: string) => {
+      if (!value) return Promise.resolve();
+      const allItems: Array<{ key: string; value: string }> = form.getFieldValue(name) || [];
+      const sameKeyCount = allItems.filter((item) => item && item.key === value).length;
+      if (sameKeyCount > 1) {
+        return Promise.reject(new Error('相同键名的标签会被覆盖，请使用不同的键名'));
+      }
+      return Promise.resolve();
+    },
+  });
+
+  return (
+    <Form.List name={name}>
+      {(fields, { add, remove }) => (
+        <Flex vertical gap="small" style={{ width: '100%' }}>
+          {label ? (
+            <Text strong style={{ display: 'block' }}>
+              {label}
+            </Text>
+          ) : null}
+          {fields.map(({ key, name: index, ...restField }) => (
+            <Row key={key} gutter={[12, 8]} align="middle" wrap={false}>
+              <Col flex="1 1 0">
+                <Form.Item
+                  {...restField}
+                  name={[index, 'key']}
+                  rules={[{ required: true, message: '请输入键' }, getDuplicateKeyValidator()]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input placeholder="键 (如: app)" />
+                </Form.Item>
+              </Col>
+              <Col flex="1 1 0">
+                <Form.Item
+                  {...restField}
+                  name={[index, 'value']}
+                  rules={[{ required: true, message: '请输入值' }]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input placeholder="值 (如: nginx)" />
+                </Form.Item>
+              </Col>
+              <Col flex="none">
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<MinusCircleOutlined />}
+                  onClick={() => remove(index)}
+                  aria-label="删除此行"
+                />
+              </Col>
+            </Row>
+          ))}
+          <Button type="dashed" block onClick={() => add()} icon={<PlusOutlined />}>
+            {addButtonText}
+          </Button>
+        </Flex>
+      )}
+    </Form.List>
+  );
+};
 
 // ============================================================
 // Service 表单（可单独使用，或与 Drawer 组合）
