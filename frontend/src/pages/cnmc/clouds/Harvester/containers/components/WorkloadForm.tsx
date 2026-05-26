@@ -6735,36 +6735,33 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         placeholder={selectedVpc ? "选择子网" : "请先选择VPC"}
                         showSearch
                         optionFilterProp="label"
-                        options={vpcSubnetOptions}
-                        disabled={!selectedVpc}
-                        onChange={(val) => {
-                          // 查找选中的子网对象
+                        options={vpcSubnetOptions.map(opt => {
+                          // 查找子网对象生成 NAD 引用
                           const subnet = (kubeSubnets || []).find(s => 
-                            (s.name || s?.metadata?.name) === val && 
+                            (s.name || s?.metadata?.name) === opt.value && 
                             (s.vpc || s?.spec?.vpc) === selectedVpc
                           );
-                          if (!subnet) {
-                            form.setFieldsValue({ vpcSubnet: val });
-                            return;
-                          }
                           
-                          // 提取 namespace
-                          let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
-                          if (!subnetNs) {
-                            const provider = subnet?.provider || subnet?.spec?.provider;
-                            if (provider) {
-                              const parts = provider.split('.');
-                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                          let nadRef = opt.value;
+                          if (subnet) {
+                            let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
+                            if (!subnetNs) {
+                              const provider = subnet?.provider || subnet?.spec?.provider;
+                              if (provider) {
+                                const parts = provider.split('.');
+                                if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                              }
                             }
+                            subnetNs = subnetNs || 'default';
+                            nadRef = `${subnetNs}/${opt.value}`;
                           }
-                          subnetNs = subnetNs || 'default';
                           
-                          // 生成 NAD 引用（namespace/name 格式）
-                          const nadRef = `${subnetNs}/${val}`;
-                          
-                          // 存储 NAD 引用
-                          form.setFieldsValue({ vpcSubnet: nadRef });
-                        }}
+                          return {
+                            ...opt,
+                            value: nadRef,
+                          };
+                        })}
+                        disabled={!selectedVpc}
                       />
                     </Form.Item>
                   </>
