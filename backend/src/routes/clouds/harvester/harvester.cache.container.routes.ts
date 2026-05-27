@@ -3022,11 +3022,44 @@ export const registerHarvesterContainerRoutes = (
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
-        // 如果 CRD 不存在，返回空列表而不是错误
         if (error?.status === 404 || error?.statusCode === 404) {
           return res.json({ message: '查询成功', data: { items: [] } });
         }
         res.status(500).json({ message: '查询 GatewayClass 失败', error: error.message });
+      }
+    },
+  );
+
+  router.post(
+    '/:id/resources/harvester/containers/gatewayclasses',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const body = req.body;
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        const origin = extractOrigin(base);
+        const url = `${origin}/apis/gateway.networking.k8s.io/v1/gatewayclasses`;
+        
+        const payload = {
+          apiVersion: 'gateway.networking.k8s.io/v1',
+          kind: 'GatewayClass',
+          metadata: body?.metadata || { name: 'nginx' },
+          spec: body?.spec || { controllerName: 'nginx.org/gateway-controller' },
+        };
+        
+        const result = await requestJson('POST', url, token, insecure, payload);
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '创建 GatewayClass 失败', error: error.message });
       }
     },
   );

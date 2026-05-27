@@ -7,7 +7,7 @@
  * - 可选配置 VLAN ID，用于为业务网络打 tag。
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Modal, Select, InputNumber, message } from 'antd';
+import { Form, Input, Modal, Select, InputNumber, message, Switch, Card, Space, Divider } from 'antd';
 import { createHarvesterNad, fetchHarvesterNamespaces, fetchHarvesterClusterNetworks } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 
@@ -108,13 +108,29 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
         bridge: bridgeName,
       };
 
-      // VLAN 配置
       if (values.vlanId) {
         config.vlan = Number(values.vlanId);
       }
 
-      // IPAM 配置（使用空对象，L2 网络）
-      config.ipam = {};
+      if (values.enableIpam && values.ipamType) {
+        const ipamConfig: any = { type: values.ipamType };
+        if (values.ipamType === 'host-local') {
+          if (values.ipamSubnet) ipamConfig.subnet = values.ipamSubnet;
+          if (values.ipamRangeStart) ipamConfig.rangeStart = values.ipamRangeStart;
+          if (values.ipamRangeEnd) ipamConfig.rangeEnd = values.ipamRangeEnd;
+          if (values.ipamGateway) ipamConfig.gateway = values.ipamGateway;
+          if (values.ipamRoutes) {
+            try {
+              ipamConfig.routes = JSON.parse(values.ipamRoutes);
+            } catch {}
+          }
+        } else if (values.ipamType === 'dhcp') {
+          if (values.ipamDhcpRenew) ipamConfig.renew = values.ipamDhcpRenew;
+        }
+        config.ipam = ipamConfig;
+      } else {
+        config.ipam = {};
+      }
       
       // 构建 annotations
       const annotations: Record<string, string> = {
@@ -206,6 +222,106 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
         label="VLAN ID"
       >
         <InputNumber min={1} max={4094} style={{ width: '100%' }} placeholder="请输入 1-4094 之间的 VLAN ID，留空表示不使用 VLAN" />
+      </Form.Item>
+
+      <Divider orientation="left" style={{ margin: '16px 0 8px' }}>IPAM 配置</Divider>
+      
+      <Form.Item
+        name="enableIpam"
+        label="启用 IPAM"
+        valuePropName="checked"
+        tooltip="启用后可配置IP地址分配，容器从该NAD网络获取IP地址"
+        initialValue={false}
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
+        noStyle
+        shouldUpdate={(prev, curr) => prev.enableIpam !== curr.enableIpam}
+      >
+        {({ getFieldValue }) => {
+          const enableIpam = getFieldValue('enableIpam');
+          if (!enableIpam) return null;
+          return (
+            <Card size="small" style={{ marginBottom: 16 }}>
+              <Form.Item
+                name="ipamType"
+                label="IPAM 类型"
+                rules={[{ required: true, message: '请选择IPAM类型' }]}
+              >
+                <Select placeholder="选择IPAM类型">
+                  <Select.Option value="host-local">host-local (本地分配)</Select.Option>
+                  <Select.Option value="dhcp">DHCP (动态分配)</Select.Option>
+                </Select>
+              </Form.Item>
+
+              <Form.Item
+                noStyle
+                shouldUpdate={(prev, curr) => prev.ipamType !== curr.ipamType}
+              >
+                {({ getFieldValue }) => {
+                  const ipamType = getFieldValue('ipamType');
+                  if (ipamType === 'host-local') {
+                    return (
+                      <>
+                        <Form.Item
+                          name="ipamSubnet"
+                          label="子网 (CIDR)"
+                          rules={[{ required: true, message: '请输入子网CIDR' }]}
+                          tooltip="例如: 10.244.1.0/24"
+                        >
+                          <Input placeholder="例如: 10.244.1.0/24" />
+                        </Form.Item>
+                        <Space style={{ width: '100%' }} size="middle">
+                          <Form.Item
+                            name="ipamRangeStart"
+                            label="起始 IP"
+                            style={{ flex: 1, marginBottom: 16 }}
+                          >
+                            <Input placeholder="例如: 10.244.1.100" />
+                          </Form.Item>
+                          <Form.Item
+                            name="ipamRangeEnd"
+                            label="结束 IP"
+                            style={{ flex: 1, marginBottom: 16 }}
+                          >
+                            <Input placeholder="例如: 10.244.1.200" />
+                          </Form.Item>
+                        </Space>
+                        <Form.Item
+                          name="ipamGateway"
+                          label="网关"
+                        >
+                          <Input placeholder="例如: 10.244.1.1" />
+                        </Form.Item>
+                        <Form.Item
+                          name="ipamRoutes"
+                          label="路由配置 (JSON)"
+                          tooltip='例如: [{"dst":"0.0.0.0/0","gw":"10.244.1.1"}]'
+                        >
+                          <Input.TextArea rows={2} placeholder='[{"dst":"0.0.0.0/0","gw":"10.244.1.1"}]' />
+                        </Form.Item>
+                      </>
+                    );
+                  }
+                  if (ipamType === 'dhcp') {
+                    return (
+                      <Form.Item
+                        name="ipamDhcpRenew"
+                        label="续租间隔 (秒)"
+                        tooltip="DHCP租约续租间隔"
+                      >
+                        <InputNumber min={60} style={{ width: '100%' }} placeholder="默认 3600" />
+                      </Form.Item>
+                    );
+                  }
+                  return null;
+                }}
+              </Form.Item>
+            </Card>
+          );
+        }}
       </Form.Item>
 
       <Form.Item
