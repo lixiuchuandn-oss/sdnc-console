@@ -1630,6 +1630,46 @@ export const createHarvesterVirtualMachineRestore = async (
 };
 
 /**
+ * [VM 恢复列表]
+ * 获取集群内 VirtualMachineRestore 列表（Longhorn / Harvester 原生）。
+ */
+export const listHarvesterVirtualMachineRestoresRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinerestores`,
+    `${origin}/apis/harvesterhci.io/v1alpha1/virtualmachinerestores`,
+    `${origin}/v1/harvester/harvesterhci.io.virtualmachinerestores`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      if (json && (Array.isArray(json.items) || Array.isArray(json.data))) {
+        return json.items || json.data || [];
+      }
+    } catch (e: any) {
+      if (Number(e?.status) !== 404 && !String(e?.message).includes('404')) {
+        harvesterStorageLog.debug(`VM restore list candidate failed: ${url}`, e?.message ?? String(e));
+      }
+    }
+  }
+
+  return [];
+};
+
+/**
  * [删除 VM 备份]
  * 删除虚拟机备份。
  *

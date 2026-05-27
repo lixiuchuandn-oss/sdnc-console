@@ -35,7 +35,9 @@ import {
 import { useHarvesterPublicNamespaces } from "../../context/HarvesterPublicNamespacesContext";
 import {
   createHarvesterToolbarRefresh,
+  notifyHarvesterBackupsInventoryChanged,
   runHarvesterSectionRefresh,
+  type HarvesterBackupsInventoryReload,
 } from "../../shared/lib/harvesterSectionRefresh";
 import { useAuth } from "../../../../../../contexts/AuthContext";
 import { hasPermissionForAction } from "../../../../../../utils/accessMapping";
@@ -110,6 +112,8 @@ type Props = {
   onReloadQuickCreateImages?: () => void;
   /** 创建成功且在 sync + onRefresh 之前/之外的额外逻辑（可选） */
   onQuickVmCreated?: () => void | Promise<void>;
+  /** 云主机备份/快照创建成功后刷新全局备份列表（如云备份 Tab） */
+  onBackupsInventoryChanged?: HarvesterBackupsInventoryReload;
 };
 
 /**
@@ -148,6 +152,7 @@ const VmSection: React.FC<Props> = ({
   onReloadQuickCreateSubnets,
   onReloadQuickCreateImages,
   onQuickVmCreated,
+  onBackupsInventoryChanged,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   // 使用 Ant Design 的 App 上下文获取 message 实例
@@ -591,6 +596,7 @@ const VmSection: React.FC<Props> = ({
         activeTab={metadataActiveTab}
         onTabChange={setMetadataActiveTab}
         onRefresh={onRefresh}
+        onBackupsInventoryChanged={onBackupsInventoryChanged}
         onBackup={handleBackup}
         onSnapshot={handleSnapshot}
         onClone={handleClone}
@@ -605,6 +611,7 @@ const VmSection: React.FC<Props> = ({
         onSuccess={() => {
           setVmBackupModalVisible(false);
           void runHarvesterSectionRefresh(onRefresh, { force: true });
+          notifyHarvesterBackupsInventoryChanged(cloudId, onBackupsInventoryChanged);
         }}
         cloudId={cloudId}
         namespaces={namespaces}

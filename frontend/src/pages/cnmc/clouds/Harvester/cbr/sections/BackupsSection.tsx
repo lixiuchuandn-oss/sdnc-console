@@ -3,7 +3,7 @@
  * 负责展示当前 Harvester 云中某一类型（备份 / 快照）的 VM Backup 列表，
  * 支持按状态与关键字筛选，以及发起删除和恢复操作，并在工具栏提供创建备份/快照入口。
  */
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -23,6 +23,11 @@ import { resolveHarvesterSteveViewLink } from '../../shared/lib/harvesterSteveVi
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import {
+  harvesterBackupsListCachePath,
+  notifyHarvesterBackupsInventoryChanged,
+} from '../../shared/lib/harvesterSectionRefresh';
+import { clearGetCacheForPath } from '../../../../../../utils/requestManager';
 
 /**
  * 组件入参
@@ -38,7 +43,7 @@ interface Props {
   cloudId: string;
   backups: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean, silent?: boolean) => void;
+  onRefresh?: (force?: boolean, skipSync?: boolean) => void;
   namespaces: any[];
   vms: any[];
   type?: 'backup' | 'snapshot';
@@ -49,6 +54,25 @@ interface Props {
   restoreVms?: any[];
   isTenant?: boolean;
   bordered?: boolean;
+}
+
+function buildVmBackupYamlRecord(raw: any) {
+  const ceph = isHarvesterCephVmBackup(raw);
+  const kind = ceph ? 'CephVmBackup' : 'VirtualMachineBackup';
+  const ns = String(raw?.metadata?.namespace || '').trim();
+  const name = String(raw?.metadata?.name || '').trim();
+  const view =
+    resolveHarvesterSteveViewLink({ ...raw, kind }) ||
+    (ns && name
+      ? ceph
+        ? `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmbackups/${encodeURIComponent(name)}`
+        : `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`
+      : undefined);
+  return {
+    ...raw,
+    kind,
+    links: { ...(raw?.links || {}), ...(view ? { view } : {}) },
+  };
 }
 
 const BackupsSection: React.FC<Props> = ({
@@ -85,7 +109,7 @@ const BackupsSection: React.FC<Props> = ({
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
   // 当前选中的备份/快照，用于恢复操作
   const [currentSnapshot, setCurrentSnapshot] = useState<any>(null);
-  // 详情抽屉
+  // 详情抽屉：摘要 + 实时数据（View Link）
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState<string>('detail');
@@ -179,6 +203,48 @@ const BackupsSection: React.FC<Props> = ({
     return Array.from(set).sort().map((ns) => ({ label: ns, value: ns }));
   }, [dataSource, isTenant, isPublicNamespace]);
 
+  const hasPendingReadyStatus = useMemo(
+    () => dataSource.some((row) => row.readyToUse !== true),
+    [dataSource],
+  );
+
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  /**
+   * 列表存在「未就绪」时轮询对端同步，刷新 readyToUse（须 skipSync=false；创建后过早 sync 会清空未入集群列表的行）。
+   */
+  useEffect(() => {
+    if (!cloudId || !onRefreshRef.current || !hasPendingReadyStatus) return undefined;
+
+    let tries = 0;
+    const maxTries = 24;
+    let intervalId: number | undefined;
+
+    const tick = () => {
+      tries += 1;
+      const stillPending = (backups || []).some((b: any) => {
+        const raw = b.rawData || b;
+        const itemType = raw.spec?.type || 'backup';
+        if (itemType !== type) return false;
+        return raw.status?.readyToUse !== true;
+      });
+      if (!stillPending || tries > maxTries) {
+        if (intervalId !== undefined) window.clearInterval(intervalId);
+        return;
+      }
+      clearGetCacheForPath(harvesterBackupsListCachePath(cloudId));
+      void onRefreshRef.current?.(true, false);
+    };
+
+    const firstId = window.setTimeout(tick, 4000);
+    intervalId = window.setInterval(tick, 5000);
+    return () => {
+      window.clearTimeout(firstId);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+  }, [cloudId, type, hasPendingReadyStatus, backups]);
+
   /**
    * 删除单个备份 / 快照
    * 弹出确认框后调用后端删除接口，成功后触发刷新
@@ -198,7 +264,7 @@ const BackupsSection: React.FC<Props> = ({
         try {
           await deleteHarvesterBackup(cloudId, record.namespace, record.name);
           message.success('删除成功');
-          onRefresh?.(true);
+          notifyHarvesterBackupsInventoryChanged(cloudId, onRefresh);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -279,15 +345,8 @@ const BackupsSection: React.FC<Props> = ({
             label: '查看YAML',
             onClick: () => {
               const rawRecord = record.raw || record.rawData || record;
-              const isCeph = isHarvesterCephVmBackup(rawRecord);
-              const kind = isCeph ? 'CephVmBackup' : 'VirtualMachineBackup';
-              const view = resolveHarvesterSteveViewLink({ ...rawRecord, kind });
-              const recordWithLink = {
-                ...rawRecord,
-                kind,
-                links: { ...(rawRecord.links || {}), ...(view ? { view } : {}) },
-              };
-              setDrawerRecord(recordWithLink);
+              setDrawerRecord(buildVmBackupYamlRecord(rawRecord));
+              setDrawerActiveTab('detail');
               setDrawerVisible(true);
             }
           });
@@ -412,8 +471,7 @@ const BackupsSection: React.FC<Props> = ({
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={() => {
           setCreateModalVisible(false);
-          void onRefresh?.(true, true);
-          window.setTimeout(() => void onRefresh?.(true, true), 2500);
+          notifyHarvesterBackupsInventoryChanged(cloudId, onRefresh);
         }}
         cloudId={cloudId}
         namespaces={namespaces}

@@ -69,6 +69,74 @@ export function dispatchVmAliasApplied(detail: VmAliasAppliedDetail): void {
   );
 }
 
+/** 新建恢复：VM 往往在任务完成时才创建，需比常规创建更长的等待窗口 */
+export const RESTORE_VM_ALIAS_MAX_WAIT_MS = 3_600_000;
+
+export type HarvesterRestoreTargetAlias = {
+  namespace: string;
+  vmName: string;
+  alias: string;
+};
+
+/** 从 VirtualMachineRestore / CephVmRestore 解析「新建模式」目标 VM 与显示别名 */
+export function parseHarvesterRestoreTargetAlias(restoreRaw: any): HarvesterRestoreTargetAlias | null {
+  if (!restoreRaw) return null;
+  const ann = (restoreRaw?.metadata?.annotations || {}) as Record<string, string>;
+  const restoreMode = String(ann['tower.io/restoreMode'] || '').trim();
+  if (restoreMode && restoreMode !== 'new') return null;
+
+  const isCeph =
+    String(restoreRaw?.kind || '').toLowerCase() === 'cephvmrestore' ||
+    ann['tower.io/restoreBackend'] === 'ceph' ||
+    String(restoreRaw?.apiVersion || '').includes('hms.rivercloud.com');
+
+  if (!restoreMode && isCeph) {
+    if (String(restoreRaw?.spec?.restoreType || '') === 'replace') return null;
+  } else if (!restoreMode && restoreRaw?.spec?.newVM === false) {
+    return null;
+  }
+
+  const alias = String(
+    ann['tower.io/restoreTargetDisplayName'] || ann['tower.io/targetVmAlias'] || '',
+  ).trim();
+  if (!alias) return null;
+
+  const restoreTarget = String(ann['tower.io/restoreTarget'] || '').trim();
+  if (restoreTarget.includes('/')) {
+    const slash = restoreTarget.indexOf('/');
+    const ns = restoreTarget.slice(0, slash).trim();
+    const vmName = restoreTarget.slice(slash + 1).trim();
+    if (ns && vmName) return { namespace: ns, vmName, alias };
+  }
+
+  const vmName = isCeph
+    ? String(restoreRaw?.spec?.targetVmName || '').trim()
+    : String(restoreRaw?.spec?.target?.name || '').trim();
+  const namespace = isCeph
+    ? String(restoreRaw?.spec?.targetNamespace || restoreRaw?.metadata?.namespace || '').trim()
+    : String(restoreRaw?.metadata?.namespace || '').trim();
+  if (!namespace || !vmName) return null;
+  return { namespace, vmName, alias };
+}
+
+/**
+ * 恢复任务提交后或完成时：写入 tower.io/alias（VM 可能尚未创建，内部轮询直至可 PATCH）。
+ * @returns 是否已成功写入集群
+ */
+export async function ensureHarvesterRestoreTargetVmAlias(
+  cloudId: string,
+  restoreRaw: any,
+  options?: { maxWaitMs?: number },
+): Promise<boolean> {
+  const parsed = parseHarvesterRestoreTargetAlias(restoreRaw);
+  if (!parsed) return true;
+  const { namespace, vmName, alias } = parsed;
+  dispatchVmAliasApplied({ namespace, name: vmName, alias });
+  return applyVmTowerAliasWhenReady(cloudId, namespace, vmName, alias, {
+    maxWaitMs: options?.maxWaitMs ?? RESTORE_VM_ALIAS_MAX_WAIT_MS,
+  });
+}
+
 function buildAliasJsonPatch(vm: any, alias: string): object[] {
   const trimmed = String(alias || '').trim();
   const hasAnnotations = !!vm?.metadata?.annotations;

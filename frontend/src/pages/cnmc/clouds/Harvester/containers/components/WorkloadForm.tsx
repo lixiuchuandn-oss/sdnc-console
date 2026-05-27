@@ -3421,126 +3421,105 @@ const TolerationsEditor: React.FC = () => {
  */
 const HostAliasesEditor: React.FC = () => {
   const form = Form.useFormInstance();
-  
-  interface HostAliasEntry {
-    ip: string;
-    hostnames: string[];
-  }
-  
-  const [hostAliases, setHostAliases] = useState<HostAliasEntry[]>([]);
-  
-  useEffect(() => {
-    setHostAliases(form.getFieldValue('hostAliases') || []);
-  }, [form]);
-
-  const addHostAlias = () => {
-    const currentHostAliases = form.getFieldValue('hostAliases') || [];
-    const newEntry: HostAliasEntry = {
-      ip: '',
-      hostnames: [],
-    };
-    const updated = [...currentHostAliases, newEntry];
-    setHostAliases(updated);
-    form.setFieldsValue({ hostAliases: updated });
-  };
-
-  const removeHostAlias = (index: number) => {
-    const updated = hostAliases.filter((_, i) => i !== index);
-    setHostAliases(updated);
-    form.setFieldsValue({ hostAliases: updated });
-  };
-
-  const renderHostAlias = (index: number) => {
-    const basePath = ['hostAliases', index];
-    const ipValue = form.getFieldValue([...basePath, 'ip']);
-
-    return (
-      <Card
-        key={index}
-        size="small"
-        style={{ marginBottom: 12 }}
-        title={
-          <Space>
-            <Tag color="purple">域名映射 {index + 1}</Tag>
-            {ipValue && (
-              <span style={{ color: '#666', fontSize: 12 }}>
-                {ipValue}
-              </span>
-            )}
-          </Space>
-        }
-        extra={
-          <Button
-            type="text"
-            danger
-            size="small"
-            onClick={() => removeHostAlias(index)}
-          >
-            删除
-          </Button>
-        }
-      >
-        <Row gutter={[8, 8]}>
-          <Col span={8}>
-            <Form.Item
-              name={[...basePath, 'ip']}
-              label="IP 地址"
-              rules={[
-                { required: true, message: '请输入 IP 地址' },
-                {
-                  pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
-                  message: '请输入有效的 IPv4 地址'
-                }
-              ]}
-              style={{ marginBottom: 0 }}
-            >
-              <Input placeholder="例如: 192.168.1.100" />
-            </Form.Item>
-          </Col>
-          <Col span={16}>
-            <Form.Item
-              name={[...basePath, 'hostnames']}
-              label="主机名"
-              rules={[{ required: true, message: '请输入主机名' }]}
-              extra="多个主机名用逗号分隔，例如: harbor.local,cloudhci.harbor.local"
-              style={{ marginBottom: 0 }}
-            >
-              <Select
-                mode="tags"
-                placeholder="输入主机名后按回车添加"
-                tokenSeparators={[',', ' ']}
-                style={{ width: '100%' }}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-      </Card>
-    );
-  };
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 500 }}>域名映射</span>
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addHostAlias}>
-          添加域名映射
-        </Button>
-      </div>
+      <Form.List name="hostAliases">
+        {(fields, { add, remove }) => (
+          <>
+            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 500 }}>域名映射</span>
+              <Button
+                type="dashed"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => add({ ip: '', hostnames: [] })}
+              >
+                添加域名映射
+              </Button>
+            </div>
 
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="用于在 Pod 的 /etc/hosts 中添加域名映射，适用于内网服务、绕过 DNS 解析等场景"
-      />
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="用于在 Pod 的 /etc/hosts 中添加域名映射，适用于内网服务、绕过 DNS 解析等场景"
+            />
 
-      {hostAliases.length === 0 && (
-        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
-          未配置域名映射，点击上方按钮添加
-        </div>
-      )}
+            {fields.length === 0 && (
+              <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+                未配置域名映射，点击上方按钮添加
+              </div>
+            )}
 
-      {hostAliases.map((_: any, index: number) => renderHostAlias(index))}
+            {fields.map((field, index) => {
+              const ipValue = form.getFieldValue(['hostAliases', field.name, 'ip']);
+              return (
+                <Card
+                  key={field.key}
+                  size="small"
+                  style={{ marginBottom: 12 }}
+                  title={
+                    <Space>
+                      <Tag color="purple">域名映射 {index + 1}</Tag>
+                      {ipValue && (
+                        <span style={{ color: '#666', fontSize: 12 }}>
+                          {ipValue}
+                        </span>
+                      )}
+                    </Space>
+                  }
+                  extra={
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      onClick={() => remove(field.name)}
+                    >
+                      删除
+                    </Button>
+                  }
+                >
+                  <Row gutter={[8, 8]}>
+                    <Col span={8}>
+                      <Form.Item
+                        name={[field.name, 'ip']}
+                        label="IP 地址"
+                        rules={[
+                          { required: true, message: '请输入 IP 地址' },
+                          {
+                            pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                            message: '请输入有效的 IPv4 地址',
+                          },
+                        ]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Input placeholder="例如: 192.168.1.100" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={16}>
+                      <Form.Item
+                        name={[field.name, 'hostnames']}
+                        label="主机名"
+                        rules={[{ required: true, message: '请输入主机名' }]}
+                        extra="多个主机名用逗号分隔，例如: harbor.local,cloudhci.harbor.local"
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select
+                          mode="tags"
+                          placeholder="输入主机名后按回车添加"
+                          tokenSeparators={[',', ' ']}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Card>
+              );
+            })}
+          </>
+        )}
+      </Form.List>
     </div>
   );
 };
@@ -3552,20 +3531,24 @@ const HostAliasesEditor: React.FC = () => {
 const DnsConfigEditor: React.FC = () => {
   const form = Form.useFormInstance();
   
-  const [dnsPolicy, setDnsPolicy] = useState<string>('ClusterFirst');
-  const [nameservers, setNameservers] = useState<string[]>([]);
-  const [searches, setSearches] = useState<string[]>([]);
-  const [options, setOptions] = useState<Array<{ name: string; value?: string }>>([]);
-  
+  const [dnsPolicy, setDnsPolicy] = useState<string>(() => form.getFieldValue('dnsPolicy') || 'ClusterFirst');
+  const [nameservers, setNameservers] = useState<string[]>(() => form.getFieldValue('dnsConfig')?.nameservers || []);
+  const [searches, setSearches] = useState<string[]>(() => form.getFieldValue('dnsConfig')?.searches || []);
+  const [options, setOptions] = useState<Array<{ name: string; value?: string }>>(() => form.getFieldValue('dnsConfig')?.options || []);
+
+  // 编辑模式下 form 数据异步写入，需要再同步一次
   useEffect(() => {
-    const currentDnsPolicy = form.getFieldValue('dnsPolicy') || 'ClusterFirst';
-    const currentDnsConfig = form.getFieldValue('dnsConfig') || {};
-    setDnsPolicy(currentDnsPolicy);
-    setNameservers(currentDnsConfig.nameservers || []);
-    setSearches(currentDnsConfig.searches || []);
-    setOptions(currentDnsConfig.options || []);
-  }, [form]);
-  
+    const policy = form.getFieldValue('dnsPolicy');
+    const config = form.getFieldValue('dnsConfig') || {};
+    if (policy) {
+      setDnsPolicy(policy);
+      setNameservers(config.nameservers || []);
+      setSearches(config.searches || []);
+      setOptions(config.options || []);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleDnsPolicyChange = (value: string) => {
     setDnsPolicy(value);
     form.setFieldsValue({ dnsPolicy: value });
@@ -3662,6 +3645,10 @@ const DnsConfigEditor: React.FC = () => {
         message="DNS 配置用于自定义 Pod 的域名解析策略，适用于自定义 DNS 服务器或修改搜索域等场景"
       />
       
+      {/* 隐藏的 Form.Item 用于向 antd 表单注册 dnsPolicy / dnsConfig 字段，使 getFieldValue/setFieldsValue 正常工作 */}
+      <Form.Item name="dnsPolicy" hidden><Input /></Form.Item>
+      <Form.Item name="dnsConfig" hidden><Input /></Form.Item>
+
       <Form.Item label="DNS 策略" style={{ marginBottom: 16 }}>
         <Select value={dnsPolicy} onChange={handleDnsPolicyChange}>
           <Select.Option value="Default">Default - 使用节点 DNS 配置</Select.Option>
@@ -3672,95 +3659,97 @@ const DnsConfigEditor: React.FC = () => {
       </Form.Item>
       
       {dnsPolicy === 'None' && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="DNS 策略为 None 时，必须配置 DNS 配置（nameservers、searches 或 options）"
-        />
+        <>
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="DNS 策略为 None 时，必须配置 DNS 配置（nameservers、searches 或 options）"
+          />
+
+          <Card size="small" title="DNS 服务器" style={{ marginBottom: 12 }}>
+            {nameservers.map((ns, index) => (
+              <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={20}>
+                  <Input
+                    placeholder="例如: 10.96.0.10"
+                    value={ns}
+                    onChange={(e) => updateNameserver(index, e.target.value)}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => removeNameserver(index)}
+                  />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addNameserver}>
+              添加 DNS 服务器
+            </Button>
+          </Card>
+
+          <Card size="small" title="搜索域" style={{ marginBottom: 12 }}>
+            {searches.map((s, index) => (
+              <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={20}>
+                  <Input
+                    placeholder="例如: default.svc.cluster.local"
+                    value={s}
+                    onChange={(e) => updateSearch(index, e.target.value)}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => removeSearch(index)}
+                  />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addSearch}>
+              添加搜索域
+            </Button>
+          </Card>
+
+          <Card size="small" title="DNS 选项">
+            {options.map((opt, index) => (
+              <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={10}>
+                  <Input
+                    placeholder="选项名称，例如: ndots"
+                    value={opt.name}
+                    onChange={(e) => updateOption(index, 'name', e.target.value)}
+                  />
+                </Col>
+                <Col span={10}>
+                  <Input
+                    placeholder="选项值（可选）"
+                    value={opt.value || ''}
+                    onChange={(e) => updateOption(index, 'value', e.target.value)}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => removeOption(index)}
+                  />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addOption}>
+              添加 DNS 选项
+            </Button>
+          </Card>
+        </>
       )}
-      
-      <Card size="small" title="DNS 服务器" style={{ marginBottom: 12 }}>
-        {nameservers.map((ns, index) => (
-          <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
-            <Col span={20}>
-              <Input
-                placeholder="例如: 10.96.0.10"
-                value={ns}
-                onChange={(e) => updateNameserver(index, e.target.value)}
-              />
-            </Col>
-            <Col span={4}>
-              <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => removeNameserver(index)}
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addNameserver}>
-          添加 DNS 服务器
-        </Button>
-      </Card>
-      
-      <Card size="small" title="搜索域" style={{ marginBottom: 12 }}>
-        {searches.map((s, index) => (
-          <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
-            <Col span={20}>
-              <Input
-                placeholder="例如: default.svc.cluster.local"
-                value={s}
-                onChange={(e) => updateSearch(index, e.target.value)}
-              />
-            </Col>
-            <Col span={4}>
-              <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => removeSearch(index)}
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addSearch}>
-          添加搜索域
-        </Button>
-      </Card>
-      
-      <Card size="small" title="DNS 选项">
-        {options.map((opt, index) => (
-          <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
-            <Col span={10}>
-              <Input
-                placeholder="选项名称，例如: ndots"
-                value={opt.name}
-                onChange={(e) => updateOption(index, 'name', e.target.value)}
-              />
-            </Col>
-            <Col span={10}>
-              <Input
-                placeholder="选项值（可选）"
-                value={opt.value || ''}
-                onChange={(e) => updateOption(index, 'value', e.target.value)}
-              />
-            </Col>
-            <Col span={4}>
-              <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => removeOption(index)}
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addOption}>
-          添加 DNS 选项
-        </Button>
-      </Card>
     </div>
   );
 };
@@ -4377,6 +4366,26 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         effect: t.effect,
         tolerationSeconds: t.tolerationSeconds,
       }));
+
+      // 提取域名映射
+      const hostAliases = (template?.spec?.hostAliases || []).map((ha: any) => ({
+        ip: ha.ip || '',
+        hostnames: ha.hostnames || [],
+      }));
+
+      // 提取 DNS 配置
+      const dnsPolicy = template?.spec?.dnsPolicy;
+      const dnsConfigRaw = template?.spec?.dnsConfig;
+      const dnsConfig = dnsConfigRaw
+        ? {
+            nameservers: dnsConfigRaw.nameservers || [],
+            searches: dnsConfigRaw.searches || [],
+            options: (dnsConfigRaw.options || []).map((opt: any) => ({
+              name: opt.name,
+              value: opt.value,
+            })),
+          }
+        : undefined;
       
       // 提取存储卷定义
       const rawVolumes = template?.spec?.volumes || [];
@@ -4467,6 +4476,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         podAffinity: parsePodAffinity(affinity?.podAffinity),
         podAntiAffinity: parsePodAffinity(affinity?.podAntiAffinity),
         tolerations: tolerations.length > 0 ? tolerations : undefined,
+        hostAliases: hostAliases.length > 0 ? hostAliases : undefined,
+        dnsPolicy,
+        dnsConfig,
         volumes: volumes, // 始终设置数组，确保 VolumesEditor 能正确读取
         // 网络配置
         networkType,

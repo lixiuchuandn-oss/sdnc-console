@@ -97,6 +97,7 @@ export {
   deleteHarvesterScheduleVmBackup,
   createHarvesterVirtualMachineBackup,
   createHarvesterVirtualMachineRestore,
+  listHarvesterVirtualMachineRestoresRaw,
   restoreVolumeSnapshot,
   deleteHarvesterVirtualMachineBackup,
   deleteHarvesterVirtualMachineSnapshot,
