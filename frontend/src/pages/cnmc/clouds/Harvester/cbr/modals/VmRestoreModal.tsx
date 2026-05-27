@@ -9,11 +9,21 @@
  *   - 快照恢复走 virtualMachineBackupName/Namespace 字段传递来源信息；
  *   - 替换模式下传 deletionPolicy=retain，避免删除策略冲突。
  */
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Modal, Form, Input, message, Alert, Switch, Tooltip, Radio, Select } from 'antd';
 import { stopCloudProviderEcs } from '../../../../../../services/api';
-import { createHarvesterVirtualMachineRestore, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../../../services/harvesterApi';
+import {
+  createHarvesterVirtualMachineRestore,
+  fetchHarvesterVmRestoreTaskList,
+} from 'services/harvester/cbr';
+import { patchHarvesterVm, fetchHarvesterVmDetail } from 'services/harvester/vm';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
+import { isHarvesterCephVmBackup } from '../../../../../../utils/harvesterUtils';
+import {
+  ensureHarvesterRestoreTargetVmAlias,
+  RESTORE_VM_ALIAS_MAX_WAIT_MS,
+} from '../../ecs/lib/vmTowerAlias';
+import { findInProgressHarvesterRestoreForBackup } from '../lib/vmRestoreTaskStatus';
 
 /** 与回收站列表一致：finalizers 或 label 标记为回收站中的云主机 */
 function isHarvesterVmInRecycleBin(vm: any): boolean {
@@ -29,7 +39,7 @@ function isHarvesterVmInRecycleBin(vm: any): boolean {
 
 /**
  * 组件入参
- * - visible: 弹窗是否可见
+ * - open: 弹窗是否可见
  * - onCancel: 关闭回调
  * - onSuccess: 创建恢复任务成功回调
  * - cloudId: 云 ID
@@ -59,6 +69,12 @@ const VmRestoreModal: React.FC<Props> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [keepMacAddress, setKeepMacAddress] = useState(false);
+  const [checkingRestores, setCheckingRestores] = useState(false);
+  const [blockingRestore, setBlockingRestore] = useState<{
+    namespace: string;
+    name: string;
+    statusText: string;
+  } | null>(null);
   const newVM = Form.useWatch('newVM', form);
 
   const raw = useMemo(() => {
@@ -75,7 +91,7 @@ const VmRestoreModal: React.FC<Props> = ({
   }, [raw, resource]);
 
   const sourceVmName = useMemo(() => {
-    const fromSpec = raw?.spec?.source?.name;
+    const fromSpec = raw?.spec?.source?.name || raw?.spec?.sourceVm;
     const fromCompat = (resource as any)?.targetVm;
     const name = fromSpec || fromCompat || '';
     return name && name !== '-' ? name : '';
@@ -154,6 +170,33 @@ const VmRestoreModal: React.FC<Props> = ({
     }
   }, [open, resource, form, isSourceVmInRecycleBin]);
 
+  const loadInProgressRestoreForSource = useCallback(async () => {
+    if (!cloudId || !namespace || !sourceName) {
+      setBlockingRestore(null);
+      return null;
+    }
+    setCheckingRestores(true);
+    try {
+      const restores = await fetchHarvesterVmRestoreTaskList(cloudId, true);
+      const hit = findInProgressHarvesterRestoreForBackup(restores, namespace, sourceName);
+      setBlockingRestore(hit);
+      return hit;
+    } catch {
+      setBlockingRestore(null);
+      return null;
+    } finally {
+      setCheckingRestores(false);
+    }
+  }, [cloudId, namespace, sourceName]);
+
+  useEffect(() => {
+    if (!open || !resource) {
+      setBlockingRestore(null);
+      return;
+    }
+    void loadInProgressRestoreForSource();
+  }, [open, resource, loadInProgressRestoreForSource]);
+
   /**
    * 提交创建虚拟机恢复任务：
    * - snapshot 恢复：统一走 backup 风格字段，并根据 newVM/deletionPolicy 区分新建/替换；
@@ -162,6 +205,15 @@ const VmRestoreModal: React.FC<Props> = ({
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
+
+      const inProgress = (await loadInProgressRestoreForSource()) ?? blockingRestore;
+      if (inProgress) {
+        message.warning(
+          `该${resourceType === 'snapshot' ? '快照' : '备份'}已有进行中的恢复任务（${inProgress.namespace}/${inProgress.name}，${inProgress.statusText}），请等待完成后再试`,
+        );
+        return;
+      }
+
       setLoading(true);
 
       const targetName = values.newVM === false ? sourceVmName : values.newVmName;
@@ -230,58 +282,22 @@ const VmRestoreModal: React.FC<Props> = ({
         if (values.keepMacAddress !== undefined) payload.spec.keepMacAddress = values.keepMacAddress;
       }
 
+      if (isHarvesterCephVmBackup(resource)) {
+        payload.metadata.annotations['tower.io/backupBackend'] = 'ceph';
+      }
+
       await createHarvesterVirtualMachineRestore(
         cloudId,
         namespace,
         payload
       );
 
-      // 如果是新建虚拟机且用户输入了显示名称，等待VM创建后设置别名
-      if (values.newVM === true && values.displayName) {
-        const displayName = String(values.displayName || '').trim();
-        if (displayName) {
-          try {
-            // 等待VM创建
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            // 尝试获取新创建的VM并设置别名
-            let retries = 5;
-            while (retries > 0) {
-              try {
-                const newVm = await fetchHarvesterVmDetail(cloudId, namespace, targetName);
-                if (newVm) {
-                  await patchHarvesterVm(
-                    cloudId,
-                    namespace,
-                    targetName,
-                    {
-                      metadata: {
-                        annotations: {
-                          'tower.io/alias': displayName,
-                        },
-                      },
-                    }
-                  );
-                  break;
-                }
-              } catch (e: any) {
-                if (e?.status === 404 || e?.message?.includes('not found')) {
-                  retries--;
-                  if (retries > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    continue;
-                  }
-                }
-                // 设置别名失败不影响恢复流程，只记录警告
-                console.warn('Failed to set alias for restored VM:', e);
-                break;
-              }
-            }
-          } catch (e: any) {
-            // 设置别名失败不影响恢复流程
-            console.warn('Failed to set alias for restored VM:', e);
-          }
-        }
+      if (values.newVM === true && targetDisplayLabel) {
+        void ensureHarvesterRestoreTargetVmAlias(cloudId, payload, {
+          maxWaitMs: RESTORE_VM_ALIAS_MAX_WAIT_MS,
+        }).catch((e) => {
+          console.warn('Failed to set alias for restored VM:', e);
+        });
       }
 
       message.success('恢复任务创建成功');
@@ -308,21 +324,24 @@ const VmRestoreModal: React.FC<Props> = ({
       open={open}
       onOk={handleOk}
       onCancel={onCancel}
-      confirmLoading={loading}
+      confirmLoading={loading || checkingRestores}
+      okButtonProps={{ disabled: !!blockingRestore }}
       destroyOnHidden
     >
       <Alert
         message={newVM === false ? '将替换目标虚拟机' : '将新建虚拟机'}
         description={
-          newVM === false
-            ? isSourceVmInRecycleBin
-              ? '源虚拟机在回收站中，不允许使用替换模式，请使用新建虚拟机或先从回收站还原后再操作。'
-              : isSourceVmExists
-                ? '替换模式会自动停止目标虚拟机后执行恢复。'
-                : '目标虚拟机不存在，无法执行替换。'
-            : '新建模式会创建一个新的虚拟机，不会覆盖现有虚拟机。'
+          blockingRestore
+            ? `该${resourceType === 'snapshot' ? '快照' : '备份'}已有进行中的恢复任务（${blockingRestore.namespace}/${blockingRestore.name}，${blockingRestore.statusText}），请等待完成后再发起新的恢复。`
+            : newVM === false
+              ? isSourceVmInRecycleBin
+                ? '源虚拟机在回收站中，不允许使用替换模式，请使用新建虚拟机或先从回收站还原后再操作。'
+                : isSourceVmExists
+                  ? '替换模式会自动停止目标虚拟机后执行恢复。'
+                  : '目标虚拟机不存在，无法执行替换。'
+              : '新建模式会创建一个新的虚拟机，不会覆盖现有虚拟机。'
         }
-        type="warning"
+        type={blockingRestore ? 'error' : 'warning'}
         showIcon
         style={{ marginBottom: 16 }}
       />

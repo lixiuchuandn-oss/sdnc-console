@@ -31,7 +31,7 @@ export type CloudmapPoolPermissions = {
   canReadNetworkScope: boolean;
   canReadLoadBalancers: boolean;
   canViewMonitoringTab: boolean;
-  /** 资源总览 · 总览（与 poolPageAction `clouds.monitoring.overview:read` 对齐） */
+  /** 资源总览 · 集群总览（与 poolPageAction `clouds.monitoring.overview:read` 对齐） */
   canViewMonitoringOverview: boolean;
   canAccessResourceHubSub: (sub: CloudmapResourceSubKey) => boolean;
   resolveResourceHubSubAccess: (requested: CloudmapResourceSubKey) => CloudmapResourceSubKey | null;
@@ -189,19 +189,21 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds.snat.flat:read') ||
     checkPerm('clouds.dnat.flat:read');
 
-  const canViewKubeOvnGroup =
-    checkPerm('clouds:read') ||
-    checkPerm('clouds.vpcs:read') ||
-    canReadVpcSubnets ||
-    checkPerm('clouds.security-groups.vpc:read') ||
-    checkPerm('clouds.eips.vpc:read') ||
-    checkPerm('clouds.fips.vpc:read') ||
-    checkPerm('clouds.dnat.vpc:read') ||
-    checkPerm('clouds.snat.vpc:read') ||
-    checkPerm('clouds.traffic-mirroring.vpc:read');
-
   const { hasFeature } = useLicense();
   const ovnVpcEnabled = hasFeature('network.ovn.vpc');
+
+  /** VPC 网络整组须已开通 network.ovn.vpc，与扁平网络门控分离 */
+  const canViewKubeOvnGroup =
+    ovnVpcEnabled &&
+    (checkPerm('clouds:read') ||
+      checkPerm('clouds.vpcs:read') ||
+      canReadVpcSubnets ||
+      checkPerm('clouds.security-groups.vpc:read') ||
+      checkPerm('clouds.eips.vpc:read') ||
+      checkPerm('clouds.fips.vpc:read') ||
+      checkPerm('clouds.dnat.vpc:read') ||
+      checkPerm('clouds.snat.vpc:read') ||
+      checkPerm('clouds.traffic-mirroring.vpc:read'));
 
   return {
     checkPerm,

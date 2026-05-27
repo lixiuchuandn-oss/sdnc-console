@@ -77,7 +77,7 @@ import {
   parseRancherClusterWorkspacePath,
   buildRancherClusterSidebarCenter,
   RANCHER_CLUSTER_SIDEBAR_CENTER_KEY,
-  normalizeRancherClusterTabParam,
+  normalizeRancherClusterNavParam,
   normalizeRancherClusterSubParam,
   normalizeRancherClusterWorkloadsSubParam,
   normalizeRancherResourceSub,
@@ -916,7 +916,7 @@ const AdminLayout: React.FC = () => {
     if (rancherClusterSidebarCenter && rancherClusterCtx) {
       const sp = new URLSearchParams(location.search);
       const rawTab = sp.get('tab');
-      const tab = normalizeRancherClusterTabParam(rawTab);
+      const tab = normalizeRancherClusterNavParam(rawTab);
       const base = `/admin/clouds/${encodeURIComponent(rancherClusterCtx.poolId)}/clusters/${encodeURIComponent(rancherClusterCtx.clusterId)}`;
       if (tab === 'cluster') {
         const sub = normalizeRancherClusterSubParam(rawTab, sp.get('sub'), rawTab);
@@ -1446,6 +1446,9 @@ const AdminLayout: React.FC = () => {
           selectedMenuKey={poolSelectedMenuKey}
           navigate={navigateToAdminContent}
           headerOffsetPx={ADMIN_HEADER_HEIGHT_PX}
+          menuMode={
+            activeSidebarKey === CLOUD_POOL_SIDEBAR_CENTER_KEY ? 'vertical' : 'inline'
+          }
         />
         <Content
           className={adminOutletSdnccClassName}

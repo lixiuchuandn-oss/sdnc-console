@@ -8,7 +8,7 @@ import type { PoolPathResourceDeps } from '../poolDataDeps';
 export async function tryLoadBackupTab(
   key: string,
   force: boolean,
-  _skipSync: boolean,
+  skipSync: boolean,
   deps: PoolPathResourceDeps,
 ): Promise<boolean> {
   if (key !== 'backups') return false;
@@ -26,7 +26,7 @@ export async function tryLoadBackupTab(
   if (checkPerm('clouds.backups:read')) {
     loadResource(
       'backups',
-      () => fetchHarvesterBackups(cloudId, force),
+      () => fetchHarvesterBackups(cloudId, force, skipSync),
       (json) => {
         const list: any[] = Array.isArray((json as any)?.data?.items)
           ? (json as any).data.items
@@ -38,7 +38,7 @@ export async function tryLoadBackupTab(
     );
     loadResource(
       'scheduleVmBackups',
-      () => fetchHarvesterScheduleVmBackups(cloudId, force),
+      () => fetchHarvesterScheduleVmBackups(cloudId, force, skipSync),
       (json) => {
         const list: any[] = Array.isArray((json as any)?.data?.items)
           ? (json as any).data.items

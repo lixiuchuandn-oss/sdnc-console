@@ -2,6 +2,12 @@
  * 从列表行解析 Steve `links.view`（供 ResourceLinkYamlDrawer 使用）。
  */
 
+import {
+  isHarvesterCephVmBackup,
+  isHarvesterCephVmRestore,
+  isHarvesterCephScheduleVmBackup,
+} from '../../../../../../utils/harvesterUtils';
+
 type LinkRecord = {
   links?: { view?: string };
   link?: { view?: string };
@@ -47,12 +53,28 @@ const NAMESPACED_KIND_PATH: Record<string, (ns: string, name: string) => string>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/cloudinits/${encodeURIComponent(name)}`,
   VirtualMachineTemplate: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinetemplates/${encodeURIComponent(name)}`,
+  VirtualMachineInstanceMigration: (ns, name) =>
+    `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachineinstancemigrations/${encodeURIComponent(name)}`,
+  VirtualMachine: (ns, name) =>
+    `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachines/${encodeURIComponent(name)}`,
   VirtualMachineBackup: (ns, name) =>
+    `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`,
+  CephVmBackup: (ns, name) =>
+    `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmbackups/${encodeURIComponent(name)}`,
+  VmBackup: (ns, name) =>
+    `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`,
+  VmSnapshot: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`,
   VirtualMachineRestore: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinerestores/${encodeURIComponent(name)}`,
+  CephVmRestore: (ns, name) =>
+    `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmrestores/${encodeURIComponent(name)}`,
   ScheduleVirtualMachineBackup: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/schedulevirtualmachinebackups/${encodeURIComponent(name)}`,
+  ScheduleVMBackup: (ns, name) =>
+    `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/schedulevmbackups/${encodeURIComponent(name)}`,
+  ScheduleCephVmBackup: (ns, name) =>
+    `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/schedulecephvmbackups/${encodeURIComponent(name)}`,
   IPPool: (ns, name) =>
     `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/ippools/${encodeURIComponent(name)}`,
   NetworkAttachmentDefinition: (ns, name) =>
@@ -79,6 +101,25 @@ export function resolveHarvesterSteveViewLink(record: unknown): string | undefin
   if (!name) return undefined;
 
   if (ns) {
+    if (isHarvesterCephVmRestore(raw) || kind === 'CephVmRestore') {
+      return NAMESPACED_KIND_PATH.CephVmRestore(ns, name);
+    }
+    if (isHarvesterCephScheduleVmBackup(raw) || kind === 'ScheduleCephVmBackup') {
+      return NAMESPACED_KIND_PATH.ScheduleCephVmBackup(ns, name);
+    }
+    if (isHarvesterCephVmBackup(raw) || kind === 'CephVmBackup') {
+      return NAMESPACED_KIND_PATH.CephVmBackup(ns, name);
+    }
+    if (kind === 'ScheduleVMBackup') {
+      return NAMESPACED_KIND_PATH.ScheduleVMBackup(ns, name);
+    }
+    if (
+      kind === 'VirtualMachineBackup' ||
+      kind === 'VmBackup' ||
+      kind === 'VmSnapshot'
+    ) {
+      return NAMESPACED_KIND_PATH.VirtualMachineBackup(ns, name);
+    }
     const builder = NAMESPACED_KIND_PATH[kind];
     if (builder) return builder(ns, name);
   }

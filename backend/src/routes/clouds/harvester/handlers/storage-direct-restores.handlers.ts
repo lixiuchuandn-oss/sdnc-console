@@ -4,16 +4,36 @@
  * 文件路径: src/routes/clouds/harvester/handlers/restores.handlers.ts
  * ==============================================================================
  * 功能描述:
- * 本文件包含 Harvester 恢复相关的 handlers，包括：
- * - 创建 VM 恢复任务（从备份或快照）
- * 
- * 从 harvester.cache.storage.routes.ts 中提取的业务逻辑
+ * - Longhorn / Harvester 原生：VirtualMachineRestore
+ * - Ceph 存储：CephVmRestore（hms.rivercloud.com/v1）
  * ==============================================================================
  */
 
 import { Request, Response } from 'express';
-import { createHarvesterVirtualMachineRestore } from '../../../../services/clouds/harvester/client';
+import { AppDataSource } from '../../../../config/database';
+import { HarvesterBackupInventory } from '../../../../entities/harvester/HarvesterBackupInventory';
+import {
+  createHarvesterVirtualMachineRestore,
+  createHarvesterCephVmRestore,
+  buildHarvesterCephVmRestoreBody,
+  findCephVmBackupByName,
+  isCephVmBackupResource,
+  resolveCephBackupSourceVm,
+  shouldFallbackToCephVmRestore,
+  listHarvesterVirtualMachineRestoresRaw,
+  listHarvesterCephVmRestoresRaw,
+} from '../../../../services/clouds/harvester/client';
+import { findInProgressHarvesterRestoreForBackup } from '../../../../services/clouds/harvester/vmRestoreTaskStatus';
+import {
+  applyVmTowerAliasWhenReady,
+  RESTORE_VM_ALIAS_MAX_WAIT_MS,
+} from '../../../../services/clouds/harvester/vmAlias';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
+
+function backupResourceType(record: HarvesterBackupInventory | null, body: any): 'backup' | 'snapshot' {
+  const t = String(record?.type || record?.rawData?.spec?.type || body?.spec?.type || 'backup');
+  return t === 'snapshot' ? 'snapshot' : 'backup';
+}
 
 /**
  * POST /:id/resources/harvester/virtualmachinerestores/:namespace - 恢复 VM (从备份或快照)
@@ -25,15 +45,121 @@ export async function harvesterRestoreCreateHandler(req: Request, res: Response)
     if (!cloud) return;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+    const conn = { endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any;
 
-    const result = await createHarvesterVirtualMachineRestore(
-      { endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any,
-      namespace,
-      req.body,
-    );
+    const backupName = String(req.body?.spec?.virtualMachineBackupName || '').trim();
+    const backupNs = String(req.body?.spec?.virtualMachineBackupNamespace || namespace).trim();
 
-    res.json({ message: '创建恢复任务成功', data: result });
+    const repo = AppDataSource.getRepository(HarvesterBackupInventory);
+    let backupRecord: HarvesterBackupInventory | null = null;
+    if (backupName) {
+      backupRecord = await repo.findOne({
+        where: { cloudId: id, namespace: backupNs, name: backupName },
+      });
+    }
+
+    if (backupName) {
+      const [longhornRestores, cephRestores] = await Promise.all([
+        listHarvesterVirtualMachineRestoresRaw(conn).catch(() => [] as any[]),
+        listHarvesterCephVmRestoresRaw(conn).catch(() => [] as any[]),
+      ]);
+      const inProgress = findInProgressHarvesterRestoreForBackup(
+        [...longhornRestores, ...cephRestores],
+        backupNs,
+        backupName,
+      );
+      if (inProgress) {
+        const resourceLabel = backupResourceType(backupRecord, req.body) === 'snapshot' ? '快照' : '备份';
+        return res.status(409).json({
+          message: `该${resourceLabel}已有进行中的恢复任务（${inProgress.namespace}/${inProgress.name}，${inProgress.statusText}），请等待完成后再试`,
+        });
+      }
+    }
+
+    let useCeph =
+      isCephVmBackupResource(backupRecord?.rawData) ||
+      String(req.body?.metadata?.annotations?.['tower.io/backupBackend'] || '') === 'ceph';
+
+    let result: any;
+    let restoreBackend: 'ceph' | 'longhorn' = 'longhorn';
+
+    const runCephRestore = async () => {
+      if (!backupName) {
+        throw new Error('缺少备份名称（spec.virtualMachineBackupName）');
+      }
+      let sourceVm = resolveCephBackupSourceVm(backupRecord);
+      if (!sourceVm) {
+        const cephRaw = await findCephVmBackupByName(conn, backupNs, backupName);
+        sourceVm = resolveCephBackupSourceVm(null, cephRaw);
+      }
+      if (!sourceVm) {
+        throw new Error(`无法解析 Ceph 备份 ${backupNs}/${backupName} 的源虚拟机（sourceVm）`);
+      }
+      const cephBody = buildHarvesterCephVmRestoreBody(req.body, {
+        sourceVm,
+        backupName,
+        backupNamespace: backupNs,
+        resourceType: backupResourceType(backupRecord, req.body),
+      });
+      return createHarvesterCephVmRestore(conn, namespace, cephBody);
+    };
+
+    if (useCeph) {
+      result = await runCephRestore();
+      restoreBackend = 'ceph';
+    } else {
+      try {
+        result = await createHarvesterVirtualMachineRestore(conn, namespace, req.body);
+      } catch (e: any) {
+        if (shouldFallbackToCephVmRestore(e) && backupName) {
+          console.log(
+            `[Restore-Create] 备份 ${backupNs}/${backupName} 非 VirtualMachineBackup，改走 CephVmRestore`,
+          );
+          useCeph = true;
+          result = await runCephRestore();
+          restoreBackend = 'ceph';
+        } else {
+          throw e;
+        }
+      }
+    }
+
+    const ann = (req.body?.metadata?.annotations || {}) as Record<string, string>;
+    const restoreMode = String(ann['tower.io/restoreMode'] || '');
+    const displayName = String(ann['tower.io/restoreTargetDisplayName'] || '').trim();
+    const restoreTarget = String(ann['tower.io/restoreTarget'] || '').trim();
+    if (restoreMode === 'new' && displayName && restoreTarget.includes('/')) {
+      const slash = restoreTarget.indexOf('/');
+      const targetNs = restoreTarget.slice(0, slash);
+      const targetVm = restoreTarget.slice(slash + 1);
+      if (targetNs && targetVm) {
+        void applyVmTowerAliasWhenReady(
+          conn,
+          targetNs,
+          targetVm,
+          displayName,
+          RESTORE_VM_ALIAS_MAX_WAIT_MS,
+        ).catch((err) => {
+          console.warn(
+            `[Restore-Create] 恢复后写入 VM 显示名称失败 ${targetNs}/${targetVm}:`,
+            err?.message || err,
+          );
+        });
+      }
+    }
+
+    res.json({
+      message: '创建恢复任务成功',
+      data: result,
+      backend: restoreBackend,
+    });
   } catch (error: any) {
-    res.status(500).json({ message: '创建恢复任务失败', error: error.body || error.message });
+    const detail =
+      typeof error?.body === 'string'
+        ? error.body
+        : error?.body != null
+          ? JSON.stringify(error.body)
+          : error?.message || String(error);
+    res.status(500).json({ message: '创建恢复任务失败', error: detail });
   }
 }

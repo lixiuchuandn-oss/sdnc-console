@@ -7,15 +7,16 @@ import {
   ensureProvider,
   isNamespaceAllowed,
 } from '../harvester.direct.helpers';
-import { licenseService } from '../../../../services/LicenseService';
 import { KubeOvnEipInventory } from '../../../../entities/kubeovn/KubeOvnEipInventory';
 import { KubeOvnFipInventory } from '../../../../entities/kubeovn/KubeOvnFipInventory';
 import { KubeOvnNatRuleInventory } from '../../../../entities/kubeovn/KubeOvnNatRuleInventory';
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { syncKubeOvnNatRules } from '../../../../services/clouds/harvester/inventory';
 import {
-  filterItemsByOvnNetworkScopeForApi,
+  denyOvnVpcLicense,
+  filterOvnListItemsForListQuery,
   formatTowerNamespacesAnnotation,
+  isOvnVpcLicenseEnabled,
   getNamespacesFromKubeOvnSubnet,
   getNamespacesFromKubeOvnVpc,
   inferOvnScopeFromSnatSubnetRef,
@@ -26,6 +27,7 @@ import {
   OvnNetworkScopeListQuery,
   parseRequiredOvnNetworkScopeCreateQuery,
   parseRequiredOvnNetworkScopeListQuery,
+  resolveOvnLicenseScopeFromCr,
   subnetRefToName,
   TOWER_IO_DNAT_PORT_GROUP_ANNOTATION,
   TOWER_IO_NAMESPACES_ANNOTATION,
@@ -226,43 +228,22 @@ function dedupeOvnNatRules(list: any[]): any[] {
   return out;
 }
 
-/** GET 列表：`ovnNetworkScope=underlay|all` 不校验 VPC License；`vpc` 须已开通 network.ovn.vpc */
-function assertOvnVpcLicenseForList(req: any, res: Response, scope: OvnNetworkScopeListQuery): boolean {
+/** GET 列表：`vpc` 须许可证；`all` 未开通时在列表 handler 内筛为 underlay */
+function assertOvnVpcLicenseForList(_req: any, res: Response, scope: OvnNetworkScopeListQuery): boolean {
   if (scope === 'underlay' || scope === 'all') return true;
-  if (!licenseService.hasFeature('network.ovn.vpc')) {
-    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    return false;
-  }
-  return true;
+  return !denyOvnVpcLicense(res);
 }
 
 /** POST 创建：`underlay` 不校验 VPC License */
-function assertOvnVpcLicenseForCreate(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
+function assertOvnVpcLicenseForCreate(_req: any, res: Response, scope: OvnNetworkScope | null): boolean {
   if (scope === 'underlay') return true;
-  if (!licenseService.hasFeature('network.ovn.vpc')) {
-    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    return false;
-  }
-  return true;
+  return !denyOvnVpcLicense(res);
 }
 
-/** DELETE 等：根据资源 scope 判断是否需要 VPC License */
-function assertOvnVpcLicenseForDelete(req: any, res: Response, scope: OvnNetworkScope | null): boolean {
-  if (scope === 'underlay' || scope === null || scope === undefined) return true;
-  if (!licenseService.hasFeature('network.ovn.vpc')) {
-    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    return false;
-  }
-  return true;
-}
-
-/** DELETE 等：与历史未分域行为一致，须已开通 VPC 能力 */
-function assertOvnVpcLicenseStrict(req: any, res: Response): boolean {
-  if (!licenseService.hasFeature('network.ovn.vpc')) {
-    res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    return false;
-  }
-  return true;
+/** DELETE：扁平域资源不占用 VPC 许可证（见 resolveOvnLicenseScopeFromCr） */
+function assertOvnVpcLicenseForDelete(_req: any, res: Response, scope: OvnNetworkScope | null): boolean {
+  if (scope === 'underlay' || scope == null) return true;
+  return !denyOvnVpcLicense(res);
 }
 
 /** OVN CR：metadata.name 为技术 ID；可选 tower.io/alias；可选额外 Tower 注解（如 tower.io/namespaces） */
@@ -374,9 +355,7 @@ async function harvesterOvnEipListHandlerScoped(
     const rawItems = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data) ? json.data : [];
     const userVisibleItems = filterOutSystemLrpEips(rawItems);
     let items = applyNsFilter(userVisibleItems, isTenant, tenantNamespace);
-    if (scope !== 'all') {
-      items = filterItemsByOvnNetworkScopeForApi(items, scope);
-    }
+    items = filterOvnListItemsForListQuery(items, scope, isOvnVpcLicenseEnabled());
     res.json({ message: '查询成功', data: { items } });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -670,8 +649,7 @@ export async function harvesterOvnEipDeleteHandler(req: any, res: Response, next
     const eipObjPrefetch = (Array.isArray(eipsPrefetch) ? eipsPrefetch : []).find(
       (e: any) => String(e?.metadata?.name || '').trim() === nameStr,
     );
-    const eipVpc = String(eipObjPrefetch?.spec?.vpc || '').trim();
-    const eipScope = eipVpc ? 'vpc' : 'underlay';
+    const eipScope = resolveOvnLicenseScopeFromCr(eipObjPrefetch);
     if (!assertOvnVpcLicenseForDelete(req, res, eipScope)) return;
 
     let eipSnap: any | null = null;
@@ -863,10 +841,7 @@ export async function harvesterOvnFipDeleteHandler(req: any, res: Response, next
     const fipObj = (Array.isArray(fips) ? fips : []).find(
       (f: any) => String(f?.metadata?.name || '').trim() === nameStr,
     );
-    // FIP 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
-    const fipVpc = String(fipObj?.spec?.vpc || '').trim();
-    const fipScope = fipVpc ? 'vpc' : 'underlay';
-
+    const fipScope = resolveOvnLicenseScopeFromCr(fipObj);
     if (!assertOvnVpcLicenseForDelete(req, res, fipScope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnfips', 'ovn-fips', nameStr);
     try {
@@ -900,9 +875,7 @@ export async function harvesterOvnSnatDeleteHandler(req: any, res: Response, nex
     const snatObj = (Array.isArray(snats) ? snats : []).find(
       (s: any) => String(s?.metadata?.name || '').trim() === nameStr,
     );
-    // SNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
-    const snatVpc = String(snatObj?.spec?.vpc || '').trim();
-    const scope = snatVpc ? 'vpc' : 'underlay';
+    const scope = resolveOvnLicenseScopeFromCr(snatObj);
     if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
     await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovnsnatrules', 'ovn-snat-rules', nameStr);
     try {
@@ -940,9 +913,7 @@ export async function harvesterOvnDnatDeleteHandler(req: any, res: Response, nex
     const dnatObj = (Array.isArray(dnats) ? dnats : []).find(
       (d: any) => String(d?.metadata?.name || '').trim() === nameStr,
     );
-    // DNAT 通过其关联的 VPC 来判断 scope（如果有 VPC 则为 vpc scope，否则为 underlay）
-    const dnatVpc = String(dnatObj?.spec?.vpc || '').trim();
-    const scope = dnatVpc ? 'vpc' : 'underlay';
+    const scope = resolveOvnLicenseScopeFromCr(dnatObj);
     if (!assertOvnVpcLicenseForDelete(req, res, scope)) return;
 
     const portGroupId = String(
@@ -1027,9 +998,7 @@ async function harvesterOvnFipListHandlerScoped(
 
     const rawItems = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data) ? json.data : [];
     let items = applyNsFilter(rawItems, isTenant, tenantNamespace);
-    if (scope !== 'all') {
-      items = filterItemsByOvnNetworkScopeForApi(items, scope);
-    }
+    items = filterOvnListItemsForListQuery(items, scope, isOvnVpcLicenseEnabled());
     res.json({ message: '查询成功', data: { items } });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -1288,9 +1257,7 @@ async function harvesterOvnSnatListHandlerScoped(
     const items = await repo.find({ where: whereCondition });
     let list = items.map((i) => i.rawData).filter((item) => item != null);
     list = applyNsFilter(list, isTenant, tenantNamespace);
-    if (scope !== 'all') {
-      list = filterItemsByOvnNetworkScopeForApi(list, scope);
-    }
+    list = filterOvnListItemsForListQuery(list, scope, isOvnVpcLicenseEnabled());
     list = dedupeOvnNatRules(list);
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
@@ -1487,9 +1454,7 @@ async function harvesterOvnDnatListHandlerScoped(
     const items = await repo.find({ where: whereCondition });
     let list = items.map((i) => i.rawData).filter((item) => item != null);
     list = applyNsFilter(list, isTenant, tenantNamespace);
-    if (scope !== 'all') {
-      list = filterItemsByOvnNetworkScopeForApi(list, scope);
-    }
+    list = filterOvnListItemsForListQuery(list, scope, isOvnVpcLicenseEnabled());
     list = dedupeOvnNatRules(list);
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {

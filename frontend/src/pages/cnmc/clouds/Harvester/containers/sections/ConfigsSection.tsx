@@ -1400,7 +1400,7 @@ const ConfigsSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
   const [secretTypeFilter, setSecretTypeFilter] = useState<string | undefined>();
   
@@ -1469,8 +1469,10 @@ const ConfigsSection: React.FC<Props> = ({
           (c.env || []).some((e: any) => e.valueFrom?.configMapKeyRef?.name === resourceName) ||
           (c.envFrom || []).some((ef: any) => ef.configMapRef?.name === resourceName)
         );
+        const workloadAlias = workload?.metadata?.annotations?.['tower.io/alias'];
+        const workloadDisplayName = workloadAlias ? `${workloadAlias} (${workloadName})` : workloadName;
         if (usedInVolumes || usedInEnv) {
-          usedBy.push(`${workloadName} (${workload.kind || 'Deployment'})`);
+          usedBy.push(`${workloadDisplayName} (${workload.kind || 'Deployment'})`);
         }
       } else {
         const usedInVolumes = volumes.some((v: any) => v.secret?.secretName === resourceName);
@@ -1479,8 +1481,10 @@ const ConfigsSection: React.FC<Props> = ({
           (c.envFrom || []).some((ef: any) => ef.secretRef?.name === resourceName)
         );
         const usedInImagePullSecrets = (template?.spec?.imagePullSecrets || []).some((s: any) => s.name === resourceName);
+        const workloadAlias = workload?.metadata?.annotations?.['tower.io/alias'];
+        const workloadDisplayName = workloadAlias ? `${workloadAlias} (${workloadName})` : workloadName;
         if (usedInVolumes || usedInEnv || usedInImagePullSecrets) {
-          usedBy.push(`${workloadName} (${workload.kind || 'Deployment'})`);
+          usedBy.push(`${workloadDisplayName} (${workload.kind || 'Deployment'})`);
         }
       }
     });
@@ -1538,20 +1542,28 @@ const ConfigsSection: React.FC<Props> = ({
   
   // 根据 nsValue 过滤数据
   const filteredConfigMaps = useMemo(() => {
-    if (!nsValue) return configmaps;
-    return configmaps.filter((item: any) => item?.metadata?.namespace === nsValue);
+    let result = nsValue ? configmaps.filter((item: any) => item?.metadata?.namespace === nsValue) : configmaps;
+    result = [...result].sort((a: any, b: any) => {
+      const ta = a?.metadata?.creationTimestamp ? new Date(a.metadata.creationTimestamp).getTime() : 0;
+      const tb = b?.metadata?.creationTimestamp ? new Date(b.metadata.creationTimestamp).getTime() : 0;
+      return tb - ta;
+    });
+    return result;
   }, [configmaps, nsValue]);
   
   const filteredSecrets = useMemo(() => {
     let result = secrets;
-    // 先按命名空间过滤
     if (nsValue) {
       result = result.filter((item: any) => item?.metadata?.namespace === nsValue);
     }
-    // 再按类型过滤
     if (secretTypeFilter) {
       result = result.filter((item: any) => item?.type === secretTypeFilter);
     }
+    result = [...result].sort((a: any, b: any) => {
+      const ta = a?.metadata?.creationTimestamp ? new Date(a.metadata.creationTimestamp).getTime() : 0;
+      const tb = b?.metadata?.creationTimestamp ? new Date(b.metadata.creationTimestamp).getTime() : 0;
+      return tb - ta;
+    });
     return result;
   }, [secrets, nsValue, secretTypeFilter]);
   

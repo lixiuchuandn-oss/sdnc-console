@@ -19,6 +19,88 @@ const harborLog = logger.child('HarborProjects');
 const router = Router();
 
 /**
+ * 转换 Harbor scan_overview 格式为前端期望的格式
+ * Harbor API 返回格式：
+ * {
+ *   "application/vnd.scanner.adapter.vuln.report.harbor+json; version=1.0": {
+ *     "scan_status": "Success",
+ *     "severity": "High",
+ *     "summary": {
+ *       "total": 10,
+ *       "fixable": 5,
+ *       "summary": [{"severity": "Critical", "count": 2}, ...]
+ *     }
+ *   }
+ * }
+ * 前端期望格式：
+ * {
+ *   "total": 10,
+ *   "fixable": 5,
+ *   "summary": { "critical": 2, "high": 3, "medium": 3, "low": 2 }
+ * }
+ */
+const transformScanOverview = (scanOverview: any): any => {
+  if (!scanOverview) return undefined;
+  
+  const keys = Object.keys(scanOverview);
+  if (keys.length === 0) return undefined;
+  
+  // 匹配多种可能的 report key 格式
+  const reportKey = keys.find(k => 
+    k.includes('vuln.report') || 
+    k.includes('scanner.adapter') ||
+    k.includes('security.vulnerability.report')
+  );
+  
+  if (!reportKey) return undefined;
+  
+  const report = scanOverview[reportKey];
+  if (!report) return undefined;
+  
+  // 检查扫描状态
+  if (report.scan_status && report.scan_status !== 'Success' && report.scan_status !== 'Finished') {
+    return undefined;
+  }
+  
+  const summaryData = report.summary;
+  if (!summaryData) return undefined;
+  
+  const result: any = {
+    total: summaryData.total || 0,
+    fixable: summaryData.fixable || 0,
+    summary: {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+    },
+  };
+  
+  // summary.summary 可能是数组或对象
+  if (Array.isArray(summaryData.summary)) {
+    for (const item of summaryData.summary) {
+      const severity = (item.severity || '').toLowerCase();
+      const count = item.count || 0;
+      if (severity === 'critical') result.summary.critical = count;
+      else if (severity === 'high') result.summary.high = count;
+      else if (severity === 'medium') result.summary.medium = count;
+      else if (severity === 'low') result.summary.low = count;
+    }
+  } else if (typeof summaryData.summary === 'object') {
+    // 对象格式: {Critical: 2, High: 11, Medium: 7}
+    for (const [severity, count] of Object.entries(summaryData.summary)) {
+      const s = severity.toLowerCase();
+      if (s === 'critical') result.summary.critical = count as number;
+      else if (s === 'high') result.summary.high = count as number;
+      else if (s === 'medium') result.summary.medium = count as number;
+      else if (s === 'low') result.summary.low = count as number;
+    }
+  }
+  
+  return result;
+};
+
+/**
  * 获取 HarborProxyService 实例
  */
 const getHarborService = async (registryId: string): Promise<{ harbor: HarborRegistry; service: HarborProxyService } | null> => {
@@ -548,7 +630,7 @@ router.get('/registries/:id/projects/:project/repositories/:repo/artifacts', asy
       ...artifact,
       pushTime: artifact.push_time,
       pullTime: artifact.pull_time,
-      scanOverview: artifact.scan_overview,
+      scanOverview: transformScanOverview(artifact.scan_overview),
       extraAttrs: artifact.extra_attrs,
     }));
     
@@ -590,7 +672,7 @@ router.get('/registries/:id/projects/:project/repositories/:repo/artifacts/:ref'
       ...artifact,
       pushTime: artifact.push_time,
       pullTime: artifact.pull_time,
-      scanOverview: artifact.scan_overview,
+      scanOverview: transformScanOverview(artifact.scan_overview),
       extraAttrs: artifact.extra_attrs,
     };
     

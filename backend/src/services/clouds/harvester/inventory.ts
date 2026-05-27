@@ -69,6 +69,8 @@ import {
   listHarvesterVirtualMachineSnapshots,
   listHarvesterVolumeSnapshots,
   listHarvesterBackupsStandard,
+  listHarvesterCephVmBackupsRaw,
+  normalizeCephVmBackupForInventory,
   listHarvesterSshKeysStandard,
   listHarvesterCloudInitsStandard,
   listHarvesterLoadBalancerIPPools,
@@ -84,6 +86,9 @@ import {
   listHarvesterPciDevices,
   listHarvesterTemplatesRaw,
   listHarvesterScheduleVmBackupsStandard,
+  listHarvesterScheduleCephVmBackupsRaw,
+  normalizeCephScheduleVmBackupForInventory,
+  scheduleInventoryFieldsFromRaw,
   listHarvesterClusterNetworks,
   listHarvesterClusterNetworkConfigs,
 } from './client';
@@ -215,39 +220,59 @@ export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
  * @param insecure 是否忽略 TLS 校验
  */
 export const syncHarvesterScheduleVmBackups = async (cloud: any, insecure: boolean) => {
-  let items: any[] = [];
+  const conn = {
+    endpoint: cloud.endpoint,
+    token: cloud.secretKey,
+    insecure,
+  } as any;
+
+  let longhornItems: any[] = [];
   try {
-    items = await listHarvesterScheduleVmBackupsStandard({
-      endpoint: cloud.endpoint,
-      token: cloud.secretKey,
-      insecure,
-    } as any);
+    longhornItems = await listHarvesterScheduleVmBackupsStandard(conn);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    invLog.warn(`${cloud.name}: 定时备份策略获取失败:`, e.message);
+    invLog.warn(`${cloud.name}: Longhorn 定时备份策略获取失败:`, e.message);
     return;
   }
 
-  invLog.debug(`${cloud.name}: 定时备份策略同步完成，共 ${items.length} 条`);
+  let cephItems: any[] = [];
+  try {
+    cephItems = await listHarvesterScheduleCephVmBackupsRaw(conn);
+  } catch (e: any) {
+    if (Number(e?.status) !== 401 && !String(e?.message).includes('401')) {
+      invLog.warn(`${cloud.name}: Ceph 定时备份策略获取失败:`, e.message);
+    }
+  }
 
-  // Filter out items that are marked for deletion
+  const items = [
+    ...longhornItems,
+    ...cephItems.map((c) => normalizeCephScheduleVmBackupForInventory(c)),
+  ];
+
+  invLog.debug(
+    `${cloud.name}: 定时备份策略同步完成，Longhorn ${longhornItems.length} 条，Ceph ${cephItems.length} 条`,
+  );
+
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
 
   const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
-  await upsertItems(repo, cloud.id, validItems, (item) => ({
-    uid: item.metadata?.uid || item.id,
-    name: item.metadata?.name,
-    namespace: item.metadata?.namespace,
-    cron: item.spec?.cron,
-    vmName: item.spec?.vmbackup?.source?.name,
-    retention: String(item.spec?.retain || ''),
-    status: item.spec?.suspend ? 'Suspended' : 'Active',
-    maxFailure: item.spec?.maxFailure,
-    links: item.links,
-    labels: item.metadata?.labels,
-    annotations: item.metadata?.annotations,
-    rawData: item,
-  }));
+  await upsertItems(repo, cloud.id, validItems, (item) => {
+    const fields = scheduleInventoryFieldsFromRaw(item);
+    return {
+      uid: item.metadata?.uid || item.id,
+      name: item.metadata?.name,
+      namespace: item.metadata?.namespace,
+      cron: fields.cron,
+      vmName: fields.vmName,
+      retention: fields.retention,
+      status: fields.status,
+      maxFailure: fields.maxFailure,
+      links: item.links,
+      labels: item.metadata?.labels,
+      annotations: item.metadata?.annotations,
+      rawData: item,
+    };
+  });
 };
 
 /**
@@ -1012,6 +1037,7 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
  */
 export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
+  let cephItems: any[] = [];
   try {
     invLog.debug(`${cloud.name}: 开始获取备份列表，cloudId: ${cloud.id}`);
     items = await listHarvesterBackupsStandard({
@@ -1029,8 +1055,24 @@ export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
     throw e;
   }
 
+  try {
+    cephItems = await listHarvesterCephVmBackupsRaw({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+    invLog.debug(`${cloud.name}: CephVmBackup ${cephItems.length} 条`);
+  } catch (e: any) {
+    invLog.warn(`${cloud.name}: CephVmBackup 列表获取失败（忽略）:`, e?.message || e);
+  }
+
+  const merged = [
+    ...items,
+    ...cephItems.map((c) => normalizeCephVmBackupForInventory(c)),
+  ];
+
   // Filter out items that are marked for deletion
-  const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
+  const validItems = merged.filter((item: any) => !item.metadata?.deletionTimestamp);
   invLog.debug(`${cloud.name}: 过滤后有效备份 ${validItems.length} 条（排除删除中的备份）`);
 
   const repo = AppDataSource.getRepository(HarvesterBackupInventory);

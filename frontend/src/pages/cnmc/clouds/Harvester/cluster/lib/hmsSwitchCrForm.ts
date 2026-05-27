@@ -1,4 +1,5 @@
 /** 表单字段 ↔ HMS Switch CR spec 转换（与集群 hms.rivercloud.com/v1 Switch 一致） */
+import type { HmsSwitchCr, HmsSwitchCrSpec } from 'services/harvester/types/cluster';
 
 export const HMS_SWITCH_VENDOR_OPTIONS = [
   { label: '华为', value: '华为' },
@@ -48,7 +49,7 @@ function positiveIntOrDefault(raw: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-export function hmsSwitchCrToFormValues(cr: any): HmsSwitchFormValues {
+export function hmsSwitchCrToFormValues(cr: HmsSwitchCr | null | undefined): HmsSwitchFormValues {
   const spec = cr?.spec || {};
   const hosts = Array.isArray(spec.hosts) ? spec.hosts.map(String) : [];
   const primaryHost = String(spec.primaryHost || hosts[0] || '').trim();
@@ -75,14 +76,14 @@ export function hmsSwitchCrToFormValues(cr: any): HmsSwitchFormValues {
   };
 }
 
-export function hmsSwitchFormValuesToSpec(values: HmsSwitchFormValues, isEdit: boolean) {
+export function hmsSwitchFormValuesToSpec(values: HmsSwitchFormValues, isEdit: boolean): HmsSwitchCrSpec {
   const primaryHost = String(values.primaryHost || '').trim();
   const extraHosts = linesToCommands(values.hostsText).filter(Boolean);
   const hosts = primaryHost
     ? [primaryHost, ...extraHosts.filter((h) => h !== primaryHost)]
     : extraHosts;
 
-  const spec: Record<string, unknown> = {
+  const spec: HmsSwitchCrSpec = {
     hosts,
     primaryHost,
     user: String(values.user || 'root').trim() || 'root',
@@ -103,7 +104,7 @@ export function hmsSwitchFormValuesToSpec(values: HmsSwitchFormValues, isEdit: b
     spec.password = pwd;
   }
 
-  if (!Array.isArray(spec.corsAllowedOrigins) || (spec.corsAllowedOrigins as string[]).length === 0) {
+  if (!spec.corsAllowedOrigins?.length) {
     spec.corsAllowedOrigins = ['*'];
   }
 

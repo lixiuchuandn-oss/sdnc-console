@@ -52,21 +52,23 @@ export {
 
 // --- 集群 · 命名空间 · 存储类 · 能力 ---
 export {
-  fetchHarvesterCapabilities, // 集群能力/特性（首屏或鉴能力）
   fetchHarvesterClusterNetworks, // 集群网络（Harvester Cluster Network）
   fetchAswCtlSwitchesSummary, // 物理交换机：Tower 已入库列表（不触发集群侧实时探测）
   syncAswCtlSwitchesToInventory, // 物理交换机：探测并写库后返回列表
+} from 'services/harvester/cluster';
+
+export {
   fetchHarvesterNamespaces, // 命名空间列表
   fetchHarvesterNodes, // 物理节点列表
   fetchHarvesterStorageClasses, // 存储类（StorageClass）列表
-} from '../../../../../services/harvesterApi';
-
-// --- 直通设备：GPU · USB · PCI ---
-export {
   fetchHarvesterGpuResources, // GPU 设备列表
   fetchHarvesterPciDevices, // PCI 设备列表（透传等）
   fetchHarvesterUsbResources, // USB 设备列表
-} from '../../../../../services/harvesterApi';
+} from 'services/harvester/clusterInventory';
+
+export {
+  fetchHarvesterCapabilities, // 集群能力/特性（首屏或鉴能力）
+} from 'services/harvester/vm';
 
 // --- 网络附件 · 负载均衡 · IP 池 ---
 export {

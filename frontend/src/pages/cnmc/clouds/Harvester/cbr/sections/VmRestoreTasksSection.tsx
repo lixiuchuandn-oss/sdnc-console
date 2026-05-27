@@ -5,9 +5,28 @@ import { CloudServerOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined, 
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
-import { deleteHarvesterBackup, deleteHarvesterVirtualMachineRestore, fetchHarvesterBackups, fetchHarvesterVirtualMachineRestores } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import {
+  deleteHarvesterBackup,
+  deleteHarvesterVirtualMachineRestore,
+  fetchHarvesterBackups,
+  fetchHarvesterCephVmRestores,
+  fetchHarvesterVirtualMachineRestores,
+} from 'services/harvester/cbr';
+import {
+  isHarvesterCephVmRestore,
+  isSystemNamespace,
+} from '../../../../../../utils/harvesterUtils';
+import { resolveHarvesterSteveViewLink } from '../../shared/lib/harvesterSteveViewLink';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { findHarvesterVmDisplayAlias } from '../lib/vmBackupDisplay';
+import {
+  getHarvesterRestoreTaskStatus,
+  isHarvesterRestoreTaskRecord,
+} from '../lib/vmRestoreTaskStatus';
+import {
+  ensureHarvesterRestoreTargetVmAlias,
+  parseHarvesterRestoreTargetAlias,
+} from '../../ecs/lib/vmTowerAlias';
 
 type Props = {
   cloudId: string;
@@ -50,49 +69,12 @@ const EllipsisTooltip: React.FC<{
   </span>
 );
 
-/**
- * 是否已终态失败。恢复/替换 VM 过程中源机关机、磁盘替换、目标机再启动等阶段
- * Ready 经常为 false，消息里也可能出现 error 子串（如 “no error”），不能据此判失败。
- * 仅在 phase 明确失败，或存在 type=Failed/Error 且 status=True 的条件时判失败。
- */
-const isFailedByConditions = (raw: any) => {
-  const phase = String(raw?.status?.phase || '').toLowerCase();
-  if (phase === 'failed' || phase === 'error') return true;
-  const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
-  return conds.some((c: any) => {
-    const type = String(c?.type || '').toLowerCase();
-    const status = String(c?.status || '').toLowerCase();
-    if (status === 'true' && (type === 'failed' || type === 'error')) return true;
-    // Ready=false 仅表示尚未完成，不等价于失败（与列表“进行中”语义一致）
-    return false;
-  });
-};
-
-const getRestoreStatus = (raw: any) => {
-  const failed = isFailedByConditions(raw);
-  if (failed) return { phase: 'failed', text: '失败' as const, progress: 0 };
-  const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
-  const ready = conds.some((c: any) => String(c?.type || '').toLowerCase() === 'ready' && String(c?.status || '').toLowerCase() === 'true');
-  const completed = conds.some((c: any) => String(c?.type || '').toLowerCase() === 'completed' && String(c?.status || '').toLowerCase() === 'true');
-  if (ready || completed) return { phase: 'ready', text: '完成' as const, progress: 100 };
-  
-  // 如果任务正在进行中但 progress 为 0 或未定义，显示中间值 70% 而不是 0%
-  const rawProgress = typeof raw?.status?.progress === 'number' ? raw.status.progress : undefined;
-  const progress = rawProgress !== undefined ? rawProgress : 70; // 默认显示 70% 表示进行中
-  return { phase: 'pending', text: '进行中' as const, progress: Math.max(0, Math.min(100, progress)) };
-};
-
-const getBackupStatus = (raw: any) => {
-  const failed = isFailedByConditions(raw);
-  if (failed) return { phase: 'failed', text: '失败' as const };
-  const ready = !!raw?.status?.readyToUse;
-  if (ready) return { phase: 'ready', text: '就绪' as const };
-  return { phase: 'pending', text: '未就绪' as const };
-};
+const getRestoreStatus = getHarvesterRestoreTaskStatus;
+const isRestoreTaskRecord = isHarvesterRestoreTaskRecord;
 
 const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
@@ -104,24 +86,14 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const timerRef = useRef<any>(null);
+  /** 已成功写入 tower.io/alias 的目标 VM（ns/name） */
+  const restoreAliasAppliedRef = useRef<Set<string>>(new Set());
+  const restoreAliasInflightRef = useRef<Set<string>>(new Set());
 
   // 过滤出恢复任务（排除克隆任务）
   const normalizeRestores = useMemo(() => {
     const list = Array.isArray(restores) ? restores : [];
-    return list
-      .map((r: any) => (r?.rawData || r))
-      .filter((raw: any) => {
-        // 排除克隆任务
-        const hasCloneMark = !!raw?.metadata?.annotations?.['tower.io/cloneTask'] || !!raw?.metadata?.annotations?.['tower.io/clone'];
-        if (hasCloneMark) return false;
-        
-        // 包含恢复任务标记
-        const hasRestoreMark = !!raw?.metadata?.annotations?.['tower.io/restoreTask'];
-        const name = String(raw?.metadata?.name || '');
-        const looksLikeRestore = name.startsWith('restore-');
-        
-        return hasRestoreMark || looksLikeRestore;
-      });
+    return list.map((r: any) => (r?.rawData || r)).filter(isRestoreTaskRecord);
   }, [restores]);
 
   // 获取恢复任务关联的备份/快照
@@ -141,61 +113,52 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
 
   const dataSource = useMemo(() => {
     return normalizeRestores.map((r: any) => {
+      const isCeph = isHarvesterCephVmRestore(r);
       const ns = String(r?.metadata?.namespace || '');
       const name = String(r?.metadata?.name || '');
-      const target = String(r?.spec?.target?.name || '');
-      const backupName = String(r?.spec?.virtualMachineBackupName || '');
-      const backupNs = String(r?.spec?.virtualMachineBackupNamespace || ns);
+      const target = isCeph
+        ? String(r?.spec?.targetVmName || '')
+        : String(r?.spec?.target?.name || '');
+      const backupName = isCeph
+        ? String(r?.spec?.backupName || '')
+        : String(r?.spec?.virtualMachineBackupName || '');
+      const backupNs = isCeph
+        ? String(r?.spec?.targetNamespace || ns)
+        : String(r?.spec?.virtualMachineBackupNamespace || ns);
       const backup = backupName ? backupIndex.get(`${backupNs}/${backupName}`) : null;
-      const sourceVm = String(backup?.spec?.source?.name || '');
-      const restoreMode = r?.metadata?.annotations?.['tower.io/restoreMode'] || (r?.spec?.newVM ? 'new' : 'replace');
-      const resourceType = backup?.spec?.type || 'backup';
+      const sourceVm = isCeph
+        ? String(r?.spec?.sourceVm || backup?.spec?.source?.name || backup?.spec?.sourceVm || '')
+        : String(backup?.spec?.source?.name || backup?.spec?.sourceVm || '');
+      const annRestoreMode = r?.metadata?.annotations?.['tower.io/restoreMode'];
+      const restoreMode = annRestoreMode
+        || (isCeph
+          ? (String(r?.spec?.restoreType || '') === 'replace' ? 'replace' : 'new')
+          : (r?.spec?.newVM ? 'new' : 'replace'));
+      const resourceType = isCeph
+        ? (r?.spec?.type || backup?.spec?.type || 'backup')
+        : (backup?.spec?.type || 'backup');
       const restoreStatus = getRestoreStatus(r);
       const ann = (r?.metadata?.annotations || {}) as Record<string, string>;
       const annSourceAlias = String(ann['tower.io/restoreSourceVmAlias'] || '').trim();
       const annTargetDisp = String(ann['tower.io/restoreTargetDisplayName'] || '').trim();
 
       // 获取源虚拟机别名
-      let sourceVmAlias = '-';
-      if (annSourceAlias) {
-        sourceVmAlias = annSourceAlias;
-      } else if (sourceVm && sourceVm !== '-') {
-        try {
-          const vm = (vms || []).find((vm: any) => {
-            const vmNs = vm?.metadata?.namespace || vm?.namespace;
-            const vmName = vm?.metadata?.name || vm?.name;
-            return vmNs === ns && vmName === sourceVm;
-          });
-          if (vm) {
-            sourceVmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || sourceVm || '-';
-          } else {
-            sourceVmAlias = sourceVm;
-          }
-        } catch {}
-      }
+      const sourceVmAlias =
+        annSourceAlias ||
+        (sourceVm && sourceVm !== '-'
+          ? findHarvesterVmDisplayAlias(vms, ns, sourceVm)
+          : '-');
 
-      // 获取目标虚拟机别名
-      let targetVmAlias = '-';
-      if (annTargetDisp) {
-        targetVmAlias = annTargetDisp;
-      } else if (target && target !== '-') {
-        try {
-          const vm = (vms || []).find((vm: any) => {
-            const vmNs = vm?.metadata?.namespace || vm?.namespace;
-            const vmName = vm?.metadata?.name || vm?.name;
-            return vmNs === ns && vmName === target;
-          });
-          if (vm) {
-            targetVmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || target || '-';
-          } else {
-            targetVmAlias = target;
-          }
-        } catch {}
-      }
+      const targetVmAlias =
+        annTargetDisp ||
+        (target && target !== '-'
+          ? findHarvesterVmDisplayAlias(vms, ns, target)
+          : '-');
 
       return {
-        key: r?.metadata?.uid || `${ns}/${name}`,
+        key: r?.metadata?.uid || `${isCeph ? 'ceph' : 'vmr'}-${ns}/${name}`,
         namespace: ns,
+        restoreBackend: isCeph ? 'ceph' : 'longhorn',
         restoreName: name,
         targetVm: target || '-',
         targetVmAlias: targetVmAlias,
@@ -271,14 +234,20 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
   const refresh = useCallback(async (force = true) => {
     setLoading(true);
     try {
-      const [bkRes, rsRes] = await Promise.all([
+      const [bkRes, rsRes, cephRsRes] = await Promise.all([
         fetchHarvesterBackups(cloudId, force, false),
         fetchHarvesterVirtualMachineRestores(cloudId, force),
+        fetchHarvesterCephVmRestores(cloudId, force).catch(() => ({ items: [] })),
       ]);
       const bkItems: any[] = Array.isArray((bkRes as any)?.data?.items) ? (bkRes as any).data.items : [];
       const rsItems: any[] = Array.isArray((rsRes as any)?.items) ? (rsRes as any).items : Array.isArray((rsRes as any)?.data?.items) ? (rsRes as any).data.items : [];
+      const cephRsItems: any[] = Array.isArray((cephRsRes as any)?.items)
+        ? (cephRsRes as any).items
+        : Array.isArray((cephRsRes as any)?.data?.items)
+          ? (cephRsRes as any).data.items
+          : [];
       setBackups(bkItems);
-      setRestores(rsItems);
+      setRestores([...rsItems, ...cephRsItems]);
     } catch (e: any) {
       message.error(e?.message || '刷新失败');
     } finally {
@@ -295,31 +264,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     },
     [openYamlDrawer],
   );
-
-  const deleteTask = (row: any) => {
-    modal.confirm({
-      title: '确认删除恢复任务？',
-      content: `将删除恢复任务 ${row.restoreName}，该操作不可恢复。`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        const hide = message.loading('正在删除...', 0);
-        try {
-          const ns = String(row.namespace || '');
-          if (row.restoreRaw && row.restoreName && row.restoreName !== '-') {
-            await deleteHarvesterVirtualMachineRestore(cloudId, ns, row.restoreName);
-          }
-          message.success('删除成功');
-          await refresh(true);
-        } catch (e: any) {
-          message.error(e?.message || '删除失败');
-        } finally {
-          hide();
-        }
-      },
-    });
-  };
 
   useEffect(() => {
     refresh(true);
@@ -342,6 +286,30 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       window.removeEventListener('harvester:restore-created', handleRestoreCreated);
     };
   }, [refresh]);
+
+  // 新建恢复：任务进行中/完成时持续尝试写入显示别名（VM 往往在恢复末期才创建）
+  useEffect(() => {
+    filtered.forEach((row: any) => {
+      if (row.restoreMode !== '新建') return;
+      if (row.restoreStatus?.phase === 'failed') return;
+      const parsed = parseHarvesterRestoreTargetAlias(row.restoreRaw);
+      if (!parsed) return;
+      const key = `${parsed.namespace}/${parsed.vmName}`;
+      if (restoreAliasAppliedRef.current.has(key)) return;
+      if (restoreAliasInflightRef.current.has(key)) return;
+      restoreAliasInflightRef.current.add(key);
+      void ensureHarvesterRestoreTargetVmAlias(cloudId, row.restoreRaw)
+        .then((ok) => {
+          if (ok) restoreAliasAppliedRef.current.add(key);
+        })
+        .catch((e) => {
+          console.warn('[RestoreTasks] apply VM alias failed:', e);
+        })
+        .finally(() => {
+          restoreAliasInflightRef.current.delete(key);
+        });
+    });
+  }, [filtered, cloudId]);
 
   useEffect(() => {
     const hasPending = filtered.some((x: any) => {
@@ -367,6 +335,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       title: '任务名称',
       dataIndex: 'restoreName',
       key: 'restoreName',
+      fixed: 'left' as const,
       render: (_: any, r: any) => {
         const n = String(r?.restoreName || r?.restoreRaw?.metadata?.name || '').trim() || '—';
         return (
@@ -481,28 +450,29 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
     {
       title: '操作',
       key: 'actions',
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const ns = String(r.namespace || '');
-        const items: MenuProps['items'] = [
-          ...(r.backupRaw ? [{
-            key: 'backup_yaml',
-            label: '查看YAML',
-            onClick: () => {
-              const name = String(r.backupName || '');
-              const view = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`;
-              openYamlFromTask(r.backupRaw, 'VirtualMachineBackup', view, '备份 YAML');
-            },
-          }] : []),
-          ...(r.restoreRaw ? [{
-            key: 'restore_yaml',
-            label: '查看YAML',
-            onClick: () => {
-              const name = String(r.restoreName || '');
-              const view = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinerestores/${encodeURIComponent(name)}`;
-              openYamlFromTask(r.restoreRaw, 'VirtualMachineRestore', view, '恢复任务 YAML');
-            },
-          }] : []),
-        ];
+        const items: MenuProps['items'] = r.restoreRaw
+          ? [
+              {
+                key: 'restore_yaml',
+                label: '查看YAML',
+                onClick: () => {
+                  const name = String(r.restoreName || '');
+                  const rawRestore = r.restoreRaw || {};
+                  const isCeph = r.restoreBackend === 'ceph' || isHarvesterCephVmRestore(rawRestore);
+                  const kind = isCeph ? 'CephVmRestore' : 'VirtualMachineRestore';
+                  const view =
+                    resolveHarvesterSteveViewLink({ ...rawRestore, kind }) ||
+                    (isCeph
+                      ? `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmrestores/${encodeURIComponent(name)}`
+                      : `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinerestores/${encodeURIComponent(name)}`);
+                  openYamlFromTask({ ...rawRestore, kind }, kind, view, '恢复任务 YAML');
+                },
+              },
+            ]
+          : [];
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
             <Button className="row-actions-trigger" icon={<EllipsisOutlined />} />

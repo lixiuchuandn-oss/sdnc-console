@@ -39,7 +39,7 @@ import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
-import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../../../services/harvesterApi';
+import { fetchHarvesterCapabilities, createHarvesterVm } from 'services/harvester/vm';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';

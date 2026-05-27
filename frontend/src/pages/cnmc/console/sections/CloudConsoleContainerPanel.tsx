@@ -269,6 +269,8 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
             onNsChange={onNsChange}
             onRefresh={onRefreshWorkloads}
             createDefaultNamespace={createDefaultNamespace}
+            onRefreshConfigMaps={() => onRefreshConfigs(true)}
+            onRefreshSecrets={() => onRefreshConfigs(true)}
           />
         );
       case 'ctr-pods':
@@ -437,7 +439,6 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     volumes,
     resourceLoading,
     namespacesOptions,
-    namespaceRecords,
     nodesOptions,
     nsValue,
     nodeValue,

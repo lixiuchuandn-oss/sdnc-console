@@ -5,7 +5,11 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import { createCloudProviderOvnDnatRule, deleteCloudProviderOvnDnatRule } from '../../../../../../services/harvesterApi';
+import {
+  createCloudProviderOvnDnatRule,
+  deleteCloudProviderOvnDnatRule,
+  uiNetworkScopeToCloudOvn,
+} from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import MetadataModal from '../modals/MetadataModal';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -30,6 +34,11 @@ import {
   getOvnEipBoundVpcName,
 } from '../lib/kubeOvnEipVpcHelpers';
 import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
+import {
   buildVmNicIpOptions,
   subnetCidrOf,
   vmUsesSubnet,
@@ -48,7 +57,7 @@ import {
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
-  onRefresh: (force?: boolean, silent?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
   bordered?: boolean;
 }
 
@@ -442,7 +451,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         );
         return;
       }
-      const scope = networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
+      const scope = uiNetworkScopeToCloudOvn(networkScope);
       const displayName = String(values.displayName ?? '').trim();
       const subnetName = String(values.subnetName || '').trim();
       const subnetList = networkScope === 'vpc' ? subnetChoicesForDnatByVpc : subnetChoicesForDnat;
@@ -504,7 +513,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       );
       setIsCreateVisible(false);
       form.resetFields();
-      onRefresh(true, true);
+      runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
     } catch (e: any) {
       if (e?.errorFields) return;
       let errMsg = e.message || '创建失败';
@@ -545,11 +554,13 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           cancelText: '取消',
           onOk: async () => {
             try {
-              const apiScope =
-                networkScope === 'flat' ? 'flat' : networkScope === 'vpc' ? 'vpc' : 'legacy';
-              await deleteCloudProviderOvnDnatRule(cloudId, record.metadata?.name, apiScope);
+              await deleteCloudProviderOvnDnatRule(
+                cloudId,
+                record.metadata?.name,
+                uiNetworkScopeToCloudOvn(networkScope),
+              );
               message.success('删除成功');
-              onRefresh(true);
+              runHarvesterSectionRefresh(onRefresh, { force: true });
             } catch (e: any) {
               message.error(`删除失败: ${e.message}`);
             }
@@ -755,7 +766,12 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
           <Space size={8}>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey={dnatTableSettingsKey} />
             <Tooltip title="刷新">
-              <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading} aria-label="刷新" />
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={createHarvesterToolbarRefresh(onRefresh)}
+                loading={loading}
+                aria-label="刷新"
+              />
             </Tooltip>
           </Space>
         }

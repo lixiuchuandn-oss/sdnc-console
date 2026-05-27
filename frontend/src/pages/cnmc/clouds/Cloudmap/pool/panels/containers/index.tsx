@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Empty, Switch } from 'antd';
 import {
   WorkloadsSection,
@@ -28,10 +28,9 @@ import {
   fetchNetworkPolicies,
   fetchHarvesterConfigMaps,
   fetchHarvesterSecrets,
-  fetchHarvesterImagePullSecrets,
 } from '../../../../../../../services/harvesterApi';
 
-export type CloudmapContainersTabsProps = {
+export type CloudmapContainersRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
   checkPerm: (act: string) => boolean;
@@ -49,6 +48,7 @@ export type CloudmapContainersTabsProps = {
   ) => Promise<void>;
   resourceLoading: Record<string, boolean>;
   namespacesOptions: string[];
+  tenantNamespaces: string[];
   nodesOptions: string[];
   nsFilter: string;
   setNsFilter: (v: string) => void;
@@ -96,7 +96,7 @@ export type CloudmapContainersTabsProps = {
   harvesterVolumes: any[];
 };
 
-const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
+const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -108,6 +108,7 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     loadResource,
     resourceLoading,
     namespacesOptions,
+    tenantNamespaces,
     nodesOptions,
     nsFilter,
     setNsFilter,
@@ -143,7 +144,6 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     harvesterSecrets,
     setHarvesterSecrets,
     harvesterImagePullSecrets,
-    setHarvesterImagePullSecrets,
     harvesterVolumes,
   } = props;
 
@@ -203,6 +203,14 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     [checkPerm, innerActiveKey],
   );
 
+  const filterByTenantNs = useCallback(
+    (items: any[]) => {
+      if (!isTenant || !tenantNamespaces.length) return items;
+      return items.filter((item: any) => tenantNamespaces.includes(item?.metadata?.namespace));
+    },
+    [isTenant, tenantNamespaces],
+  );
+
   useEffect(() => {
     setWorkloadsAll(false);
     setPodsAll(false);
@@ -226,20 +234,20 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   if (innerActiveKey === 'workloads') {
     content = (
       <WorkloadsSection
-        deployments={harvesterDeployments}
-        statefulsets={harvesterStatefulSets}
-        daemonsets={harvesterDaemonSets}
+        deployments={filterByTenantNs(harvesterDeployments)}
+        statefulsets={filterByTenantNs(harvesterStatefulSets)}
+        daemonsets={filterByTenantNs(harvesterDaemonSets)}
         loading={
           resourceLoading.deployments ||
           resourceLoading.statefulsets ||
           resourceLoading.daemonsets
         }
         namespacesOptions={namespacesOptions}
-        imagePullSecrets={harvesterImagePullSecrets}
-        secretsWithCredentials={harvesterSecrets}
-        configMaps={harvesterConfigMaps}
-        secrets={harvesterSecrets}
-        persistentVolumeClaims={harvesterVolumes}
+        imagePullSecrets={filterByTenantNs(harvesterImagePullSecrets)}
+        secretsWithCredentials={filterByTenantNs(harvesterSecrets)}
+        configMaps={filterByTenantNs(harvesterConfigMaps)}
+        secrets={filterByTenantNs(harvesterSecrets)}
+        persistentVolumeClaims={filterByTenantNs(harvesterVolumes)}
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
@@ -247,12 +255,14 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         showAllSwitch
         queryAll={workloadsAll}
         onQueryAllChange={(checked) => { setWorkloadsAll(checked); loadWorkloads(true, checked); }}
+        onRefreshConfigMaps={() => loadConfigs()}
+        onRefreshSecrets={() => loadConfigs()}
       />
     );
   } else if (innerActiveKey === 'pods') {
     content = (
       <PodsSection
-        pods={harvesterPods}
+        pods={filterByTenantNs(harvesterPods)}
         loading={resourceLoading.pods}
         namespacesOptions={namespacesOptions}
         nodesOptions={nodesOptions}
@@ -262,9 +272,9 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         onNsChange={(v) => setNsFilter(v || '')}
         onNodeChange={(v) => setNodeFilter(v || '')}
         onRefresh={() => loadPods()}
-        deployments={harvesterDeployments}
-        statefulSets={harvesterStatefulSets}
-        daemonSets={harvesterDaemonSets}
+        deployments={filterByTenantNs(harvesterDeployments)}
+        statefulSets={filterByTenantNs(harvesterStatefulSets)}
+        daemonSets={filterByTenantNs(harvesterDaemonSets)}
         showAllSwitch
         queryAll={podsAll}
         onQueryAllChange={(checked) => { setPodsAll(checked); loadPods(true, checked); }}
@@ -273,16 +283,16 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   } else if (innerActiveKey === 'jobs') {
     content = (
       <JobsSection
-        jobs={harvesterJobs}
-        cronjobs={harvesterCronJobs}
+        jobs={filterByTenantNs(harvesterJobs)}
+        cronjobs={filterByTenantNs(harvesterCronJobs)}
         loading={resourceLoading.jobs || resourceLoading.cronjobs}
         namespacesOptions={namespacesOptions}
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         onRefresh={() => loadJobs()}
-        imagePullSecrets={harvesterImagePullSecrets}
-        secretsWithCredentials={harvesterSecrets}
+        imagePullSecrets={filterByTenantNs(harvesterImagePullSecrets)}
+        secretsWithCredentials={filterByTenantNs(harvesterSecrets)}
         showAllSwitch
         queryAll={jobsAll}
         onQueryAllChange={(checked) => { setJobsAll(checked); loadJobs(true, checked); }}
@@ -292,27 +302,28 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     content = (
       <ServicesSection
         cloudId={cloudId}
-        services={harvesterServices}
+        services={filterByTenantNs(harvesterServices)}
         loading={resourceLoading.services}
         onRefresh={() => loadServices()}
         isTenant={isTenant}
         namespacesOptions={namespacesOptions}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        pods={harvesterPods}
+        pods={filterByTenantNs(harvesterPods)}
       />
     );
   } else if (innerActiveKey === 'ingresses') {
     content = (
       <IngressesSection
         cloudId={cloudId}
-        ingresses={harvesterIngresses}
+        ingresses={filterByTenantNs(harvesterIngresses)}
         loading={resourceLoading.ingresses}
         onRefresh={() => loadIngresses()}
         namespacesOptions={namespacesOptions}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        secrets={harvesterSecrets}
+        secrets={filterByTenantNs(harvesterSecrets)}
+        services={filterByTenantNs(harvesterServices)}
         showAllSwitch
         queryAll={ingressesAll}
         onQueryAllChange={(checked) => { setIngressesAll(checked); loadIngresses(true, checked); }}
@@ -324,16 +335,16 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
         cloudId={cloudId}
         gatewayApiStatus={gatewayApiStatus}
         gatewayClasses={gatewayClasses}
-        gateways={gateways}
-        httpRoutes={httpRoutes}
-        grpcRoutes={grpcRoutes}
+        gateways={filterByTenantNs(gateways)}
+        httpRoutes={filterByTenantNs(httpRoutes)}
+        grpcRoutes={filterByTenantNs(grpcRoutes)}
         loading={
           resourceLoading.gatewayApiStatus || resourceLoading.gateways
         }
         namespacesOptions={namespacesOptions}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        services={harvesterServices}
+        services={filterByTenantNs(harvesterServices)}
         onRefresh={() => loadTabResource('gateway_api', true)}
       />
     );
@@ -341,9 +352,9 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
     content = (
       <ServiceTopologySection
         cloudId={cloudId}
-        ingresses={harvesterIngresses}
-        services={harvesterServices}
-        pods={harvesterPods}
+        ingresses={filterByTenantNs(harvesterIngresses)}
+        services={filterByTenantNs(harvesterServices)}
+        pods={filterByTenantNs(harvesterPods)}
         namespacesOptions={namespacesOptions}
         loading={
           resourceLoading.ingresses ||
@@ -362,7 +373,7 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   } else if (innerActiveKey === 'pdbs') {
     content = (
       <PDBSection
-        pdbs={harvesterPDBs}
+        pdbs={filterByTenantNs(harvesterPDBs)}
         loading={resourceLoading.pdbs}
         namespacesOptions={namespacesOptions}
         cloudId={cloudId}
@@ -377,7 +388,7 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   } else if (innerActiveKey === 'networkpolicies') {
     content = (
       <NetworkPoliciesSection
-        networkPolicies={harvesterNetworkPolicies}
+        networkPolicies={filterByTenantNs(harvesterNetworkPolicies)}
         loading={resourceLoading.networkpolicies}
         namespacesOptions={namespacesOptions}
         cloudId={cloudId}
@@ -392,17 +403,17 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   } else if (innerActiveKey === 'configs') {
     content = (
       <ConfigsSection
-        configmaps={harvesterConfigMaps}
-        secrets={harvesterSecrets}
+        configmaps={filterByTenantNs(harvesterConfigMaps)}
+        secrets={filterByTenantNs(harvesterSecrets)}
         loading={resourceLoading.configmaps || resourceLoading.secrets}
         namespacesOptions={namespacesOptions}
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         onRefresh={() => loadConfigs()}
-        deployments={harvesterDeployments}
-        statefulsets={harvesterStatefulSets}
-        daemonsets={harvesterDaemonSets}
+        deployments={filterByTenantNs(harvesterDeployments)}
+        statefulsets={filterByTenantNs(harvesterStatefulSets)}
+        daemonsets={filterByTenantNs(harvesterDaemonSets)}
         showAllSwitch
         queryAll={configsAll}
         onQueryAllChange={(checked) => { setConfigsAll(checked); loadConfigs(true, checked); }}
@@ -411,8 +422,8 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   } else if (innerActiveKey === 'registries') {
     content = (
       <RegistriesSection
-        secrets={harvesterImagePullSecrets}
-        secretsWithCredentials={harvesterSecrets}
+        secrets={filterByTenantNs(harvesterImagePullSecrets)}
+        secretsWithCredentials={filterByTenantNs(harvesterSecrets)}
         loading={resourceLoading.imagePullSecrets}
         namespacesOptions={namespacesOptions}
         cloudId={cloudId}
@@ -432,4 +443,4 @@ const CloudmapContainersTabs: React.FC<CloudmapContainersTabsProps> = (
   );
 };
 
-export default CloudmapContainersTabs;
+export default CloudmapContainersRoutePanel;

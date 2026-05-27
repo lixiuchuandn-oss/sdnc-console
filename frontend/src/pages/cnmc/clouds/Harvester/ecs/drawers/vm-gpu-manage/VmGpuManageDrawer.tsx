@@ -2,7 +2,7 @@
  * 虚拟机 · GPU 管理抽屉：顶栏按类型打开「添加 GPU」子抽屉（对齐网卡管理）；已绑定 GPU 以卡片展示，解绑即时提交。
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Drawer, Divider, Empty, Form, message, Popconfirm, Space, Tag, Tooltip } from "antd";
+import { Button, Drawer, Divider, Form, message, Popconfirm, Space, Tag, Tooltip } from "antd";
 import { MinusCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { ReactComponent as GpuIcon } from "../../../../../../../assets/clouds/gpu.svg";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../../../../../../../services/harvesterApi";
 import { useVmReconfigureVmDiskActions } from "../vm-disk-manage/lib/useVmDiskAttachActions";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
+import VmDeviceManageDrawerEmpty from "../shared/components/VmDeviceManageDrawerEmpty";
 import "../shared/styles/vmManageDrawer.css";
 import VmAddGpuByModeDrawer from "./VmAddGpuByModeDrawer";
 import { getGpuResourceUiLabel } from "./lib/gpuDisplayText";
@@ -291,9 +292,7 @@ const VmGpuManageDrawer: React.FC<VmGpuManageDrawerProps> = ({
         </div>
 
         {derived.gpuMode === "none" || derived.keys.length === 0 ? (
-          <div className="vmDeviceManageDrawer-emptyState">
-            <Empty description="当前未绑定 GPU。配置变更需重启虚拟机后生效。" />
-          </div>
+          <VmDeviceManageDrawerEmpty description="暂未绑定 GPU" />
         ) : null}
 
         {derived.keys.map((key, idx) => {

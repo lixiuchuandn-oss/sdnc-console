@@ -26,11 +26,27 @@ export type SubnetAclEditDrawerProps = {
 
 const ACL_FORM_ID = 'harvester-underlay-subnet-acl-drawer-form';
 
+/** 安全组规则的优先级范围 */
+const TOWER_SG_ACL_PRIORITY_MIN = 31000;
+const TOWER_SG_ACL_PRIORITY_MAX = 39999;
+
+/** 检查ACL规则是否来自安全组同步 */
+function isRuleFromSecurityGroup(acl: any): boolean {
+  // 通过优先级范围判断是否来自安全组（安全组规则使用 31000-39999 范围）
+  const priority = Number(acl.priority);
+  return Number.isFinite(priority) && 
+         priority >= TOWER_SG_ACL_PRIORITY_MIN && 
+         priority <= TOWER_SG_ACL_PRIORITY_MAX;
+}
+
 function applyAclsToForm(form: FormInstance, subnet: any) {
   const spec = subnet?.spec || {};
-  form.setFieldsValue({
-    acls: Array.isArray(spec.acls) ? spec.acls.map((a: any) => normalizeAclRowForForm({ ...a })) : [],
-  });
+  const acls = Array.isArray(spec.acls) 
+    ? spec.acls
+        .filter((a: any) => !isRuleFromSecurityGroup(a))
+        .map((a: any) => normalizeAclRowForForm({ ...a }))
+    : [];
+  form.setFieldsValue({ acls });
 }
 
 const SubnetAclEditDrawer: React.FC<SubnetAclEditDrawerProps> = ({
@@ -47,6 +63,7 @@ const SubnetAclEditDrawer: React.FC<SubnetAclEditDrawerProps> = ({
 
   const subnetName = String(subnet?.metadata?.name ?? '').trim();
 
+  // 应用ACL规则到表单
   useEffect(() => {
     if (!open || !subnet) return;
     applyAclsToForm(form, subnet);

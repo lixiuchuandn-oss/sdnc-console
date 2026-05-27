@@ -1,5 +1,5 @@
 /**
- * Cloudmap「存储仪表板」：存在 Rook CephCluster 时展示 Ceph 总览，否则展示 Longhorn（存量底座）。
+ * Cloudmap「存储总览」：存在 Rook CephCluster 时展示 Ceph 总览，否则展示 Longhorn（存量底座）。
  * 探测仅用 `monitoring/ceph-clusters`（单资源列表），避免 `ceph/rook/bundle` 全量聚合带来的延迟。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -7,21 +7,13 @@ import { Alert, Button } from 'antd';
 import { fetchCephClusters } from '../../../../../../../services/monitoringApi';
 import CephStorageSection from '../../../../Harvester/ceph/sections/CephStorageSection';
 import LonghornStorageSection from '../../../../Harvester/longhorn/sections/LonghornStorageSection';
+import { interpretCephClusterProbe } from './lib/cloudmapStorageDashboardProbe';
 
 export type CloudmapStorageDashboardByBackendProps = {
   cloudId: string;
 };
 
 type Phase = 'loading' | 'ceph' | 'longhorn' | 'error';
-
-/** Steve / 后端封装：列表可能在 data 或 items */
-function interpretCephClusterProbe(payload: unknown): 'ceph' | 'longhorn' | 'forbidden' {
-  if (!payload || typeof payload !== 'object') return 'longhorn';
-  const o = payload as { _tower?: { cephHint?: string }; data?: unknown; items?: unknown };
-  if (o._tower?.cephHint === 'forbidden') return 'forbidden';
-  const raw = Array.isArray(o.data) ? o.data : Array.isArray(o.items) ? o.items : [];
-  return raw.length > 0 ? 'ceph' : 'longhorn';
-}
 
 const CloudmapStorageDashboardByBackend: React.FC<CloudmapStorageDashboardByBackendProps> = ({ cloudId }) => {
   const [phase, setPhase] = useState<Phase>('loading');

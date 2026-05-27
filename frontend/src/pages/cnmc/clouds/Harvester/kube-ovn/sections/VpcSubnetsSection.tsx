@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Form, Input, message, Modal, Select, Table, Tag, Typography } from 'antd';
 import { ApartmentOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
@@ -25,6 +25,11 @@ import {
 import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
 import { ovnDisplayName } from '../lib/ovnResourceDisplay';
 import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 /**
  * =============================================================================
@@ -48,8 +53,8 @@ type Props = {
   subnets: any[];
   vpcList?: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
-  onRefreshNads?: (force?: boolean, silent?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
+  onRefreshNads?: HarvesterSectionOnRefresh;
   showYaml?: boolean;
   /** 显式指定标准/运维列；不传则租户为标准列、管理员为运维列 */
   displayMode?: 'standard' | 'ops';
@@ -118,6 +123,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
   const [vpc, setVpc] = useState<string | undefined>(undefined);
   const [nat, setNat] = useState<string | undefined>(undefined);
   const [dhcp, setDhcp] = useState<string | undefined>(undefined);
+  
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -187,6 +193,21 @@ const VpcSubnetsSection: React.FC<Props> = ({
     });
     return [...rows].sort((a, b) => kubeResourceCreatedMs(b) - kubeResourceCreatedMs(a));
   }, [vpcOnlySubnets, keyword, vpc, nat, dhcp]);
+
+  /** 安全组规则的优先级范围 */
+  const TOWER_SG_ACL_PRIORITY_MIN = 31000;
+  const TOWER_SG_ACL_PRIORITY_MAX = 39999;
+
+  /** 检查ACL规则是否来自安全组同步 */
+  const isRuleFromSecurityGroup = (acl: any): boolean => {
+    // 通过优先级范围判断是否来自安全组（安全组规则使用 31000-39999 范围）
+    const priority = Number(acl.priority);
+    return Number.isFinite(priority) && 
+           priority >= TOWER_SG_ACL_PRIORITY_MIN && 
+           priority <= TOWER_SG_ACL_PRIORITY_MAX;
+  };
+
+  
 
   const openCreateVpcSubnetModal = useCallback(() => {
     if (!hasVpcsWrite) return;
@@ -258,8 +279,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
         setAclModalVisible(false);
         setAclSubnetName(null);
         aclForm.resetFields();
-        onRefresh?.(true);
-        onRefreshNads?.(true, true);
+        runHarvesterSectionRefresh(onRefresh, { force: true });
+        runHarvesterSectionRefresh(onRefreshNads, { force: true, silent: true });
       } catch (e: any) {
         console.error(e);
         if (e?.errorFields) throw e;
@@ -367,8 +388,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
               try {
                 await deleteKubeOvnSubnet(cloudId!, name);
                 message.success('删除成功');
-                onRefresh?.(true);
-                onRefreshNads?.(true, true);
+                runHarvesterSectionRefresh(onRefresh, { force: true });
+                runHarvesterSectionRefresh(onRefreshNads, { force: true, silent: true });
               } catch (e: any) {
                 const msg = e?.response?.data || e?.message || '未知错误';
                 message.error(`删除失败: ${typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg}`);
@@ -515,7 +536,11 @@ const VpcSubnetsSection: React.FC<Props> = ({
               key: 'acls',
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
-                const n = Array.isArray(acls) ? acls.length : 0;
+                const n = Array.isArray(acls) 
+                  ? acls
+                      .filter((a: any) => !isRuleFromSecurityGroup(a))
+                      .length 
+                  : 0;
                 if (!hasVpcsWrite) return <span>{n} 条</span>;
                 return (
                   <Typography.Link
@@ -649,7 +674,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
             新建 VPC 子网
           </Button>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_subnets_table" />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />
+          <Button icon={<ReloadOutlined />} onClick={createHarvesterToolbarRefresh(onRefresh)} />
         </>
       }
     >

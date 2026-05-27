@@ -10,7 +10,6 @@ import {
   Dropdown,
   Tag,
   Tooltip,
-  Card,
   message,
 } from "antd";
 import {
@@ -22,8 +21,6 @@ import {
   EllipsisOutlined,
   DesktopOutlined,
   DatabaseOutlined,
-  HddOutlined,
-  ExportOutlined,
   CloseOutlined,
   SyncOutlined,
   LineChartOutlined,
@@ -32,6 +29,7 @@ import {
   SlidersOutlined,
 } from "@ant-design/icons";
 import { cnVmStatus } from "../../../../../../../utils/harvesterUtils";
+import { runHarvesterSectionRefresh } from "../../../shared/lib/harvesterSectionRefresh";
 import { VmPerformance } from "./tabs/VmPerformance";
 import VmBackupTab from "./tabs/VmBackupTab";
 import VmDetailTab from "./tabs/VmDetailTab";
@@ -53,7 +51,6 @@ import VmRealtimeLogsDrawer from "../vm-realtime-logs";
 import { OsIcon } from "../../../../../../../components/OsIcon";
 import VmSaveAsTemplateModal from "../../modals/VmSaveAsTemplateModal";
 import {
-  VM_DETAIL_DRAWER_BLOCK_CARD_STYLE,
   VM_DETAIL_DRAWER_TEXT_SECONDARY,
 } from "./lib/uiTokens";
 import type { MenuProps } from "antd";
@@ -73,6 +70,7 @@ export type VmDetailDrawerShellProps = Pick<
   | "cloudId"
   | "namespaces"
   | "onRefresh"
+  | "onBackupsInventoryChanged"
 > & {
   vmData: any;
   SafeRead: VmDetailDrawerSafeRead;
@@ -224,15 +222,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
         onClick: gated(() => p.setUsbManageOpen(true)),
       },
     ];
-  }, [
-    p.hasEcsWrite,
-    ecsWriteDenied,
-    p.setSpecConfigOpen,
-    p.setDiskManageOpen,
-    p.setNicManageOpen,
-    p.setGpuManageOpen,
-    p.setUsbManageOpen,
-  ]);
+  }, [p, ecsWriteDenied]);
 
   return (
     <>
@@ -724,6 +714,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
                   p.fetchBackups(force, skipSync);
                   p.fetchSchedules(force, skipSync);
                 }}
+                onBackupsInventoryChanged={p.onBackupsInventoryChanged}
                 namespaces={p.namespaces ?? []}
               />
             </div>
@@ -751,7 +742,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmDiskManageDrawer
@@ -763,7 +754,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmCloudInitDrawer
@@ -774,7 +765,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmDiagnosisDrawer
@@ -796,7 +787,9 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
               onClose={() => p.setOpsYamlDrawerOpen(false)}
               cloudId={cloudId}
               record={p.vmData}
-              onSuccess={() => p.onRefresh?.(true)}
+              onSuccess={() =>
+                void runHarvesterSectionRefresh(p.onRefresh, { force: true })
+              }
             />
           </Suspense>
         ) : null}
@@ -810,7 +803,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmGpuManageDrawer
@@ -826,7 +819,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmUsbManageDrawer
@@ -842,7 +835,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmSpecConfigDrawer
@@ -853,7 +846,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmSpecPerformanceDrawer
@@ -866,7 +859,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmHotplugSettingsDrawer
@@ -880,7 +873,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           images={p.vmImages}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmNodeSchedulingDrawer
@@ -893,7 +886,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
         <VmNodeAffinityDrawer
@@ -906,7 +899,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           hasEcsWrite={p.hasEcsWrite}
           onApplied={async () => {
             await p.fetchAggregated(false);
-            p.onRefresh?.(true);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
           }}
         />
       </Drawer>

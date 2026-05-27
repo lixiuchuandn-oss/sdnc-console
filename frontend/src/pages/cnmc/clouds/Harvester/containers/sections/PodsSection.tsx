@@ -13,16 +13,14 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm, Tooltip, Switch } from 'antd';
-import { FileTextOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Tag, Space, Input, App, Drawer, Descriptions, Tabs, Dropdown, Tooltip, Switch, Popover } from 'antd';
+import { FileTextOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import YamlEditor from '../../../../../../components/YamlEditor';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import {
-  fetchHarvesterPodDetail,
   fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
   deleteHarvesterContainerResource,
@@ -95,9 +93,47 @@ const renderContainerStatus = (state: any) => {
 
 const isPodRunning = (pod: any): boolean => {
   const phase = pod?.status?.phase;
+  if (pod?.metadata?.deletionTimestamp) return false;
   if (phase !== 'Running') return false;
+  
   const containerStatuses = pod?.status?.containerStatuses || [];
-  return containerStatuses.some((c: any) => c?.state?.running);
+  for (const container of containerStatuses) {
+    const waitingState = container?.state?.waiting;
+    if (waitingState && waitingState.reason === 'CrashLoopBackOff') {
+      return false;
+    }
+    const terminatedState = container?.state?.terminated;
+    if (terminatedState && (terminatedState.reason === 'Error' || (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))) {
+      return false;
+    }
+  }
+  
+  return true;
+};
+
+const getTerminalDisabledReason = (pod: any): string => {
+  if (pod?.metadata?.deletionTimestamp) {
+    return 'Pod 正在终止中，无法打开终端';
+  }
+  
+  const phase = pod?.status?.phase;
+  if (phase !== 'Running') {
+    return '仅 Running 状态的 Pod 可打开终端';
+  }
+  
+  const containerStatuses = pod?.status?.containerStatuses || [];
+  for (const container of containerStatuses) {
+    const waitingState = container?.state?.waiting;
+    if (waitingState && waitingState.reason === 'CrashLoopBackOff') {
+      return '容器处于崩溃重启状态，无法打开终端';
+    }
+    const terminatedState = container?.state?.terminated;
+    if (terminatedState && (terminatedState.reason === 'Error' || (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))) {
+      return `容器 "${container.name}" 处于错误状态，无法打开终端`;
+    }
+  }
+  
+  return '无法打开终端';
 };
 
 const getPodContainerSummary = (pod: any): { running: number; total: number; hasRunning: boolean } => {
@@ -505,7 +541,7 @@ const PodDetailDrawer: React.FC<{
             key: 'overview',
             label: '概览',
             children: (
-              <Descriptions column={2} bordered size="small">
+              <Descriptions column={2} bordered size="small" labelStyle={{ whiteSpace: 'nowrap' }}>
                 <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
                 <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
                 <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
@@ -799,7 +835,7 @@ const PodsSection: React.FC<Props> = ({
   }, [cloudId, message, onRefresh]);
   
   // 安全驱逐 Pod (Eviction - 触发 PDB 保护)
-  const handleEvict = useCallback(async (pod: any) => {
+  const _handleEvict = useCallback(async (pod: any) => {
     const namespace = pod?.metadata?.namespace;
     const name = pod?.metadata?.name;
     
@@ -887,7 +923,7 @@ const PodsSection: React.FC<Props> = ({
   }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
   
   // 批量安全驱逐 Pod (用于测试 PDB 规则)
-  const handleBatchEvict = useCallback(() => {
+  const _handleBatchEvict = useCallback(() => {
     const selectedPods = pods.filter((pod: any) => 
       selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`)
     );
@@ -917,7 +953,7 @@ const PodsSection: React.FC<Props> = ({
           setSelectedKeys([]);
           
           // 显示详细结果
-          const { successCount = 0, blockedCount = 0, failedCount = 0, results = [] } = result?.data || {};
+          const { successCount = 0, blockedCount = 0, failedCount = 0 } = result?.data || {};
           
           if (blockedCount > 0) {
             modal.info({
@@ -1014,13 +1050,130 @@ const PodsSection: React.FC<Props> = ({
     },
     {
       title: 'IP',
-      dataIndex: ['status', 'podIP'],
       key: 'podIP',
+      render: (_: any, record: any) => {
+        const podIP = record?.status?.podIP;
+        const annotations = record?.metadata?.annotations || {};
+        const networkStatusStr = annotations['k8s.v1.cni.cncf.io/network-status'];
+        
+        // 解析网络状态
+        interface NetworkInfo {
+          name: string;
+          interface: string;
+          ip: string;
+          isDefault: boolean;
+        }
+        const networks: NetworkInfo[] = [];
+        
+        // 添加默认网络
+        if (podIP) {
+          networks.push({
+            name: 'Pod网络',
+            interface: 'eth0',
+            ip: podIP,
+            isDefault: true,
+          });
+        }
+        
+        // 解析附加网络
+        if (networkStatusStr) {
+          try {
+            const networkStatus = JSON.parse(networkStatusStr);
+            if (Array.isArray(networkStatus)) {
+              networkStatus.forEach((net: any) => {
+                if (net.ips && net.ips.length > 0) {
+                  const netName = net.name || '';
+                  const displayName = netName.includes('/') 
+                    ? netName.split('/')[1] 
+                    : (netName || '附加网络');
+                  networks.push({
+                    name: displayName,
+                    interface: net.interface || `net${networks.length}`,
+                    ip: net.ips[0],
+                    isDefault: !!net.default,
+                  });
+                }
+              });
+            }
+          } catch {
+            // 解析失败
+          }
+        }
+        
+        if (networks.length === 0) {
+          return '-';
+        }
+        
+        // 只有一个网络时直接显示
+        if (networks.length === 1) {
+          return (
+            <Tooltip title={`${networks[0].name} (${networks[0].interface})`}>
+              <span>{networks[0].ip}</span>
+            </Tooltip>
+          );
+        }
+        
+        // 多个网络时，显示主IP + 展开按钮
+        const defaultNet = networks.find(n => n.isDefault) || networks[0];
+        const additionalNets = networks.filter(n => !n.isDefault);
+        
+        return (
+          <Space size={4}>
+            <Tooltip title={`${defaultNet.name} (${defaultNet.interface})`}>
+              <span>{defaultNet.ip}</span>
+            </Tooltip>
+            {additionalNets.length > 0 && (
+              <Popover
+                trigger="click"
+                placement="right"
+                content={
+                  <div style={{ minWidth: 200 }}>
+                    <div style={{ marginBottom: 8, fontWeight: 500, color: '#666' }}>
+                      所有网络接口
+                    </div>
+                    {networks.map((net, idx) => (
+                      <div key={idx} style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between',
+                        padding: '4px 0',
+                        borderBottom: idx < networks.length - 1 ? '1px solid #f0f0f0' : 'none'
+                      }}>
+                        <Space size={4}>
+                          <Tag color={net.isDefault ? 'green' : 'blue'} style={{ margin: 0 }}>
+                            {net.interface}
+                          </Tag>
+                          <span style={{ color: '#666', fontSize: 12 }}>{net.name}</span>
+                        </Space>
+                        <span style={{ fontFamily: 'monospace' }}>{net.ip}</span>
+                      </div>
+                    ))}
+                  </div>
+                }
+              >
+                <Tag color="orange" style={{ cursor: 'pointer', margin: 0 }}>
+                  +{additionalNets.length}
+                </Tag>
+              </Popover>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '运行时长',
       key: 'age',
       render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
+    },
+    {
+      title: '创建时间',
+      key: 'creationTimestamp',
+      render: (_: any, record: any) => formatTime(record?.metadata?.creationTimestamp),
+      sorter: (a: any, b: any) => {
+        const ta = a?.metadata?.creationTimestamp ? new Date(a.metadata.creationTimestamp).getTime() : 0;
+        const tb = b?.metadata?.creationTimestamp ? new Date(b.metadata.creationTimestamp).getTime() : 0;
+        return ta - tb;
+      },
+      defaultSortOrder: 'descend' as const,
     },
     {
       title: '镜像',
@@ -1051,7 +1204,7 @@ const PodsSection: React.FC<Props> = ({
             key: 'terminal',
             label: '终端',
             disabled: !isPodRunning(record),
-            tooltip: isPodRunning(record) ? undefined : '仅运行中的容器可打开终端',
+            tooltip: isPodRunning(record) ? undefined : getTerminalDisabledReason(record),
             onClick: () => handleOpenTerminal(record),
           },
           // 安全驱逐功能 - PDB 规则验证完成后隐藏入口
@@ -1084,7 +1237,7 @@ const PodsSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal, getOwnerWorkload, operationsReadOnly]);
+  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleDelete, modal, getOwnerWorkload, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(

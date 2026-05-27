@@ -46,6 +46,7 @@ interface Props {
   nsValue?: string;
   onNsChange?: (v?: string) => void;
   secrets?: any[];
+  services?: any[];
   createDefaultNamespace?: string;
   showAllSwitch?: boolean;
   queryAll?: boolean;
@@ -61,6 +62,7 @@ const IngressesSection: React.FC<Props> = ({
   nsValue,
   onNsChange,
   secrets,
+  services,
   createDefaultNamespace,
   showAllSwitch,
   queryAll,
@@ -68,7 +70,7 @@ const IngressesSection: React.FC<Props> = ({
 }) => {
   const { message: antMessage } = App.useApp();
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? (namespacesOptions?.[0]) ?? 'default';
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   // 关键字搜索（名称 / 命名空间）
   const [keyword, setKeyword] = useState<string>('');
 
@@ -425,6 +427,7 @@ const IngressesSection: React.FC<Props> = ({
         cloudId={cloudId}
         namespacesOptions={namespacesOptions || []}
         secrets={secrets}
+        services={services}
         defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setCreateModalOpen(false);
@@ -439,6 +442,7 @@ const IngressesSection: React.FC<Props> = ({
         cloudId={cloudId}
         namespacesOptions={namespacesOptions || []}
         secrets={secrets}
+        services={services}
         defaultNamespace={formDefaultNs}
         editMode={true}
         initialData={editingRecord?.raw}

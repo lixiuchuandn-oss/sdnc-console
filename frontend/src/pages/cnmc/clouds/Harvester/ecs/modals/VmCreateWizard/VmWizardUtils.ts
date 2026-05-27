@@ -3,6 +3,7 @@ import { generateHarvesterCrMetadataName, generateHarvesterEntityId } from '../.
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { passthroughKubevirtIfaceTypeFromNad } from './harvesterVmIfaceTypeOptions';
 import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOptions';
+import { findGpuResource, getGpuNodeName, getGpuPcideviceCrName, getGpuResourceName } from '../../lib/gpuResourceResolve';
 
 /**
  * ==============================================================================
@@ -151,17 +152,13 @@ export const validateAndGetGpu = (params: {
   const list = Array.isArray(gpuResources) ? gpuResources : [];
   if (list.length === 0) return { selectedGpu: null, finalGpuResName: undefined };
 
-  // 2. 查找资源
-  let found = null as any;
-  // 优先通过资源名称 (resourceName) 查找
-  if (v.gpuResourceName) {
-    found = list.find((x: any) => String(x?.resourceName) === String(v.gpuResourceName));
-  }
-  // 其次通过 PCI 设备名称查找
-  if (!found && v.gpuPcideviceName) {
-    const dn = String(v.gpuPcideviceName || '').trim();
-    found = list.find((x: any) => String(x?.raw?.metadata?.name || x?.name || '') === dn);
-  }
+  // 2. 查找资源（同型号多节点共用 resourceName，须优先复合 key / PCIDevice CR 名）
+  const found = findGpuResource(list, {
+    gpuPickKey: v.gpuPickKey,
+    pcideviceName: v.gpuPcideviceName,
+    resourceName: v.gpuResourceName,
+    node: v.gpuNodeName,
+  });
   
   if (!found) {
     const hint = v.gpuPcideviceName || v.gpuResourceName || '未选择或列表中无匹配项';
@@ -633,15 +630,16 @@ export const buildHarvesterVmPayload = (params: {
   })();
   const finalGpuResName = (function() {
       if (selectedGpu) {
-           return selectedGpu?.resourceName || selectedGpu?.raw?.status?.resourceName || selectedGpu?.raw?.spec?.resourceName || undefined;
+           return getGpuResourceName(selectedGpu) || undefined;
       }
-      const rn = v.gpuResourceName;
-      if (rn) return rn;
-      const dn = v.gpuPcideviceName;
-      if (!dn) return undefined;
       const list = Array.isArray(gpuResources) ? gpuResources : [];
-      const f = list.find((x: any) => String(x?.raw?.metadata?.name || x?.name || '') === String(dn));
-      return f?.resourceName || f?.raw?.status?.resourceName || f?.raw?.spec?.resourceName || undefined;
+      const f = findGpuResource(list, {
+        gpuPickKey: v.gpuPickKey,
+        pcideviceName: v.gpuPcideviceName,
+        resourceName: v.gpuResourceName,
+        node: v.gpuNodeName,
+      });
+      return f ? getGpuResourceName(f) || undefined : v.gpuResourceName || undefined;
   })();
 
   // --- 2. 基础计算 (CPU/Memory) ---
@@ -666,22 +664,17 @@ export const buildHarvesterVmPayload = (params: {
           return { 'kubernetes.io/hostname': gpuNode };
       }
       
-      // 如果没有选择 GPU，尝试从 GPU 资源中获取节点
-      if (!selectedGpu && v.gpuPcideviceName) {
+      // 如果没有 selectedGpu，用表单字段再解析一次节点（避免仅 resourceName 误匹配）
+      if (!selectedGpu) {
           try {
               const list = Array.isArray(gpuResources) ? gpuResources : [];
-              const found = list.find((x: any) => String(x?.raw?.metadata?.name || x?.name || '') === String(v.gpuPcideviceName));
-              const gn = found && String(found?.node || found?.nodeName || '').trim();
-              if (gn) {
-                  return { 'kubernetes.io/hostname': gn };
-              }
-          } catch {}
-      }
-      if (!selectedGpu && v.gpuResourceName) {
-          try {
-              const list = Array.isArray(gpuResources) ? gpuResources : [];
-              const found = list.find((x:any)=> String(x?.resourceName)===String(v.gpuResourceName));
-              const gn = found && String(found?.node||found?.nodeName||'').trim();
+              const found = findGpuResource(list, {
+                gpuPickKey: v.gpuPickKey,
+                pcideviceName: v.gpuPcideviceName,
+                resourceName: v.gpuResourceName,
+                node: v.gpuNodeName,
+              });
+              const gn = found ? getGpuNodeName(found) : "";
               if (gn) {
                   return { 'kubernetes.io/hostname': gn };
               }

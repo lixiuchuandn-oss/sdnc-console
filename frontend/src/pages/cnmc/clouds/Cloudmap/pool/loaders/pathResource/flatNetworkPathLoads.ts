@@ -29,6 +29,20 @@ export async function tryLoadKubeOvnFlatTab(
   } = deps;
 
   switch (key) {
+    case 'flat_public_subnets':
+      if (canViewFlatNetworkGroup && checkPerm('clouds.networks:read')) {
+        loadResource(
+          'subnets',
+          () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
+          (json) => {
+            const list: any[] = (json as any)?.data?.items || [];
+            setKubeOvnSubnets(Array.isArray(list) ? list : []);
+            setRawSubnets(json || null);
+          },
+          force,
+        );
+      }
+      return true;
     case 'flat_kubeovn_eips':
     case 'flat_kubeovn_fips':
     case 'flat_kubeovn_snat':
@@ -43,7 +57,7 @@ export async function tryLoadKubeOvnFlatTab(
       if (needsFlatSubnetForTab && checkPerm('clouds.networks:read')) {
         loadResource(
           'subnets',
-          () => fetchKubeOvnSubnets(cloudId, force, skipSync),
+          () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
           (json) => {
             const list: any[] = (json as any)?.data?.items || [];
             setKubeOvnSubnets(Array.isArray(list) ? list : []);

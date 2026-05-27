@@ -3,8 +3,9 @@
  * GPU / USB 各自只提供补丁构建回调，避免两份几乎相同的分支逻辑。
  */
 import { message, Modal } from "antd";
-import { updateHarvesterVmSpec } from "../../../../../../../../services/harvesterApi";
+import { updateHarvesterVmSpec } from "services/harvester/vm";
 import { VmReconfigureSubmitSkipFinalize } from "../../../lib/vmMutation/vmReconfigureSubmitTypes";
+import { findGpuResource } from "../../../lib/gpuResourceResolve";
 
 export type PassthroughNodeAffinityDevice = "GPU" | "USB";
 
@@ -38,6 +39,10 @@ export async function tryFinalizePassthroughNodeAffinity(args: {
   vmName: string;
   activeVm: any;
   resourceNames: string[];
+  /** 与 resourceNames 同序的 PCIDevice CR 名，用于多节点同名 resourceName 时唯一定位 */
+  deviceCrNames?: string[];
+  /** 调用方已从 UI 复合 key 解析出的目标节点，优先于 resourceName 反查 */
+  targetNodeHint?: string;
   resources: any[];
   getNodeFromResource: (r: any) => string;
   buildPatchWithPinnedNode: (targetNode: string) => Record<string, unknown>;
@@ -50,6 +55,8 @@ export async function tryFinalizePassthroughNodeAffinity(args: {
     vmName,
     activeVm,
     resourceNames,
+    deviceCrNames,
+    targetNodeHint,
     resources,
     getNodeFromResource,
     buildPatchWithPinnedNode,
@@ -63,9 +70,25 @@ export async function tryFinalizePassthroughNodeAffinity(args: {
   const currentNodeName = currentNodeSelector["kubernetes.io/hostname"];
 
   const list = Array.isArray(resources) ? resources : [];
-  const targets = names.map((rn: string) => list.find((x: any) => String(x?.resourceName || "") === String(rn))).filter(Boolean);
+  const crNames = Array.isArray(deviceCrNames) ? deviceCrNames : [];
+  const targets = names
+    .map((rn: string, idx: number) =>
+      findGpuResource(list, {
+        pcideviceName: crNames[idx],
+        resourceName: rn,
+        node: targetNodeHint,
+      }),
+    )
+    .filter(Boolean);
   const targetNodes = targets.map((x: any) => String(getNodeFromResource(x) || "").trim()).filter(Boolean);
-  const uniqueTargetNodes = Array.from(new Set(targetNodes));
+  let uniqueTargetNodes = Array.from(new Set(targetNodes));
+
+  if (uniqueTargetNodes.length === 0) {
+    const hinted = String(targetNodeHint || "").trim();
+    if (hinted) {
+      uniqueTargetNodes = [hinted];
+    }
+  }
 
   if (uniqueTargetNodes.length === 0) return false;
 

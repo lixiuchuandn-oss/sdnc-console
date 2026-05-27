@@ -25,7 +25,7 @@ import { ReactComponent as CpuSvg } from '../../../../../../assets/clouds/cpu.sv
 import { ReactComponent as MemSvg } from '../../../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskSvg } from '../../../../../../assets/clouds/disk.svg';
 import { ReactComponent as NicSvg } from '../../../../../../assets/clouds/nic.svg';
-import { createHarvesterVm } from '../../../../../../services/harvesterApi';
+import { createHarvesterVm } from 'services/harvester/vm';
 import {
   initialWizardValues,
   validateImageSize,

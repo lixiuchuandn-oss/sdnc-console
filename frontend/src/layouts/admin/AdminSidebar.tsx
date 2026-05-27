@@ -46,6 +46,8 @@ type Props = {
   navigate: (path: string) => void;
   /** 与顶栏高度一致，用于 sticky top 与侧栏可视高度 */
   headerOffsetPx?: number;
+  /** antd Menu `mode`；Cloudmap 池侧栏用 `vertical`（等同官方 demo「Change Mode」开启） */
+  menuMode?: 'inline' | 'vertical';
 };
 
 const AdminSidebar: React.FC<Props> = ({
@@ -59,9 +61,11 @@ const AdminSidebar: React.FC<Props> = ({
   selectedMenuKey,
   navigate,
   headerOffsetPx = 64,
+  menuMode = 'inline',
 }) => {
   const center = visibleCenters.find((c) => c.key === activeSidebarKey) || visibleCenters[0];
   if (!center) return null;
+  const isVerticalMenu = menuMode === 'vertical';
 
   return (
     <Sider
@@ -93,7 +97,7 @@ const AdminSidebar: React.FC<Props> = ({
         }}
       >
         <Menu
-          mode="inline"
+          mode={menuMode}
           theme="light"
           style={{
             flex: 1,
@@ -101,13 +105,13 @@ const AdminSidebar: React.FC<Props> = ({
             minWidth: 0,
             height: '100%',
             borderRight: 0,
-            overflowX: 'hidden',
-            overflowY: collapsed ? 'visible' : 'auto',
+            overflowX: isVerticalMenu ? 'visible' : 'hidden',
+            overflowY: isVerticalMenu || collapsed ? 'visible' : 'auto',
           }}
           items={menuItemsForSidebar(center.items)}
           selectedKeys={[selectedMenuKey ?? selectedPathname]}
           openKeys={collapsed ? undefined : openKeys}
-          inlineCollapsed={collapsed}
+          inlineCollapsed={!isVerticalMenu && collapsed}
           onClick={({ key }) => {
             if (typeof key === 'string' && key.startsWith('/')) navigate(key);
           }}

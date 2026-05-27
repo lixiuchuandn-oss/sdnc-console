@@ -140,16 +140,60 @@ export function createKvPodExecWss() {
         const items: any[] = Array.isArray(clusters?.data) ? clusters?.data : Array.isArray(clusters?.items) ? clusters?.items : [];
         const local = items.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
         clusterId = String(local?.id || local?.Id || items[0]?.id || items[0]?.Id || '')?.trim() || null;
-      } catch (e) {
-        console.warn(`[PodExec] 获取 clusterId 失败:`, (e as Error).message);
+        console.log(`[PodExec] clusterId 获取成功: ${clusterId} (共 ${items.length} 个集群)`);
+      } catch (e: any) {
+        console.warn(`[PodExec] 获取 clusterId 失败:`, e?.message || e);
+        // 继续尝试，可能使用直接路径
       }
 
-      // 构建 exec WebSocket URL
-      const basePath = clusterId
-        ? `/k8s/clusters/${encodeURIComponent(clusterId)}`
-        : '';
+      // 预检查 Pod 状态（帮助诊断 503 错误）
+      try {
+        const podPath = clusterId
+          ? `/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(podName)}`
+          : `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(podName)}`;
+        const podUrl = `${origin}${podPath}`;
+        
+        const podData = await getJsonOnce(podUrl, cloud.secretKey || '', insecure, true);
+        const podStatus = podData?.status?.phase;
+        const containerStatuses = podData?.status?.containerStatuses || [];
+        
+        console.log(`[PodExec] Pod 状态: ${podStatus}`);
+        
+        if (podStatus !== 'Running') {
+          console.warn(`[PodExec] ⚠️ Pod 状态非 Running: ${podStatus}`);
+          // 发送警告到前端（但不阻止连接尝试）
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(Buffer.from(`\x1b[33m⚠️ Pod 状态: ${podStatus}\x1b[0m\r\n`));
+          }
+        }
+        
+        // 检查指定容器是否存在
+        if (container) {
+          const targetContainer = containerStatuses.find((cs: any) => cs?.name === container);
+          if (!targetContainer) {
+            console.warn(`[PodExec] ⚠️ 容器 "${container}" 不存在于 Pod 中`);
+            console.warn(`[PodExec] 可用容器: ${containerStatuses.map((cs: any) => cs?.name).join(', ')}`);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(Buffer.from(`\x1b[33m⚠️ 容器 "${container}" 不存在，可用: ${containerStatuses.map((cs: any) => cs?.name).join(', ')}\x1b[0m\r\n`));
+            }
+          } else if (!targetContainer?.ready) {
+            console.warn(`[PodExec] ⚠️ 容器 "${container}" 未就绪`);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(Buffer.from(`\x1b[33m⚠️ 容器 "${container}" 未就绪\x1b[0m\r\n`));
+            }
+          }
+        }
+      } catch (e: any) {
+        // 预检查失败不阻止连接尝试
+        console.warn(`[PodExec] Pod 状态预检查失败:`, e?.message || e);
+      }
+
+      // 构建多个候选 URL（参考 kvVnc.ts 的健壮性）
+      const scheme = origin.startsWith('https') ? 'wss' : 'ws';
+      const host = origin.replace(/^https?:\/\//, '');
       
-      const queryParams = new URLSearchParams({
+      // 基础查询参数
+      const baseQueryParams = new URLSearchParams({
         stdin: 'true',
         stdout: 'true',
         stderr: 'true',
@@ -157,107 +201,202 @@ export function createKvPodExecWss() {
         command: command,
       });
       if (container) {
-        queryParams.set('container', container);
+        baseQueryParams.set('container', container);
       }
       
-      // 添加环境变量以启用彩色终端体验
-      // TERM=xterm-256color 启用颜色支持
-      // LANG/LC_ALL 启用 UTF-8 支持（正确处理中文）
-      // LS_COLORS 设置文件类型颜色
-      // PS1 设置自定义提示符（显示用户名、主机名、当前路径）
-      queryParams.set('env', 'TERM=xterm-256color');
-      queryParams.set('env', 'LANG=en_US.UTF-8');
-      queryParams.set('env', 'LC_ALL=en_US.UTF-8');
-      queryParams.set('env', 'LS_COLORS=rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32');
+      // 环境变量：使用单个 env 参数，多个环境变量用逗号分隔（K8s exec API 支持）
+      // 或者使用数组形式：env=TERM=xterm-256color&env=LANG=en_US.UTF-8
+      // 这里使用多个 env 参数的形式
+      const envParams = [
+        'TERM=xterm-256color',
+        'LANG=en_US.UTF-8',
+        'LC_ALL=en_US.UTF-8',
+      ];
+      
+      // 构建完整查询字符串（包含多个 env 参数）
+      let queryString = baseQueryParams.toString();
+      envParams.forEach(env => {
+        queryString += `&env=${encodeURIComponent(env)}`;
+      });
+      
+      // 构建多个候选 URL
+      const candidates: string[] = [];
+      
+      // 1. Rancher Steve API 路径（带 clusterId）
+      if (clusterId) {
+        candidates.push(
+          `${scheme}://${host}/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(podName)}/exec?${queryString}`
+        );
+      }
+      
+      // 2. 直接 K8s API 路径（无 clusterId）
+      candidates.push(
+        `${scheme}://${host}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(podName)}/exec?${queryString}`
+      );
+      
+      // 3. Rancher v1 proxy 路径（备选）
+      if (clusterId) {
+        candidates.push(
+          `${scheme}://${host}/k8s/clusters/${clusterId}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(podName)}/exec?${queryString}`
+        );
+      }
 
-      const wsPath = `${basePath}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(podName)}/exec?${queryParams}`;
-      const wsUrl = `${origin.replace(/^http/, 'ws')}${wsPath}`;
-
-      console.log(`[PodExec] 连接到: ${wsUrl}`);
+      console.log(`[PodExec] 候选 URL 数量: ${candidates.length}`);
+      console.log(`[PodExec] 主候选 URL: ${candidates[0]}`);
 
       const rawToken = String(cloud.secretKey || '').trim();
       const authValue = rawToken ? (rawToken.toLowerCase().startsWith('bearer ') ? rawToken : `Bearer ${rawToken}`) : '';
 
       // 连接到 K8s exec WebSocket
-      // 尝试多种子协议：
-      // - v5.channel.k8s.io, v4.channel.k8s.io: Rancher/Steve API 格式
-      // - v2.websocket.k8s.io, v1.websocket.k8s.io: Kubernetes 原生 WebSocket 格式 (K8s 1.31+)
-      // - 无子协议: 某些实现可能不需要
-      const protocols = [
-        'v5.channel.k8s.io', 
-        'v4.channel.k8s.io',
-        'v2.websocket.k8s.io', 
-        'v1.websocket.k8s.io',
-        ''  // 无子协议
+      // Rancher/Steve API 支持的子协议（按优先级排序）：
+      // 1. v4.channel.k8s.io - Rancher Steve API 主要使用的格式（JSON 消息）
+      // 2. v5.channel.k8s.io - Rancher 较新版本格式（JSON 消息，字段名不同）
+      // 3. v2.websocket.k8s.io / v1.websocket.k8s.io - K8s 1.31+ 原生 WebSocket 格式（二进制）
+      // 4. 无子协议 - 某些配置可能不需要子协议
+      const protocolSets: string[][] = [
+        ['v4.channel.k8s.io'],           // Rancher Steve 主要格式
+        ['v5.channel.k8s.io'],           // Rancher 较新格式
+        ['v4.channel.k8s.io', 'v5.channel.k8s.io'], // 同时声明两个
+        [],                               // 无子协议
+        ['v2.websocket.k8s.io'],         // K8s 1.31+ 原生
+        ['v1.websocket.k8s.io'],         // K8s 1.31+ 原生（旧）
       ];
-      let lastError: Error | null = null;
       
-      // 先找到成功的协议
-      for (const protocol of protocols) {
-        try {
-          const wsOptions: any = {
-            headers: {
-              'Authorization': authValue,
-              'Origin': origin,
-            },
-            rejectUnauthorized: !insecure,
-            perMessageDeflate: false,
-          };
+      // Header 组合（参考 kvVnc.ts）
+      const headerSets: Record<string, string>[] = [
+        { 
+          ...(authValue ? { Authorization: authValue } : {}), 
+          Origin: origin,
+          'User-Agent': 'ComputeTower/1.0',
+        },
+        {
+          ...(authValue ? { Authorization: authValue } : {}),
+          Origin: origin,
+          ...(rawToken ? { Cookie: `token=${rawToken}` } : {}),
+          'User-Agent': 'ComputeTower/1.0',
+        },
+      ];
+
+      // WebSocket 连接选项
+      const wsOptions: any = {
+        rejectUnauthorized: !insecure,
+        perMessageDeflate: false,
+        handshakeTimeout: 10000, // 10 秒超时
+      };
+
+      let lastError: Error | null = null;
+      let lastErrorCode: number | null = null;
+      let lastErrorReason: string = '';
+      let chosenUrl: string | null = null;
+      
+      // 尝试所有候选 URL 和协议组合
+      for (const wsUrl of candidates) {
+        if (targetWs) break; // 已成功连接
+        
+        for (const protocols of protocolSets) {
+          if (targetWs) break;
           
-          // 创建 Promise 来等待连接结果
-          const connectResult = await new Promise<{
-            success: boolean;
-            ws?: WebSocket;
-            error?: Error;
-          }>((resolve) => {
-            const testWs = new WebSocket(wsUrl, protocol || undefined, wsOptions);
-            let resolved = false;
+          for (const headers of headerSets) {
+            if (targetWs) break;
             
-            testWs.on('open', () => {
-              if (resolved) return;
-              resolved = true;
-              resolve({ success: true, ws: testWs });
-            });
-            
-            testWs.on('error', (err) => {
-              if (resolved) return;
-              resolved = true;
-              try { testWs.close(); } catch {}
-              resolve({ success: false, error: err });
-            });
-            
-            testWs.on('close', (code) => {
-              if (resolved) return;
-              resolved = true;
-              resolve({ success: false, error: new Error(`Connection closed: ${code}`) });
-            });
-            
-            // 5秒超时
-            setTimeout(() => {
-              if (resolved) return;
-              resolved = true;
-              try { testWs.close(); } catch {}
-              resolve({ success: false, error: new Error('Connection timeout') });
-            }, 5000);
-          });
-          
-          if (connectResult.success && connectResult.ws) {
-            targetWs = connectResult.ws;
-            selectedProtocol = protocol || undefined;
-            console.log(`[PodExec] 使用子协议: ${protocol || '(none)'} 连接成功`);
-            break;
-          } else {
-            lastError = connectResult.error || new Error('Unknown error');
-            console.log(`[PodExec] 子协议 ${protocol || '(none)'} 连接失败: ${lastError.message}`);
+            try {
+              console.log(`[PodExec] 尝试连接: ${wsUrl}, 协议: ${protocols.join(',') || '(none)'}`);
+              
+              const connectResult = await new Promise<{
+                success: boolean;
+                ws?: WebSocket;
+                error?: Error;
+                code?: number;
+                reason?: string;
+              }>((resolve) => {
+                const options = { ...wsOptions, headers };
+                const testWs = new WebSocket(
+                  wsUrl, 
+                  protocols.length > 0 ? protocols : undefined, 
+                  options
+                );
+                let resolved = false;
+                
+                testWs.on('open', () => {
+                  if (resolved) return;
+                  resolved = true;
+                  console.log(`[PodExec] WebSocket 连接成功`);
+                  resolve({ success: true, ws: testWs });
+                });
+                
+                testWs.on('error', (err: Error) => {
+                  if (resolved) return;
+                  resolved = true;
+                  try { testWs.close(); } catch {}
+                  console.log(`[PodExec] WebSocket 错误: ${err.message}`);
+                  resolve({ success: false, error: err });
+                });
+                
+                testWs.on('close', (code: number, reason: Buffer) => {
+                  if (resolved) return;
+                  resolved = true;
+                  const reasonStr = reason.toString();
+                  console.log(`[PodExec] WebSocket 关闭: code=${code}, reason=${reasonStr}`);
+                  resolve({ 
+                    success: false, 
+                    error: new Error(`Connection closed: ${code} ${reasonStr}`),
+                    code,
+                    reason: reasonStr,
+                  });
+                });
+                
+                // 10秒超时
+                setTimeout(() => {
+                  if (resolved) return;
+                  resolved = true;
+                  try { testWs.close(); } catch {}
+                  resolve({ success: false, error: new Error('Connection timeout (10s)') });
+                }, 10000);
+              });
+              
+              if (connectResult.success && connectResult.ws) {
+                targetWs = connectResult.ws;
+                chosenUrl = wsUrl;
+                selectedProtocol = protocols.length > 0 ? protocols[0] : undefined;
+                console.log(`[PodExec] ✓ 连接成功: ${protocols.join(',') || '(none)'}`);
+                break;
+              } else {
+                lastError = connectResult.error || new Error('Unknown error');
+                lastErrorCode = connectResult.code || null;
+                lastErrorReason = connectResult.reason || '';
+                
+                // 503 错误特殊处理：记录更多信息
+                if (connectResult.code === 503 || lastError?.message?.includes('503')) {
+                  console.warn(`[PodExec] ⚠️ 503 Service Unavailable - 可能原因：`);
+                  console.warn(`[PodExec]   1. K8s API Server 不可用或过载`);
+                  console.warn(`[PodExec]   2. Pod "${podName}" 状态异常（非 Running）`);
+                  console.warn(`[PodExec]   3. Container "${container}" 不存在或未就绪`);
+                  console.warn(`[PodExec]   4. Kubelet 与 API Server 通信异常`);
+                  console.warn(`[PodExec]   5. 集群资源不足（CPU/内存）`);
+                }
+              }
+            } catch (err: any) {
+              lastError = err;
+              console.log(`[PodExec] 异常: ${err.message}`);
+            }
           }
-        } catch (err: any) {
-          lastError = err;
-          console.log(`[PodExec] 子协议 ${protocol || '(none)'} 异常: ${err.message}`);
         }
       }
       
       if (!targetWs) {
-        throw new Error(`所有子协议连接失败: ${lastError?.message || 'Unknown'}`);
+        // 构建详细的错误信息
+        let errorMsg = `所有连接尝试失败`;
+        if (lastError) {
+          errorMsg += `: ${lastError.message}`;
+        }
+        if (lastErrorCode === 503) {
+          errorMsg += `\n\n503 错误通常表示：`;
+          errorMsg += `\n• Pod 状态不是 Running（当前 Pod: ${podName}）`;
+          errorMsg += `\n• Container "${container}" 不存在或未就绪`;
+          errorMsg += `\n• K8s API Server 过载或不可用`;
+          errorMsg += `\n• 请检查 Pod 状态和日志`;
+        }
+        throw new Error(errorMsg);
       }
 
       // 设置目标 WebSocket 事件监听器（连接已经 open）

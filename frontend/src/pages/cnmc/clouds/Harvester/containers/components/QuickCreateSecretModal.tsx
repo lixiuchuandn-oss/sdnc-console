@@ -14,8 +14,8 @@
  * - 配置存储卷时快速创建 Secret
  */
 
-import React, { useRef, useCallback, useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, Button, Space, App, Card, Row, Col, Tooltip, Alert, Spin } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Modal, Form, Input, Select, Button, Space, App, Card, Row, Col, Tooltip, Alert } from 'antd';
 import {
   PlusOutlined,
   MinusCircleOutlined,
@@ -25,7 +25,7 @@ import {
   EyeInvisibleOutlined,
 } from '@ant-design/icons';
 import { createHarvesterSecret } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -134,7 +134,6 @@ interface DataEditorProps {
 const DataEditor: React.FC<DataEditorProps> = ({ secretType }) => {
   const requiredKeys = SECRET_TYPE_REQUIRED_KEYS[secretType] || [];
   const isOpaqueType = secretType === 'Opaque';
-  const form = Form.useFormInstance();
 
   return (
     <Form.List name="stringData">
@@ -338,8 +337,8 @@ const QuickCreateSecretModal: React.FC<QuickCreateSecretModalProps> = ({
         namespace: values.namespace,
       });
     } catch (error: any) {
-      const errorMsg = error?.response?.data?.message || error?.message || '创建失败';
-      message.error(errorMsg);
+      const friendlyMsg = translateK8sError(error) || '创建 Secret 失败';
+      message.error(friendlyMsg);
     } finally {
       setLoading(false);
     }

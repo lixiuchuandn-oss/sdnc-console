@@ -6,8 +6,8 @@
  * 支持 `tower.io/alias` 双轨显示与 JSON Patch 更新别名。
  */
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Table, Button, Input, Select, App, Modal, Form, Tooltip, Tag, Space } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone } from '@ant-design/icons';
+import { Table, Button, Input, Select, App, Modal, Form, Tooltip, Tag, Space, Switch } from 'antd';
+import { ReloadOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -72,6 +72,9 @@ interface Props {
   onNsChange?: (v?: string) => void;
   pods?: any[];
   createDefaultNamespace?: string;
+  showAllSwitch?: boolean;
+  queryAll?: boolean;
+  onQueryAllChange?: (checked: boolean) => void;
 }
 
 const ServicesSection: React.FC<Props> = ({
@@ -85,6 +88,9 @@ const ServicesSection: React.FC<Props> = ({
   onNsChange,
   pods,
   createDefaultNamespace,
+  showAllSwitch,
+  queryAll,
+  onQueryAllChange,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
 
@@ -95,9 +101,9 @@ const ServicesSection: React.FC<Props> = ({
   );
 
   const formDefaultNs = useMemo(() => {
-    const preferred = createDefaultNamespace ?? nsValue;
+    const preferred = createDefaultNamespace ?? nsValue ?? 'default';
     if (preferred && !isSystemNamespace(String(preferred))) return preferred;
-    return namespacesOptionsBiz[0];
+    return namespacesOptionsBiz[0] ?? 'default';
   }, [createDefaultNamespace, nsValue, namespacesOptionsBiz]);
 
   /** 当前筛选落在系统命名空间时清空（父级 state 可能来自历史 URL 等） */
@@ -144,7 +150,7 @@ const ServicesSection: React.FC<Props> = ({
   const [podTerminalContainers, setPodTerminalContainers] = useState<string[]>([]);
   
   // 删除 Service
-  const handleDelete = async (record: any) => {
+  const handleDelete = useCallback(async (record: any) => {
     try {
       await deleteHarvesterService(cloudId, record.namespace, record.name);
       message.success('删除成功');
@@ -152,14 +158,14 @@ const ServicesSection: React.FC<Props> = ({
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
-  };
+  }, [cloudId, message, onRefresh]);
   
   // 创建 / 编辑 Service（抽屉 · `containers/drawers/ServiceFormDrawer`）
-  const handleEdit = (record: any) => {
+  const handleEdit = useCallback((record: any) => {
     setServiceFormDrawerMode('edit');
     setEditingRecord(record);
     setServiceFormDrawerOpen(true);
-  };
+  }, []);
 
   const handleOpenCreateService = () => {
     setServiceFormDrawerMode('create');
@@ -181,7 +187,7 @@ const ServicesSection: React.FC<Props> = ({
     [message],
   );
 
-  const handleYamlEdit = useCallback(
+  const _handleYamlEdit = useCallback(
     (record: any) => {
       openServiceYamlDrawer(record);
     },
@@ -326,7 +332,12 @@ const ServicesSection: React.FC<Props> = ({
       })
       .map((s: any, index: number) => {
       const raw = s.rawData || s;
-      const ports = (raw.spec?.ports || []).map((p: any) => `${p.port}:${p.targetPort}/${p.protocol}`).join(', ');
+      const ports = (raw.spec?.ports || []).map((p: any) => {
+        return `${p.port}/${p.protocol}`;
+      }).join(', ');
+      const nodePorts = raw.spec?.type === 'NodePort'
+        ? (raw.spec?.ports || []).filter((p: any) => p.nodePort).map((p: any) => p.nodePort).join(', ')
+        : '';
       const externalIPs = (raw.status?.loadBalancer?.ingress || []).map((i: any) => i.ip || i.hostname).join(', ');
       const name = raw.metadata?.name || s.name;
       const namespace = raw.metadata?.namespace || s.namespace;
@@ -341,6 +352,7 @@ const ServicesSection: React.FC<Props> = ({
         clusterIP: raw.spec?.clusterIP || '-',
         externalIPs: externalIPs || '-',
         ports: ports || '-',
+        nodePorts: nodePorts || '-',
         creationTimestamp: raw.metadata?.creationTimestamp || s.createdAt,
         raw,
         originalRecord: s, // 保留原始数据库记录
@@ -446,6 +458,12 @@ const ServicesSection: React.FC<Props> = ({
     { title: '外部 IP', dataIndex: 'externalIPs', key: 'externalIPs' },
     { title: '端口', dataIndex: 'ports', key: 'ports', ellipsis: true },
     { 
+      title: 'NodePort', 
+      dataIndex: 'nodePorts', 
+      key: 'nodePorts',
+      render: (val: string) => val && val !== '-' ? <Tag color="green">{val}</Tag> : '-',
+    },
+    { 
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
       key: 'creationTimestamp',
@@ -476,14 +494,6 @@ const ServicesSection: React.FC<Props> = ({
                 : [
                 { key: 'view_pods', label: '查看 Pod', onClick: () => openRelatedPodsDrawer(record) },
                 { key: 'edit', label: '编辑服务', disabled: isSystem, tooltip: systemHint, onClick: () => handleEdit(record) },
-                {
-                  key: 'yaml',
-                  label: '编辑 YAML',
-                  danger: true,
-                  disabled: isSystem,
-                  tooltip: isSystem ? systemHint : '直接修改集群资源 YAML，请谨慎操作',
-                  onClick: () => handleYamlEdit(record),
-                },
                 { 
                   key: 'delete', 
                   label: '删除', 
@@ -493,7 +503,7 @@ const ServicesSection: React.FC<Props> = ({
                   onClick: () => {
                     Modal.confirm({
                       title: '确认删除',
-                      content: `确定要删除 Service "${record.name}" 吗？`,
+                      content: `确定要删除 服务 "${record.name}" 吗？`,
                       okText: '删除',
                       okType: 'danger',
                       cancelText: '取消',
@@ -508,11 +518,11 @@ const ServicesSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, handleOpenAliasModal, openRelatedPodsDrawer, handleEdit, handleYamlEdit, handleDelete]);
+  ], [isTenant, handleOpenAliasModal, openRelatedPodsDrawer, handleEdit, handleDelete]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_services_table');
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
+  const [, setPagination] = useState({ current: 1, pageSize: 10 });
 
   return (
     <PageDetailSection
@@ -561,6 +571,15 @@ const ServicesSection: React.FC<Props> = ({
       }
       toolbarRight={
         <div className="toolbar-actions">
+          {showAllSwitch && (
+            <Switch
+              checkedChildren="全部"
+              unCheckedChildren="默认"
+              checked={queryAll}
+              onChange={onQueryAllChange}
+              style={{ marginRight: 8 }}
+            />
+          )}
           {!isTenant && (
             <Button
               type="primary"

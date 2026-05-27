@@ -10,18 +10,18 @@ import {
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { Empty } from 'antd';
 import {
-  CloudmapBackupsGroupTabs,
-  CloudmapCloudDatabaseTabs,
-  CloudmapOniaasNetworkTabs,
-  CloudmapClusterTabs,
-  CloudmapComputeGroupTabs,
-  CloudmapContainersTabs,
-  CloudmapFlatNetworkGroupTabs,
-  CloudmapKubeOvnGroupTabs,
-  CloudmapLogsConfigTab,
-  CloudmapMonitoringAlertsTab,
-  CloudmapObjectStorageGroupTabs,
-  CloudmapStorageGroupTabs,
+  CloudmapBackupsRoutePanel,
+  CloudmapCloudDatabaseRoutePanel,
+  CloudmapOniaasNetworkRoutePanel,
+  CloudmapClusterRoutePanel,
+  CloudmapComputeRoutePanel,
+  CloudmapContainersRoutePanel,
+  CloudmapFlatNetworkRoutePanel,
+  CloudmapKubeOvnRoutePanel,
+  CloudmapLogsConfigRoutePanel,
+  CloudmapMonitoringAlertsRoutePanel,
+  CloudmapObjectStorageRoutePanel,
+  CloudmapStorageRoutePanel,
   ResourceOverviewDatacenterTopologyPanel,
   ResourceOverviewMonitoringPanel,
   ResourceOverviewNetworkTopologyPanel,
@@ -54,7 +54,23 @@ const ResourceHubRoute: React.FC = () => {
       );
     case 'datacenter_topology':
       return p.canAccessResourceHubSub('datacenter_topology') ? (
-        <ResourceOverviewDatacenterTopologyPanel cloudId={p.cloudId} checkPerm={p.checkPerm} />
+        <ResourceOverviewDatacenterTopologyPanel
+          cloudId={p.cloudId}
+          resourceHubSub="datacenter_topology"
+          loadTabResource={p.loadTabResource}
+          checkPerm={p.checkPerm}
+          canReadNetworkScope={p.canReadNetworkScope}
+          resourceLoading={p.resourceLoading}
+          datacenterRacks={p.datacenterRacks}
+          datacenterNodeMetricsMap={p.datacenterNodeMetricsMap}
+          harvesterAswSwitches={p.harvesterAswSwitches}
+          harvesterNodes={p.harvesterNodes}
+          rawNodes={p.rawNodes}
+          harvesterKubeOvnProviderNetworks={p.harvesterKubeOvnProviderNetworks}
+          harvesterVlans={p.harvesterVlans}
+          kubeOvnSubnets={p.kubeOvnSubnets}
+          harvesterClusterNetworks={p.harvesterClusterNetworks}
+        />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
       );
@@ -62,7 +78,20 @@ const ResourceHubRoute: React.FC = () => {
       return p.canAccessResourceHubSub('network_topology') ? (
         <ResourceOverviewNetworkTopologyPanel
           cloudId={p.cloudId}
-          canReadNetworkScope={p.canAccessResourceHubSub('network_topology')}
+          resourceHubSub="network_topology"
+          loadTabResource={p.loadTabResource}
+          checkPerm={p.checkPerm}
+          canReadNetworkScope={p.canReadNetworkScope}
+          resourceLoading={p.resourceLoading}
+          datacenterRacks={p.datacenterRacks}
+          datacenterNodeMetricsMap={p.datacenterNodeMetricsMap}
+          harvesterAswSwitches={p.harvesterAswSwitches}
+          harvesterNodes={p.harvesterNodes}
+          rawNodes={p.rawNodes}
+          harvesterKubeOvnProviderNetworks={p.harvesterKubeOvnProviderNetworks}
+          harvesterVlans={p.harvesterVlans}
+          kubeOvnSubnets={p.kubeOvnSubnets}
+          harvesterClusterNetworks={p.harvesterClusterNetworks}
         />
       ) : (
         <Empty description="无权限访问" style={{ marginTop: 48 }} />
@@ -84,7 +113,7 @@ const MonitoringAlertsRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapMonitoringAlertsTab
+    <CloudmapMonitoringAlertsRoutePanel
       cloudId={p.cloudId}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('monitoring_alerts')}
@@ -98,7 +127,7 @@ const ClusterRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapClusterTabs
+    <CloudmapClusterRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
@@ -110,14 +139,10 @@ const ClusterRoute: React.FC = () => {
       loadTabResource={p.loadTabResource}
       loadResource={p.loadResource}
       harvesterNodes={p.harvesterNodes}
-      nodesLoading={p.nodesLoading}
-      refreshNodes={p.refreshNodes}
       rawNodes={p.rawNodes}
       harvesterClusterNetworks={p.harvesterClusterNetworks}
       rawClusterNetworks={p.rawClusterNetworks}
       harvesterNads={p.harvesterNads}
-      nadsLoading={p.nadsLoading}
-      refreshNads={p.refreshNads}
       rawNads={p.rawNads}
       harvesterLoadBalancers={p.harvesterLoadBalancers}
       rawLoadBalancers={p.rawLoadBalancers}
@@ -129,7 +154,6 @@ const ClusterRoute: React.FC = () => {
       rawSubnets={p.rawSubnets}
       setKubeOvnSubnets={p.setKubeOvnSubnets}
       setRawSubnets={p.setRawSubnets}
-      refreshVlans={p.refreshVlans}
       harvesterNamespacesForManagement={p.harvesterNamespacesForManagement}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterGpuResources={p.harvesterGpuResources}
@@ -151,7 +175,7 @@ const ComputeRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapComputeGroupTabs
+    <CloudmapComputeRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
@@ -191,6 +215,8 @@ const ComputeRoute: React.FC = () => {
       rawTemplates={p.rawTemplates}
       rawSshKeys={p.rawSshKeys}
       rawCloudInits={p.rawCloudInits}
+      harvesterMigrations={p.harvesterMigrations}
+      rawMigrations={p.rawMigrations}
     />
   );
 };
@@ -201,63 +227,24 @@ const PaasDatabasesRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapCloudDatabaseTabs
+    <CloudmapCloudDatabaseRoutePanel
       cloudId={p.cloudId}
       innerActiveKey={p.poolInnerActive('paas_databases')}
+      loadTabResource={p.loadTabResource}
+      loadResource={p.loadResource}
+      checkPerm={p.checkPerm}
+      canReadFlatSubnets={p.canReadFlatSubnets}
+      canReadVpcSubnets={p.canReadVpcSubnets}
       ecs={p.ecs}
       ecsLoading={!!p.resourceLoading.ecs}
-      onRefreshVms={() => p.refreshVms(true)}
-      onForceRefreshVms={() => p.refreshVms(true)}
       harvesterImages={p.harvesterImages}
       harvesterStorageClasses={p.harvesterStorageClasses}
       kubeOvnSubnets={p.kubeOvnSubnets}
       harvesterNads={p.harvesterNads}
-      onReloadImages={
-        p.checkPerm('clouds.images:read') || p.checkPerm('clouds.ecs:read')
-          ? () =>
-              p.loadResource(
-                'images',
-                () => fetchHarvesterImages(p.cloudId, true),
-                (json: any) => p.setHarvesterImages((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
-      onReloadSubnets={
-        p.canReadFlatSubnets ||
-        p.canReadVpcSubnets ||
-        p.checkPerm('clouds.networks:read')
-          ? () =>
-              p.loadResource(
-                'subnets',
-                () => fetchKubeOvnSubnets(p.cloudId, true),
-                (json) => p.setKubeOvnSubnets((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
-      onReloadNads={
-        p.checkPerm('clouds.networks:read')
-          ? () =>
-              p.loadResource(
-                'nads',
-                () => fetchHarvesterNads(p.cloudId, true),
-                (json: any) => p.setHarvesterNads((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
-      onReloadStorageClasses={
-        p.checkPerm('clouds.disks:read') || p.checkPerm('clouds.ecs:read')
-          ? () =>
-              p.loadResource(
-                'storageClasses',
-                () => fetchHarvesterStorageClasses(p.cloudId, true),
-                (json: any) => p.setHarvesterStorageClasses((json as any)?.data?.items || []),
-                true,
-              )
-          : undefined
-      }
+      setHarvesterImages={p.setHarvesterImages}
+      setKubeOvnSubnets={p.setKubeOvnSubnets}
+      setHarvesterNads={p.setHarvesterNads}
+      setHarvesterStorageClasses={p.setHarvesterStorageClasses}
       isTenant={p.isTenant}
       namespacesOptions={p.namespacesOptions}
       capabilities={p.capabilities}
@@ -271,7 +258,7 @@ const OniaasNetworkRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapOniaasNetworkTabs
+    <CloudmapOniaasNetworkRoutePanel
       cloudId={p.cloudId}
       innerActiveKey={p.poolInnerActive('oniaas_network')}
       ecs={p.ecs}
@@ -309,7 +296,7 @@ const ContainersRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapContainersTabs
+    <CloudmapContainersRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       checkPerm={p.checkPerm}
@@ -318,6 +305,7 @@ const ContainersRoute: React.FC = () => {
       loadResource={p.loadResource}
       resourceLoading={p.resourceLoading}
       namespacesOptions={p.namespacesOptions}
+      tenantNamespaces={p.tenantNamespaces}
       nodesOptions={p.nodesOptions}
       nsFilter={p.nsFilter}
       setNsFilter={p.setNsFilter}
@@ -390,7 +378,7 @@ const ObjectStorageRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapObjectStorageGroupTabs
+    <CloudmapObjectStorageRoutePanel
       cloudId={p.cloudId}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('object_storage')}
@@ -404,19 +392,15 @@ const StorageRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapStorageGroupTabs
+    <CloudmapStorageRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('storage')}
-      loadResource={p.loadResource}
       loadTabResource={p.loadTabResource}
       ecs={p.ecs}
-      setEcs={p.setEcs}
-      setRawEcs={p.setRawEcs}
       harvesterVolumes={p.harvesterVolumes}
-      setHarvesterVolumes={p.setHarvesterVolumes}
       harvesterStorageClasses={p.harvesterStorageClasses}
       harvesterSnapshots={p.harvesterSnapshots}
       harvesterNamespaces={p.harvesterNamespaces}
@@ -450,7 +434,7 @@ const BackupsRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapBackupsGroupTabs
+    <CloudmapBackupsRoutePanel
       cloudId={p.cloudId}
       isTenant={p.isTenant}
       showLog={p.showLog}
@@ -477,25 +461,19 @@ const FlatNetworkRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapFlatNetworkGroupTabs
+    <CloudmapFlatNetworkRoutePanel
       cloudId={p.cloudId}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
       canReadFlatSubnets={p.canReadFlatSubnets}
       innerActiveKey={p.poolInnerActive('flat_network')}
-      loadResource={p.loadResource}
       loadTabResource={p.loadTabResource}
-      setResourceLoading={p.setResourceLoading}
       kubeOvnSubnets={p.kubeOvnSubnets}
-      setKubeOvnSubnets={p.setKubeOvnSubnets}
-      setRawSubnets={p.setRawSubnets}
       rawSubnets={p.rawSubnets}
       kubeOvnFlatEips={p.kubeOvnFlatEips}
       kubeOvnVpcs={p.kubeOvnVpcs}
       kubeOvnFlatSnatRules={p.kubeOvnFlatSnatRules}
-      setKubeOvnFlatSnatRules={p.setKubeOvnFlatSnatRules}
       kubeOvnFlatDnatRules={p.kubeOvnFlatDnatRules}
-      setKubeOvnFlatDnatRules={p.setKubeOvnFlatDnatRules}
       resourceLoading={p.resourceLoading}
     />
   );
@@ -507,7 +485,7 @@ const KubeOvnRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapKubeOvnGroupTabs
+    <CloudmapKubeOvnRoutePanel
       cloudId={p.cloudId}
       showLog={p.showLog}
       checkPerm={p.checkPerm}
@@ -516,7 +494,6 @@ const KubeOvnRoute: React.FC = () => {
       innerActiveKey={p.poolInnerActive('kube_ovn')}
       loadResource={p.loadResource}
       loadTabResource={p.loadTabResource}
-      setResourceLoading={p.setResourceLoading}
       kubeOvnVpcs={p.kubeOvnVpcs}
       setKubeOvnVpcs={p.setKubeOvnVpcs}
       setRawVpcs={p.setRawVpcs}
@@ -546,7 +523,7 @@ const LogsConfigRoute: React.FC = () => {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
   return (
-    <CloudmapLogsConfigTab
+    <CloudmapLogsConfigRoutePanel
       cloudId={p.cloudId}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('logs_config')}

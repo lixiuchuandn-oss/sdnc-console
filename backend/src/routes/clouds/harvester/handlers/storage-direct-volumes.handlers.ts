@@ -6,10 +6,12 @@
 import { Request, Response } from 'express';
 import {
   listHarvesterVolumesStandard,
-  listHarvesterAvailableVolumesStandard,
   createHarvesterPVCVolume,
   updatePVCSpec,
   syncVmVolumeSize,
+  buildUsedPvcSetFromKubevirtVms,
+  mapHarvesterPvcToAvailableVolumeItem,
+  filterHarvesterAvailableVolumeItems,
 } from '../../../../services/clouds/harvester/client';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 import { listKubevirtVMsRaw } from '../../../../services/clouds/harvester/vm';
@@ -175,12 +177,14 @@ export async function harvesterAvailableVolumesDirectHandler(req: Request, res: 
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
-    const itemsRaw = await listHarvesterAvailableVolumesStandard(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      { namespace: '' },
-    );
+    // 以 PVC 为数据源（与块存储列表一致）；Longhorn「节点 attached」≠「未挂 VM」，勿用 Longhorn 列表误滤
+    const pvcs = await listHarvesterVolumesStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey || '',
+      insecure,
+    } as any);
+    const itemsRaw = (pvcs || []).map((v: any) => mapHarvesterPvcToAvailableVolumeItem(v));
 
-    // 查询所有虚拟机，提取所有被虚拟机使用的 PVC
     let usedPvcSet = new Set<string>();
     try {
       const allVms = await listKubevirtVMsRaw({
@@ -188,28 +192,12 @@ export async function harvesterAvailableVolumesDirectHandler(req: Request, res: 
         token: cloud.secretKey || '',
         insecure,
       });
-      allVms.forEach((vm: any) => {
-        const vmNs = vm?.metadata?.namespace || '';
-        const volumes = vm?.spec?.template?.spec?.volumes || [];
-        volumes.forEach((vol: any) => {
-          const claimName = vol?.persistentVolumeClaim?.claimName;
-          if (claimName && vmNs) {
-            usedPvcSet.add(`${vmNs}/${claimName}`);
-          }
-        });
-      });
+      usedPvcSet = buildUsedPvcSetFromKubevirtVms(allVms);
     } catch (e: any) {
       console.warn('[available-volumes] 查询虚拟机列表失败，跳过卷使用检查', e.message);
     }
 
-    // 过滤被虚拟机使用的卷
-    let items = itemsRaw
-      .map((vol: any) => {
-        const pvcKey = `${vol.namespace}/${vol.pvcName || vol.name}`;
-        const isUsedByVm = usedPvcSet.has(pvcKey);
-        return { ...vol, isUsedByVm };
-      })
-      .filter((vol: any) => !vol.isUsedByVm);
+    let items = filterHarvesterAvailableVolumeItems(itemsRaw, usedPvcSet);
 
     if (isTenant) {
       if (tenantNamespace) {

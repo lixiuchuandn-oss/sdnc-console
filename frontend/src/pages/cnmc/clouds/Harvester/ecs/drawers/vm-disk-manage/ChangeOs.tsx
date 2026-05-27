@@ -18,7 +18,7 @@
  *    - 检索关键词：ROOT_BUS
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Form, Select, Input, InputNumber, Space, Checkbox, Segmented, Tooltip } from 'antd';
+import { Form, Select, Input, InputNumber, Space, Checkbox, Segmented } from 'antd';
 import { OsIcon } from '../../../../../../../components/OsIcon';
 import { isHarvesterVmImageReady, resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from '../../modals/VmCreateWizard/VmWizardUtils';
@@ -65,11 +65,11 @@ function imageRecordDisplayName(x: any): string {
   ).trim();
 }
 
-function cdromBusFieldValue(isArm64: boolean): 'sata' {
+function cdromBusFieldValue(_isArm64: boolean): 'sata' {
   return 'sata';
 }
 
-function cdromBusTooltipText(isArm64: boolean): string {
+function cdromBusTooltipText(_isArm64: boolean): string {
   return '光驱设备固定为 SATA，与下发的虚拟机规格一致。';
 }
 
@@ -86,7 +86,6 @@ const ChangeOs: React.FC<Props> = ({
 }) => {
   const [minSize, setMinSize] = useState<number>(0);
   const rootDeviceType = Form.useWatch('rootDeviceType', form);
-  const storageClassName = Form.useWatch('storageClassName', form);
   const newOsImageWatch = Form.useWatch('newOsImage', form);
 
   const rootDevLower = String(rootDeviceType || 'disk').toLowerCase();

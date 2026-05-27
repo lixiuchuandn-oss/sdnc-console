@@ -423,7 +423,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
         children: (
           <>
             <Form.Item label="GPU模式" name="gpuMode">
-              <Radio.Group buttonStyle="solid" onChange={() => { setSelectedGpuKey(null); try { form.setFieldsValue({ gpuResourceName: undefined, gpuPcideviceName: undefined }); setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch { } }}>
+              <Radio.Group buttonStyle="solid" onChange={() => { setSelectedGpuKey(null); try { form.setFieldsValue({ gpuPickKey: undefined, gpuNodeName: undefined, gpuResourceName: undefined, gpuPcideviceName: undefined }); setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch { } }}>
                 <Radio.Button value="none">无</Radio.Button>
                 <Radio.Button value="passthrough">直通GPU</Radio.Button>
                 <Radio.Button value="vgpu">vGPU</Radio.Button>
@@ -481,7 +481,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
                   
                   const columns = [
                     { title: '', key: 'select', width: 52, align: 'center', className: 'wizard-node-select-col', onCell: () => ({ style: { paddingLeft: 8, paddingRight: 8 } }), render: (_: any, r: any) => (
-                      <Radio style={{ margin: 0 }} checked={selectedGpuKey === r?.key} onChange={(e) => { e.stopPropagation(); const k = String(r?.key); setSelectedGpuKey(k); const rn = r?.resourceName || r?.raw?.status?.resourceName || r?.raw?.spec?.resourceName; const dn = r?.name; form.setFieldsValue({ gpuPcideviceName: dn, gpuResourceName: rn, gpuMode: r?.type || form.getFieldValue('gpuMode') }); try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch { } }} />
+                      <Radio style={{ margin: 0 }} checked={selectedGpuKey === r?.key} onChange={(e) => { e.stopPropagation(); const k = String(r?.key); setSelectedGpuKey(k); const rn = r?.resourceName || r?.raw?.status?.resourceName || r?.raw?.spec?.resourceName; const dn = r?.name; const node = r?.node && r.node !== '-' ? r.node : undefined; form.setFieldsValue({ gpuPickKey: k, gpuNodeName: node, gpuPcideviceName: dn, gpuResourceName: rn, gpuMode: r?.type || form.getFieldValue('gpuMode') }); try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch { } }} />
                     ) },
                     { title: '节点', dataIndex: 'node', key: 'node' },
                     { title: '总线', dataIndex: 'bus', key: 'bus' },
@@ -518,14 +518,20 @@ const StepCompute: React.FC<StepComputeProps> = ({
                         dataSource={data}
                         pagination={false}
                         loading={gpuLoading}
-                        onRow={(record: any) => ({ onClick: () => { setSelectedGpuKey(String(record?.key)); const rn = record?.resourceName || record?.raw?.status?.resourceName || record?.raw?.spec?.resourceName; const dn = record?.name; form.setFieldsValue({ gpuPcideviceName: dn, gpuResourceName: rn, gpuMode: record?.type || form.getFieldValue('gpuMode') }); try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch { } } })}
+                        onRow={(record: any) => ({ onClick: () => { setSelectedGpuKey(String(record?.key)); const rn = record?.resourceName || record?.raw?.status?.resourceName || record?.raw?.spec?.resourceName; const dn = record?.name; const node = record?.node && record.node !== '-' ? record.node : undefined; form.setFieldsValue({ gpuPickKey: String(record?.key), gpuNodeName: node, gpuPcideviceName: dn, gpuResourceName: rn, gpuMode: record?.type || form.getFieldValue('gpuMode') }); try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch { } } })}
                         rowClassName={(record: any) => (selectedGpuKey && record?.key === selectedGpuKey) ? 'wizard-table-row-active' : ''}
                       />
                     </>
                   );
                 })()}
                 
-                <Form.Item name="gpuResourceName" hidden rules={[{ required: true, message: '请选择GPU' }]}> 
+                <Form.Item name="gpuPickKey" hidden>
+                  <Input />
+                </Form.Item>
+                <Form.Item name="gpuNodeName" hidden>
+                  <Input />
+                </Form.Item>
+                <Form.Item name="gpuResourceName" hidden rules={[{ required: true, message: '请选择GPU' }]}>
                   <Input />
                 </Form.Item>
                 <Form.Item name="gpuPcideviceName" hidden>

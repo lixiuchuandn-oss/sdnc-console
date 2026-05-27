@@ -218,6 +218,7 @@ export function useVmAddDataDiskDrawerData(opts: {
     setLatestVm,
     images,
     availableDiskPvcs,
+    loadAvailablePvcs,
     reloadScs,
     reloadImages,
     ensureNadsLoaded,

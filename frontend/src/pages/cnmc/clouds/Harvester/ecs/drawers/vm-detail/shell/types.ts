@@ -13,6 +13,8 @@ export interface VmDetailDrawerProps {
   activeTab?: string;
   onTabChange?: (key: string) => void;
   onRefresh?: (force?: boolean) => void;
+  /** 备份/快照写成功后刷新云备份域列表（与 VmSection 一致） */
+  onBackupsInventoryChanged?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   onBackup?: (vm: any) => void;
   onSnapshot?: (vm: any) => void;
   onClone?: (vm: any) => void;

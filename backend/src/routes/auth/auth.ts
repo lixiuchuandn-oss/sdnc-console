@@ -16,10 +16,23 @@ import {
 } from '../../services/loginLockoutService';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
 import { resolveAdminDefaultHome } from '../../services/AdminDefaultHomeService';
+import {
+  getLoginPublicKey,
+  resolvePasswordFromLoginBody,
+} from '../../services/loginPasswordCipher';
 
 const authLog = logger.child('Auth');
 
 const router = Router();
+
+/** 登录 RSA 公钥（匿名可读；未配置密钥时 503） */
+router.get('/login-public-key', (_req: Request, res: Response) => {
+  const info = getLoginPublicKey();
+  if (!info) {
+    return res.status(503).json({ message: '登录加密未配置', code: 'LOGIN_CIPHER_NOT_CONFIGURED' });
+  }
+  return res.json(info);
+});
 
 // 用户注册
 router.post('/register', async (req: Request, res: Response) => {
@@ -77,11 +90,17 @@ router.post('/register', async (req: Request, res: Response) => {
 // 用户登录
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    let { username, password } = req.body;
-    
-    // 清理用户名和密码（去除首尾空格）
+    let { username } = req.body;
     username = String(username || '').trim();
-    password = String(password || '').trim();
+
+    const resolved = resolvePasswordFromLoginBody(req.body);
+    if (!resolved.ok) {
+      return res.status(resolved.status).json({
+        message: resolved.message,
+        ...(resolved.code ? { code: resolved.code } : {}),
+      });
+    }
+    const password = resolved.password;
 
     if (!username || !password) {
       return res.status(400).json({ message: '用户名和密码不能为空' });
@@ -290,7 +309,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const adminDefaultHome =
-      role === 'sase_device' ? undefined : resolveAdminDefaultHome(permissions, role);
+      role === 'sase_device' ? undefined : await resolveAdminDefaultHome(permissions, role);
 
     res.json({
       message: '登录成功',
@@ -318,7 +337,7 @@ router.get('/admin-default-home', authMiddleware, async (req: AuthRequest, res: 
     }
     const role = u.isTenantUser ? 'tenant' : String(u.role || '').toLowerCase();
     const permissions = Array.isArray(u.permissions) ? u.permissions : [];
-    const adminDefaultHome = resolveAdminDefaultHome(permissions, role);
+    const adminDefaultHome = await resolveAdminDefaultHome(permissions, role);
     return res.json(adminDefaultHome);
   } catch (error: any) {
     return res.status(500).json({ message: error?.message || '解析失败' });

@@ -5,6 +5,8 @@ import JsonHighlight from './JsonHighlight';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 import ServiceRelatedPodsTab from './ServiceRelatedPodsTab';
 import { ViewLinkTab } from './ViewLinkTab';
+import { resolveHarvesterSteveViewLink } from '../lib/harvesterSteveViewLink';
+import { isHarvesterCephVmBackup } from '../../../../../../utils/harvesterUtils';
 
 export { ViewLinkTab, useViewLinkTab, ViewLinkTabToolbar, ViewLinkTabEditor } from './ViewLinkTab';
 export type { ViewLinkTabModel } from './ViewLinkTab';
@@ -78,15 +80,34 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
     return <VmDetailDrawer {...props} />;
   }
 
-  // 如果 record 没有 links.view，根据 resourceType 和 metadata 自动构造
-  const viewLink = record?.links?.view || (() => {
+  const backupDrawerKind =
+    resourceType === 'VmBackup' || resourceType === 'VmSnapshot'
+      ? isHarvesterCephVmBackup(record)
+        ? 'CephVmBackup'
+        : 'VirtualMachineBackup'
+      : undefined;
+
+  const viewLink =
+    resolveHarvesterSteveViewLink({
+      ...record,
+      kind: record?.kind || backupDrawerKind || resourceType,
+    }) ||
+    record?.links?.view ||
+    (() => {
     if (!record?.metadata?.name || !record?.metadata?.namespace) return null;
     
     const ns = record.metadata.namespace;
     const name = record.metadata.name;
     
     // 根据资源类型构造 Kubernetes API 路径
+    const cephVmBackupPath = `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmbackups/${encodeURIComponent(name)}`;
+    const longhornVmBackupPath = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`;
+    const useCephBackup = isHarvesterCephVmBackup(record);
     const typeToPath: Record<string, string> = {
+      'VirtualMachineBackup': longhornVmBackupPath,
+      'CephVmBackup': cephVmBackupPath,
+      'VmBackup': useCephBackup ? cephVmBackupPath : longhornVmBackupPath,
+      'VmSnapshot': useCephBackup ? cephVmBackupPath : longhornVmBackupPath,
       'Service': `/api/v1/namespaces/${ns}/services/${name}`,
       'Ingress': `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses/${name}`,
       'Pod': `/api/v1/namespaces/${ns}/pods/${name}`,
@@ -102,7 +123,12 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
       'KeyPair': `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/keypairs/${name}`,
     };
     
-    return typeToPath[resourceType] || null;
+    return (
+      typeToPath[backupDrawerKind || ''] ||
+      typeToPath[resourceType] ||
+      typeToPath[record?.kind || ''] ||
+      null
+    );
   })();
 
 
@@ -126,15 +152,33 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
         onClose={onClose}
         placement="right"
         width="60%"
-        styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}
+        styles={{
+          content: { overflow: 'hidden' },
+          body: {
+            padding: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          },
+        }}
       >
       <style>{`
-        .full-height-drawer-tabs { height: 100%; display: flex; flex-direction: column; }
+        .full-height-drawer-tabs { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
         .full-height-drawer-tabs .ant-tabs-nav { margin-bottom: 0; padding: 0 16px; }
         .full-height-drawer-tabs .ant-tabs-content-holder { flex: 1; height: 100%; overflow: hidden; }
         .full-height-drawer-tabs .ant-tabs-content { height: 100%; }
-        .full-height-drawer-tabs .ant-tabs-tabpane { height: 100%; }
-        .full-height-drawer-tabs .ant-tabs-tabpane-active { display: flex; flex-direction: column; }
+        .full-height-drawer-tabs .ant-tabs-tabpane { height: 100%; min-height: 0; }
+        .full-height-drawer-tabs .ant-tabs-tabpane-active { display: flex; flex-direction: column; min-height: 0; }
+        .harvester-ops-drawer-viewlink-pane {
+          flex: 1;
+          min-height: 0;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
       `}</style>
       <Tabs
         className="full-height-drawer-tabs"
@@ -492,7 +536,14 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                   key: 'view_link',
                   label: '实时数据 (View Link)',
                   children: (
-                    <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />
+                    <div className="harvester-ops-drawer-viewlink-pane">
+                      <ViewLinkTab
+                        cloudId={cloudId}
+                        viewLink={viewLink}
+                        active={activeTab === 'view_link'}
+                        style={{ flex: 1, minHeight: 0, height: '100%' }}
+                      />
+                    </div>
                   ),
                 },
               ]

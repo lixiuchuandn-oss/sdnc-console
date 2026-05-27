@@ -815,12 +815,16 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载备份列表
-  const loadBackups = async (cloudId?: string, force: boolean = false) => {
+  const loadBackups = async (
+    cloudId?: string,
+    force: boolean = false,
+    skipSync: boolean = false,
+  ) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchHarvesterBackups(cid, force, false, mergeTenantPublicScope(false));
+      const res = await fetchHarvesterBackups(cid, force, skipSync, mergeTenantPublicScope(false));
       setBackups(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadBackups error:', e);
@@ -831,12 +835,21 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载定时备份策略
-  const loadSchedules = async (cloudId?: string) => {
+  const loadSchedules = async (
+    cloudId?: string,
+    force: boolean = false,
+    skipSync: boolean = false,
+  ) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchHarvesterScheduleVmBackups(cid, false, false, mergeTenantPublicScope(false));
+      const res = await fetchHarvesterScheduleVmBackups(
+        cid,
+        force,
+        skipSync,
+        mergeTenantPublicScope(false),
+      );
       setSchedules(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadSchedules error:', e);
@@ -1377,11 +1390,13 @@ const CloudConsolePage: React.FC = () => {
         break;
       case 'snapshot':
         if (!canAccessMainResource('snapshot')) break;
-        loadBackups(currentCloudId, true);
+        loadBackups(currentCloudId, true, true);
+        window.setTimeout(() => loadBackups(currentCloudId, true, false), 8000);
         break;
       case 'backup':
         if (!canAccessMainResource('backup')) break;
-        loadBackups(currentCloudId, true);
+        loadBackups(currentCloudId, true, true);
+        window.setTimeout(() => loadBackups(currentCloudId, true, false), 8000);
         break;
       case 'schedule':
         if (!canAccessMainResource('schedule')) break;
@@ -1801,8 +1816,12 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                   onRefreshImages={(force?: boolean) => loadImages(currentCloudId, force ?? true)}
                   onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
-                  onRefreshBackups={() => loadBackups(currentCloudId, true)}
-                  onRefreshSchedules={() => loadSchedules(currentCloudId)}
+                  onRefreshBackups={(force = true, skipSync = false) =>
+                    loadBackups(currentCloudId, force, skipSync)
+                  }
+                  onRefreshSchedules={(force = true, skipSync = false) =>
+                    loadSchedules(currentCloudId, force, skipSync)
+                  }
                   onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                   onRefreshGpus={() => loadGpus(currentCloudId)}
                   onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}

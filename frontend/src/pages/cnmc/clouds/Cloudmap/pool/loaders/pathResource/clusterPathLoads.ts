@@ -7,16 +7,18 @@ import {
   fetchKubeOvnVlans,
   fetchKubeOvnProviderNetworks,
   fetchHarvesterIPPools,
+  fetchHarvesterNads,
   fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchHarvesterStorageClasses,
+  fetchKubeOvnSubnets,
 } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** ????`panels/cluster`????????????????VLAN/????? */
+/** Cloudmap `panels/cluster` 子路径按需加载（节点/命名空间/GPU/USB/PCI/存储/VLAN/网络等） */
 export async function tryLoadClusterTab(
   key: string,
   force: boolean,
@@ -45,14 +47,36 @@ export async function tryLoadClusterTab(
     setHarvesterKubeOvnProviderNetworks,
     setHarvesterIPPools,
     setRawIPPools,
+    setHarvesterNads,
+    setRawNads,
     setHarvesterClusterNetworks,
     setRawClusterNetworks,
     setHarvesterNodes,
     setRawNodes,
     setHarvesterStorageClasses,
+    setKubeOvnSubnets,
+    setRawSubnets,
   } = deps;
 
   switch (key) {
+    case 'kubeovn_public_subnets':
+      if (checkPerm('clouds.networks:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) {
+        loadResource(
+          'subnets',
+          () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : Array.isArray((json as any)?.items)
+                ? (json as any).items
+                : [];
+            setKubeOvnSubnets(Array.isArray(list) ? list : []);
+            setRawSubnets(json || null);
+          },
+          force,
+        );
+      }
+      return true;
     case 'namespaces':
       if (
         checkPerm('clouds.namespaces:read') ||
@@ -204,6 +228,22 @@ export async function tryLoadClusterTab(
               ? (json as any).data.items
               : [];
             setHarvesterKubeOvnProviderNetworks(Array.isArray(list) ? list : []);
+          },
+          force,
+        );
+      }
+      return true;
+    case 'nads':
+      if (checkPerm('clouds.nads:read')) {
+        loadResource(
+          'nads',
+          () => fetchHarvesterNads(cloudId, force, skipSync),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : [];
+            setHarvesterNads(Array.isArray(list) ? list : []);
+            setRawNads(json || null);
           },
           force,
         );

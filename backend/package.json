@@ -2,9 +2,9 @@
   "name": "compute-tower-backend",
   "version": "1.0.1",
   "description": "Compute Tower 多云管理平台后端API",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
-    "dev": "set \"NODE_ENV=development\" && set \"PORT=5001\" && set \"DB_SYNC=true\" && nodemon --exec ts-node --transpile-only src/index.ts",
+    "dev": "set \"NODE_ENV=development\" && set \"PORT=5001\" && set \"DB_SYNC=true\" && set \"LOGIN_ALLOW_PLAINT_PASSWORD=1\" && nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",
     "start": "set \"PORT=5001\" && node dist/src/index.js",
     "test": "jest",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@alicloud/pop-core": "^1.7.10",
-    "@aws-sdk/client-s3": "^3.1047.0",
+    "@aws-sdk/client-s3": "^3.1052.0",
     "@huaweicloud/huaweicloud-sdk-core": "^3.1.174",
     "@huaweicloud/huaweicloud-sdk-ecs": "^3.1.174",
     "@huaweicloud/huaweicloud-sdk-eip": "^3.1.174",

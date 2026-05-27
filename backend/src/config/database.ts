@@ -322,6 +322,22 @@ export async function ensureHarvesterAswCtlSwitchInventoryTable() {
   }
 }
 
+/** 与 ImageUploadTask 实体字段对齐；旧库缺列时 ALTER 补齐（可重复调用） */
+export async function ensureImageUploadTaskTableColumns() {
+  const cols: { name: string }[] = await AppDataSource.query(
+    `PRAGMA table_info("image_upload_tasks")`,
+  );
+  const names = new Set((cols || []).map((c) => String(c?.name || '')));
+  const addCol = async (col: string, ddl: string) => {
+    if (names.has(col)) return;
+    await AppDataSource.query(`ALTER TABLE "image_upload_tasks" ADD COLUMN ${ddl}`);
+    names.add(col);
+    dbLog.info(`image_upload_tasks 已补列: ${col}`);
+  };
+  await addCol('createdImageName', '"createdImageName" text');
+  await addCol('createdImageNamespace', '"createdImageNamespace" text');
+}
+
 export async function ensureImageUploadTaskTable() {
   try {
     if (!AppDataSource.isInitialized) {
@@ -343,6 +359,8 @@ export async function ensureImageUploadTaskTable() {
           "imageType" text,
           "filename" text,
           "fileSize" integer,
+          "createdImageName" text,
+          "createdImageNamespace" text,
           "taskStatus" text NOT NULL DEFAULT ('pending'),
           "phase" text NOT NULL DEFAULT ('pending'),
           "progress" integer NOT NULL DEFAULT (0),
@@ -374,6 +392,8 @@ export async function ensureImageUploadTaskTable() {
         ON "image_upload_tasks" ("createdBy")
       `);
       dbLog.info('image_upload_tasks 表创建成功');
+    } else {
+      await ensureImageUploadTaskTableColumns();
     }
   } catch (error) {
     dbLog.error(

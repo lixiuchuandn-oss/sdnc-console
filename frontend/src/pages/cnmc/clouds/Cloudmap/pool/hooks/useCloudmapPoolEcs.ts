@@ -2,20 +2,19 @@
  * Cloudmap 资源池：虚拟机列表 + SSE 推送 + 定时合并 vm_status 缓冲。
  * 从 PoolDetailPage 抽出，便于单测与复用（例如将来独立 ecs 路由页）。
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  API_BASE_URL,
-  apiPost,
-  fetchCloudProviderEcs,
-} from '../api';
+import React, { useEffect, useRef, useState } from 'react';
+import { API_BASE_URL } from '../api';
 import { getToken } from '../../../../../../utils/tokenStorage';
+import {
+  applyPendingAliasToVmRow,
+  HARVESTER_VM_ALIAS_APPLIED_EVENT,
+  mergeTowerAliasIntoVmList,
+  vmAliasInventoryKey,
+  type VmAliasAppliedDetail,
+} from '../../../Harvester/ecs/lib/vmTowerAlias';
 
 export type UseCloudmapPoolEcsParams = {
   cloudId: string;
-  checkPerm: (act: string) => boolean;
-  setResourceLoading: React.Dispatch<
-    React.SetStateAction<Record<string, boolean>>
-  >;
 };
 
 export type UseCloudmapPoolEcsResult = {
@@ -23,49 +22,32 @@ export type UseCloudmapPoolEcsResult = {
   setEcs: React.Dispatch<React.SetStateAction<any[]>>;
   rawEcs: any | null;
   setRawEcs: React.Dispatch<React.SetStateAction<any | null>>;
-  refreshVms: (force?: boolean) => Promise<void>;
 };
 
 export function useCloudmapPoolEcs({
   cloudId,
-  checkPerm,
-  setResourceLoading,
 }: UseCloudmapPoolEcsParams): UseCloudmapPoolEcsResult {
   const [ecs, setEcs] = useState<any[]>([]);
   const [rawEcs, setRawEcs] = useState<any | null>(null);
   const vmStatusBuffer = useRef<Map<string, any>>(new Map());
+  const pendingVmAliasRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     vmStatusBuffer.current.clear();
+    pendingVmAliasRef.current.clear();
   }, [cloudId]);
 
-  const refreshVms = useCallback(
-    async (force: boolean = false) => {
-      if (!checkPerm('clouds.ecs:read')) return;
-      setResourceLoading((prev) => ({ ...prev, ecs: true }));
-      try {
-        if (force) {
-          try {
-            await apiPost(`/api/clouds/${cloudId}/sync`);
-          } catch {}
-        }
-        const json = await fetchCloudProviderEcs(cloudId, force);
-        const list: any[] = Array.isArray((json as any)?.data)
-          ? (json as any).data
-          : (json as any)?.data?.Instances?.Instance ||
-            (json as any)?.data?.items ||
-            (json as any)?.data?.data ||
-            [];
-        setEcs(Array.isArray(list) ? list : []);
-        setRawEcs(json || null);
-      } catch (e) {
-        console.warn(`Failed to load ecs`, e);
-      } finally {
-        setResourceLoading((prev) => ({ ...prev, ecs: false }));
-      }
-    },
-    [cloudId, checkPerm, setResourceLoading],
-  );
+  useEffect(() => {
+    const onAliasApplied = (ev: Event) => {
+      const d = (ev as CustomEvent<VmAliasAppliedDetail>).detail;
+      if (!d?.namespace || !d?.name || !d?.alias) return;
+      const key = vmAliasInventoryKey(d.namespace, d.name);
+      pendingVmAliasRef.current.set(key, String(d.alias).trim());
+      setEcs((prev) => mergeTowerAliasIntoVmList(prev, d.namespace, d.name, d.alias));
+    };
+    window.addEventListener(HARVESTER_VM_ALIAS_APPLIED_EVENT, onAliasApplied);
+    return () => window.removeEventListener(HARVESTER_VM_ALIAS_APPLIED_EVENT, onAliasApplied);
+  }, []);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -86,7 +68,8 @@ export function useCloudmapPoolEcs({
         try {
           const json = JSON.parse(String(ev.data || '{}'));
           const items: any[] = Array.isArray(json?.items) ? json.items : [];
-          setEcs(items);
+          const pending = pendingVmAliasRef.current;
+          setEcs(items.map((row) => applyPendingAliasToVmRow(row, pending)));
         } catch {}
       });
 
@@ -104,7 +87,9 @@ export function useCloudmapPoolEcs({
               )
             )
               return prev;
-            return [r, ...(prev || [])];
+            const pending = pendingVmAliasRef.current;
+            const merged = applyPendingAliasToVmRow(r, pending);
+            return [merged, ...(prev || [])];
           });
         } catch {}
       });
@@ -242,5 +227,5 @@ export function useCloudmapPoolEcs({
     return () => clearInterval(timer);
   }, []);
 
-  return { ecs, setEcs, rawEcs, setRawEcs, refreshVms };
+  return { ecs, setEcs, rawEcs, setRawEcs };
 }

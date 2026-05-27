@@ -31,7 +31,7 @@ import {
 } from 'antd';
 import { createHarvesterService, updateHarvesterService, fetchHarvesterPodsBySelector } from '../../../../../../services/harvesterApi';
 import WorkloadImportDrawer, { type WorkloadInfo } from './WorkloadImportDrawer';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';
 import { getHarvesterDrawerSectionCardProps } from '../../shared/drawerSectionCard';
 
 const { Text } = Typography;
@@ -259,56 +259,86 @@ const KeyValueEditor: React.FC<{
   name: string;
   label?: string;
   addButtonText?: string;
-}> = ({ name, label, addButtonText = '添加' }) => (
-  <Form.List name={name}>
-    {(fields, { add, remove }) => (
-      <Flex vertical gap="small" style={{ width: '100%' }}>
-        {label ? (
-          <Text strong style={{ display: 'block' }}>
-            {label}
-          </Text>
-        ) : null}
-        {fields.map(({ key, name: index, ...restField }) => (
-          <Row key={key} gutter={[12, 8]} align="middle" wrap={false}>
-            <Col flex="1 1 0">
-              <Form.Item
-                {...restField}
-                name={[index, 'key']}
-                rules={[{ required: true, message: '请输入键' }]}
-                style={{ marginBottom: 0 }}
-              >
-                <Input placeholder="键 (如: app)" />
-              </Form.Item>
-            </Col>
-            <Col flex="1 1 0">
-              <Form.Item
-                {...restField}
-                name={[index, 'value']}
-                rules={[{ required: true, message: '请输入值' }]}
-                style={{ marginBottom: 0 }}
-              >
-                <Input placeholder="值 (如: nginx)" />
-              </Form.Item>
-            </Col>
-            <Col flex="none">
-              <Button
-                type="text"
-                danger
-                size="small"
-                icon={<MinusCircleOutlined />}
-                onClick={() => remove(index)}
-                aria-label="删除此行"
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" block onClick={() => add()} icon={<PlusOutlined />}>
-          {addButtonText}
-        </Button>
-      </Flex>
-    )}
-  </Form.List>
-);
+}> = ({ name, label, addButtonText = '添加' }) => {
+  const form = Form.useFormInstance();
+
+  const getDuplicateKeyValidator = () => ({
+    validator: (_: any, value: string) => {
+      if (!value) return Promise.resolve();
+      const allItems: Array<{ key: string; value: string }> = form.getFieldValue(name) || [];
+      const sameKeyCount = allItems.filter((item) => item && item.key === value).length;
+      if (sameKeyCount > 1) {
+        return Promise.reject(new Error('相同键名的标签会被覆盖，请使用不同的键名'));
+      }
+      return Promise.resolve();
+    },
+  });
+
+  return (
+    <Form.List name={name}>
+      {(fields, { add, remove }) => (
+        <Flex vertical gap="middle" style={{ width: '100%' }}>
+          {label ? (
+            <Text strong style={{ display: 'block' }}>
+              {label}
+            </Text>
+          ) : null}
+          {fields.map(({ key, name: index, ...restField }) => (
+            <Row key={key} gutter={[12, 8]}>
+              <Col xs={24} sm={10}>
+                <Form.Item
+                  {...restField}
+                  name={[index, 'key']}
+                  validateTrigger="onChange"
+                  rules={[
+                    { required: true, message: '请输入键' },
+                    {
+                      pattern: /^[a-zA-Z0-9]([-_.a-zA-Z0-9]*[a-zA-Z0-9])?$/,
+                      message: '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾'
+                    },
+                    getDuplicateKeyValidator(),
+                  ]}
+                >
+                  <Input placeholder="键 (如: app)" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={10}>
+                <Form.Item
+                  {...restField}
+                  name={[index, 'value']}
+                  validateTrigger="onChange"
+                  rules={[
+                    { required: true, message: '请输入值' },
+                    {
+                      pattern: /^[a-zA-Z0-9]([-_.a-zA-Z0-9]*[a-zA-Z0-9])?$/,
+                      message: '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾'
+                    },
+                  ]}
+                >
+                  <Input placeholder="值 (如: nginx)" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={4} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                <Button
+                  type="link"
+                  danger
+                  size="small"
+                  icon={<MinusCircleOutlined />}
+                  onClick={() => remove(index)}
+                >
+                  删除
+                </Button>
+              </Col>
+            </Row>
+          ))}
+          <Button type="dashed" block onClick={() => add()} icon={<PlusOutlined />}>
+            {addButtonText}
+          </Button>
+        </Flex>
+      )}
+    </Form.List>
+  );
+};
 
 // ============================================================
 // Service 表单（可单独使用，或与 Drawer 组合）
@@ -475,8 +505,8 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
       onSuccess();
     } catch (error: any) {
       console.error('[ServiceForm] 提交失败:', error);
-      const errorMsg = error?.response?.data?.message || error?.message || '操作失败';
-      message.error(errorMsg);
+      const errorMsg = translateK8sError(error);
+      message.error(`${editMode ? '更新' : '创建'} Service 失败: ${errorMsg}`);
     } finally {
       syncSubmitting(false);
     }
@@ -655,7 +685,15 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                           </Flex>
                           <Row gutter={[12, 8]}>
                             <Col xs={24} sm={12}>
-                              <Form.Item {...restField} name={[index, 'name']} label="名称">
+                              <Form.Item 
+                                {...restField} 
+                                name={[index, 'name']} 
+                                label="名称"
+                                rules={[{
+                                  pattern: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+                                  message: '端口名称格式无效，只能包含小写字母、数字和连字符(-)，且必须以字母或数字开头和结尾',
+                                }]}
+                              >
                                 <Input placeholder="如: http" />
                               </Form.Item>
                             </Col>
@@ -679,7 +717,22 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                                 {...restField}
                                 name={[index, 'targetPort']}
                                 label="容器内部端口"
-                                rules={[{ required: true, message: '请输入容器内部端口' }]}
+                                rules={[
+                                  { required: true, message: '请输入容器内部端口' },
+                                  {
+                                    validator: (_, value) => {
+                                      if (!value) return Promise.resolve();
+                                      const numValue = Number(value);
+                                      if (isNaN(numValue)) {
+                                        return Promise.reject(new Error('容器内部端口格式无效，必须为数字'));
+                                      }
+                                      if (numValue < 1 || numValue > 65535) {
+                                        return Promise.reject(new Error('端口号必须在 1-65535 范围内'));
+                                      }
+                                      return Promise.resolve();
+                                    },
+                                  },
+                                ]}
                               >
                                 <Select
                                   placeholder="选择或输入端口"
@@ -689,7 +742,7 @@ export const ServiceForm: React.FC<ServiceFormProps> = ({
                                   maxTagCount={1}
                                   options={discoveredPorts.map((p) => ({
                                     label: p.name ? `${p.name} (${p.port})` : `${p.port}`,
-                                    value: p.name || p.port,
+                                    value: p.port,
                                   }))}
                                   filterOption={(input, option) =>
                                     (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase()) ||

@@ -9,8 +9,9 @@
  * - 创建定时备份策略
  * - 更新定时备份策略 (PATCH/PUT)
  * - 删除定时备份策略
- * 
- * 从 harvester.cache.storage.routes.ts 中提取的业务逻辑
+ *
+ * Longhorn VM → ScheduleVMBackup (harvesterhci.io)
+ * Ceph VM → ScheduleCephVmBackup (hms.rivercloud.com)
  * ==============================================================================
  */
 
@@ -21,10 +22,81 @@ import {
   createHarvesterScheduleVmBackup,
   updateHarvesterScheduleVmBackup,
   deleteHarvesterScheduleVmBackup,
+  vmShouldUseCephVmBackup,
+  createHarvesterScheduleCephVmBackup,
+  updateHarvesterScheduleCephVmBackup,
+  deleteHarvesterScheduleCephVmBackup,
+  isCephScheduleVmBackupResource,
+  normalizeCephScheduleVmBackupForInventory,
+  scheduleInventoryFieldsFromRaw,
+  getHarvesterScheduleCephVmBackup,
 } from '../../../../services/clouds/harvester/client';
 import { syncHarvesterScheduleVmBackups } from '../../../../services/clouds/harvester/inventory';
 import { HarvesterScheduleVmBackupInventory } from '../../../../entities/harvester/HarvesterScheduleVmBackupInventory';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
+
+function harvesterConn(cloud: any, insecure: boolean) {
+  return {
+    endpoint: cloud.endpoint,
+    token: cloud.secretKey,
+    insecure,
+  } as any;
+}
+
+async function resolveScheduleUseCeph(
+  cloud: any,
+  insecure: boolean,
+  namespace: string,
+  name: string,
+  vmNameForCreate?: string,
+): Promise<boolean> {
+  if (vmNameForCreate) {
+    return vmShouldUseCephVmBackup(harvesterConn(cloud, insecure), namespace, vmNameForCreate);
+  }
+  const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
+  const cached = await repo.findOne({ where: { cloudId: cloud.id, namespace, name } });
+  if (cached?.rawData && isCephScheduleVmBackupResource(cached.rawData)) return true;
+  const ceph = await getHarvesterScheduleCephVmBackup(
+    harvesterConn(cloud, insecure),
+    namespace,
+    name,
+  );
+  return !!ceph;
+}
+
+function persistScheduleVmBackupInventory(
+  cloud: any,
+  payloadNamespace: string,
+  result: any,
+) {
+  const fields = scheduleInventoryFieldsFromRaw(result);
+  const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
+  const uid = result.metadata?.uid || result.id || '';
+  const existing = repo.findOne({ where: { cloudId: cloud.id, uid } });
+
+  return existing.then((row) => {
+    const base = {
+      cloudId: cloud.id,
+      uid,
+      name: result.metadata?.name || '',
+      namespace: result.metadata?.namespace || payloadNamespace,
+      cron: fields.cron,
+      vmName: fields.vmName,
+      retention: fields.retention,
+      status: fields.status,
+      maxFailure: fields.maxFailure,
+      links: result.links,
+      labels: result.metadata?.labels,
+      annotations: result.metadata?.annotations,
+      rawData: result,
+    };
+    if (row) {
+      Object.assign(row, base);
+      return repo.save(row);
+    }
+    return repo.save(repo.create(base));
+  });
+}
 
 /**
  * GET /:id/resources/harvester/schedulevmbackups - 查询定时备份策略
@@ -60,9 +132,6 @@ export async function harvesterScheduleBackupListHandler(req: Request, res: Resp
       }
     }
 
-    // [缓存策略] 自动同步逻辑
-    // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
-    // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
     const { force, skipSync } = req.query;
     const count = await repo.count({ where: whereCondition });
     const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
@@ -99,62 +168,25 @@ export async function harvesterScheduleBackupCreateHandler(req: Request, res: Re
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const payload = req.body;
+    const conn = harvesterConn(cloud, insecure);
+    const useCeph = await vmShouldUseCephVmBackup(conn, payload.namespace, payload.vmName);
 
-    const result = await createHarvesterScheduleVmBackup(
-      {
-        endpoint: cloud.endpoint,
-        token: cloud.secretKey,
-        insecure,
-      } as any,
-      payload.namespace,
-      payload,
-    );
+    let result: any;
+    if (useCeph) {
+      result = await createHarvesterScheduleCephVmBackup(conn, payload.namespace, payload);
+      result = normalizeCephScheduleVmBackupForInventory(result);
+    } else {
+      result = await createHarvesterScheduleVmBackup(conn, payload.namespace, payload);
+    }
 
-    // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
     if (result && result.metadata) {
       try {
-        const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
-        const uid = result.metadata?.uid || result.id || '';
-        const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-
-        if (existing) {
-          // 更新现有记录
-          existing.name = result.metadata?.name || '';
-          existing.namespace = result.metadata?.namespace || payload.namespace;
-          existing.cron = result.spec?.cron;
-          existing.vmName = result.spec?.vmbackup?.source?.name;
-          existing.retention = String(result.spec?.retain || '');
-          existing.status = result.spec?.suspend ? 'Suspended' : 'Active';
-          existing.maxFailure = result.spec?.maxFailure;
-          existing.links = result.links;
-          existing.labels = result.metadata?.labels;
-          existing.annotations = result.metadata?.annotations;
-          existing.rawData = result;
-          await repo.save(existing);
-          console.log(`[ScheduleVmBackup-Create] 定时策略已更新，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
-        } else {
-          // 插入新记录
-          const entity = repo.create({
-            cloudId: cloud.id,
-            uid: uid,
-            name: result.metadata?.name || '',
-            namespace: result.metadata?.namespace || payload.namespace,
-            cron: result.spec?.cron,
-            vmName: result.spec?.vmbackup?.source?.name,
-            retention: String(result.spec?.retain || ''),
-            status: result.spec?.suspend ? 'Suspended' : 'Active',
-            maxFailure: result.spec?.maxFailure,
-            links: result.links,
-            labels: result.metadata?.labels,
-            annotations: result.metadata?.annotations,
-            rawData: result,
-          });
-          await repo.save(entity);
-          console.log(`[ScheduleVmBackup-Create] 定时策略已入库，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
-        }
+        await persistScheduleVmBackupInventory(cloud, payload.namespace, result);
+        console.log(
+          `[ScheduleVmBackup-Create] 定时策略已入库，cloudId: ${cloud.id}, name: ${result.metadata?.name}, backend: ${useCeph ? 'ceph' : 'longhorn'}`,
+        );
       } catch (e: any) {
         console.error('[ScheduleVmBackup-Create] 入库定时策略失败:', e?.message || e);
-        // 入库失败不影响创建操作的成功返回
       }
     }
 
@@ -176,17 +208,14 @@ export async function harvesterScheduleBackupUpdateHandler(req: Request, res: Re
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const payload = req.body;
+    const conn = harvesterConn(cloud, insecure);
+    const useCeph = await resolveScheduleUseCeph(cloud, insecure, namespace, name);
 
-    await updateHarvesterScheduleVmBackup(
-      {
-        endpoint: cloud.endpoint,
-        token: cloud.secretKey,
-        insecure,
-      } as any,
-      namespace,
-      name,
-      payload,
-    );
+    if (useCeph) {
+      await updateHarvesterScheduleCephVmBackup(conn, namespace, name, payload);
+    } else {
+      await updateHarvesterScheduleVmBackup(conn, namespace, name, payload);
+    }
 
     try {
       await syncHarvesterScheduleVmBackups(cloud, insecure);
@@ -204,36 +233,7 @@ export async function harvesterScheduleBackupUpdateHandler(req: Request, res: Re
  * PUT /:id/resources/harvester/schedulevmbackups/:namespace/:name - 更新定时备份策略 (PUT)
  */
 export async function harvesterScheduleBackupPutHandler(req: Request, res: Response) {
-  try {
-    const { id, namespace, name } = req.params;
-    const cloud = await fetchCloudOr404(id, res);
-    if (!cloud) return;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
-    const insecure = !!(cloud.config as any)?.ignoreTls;
-
-    const payload = req.body;
-
-    await updateHarvesterScheduleVmBackup(
-      {
-        endpoint: cloud.endpoint,
-        token: cloud.secretKey,
-        insecure,
-      } as any,
-      namespace,
-      name,
-      payload,
-    );
-
-    try {
-      await syncHarvesterScheduleVmBackups(cloud, insecure);
-    } catch (e) {
-      console.warn('Sync after update failed', e);
-    }
-
-    res.json({ message: '更新定时备份成功' });
-  } catch (error: any) {
-    res.status(500).json({ message: '更新定时备份失败', error: error.body || error.message });
-  }
+  return harvesterScheduleBackupUpdateHandler(req, res);
 }
 
 /**
@@ -247,15 +247,14 @@ export async function harvesterScheduleBackupDeleteHandler(req: Request, res: Re
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
-    await deleteHarvesterScheduleVmBackup(
-      {
-        endpoint: cloud.endpoint,
-        token: cloud.secretKey,
-        insecure,
-      } as any,
-      namespace,
-      name,
-    );
+    const conn = harvesterConn(cloud, insecure);
+    const useCeph = await resolveScheduleUseCeph(cloud, insecure, namespace, name);
+
+    if (useCeph) {
+      await deleteHarvesterScheduleCephVmBackup(conn, namespace, name);
+    } else {
+      await deleteHarvesterScheduleVmBackup(conn, namespace, name);
+    }
 
     try {
       await syncHarvesterScheduleVmBackups(cloud, insecure);

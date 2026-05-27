@@ -3,27 +3,38 @@
  * 负责展示当前 Harvester 云中某一类型（备份 / 快照）的 VM Backup 列表，
  * 支持按状态与关键字筛选，以及发起删除和恢复操作，并在工具栏提供创建备份/快照入口。
  */
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone  } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
-import { deleteHarvesterBackup } from '../../../../../../services/harvesterApi';
-import VmBackupCreateModal from '../../cbr/modals/VmBackupCreateModal';
-import VmRestoreModal from '../../cbr/modals/VmRestoreModal';
+import { deleteHarvesterBackup } from 'services/harvester/cbr';
+import VmBackupCreateModal from '../modals/VmBackupCreateModal';
+import VmRestoreModal from '../modals/VmRestoreModal';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import {
+  harvesterBackupSourceVmName,
+  isHarvesterCephVmBackup,
+  isSystemNamespace,
+} from '../../../../../../utils/harvesterUtils';
+import { findHarvesterVmDisplayAlias } from '../lib/vmBackupDisplay';
+import { resolveHarvesterSteveViewLink } from '../../shared/lib/harvesterSteveViewLink';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import {
+  harvesterBackupsListCachePath,
+  notifyHarvesterBackupsInventoryChanged,
+} from '../../shared/lib/harvesterSectionRefresh';
+import { clearGetCacheForPath } from '../../../../../../utils/requestManager';
 
 /**
  * 组件入参
  * - cloudId: 当前云 ID，用于调用后端 Harvester API
  * - backups: 后端返回的备份/快照列表（可能是原始数据或带 rawData 的包装对象）
  * - loading: 数据加载中标记，用于控制表格与按钮的 loading 状态
- * - onRefresh: 外层传入的刷新回调，支持强制刷新
+ * - onRefresh: 外层传入的刷新回调；`force` 跳过前端缓存，`skipSync` 为 true 时仅读 Tower 库存（写成功后应用，避免全量同步抹掉刚入库的备份）
  * - namespaces: 命名空间列表，用于创建备份弹窗中的下拉框
  * - vms: 虚拟机列表，用于创建/恢复时选择目标 VM
  * - type: 列表类型，'backup' 或 'snapshot'，默认展示备份
@@ -32,7 +43,7 @@ interface Props {
   cloudId: string;
   backups: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean, silent?: boolean) => void;
+  onRefresh?: (force?: boolean, skipSync?: boolean) => void;
   namespaces: any[];
   vms: any[];
   type?: 'backup' | 'snapshot';
@@ -43,6 +54,25 @@ interface Props {
   restoreVms?: any[];
   isTenant?: boolean;
   bordered?: boolean;
+}
+
+function buildVmBackupYamlRecord(raw: any) {
+  const ceph = isHarvesterCephVmBackup(raw);
+  const kind = ceph ? 'CephVmBackup' : 'VirtualMachineBackup';
+  const ns = String(raw?.metadata?.namespace || '').trim();
+  const name = String(raw?.metadata?.name || '').trim();
+  const view =
+    resolveHarvesterSteveViewLink({ ...raw, kind }) ||
+    (ns && name
+      ? ceph
+        ? `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(ns)}/cephvmbackups/${encodeURIComponent(name)}`
+        : `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`
+      : undefined);
+  return {
+    ...raw,
+    kind,
+    links: { ...(raw?.links || {}), ...(view ? { view } : {}) },
+  };
 }
 
 const BackupsSection: React.FC<Props> = ({
@@ -79,13 +109,11 @@ const BackupsSection: React.FC<Props> = ({
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
   // 当前选中的备份/快照，用于恢复操作
   const [currentSnapshot, setCurrentSnapshot] = useState<any>(null);
-  // 详情抽屉
+  // 详情抽屉：摘要 + 实时数据（View Link）
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState<string>('detail');
-  
-  // 列设置状态
-  
+
   /**
    * 将原始备份列表规范化为表格可直接使用的数据结构
    * 同时按照 type 区分 Backup / Snapshot
@@ -99,12 +127,12 @@ const BackupsSection: React.FC<Props> = ({
         if (itemType !== type) return false;
         // Filter by vmId if provided
         if (vmId) {
-             const target = raw.spec?.source?.name || b.targetVm;
-             if (target !== vmId) return false;
+          const target = harvesterBackupSourceVmName(b);
+          if (target !== vmId) return false;
         }
         if (targetVmPredicate) {
           const ns = raw.metadata?.namespace || b.namespace;
-          const targetName = raw.spec?.source?.name || b.targetVm || '';
+          const targetName = harvesterBackupSourceVmName(b);
           if (!targetName || !targetVmPredicate(ns, targetName)) return false;
         }
         return true;
@@ -113,18 +141,10 @@ const BackupsSection: React.FC<Props> = ({
       const raw = b.rawData || b;
       const itemType = raw.spec?.type || 'backup';
       const ns = raw.metadata?.namespace || b.namespace;
-      const targetName = raw.spec?.source?.name || b.targetVm || '';
-      let targetAlias = '-';
-      try {
-        const vm = (vms || []).find((vm: any) => {
-          const vmNs = vm?.metadata?.namespace || vm?.namespace;
-          const vmName = vm?.metadata?.name || vm?.name;
-          return vmNs === ns && vmName === targetName;
-        });
-        if (vm) {
-          targetAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || '-';
-        }
-      } catch {}
+      const targetName = harvesterBackupSourceVmName(b);
+      const targetAlias = targetName
+        ? findHarvesterVmDisplayAlias(vms, ns, targetName)
+        : '-';
 
       return {
         key: raw.metadata?.uid || b.id || `${ns}-${raw.metadata?.name || b.name}`,
@@ -183,6 +203,48 @@ const BackupsSection: React.FC<Props> = ({
     return Array.from(set).sort().map((ns) => ({ label: ns, value: ns }));
   }, [dataSource, isTenant, isPublicNamespace]);
 
+  const hasPendingReadyStatus = useMemo(
+    () => dataSource.some((row) => row.readyToUse !== true),
+    [dataSource],
+  );
+
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  /**
+   * 列表存在「未就绪」时轮询对端同步，刷新 readyToUse（须 skipSync=false；创建后过早 sync 会清空未入集群列表的行）。
+   */
+  useEffect(() => {
+    if (!cloudId || !onRefreshRef.current || !hasPendingReadyStatus) return undefined;
+
+    let tries = 0;
+    const maxTries = 24;
+    let intervalId: number | undefined;
+
+    const tick = () => {
+      tries += 1;
+      const stillPending = (backups || []).some((b: any) => {
+        const raw = b.rawData || b;
+        const itemType = raw.spec?.type || 'backup';
+        if (itemType !== type) return false;
+        return raw.status?.readyToUse !== true;
+      });
+      if (!stillPending || tries > maxTries) {
+        if (intervalId !== undefined) window.clearInterval(intervalId);
+        return;
+      }
+      clearGetCacheForPath(harvesterBackupsListCachePath(cloudId));
+      void onRefreshRef.current?.(true, false);
+    };
+
+    const firstId = window.setTimeout(tick, 4000);
+    intervalId = window.setInterval(tick, 5000);
+    return () => {
+      window.clearTimeout(firstId);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+  }, [cloudId, type, hasPendingReadyStatus, backups]);
+
   /**
    * 删除单个备份 / 快照
    * 弹出确认框后调用后端删除接口，成功后触发刷新
@@ -202,7 +264,7 @@ const BackupsSection: React.FC<Props> = ({
         try {
           await deleteHarvesterBackup(cloudId, record.namespace, record.name);
           message.success('删除成功');
-          onRefresh?.(true);
+          notifyHarvesterBackupsInventoryChanged(cloudId, onRefresh);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -221,6 +283,7 @@ const BackupsSection: React.FC<Props> = ({
       title: '名称',
       dataIndex: 'alias',
       key: 'alias',
+      fixed: 'left' as const,
       render: (t: string, r: any) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
           <CameraTwoTone/>
@@ -280,28 +343,11 @@ const BackupsSection: React.FC<Props> = ({
           items.push({
             key: 'opsinfo',
             label: '查看YAML',
-            onClick: () => { 
-              // 确保传递完整的 rawData，包含 status 信息
+            onClick: () => {
               const rawRecord = record.raw || record.rawData || record;
-              
-              // 创建新对象，避免直接修改原对象，并确保深度复制 links
-              const recordWithLink = {
-                ...rawRecord,
-                links: rawRecord.links ? { ...rawRecord.links } : {}
-              };
-              
-              // 生成 view link（如果不存在）
-              if (!recordWithLink.links.view) {
-                const ns = recordWithLink.metadata?.namespace || recordWithLink.namespace;
-                const name = recordWithLink.metadata?.name || recordWithLink.name;
-                if (ns && name) {
-                  // VirtualMachineBackup 的 API 路径
-                  recordWithLink.links.view = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`;
-                }
-              }
-              
-              setDrawerRecord(recordWithLink); 
-              setDrawerVisible(true); 
+              setDrawerRecord(buildVmBackupYamlRecord(rawRecord));
+              setDrawerActiveTab('detail');
+              setDrawerVisible(true);
             }
           });
           items.push({ type: 'divider' });
@@ -401,7 +447,7 @@ const BackupsSection: React.FC<Props> = ({
         key="table"
         className="std-table"
         scroll={{ x: true }}
-        bordered={false}
+        bordered={bordered}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
@@ -425,8 +471,7 @@ const BackupsSection: React.FC<Props> = ({
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={() => {
           setCreateModalVisible(false);
-          onRefresh?.(true, true);
-          window.setTimeout(() => onRefresh?.(true, true), 2500);
+          notifyHarvesterBackupsInventoryChanged(cloudId, onRefresh);
         }}
         cloudId={cloudId}
         namespaces={namespaces}

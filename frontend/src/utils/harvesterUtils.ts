@@ -159,6 +159,58 @@ export const isSystemStorageClass = (name: string): boolean => {
   return false;
 };
 
+export type HarvesterVolumeStorageKind = 'longhorn' | 'ceph' | 'unknown';
+
+export const HARVESTER_LONGHORN_VOLUME_SNAPSHOT_CLASS = 'longhorn-snapshot';
+export const HARVESTER_CEPH_RBD_VOLUME_SNAPSHOT_CLASS = 'rook-ceph-rbd-snapshot';
+
+/** 与后端 classifyVmImageStorageKindFromProvisioner 一致 */
+export function classifyStorageKindFromProvisioner(provisioner: string): HarvesterVolumeStorageKind {
+  const pl = String(provisioner || '').trim().toLowerCase();
+  if (!pl) return 'unknown';
+  if (pl.includes('longhorn') || pl.includes('driver.longhorn.io')) return 'longhorn';
+  if (
+    pl.includes('rook-ceph') ||
+    pl.includes('rbd.csi.ceph.com') ||
+    pl.includes('cephfs.csi.ceph.com') ||
+    pl.includes('csi.ceph.com') ||
+    pl.includes('ceph.csi')
+  ) {
+    return 'ceph';
+  }
+  return 'unknown';
+}
+
+/** 根据 PVC 的 StorageClass 与存储类列表解析卷存储大类 */
+export function classifyStorageKindFromStorageClassName(
+  storageClassName: string,
+  storageClasses?: any[],
+): HarvesterVolumeStorageKind {
+  const sc = String(storageClassName || '').trim();
+  if (!sc) return 'unknown';
+  const hit = (storageClasses || []).find((item: any) => {
+    const n = String(item?.metadata?.name || item?.name || '').trim();
+    return n === sc;
+  });
+  const prov = String(hit?.provisioner || hit?.spec?.provisioner || '');
+  const fromProv = classifyStorageKindFromProvisioner(prov);
+  if (fromProv !== 'unknown') return fromProv;
+  const lower = sc.toLowerCase();
+  if (lower.includes('longhorn')) return 'longhorn';
+  if (lower.includes('rook-ceph') || lower.includes('ceph') || lower.includes('rbd')) return 'ceph';
+  return 'unknown';
+}
+
+/** 创建 VolumeSnapshot 时按源卷存储类型选择快照类（Longhorn 不变，Ceph 用 rook-ceph-rbd-snapshot） */
+export function resolveVolumeSnapshotClassName(
+  storageClassName?: string,
+  storageClasses?: any[],
+): string {
+  const kind = classifyStorageKindFromStorageClassName(storageClassName || '', storageClasses);
+  if (kind === 'ceph') return HARVESTER_CEPH_RBD_VOLUME_SNAPSHOT_CLASS;
+  return HARVESTER_LONGHORN_VOLUME_SNAPSHOT_CLASS;
+}
+
 /**
  * 判断存储类是否被集群标记为 default StorageClass（metadata/annotations 上的 is-default-class）
  */
@@ -511,7 +563,7 @@ export function getSystemResourceProtectionHint(resource: any, resourceType?: st
   const namespace = metadata.namespace || '';
 
   if (isSystemNamespace(namespace)) {
-    return `系统命名空间 "${namespace}" 中的资源受保护，禁止删除`;
+    return `系统项目 "${namespace}" 中的资源受保护，禁止删除`;
   }
 
   if (namespace === 'default' && name === 'kubernetes') {
@@ -578,4 +630,195 @@ export function findVmsReferencingHarvesterImage(
     }
   }
   return out;
+}
+
+/**
+ * 翻译 Kubernetes API 错误信息为中文
+ * 用于 Service、Ingress、Job 等资源创建/编辑时的错误提示
+ */
+export function translateK8sError(error: any): string {
+  if (!error) return '操作失败';
+
+  // 直接检查 error.body（后端 requestJson 返回的格式）
+  if (error?.body?.reason === 'AlreadyExists') {
+    const field = error.body?.details?.name || '';
+    const kind = error.body?.details?.kind || '资源';
+    if (field) {
+      return `${kind} "${field}" 已存在，请使用其他名称`;
+    }
+    return '资源已存在，请使用其他名称';
+  }
+
+  // 检查 HTTP 状态码 409
+  if (error?.status === 409 || error?.response?.status === 409) {
+    const name = error?.body?.details?.name || error?.response?.data?.details?.name || '';
+    const kind = error?.body?.details?.kind || error?.response?.data?.details?.kind || '资源';
+    if (name) {
+      return `${kind} "${name}" 已存在，请使用其他名称`;
+    }
+    return '资源已存在，请使用其他名称';
+  }
+
+  let errorMsg = '';
+  if (typeof error === 'string') {
+    errorMsg = error;
+  } else if (error?.response?.data?.message) {
+    errorMsg = error.response.data.message;
+  } else if (error?.body && typeof error.body === 'string') {
+    errorMsg = error.body;
+  } else if (error?.body?.message) {
+    errorMsg = error.body.message;
+  } else if (error?.message) {
+    errorMsg = error.message;
+  } else {
+    return '操作失败';
+  }
+
+  if (!errorMsg.includes('{"kind":"Status"')) {
+    return errorMsg;
+  }
+
+  try {
+    const statusMatch = errorMsg.match(/\{"kind":"Status".*\}/);
+    if (!statusMatch) return errorMsg;
+
+    const status = JSON.parse(statusMatch[0]);
+    const reason = status?.reason || '';
+    const message = status?.message || '';
+    const causes = status?.details?.causes || [];
+
+    const translations: Record<string, string> = {
+      'spec.ports: Required value': '端口配置不能为空，请至少添加一个端口',
+      'spec.selector: Invalid value': '选择器格式无效，只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾',
+      'metadata.labels: Invalid value': '标签格式无效，只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾',
+      'spec.ports[0].name: Invalid value': '端口名称格式无效，只能包含小写字母、数字和连字符(-)，且必须以字母或数字开头和结尾',
+      'spec.ports[0].nodePort: Invalid value': 'NodePort 端口无效',
+      'spec.ports[0].targetPort': '容器内部端口格式无效，必须为数字',
+      'must be an empty string or consist of alphanumeric': '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾',
+      'must start and end with an alphanumeric character': '必须以字母或数字开头和结尾',
+    };
+
+    for (const cause of causes) {
+      const field = cause?.field || '';
+      const causeMessage = cause?.message || '';
+
+      if (field === 'spec.ports' && causeMessage === 'Required value') {
+        return translations['spec.ports: Required value'];
+      }
+
+      if (field === 'spec.selector' && causeMessage.includes('Invalid value')) {
+        return translations['spec.selector: Invalid value'];
+      }
+
+      if (field === 'metadata.labels' && causeMessage.includes('Invalid value')) {
+        return translations['metadata.labels: Invalid value'];
+      }
+
+      if (field === 'spec.ports[0].name' && causeMessage.includes('Invalid value')) {
+        return translations['spec.ports[0].name: Invalid value'];
+      }
+
+      if (field === 'spec.ports[0].nodePort') {
+        if (causeMessage.includes('already allocated')) {
+          const portMatch = causeMessage.match(/Invalid value: (\d+)/);
+          const port = portMatch ? portMatch[1] : '';
+          return `NodePort 端口 ${port} 已被占用，请选择其他端口（范围：30000-32767）`;
+        }
+        return translations['spec.ports[0].nodePort: Invalid value'];
+      }
+
+      if (causeMessage.includes('must be an empty string or consist of alphanumeric')) {
+        const fieldName = field === 'metadata.labels' ? '标签' : 
+                         field === 'spec.selector' ? '选择器' : '字段';
+        return `${fieldName}格式无效，只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾`;
+      }
+
+      if (causeMessage.includes('must start and end with an alphanumeric character')) {
+        const fieldName = field === 'metadata.labels' ? '标签' : 
+                         field === 'spec.selector' ? '选择器' : '字段';
+        return `${fieldName}必须以字母或数字开头和结尾`;
+      }
+    }
+
+    if (reason === 'BadRequest' && message.includes('cannot unmarshal array')) {
+      return '容器内部端口格式无效，必须为数字';
+    }
+
+    if (reason === 'AlreadyExists') {
+      const field = status?.details?.name || '';
+      const kind = status?.details?.kind || '资源';
+      if (field) {
+        return `${kind} "${field}" 已存在，请使用其他名称`;
+      }
+      return '资源已存在，请使用其他名称';
+    }
+
+    if (message.includes('admission webhook') && message.includes('denied the request')) {
+      if (message.includes('is already defined in ingress')) {
+        const pathMatch = message.match(/path "([^"]+)"/);
+        const hostMatch = message.match(/host "([^"]+)"/);
+        const path = pathMatch ? pathMatch[1] : '';
+        const host = hostMatch ? hostMatch[1] : '';
+        if (host && path) {
+          return `主机 "${host}" 下的路径 "${path}" 已被其他 Ingress 使用，请更换路径`;
+        }
+        return '该路径已被其他 Ingress 使用，请更换路径';
+      }
+      return message;
+    }
+
+    return message || reason || '操作失败';
+  } catch (e) {
+    console.error('解析 K8s 错误信息失败:', e);
+    return errorMsg;
+  }
+}
+
+/** 备份/快照条目关联的源 VM 名称（兼容 VirtualMachineBackup 与 CephVmBackup） */
+export function harvesterBackupSourceVmName(item: any): string {
+  const raw = item?.rawData || item;
+  return String(
+    raw?.spec?.source?.name || raw?.spec?.sourceVm || item?.targetVm || item?.sourceVm || '',
+  ).trim();
+}
+
+/** 是否为 ScheduleCephVmBackup（hms.rivercloud.com） */
+export function isHarvesterCephScheduleVmBackup(item: any): boolean {
+  const raw = item?.rawData || item;
+  const kind = String(raw?.kind || '').toLowerCase();
+  if (kind === 'schedulecephvmbackup') return true;
+  if (String(raw?.metadata?.annotations?.['tower.io/scheduleBackupBackend'] || '') === 'ceph') {
+    return true;
+  }
+  const api = String(raw?.apiVersion || '').toLowerCase();
+  return api.includes('hms.rivercloud.com') && kind.includes('schedule') && kind.includes('ceph');
+}
+
+/** ScheduleVmBackup / ScheduleCephVmBackup 关联的源虚拟机名 */
+export function harvesterScheduleVmBackupSourceVmName(item: any): string {
+  const raw = item?.rawData || item;
+  if (isHarvesterCephScheduleVmBackup(item)) {
+    return String(raw?.spec?.targetVm || raw?.spec?.vmbackup?.source?.name || item?.vmName || '').trim();
+  }
+  return String(raw?.spec?.vmbackup?.source?.name || item?.vmName || '').trim();
+}
+
+/** 是否为 CephVmBackup（hms.rivercloud.com） */
+export function isHarvesterCephVmBackup(item: any): boolean {
+  const raw = item?.rawData || item;
+  const kind = String(raw?.kind || '').toLowerCase();
+  if (kind === 'cephvmbackup') return true;
+  if (String(raw?.metadata?.annotations?.['tower.io/backupBackend'] || '') === 'ceph') return true;
+  const api = String(raw?.apiVersion || '').toLowerCase();
+  return api.includes('hms.rivercloud.com') && kind !== 'cephvmrestore';
+}
+
+/** 是否为 CephVmRestore（hms.rivercloud.com） */
+export function isHarvesterCephVmRestore(item: any): boolean {
+  const raw = item?.rawData || item;
+  const kind = String(raw?.kind || '').toLowerCase();
+  if (kind === 'cephvmrestore') return true;
+  if (String(raw?.metadata?.annotations?.['tower.io/restoreBackend'] || '') === 'ceph') return true;
+  const api = String(raw?.apiVersion || '').toLowerCase();
+  return api.includes('hms.rivercloud.com') && kind === 'cephvmrestore';
 }

@@ -4,5 +4,7 @@
  * 与同级的 `compute/`、`storage/` 等一致：目录名 = 池路径一级段（本目录为 `resource_hub`）。
  */
 export { default as ResourceOverviewMonitoringPanel } from '../../../../Harvester/monitoring/MonitoringOverview';
-export { default as ResourceOverviewDatacenterTopologyPanel } from '../../../../Harvester/hsm/sections/DatacenterTopologySection';
-export { default as ResourceOverviewNetworkTopologyPanel } from '../../../../Harvester/hsm/sections/NetworkTopologySection';
+export {
+  CloudmapDatacenterTopologyPanel as ResourceOverviewDatacenterTopologyPanel,
+  CloudmapNetworkTopologyPanel as ResourceOverviewNetworkTopologyPanel,
+} from './CloudmapResourceHubTopologyPanels';

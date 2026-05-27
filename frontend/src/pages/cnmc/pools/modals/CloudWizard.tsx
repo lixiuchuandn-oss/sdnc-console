@@ -36,9 +36,8 @@ import {
   Switch, message, Space, Typography, Alert, Divider, Collapse, Image, Cascader
 } from 'antd';
 import { 
-  CloudOutlined, CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
-  EyeOutlined, EyeInvisibleOutlined,
-  AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, AppstoreOutlined, CodeSandboxOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined
+  CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
+  DatabaseOutlined, AppstoreOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, ContainerOutlined, DeploymentUnitOutlined
 } from '@ant-design/icons';
 import '../../clouds/Harvester/ecs/modals/VmCreateWizard/InstanceWizard.css';
 import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from '../lib/poolProviders';
@@ -47,6 +46,7 @@ import cloudmapKeyImage from '../../../../assets/clouds/cloudmapkey.png';
 import cloudmapApiImage from '../../../../assets/clouds/cloudmapapi.png';
 import { provinces, cityOptionsByProvince } from '../../../../constants/chinaRegions';
 import { apiPost, apiRequest } from '../../../../services/api';
+import { updateSystemSetting } from '../../../../services/systemApi';
 import { handleApiError } from '../../../../utils/errorHandler';
 import { isCloudWizardOpenProvider, poolTypeToApiType } from '../lib/cloudWizardUtils';
 
@@ -97,7 +97,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
         setTimeout(() => form.setFieldsValue({ ignoreTls: true }), 200);
       }
     }
-  }, [visible, licenseLoading, isCloudMapOnly, csmOnly]);
+  }, [visible, licenseLoading, isCloudMapOnly, csmOnly, form]);
 
   useLayoutEffect(() => {
     if (!visible || !csmOnly || licenseLoading) return;
@@ -127,7 +127,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
       }, 200);
       return () => clearTimeout(timer);
     }
-  }, [selectedProvider, currentStep]);
+  }, [selectedProvider, currentStep, form]);
 
 
 
@@ -390,7 +390,15 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
 
 
       // 调用API创建云资源
-      await apiPost('/api/clouds', cloudData);
+      const created: any = await apiPost('/api/clouds', cloudData);
+      const newId = created?.cloud?.id ?? created?.id ?? created?.data?.id;
+      if (newId) {
+        try {
+          await updateSystemSetting('favorite.cloudId', String(newId));
+        } catch {
+          /* ignore */
+        }
+      }
       message.success('云资源创建成功！');
       onSuccess();
       handleCancel();

@@ -1,16 +1,16 @@
-import React from 'react';
-import { Empty, message } from 'antd';
+/**
+ * Cloudmap 详情 — Kube-OVN / VPC 网络：侧栏路径驱动，刷新经 `kubeOvnRefresh` → `loadTabResource`。
+ */
+import React, { useEffect, useMemo } from 'react';
+import { Empty } from 'antd';
 import KubeOvnVpcsSection from '../../../../Harvester/kube-ovn/sections/VpcsSection';
 import VpcSubnetsSection from '../../../../Harvester/kube-ovn/sections/VpcSubnetsSection';
 import EipSection from '../../../../Harvester/kube-ovn/sections/EipSection';
 import SnatSection from '../../../../Harvester/kube-ovn/sections/SnatSection';
 import DnatSection from '../../../../Harvester/kube-ovn/sections/DnatSection';
-import {
-  fetchCloudProviderOvnDnatRules,
-  fetchCloudProviderOvnSnatRules,
-  fetchKubeOvnSubnets,
-  fetchKubeOvnVpcs,
-} from '../../api';
+import { createKubeOvnTabOnRefresh } from '../../loaders/kubeOvnRefresh';
+import { fetchKubeOvnVpcs } from '../../api';
+import type { HarvesterSectionOnRefresh } from '../../../../Harvester/kube-ovn/lib/kubeOvnSectionRefresh';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -31,11 +31,10 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
-export type CloudmapKubeOvnGroupTabsProps = {
+export type CloudmapKubeOvnRoutePanelProps = {
   cloudId: string;
   showLog: boolean;
   checkPerm: (act: string) => boolean;
-  /** 许可证 network.ovn.vpc；业务 VPC / VPC 域 EIP·NAT 等 Tab 门控，与子网 RBAC 解耦 */
   ovnVpcEnabled: boolean;
   canReadVpcSubnets: boolean;
   innerActiveKey: string;
@@ -50,9 +49,6 @@ export type CloudmapKubeOvnGroupTabsProps = {
     force?: boolean,
     skipSync?: boolean,
   ) => Promise<void>;
-  setResourceLoading: React.Dispatch<
-    React.SetStateAction<Record<string, boolean>>
-  >;
   kubeOvnVpcs: any[];
   setKubeOvnVpcs: (v: any[]) => void;
   setRawVpcs: (v: any) => void;
@@ -101,17 +97,15 @@ function canViewKubeOvnInner(
   return checkPerm('clouds:read');
 }
 
-/** 须 network.ovn.vpc 许可证的 Kube-OVN Tab（业务 VPC 与 VPC 域南北向） */
-function kubeOvnTabNeedsVpcLicense(key: string): boolean {
-  return (
-    key === 'vpcs' ||
-    key === 'kubeovn_eips' ||
-    key === 'kubeovn_snat' ||
-    key === 'kubeovn_dnat'
-  );
-}
+const KUBE_OVN_TABS_REQUIRE_VPC_LICENSE = new Set([
+  'vpcs',
+  'subnets',
+  'kubeovn_eips',
+  'kubeovn_snat',
+  'kubeovn_dnat',
+]);
 
-const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
+const CloudmapKubeOvnRoutePanel: React.FC<CloudmapKubeOvnRoutePanelProps> = (
   props,
 ) => {
   const {
@@ -123,7 +117,6 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
     innerActiveKey,
     loadResource,
     loadTabResource,
-    setResourceLoading,
     kubeOvnVpcs,
     setKubeOvnVpcs,
     setRawVpcs,
@@ -132,11 +125,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
     setRawSubnets,
     kubeOvnEips,
     kubeOvnSnatRules,
-    setKubeOvnSnatRules,
-    setRawSnatRules,
     kubeOvnDnatRules,
-    setKubeOvnDnatRules,
-    setRawDnatRules,
     resourceLoading,
     rawVpcs,
     rawSubnets,
@@ -145,11 +134,48 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
     rawDnatRules,
   } = props;
 
+  const kubeOvnTabRefreshDeps = useMemo(
+    () => ({
+      loadTabResource,
+      ovnVpcEnabled,
+      refreshVpcsAllScope: async (force: boolean, skipSync: boolean) => {
+        await loadResource(
+          'vpcs',
+          () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'all'),
+          (json) => {
+            setKubeOvnVpcs((json as any)?.data?.items || []);
+            setRawVpcs(json || null);
+          },
+          true,
+        );
+      },
+    }),
+    [cloudId, loadResource, loadTabResource, ovnVpcEnabled, setKubeOvnVpcs, setRawVpcs],
+  );
+
+  const kubeOvnTabOnRefresh = useMemo(
+    () => ({
+      vpcs: createKubeOvnTabOnRefresh('vpcs', kubeOvnTabRefreshDeps),
+      subnets: createKubeOvnTabOnRefresh('subnets', kubeOvnTabRefreshDeps),
+      kubeovn_eips: createKubeOvnTabOnRefresh('kubeovn_eips', kubeOvnTabRefreshDeps),
+      kubeovn_snat: createKubeOvnTabOnRefresh('kubeovn_snat', kubeOvnTabRefreshDeps),
+      kubeovn_dnat: createKubeOvnTabOnRefresh('kubeovn_dnat', kubeOvnTabRefreshDeps),
+    }),
+    [kubeOvnTabRefreshDeps],
+  );
+
+  useEffect(() => {
+    const key = innerActiveKey as keyof typeof kubeOvnTabOnRefresh;
+    if (key in kubeOvnTabOnRefresh) {
+      void loadTabResource(innerActiveKey, false);
+    }
+  }, [innerActiveKey, cloudId, loadTabResource, kubeOvnTabOnRefresh]);
+
   if (!canViewKubeOvnInner(innerActiveKey, checkPerm, canReadVpcSubnets)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
-  if (kubeOvnTabNeedsVpcLicense(innerActiveKey) && !ovnVpcEnabled) {
+  if (KUBE_OVN_TABS_REQUIRE_VPC_LICENSE.has(innerActiveKey) && !ovnVpcEnabled) {
     return (
       <Empty
         description="当前未开通 VPC 网络能力，请在许可证中启用 network.ovn.vpc"
@@ -159,40 +185,14 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
   }
 
   if (innerActiveKey === 'vpcs') {
+    const onRefresh: HarvesterSectionOnRefresh = kubeOvnTabOnRefresh.vpcs;
     return (
       <>
         <KubeOvnVpcsSection
           vpcs={kubeOvnVpcs}
           subnets={kubeOvnSubnets}
           loading={resourceLoading.vpcs || resourceLoading.subnets}
-          onRefresh={async (force = false, silent = false, opts) => {
-            const skipSync = silent;
-            const vpcsAll = opts?.vpcsAll === true;
-            loadResource(
-              'vpcs',
-              () =>
-                fetchKubeOvnVpcs(
-                  cloudId,
-                  force,
-                  skipSync,
-                  vpcsAll ? 'all' : 'vpc',
-                ),
-              (json) => {
-                setKubeOvnVpcs(json?.data?.items || []);
-                setRawVpcs(json || null);
-              },
-              true,
-            );
-            loadResource(
-              'subnets',
-              () => fetchKubeOvnSubnets(cloudId, force, skipSync),
-              (json) => {
-                setKubeOvnSubnets(json?.data?.items || []);
-                setRawSubnets(json || null);
-              },
-              true,
-            );
-          }}
+          onRefresh={onRefresh}
         />
         <DebugJSON data={rawVpcs} show={showLog} />
       </>
@@ -212,28 +212,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           )}
           vpcList={kubeOvnVpcs}
           loading={resourceLoading.subnets}
-          onRefresh={() => {
-            loadResource(
-              'subnets',
-              () => fetchKubeOvnSubnets(cloudId, true),
-              (json) => {
-                setKubeOvnSubnets(json?.data?.items || []);
-                setRawSubnets(json || null);
-              },
-              true,
-            );
-            if (ovnVpcEnabled) {
-              loadResource(
-                'vpcs',
-                () => fetchKubeOvnVpcs(cloudId, true, false, 'vpc'),
-                (json) => {
-                  setKubeOvnVpcs(json?.data?.items || []);
-                  setRawVpcs(json || null);
-                },
-                true,
-              );
-            }
-          }}
+          onRefresh={kubeOvnTabOnRefresh.subnets}
         />
         <DebugJSON data={rawSubnets} show={showLog} />
       </>
@@ -248,11 +227,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           subnets={kubeOvnSubnets}
           vpcs={kubeOvnVpcs}
           loading={resourceLoading.eips}
-          onRefresh={() => {
-            void loadTabResource('eips', true);
-            void loadTabResource('vpcs', true);
-            void loadTabResource('subnets', true);
-          }}
+          onRefresh={kubeOvnTabOnRefresh.kubeovn_eips}
           networkScope="vpc"
         />
         <DebugJSON data={rawEips} show={showLog} />
@@ -270,30 +245,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           subnets={kubeOvnSubnets}
           loading={resourceLoading.snatRules}
           networkScope="vpc"
-          onRefresh={(force = true, silent = false) => {
-            const skipSync = silent;
-            void loadTabResource('eips', force, skipSync);
-            setResourceLoading((prev) => ({
-              ...prev,
-              snatRules: true,
-            }));
-            fetchCloudProviderOvnSnatRules(cloudId, force, skipSync, 'vpc')
-              .then((json) => {
-                const list: any[] = (json as any)?.data?.items || [];
-                setKubeOvnSnatRules(Array.isArray(list) ? list : []);
-                setRawSnatRules(json || null);
-              })
-              .catch((e) => {
-                if (!silent)
-                  message.error('刷新失败: ' + (e?.message || '未知错误'));
-              })
-              .finally(() => {
-                setResourceLoading((prev) => ({
-                  ...prev,
-                  snatRules: false,
-                }));
-              });
-          }}
+          onRefresh={kubeOvnTabOnRefresh.kubeovn_snat}
         />
         <DebugJSON data={rawSnatRules} show={showLog} />
       </>
@@ -310,30 +262,7 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
           subnets={kubeOvnSubnets}
           loading={resourceLoading.dnatRules}
           networkScope="vpc"
-          onRefresh={(force = true, silent = false) => {
-            const skipSync = silent;
-            void loadTabResource('eips', force, skipSync);
-            setResourceLoading((prev) => ({
-              ...prev,
-              dnatRules: true,
-            }));
-            fetchCloudProviderOvnDnatRules(cloudId, force, skipSync, 'vpc')
-              .then((json) => {
-                const list: any[] = (json as any)?.data?.items || [];
-                setKubeOvnDnatRules(Array.isArray(list) ? list : []);
-                setRawDnatRules(json || null);
-              })
-              .catch((e) => {
-                if (!silent)
-                  message.error('刷新失败: ' + (e?.message || '未知错误'));
-              })
-              .finally(() => {
-                setResourceLoading((prev) => ({
-                  ...prev,
-                  dnatRules: false,
-                }));
-              });
-          }}
+          onRefresh={kubeOvnTabOnRefresh.kubeovn_dnat}
         />
         <DebugJSON data={rawDnatRules} show={showLog} />
       </>
@@ -342,4 +271,4 @@ const CloudmapKubeOvnGroupTabs: React.FC<CloudmapKubeOvnGroupTabsProps> = (
   return <Empty description="未知页面" style={{ marginTop: 48 }} />;
 };
 
-export default CloudmapKubeOvnGroupTabs;
+export default CloudmapKubeOvnRoutePanel;

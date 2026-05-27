@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchHarvesterResourceByLink } from '../../../../../../../../services/harvesterApi';
+import { fetchHarvesterResourceByLink } from 'services/harvester/resource';
 import {
   parseCpuToCores,
   parseMemoryToBytes,

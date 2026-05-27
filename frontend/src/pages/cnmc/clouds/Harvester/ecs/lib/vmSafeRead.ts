@@ -978,6 +978,21 @@ export function createVmListSafeRead(
 
 export type VmListSafeRead = ReturnType<typeof createVmListSafeRead>;
 
+/**
+ * 回收站列表 SafeRead：与 `createVmListSafeRead` 相同，但 status 固定为 Stopped（产品设计）。
+ */
+export function createVmRecycleBinListSafeRead(
+  namespaces: any[],
+  volumes: any[],
+  images: any[],
+): VmListSafeRead {
+  const base = createVmListSafeRead(namespaces, volumes, images);
+  return {
+    ...base,
+    status: () => 'Stopped',
+  };
+}
+
 // =============================================================================
 // 四、给「详情抽屉」用的 SafeRead 一整包（drawers/vm-detail/VmDetailDrawer.tsx 里用）
 // =============================================================================

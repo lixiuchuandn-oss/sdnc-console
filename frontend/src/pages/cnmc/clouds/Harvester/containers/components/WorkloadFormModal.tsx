@@ -39,6 +39,9 @@ export interface WorkloadFormModalProps {
   }>;
   // 网络配置相关 props
   hideFlatSubnet?: boolean;  // 是否隐藏扁平子网选项（Harvester 资源池不显示）
+  // 刷新 ConfigMap 和 Secret 列表的回调
+  onRefreshConfigMaps?: () => void;
+  onRefreshSecrets?: () => void;
 }
 
 const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
@@ -57,6 +60,8 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
   secrets,
   persistentVolumeClaims,
   hideFlatSubnet = false,
+  onRefreshConfigMaps,
+  onRefreshSecrets,
 }) => {
   const isEditMode = !!editData;
   
@@ -94,6 +99,8 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
         secrets={secrets}
         persistentVolumeClaims={persistentVolumeClaims}
         hideFlatSubnet={hideFlatSubnet}
+        onRefreshConfigMaps={onRefreshConfigMaps}
+        onRefreshSecrets={onRefreshSecrets}
       />
     </Modal>
   );

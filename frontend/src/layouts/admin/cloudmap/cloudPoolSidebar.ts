@@ -28,7 +28,7 @@ import type { Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
  * Cloudmap 资源池：Tab/子键类型与集群锚点常量。
  * 侧栏与路径叶子以 `routes/cloudmapPoolNavRows.ts` → `routeSpecs` 为唯一数据源（与 SDN 一致）。
  */
-export const CLOUDMAP_POOL_TAB_KEYS = [
+export const CLOUDMAP_POOL_NAV_KEYS = [
   'resource_hub',
   'monitoring_alerts',
   'cluster',
@@ -44,7 +44,7 @@ export const CLOUDMAP_POOL_TAB_KEYS = [
   'logs_config',
 ] as const;
 
-export type CloudmapPoolTabKey = (typeof CLOUDMAP_POOL_TAB_KEYS)[number];
+export type CloudmapPoolNavKey = (typeof CLOUDMAP_POOL_NAV_KEYS)[number];
 
 export const CLOUDMAP_RESOURCE_SUB_KEYS = [
   'overview',
@@ -70,14 +70,14 @@ export function getCloudmapPoolRouteSpecs(): RouteSpec[] {
   return routeSpecs.filter((s) => s.navScope === 'cloudmap-pool');
 }
 
-function isPoolTab(s: string): s is CloudmapPoolTabKey {
-  return (CLOUDMAP_POOL_TAB_KEYS as readonly string[]).includes(s);
+function isPoolNavKey(s: string): s is CloudmapPoolNavKey {
+  return (CLOUDMAP_POOL_NAV_KEYS as readonly string[]).includes(s);
 }
 
 /** 从 RouteSpec.path 解析池内 tab / 内层段 / 侧栏形态 */
 export function parseCloudmapPoolRouteSpec(spec: RouteSpec): {
   pathSuffix: string;
-  tab: CloudmapPoolTabKey;
+  tab: CloudmapPoolNavKey;
   pathSeg: string;
   placement: 'group' | 'top';
 } | null {
@@ -86,17 +86,17 @@ export function parseCloudmapPoolRouteSpec(spec: RouteSpec): {
   const parts = pathSuffix.split('/').filter(Boolean);
   if (parts.length < 2) return null;
   const head = parts[0];
-  if (!isPoolTab(head)) return null;
+  if (!isPoolNavKey(head)) return null;
   if (head === 'resource_hub') {
     return { pathSuffix, tab: 'resource_hub', pathSeg: parts[1] || '', placement: 'group' };
   }
   return { pathSuffix, tab: head, pathSeg: parts[1] || '', placement: 'group' };
 }
 
-export function buildInnerMenuByTab(): Partial<
-  Record<CloudmapPoolTabKey, readonly CloudmapPoolInnerMenuItem[]>
+export function buildInnerMenuByNav(): Partial<
+  Record<CloudmapPoolNavKey, readonly CloudmapPoolInnerMenuItem[]>
 > {
-  const acc: Partial<Record<CloudmapPoolTabKey, CloudmapPoolInnerMenuItem[]>> = {};
+  const acc: Partial<Record<CloudmapPoolNavKey, CloudmapPoolInnerMenuItem[]>> = {};
   const sorted = getCloudmapPoolRouteSpecs()
     .map((spec) => ({ spec, p: parseCloudmapPoolRouteSpec(spec) }))
     .filter((x): x is { spec: RouteSpec; p: NonNullable<typeof x.p> } => !!x.p)
@@ -108,8 +108,8 @@ export function buildInnerMenuByTab(): Partial<
     if (!acc[p.tab]) acc[p.tab] = [];
     acc[p.tab]!.push({ pathSeg: p.pathSeg, label: spec.title || p.pathSeg });
   }
-  const frozen: Partial<Record<CloudmapPoolTabKey, readonly CloudmapPoolInnerMenuItem[]>> = {};
-  (Object.keys(acc) as CloudmapPoolTabKey[]).forEach((k) => {
+  const frozen: Partial<Record<CloudmapPoolNavKey, readonly CloudmapPoolInnerMenuItem[]>> = {};
+  (Object.keys(acc) as CloudmapPoolNavKey[]).forEach((k) => {
     frozen[k] = Object.freeze([...(acc[k] || [])]) as readonly CloudmapPoolInnerMenuItem[];
   });
   return frozen;
@@ -127,12 +127,12 @@ export function filterVisibleCloudmapPoolSpecs(opts?: CloudmapPoolSidebarBuildOp
 
 
 /**
- * Cloudmap 资源池：路径/类型与 Tab 标签；导航叶子见 `routes/cloudmapPoolNavRows.ts` → `routeSpecs`。
+ * Cloudmap 资源池：路径/类型与侧栏导航标签；导航叶子见 `routes/cloudmapPoolNavRows.ts` → `routeSpecs`（非 antd Tabs）。
  */
 
 export const CLOUD_POOL_SIDEBAR_CENTER_KEY = '/admin/cloud_pool_context';
 
-export const LEGACY_CLOUDMAP_POOL_TAB_TO_CANONICAL: Record<string, CloudmapPoolTabKey> = {
+export const LEGACY_CLOUDMAP_POOL_NAV_ALIASES: Record<string, CloudmapPoolNavKey> = {
   'monitoring-alerts': 'monitoring_alerts',
   'logs-config': 'logs_config',
   compute_group: 'compute',
@@ -145,7 +145,7 @@ export const LEGACY_CLOUDMAP_POOL_TAB_TO_CANONICAL: Record<string, CloudmapPoolT
   kube_ovn_group: 'kube_ovn',
 };
 
-const CLOUDMAP_TAB_LABEL: Record<CloudmapPoolTabKey, string> = {
+const CLOUDMAP_NAV_LABEL: Record<CloudmapPoolNavKey, string> = {
   resource_hub: '资源总览',
   monitoring_alerts: '云监控',
   cluster: '集群',
@@ -161,7 +161,7 @@ const CLOUDMAP_TAB_LABEL: Record<CloudmapPoolTabKey, string> = {
   logs_config: '日志管理',
 };
 
-const CLOUDMAP_TAB_ICON: Record<CloudmapPoolTabKey, ReactNode> = {
+const CLOUDMAP_NAV_ICON: Record<CloudmapPoolNavKey, ReactNode> = {
   resource_hub: createElement(DashboardOutlined),
   monitoring_alerts: createElement(AlertOutlined),
   cluster: createElement(ClusterOutlined),
@@ -177,57 +177,57 @@ const CLOUDMAP_TAB_ICON: Record<CloudmapPoolTabKey, ReactNode> = {
   logs_config: createElement(FileTextOutlined),
 };
 
-export function cloudmapTabLabel(tab: CloudmapPoolTabKey): string {
-  return CLOUDMAP_TAB_LABEL[tab] || tab;
+export function cloudmapNavLabel(tab: CloudmapPoolNavKey): string {
+  return CLOUDMAP_NAV_LABEL[tab] || tab;
 }
 
-export function cloudmapTabIcon(tab: CloudmapPoolTabKey): ReactNode {
-  return CLOUDMAP_TAB_ICON[tab];
+export function cloudmapNavIcon(tab: CloudmapPoolNavKey): ReactNode {
+  return CLOUDMAP_NAV_ICON[tab];
 }
 
 export type ParsedCloudmapPoolPath = {
-  tab: CloudmapPoolTabKey;
+  tab: CloudmapPoolNavKey;
   resourceHubSub?: CloudmapResourceSubKey;
   poolInnerSeg?: string;
 };
 
-const _innerFrozen = buildInnerMenuByTab();
+const _innerFrozen = buildInnerMenuByNav();
 
-export const INNER_MENU_BY_TAB: Partial<
-  Record<CloudmapPoolTabKey, readonly CloudmapPoolInnerMenuItem[]>
+export const INNER_MENU_BY_NAV: Partial<
+  Record<CloudmapPoolNavKey, readonly CloudmapPoolInnerMenuItem[]>
 > = _innerFrozen;
 
 export const CLOUDMAP_COMPUTE_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.compute || [];
+  INNER_MENU_BY_NAV.compute || [];
 export const CLOUDMAP_STORAGE_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.storage || [];
+  INNER_MENU_BY_NAV.storage || [];
 export const CLOUDMAP_CONTAINERS_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.containers || [];
+  INNER_MENU_BY_NAV.containers || [];
 export const CLOUDMAP_BACKUPS_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.backups || [];
+  INNER_MENU_BY_NAV.backups || [];
 export const CLOUDMAP_FLAT_NETWORK_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.flat_network || [];
+  INNER_MENU_BY_NAV.flat_network || [];
 export const CLOUDMAP_KUBE_OVN_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.kube_ovn || [];
+  INNER_MENU_BY_NAV.kube_ovn || [];
 export const CLOUDMAP_PAAS_DATABASES_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.paas_databases || [];
+  INNER_MENU_BY_NAV.paas_databases || [];
 export const CLOUDMAP_ONIAAS_NETWORK_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.oniaas_network || [];
+  INNER_MENU_BY_NAV.oniaas_network || [];
 export const CLOUDMAP_MONITORING_ALERTS_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.monitoring_alerts || [];
+  INNER_MENU_BY_NAV.monitoring_alerts || [];
 export const CLOUDMAP_LOGS_CONFIG_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.logs_config || [];
-/** 集群 Tab 子路径：与 `buildInnerMenuByTab` / `routeSpecs`（`cloudmapPoolNavRows`）同源，勿再手写重复表 */
+  INNER_MENU_BY_NAV.logs_config || [];
+/** 集群子路径：与 `buildInnerMenuByNav` / `routeSpecs`（`cloudmapPoolNavRows`）同源，勿再手写重复表 */
 export const CLOUDMAP_CLUSTER_INNER_MENU: readonly CloudmapPoolInnerMenuItem[] =
-  INNER_MENU_BY_TAB.cluster || [];
+  INNER_MENU_BY_NAV.cluster || [];
 export const CLOUDMAP_CLUSTER_SECTION_KEYS = CLOUDMAP_CLUSTER_INNER_MENU.map(
   (x) => x.pathSeg,
 ) as readonly string[];
 
-export function cloudmapInnerMenuForTab(
-  tab: CloudmapPoolTabKey,
+export function cloudmapInnerMenuForNav(
+  nav: CloudmapPoolNavKey,
 ): readonly CloudmapPoolInnerMenuItem[] | undefined {
-  return INNER_MENU_BY_TAB[tab];
+  return INNER_MENU_BY_NAV[nav];
 }
 
 export function isClusterSectionKey(seg: string): boolean {
@@ -306,20 +306,20 @@ export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: stri
   return null;
 }
 
-export function cloudmapTabUsesPoolInnerPath(tab: CloudmapPoolTabKey): boolean {
-  return Boolean(INNER_MENU_BY_TAB[tab]);
+export function cloudmapNavUsesPoolInnerPath(tab: CloudmapPoolNavKey): boolean {
+  return Boolean(INNER_MENU_BY_NAV[tab]);
 }
 
-export function cloudmapDefaultPoolInnerSeg(tab: CloudmapPoolTabKey): string {
-  const m = INNER_MENU_BY_TAB[tab];
+export function cloudmapDefaultPoolInnerSeg(tab: CloudmapPoolNavKey): string {
+  const m = INNER_MENU_BY_NAV[tab];
   return m?.[0]?.pathSeg || '';
 }
 
 export function isValidCloudmapPoolInnerSeg(
-  tab: CloudmapPoolTabKey,
+  tab: CloudmapPoolNavKey,
   seg: string,
 ): boolean {
-  const m = INNER_MENU_BY_TAB[tab];
+  const m = INNER_MENU_BY_NAV[tab];
   if (!m) return false;
   return m.some((x) => x.pathSeg === seg);
 }
@@ -348,11 +348,11 @@ export function parseCloudmapPoolPath(
     return { tab: 'resource_hub', resourceHubSub: sub };
   }
   const seg = parts[0];
-  if (!(CLOUDMAP_POOL_TAB_KEYS as readonly string[]).includes(seg)) {
+  if (!(CLOUDMAP_POOL_NAV_KEYS as readonly string[]).includes(seg)) {
     return null;
   }
-  const tab = seg as CloudmapPoolTabKey;
-  const innerMenu = INNER_MENU_BY_TAB[tab];
+  const tab = seg as CloudmapPoolNavKey;
+  const innerMenu = INNER_MENU_BY_NAV[tab];
   if (innerMenu) {
     const rawInner = parts[1] || '';
     if (rawInner && !isValidCloudmapPoolInnerSeg(tab, rawInner)) {
@@ -401,7 +401,7 @@ export function cloudmapLegacyQueryToPath(
     return `${base}/cluster/storage_pools`;
   }
 
-  const tab = normalizeCloudmapPoolTabParam(rawTab);
+  const tab = normalizeCloudmapPoolNavParam(rawTab);
   if (tab === 'resource_hub') {
     const sub = normalizeCloudmapResourceSubParam(rawTab, sp.get('sub'));
     return `${base}/resource_hub/${encodeURIComponent(sub)}`;
@@ -427,7 +427,7 @@ export function cloudmapLegacyQueryToPath(
     }
     return `${base}/cluster/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('cluster'))}`;
   }
-  const innerMenu = INNER_MENU_BY_TAB[tab];
+  const innerMenu = INNER_MENU_BY_NAV[tab];
   if (innerMenu) {
     const rawSub = (sp.get('sub') || '').trim();
     const inner =
@@ -489,7 +489,7 @@ export function cloudmapClusterSegmentQueryToPath(
   }
 
   if (qSeg) {
-    const nextPath = cloudmapPathForTab(cloudId, 'cluster', { poolInnerSeg: qSeg });
+    const nextPath = cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: qSeg });
     const next = `${nextPath}${suffix}`;
     const cur = `${pathname}${search}`;
     return next !== cur ? next : null;
@@ -526,9 +526,9 @@ export function cloudmapStripObsoletePoolQuery(
   return q ? `${pathname}?${q}` : pathname;
 }
 
-export function cloudmapPathForTab(
+export function cloudmapPathForNav(
   cloudId: string,
-  tab: CloudmapPoolTabKey,
+  tab: CloudmapPoolNavKey,
   opts?: {
     resourceHubSub?: CloudmapResourceSubKey;
     poolInnerSeg?: string;
@@ -539,7 +539,7 @@ export function cloudmapPathForTab(
     const sub = opts?.resourceHubSub || 'overview';
     return `${base}/resource_hub/${encodeURIComponent(sub)}`;
   }
-  const innerMenu = INNER_MENU_BY_TAB[tab];
+  const innerMenu = INNER_MENU_BY_NAV[tab];
   if (innerMenu) {
     const raw = (opts?.poolInnerSeg || '').trim();
     const pi =
@@ -551,15 +551,15 @@ export function cloudmapPathForTab(
   return `${base}/${encodeURIComponent(tab)}`;
 }
 
-export function normalizeCloudmapPoolTabParam(tab: string | null): CloudmapPoolTabKey {
+export function normalizeCloudmapPoolNavParam(tab: string | null): CloudmapPoolNavKey {
   const t = String(tab || '').trim();
   if (t === 'overview' || t === 'datacenter_topology') {
     return 'resource_hub';
   }
-  const legacy = LEGACY_CLOUDMAP_POOL_TAB_TO_CANONICAL[t];
+  const legacy = LEGACY_CLOUDMAP_POOL_NAV_ALIASES[t];
   if (legacy) return legacy;
-  if ((CLOUDMAP_POOL_TAB_KEYS as readonly string[]).includes(t)) {
-    return t as CloudmapPoolTabKey;
+  if ((CLOUDMAP_POOL_NAV_KEYS as readonly string[]).includes(t)) {
+    return t as CloudmapPoolNavKey;
   }
   return 'resource_hub';
 }
@@ -591,7 +591,7 @@ type PoolTabMenuRow = {
 function poolTabMenuChildrenWithSubgroups(
   rows: PoolTabMenuRow[],
   base: string,
-  tab: CloudmapPoolTabKey,
+  tab: CloudmapPoolNavKey,
 ): any[] {
   const sorted = [...rows].sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0));
   const out: any[] = [];
@@ -641,22 +641,22 @@ function cloudmapPoolMenuItems(
     .filter((x): x is NonNullable<typeof x> => !!x)
     .sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0));
 
-  const byTab: Partial<Record<CloudmapPoolTabKey, typeof visible>> = {};
+  const byTab: Partial<Record<CloudmapPoolNavKey, typeof visible>> = {};
   for (const row of visible) {
     const t = row.p.tab;
     (byTab[t] ??= []).push(row);
   }
 
   const items: any[] = [];
-  for (const tab of CLOUDMAP_POOL_TAB_KEYS) {
+  for (const tab of CLOUDMAP_POOL_NAV_KEYS) {
     const rows = byTab[tab];
     if (!rows?.length) continue;
 
     if (tab === 'resource_hub') {
       items.push({
         key: CLOUDMAP_RESOURCE_HUB_MENU_GROUP_KEY,
-        label: cloudmapTabLabel('resource_hub'),
-        icon: cloudmapTabIcon('resource_hub'),
+        label: cloudmapNavLabel('resource_hub'),
+        icon: cloudmapNavIcon('resource_hub'),
         children: rows.map(({ spec, p }) => ({
           key: `${base}/${p.pathSuffix}`,
           label: spec.title,
@@ -669,8 +669,8 @@ function cloudmapPoolMenuItems(
       rows[0]?.spec.poolMenuParentKey || `cloudmap_menu_${tab}`;
     items.push({
       key: parentKey,
-      label: cloudmapTabLabel(tab),
-      icon: cloudmapTabIcon(tab),
+      label: cloudmapNavLabel(tab),
+      icon: cloudmapNavIcon(tab),
       children: poolTabMenuChildrenWithSubgroups(
         rows as PoolTabMenuRow[],
         base,

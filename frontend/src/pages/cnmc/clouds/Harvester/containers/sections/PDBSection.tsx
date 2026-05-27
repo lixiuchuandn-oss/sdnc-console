@@ -364,7 +364,7 @@ const PDBSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue;
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);

@@ -26,11 +26,11 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
-  fetchHarvesterDeployments,
-  fetchHarvesterStatefulSets,
-  fetchHarvesterDaemonSets,
   scaleHarvesterDeployment,
+  scaleHarvesterStatefulSet,
   restartHarvesterDeployment,
+  restartHarvesterStatefulSet,
+  restartHarvesterDaemonSet,
   deleteHarvesterContainerResource,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
@@ -65,6 +65,8 @@ type Props = {
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
+  onRefreshConfigMaps?: () => void;
+  onRefreshSecrets?: () => void;
 };
 
 /**
@@ -337,7 +339,11 @@ const WorkloadTable: React.FC<{
         const input = document.getElementById('replicas-input') as HTMLInputElement;
         const replicas = parseInt(input?.value || '0', 10);
         try {
-          await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
+          if (type === 'statefulset') {
+            await scaleHarvesterStatefulSet(cloudId, namespace, name, replicas);
+          } else {
+            await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
+          }
           message.success('扩缩容指令已下发');
           onRefresh(true);
         } catch (e: any) {
@@ -345,7 +351,7 @@ const WorkloadTable: React.FC<{
         }
       },
     });
-  }, [cloudId, modal, message, onRefresh]);
+  }, [cloudId, modal, message, onRefresh, type]);
   
   // 重启操作
   const handleRestart = useCallback(async (record: any) => {
@@ -353,13 +359,19 @@ const WorkloadTable: React.FC<{
     const name = record?.metadata?.name;
     
     try {
-      await restartHarvesterDeployment(cloudId, namespace, name);
+      if (type === 'statefulset') {
+        await restartHarvesterStatefulSet(cloudId, namespace, name);
+      } else if (type === 'daemonset') {
+        await restartHarvesterDaemonSet(cloudId, namespace, name);
+      } else {
+        await restartHarvesterDeployment(cloudId, namespace, name);
+      }
       message.success('重启指令已下发');
       onRefresh(true);
     } catch (e: any) {
       message.error(e?.message || '重启失败');
     }
-  }, [cloudId, message, onRefresh]);
+  }, [cloudId, message, onRefresh, type]);
   
   // 删除操作
   const handleDelete = useCallback(async (record: any) => {
@@ -490,7 +502,6 @@ const WorkloadTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => handleRestart(record),
-            show: type === 'deployment' || type === 'statefulset',
           },
           {
             key: 'delete',
@@ -515,13 +526,13 @@ const WorkloadTable: React.FC<{
           ? itemsAll.filter((i) => i.key === 'yaml')
           : itemsAll
         )
-          .filter((item: any) => !item.show || item.show === true)
-          .map(({ show, ...rest }: any) => rest);
+          .filter((item: any) => item.show === undefined || item.show === true)
+          .map(({ show: _show, ...rest }: any) => rest);
 
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, onEdit, modal, typeLabel, operationsReadOnly]);
+  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, handleOpenAliasModal, onEdit, modal, typeLabel, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -699,8 +710,10 @@ const WorkloadsSection: React.FC<Props> = ({
   showAllSwitch,
   queryAll,
   onQueryAllChange,
+  onRefreshConfigMaps,
+  onRefreshSecrets,
 }) => {
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? namespacesOptions[0] ?? 'default';
+  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const [activeTab, setActiveTab] = useState<'deployment' | 'statefulset' | 'daemonset'>('deployment');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createType, setCreateType] = useState<WorkloadType>('deployment');
@@ -711,13 +724,27 @@ const WorkloadsSection: React.FC<Props> = ({
   const handleOpenCreate = useCallback(() => {
     setCreateType(activeTab as WorkloadType);
     setCreateModalVisible(true);
-  }, [activeTab]);
+    onRefreshConfigMaps?.();
+    onRefreshSecrets?.();
+  }, [activeTab, onRefreshConfigMaps, onRefreshSecrets]);
   
-  // 打开编辑弹窗
   const handleEdit = useCallback((record: any) => {
-    setEditRecord(record);
+    const kind = activeTab === 'deployment' ? 'Deployment' 
+      : activeTab === 'statefulset' ? 'StatefulSet' 
+      : activeTab === 'daemonset' ? 'DaemonSet' 
+      : record?.kind;
+    
+    const enhancedRecord = {
+      ...record,
+      kind: record?.kind || kind,
+      apiVersion: record?.apiVersion || 'apps/v1',
+    };
+    
+    setEditRecord(enhancedRecord);
     setEditModalVisible(true);
-  }, []);
+    onRefreshConfigMaps?.();
+    onRefreshSecrets?.();
+  }, [activeTab, onRefreshConfigMaps, onRefreshSecrets]);
   
   // 根据 nsValue 过滤数据，并按创建时间倒序排序
   const filteredDeployments = useMemo(() => {
@@ -795,6 +822,8 @@ const WorkloadsSection: React.FC<Props> = ({
         defaultNamespace={formDefaultNs}
         defaultType={createType}
         hideFlatSubnet={hideFlatSubnet}
+        onRefreshConfigMaps={onRefreshConfigMaps}
+        onRefreshSecrets={onRefreshSecrets}
         onSuccess={() => {
           onRefresh(true);
         }}
@@ -813,7 +842,10 @@ const WorkloadsSection: React.FC<Props> = ({
         onRefreshImagePullSecrets={() => onRefresh(true)}
         defaultNamespace={formDefaultNs}
         editData={editRecord}
+        defaultType={activeTab as WorkloadType}
         hideFlatSubnet={hideFlatSubnet}
+        onRefreshConfigMaps={onRefreshConfigMaps}
+        onRefreshSecrets={onRefreshSecrets}
         onSuccess={() => {
           setEditModalVisible(false);
           setEditRecord(null);

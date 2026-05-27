@@ -12,6 +12,7 @@ import {
   stopCloudProviderEcs,
 } from "../../../../../../../../services/api";
 import type { VmDetailDrawerSafeRead } from "../../../lib/vmSafeRead";
+import { runHarvesterSectionRefresh } from "../../../../shared/lib/harvesterSectionRefresh";
 import { openVmDetailEjectCdromModal } from "../VmDetailEjectCdromModal";
 
 export function useVmDetailDrawerActions(opts: {
@@ -45,7 +46,7 @@ export function useVmDetailDrawerActions(opts: {
       const name = SafeRead.vmId(vmData);
       await startCloudProviderEcs(cloudId, `${ns}/${name}`);
       message.success("启动指令已发送");
-      onRefresh && onRefresh(true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(e.message || "启动失败");
     }
@@ -63,7 +64,7 @@ export function useVmDetailDrawerActions(opts: {
       const name = SafeRead.vmId(vmData);
       await stopCloudProviderEcs(cloudId, `${ns}/${name}`, force);
       message.success("停止指令已发送");
-      onRefresh && onRefresh(true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(e.message || "停止失败");
     }
@@ -82,7 +83,7 @@ export function useVmDetailDrawerActions(opts: {
       const instanceId = `${ns}/${name}`;
       await rebootCloudProviderEcs(cloudId, instanceId);
       message.success("重启指令已发送");
-      onRefresh && onRefresh(true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(e.message || "重启失败");
     }
@@ -100,7 +101,7 @@ export function useVmDetailDrawerActions(opts: {
       const name = SafeRead.vmId(vmData);
       await pauseHarvesterVm(cloudId, ns, name);
       message.success("暂停指令已发送");
-      onRefresh && onRefresh(true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(e.message || "暂停失败");
     }
@@ -118,7 +119,7 @@ export function useVmDetailDrawerActions(opts: {
       const name = SafeRead.vmId(vmData);
       await unpauseHarvesterVm(cloudId, ns, name);
       message.success("恢复指令已发送");
-      onRefresh && onRefresh(true);
+      void runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(e.message || "恢复失败");
     }
@@ -176,7 +177,7 @@ export function useVmDetailDrawerActions(opts: {
           const instanceId = `${ns}/${name}`;
           await abortHarvesterMigration(cloudId, instanceId);
           message.success("已发送中止迁移指令");
-          onRefresh && onRefresh(true);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(`中止迁移失败: ${e.message || "未知错误"}`);
         } finally {

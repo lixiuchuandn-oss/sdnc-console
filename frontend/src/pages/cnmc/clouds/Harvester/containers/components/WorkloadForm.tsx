@@ -22,7 +22,7 @@
  * 步骤5: 高级配置 - 副本数、调度、健康检查
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, useReducer, useImperativeHandle } from 'react';
 import {
   Form,
   Input,
@@ -44,6 +44,7 @@ import {
   Checkbox,
   Spin,
   Tooltip,
+  Modal,
 } from 'antd';
 import {
   PlusOutlined,
@@ -59,11 +60,11 @@ import {
   CheckOutlined,
   CopyOutlined,
   DeleteOutlined,
-  GlobalOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 import yaml from 'js-yaml';
-import { createHarvesterContainerResource, updateHarvesterContainerResource, fetchKubeOvnSubnets, fetchKubeOvnVpcs, fetchHarvesterNads } from '../../../../../../services/harvesterApi';
+import { createHarvesterContainerResource, updateHarvesterContainerResource, fetchKubeOvnSubnets, fetchKubeOvnVpcs, fetchHarvesterNads, checkSubnetStaticIP } from '../../../../../../services/harvesterApi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 import { 
@@ -381,6 +382,78 @@ const MEMORY_UNITS = [
   { label: 'GiB', value: 'Gi' },
 ];
 
+const EMPTY_DIR_SIZE_UNITS = [
+  { label: 'Mi', value: 'Mi' },
+  { label: 'Gi', value: 'Gi' },
+  { label: 'G', value: 'G' },
+  { label: 'Ti', value: 'Ti' },
+  { label: 'T', value: 'T' },
+  { label: 'Pi', value: 'Pi' },
+];
+
+// ============================================================
+// 资源比较函数
+// ============================================================
+
+/**
+ * 解析 CPU 资源字符串为核数
+ * 支持格式: '100m' (毫核), '0.5' (核), '1' (核)
+ */
+const parseCpuToCores = (value: string | undefined): number => {
+  if (!value || typeof value !== 'string') return 0;
+  const t = value.trim();
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*([mun])?$/i);
+  if (!m) return 0;
+  const num = parseFloat(m[1]);
+  if (Number.isNaN(num)) return 0;
+  const suffix = (m[2] || '').toLowerCase();
+  if (suffix === 'm') return num / 1000;
+  if (suffix === 'u') return num / 1e6;
+  if (suffix === 'n') return num / 1e9;
+  return num;
+};
+
+/**
+ * 解析内存资源字符串为字节数
+ * 支持格式: '128Mi', '1Gi', '1024' (字节)
+ */
+const parseMemoryToBytes = (value: string | undefined): number => {
+  if (!value || typeof value !== 'string') return 0;
+  const t = value.trim();
+  const m = t.match(/^(\d+)\s*([KMGTP]i?)?$/i);
+  if (!m) return 0;
+  const num = parseInt(m[1], 10);
+  if (Number.isNaN(num)) return 0;
+  const suffix = (m[2] || '').toLowerCase();
+  if (suffix === 'ki') return num * 1024;
+  if (suffix === 'mi') return num * 1024 ** 2;
+  if (suffix === 'gi') return num * 1024 ** 3;
+  if (suffix === 'ti') return num * 1024 ** 4;
+  if (suffix === 'pi') return num * 1024 ** 5;
+  if (suffix === 'k') return num * 1000;
+  if (suffix === 'm') return num * 1e6;
+  if (suffix === 'g') return num * 1e9;
+  if (suffix === 't') return num * 1e12;
+  if (suffix === 'p') return num * 1e15;
+  return num;
+};
+
+/**
+ * 比较 CPU 资源值
+ * @returns 正数表示 a > b，负数表示 a < b，0 表示相等
+ */
+const compareCpuResources = (a: string | undefined, b: string | undefined): number => {
+  return parseCpuToCores(a) - parseCpuToCores(b);
+};
+
+/**
+ * 比较内存资源值
+ * @returns 正数表示 a > b，负数表示 a < b，0 表示相等
+ */
+const compareMemoryResources = (a: string | undefined, b: string | undefined): number => {
+  return parseMemoryToBytes(a) - parseMemoryToBytes(b);
+};
+
 const K8S_ERROR_MAP: Record<string, string> = {
   'selector does not match template labels': '标签与选择器不匹配，请检查基本信息中的标签是否与系统自动生成的标签冲突',
   'is invalid': '资源配置无效',
@@ -417,8 +490,380 @@ const parseK8sError = (error: any): string => {
   return rawMsg;
 };
 
-const CPU_RESOURCE_PATTERN = /^(\d+)(m)?$/;
-const MEMORY_RESOURCE_PATTERN = /^\d+(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)$/;
+/**
+ * 检查 IP 地址是否在 CIDR 范围内
+ * @param ip IP 地址，如 "192.168.1.100"
+ * @param cidr CIDR 范围，如 "192.168.1.0/24"
+ * @returns 是否在范围内
+ */
+const isIpInCidr = (ip: string, cidr: string): boolean => {
+  try {
+    const [cidrBase, prefixLenStr] = cidr.split('/');
+    const prefixLen = parseInt(prefixLenStr, 10);
+    
+    if (!cidrBase || isNaN(prefixLen) || prefixLen < 0 || prefixLen > 32) {
+      return false;
+    }
+    
+    // 将 IP 转换为 32 位无符号整数（使用 >>> 0 确保无符号）
+    const ipToNumber = (ipStr: string): number => {
+      const parts = ipStr.split('.').map(p => parseInt(p, 10));
+      if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
+        return -1;
+      }
+      // 使用无符号右移确保结果为正数
+      return ((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + parts[3];
+    };
+    
+    const ipNum = ipToNumber(ip);
+    const cidrNum = ipToNumber(cidrBase);
+    
+    if (ipNum < 0 || cidrNum < 0) {
+      return false;
+    }
+    
+    // 计算掩码（无符号）
+    const mask = prefixLen === 0 ? 0 : ((~0 << (32 - prefixLen)) >>> 0);
+    
+    // 检查网络地址是否相同（使用无符号运算）
+    return ((ipNum & mask) >>> 0) === ((cidrNum & mask) >>> 0);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * 将 IP 地址转换为 32 位整数
+ * @param ip IP 地址，如 "192.168.1.100"
+ * @returns 32 位整数，无效返回 -1
+ */
+const ipToNumber = (ip: string): number => {
+  const parts = ip.split('.').map(p => parseInt(p, 10));
+  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
+    return -1;
+  }
+  // 使用无符号右移确保结果为正数（避免 JavaScript 位运算溢出）
+  return ((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + parts[3];
+};
+
+/**
+ * 将 32 位整数转换为 IP 地址
+ * @param num 32 位整数
+ * @returns IP 地址字符串
+ */
+const numberToIp = (num: number): string => {
+  return [
+    (num >>> 24) & 255,
+    (num >>> 16) & 255,
+    (num >>> 8) & 255,
+    num & 255
+  ].join('.');
+};
+
+/**
+ * 解析子网的已使用 IP 范围
+ * Kube-OVN 子网 status.v4UsingIPrange 格式如 "10.1.1.2..10.1.1.10" 或数组形式
+ * @param subnet 子网对象
+ * @returns 已使用 IP 范围数组，每个元素为 { start, end }
+ */
+const parseUsingIPRanges = (subnet: any): Array<{ start: number; end: number }> => {
+  const status = subnet?.status || subnet?.rawData?.status || {};
+  
+  // 尝试多种字段名获取已使用IP范围
+  let rangeStr = status.v4UsingIPrange || status.v4usingIPrange || status.usingIPrange;
+  
+  if (!rangeStr) {
+    return [];
+  }
+  
+  // 如果是数组形式
+  if (Array.isArray(rangeStr)) {
+    return rangeStr
+      .map((r: string) => {
+        const parts = String(r).split('..');
+        if (parts.length === 2) {
+          const start = ipToNumber(parts[0].trim());
+          const end = ipToNumber(parts[1].trim());
+          if (start >= 0 && end >= 0 && start <= end) {
+            return { start, end };
+          }
+        }
+        return null;
+      })
+      .filter((r): r is { start: number; end: number } => r !== null);
+  }
+  
+  // 如果是字符串形式，可能是单个范围或多个范围用逗号分隔
+  const ranges: Array<{ start: number; end: number }> = [];
+  const parts = String(rangeStr).split(',');
+  
+  for (const part of parts) {
+    const rangeParts = part.trim().split('..');
+    if (rangeParts.length === 2) {
+      const start = ipToNumber(rangeParts[0].trim());
+      const end = ipToNumber(rangeParts[1].trim());
+      if (start >= 0 && end >= 0 && start <= end) {
+        ranges.push({ start, end });
+      }
+    }
+  }
+  
+  return ranges;
+};
+
+/**
+ * 检查 IP 是否在已使用 IP 范围内
+ * @param ipNum IP 数值
+ * @param ranges 已使用 IP 范围数组
+ * @returns 是否已使用
+ */
+const isIpInRanges = (ipNum: number, ranges: Array<{ start: number; end: number }>): boolean => {
+  for (const range of ranges) {
+    if (ipNum >= range.start && ipNum <= range.end) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * 解析子网的可用 IP 范围
+ * Kube-OVN 子网 status.v4AvailableIPrange 格式如 "10.1.1.2..10.1.1.254" 或数组形式
+ * @param subnet 子网对象
+ * @returns 可用 IP 范围数组，每个元素为 { start, end }
+ */
+const parseAvailableIPRanges = (subnet: any): Array<{ start: number; end: number }> => {
+  const status = subnet?.status || subnet?.rawData?.status || {};
+  const spec = subnet?.spec || subnet?.rawData?.spec || {};
+  
+  // 尝试多种字段名获取可用IP范围
+  let rangeStr = status.v4AvailableIPrange || status.v4availableIPrange || status.availableIPrange;
+  
+  // 如果没有可用范围，尝试从 CIDR 计算（排除网关和广播地址）
+  if (!rangeStr) {
+    const cidr = spec.cidrBlock || subnet?.cidr || subnet?.spec?.cidrBlock;
+    if (cidr) {
+      // 从 CIDR 计算可用IP范围（简化版，不排除已使用的IP）
+      // 这里只返回CIDR范围，实际检测需要后端API
+      return [];
+    }
+    return [];
+  }
+  
+  // 如果是数组形式
+  if (Array.isArray(rangeStr)) {
+    return rangeStr
+      .map((r: string) => {
+        const parts = String(r).split('..');
+        if (parts.length === 2) {
+          const start = ipToNumber(parts[0].trim());
+          const end = ipToNumber(parts[1].trim());
+          if (start >= 0 && end >= 0 && start <= end) {
+            return { start, end };
+          }
+        }
+        return null;
+      })
+      .filter((r): r is { start: number; end: number } => r !== null);
+  }
+  
+  // 如果是字符串形式，可能是单个范围或多个范围用逗号分隔
+  const ranges: Array<{ start: number; end: number }> = [];
+  const parts = String(rangeStr).split(',');
+  
+  for (const part of parts) {
+    const rangeParts = part.trim().split('..');
+    if (rangeParts.length === 2) {
+      const start = ipToNumber(rangeParts[0].trim());
+      const end = ipToNumber(rangeParts[1].trim());
+      if (start >= 0 && end >= 0 && start <= end) {
+        ranges.push({ start, end });
+      }
+    }
+  }
+  
+  return ranges;
+};
+
+/**
+ * 检查 IP 是否在可用 IP 范围内
+ * @param ip 要检查的 IP 地址
+ * @param subnet 子网对象
+ * @returns { available: boolean, reason: string, unknown?: boolean }
+ */
+const checkIpAvailability = (ip: string, subnet: any): { available: boolean; reason: string; unknown?: boolean } => {
+  const ipNum = ipToNumber(ip);
+  if (ipNum < 0) {
+    return { available: false, reason: 'IP 地址格式无效' };
+  }
+  
+  // 先检查是否在已使用IP范围内
+  const usingRanges = parseUsingIPRanges(subnet);
+  if (usingRanges.length > 0 && isIpInRanges(ipNum, usingRanges)) {
+    const usingDesc = usingRanges.map(r => `${numberToIp(r.start)}..${numberToIp(r.end)}`).join(', ');
+    return { available: false, reason: `IP 已被使用。已使用范围: ${usingDesc}` };
+  }
+  
+  // 再检查可用IP范围
+  const availableRanges = parseAvailableIPRanges(subnet);
+  
+  if (availableRanges.length === 0) {
+    // 如果有已使用范围但没有可用范围，说明可以尝试（不在已使用范围中）
+    if (usingRanges.length > 0) {
+      return { available: true, reason: 'IP 不在已使用范围内，可以尝试分配' };
+    }
+    // 都没有，返回未知状态
+    return { available: false, reason: '无法检测IP可用性：子网未提供可用IP范围信息。请确保该IP未被其他工作负载使用。', unknown: true };
+  }
+  
+  // 检查 IP 是否在任一可用范围内
+  for (const range of availableRanges) {
+    if (ipNum >= range.start && ipNum <= range.end) {
+      return { available: true, reason: `IP 在可用范围内 (${numberToIp(range.start)}..${numberToIp(range.end)})` };
+    }
+  }
+  
+  // IP 不在任何可用范围内，说明已被使用或被排除
+  const rangeDesc = availableRanges.map(r => `${numberToIp(r.start)}..${numberToIp(r.end)}`).join(', ');
+  return { available: false, reason: `IP 不在可用范围内。可用范围: ${rangeDesc}` };
+};
+
+// ============================================================
+// K8s 格式校验函数
+// ============================================================
+
+/**
+ * 校验 K8s 标签键 (Label Key) - 节点标签
+ * 节点常用标签如 kubernetes.io/os、node.kubernetes.io/instance-type
+ * 格式: 可选前缀（DNS子域名格式）+ / + 键名
+ * 键名: 最多63字符，小写字母/数字开头结尾，中间可含连字符(-)、下划线(_)、点(.)
+ */
+const validateNodeLabelKey = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  const labelKeyRegex = /^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/)?[a-z0-9]([-a-z0-9._]*[a-z0-9])?$/;
+  if (!labelKeyRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：须小写字母/数字开头结尾，中间可含连字符、下划线、点，可带前缀如 kubernetes.io/os'));
+  }
+  const keyPart = value.includes('/') ? value.split('/')[1] : value;
+  if (keyPart.length > 63) {
+    return Promise.reject(new Error('键名长度不能超过63个字符'));
+  }
+  if (value.includes('/')) {
+    const prefixPart = value.split('/')[0];
+    if (prefixPart.length > 253) {
+      return Promise.reject(new Error('前缀长度不能超过253个字符'));
+    }
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验 K8s 标签值 (Label Value)
+ * 格式: 最多63字符，字母/数字开头结尾，中间可含连字符(-)、下划线(_)、点(.)
+ * 允许空字符串
+ */
+const validateK8sLabelValue = (_: any, value: string) => {
+  if (!value) return Promise.resolve(); // 空字符串是合法的标签值
+  const labelValueRegex = /^[a-zA-Z0-9]([-a-zA-Z0-9._]*[a-zA-Z0-9])?$/;
+  if (!labelValueRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：字母/数字开头结尾，中间可含连字符、下划线、点'));
+  }
+  if (value.length > 63) {
+    return Promise.reject(new Error('标签值长度不能超过63个字符'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验 K8s 端口名称 (Port Name)
+ * 格式: 最多63字符，小写字母开头结尾，中间可含小写字母、数字、连字符(-)
+ * 允许为空（非必填）
+ */
+const validateK8sPortName = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  const portNameRegex = /^[a-z]([a-z0-9-]*[a-z0-9])?$/;
+  if (!portNameRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：小写字母开头，仅含小写字母、数字和连字符，须字母或数字结尾'));
+  }
+  if (value.length > 63) {
+    return Promise.reject(new Error('端口名称长度不能超过63个字符'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验环境变量键名 (Env Var Name)
+ * 格式: 字母开头，可含字母、数字、下划线(_)
+ */
+const validateEnvVarName = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  const envNameRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  if (!envNameRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：须以字母或下划线开头，仅含字母、数字和下划线'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验健康检查 HTTP 路径 (httpGet.path)
+ * 格式: 必须以 / 开头
+ */
+const validateHttpProbePath = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  if (!value.startsWith('/')) {
+    return Promise.reject(new Error('路径必须以 / 开头'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验健康检查执行命令 (exec.command)
+ * 格式: 不能为空数组
+ */
+const validateExecCommand = (_: any, value: string[]) => {
+  if (!value || value.length === 0) {
+    return Promise.reject(new Error('执行命令不能为空，请输入至少一个命令'));
+  }
+  const filtered = value.filter((item: string) => item && item.trim());
+  if (filtered.length === 0) {
+    return Promise.reject(new Error('执行命令不能为空，请输入有效的命令'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验存储卷名称 (Volume Name)
+ * 格式: 小写字母开头结尾，中间可含小写字母、数字、连字符(-)，最多63字符
+ */
+const validateVolumeName = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  const volumeNameRegex = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+  if (!volumeNameRegex.test(value)) {
+    return Promise.reject(new Error('格式无效：小写字母/数字开头结尾，中间仅含小写字母、数字和连字符'));
+  }
+  if (value.length > 63) {
+    return Promise.reject(new Error('卷名称长度不能超过63个字符'));
+  }
+  return Promise.resolve();
+};
+
+/**
+ * 校验节点路径 (hostPath.path)
+ * 格式: 必须是有效的 Unix 路径格式（以 / 开头）
+ */
+const validateUnixPath = (_: any, value: string) => {
+  if (!value) return Promise.resolve();
+  if (!value.startsWith('/')) {
+    return Promise.reject(new Error('路径必须以 / 开头'));
+  }
+  // 基本路径格式校验：不允许连续的斜杠（但允许 // 这种，某些K8s场景会用到）
+  // 校验路径中不包含非法字符
+  const unixPathRegex = /^\/[^\0]*$/;
+  if (!unixPathRegex.test(value)) {
+    return Promise.reject(new Error('请输入有效的 Unix 路径格式（如 /var/data）'));
+  }
+  return Promise.resolve();
+};
 
 const WORKLOAD_TYPE_OPTIONS = [
   { value: 'deployment', label: 'Deployment', desc: '无状态应用，支持弹性伸缩' },
@@ -590,14 +1035,19 @@ const LabelEditor: React.FC<{
             <Form.Item
               {...restField}
               name={[index, 'key']}
-              rules={[{ required: true, message: '请输入键' }]}
-            >
-              <Input placeholder="键" style={{ width: 150 }} />
+              rules={[
+                { required: true, message: '请输入键' },
+                { validator: validateNodeLabelKey },
+              ]}>
+              <Input placeholder="键 (如: app 或 example.com/key)" style={{ width: 180 }} />
             </Form.Item>
             <Form.Item
               {...restField}
               name={[index, 'value']}
-              rules={[{ required: true, message: '请输入值' }]}
+              rules={[
+                { required: true, message: '请输入值' },
+                { validator: validateK8sLabelValue },
+              ]}
             >
               <Input placeholder="值" style={{ width: 150 }} />
             </Form.Item>
@@ -631,8 +1081,9 @@ const PortsEditor: React.FC = () => (
               <Form.Item
                 {...restField}
                 name={[index, 'name']}
+                rules={[{ validator: validateK8sPortName }]}
               >
-                <Input placeholder="端口名称" />
+                <Input placeholder="端口名称 (可选)" />
               </Form.Item>
             </Col>
             <Col span={6}>
@@ -697,13 +1148,13 @@ interface EnvEditorProps {
 }
 
 const EnvEditor: React.FC<EnvEditorProps> = ({
-  cloudId,
-  namespacesOptions,
+  cloudId: _cloudId,
+  namespacesOptions: _namespacesOptions,
   selectedNamespace,
   configMaps,
   secrets,
-  onRefreshConfigMaps,
-  onRefreshSecrets,
+  onRefreshConfigMaps: _onRefreshConfigMaps,
+  onRefreshSecrets: _onRefreshSecrets,
   onOpenQuickCreateConfigMap,
   onOpenQuickCreateSecret,
 }) => {
@@ -761,7 +1212,10 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               <Form.Item
                 {...restField}
                 name={[index, 'name']}
-                rules={[{ required: true, message: '变量名必填' }]}
+                rules={[
+                  { required: true, message: '变量名必填' },
+                  { validator: validateEnvVarName },
+                ]}
                 style={formItemStyle}
               >
               <Input placeholder="变量名 (如: ENV_KEY)" />
@@ -986,13 +1440,13 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 500 }}>环境变量</span>
                 <Space>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'keyValue' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'keyValue' }, 0)} icon={<PlusOutlined />}>
                     键值对
                   </Button>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'configMapKeyRef' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'configMapKeyRef' }, 0)} icon={<PlusOutlined />}>
                     从 ConfigMap 引入
                   </Button>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'secretKeyRef' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'secretKeyRef' }, 0)} icon={<PlusOutlined />}>
                     从 Secret 引入
                   </Button>
                 </Space>
@@ -1014,7 +1468,7 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
                 </div>
               )}
 
-              {fields.map(({ key, name, ...restField }, index) =>
+              {fields.map(({ key, name, ...restField }, _index) =>
                 renderEnvVar(normalizedEnvVars[name] as EnvVarValue, name as number, key, restField, remove)
               )}
             </>
@@ -1097,8 +1551,8 @@ interface VolumesEditorProps {
   cloudId: string;
   namespacesOptions: string[];
   selectedNamespace: string;
-  configMaps: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
-  secrets: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  configMaps: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
+  secrets: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
   persistentVolumeClaims?: Array<{
     metadata: { name: string; namespace: string; annotations?: Record<string, string> };
     raw?: { metadata?: { annotations?: Record<string, string> } };
@@ -1111,22 +1565,25 @@ interface VolumesEditorProps {
   onRefreshSecrets: () => void;
   onOpenQuickCreateConfigMap: () => void;
   onOpenQuickCreateSecret: () => void;
+  refreshKey?: number; // 父组件传入的刷新标记，变化时重新读取数据
+  onVolumeChange?: () => void; // 卷变化时通知父组件
 }
 
 const VolumesEditor: React.FC<VolumesEditorProps> = ({
-  cloudId,
-  namespacesOptions,
+  cloudId: _cloudId,
+  namespacesOptions: _namespacesOptions,
   selectedNamespace,
   configMaps,
   secrets,
   persistentVolumeClaims = [],
-  onRefreshConfigMaps,
-  onRefreshSecrets,
+  onRefreshConfigMaps: _onRefreshConfigMaps,
+  onRefreshSecrets: _onRefreshSecrets,
   onOpenQuickCreateConfigMap,
   onOpenQuickCreateSecret,
+  refreshKey: _refreshKey = 0,
+  onVolumeChange,
 }) => {
   const form = Form.useFormInstance();
-  const [, forceUpdate] = useState(0);
   
   // 按命名空间过滤资源
   const filteredConfigMaps = useMemo(() => {
@@ -1143,51 +1600,63 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     if (!selectedNamespace) return persistentVolumeClaims || [];
     return (persistentVolumeClaims || []).filter((pvc: any) => {
       const pvcNs = pvc?.metadata?.namespace || pvc?.namespace;
-      return pvcNs === selectedNamespace;
+      // 过滤掉 Block 类型的 PVC，只展示 Filesystem 类型
+      const source = pvc?.rawData || pvc || {};
+      const volumeMode = source?.spec?.volumeMode || pvc?.volumeMode || 'Block';
+      return pvcNs === selectedNamespace && volumeMode !== 'Block';
     });
   }, [persistentVolumeClaims, selectedNamespace]);
   
-  const formValues = Form.useWatch([], form);
-  void formValues;
-  const volumes = ((form.getFieldValue('volumes') as VolumeConfig[] | undefined) || []).filter(Boolean);
-  const volumeMounts = ((form.getFieldValue('volumeMounts') as VolumeMountConfig[] | undefined) || []).filter(Boolean);
+  // 直接从表单读取最新值，不使用 useMemo 缓存，确保卷名称变化时立即更新
+  const volumes = (() => {
+    const v = form.getFieldValue('volumes');
+    return Array.isArray(v) ? v.filter(Boolean) : [];
+  })();
+  
+  const volumeMounts = (() => {
+    const v = form.getFieldValue('volumeMounts');
+    return Array.isArray(v) ? v.filter(Boolean) : [];
+  })();
 
-  // 添加卷
-  const addVolume = (type: VolumeType) => {
+  // 添加卷 - 直接从 form 读取最新值，避免闭包问题
+  const addVolume = useCallback((type: VolumeType) => {
+    const currentVolumes = form.getFieldValue('volumes') || [];
     const newVolume: VolumeConfig = { name: '', type };
-    const updated = [...volumes, newVolume];
-    form.setFieldsValue({ volumes: updated });
-    forceUpdate((v) => v + 1);
-  };
+    form.setFieldsValue({ volumes: [newVolume, ...currentVolumes] });
+    onVolumeChange?.();
+  }, [form, onVolumeChange]);
 
   // 删除卷
-  const removeVolume = (index: number) => {
-    const volName = volumes[index]?.name;
-    const updated = volumes.filter((_: VolumeConfig, i: number) => i !== index);
+  const removeVolume = useCallback((index: number) => {
+    const currentVolumes = form.getFieldValue('volumes') || [];
+    const volName = currentVolumes[index]?.name;
+    const updated = currentVolumes.filter((_: VolumeConfig, i: number) => i !== index);
     form.setFieldsValue({ volumes: updated });
     
     // 同时删除对应的挂载
     if (volName) {
-      const updatedMounts = volumeMounts.filter((m: VolumeMountConfig) => m.name !== volName);
+      const currentMounts = form.getFieldValue('volumeMounts') || [];
+      const updatedMounts = currentMounts.filter((m: VolumeMountConfig) => m.name !== volName);
       form.setFieldsValue({ volumeMounts: updatedMounts });
     }
-    forceUpdate((v) => v + 1);
-  };
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 添加挂载
-  const addVolumeMount = () => {
-    const newMount: VolumeMountConfig = { name: '', mountPath: '' };
-    const updated = [...volumeMounts, newMount];
-    form.setFieldsValue({ volumeMounts: updated });
-    forceUpdate((v) => v + 1);
-  };
+  const addVolumeMount = useCallback(() => {
+    const currentMounts = form.getFieldValue('volumeMounts') || [];
+    const newMount: VolumeMountConfig = { name: '', mountPath: '', readOnly: false };
+    form.setFieldsValue({ volumeMounts: [newMount, ...currentMounts] });
+    onVolumeChange?.();
+  }, [form, onVolumeChange]);
 
   // 删除挂载
-  const removeVolumeMount = (index: number) => {
-    const updated = volumeMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
+  const removeVolumeMount = useCallback((index: number) => {
+    const currentMounts = form.getFieldValue('volumeMounts') || [];
+    const updated = currentMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
     form.setFieldsValue({ volumeMounts: updated });
-    forceUpdate((v) => v + 1);
-  };
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 获取可用的卷名称列表（用于挂载选择）
   const availableVolumeNames = volumes.filter((v: VolumeConfig) => v.name).map((v: VolumeConfig) => v.name);
@@ -1228,7 +1697,24 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             <Form.Item
               name={[...basePath, 'name']}
               label="卷名称"
-              rules={[{ required: true, message: '请输入卷名称' }]}
+              rules={[
+                { required: true, message: '请输入卷名称' },
+                { validator: validateVolumeName },
+                {
+                  validator: (_: any, value: string) => {
+                    if (!value) return Promise.resolve();
+                    const allVolumes: VolumeConfig[] = form.getFieldValue('volumes') || [];
+                    const duplicates = allVolumes.filter(
+                      (v: VolumeConfig, i: number) =>
+                        i !== index && v?.name && v.name === value,
+                    );
+                    if (duplicates.length > 0) {
+                      return Promise.reject(new Error(`卷名称 "${value}" 已存在，请使用不同的名称`));
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
             >
               <Input placeholder="如: config-volume" />
             </Form.Item>
@@ -1247,7 +1733,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                   const currentName = updated[index]?.name;
                   updated[index] = { name: currentName || '', type: newType };
                   form.setFieldsValue({ volumes: updated });
-                  forceUpdate((v) => v + 1);
+                  onVolumeChange?.(); // 通知父组件刷新
                 }}
               />
             </Form.Item>
@@ -1268,10 +1754,14 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                     placeholder="选择 ConfigMap"
                     showSearch
                     optionFilterProp="label"
-                    options={filteredConfigMaps.map(cm => ({
-                      label: cm.metadata.name,
-                      value: cm.metadata.name,
-                    }))}
+                    options={filteredConfigMaps.map(cm => {
+                      const alias = cm?.metadata?.annotations?.['tower.io/alias'];
+                      const name = cm.metadata.name;
+                      return {
+                        label: alias ? `${alias} (${name})` : name,
+                        value: name,
+                      };
+                    })}
                     dropdownRender={(menu) => (
                       <>
                         {menu}
@@ -1294,7 +1784,11 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               <Col span={12}>
                 <Form.Item
                   name={[...basePath, 'configMapOptional']}
-                  label="可选"
+                  label={(
+                    <Tooltip title="开启：ConfigMap 不存在时容器仍能启动；关闭：ConfigMap 必须存在，否则容器启动失败">
+                      <span>允许不存在 <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} /></span>
+                    </Tooltip>
+                  )}
                   valuePropName="checked"
                 >
                   <Switch size="small" />
@@ -1324,10 +1818,14 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                                   placeholder="选择 Secret"
                                   showSearch
                                   optionFilterProp="label"
-                                  options={filteredSecrets.map(s => ({
-                                    label: s.metadata.name,
-                                    value: s.metadata.name,
-                                  }))}                    dropdownRender={(menu) => (
+                                  options={filteredSecrets.map(s => {
+                                    const alias = s?.metadata?.annotations?.['tower.io/alias'];
+                                    const name = s.metadata.name;
+                                    return {
+                                      label: alias ? `${alias} (${name})` : name,
+                                      value: name,
+                                    };
+                                  })}                    dropdownRender={(menu) => (
                       <>
                         {menu}
                         <Divider style={{ margin: '8px 0' }} />
@@ -1349,7 +1847,11 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               <Col span={12}>
                 <Form.Item
                   name={[...basePath, 'secretOptional']}
-                  label="可选"
+                  label={(
+                    <Tooltip title="开启：Secret 不存在时容器仍能启动；关闭：Secret 必须存在，否则容器启动失败">
+                      <span>允许不存在 <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} /></span>
+                    </Tooltip>
+                  )}
                   valuePropName="checked"
                 >
                   <Switch size="small" />
@@ -1368,7 +1870,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
         {/* PVC 类型 */}
         {volume.type === 'persistentVolumeClaim' && (
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={24}>
               <Form.Item
                 name={[...basePath, 'claimName']}
                 label="PVC 名称"
@@ -1394,15 +1896,6 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item
-                name={[...basePath, 'readOnly']}
-                label="只读"
-                valuePropName="checked"
-              >
-                <Switch size="small" />
-              </Form.Item>
-            </Col>
           </Row>
         )}
 
@@ -1423,7 +1916,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                 name={[...basePath, 'emptyDirSizeLimit']}
                 label="大小限制"
               >
-                <Input placeholder="如: 1Gi" />
+                <ResourceInput placeholder="如: 1" units={EMPTY_DIR_SIZE_UNITS} defaultUnit="Gi" unitTooltip="Mi=MiB(1024KiB)；Gi=GiB(1024MiB)；Ti=TiB(1024GiB)" />
               </Form.Item>
             </Col>
           </Row>
@@ -1436,7 +1929,10 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               <Form.Item
                 name={[...basePath, 'hostPath']}
                 label="节点路径"
-                rules={[{ required: true, message: '请输入节点路径' }]}
+                rules={[
+                  { required: true, message: '请输入节点路径' },
+                  { validator: validateUnixPath },
+                ]}
               >
                 <Input placeholder="如: /var/data" />
               </Form.Item>
@@ -1458,14 +1954,18 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   // 渲染单个挂载配置
   const renderVolumeMount = (mount: VolumeMountConfig, index: number) => {
     const basePath = ['volumeMounts', index];
+    const mountName = form.getFieldValue([...basePath, 'name']);
+    const allVolumes: VolumeConfig[] = form.getFieldValue('volumes') || [];
+    const matchedVolume = allVolumes.find((v) => v.name === mountName);
+    const isReadOnlyImmutable = matchedVolume?.type === 'configMap' || matchedVolume?.type === 'secret';
     
     return (
-      <Row key={index} gutter={8} style={{ marginBottom: 8 }} align="middle">
+      <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
         <Col span={6}>
           <Form.Item
             name={[...basePath, 'name']}
+            label="卷名称"
             rules={[{ required: true, message: '请选择卷' }]}
-            style={{ marginBottom: 0 }}
           >
             <Select
               placeholder="选择卷"
@@ -1474,32 +1974,78 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             />
           </Form.Item>
         </Col>
-        <Col span={8}>
+        <Col span={isReadOnlyImmutable ? 10 : 8}>
           <Form.Item
             name={[...basePath, 'mountPath']}
-            rules={[{ required: true, message: '请输入挂载路径' }]}
-            style={{ marginBottom: 0 }}
+            label="挂载路径"
+            rules={[
+              { required: true, message: '请输入挂载路径' },
+              {
+                validator: (_, value) => {
+                  if (!value) return Promise.resolve();
+                  if (!value.startsWith('/')) {
+                    return Promise.reject(new Error('路径必须以 / 开头'));
+                  }
+                  if (value === '/') {
+                    return Promise.reject(new Error('不能挂载到根路径 /'));
+                  }
+                  if (value.includes('..')) {
+                    return Promise.reject(new Error('路径不能包含 ..'));
+                  }
+                  if (/\/\//.test(value)) {
+                    return Promise.reject(new Error('路径不能包含连续的 //'));
+                  }
+                  const allMounts: VolumeMountConfig[] = form.getFieldValue('volumeMounts') || [];
+                  const duplicates = allMounts.filter(
+                    (m: VolumeMountConfig, i: number) =>
+                      i !== index && m?.mountPath && m.mountPath === value,
+                  );
+                  if (duplicates.length > 0) {
+                    return Promise.reject(new Error(`挂载路径 "${value}" 已被使用，同一容器内不能重复挂载到相同路径`));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+            validateTrigger={['onChange', 'onBlur']}
           >
-            <Input placeholder="挂载路径 (如: /etc/config)" />
+            <Input placeholder="/etc/config" />
           </Form.Item>
         </Col>
-        <Col span={4}>
+        <Col span={isReadOnlyImmutable ? 6 : 4}>
           <Form.Item
             name={[...basePath, 'subPath']}
-            style={{ marginBottom: 0 }}
+            label="子路径"
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (!value) return Promise.resolve();
+                  if (value.startsWith('/')) {
+                    return Promise.reject(new Error('子路径不能以 / 开头，请使用相对路径'));
+                  }
+                  if (value.includes('..')) {
+                    return Promise.reject(new Error('子路径不能包含 ..'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+            validateTrigger={['onChange', 'onBlur']}
           >
-            <Input placeholder="子路径" />
+            <Input placeholder="相对路径" />
           </Form.Item>
         </Col>
-        <Col span={4}>
-          <Form.Item
-            name={[...basePath, 'readOnly']}
-            valuePropName="checked"
-            style={{ marginBottom: 0 }}
-          >
-            <Switch size="small" /> 只读
-          </Form.Item>
-        </Col>
+        {!isReadOnlyImmutable && (
+          <Col span={4}>
+            <Form.Item
+              name={[...basePath, 'readOnly']}
+              label="只读"
+              valuePropName="checked"
+            >
+              <Switch size="small" />
+            </Form.Item>
+          </Col>
+        )}
         <Col span={2}>
           <Button
             type="text"
@@ -1616,7 +2162,11 @@ const ProbeEditor: React.FC<{
               {probeType === 'httpGet' && (
                 <Row gutter={8}>
                   <Col span={12}>
-                    <Form.Item name={[name, 'httpGet', 'path']} label="HTTP 路径">
+                    <Form.Item 
+                      name={[name, 'httpGet', 'path']} 
+                      label="HTTP 路径"
+                      rules={[{ validator: validateHttpProbePath }]}
+                    >
                       <Input placeholder="/health" />
                     </Form.Item>
                   </Col>
@@ -1635,10 +2185,14 @@ const ProbeEditor: React.FC<{
               )}
               
               {probeType === 'exec' && (
-                <Form.Item name={[name, 'exec', 'command']} label="执行命令">
+                <Form.Item 
+                  name={[name, 'exec', 'command']} 
+                  label="执行命令"
+                  rules={[{ validator: validateExecCommand }]}
+                >
                   <Select
                     mode="tags"
-                    placeholder="输入命令后按回车添加"
+                    placeholder="输入命令后按回车添加 (如: /bin/sh, -c, ls)"
                     style={{ width: '100%' }}
                     tokenSeparators={[' ']}
                   />
@@ -1682,6 +2236,10 @@ interface NodeAffinityEditorProps {
   label: string;
 }
 
+export interface NodeAffinityEditorHandle {
+  getHasLabelErrors: () => boolean;
+}
+
 /**
  * 节点亲和性编辑器组件
  * 支持配置 required (必须) 和 preferred (尽量) 两种类型的规则
@@ -1692,7 +2250,8 @@ interface NodeAffinityEditorProps {
  * 
  * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
  */
-const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) => {
+const NodeAffinityEditor = React.forwardRef<NodeAffinityEditorHandle, NodeAffinityEditorProps>(
+  ({ name, label }, ref) => {
   const form = Form.useFormInstance();
   
   // 本地 state 管理规则列表
@@ -1705,6 +2264,17 @@ const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) 
     setRequiredRules(value?.required?.nodeSelectorTerms || []);
     setPreferredRules(value?.preferred || []);
   }, [form, name]);
+
+  useImperativeHandle(ref, () => ({
+    getHasLabelErrors: () => {
+      const errors = form.getFieldsError();
+      return errors.some(e => {
+        if (!e.errors?.length) return false;
+        const fieldName = Array.isArray(e.name) ? e.name.join('.') : String(e.name);
+        return fieldName.startsWith(name);
+      });
+    },
+  }), [form, name]);
 
   // 添加必须满足的规则
   const addRequiredRule = () => {
@@ -1871,18 +2441,18 @@ const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) 
     return (
       <Row key={`${fieldType}-${exprIndex}`} gutter={8} style={{ marginBottom: 8 }}>
         <Col span={6}>
-          <Form.Item name={[...basePath, 'key']} noStyle>
+          <Form.Item name={[...basePath, 'key']} rules={[{ required: true, message: '请输入标签键' }, { validator: validateNodeLabelKey }]} style={{ marginBottom: 0 }}>
             <Input placeholder="标签键 (如: kubernetes.io/os)" />
           </Form.Item>
         </Col>
         <Col span={5}>
-          <Form.Item name={[...basePath, 'operator']} noStyle>
+          <Form.Item name={[...basePath, 'operator']} style={{ marginBottom: 0 }}>
             <Select options={NODE_SELECTOR_OPERATOR_OPTIONS} style={{ width: '100%' }} />
           </Form.Item>
         </Col>
         {showValues && (
           <Col span={10}>
-            <Form.Item name={[...basePath, 'values']} noStyle>
+            <Form.Item name={[...basePath, 'values']} style={{ marginBottom: 0 }}>
               <Select
                 mode="tags"
                 placeholder="输入值后回车添加 (如: linux)"
@@ -2020,7 +2590,7 @@ const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) 
       {preferredRules.map((_: any, index: number) => renderRule('preferred', index))}
     </div>
   );
-};
+});
 
 // ============================================================
 // 子组件: Pod 亲和性编辑器
@@ -2031,6 +2601,10 @@ interface PodAffinityEditorProps {
   namespacesOptions?: string[];
 }
 
+export interface PodAffinityEditorHandle {
+  getHasLabelErrors: () => boolean;
+}
+
 /**
  * Pod 亲和性编辑器组件
  * 支持配置 required (必须) 和 preferred (尽量) 两种类型的规则
@@ -2038,12 +2612,37 @@ interface PodAffinityEditorProps {
  * 
  * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
  */
-const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, namespacesOptions = [] }) => {
+const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityEditorProps>(
+  ({ name, label, namespacesOptions = [] }, ref) => {
   const form = Form.useFormInstance();
   
-  // 本地 state 管理规则列表
   const [requiredRules, setRequiredRules] = useState<PodAffinityTerm[]>([]);
   const [preferredRules, setPreferredRules] = useState<WeightedPodAffinityTerm[]>([]);
+  const [labelErrors, setLabelErrors] = useState<Record<string, { key?: string; value?: string }>>({});
+
+  const validateLabelKey = (v: string): string | undefined => {
+    if (!v) return undefined;
+    const labelKeyRegex = /^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/)?[a-z0-9]([-a-z0-9._]*[a-z0-9])?$/;
+    if (!labelKeyRegex.test(v)) {
+      return '格式无效：须小写字母/数字开头结尾，中间可含连字符、下划线、点';
+    }
+    const keyPart = v.includes('/') ? v.split('/')[1] : v;
+    if (keyPart.length > 63) {
+      return '键名长度不能超过63个字符';
+    }
+    return undefined;
+  };
+
+  const validateLabelValue = (v: string): string | undefined => {
+    if (!v) return undefined;
+    if (!/^[a-zA-Z0-9]([-a-zA-Z0-9._]*[a-zA-Z0-9])?$/.test(v)) {
+      return '格式无效：字母/数字开头结尾，中间可含连字符、下划线、点';
+    }
+    if (v.length > 63) {
+      return '值长度不能超过63个字符';
+    }
+    return undefined;
+  };
   
   // 初始化时从 form 读取值
   useEffect(() => {
@@ -2051,6 +2650,10 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
     setRequiredRules(value?.required || []);
     setPreferredRules(value?.preferred || []);
   }, [form, name]);
+
+  useImperativeHandle(ref, () => ({
+    getHasLabelErrors: () => Object.values(labelErrors).some(e => e.key || e.value),
+  }), [labelErrors]);
 
   // 添加必须满足的规则
   const addRequiredRule = () => {
@@ -2403,26 +3006,55 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
           return (
             <Row key={rowKey} gutter={8} style={{ marginBottom: 8 }}>
               <Col span={10}>
-                <Input
-                  placeholder="标签键 (如: app)"
-                  defaultValue={displayKey}
-                  onBlur={(e) => {
-                    const newKey = e.target.value.trim();
-                    if (newKey && newKey !== key) {
-                      // blur 时替换 key
-                      updateMatchLabelKey(ruleType, ruleIndex, key, newKey);
-                    }
-                  }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <Input
+                    placeholder="标签键 (如: app)"
+                    defaultValue={displayKey}
+                    status={labelErrors[rowKey]?.key ? 'error' : undefined}
+                    onBlur={(e) => {
+                      const newKey = e.target.value.trim();
+                      const err = validateLabelKey(newKey);
+                      setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], key: err } }));
+                      if (!newKey || err) return;
+                      if (newKey !== key) {
+                        updateMatchLabelKey(ruleType, ruleIndex, key, newKey);
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (labelErrors[rowKey]?.key) {
+                        setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], key: undefined } }));
+                      }
+                    }}
+                  />
+                  {labelErrors[rowKey]?.key && (
+                    <div style={{ color: '#ff4d4f', fontSize: 12, lineHeight: 1.5, marginTop: 2 }}>{labelErrors[rowKey]!.key}</div>
+                  )}
+                </div>
               </Col>
               <Col span={10}>
-                <Input
-                  placeholder="标签值 (如: nginx)"
-                  defaultValue={value as string}
-                  onBlur={(e) => {
-                    updateMatchLabelValue(ruleType, ruleIndex, key, e.target.value);
-                  }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <Input
+                    placeholder="标签值 (如: nginx)"
+                    defaultValue={value as string}
+                    status={labelErrors[rowKey]?.value ? 'error' : undefined}
+                    onBlur={(e) => {
+                      const newValue = e.target.value;
+                      const err = validateLabelValue(newValue);
+                      setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], value: err } }));
+                      if (err) return;
+                      updateMatchLabelValue(ruleType, ruleIndex, key, newValue);
+                    }}
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      if (labelErrors[rowKey]?.value) {
+                        setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], value: undefined } }));
+                      }
+                    }}
+                  />
+                  {labelErrors[rowKey]?.value && (
+                    <div style={{ color: '#ff4d4f', fontSize: 12, lineHeight: 1.5, marginTop: 2 }}>{labelErrors[rowKey]!.value}</div>
+                  )}
+                </div>
               </Col>
               <Col span={4}>
                 <Button
@@ -2474,18 +3106,18 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
           return (
             <Row key={exprIndex} gutter={8} style={{ marginBottom: 8 }}>
               <Col span={6}>
-                <Form.Item name={[...exprPath, 'key']} noStyle>
+                <Form.Item name={[...exprPath, 'key']} rules={[{ required: true, message: '请输入标签键' }, { validator: validateNodeLabelKey }]} style={{ marginBottom: 0 }}>
                   <Input placeholder="标签键" />
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item name={[...exprPath, 'operator']} noStyle>
+                <Form.Item name={[...exprPath, 'operator']} style={{ marginBottom: 0 }}>
                   <Select options={POD_SELECTOR_OPERATOR_OPTIONS} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               {showValues && (
                 <Col span={10}>
-                  <Form.Item name={[...exprPath, 'values']} noStyle>
+                  <Form.Item name={[...exprPath, 'values']} style={{ marginBottom: 0 }}>
                     <Select
                       mode="tags"
                       placeholder="输入值后回车添加"
@@ -2667,7 +3299,7 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
       {preferredRules.map((_: any, index: number) => renderRule('preferred', index))}
     </div>
   );
-};
+});
 
 // ============================================================
 // 子组件: 污点容忍编辑器
@@ -2679,7 +3311,12 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
  * 
  * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
  */
-const TolerationsEditor: React.FC = () => {
+export interface TolerationsEditorHandle {
+  getHasLabelErrors: () => boolean;
+}
+
+const TolerationsEditor = React.forwardRef<TolerationsEditorHandle, {}>(
+  (_props, ref) => {
   const form = Form.useFormInstance();
   
   // 本地 state 管理规则列表
@@ -2689,6 +3326,17 @@ const TolerationsEditor: React.FC = () => {
   useEffect(() => {
     setTolerations(form.getFieldValue('tolerations') || []);
   }, [form]);
+
+  useImperativeHandle(ref, () => ({
+    getHasLabelErrors: () => {
+      const errors = form.getFieldsError();
+      return errors.some(e => {
+        if (!e.errors?.length) return false;
+        const fieldName = Array.isArray(e.name) ? e.name.join('.') : String(e.name);
+        return fieldName.startsWith('tolerations');
+      });
+    },
+  }), [form]);
 
   // 添加容忍规则
   const addToleration = (preset?: typeof COMMON_TOLERATION_PRESETS[0]) => {
@@ -2760,6 +3408,10 @@ const TolerationsEditor: React.FC = () => {
             <Form.Item
               name={[...basePath, 'key']}
               label="污点键 (Key)"
+              rules={[
+                { required: true, message: '请输入污点键' },
+                { validator: validateNodeLabelKey },
+              ]}
               extra="可输入或选择预设"
               style={{ marginBottom: 0 }}
             >
@@ -2804,7 +3456,10 @@ const TolerationsEditor: React.FC = () => {
               <Form.Item
                 name={[...basePath, 'value']}
                 label="污点值 (Value)"
-                rules={[{ required: showValue, message: 'Equal 操作符需要填写值' }]}
+                rules={[
+                  { required: showValue, message: 'Equal 操作符需要填写值' },
+                  { validator: validateK8sLabelValue },
+                ]}
                 style={{ marginBottom: 0 }}
               >
                 <Input placeholder="污点值" />
@@ -2884,7 +3539,7 @@ const TolerationsEditor: React.FC = () => {
       {tolerations.map((_: any, index: number) => renderToleration(index))}
     </div>
   );
-};
+});
 
 /**
  * 域名映射编辑器 (HostAliases)
@@ -2894,127 +3549,105 @@ const TolerationsEditor: React.FC = () => {
  */
 const HostAliasesEditor: React.FC = () => {
   const form = Form.useFormInstance();
-  
-  interface HostAliasEntry {
-    ip: string;
-    hostnames: string[];
-  }
-  
-  const [hostAliases, setHostAliases] = useState<HostAliasEntry[]>([]);
-  
-  useEffect(() => {
-    setHostAliases(form.getFieldValue('hostAliases') || []);
-  }, [form]);
-
-  const addHostAlias = () => {
-    const currentHostAliases = form.getFieldValue('hostAliases') || [];
-    const newEntry: HostAliasEntry = {
-      ip: '',
-      hostnames: [],
-    };
-    const updated = [...currentHostAliases, newEntry];
-    setHostAliases(updated);
-    form.setFieldsValue({ hostAliases: updated });
-  };
-
-  const removeHostAlias = (index: number) => {
-    const updated = hostAliases.filter((_, i) => i !== index);
-    setHostAliases(updated);
-    form.setFieldsValue({ hostAliases: updated });
-  };
-
-  const renderHostAlias = (index: number) => {
-    const basePath = ['hostAliases', index];
-    const ipValue = form.getFieldValue([...basePath, 'ip']);
-    const hostnamesValue = form.getFieldValue([...basePath, 'hostnames']) || [];
-
-    return (
-      <Card
-        key={index}
-        size="small"
-        style={{ marginBottom: 12 }}
-        title={
-          <Space>
-            <Tag color="purple">域名映射 {index + 1}</Tag>
-            {ipValue && (
-              <span style={{ color: '#666', fontSize: 12 }}>
-                {ipValue}
-              </span>
-            )}
-          </Space>
-        }
-        extra={
-          <Button
-            type="text"
-            danger
-            size="small"
-            onClick={() => removeHostAlias(index)}
-          >
-            删除
-          </Button>
-        }
-      >
-        <Row gutter={[8, 8]}>
-          <Col span={8}>
-            <Form.Item
-              name={[...basePath, 'ip']}
-              label="IP 地址"
-              rules={[
-                { required: true, message: '请输入 IP 地址' },
-                {
-                  pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
-                  message: '请输入有效的 IPv4 地址'
-                }
-              ]}
-              style={{ marginBottom: 0 }}
-            >
-              <Input placeholder="例如: 192.168.1.100" />
-            </Form.Item>
-          </Col>
-          <Col span={16}>
-            <Form.Item
-              name={[...basePath, 'hostnames']}
-              label="主机名"
-              rules={[{ required: true, message: '请输入主机名' }]}
-              extra="多个主机名用逗号分隔，例如: harbor.local,cloudhci.harbor.local"
-              style={{ marginBottom: 0 }}
-            >
-              <Select
-                mode="tags"
-                placeholder="输入主机名后按回车添加"
-                tokenSeparators={[',', ' ']}
-                style={{ width: '100%' }}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-      </Card>
-    );
-  };
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 500 }}>域名映射</span>
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addHostAlias}>
-          添加域名映射
-        </Button>
-      </div>
+      <Form.List name="hostAliases">
+        {(fields, { add, remove }) => (
+          <>
+            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 500 }}>域名映射</span>
+              <Button
+                type="dashed"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => add({ ip: '', hostnames: [] })}
+              >
+                添加域名映射
+              </Button>
+            </div>
 
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="用于在 Pod 的 /etc/hosts 中添加域名映射，适用于内网服务、绕过 DNS 解析等场景"
-      />
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="用于在 Pod 的 /etc/hosts 中添加域名映射，适用于内网服务、绕过 DNS 解析等场景"
+            />
 
-      {hostAliases.length === 0 && (
-        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
-          未配置域名映射，点击上方按钮添加
-        </div>
-      )}
+            {fields.length === 0 && (
+              <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+                未配置域名映射，点击上方按钮添加
+              </div>
+            )}
 
-      {hostAliases.map((_: any, index: number) => renderHostAlias(index))}
+            {fields.map((field, index) => {
+              const ipValue = form.getFieldValue(['hostAliases', field.name, 'ip']);
+              return (
+                <Card
+                  key={field.key}
+                  size="small"
+                  style={{ marginBottom: 12 }}
+                  title={
+                    <Space>
+                      <Tag color="purple">域名映射 {index + 1}</Tag>
+                      {ipValue && (
+                        <span style={{ color: '#666', fontSize: 12 }}>
+                          {ipValue}
+                        </span>
+                      )}
+                    </Space>
+                  }
+                  extra={
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      onClick={() => remove(field.name)}
+                    >
+                      删除
+                    </Button>
+                  }
+                >
+                  <Row gutter={[8, 8]}>
+                    <Col span={8}>
+                      <Form.Item
+                        name={[field.name, 'ip']}
+                        label="IP 地址"
+                        rules={[
+                          { required: true, message: '请输入 IP 地址' },
+                          {
+                            pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                            message: '请输入有效的 IPv4 地址',
+                          },
+                        ]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Input placeholder="例如: 192.168.1.100" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={16}>
+                      <Form.Item
+                        name={[field.name, 'hostnames']}
+                        label="主机名"
+                        rules={[{ required: true, message: '请输入主机名' }]}
+                        extra="多个主机名用逗号分隔，例如: harbor.local,cloudhci.harbor.local"
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select
+                          mode="tags"
+                          placeholder="输入主机名后按回车添加"
+                          tokenSeparators={[',', ' ']}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Card>
+              );
+            })}
+          </>
+        )}
+      </Form.List>
     </div>
   );
 };
@@ -3026,20 +3659,24 @@ const HostAliasesEditor: React.FC = () => {
 const DnsConfigEditor: React.FC = () => {
   const form = Form.useFormInstance();
   
-  const [dnsPolicy, setDnsPolicy] = useState<string>('ClusterFirst');
-  const [nameservers, setNameservers] = useState<string[]>([]);
-  const [searches, setSearches] = useState<string[]>([]);
-  const [options, setOptions] = useState<Array<{ name: string; value?: string }>>([]);
-  
+  const [dnsPolicy, setDnsPolicy] = useState<string>(() => form.getFieldValue('dnsPolicy') || 'ClusterFirst');
+  const [nameservers, setNameservers] = useState<string[]>(() => form.getFieldValue('dnsConfig')?.nameservers || []);
+  const [searches, setSearches] = useState<string[]>(() => form.getFieldValue('dnsConfig')?.searches || []);
+  const [options, setOptions] = useState<Array<{ name: string; value?: string }>>(() => form.getFieldValue('dnsConfig')?.options || []);
+
+  // 编辑模式下 form 数据异步写入，需要再同步一次
   useEffect(() => {
-    const currentDnsPolicy = form.getFieldValue('dnsPolicy') || 'ClusterFirst';
-    const currentDnsConfig = form.getFieldValue('dnsConfig') || {};
-    setDnsPolicy(currentDnsPolicy);
-    setNameservers(currentDnsConfig.nameservers || []);
-    setSearches(currentDnsConfig.searches || []);
-    setOptions(currentDnsConfig.options || []);
-  }, [form]);
-  
+    const policy = form.getFieldValue('dnsPolicy');
+    const config = form.getFieldValue('dnsConfig') || {};
+    if (policy) {
+      setDnsPolicy(policy);
+      setNameservers(config.nameservers || []);
+      setSearches(config.searches || []);
+      setOptions(config.options || []);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleDnsPolicyChange = (value: string) => {
     setDnsPolicy(value);
     form.setFieldsValue({ dnsPolicy: value });
@@ -3136,6 +3773,10 @@ const DnsConfigEditor: React.FC = () => {
         message="DNS 配置用于自定义 Pod 的域名解析策略，适用于自定义 DNS 服务器或修改搜索域等场景"
       />
       
+      {/* 隐藏的 Form.Item 用于向 antd 表单注册 dnsPolicy / dnsConfig 字段，使 getFieldValue/setFieldsValue 正常工作 */}
+      <Form.Item name="dnsPolicy" hidden><Input /></Form.Item>
+      <Form.Item name="dnsConfig" hidden><Input /></Form.Item>
+
       <Form.Item label="DNS 策略" style={{ marginBottom: 16 }}>
         <Select value={dnsPolicy} onChange={handleDnsPolicyChange}>
           <Select.Option value="Default">Default - 使用节点 DNS 配置</Select.Option>
@@ -3146,95 +3787,97 @@ const DnsConfigEditor: React.FC = () => {
       </Form.Item>
       
       {dnsPolicy === 'None' && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="DNS 策略为 None 时，必须配置 DNS 配置（nameservers、searches 或 options）"
-        />
+        <>
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="DNS 策略为 None 时，必须配置 DNS 配置（nameservers、searches 或 options）"
+          />
+
+          <Card size="small" title="DNS 服务器" style={{ marginBottom: 12 }}>
+            {nameservers.map((ns, index) => (
+              <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={20}>
+                  <Input
+                    placeholder="例如: 10.96.0.10"
+                    value={ns}
+                    onChange={(e) => updateNameserver(index, e.target.value)}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => removeNameserver(index)}
+                  />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addNameserver}>
+              添加 DNS 服务器
+            </Button>
+          </Card>
+
+          <Card size="small" title="搜索域" style={{ marginBottom: 12 }}>
+            {searches.map((s, index) => (
+              <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={20}>
+                  <Input
+                    placeholder="例如: default.svc.cluster.local"
+                    value={s}
+                    onChange={(e) => updateSearch(index, e.target.value)}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => removeSearch(index)}
+                  />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addSearch}>
+              添加搜索域
+            </Button>
+          </Card>
+
+          <Card size="small" title="DNS 选项">
+            {options.map((opt, index) => (
+              <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={10}>
+                  <Input
+                    placeholder="选项名称，例如: ndots"
+                    value={opt.name}
+                    onChange={(e) => updateOption(index, 'name', e.target.value)}
+                  />
+                </Col>
+                <Col span={10}>
+                  <Input
+                    placeholder="选项值（可选）"
+                    value={opt.value || ''}
+                    onChange={(e) => updateOption(index, 'value', e.target.value)}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => removeOption(index)}
+                  />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addOption}>
+              添加 DNS 选项
+            </Button>
+          </Card>
+        </>
       )}
-      
-      <Card size="small" title="DNS 服务器" style={{ marginBottom: 12 }}>
-        {nameservers.map((ns, index) => (
-          <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
-            <Col span={20}>
-              <Input
-                placeholder="例如: 10.96.0.10"
-                value={ns}
-                onChange={(e) => updateNameserver(index, e.target.value)}
-              />
-            </Col>
-            <Col span={4}>
-              <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => removeNameserver(index)}
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addNameserver}>
-          添加 DNS 服务器
-        </Button>
-      </Card>
-      
-      <Card size="small" title="搜索域" style={{ marginBottom: 12 }}>
-        {searches.map((s, index) => (
-          <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
-            <Col span={20}>
-              <Input
-                placeholder="例如: default.svc.cluster.local"
-                value={s}
-                onChange={(e) => updateSearch(index, e.target.value)}
-              />
-            </Col>
-            <Col span={4}>
-              <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => removeSearch(index)}
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addSearch}>
-          添加搜索域
-        </Button>
-      </Card>
-      
-      <Card size="small" title="DNS 选项">
-        {options.map((opt, index) => (
-          <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
-            <Col span={10}>
-              <Input
-                placeholder="选项名称，例如: ndots"
-                value={opt.name}
-                onChange={(e) => updateOption(index, 'name', e.target.value)}
-              />
-            </Col>
-            <Col span={10}>
-              <Input
-                placeholder="选项值（可选）"
-                value={opt.value || ''}
-                onChange={(e) => updateOption(index, 'value', e.target.value)}
-              />
-            </Col>
-            <Col span={4}>
-              <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => removeOption(index)}
-              />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addOption}>
-          添加 DNS 选项
-        </Button>
-      </Card>
     </div>
   );
 };
@@ -3354,11 +3997,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   onRefreshSecrets,
   // PVC 相关 props
   persistentVolumeClaims = [],
-  onRefreshPVCs,
+  onRefreshPVCs: _onRefreshPVCs,
   // 网络配置相关 props
   hideFlatSubnet = false,
 }) => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -3387,13 +4030,37 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const [nads, setNads] = useState<any[]>([]);
   const [loadingNetworkData, setLoadingNetworkData] = useState(false);
   
-  const [containersVersion, setContainersVersion] = useState(0);
+  // 静态 IP 检测状态
+  const [checkingStaticIP, setCheckingStaticIP] = useState(false);
+  const [staticIPCheckResult, setStaticIPCheckResult] = useState<{
+    checked: boolean;
+    available: boolean;
+    reason: string;
+  } | null>(null);
+  
+  // 监听表单字段变化
+  const enableStaticIPWatch = Form.useWatch('enableStaticIP', form);
+
+  const [, setContainersVersion] = useState(0);
   
   const editMetadata = editData?.metadata;
   const syncingContainerRef = useRef(false);
+  const nodeAffinityEditorRef = useRef<NodeAffinityEditorHandle>(null);
+  const nodeAntiAffinityEditorRef = useRef<NodeAffinityEditorHandle>(null);
+  const podAffinityEditorRef = useRef<PodAffinityEditorHandle>(null);
+  const podAntiAffinityEditorRef = useRef<PodAffinityEditorHandle>(null);
+  const tolerationsEditorRef = useRef<TolerationsEditorHandle>(null);
   const watchedImagePullSecretsValue = Form.useWatch('imagePullSecrets', form);
   const watchedImagePullSecrets = useMemo<string[]>(() => watchedImagePullSecretsValue || [], [watchedImagePullSecretsValue]);
   Form.useWatch('containers', form);
+  Form.useWatch('nodeAffinity', form);
+  Form.useWatch('nodeAntiAffinity', form);
+  Form.useWatch('podAffinity', form);
+  Form.useWatch('podAntiAffinity', form);
+  Form.useWatch('tolerations', form);
+  
+  // 存储配置刷新标记，用于通知 VolumesEditor 重新读取数据
+  const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
 
   /**
    * 加载 localStorage 中的仓库列表
@@ -3537,6 +4204,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const syncContainerEditorToForm = useCallback((container: Partial<WorkloadContainerFormValue> | undefined) => {
     syncingContainerRef.current = true;
     form.setFieldsValue(toContainerEditorFields(container));
+    // 刷新 VolumesEditor 数据
+    setVolumeRefreshKey(v => v + 1);
     queueMicrotask(() => {
       syncingContainerRef.current = false;
     });
@@ -3619,7 +4288,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     setContainersVersion((v) => v + 1);
   }, [form, getSyncedFormValues, syncContainerEditorToForm]);
 
-  const handleDuplicateContainer = useCallback(() => {
+  const _handleDuplicateContainer = useCallback(() => {
     const syncedValues = getSyncedFormValues();
     const nextContainers = [...(syncedValues.containers || [])];
     const current = nextContainers[activeContainerIndex];
@@ -3643,7 +4312,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     setContainersVersion((v) => v + 1);
   }, [activeContainerIndex, form, getSyncedFormValues, syncContainerEditorToForm]);
 
-  const handleRemoveContainer = useCallback(() => {
+  const _handleRemoveContainer = useCallback(() => {
     const syncedValues = getSyncedFormValues();
     const nextContainers = [...(syncedValues.containers || [])];
     if (nextContainers.length <= 1) {
@@ -3660,7 +4329,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
   // 编辑模式：初始化表单数据
   useEffect(() => {
-    if (editData) {
+    if (!editData) return;
+    try {
       const spec = editData?.spec || {};
       const metadata = editData?.metadata || {};
       const template = spec?.template || {};
@@ -3834,6 +4504,26 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         effect: t.effect,
         tolerationSeconds: t.tolerationSeconds,
       }));
+
+      // 提取域名映射
+      const hostAliases = (template?.spec?.hostAliases || []).map((ha: any) => ({
+        ip: ha.ip || '',
+        hostnames: ha.hostnames || [],
+      }));
+
+      // 提取 DNS 配置
+      const dnsPolicy = template?.spec?.dnsPolicy;
+      const dnsConfigRaw = template?.spec?.dnsConfig;
+      const dnsConfig = dnsConfigRaw
+        ? {
+            nameservers: dnsConfigRaw.nameservers || [],
+            searches: dnsConfigRaw.searches || [],
+            options: (dnsConfigRaw.options || []).map((opt: any) => ({
+              name: opt.name,
+              value: opt.value,
+            })),
+          }
+        : undefined;
       
       // 提取存储卷定义
       const rawVolumes = template?.spec?.volumes || [];
@@ -3854,7 +4544,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         } else if (vol.persistentVolumeClaim) {
           result.type = 'persistentVolumeClaim';
           result.claimName = vol.persistentVolumeClaim.claimName;
-          result.readOnly = vol.persistentVolumeClaim.readOnly;
         } else if (vol.emptyDir) {
           result.type = 'emptyDir';
           result.emptyDirMedium = vol.emptyDir.medium === 'Memory' ? 'Memory' : 'default';
@@ -3901,8 +4590,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       const staticIP = staticIPAnnotation || undefined;
       
       // 设置表单值
+      const kind = editData?.kind?.toLowerCase();
+      const type = editData?.type?.toLowerCase();
+      
+      // 根据 kind/type 字段识别工作负载类型
+      const workloadTypeValue = kind === 'daemonset' || type === 'daemonset' ? 'daemonset'
+        : kind === 'statefulset' || type === 'statefulset' ? 'statefulset'
+        : kind === 'deployment' || type === 'deployment' ? 'deployment'
+        : defaultType;
+      
       form.setFieldsValue({
-        workloadType: editData?.kind?.toLowerCase() || defaultType,
+        workloadType: workloadTypeValue,
         name: metadata?.annotations?.['tower.io/alias'] || metadata?.name || '',
         namespace: metadata?.namespace || 'default',
         labels,
@@ -3916,7 +4614,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         podAffinity: parsePodAffinity(affinity?.podAffinity),
         podAntiAffinity: parsePodAffinity(affinity?.podAntiAffinity),
         tolerations: tolerations.length > 0 ? tolerations : undefined,
-        volumes: volumes.length > 0 ? volumes : undefined,
+        hostAliases: hostAliases.length > 0 ? hostAliases : undefined,
+        dnsPolicy,
+        dnsConfig,
+        volumes: volumes, // 始终设置数组，确保 VolumesEditor 能正确读取
         // 网络配置
         networkType,
         flatSubnet,
@@ -3938,8 +4639,21 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       };
       const yamlStr = yaml.dump(cleanData, { indent: 2 });
       setYamlContent(yamlStr);
+    } catch (err) {
+      console.error('编辑模式初始化表单数据失败:', err);
     }
   }, [editData, defaultType, form]);
+  
+  // 步骤切换时同步容器数据到顶级字段（特别是步骤3存储配置）
+  useEffect(() => {
+    if (currentStep === 3) {
+      const containers = form.getFieldValue('containers') || [];
+      const activeContainer = containers[activeContainerIndex];
+      if (activeContainer) {
+        syncContainerEditorToForm(activeContainer);
+      }
+    }
+  }, [currentStep, activeContainerIndex, form, syncContainerEditorToForm]);
   
   // 获取网络配置数据（扁平子网、VPC、NAD）
   useEffect(() => {
@@ -3973,7 +4687,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         
         setKubeSubnets(normalizedSubnets);
         setKubeVpcs(normalizedVpcs);
-        setNads(Array.isArray(nadsRes?.items) ? nadsRes.items : (Array.isArray(nadsRes) ? nadsRes : []));
+        setNads(nadsRes?.data?.items || nadsRes?.items || (Array.isArray(nadsRes) ? nadsRes : []));
       } catch (error) {
         console.error('获取网络数据失败:', error);
       } finally {
@@ -4057,6 +4771,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     return vpc === 'ovn-internal' || vpc === 'ovn-cluster';
   }, []);
   
+  
   // 扁平子网选项
   const flatSubnetOptions = useMemo(() => {
     return (kubeSubnets || [])
@@ -4065,8 +4780,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         const name = s.name || s?.metadata?.name || '-';
         const subnetNs = s?.namespace || s?.metadata?.namespace || 'default';
         const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
-        const cidr = s?.cidr || s?.spec?.cidrBlock || 'N/A';
-        const label = alias ? `${alias}(${name})@${cidr}` : `${name}@${cidr}`;
+        const cidr = s?.cidr || s?.spec?.cidrBlock || '';
+        const label = alias 
+          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}` 
+          : `${name}${cidr ? ` (${cidr})` : ''}`;
         const nadRef = `${subnetNs}/${name}`;
         return {
           label,
@@ -4100,8 +4817,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       .map(s => {
         const name = s.name || s?.metadata?.name || '-';
         const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
-        const cidr = s?.cidr || s?.spec?.cidrBlock || 'N/A';
-        const label = alias ? `${alias}(${name})@${cidr}` : `${name}@${cidr}`;
+        const cidr = s?.cidr || s?.spec?.cidrBlock || '';
+        const label = alias 
+          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}` 
+          : `${name}${cidr ? ` (${cidr})` : ''}`;
         return {
           label,
           value: name,
@@ -4110,7 +4829,125 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       });
   }, [kubeSubnets, selectedVpc]);
   
-  // NAD 选项（排除 kube-ovn 类型，参考 VM 创建向导）
+  // 静态 IP 检测函数（调用后端API）
+  const handleCheckStaticIP = useCallback(async () => {
+    const staticIP = form.getFieldValue('staticIP');
+    const networkType = form.getFieldValue('networkType');
+    
+    if (!staticIP) {
+      message.warning('请先输入静态 IP 地址');
+      return;
+    }
+    
+    // 验证 IP 格式
+    const ipPattern = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+    if (!ipPattern.test(staticIP)) {
+      message.error('请输入有效的 IPv4 地址');
+      return;
+    }
+    
+    // 获取当前子网信息
+    let subnetName: string | undefined;
+    let subnetNs = 'default';
+    
+    if (networkType === 'flat_subnet') {
+      const flatSubnetValue = form.getFieldValue('flatSubnet');
+      if (flatSubnetValue) {
+        const parts = flatSubnetValue.split('/');
+        if (parts.length === 2) {
+          subnetNs = parts[0];
+          subnetName = parts[1];
+        } else {
+          subnetName = flatSubnetValue;
+        }
+      }
+    } else if (networkType === 'vpc') {
+      const vpcSubnetValue = form.getFieldValue('vpcSubnet');
+      if (vpcSubnetValue) {
+        const parts = vpcSubnetValue.split('/');
+        if (parts.length === 2) {
+          subnetNs = parts[0];
+          subnetName = parts[1];
+        } else {
+          subnetName = vpcSubnetValue;
+        }
+      }
+    }
+    
+    if (!subnetName) {
+      message.warning('请先选择子网');
+      return;
+    }
+    
+    setCheckingStaticIP(true);
+    
+    try {
+      // 调用后端API检测IP是否已被使用
+      const res = await checkSubnetStaticIP(cloudId, subnetNs, subnetName, staticIP);
+      const data = res?.data || res;
+      const used = data?.used === true;
+      const usedBy = data?.usedBy || '';
+      
+      setStaticIPCheckResult({
+        checked: true,
+        available: !used,
+        reason: used
+          ? `IP 已被使用（被 ${usedBy} 占用）`
+          : 'IP 可用，未被其他工作负载使用',
+      });
+      
+      if (used) {
+        message.error(`IP ${staticIP} 已被使用（被 ${usedBy} 占用）`);
+      } else {
+        message.success('IP 可用');
+      }
+    } catch (e: any) {
+      // API调用失败，回退到本地检测
+      console.warn('静态IP检测API调用失败，回退到本地检测:', e);
+      let currentSubnet: any = null;
+      
+      if (networkType === 'flat_subnet') {
+        const flatSubnetValue = form.getFieldValue('flatSubnet');
+        const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === flatSubnetValue);
+        currentSubnet = flatSubnetOption?.subnet;
+      } else if (networkType === 'vpc') {
+        const vpcSubnetValue = form.getFieldValue('vpcSubnet');
+        if (vpcSubnetValue) {
+          const parts = vpcSubnetValue.split('/');
+          const sn = parts.length === 2 ? parts[1] : parts[0];
+          currentSubnet = kubeSubnets.find(s => 
+            (s.name || s?.metadata?.name) === sn && 
+            (s.vpc || s?.spec?.vpc) === selectedVpc
+          );
+        }
+      }
+      
+      if (currentSubnet) {
+        const result = checkIpAvailability(staticIP, currentSubnet);
+        setStaticIPCheckResult({
+          checked: true,
+          available: result.available,
+          reason: result.reason,
+        });
+        if (!result.available) {
+          message.error(result.reason);
+        } else {
+          message.success(result.reason);
+        }
+      } else {
+        setStaticIPCheckResult({
+          checked: true,
+          available: false,
+          reason: '检测失败：无法获取子网信息',
+        });
+        message.error('IP检测失败：无法获取子网信息');
+      }
+    } finally {
+      setCheckingStaticIP(false);
+    }
+  }, [cloudId, form, flatSubnetOptions, kubeSubnets, selectedVpc, message]);
+  
+  
   const allNadOptions = useMemo(() => {
     const selectedNamespace = form.getFieldValue('namespace') || defaultNamespace || 'default';
     return (nads || [])
@@ -4119,17 +4956,15 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         const ns = n?.metadata?.namespace || n?.namespace || 'default';
         const displayName = n?.spec?.displayName || n?.metadata?.annotations?.['tower.io/alias'] || '';
         
-        // 解析 config 获取 type 和 vlan
         let type = 'unknown';
         let vlan: any = undefined;
+        let promiscMode = false;
         try {
           const cfg = JSON.parse(n?.spec?.config || '{}');
           type = String(cfg?.type || 'unknown').toLowerCase();
           vlan = cfg?.vlan;
+          promiscMode = !!cfg?.promiscMode;
         } catch {}
-        
-        // 排除 kube-ovn 类型的 NAD
-        if (type === 'kube-ovn') return null;
         
         const isCurrentNs = ns === selectedNamespace;
         const tag = type || '-';
@@ -4143,17 +4978,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           value: `${ns}/${name}`,
           nad: n,
           _type: type,
+          _promisc: promiscMode,
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null) // 过滤掉 null
-      .sort((a, b) => {
-        // 当前命名空间的NAD排在前面
-        const aNs = a.value.split('/')[0];
-        const bNs = b.value.split('/')[0];
-        if (aNs === selectedNamespace && bNs !== selectedNamespace) return -1;
-        if (aNs !== selectedNamespace && bNs === selectedNamespace) return 1;
-        return a.label.localeCompare(b.label);
-      });
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .filter((x: any) => x._promisc === true)
+      .filter((x: any) => x.value.split('/')[0] === selectedNamespace)
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [nads, defaultNamespace, form]);
   
   // 监听工作负载类型变化
@@ -4209,7 +5040,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       // 网络配置
       networkType,
       flatSubnet,
-      vpcName,
+      vpcName: _vpcName,
       vpcSubnet,
       customNad,
       enableStaticIP,
@@ -4345,7 +5176,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           case 'persistentVolumeClaim':
             volume.persistentVolumeClaim = {
               claimName: vol.claimName,
-              readOnly: vol.readOnly,
             };
             break;
           case 'emptyDir':
@@ -4712,9 +5542,25 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       // 根据网络类型设置注解
       switch (networkType) {
         case 'flat_subnet':
-          // 扁平子网：设置 networks 注解
+          // 扁平子网：设置 networks 注解和 logical_switch 注解
           if (flatSubnet) {
             annotations['k8s.v1.cni.cncf.io/networks'] = flatSubnet;
+            // 扁平子网需要 logical_switch 注解，格式为 <namespace>/<subnet-name>
+            const flatParts = flatSubnet.split('/');
+            const subnetName = flatParts.length === 2 ? flatParts[1] : flatSubnet;
+            if (flatParts.length === 2) {
+              annotations['ovn.kubernetes.io/logical_switch'] = flatParts[1];
+            } else if (flatParts.length === 1) {
+              annotations['ovn.kubernetes.io/logical_switch'] = flatSubnet;
+            }
+            // 扁平子网静态IP需要用网络名称前缀的注解格式
+            // 格式: <subnet-name>.default.ovn.kubernetes.io/ip_address
+            if (enableStaticIP && staticIP) {
+              // 同时设置两种格式的静态IP注解，确保兼容性
+              annotations['ovn.kubernetes.io/ip_address'] = staticIP;
+              // 使用网络名称前缀格式（这是Kube-OVN多网络模式识别的格式）
+              annotations[`${subnetName}.default.ovn.kubernetes.io/ip_address`] = staticIP;
+            }
           }
           break;
           
@@ -4722,26 +5568,33 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           // VPC 子网：设置 networks 注解
           if (vpcSubnet) {
             annotations['k8s.v1.cni.cncf.io/networks'] = vpcSubnet;
-            // Kube-OVN VPC 子网需要额外设置 logical_switch 注解
-            // subnetName 格式为 <namespace>/<subnet-name>，提取子网名称
+            // Kube-OVN VPC 子网需要 logical_switch 注解
             const subnetParts = vpcSubnet.split('/');
+            const vpcSubnetName = subnetParts.length === 2 ? subnetParts[1] : vpcSubnet;
             if (subnetParts.length === 2) {
               annotations['ovn.kubernetes.io/logical_switch'] = subnetParts[1];
+            }
+            // VPC 子网静态IP需要用网络名称前缀的注解格式
+            if (enableStaticIP && staticIP) {
+              annotations['ovn.kubernetes.io/ip_address'] = staticIP;
+              const vpcSubnetNs = subnetParts.length === 2 ? subnetParts[0] : 'default';
+              annotations[`${vpcSubnetName}.${vpcSubnetNs}.ovn.kubernetes.io/ip_address`] = staticIP;
             }
           }
           break;
           
         case 'custom_nad':
-          // 自定义 NAD：设置 networks 注解
           if (customNad) {
             annotations['k8s.v1.cni.cncf.io/networks'] = customNad;
+            const selectedNadOption = allNadOptions.find((o: any) => o.value === customNad);
+            if (selectedNadOption?._type === 'kube-ovn') {
+              const nadParts = customNad.split('/');
+              if (nadParts.length === 2) {
+                annotations['ovn.kubernetes.io/logical_switch'] = nadParts[1];
+              }
+            }
           }
           break;
-      }
-      
-      // 静态 IP 配置
-      if (enableStaticIP && staticIP) {
-        annotations['ovn.kubernetes.io/ip_address'] = staticIP;
       }
       
       return annotations;
@@ -5073,7 +5926,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       }
     }
     setMode(newMode);
-  }, [mode, form, formToYaml, yamlToForm, yamlContent, message, getDefaultYaml, workloadType, isEditMode, editData, buildK8sResource, getSyncedFormValues, watchedImagePullSecrets]);
+  }, [mode, form, formToYaml, yamlToForm, yamlContent, message, getDefaultYaml, workloadType, isEditMode, editData, buildK8sResource, getSyncedFormValues]);
   
   // 验证 YAML 格式
   const validateYaml = useCallback((content: string): boolean => {
@@ -5143,6 +5996,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         ]);
 
         const syncedValues = getSyncedFormValues();
+        
+        // DEBUG: 打印表单中的 volumeMounts
         const invalidContainerIndex = (syncedValues.containers || []).findIndex((container) => !container.image);
         if (invalidContainerIndex >= 0) {
           setCurrentStep(1);
@@ -5153,8 +6008,169 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           return;
         }
         
+        // 校验容器名称是否重复
+        const containerNames = (syncedValues.containers || [])
+          .map(c => c.containerName)
+          .filter(name => name && name.trim());
+        const duplicateNames = containerNames.filter((name, index) => 
+          containerNames.indexOf(name) !== index
+        );
+        if (duplicateNames.length > 0) {
+          setCurrentStep(1); // 跳转到容器配置步骤
+          message.error(`容器名称重复: ${[...new Set(duplicateNames)].join(', ')}，请使用不同的容器名称`);
+          setLoading(false);
+          return;
+        }
+        
+        // 校验存储卷挂载：如果定义了存储卷，则必须配置至少一个卷挂载
+        const volumes = syncedValues.volumes || [];
+        const volumeMounts = syncedValues.volumeMounts || [];
+        if (volumes.length > 0 && volumeMounts.length === 0) {
+          setCurrentStep(3); // 跳转到存储配置步骤
+          message.warning('已定义存储卷，请配置至少一个卷挂载');
+          setLoading(false);
+          return;
+        }
+        
+        // 校验静态 IP 是否在子网 CIDR 范围内
+        if (syncedValues.enableStaticIP && syncedValues.staticIP) {
+          const networkType = syncedValues.networkType;
+          let subnetCidr: string | undefined;
+          
+          if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
+            // 扁平子网：从 flatSubnetOptions 中查找 CIDR
+            const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === syncedValues.flatSubnet);
+            subnetCidr = flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
+          } else if (networkType === 'vpc' && syncedValues.vpcSubnet) {
+            // VPC 子网：从 kubeSubnets 中查找 CIDR
+            // vpcSubnet 格式为 namespace/name 或 name
+            const parts = syncedValues.vpcSubnet.split('/');
+            const subnetName = parts.length === 2 ? parts[1] : parts[0];
+            const subnet = kubeSubnets.find(s => 
+              (s.name || s?.metadata?.name) === subnetName && 
+              (s.vpc || s?.spec?.vpc) === syncedValues.vpcName
+            );
+            subnetCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
+          }
+          
+          if (subnetCidr && !isIpInCidr(syncedValues.staticIP, subnetCidr)) {
+            setCurrentStep(2); // 跳转到网络配置步骤
+            message.error(`静态 IP ${syncedValues.staticIP} 不在子网 CIDR 范围 ${subnetCidr} 内，请检查`);
+            setLoading(false);
+            return;
+          }
+          
+          // 校验静态 IP 是否可用（调用后端API）
+          let subnetName: string | undefined;
+          let subnetNs = 'default';
+          
+          if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
+            const flatParts = syncedValues.flatSubnet.split('/');
+            if (flatParts.length === 2) {
+              subnetNs = flatParts[0];
+              subnetName = flatParts[1];
+            } else {
+              subnetName = syncedValues.flatSubnet;
+            }
+          } else if (networkType === 'vpc' && syncedValues.vpcSubnet) {
+            const vpcParts = syncedValues.vpcSubnet.split('/');
+            if (vpcParts.length === 2) {
+              subnetNs = vpcParts[0];
+              subnetName = vpcParts[1];
+            } else {
+              subnetName = syncedValues.vpcSubnet;
+            }
+          }
+          
+          if (subnetName) {
+            try {
+              const ipCheckRes = await checkSubnetStaticIP(cloudId, subnetNs, subnetName, syncedValues.staticIP);
+              const ipCheckData = ipCheckRes?.data || ipCheckRes;
+              if (ipCheckData?.used === true) {
+                setCurrentStep(2);
+                message.error(`静态 IP ${syncedValues.staticIP} 已被使用（被 ${ipCheckData.usedBy || '其他工作负载'} 占用）`);
+                setLoading(false);
+                return;
+              }
+            } catch (e: any) {
+              // API调用失败，弹出确认框让用户确认
+              console.warn('静态IP检测API调用失败:', e);
+              const confirmed = await new Promise<boolean>((resolve) => {
+                modal.confirm({
+                  title: '静态 IP 冲突风险',
+                  content: (
+                    <div>
+                      <p>无法自动检测 IP <strong>{syncedValues.staticIP}</strong> 是否已被使用。</p>
+                      <p style={{ color: '#faad14', marginTop: 8 }}>
+                        ⚠️ 请确认该 IP 未被其他工作负载使用，否则可能导致网络冲突。
+                      </p>
+                    </div>
+                  ),
+                  okText: '确认未使用，继续提交',
+                  cancelText: '取消',
+                  onOk: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              });
+              if (!confirmed) {
+                setCurrentStep(2);
+                setLoading(false);
+                return;
+              }
+            }
+          }
+        }
+        
+        // 校验节点亲和性/反亲和性的标签键输入错误
+        const nodeAffinityHasErrors = nodeAffinityEditorRef.current?.getHasLabelErrors();
+        const nodeAntiAffinityHasErrors = nodeAntiAffinityEditorRef.current?.getHasLabelErrors();
+        if (nodeAffinityHasErrors || nodeAntiAffinityHasErrors) {
+          setCurrentStep(4);
+          setLoading(false);
+          return;
+        }
+        
+        // 校验 Pod 亲和性/反亲和性的 matchLabels 输入错误
+        const podAffinityHasErrors = podAffinityEditorRef.current?.getHasLabelErrors();
+        const podAntiAffinityHasErrors = podAntiAffinityEditorRef.current?.getHasLabelErrors();
+        if (podAffinityHasErrors || podAntiAffinityHasErrors) {
+          setCurrentStep(4);
+          setLoading(false);
+          return;
+        }
+        
+        // 校验污点容忍的键/值输入错误
+        const tolerationsHasErrors = tolerationsEditorRef.current?.getHasLabelErrors();
+        if (tolerationsHasErrors) {
+          setCurrentStep(4);
+          setLoading(false);
+          return;
+        }
+        
         resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
+
+        // 防御性检查：编辑模式下若表单 workloadType 与资源类型不一致，自动纠正
+        if (isEditMode) {
+          const editKind = editData?.kind?.toLowerCase()
+            || (editMetadata?.name && (() => {
+              if (editMetadata.name.startsWith('id-ds-')) return 'daemonset';
+              if (editMetadata.name.startsWith('id-sts-')) return 'statefulset';
+              if (editMetadata.name.startsWith('id-dep-')) return 'deployment';
+              return null;
+            })());
+          if (editKind) {
+            const formType = values.workloadType?.toLowerCase();
+            if (editKind !== formType) {
+              console.warn('[WorkloadForm 提交] workloadType 不一致，自动纠正:', { formType, editKind, name: editMetadata?.name });
+              values.workloadType = editKind;
+              syncedValues.workloadType = editKind;
+              resource = buildK8sResource(syncedValues);
+              apiPath = getApiPath(editKind as WorkloadType);
+            }
+          }
+        }
+
         namespace = values.namespace;
         
         // 编辑模式下，保留原有元数据，使用资源 ID 作为 API 路径参数
@@ -5198,30 +6214,77 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       onSuccess();
     } catch (error: any) {
       console.error(isEditMode ? '更新工作负载失败:' : '创建工作负载失败:', error);
-      const friendlyMsg = parseK8sError(error);
-      message.error(friendlyMsg);
+      
+      // 检测版本冲突（409 Conflict）
+      const isConflict = error?.response?.status === 409
+        || error?.status === 409
+        || /conflict/i.test(error?.message || '')
+        || /resourceVersion/i.test(error?.message || '');
+      
+      if (isConflict) {
+        Modal.confirm({
+          title: '版本冲突',
+          content: '该资源已被其他用户修改，请刷新后重新编辑。',
+          okText: '确认刷新',
+          cancelText: '取消',
+          onOk: () => {
+            onSuccess(); // 刷新列表并关闭抽屉
+          },
+        });
+      } else {
+        const friendlyMsg = parseK8sError(error);
+        message.error(friendlyMsg);
+      }
     } finally {
       setLoading(false);
     }
-  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata]);
+  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, modal, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata, editData?.spec?.selector, editData?.spec?.template?.metadata?.labels, flatSubnetOptions, kubeSubnets]);
   
   // 下一步
   const handleNext = useCallback(async () => {
     try {
       await form.validateFields();
+      // 切换步骤前持久化当前容器数据（包括 volumeMounts）
+      persistActiveContainerToForm();
+      
+      // 在存储配置页面（步骤3）点击下一步时，检查是否有存储卷但没有卷挂载
+      if (currentStep === 3) {
+        const volumes = form.getFieldValue('volumes') || [];
+        const containers = form.getFieldValue('containers') || [];
+        let hasVolumeMounts = false;
+        
+        for (const container of containers) {
+          if ((container.volumeMounts || []).length > 0) {
+            hasVolumeMounts = true;
+            break;
+          }
+        }
+        
+        if (volumes.length > 0 && !hasVolumeMounts) {
+          message.warning('已定义存储卷，请配置至少一个卷挂载');
+          return;
+        }
+      }
+      
       setCurrentStep((prev) => prev + 1);
     } catch {
       // 验证失败，不跳转
     }
-  }, [form]);
+  }, [form, persistActiveContainerToForm, currentStep, message]);
   
   // 上一步
   const handlePrev = useCallback(() => {
+    // 切换步骤前持久化当前容器数据（包括 volumeMounts）
+    persistActiveContainerToForm();
     setCurrentStep((prev) => prev - 1);
-  }, []);
+  }, [persistActiveContainerToForm]);
 
   const handleStepClick = useCallback(async (targetStep: number) => {
     if (targetStep === currentStep) return;
+    
+    // 切换步骤前持久化当前容器数据（包括 volumeMounts）
+    persistActiveContainerToForm();
+    
     if (targetStep < currentStep) {
       setCurrentStep(targetStep);
       return;
@@ -5233,7 +6296,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } catch {
       // 当前步骤校验失败，不允许前进
     }
-  }, [currentStep, form]);
+  }, [currentStep, form, persistActiveContainerToForm]);
 
 
   const getFormSummary = useCallback(() => {
@@ -5249,7 +6312,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } else if (values.networkType === 'custom_nad') {
       networkSummary = values.customNad ? `NAD: ${values.customNad}` : '自定义NAD';
     }
-    if (values.enableStaticIP && values.staticIP) {
+    if (values.enableStaticIP && values.staticIP && values.networkType !== 'custom_nad') {
       networkSummary += ` (静态IP: ${values.staticIP})`;
     }
     
@@ -5362,7 +6425,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             
             <LabelEditor name="labels" label="标签" />
             
-            {(workloadType === 'deployment' || workloadType === 'statefulset') && (
+            {workloadType !== 'daemonset' && (
               <Form.Item
                 name="replicas"
                 label="副本数"
@@ -5371,15 +6434,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               >
                 <InputNumber min={1} max={1000} style={{ width: '100%' }} />
               </Form.Item>
-            )}
-            
-            {workloadType === 'daemonset' && (
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginTop: 16 }}
-                message="DaemonSet 会在每个节点上运行一个 Pod，无需设置副本数"
-              />
             )}
           </div>
         );
@@ -5597,24 +6651,88 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                             <>
                               <Row gutter={16}>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'requests', 'cpu']} label="CPU 请求">
+                                  <Form.Item
+                                    name={['resources', 'requests', 'cpu']}
+                                    label="CPU 请求"
+                                    dependencies={[['resources', 'limits', 'cpu']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const limit = form.getFieldValue(['resources', 'limits', 'cpu']);
+                                          if (limit && compareCpuResources(value, limit) > 0) {
+                                            return Promise.reject(new Error('请求值不能超过限制值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 100" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
                                   </Form.Item>
                                 </Col>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'limits', 'cpu']} label="CPU 限制">
+                                  <Form.Item
+                                    name={['resources', 'limits', 'cpu']}
+                                    label="CPU 限制"
+                                    dependencies={[['resources', 'requests', 'cpu']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const request = form.getFieldValue(['resources', 'requests', 'cpu']);
+                                          if (request && compareCpuResources(request, value) > 0) {
+                                            return Promise.reject(new Error('限制值不能小于请求值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 500" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
                                   </Form.Item>
                                 </Col>
                               </Row>
                               <Row gutter={16}>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'requests', 'memory']} label="内存请求">
+                                  <Form.Item
+                                    name={['resources', 'requests', 'memory']}
+                                    label="内存请求"
+                                    dependencies={[['resources', 'limits', 'memory']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const limit = form.getFieldValue(['resources', 'limits', 'memory']);
+                                          if (limit && compareMemoryResources(value, limit) > 0) {
+                                            return Promise.reject(new Error('请求值不能超过限制值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 128" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
                                   </Form.Item>
                                 </Col>
                                 <Col span={12}>
-                                  <Form.Item name={['resources', 'limits', 'memory']} label="内存限制">
+                                  <Form.Item
+                                    name={['resources', 'limits', 'memory']}
+                                    label="内存限制"
+                                    dependencies={[['resources', 'requests', 'memory']]}
+                                    rules={[
+                                      {
+                                        validator: (_, value) => {
+                                          if (!value) return Promise.resolve();
+                                          const request = form.getFieldValue(['resources', 'requests', 'memory']);
+                                          if (request && compareMemoryResources(request, value) > 0) {
+                                            return Promise.reject(new Error('限制值不能小于请求值'));
+                                          }
+                                          return Promise.resolve();
+                                        },
+                                      },
+                                    ]}
+                                  >
                                     <ResourceInput placeholder="如: 512" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
                                   </Form.Item>
                                 </Col>
@@ -5628,12 +6746,48 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           children: (
                             <Row gutter={16}>
                               <Col span={12}>
-                                <Form.Item name="command" label="启动命令" extra="多个命令用逗号分隔">
+                                <Form.Item 
+                                  name="command" 
+                                  label="启动命令" 
+                                  extra="覆盖容器默认入口点，多个命令用逗号分隔"
+                                  rules={[
+                                    {
+                                      validator: (_, value) => {
+                                        if (!value || !Array.isArray(value)) return Promise.resolve();
+                                        const chineseRegex = /[\u4e00-\u9fa5]/;
+                                        for (let i = 0; i < value.length; i++) {
+                                          if (chineseRegex.test(value[i])) {
+                                            return Promise.reject(new Error('不能包含中文字符'));
+                                          }
+                                        }
+                                        return Promise.resolve();
+                                      },
+                                    },
+                                  ]}
+                                >
                                   <Select mode="tags" placeholder="如: /bin/sh" style={{ width: '100%' }} tokenSeparators={[',']} />
                                 </Form.Item>
                               </Col>
                               <Col span={12}>
-                                <Form.Item name="args" label="启动参数" extra="多个参数用逗号分隔">
+                                <Form.Item 
+                                  name="args" 
+                                  label="启动参数" 
+                                  extra="传递给入口点的参数，多个参数用逗号分隔"
+                                  rules={[
+                                    {
+                                      validator: (_, value) => {
+                                        if (!value || !Array.isArray(value)) return Promise.resolve();
+                                        const chineseRegex = /[\u4e00-\u9fa5]/;
+                                        for (let i = 0; i < value.length; i++) {
+                                          if (chineseRegex.test(value[i])) {
+                                            return Promise.reject(new Error('不能包含中文字符'));
+                                          }
+                                        }
+                                        return Promise.resolve();
+                                      },
+                                    },
+                                  ]}
+                                >
                                   <Select mode="tags" placeholder="如: -c, script.sh" style={{ width: '100%' }} tokenSeparators={[',']} />
                                 </Form.Item>
                               </Col>
@@ -5681,7 +6835,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       case 2:
         // 网络配置步骤
         const networkType = form.getFieldValue('networkType') || 'default';
-        const enableStaticIP = form.getFieldValue('enableStaticIP');
         
         return (
           <div>
@@ -5690,7 +6843,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               showIcon
               style={{ marginBottom: 16 }}
               message="网络配置"
-              description="配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义 NAD。"
+              description={
+                <div>
+                  <div>配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义 NAD。</div>
+                  <div style={{ marginTop: 8, color: '#faad14' }}>
+                    💡 提示：如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载。
+                  </div>
+                </div>
+              }
             />
             
             {loadingNetworkData ? (
@@ -5725,8 +6885,18 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           <div>
                             <div>请确保已在资源池中创建扁平子网（Kube-OVN 子网，VPC 为 ovn-internal，注解 tower.io/subnet-type=flat）</div>
                             <div style={{ marginTop: 8 }}>当前加载了 {kubeSubnets.length} 个子网，{kubeSubnets.filter(s => isFlatVpc(s?.vpc || s?.spec?.vpc)).length} 个属于扁平 VPC</div>
+                            <div style={{ marginTop: 8, color: '#1677ff' }}>💡 如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再重试。</div>
                           </div>
                         }
+                      />
+                    )}
+                    {flatSubnetOptions.length > 0 && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 16 }}
+                        message="子网选择提示"
+                        description="如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载，否则可能出现 NAD 未找到的错误。"
                       />
                     )}
                     <Form.Item
@@ -5747,6 +6917,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 
                 {networkType === 'vpc' && (
                   <>
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="子网选择提示"
+                      description="如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载，否则可能出现 NAD 未找到的错误。"
+                    />
                     <Form.Item
                       name="vpcName"
                       label="选择VPC"
@@ -5772,36 +6949,33 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         placeholder={selectedVpc ? "选择子网" : "请先选择VPC"}
                         showSearch
                         optionFilterProp="label"
-                        options={vpcSubnetOptions}
-                        disabled={!selectedVpc}
-                        onChange={(val) => {
-                          // 查找选中的子网对象
+                        options={vpcSubnetOptions.map(opt => {
+                          // 查找子网对象生成 NAD 引用
                           const subnet = (kubeSubnets || []).find(s => 
-                            (s.name || s?.metadata?.name) === val && 
+                            (s.name || s?.metadata?.name) === opt.value && 
                             (s.vpc || s?.spec?.vpc) === selectedVpc
                           );
-                          if (!subnet) {
-                            form.setFieldsValue({ vpcSubnet: val });
-                            return;
-                          }
                           
-                          // 提取 namespace
-                          let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
-                          if (!subnetNs) {
-                            const provider = subnet?.provider || subnet?.spec?.provider;
-                            if (provider) {
-                              const parts = provider.split('.');
-                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                          let nadRef = opt.value;
+                          if (subnet) {
+                            let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
+                            if (!subnetNs) {
+                              const provider = subnet?.provider || subnet?.spec?.provider;
+                              if (provider) {
+                                const parts = provider.split('.');
+                                if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                              }
                             }
+                            subnetNs = subnetNs || 'default';
+                            nadRef = `${subnetNs}/${opt.value}`;
                           }
-                          subnetNs = subnetNs || 'default';
                           
-                          // 生成 NAD 引用（namespace/name 格式）
-                          const nadRef = `${subnetNs}/${val}`;
-                          
-                          // 存储 NAD 引用
-                          form.setFieldsValue({ vpcSubnet: nadRef });
-                        }}
+                          return {
+                            ...opt,
+                            value: nadRef,
+                          };
+                        })}
+                        disabled={!selectedVpc}
                       />
                     </Form.Item>
                   </>
@@ -5841,34 +7015,109 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 
                 <Divider />
                 
-                {networkType !== 'default' && (
-                  <>
-                    <Form.Item
-                      name="enableStaticIP"
-                      label="配置静态IP"
-                      valuePropName="checked"
-                      extra="为 Pod 分配固定的 IP 地址（扁平子网和 VPC 子网支持）"
-                    >
-                      <Checkbox />
-                    </Form.Item>
-                    
-                    {enableStaticIP && (
-                      <Form.Item
-                        name="staticIP"
-                        label="静态IP地址"
-                        rules={[
-                          { required: true, message: '请输入静态IP地址' },
-                          {
-                            pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
-                            message: '请输入有效的IPv4地址'
-                          }
-                        ]}
-                      >
-                        <Input placeholder="例如: 192.168.1.100" />
-                      </Form.Item>
-                    )}
-                  </>
-                )}
+                {networkType !== 'default' && networkType !== 'custom_nad' && (() => {
+                  // 获取当前子网的 CIDR 信息
+                  let currentCidr: string | undefined;
+                  
+                  if (networkType === 'flat_subnet') {
+                    const flatSubnetValue = form.getFieldValue('flatSubnet');
+                    const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === flatSubnetValue);
+                    currentCidr = flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
+                  } else if (networkType === 'vpc') {
+                    const vpcSubnetValue = form.getFieldValue('vpcSubnet');
+                    if (vpcSubnetValue) {
+                      const parts = vpcSubnetValue.split('/');
+                      const subnetName = parts.length === 2 ? parts[1] : parts[0];
+                      const subnet = kubeSubnets.find(s => 
+                         (s.name || s?.metadata?.name) === subnetName && 
+                         (s.vpc || s?.spec?.vpc) === selectedVpc
+                       );
+                       currentCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
+                     }
+                   }
+                   
+return (
+                      <Form.Item label="静态IP配置">
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Form.Item name="enableStaticIP" valuePropName="checked" noStyle>
+                            <Checkbox>启用静态IP</Checkbox>
+                          </Form.Item>
+                          {(enableStaticIPWatch ?? form.getFieldValue('enableStaticIP')) && (
+                           <>
+                             {currentCidr && (
+                               <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
+                                 子网 CIDR: <Tag color="blue">{currentCidr}</Tag>
+                               </div>
+                             )}
+                            <Form.Item
+                              name="staticIP"
+                              label="静态IP地址"
+                              rules={[
+                                { required: true, message: '请输入静态IP地址' },
+                                {
+                                  pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                                  message: '请输入有效的IPv4地址'
+                                },
+                                ...(currentCidr ? [{
+                                  validator: (_: any, value: string) => {
+                                    if (!value || isIpInCidr(value, currentCidr!)) {
+                                      return Promise.resolve();
+                                    }
+                                    return Promise.reject(new Error(`IP 地址不在子网 CIDR 范围 ${currentCidr} 内`));
+                                  }
+                                } as any] : []),
+                                {
+                                  validator: () => {
+                                    if (staticIPCheckResult && !staticIPCheckResult.available) {
+                                      return Promise.reject(new Error(staticIPCheckResult.reason));
+                                    }
+                                    return Promise.resolve();
+                                  }
+                                }
+                              ]}
+                              extra={currentCidr ? `子网 CIDR: ${currentCidr}` : '请先选择子网以获取 CIDR 范围'}
+                            >
+                              <Input 
+                                placeholder="例如: 192.168.1.100" 
+                                addonAfter={
+                                  <Button 
+                                    type="link" 
+                                    size="small"
+                                    loading={checkingStaticIP}
+                                    onClick={handleCheckStaticIP}
+                                    style={{ padding: '0 8px' }}
+                                  >
+                                    检测
+                                  </Button>
+                                }
+                                onChange={() => {
+                                  setStaticIPCheckResult(null);
+                                }}
+                              />
+                            </Form.Item>
+                            {staticIPCheckResult && (
+                              <Alert
+                                type={staticIPCheckResult.available ? 'success' : 'error'}
+                                showIcon
+                                style={{ marginBottom: 16 }}
+                                message={staticIPCheckResult.available ? 'IP 可用' : 'IP 不可用'}
+                                description={staticIPCheckResult.reason}
+                              />
+                            )}
+                            {!staticIPCheckResult && (
+                              <Alert
+                                type="warning"
+                                showIcon
+                                style={{ marginBottom: 16 }}
+                                message="建议点击「检测」按钮验证 IP 是否可用后再提交"
+                              />
+                            )}
+                           </>
+                         )}
+                       </Space>
+                     </Form.Item>
+                   );
+                 })()}
                 
                 {networkType !== 'default' && (
                   <Alert
@@ -5886,7 +7135,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           <div style={{ marginTop: 8 }}>VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。</div>
                         )}
                         {networkType === 'custom_nad' && (
-                          <div style={{ marginTop: 8 }}>自定义 NAD 需要预先创建 NetworkAttachmentDefinition 资源。</div>
+                          <div style={{ marginTop: 8 }}>自定义 NAD 仅展示当前命名空间下混杂模式已开启的网络。Kube-OVN 类型的 NAD 将自动补充子网注解。非 Kube-OVN 类型（如 macvlan/bridge）的 NAD 需在 NAD 配置中设置 IPAM（如 DHCP 或静态 IP）才能为容器分配 IP 地址。</div>
                         )}
                       </div>
                     }
@@ -5899,7 +7148,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         
       case 3:
         const containersForStorage = getSyncedFormValues().containers || [];
-        const activeContainerForStorage = containersForStorage[activeContainerIndex];
         return (
           <div>
             <Alert
@@ -5935,6 +7183,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       onRefreshSecrets={() => onRefreshSecrets?.()}
                       onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
                       onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+                      refreshKey={volumeRefreshKey}
+                      onVolumeChange={() => setVolumeRefreshKey(v => v + 1)}
                     />
                   ) : (
                     <div
@@ -5974,18 +7224,19 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               {
                 key: 'nodeAffinity',
                 label: `节点亲和性 (${nodeAffinityCount})`,
-                children: <NodeAffinityEditor name="nodeAffinity" label="节点亲和性" />,
+                children: <NodeAffinityEditor ref={nodeAffinityEditorRef} name="nodeAffinity" label="节点亲和性" />,
               },
               {
                 key: 'nodeAntiAffinity',
                 label: `节点反亲和性 (${nodeAntiAffinityCount})`,
-                children: <NodeAffinityEditor name="nodeAntiAffinity" label="节点反亲和性" />,
+                children: <NodeAffinityEditor ref={nodeAntiAffinityEditorRef} name="nodeAntiAffinity" label="节点反亲和性" />,
               },
               {
                 key: 'podAffinity',
                 label: `Pod 亲和性 (${podAffinityCount})`,
                 children: (
                   <PodAffinityEditor 
+                    ref={podAffinityEditorRef}
                     name="podAffinity" 
                     label="Pod 亲和性" 
                     namespacesOptions={namespacesOptions}
@@ -5997,6 +7248,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 label: `Pod 反亲和性 (${podAntiAffinityCount})`,
                 children: (
                   <PodAffinityEditor 
+                    ref={podAntiAffinityEditorRef}
                     name="podAntiAffinity" 
                     label="Pod 反亲和性" 
                     namespacesOptions={namespacesOptions}
@@ -6006,7 +7258,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               {
                 key: 'tolerations',
                 label: `污点容忍 (${tolerationsCount})`,
-                children: <TolerationsEditor />,
+                children: <TolerationsEditor ref={tolerationsEditorRef} />,
               },
               {
                 key: 'hostAliases',

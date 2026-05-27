@@ -1,0 +1,53 @@
+/**
+ * BorderBeam · 边框流光（conic-gradient 旋转，无 Tailwind 依赖）
+ */
+.border-beam {
+  position: relative;
+  box-sizing: border-box;
+  padding: var(--bb-width, 1px);
+  border-radius: var(--bb-radius, 8px);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.border-beam__track {
+  position: absolute;
+  inset: -120%;
+  z-index: 0;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 280deg,
+    var(--bb-from, #1890ff) 300deg,
+    var(--bb-to, #69c0ff) 330deg,
+    transparent 360deg
+  );
+  animation: border-beam-rotate var(--bb-duration, 4s) linear infinite;
+  pointer-events: none;
+}
+
+.border-beam__inner {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  border-radius: calc(var(--bb-radius, 8px) - var(--bb-width, 1px));
+  background: var(--bb-inner-bg, #ffffff);
+}
+
+@keyframes border-beam-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .border-beam__track {
+    animation: none;
+    inset: 0;
+    background: linear-gradient(
+      135deg,
+      var(--bb-from, #1890ff),
+      var(--bb-to, #69c0ff)
+    );
+    opacity: 0.35;
+  }
+}

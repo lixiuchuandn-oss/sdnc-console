@@ -13,6 +13,7 @@ import { AuthRequest } from '../middleware/auth';
 import { User, UserRole } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 import { licenseService } from '../services/LicenseService';
+import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 // 新权限体系
 import { createApiPermissionMiddleware } from '../permissions';
 import { logger } from '../utils/logger';
@@ -1051,6 +1052,10 @@ router.post(
       });
 
       await cloudRepository.save(cloud);
+
+      if (!String(getSystemSetting('favorite.cloudId') || '').trim()) {
+        setSystemSetting('favorite.cloudId', String(cloud.id));
+      }
 
       // 返回结果时隐藏敏感信息
       const safeCloud = redactCloud(cloud);

@@ -166,7 +166,15 @@ export async function harvesterNamespaceListHandler(req: Request, res: Response)
         return !shouldHideNamespaceWhenExcludeSystem(name);
       });
     }
-    
+
+    // 过滤掉 Terminating 状态的命名空间
+    // K8s 命名空间状态判断：如果 metadata.deletionTimestamp 存在，则命名空间处于 Terminating 状态
+    // 只返回 Active 状态的命名空间（没有 deletionTimestamp）
+    list = list.filter((item: any) => {
+      const deletionTimestamp = item?.metadata?.deletionTimestamp;
+      return !deletionTimestamp;
+    });
+
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
     if (res.headersSent) return;

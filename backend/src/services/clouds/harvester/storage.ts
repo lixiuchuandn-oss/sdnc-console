@@ -117,6 +117,79 @@ export const listHarvesterVolumesStandard = async (
   });
 };
 
+/** 从 KubeVirt VM 列表构建「已被虚拟机引用」的 PVC 键集合（namespace/pvcName）。 */
+export function buildUsedPvcSetFromKubevirtVms(allVms: any[]): Set<string> {
+  const usedPvcSet = new Set<string>();
+  for (const vm of allVms || []) {
+    const vmNs = vm?.metadata?.namespace || '';
+    const volumes = vm?.spec?.template?.spec?.volumes || [];
+    for (const vol of volumes) {
+      const claimName = vol?.persistentVolumeClaim?.claimName;
+      if (claimName && vmNs) {
+        usedPvcSet.add(`${vmNs}/${claimName}`);
+      }
+    }
+  }
+  return usedPvcSet;
+}
+
+/** 将 PVC 对象映射为 available-volumes 接口统一字段。 */
+export function mapHarvesterPvcToAvailableVolumeItem(v: any): any {
+  const name = v?.metadata?.name || v?.name || '';
+  const ns = v?.metadata?.namespace || v?.namespace || '';
+  const size =
+    v?.status?.capacity?.storage ||
+    v?.spec?.resources?.requests?.storage ||
+    v?.spec?.size ||
+    v?.size ||
+    0;
+  const state = String(v?.status?.phase || v?.phase || v?.status?.state || '').toLowerCase();
+  const workloads = v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
+  const inUse =
+    Array.isArray(workloads) &&
+    workloads.some(
+      (w: any) => String(w?.state || w?.podStatus || '').toLowerCase() === 'running',
+    );
+  const attached = state === 'attached' || inUse;
+  const pvcName = v?.status?.kubernetesStatus?.pvcName || name;
+  return {
+    ...v,
+    name,
+    pvcName,
+    namespace: ns,
+    size,
+    state,
+    phase: state,
+    attached,
+  };
+}
+
+/**
+ * 筛选可挂到虚拟机的卷：Bound/可用阶段、无运行中 workload、未被任何 VM 引用。
+ */
+export function filterHarvesterAvailableVolumeItems(
+  items: any[],
+  usedPvcSet: Set<string>,
+): any[] {
+  const blockedPhases = new Set(['lost', 'failed', 'terminating', 'pending', 'released']);
+  const okPhases = new Set(['bound', 'available', 'detached', 'healthy']);
+
+  return (items || [])
+    .map((item) => {
+      const pvcKey = `${item.namespace}/${item.pvcName || item.name}`;
+      return { ...item, isUsedByVm: usedPvcSet.has(pvcKey) };
+    })
+    .filter((x: any) => {
+      if (!x.pvcName || !x.namespace) return false;
+      const st = String(x.state || '').toLowerCase();
+      if (blockedPhases.has(st)) return false;
+      if (st && !okPhases.has(st)) return false;
+      if (x.attached) return false;
+      if (x.isUsedByVm) return false;
+      return true;
+    });
+}
+
 /**
  * [可用卷列表]
  * 获取 Harvester 可用卷列表（Longhorn 卷），用于挂载到虚拟机。
@@ -265,6 +338,300 @@ export const listHarvesterStorageClassesStandard = async ({
     })
     .filter((x: any) => !!x.name);
 };
+
+/** 与前端 isSystemStorageClass 一致：镜像/VM 业务应使用用户可选存储池 */
+function isSystemStorageClassName(name: string): boolean {
+  const n = String(name || '').toLowerCase();
+  if (['vmstate-persistence', 'longhorn-static', 'harvester-longhorn'].includes(n)) return true;
+  if (n.startsWith('image-')) return true;
+  if (n.startsWith('longhorn-image-')) return true;
+  if (/^longhorn-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(n)) return true;
+  if (n.startsWith('longhorn-') && /-[0-9]{13,}$/.test(n)) return true;
+  return false;
+}
+
+function storageClassRecordName(sc: any): string {
+  return String(sc?.metadata?.name ?? sc?.name ?? '').trim();
+}
+
+/** 是否被 K8s 标记为 default StorageClass */
+export function isClusterDefaultStorageClassRecord(sc: any): boolean {
+  const meta = sc?.metadata?.annotations || {};
+  const top = sc?.annotations || {};
+  const flag =
+    meta['storageclass.kubernetes.io/is-default-class'] ??
+    meta['storageclass.beta.kubernetes.io/is-default-class'] ??
+    top['storageclass.kubernetes.io/is-default-class'] ??
+    top['storageclass.beta.kubernetes.io/is-default-class'] ??
+    sc?.isDefault;
+  return String(flag || '').toLowerCase() === 'true';
+}
+
+/**
+ * 从 StorageClass 列表解析默认存储池名称（与前端 pickDefaultStorageClassName 一致）。
+ * 优先 is-default-class；排除系统/镜像专用类后取首项。
+ */
+export function pickDefaultStorageClassNameFromRecords(storageClasses: any[]): string | undefined {
+  const list = Array.isArray(storageClasses) ? storageClasses : [];
+  const usable = list.filter((sc) => !isSystemStorageClassName(storageClassRecordName(sc)));
+  const pool = usable.length > 0 ? usable : list;
+  const hit = pool.find(isClusterDefaultStorageClassRecord);
+  return storageClassRecordName(hit) || storageClassRecordName(pool[0]) || undefined;
+}
+
+async function listHarvesterStorageClassRecordsRaw(
+  params: HarvesterTestParams,
+): Promise<any[]> {
+  const base = (params.endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const candidates = [
+    `${origin}/v1/storage.k8s.io.storageclasses`,
+    `${origin}/v1/harvester/storage.k8s.io.storageclasses`,
+    `${origin}/apis/storage.k8s.io/v1/storageclasses`,
+  ];
+  let json: any = null;
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, params.token, params.insecure);
+      if (json) break;
+    } catch (e: any) {
+      harvesterStorageLog.debug(`存储类候选 URL 失败: ${url}`, e?.message ?? String(e));
+      lastErr = e;
+    }
+  }
+  if (!json && lastErr) throw lastErr;
+  return Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json?.items)
+      ? json.items
+      : [];
+}
+
+/**
+ * 解析集群当前默认存储池（StorageClass）；失败时回退 fallback（默认 longhorn）。
+ */
+export async function resolveHarvesterDefaultStorageClassName(
+  params: HarvesterTestParams,
+  fallback = 'longhorn',
+): Promise<string> {
+  try {
+    const items = await listHarvesterStorageClassRecordsRaw(params);
+    return pickDefaultStorageClassNameFromRecords(items) || fallback;
+  } catch (e: any) {
+    harvesterStorageLog.debug(
+      '解析默认存储类失败，使用回退值',
+      e?.message ?? String(e),
+    );
+    return fallback;
+  }
+}
+
+/** Harvester 创建 VirtualMachineImage 时 Longhorn 存储类常用 parameters */
+export const DEFAULT_VM_IMAGE_LONGHORN_STORAGE_CLASS_PARAMS: Record<string, string> = {
+  dataLocality: 'disabled',
+  migratable: 'true',
+  numberOfReplicas: '3',
+  staleReplicaTimeout: '30',
+};
+
+/** 非 Longhorn 存储池不传 parameters，由 StorageClass 自身定义决定 */
+export async function vmImageStorageClassParametersForName(
+  params: HarvesterTestParams,
+  storageClassName: string,
+): Promise<Record<string, string> | undefined> {
+  try {
+    const kind = await classifyVmImageStorageKindByClassName(params, storageClassName);
+    if (kind === 'longhorn') {
+      return { ...DEFAULT_VM_IMAGE_LONGHORN_STORAGE_CLASS_PARAMS };
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+/** 镜像落盘存储大类（与 Harvester 控制台 / CDI / backingimage 分支一致） */
+export type VmImageStorageKind = 'longhorn' | 'ceph' | 'unknown';
+
+export function classifyVmImageStorageKindFromProvisioner(provisioner: string): VmImageStorageKind {
+  const pl = String(provisioner || '').trim().toLowerCase();
+  if (!pl) return 'unknown';
+  if (pl.includes('longhorn') || pl.includes('driver.longhorn.io')) return 'longhorn';
+  if (
+    pl.includes('rook-ceph') ||
+    pl.includes('rbd.csi.ceph.com') ||
+    pl.includes('cephfs.csi.ceph.com') ||
+    pl.includes('csi.ceph.com') ||
+    pl.includes('ceph.csi')
+  ) {
+    return 'ceph';
+  }
+  return 'unknown';
+}
+
+export async function classifyVmImageStorageKindByClassName(
+  params: HarvesterTestParams,
+  storageClassName: string,
+): Promise<VmImageStorageKind> {
+  try {
+    const items = await listHarvesterStorageClassRecordsRaw(params);
+    const hit = items.find((sc) => storageClassRecordName(sc) === storageClassName);
+    const prov = String(hit?.provisioner ?? hit?.spec?.provisioner ?? '');
+    return classifyVmImageStorageKindFromProvisioner(prov);
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** Longhorn 卷快照类（与 Harvester 默认一致） */
+export const LONGHORN_VOLUME_SNAPSHOT_CLASS = 'longhorn-snapshot';
+
+/** Rook-Ceph RBD 卷快照类（Ceph 存储 PVC 须使用此类，不可用 longhorn-snapshot） */
+export const CEPH_RBD_VOLUME_SNAPSHOT_CLASS = 'rook-ceph-rbd-snapshot';
+
+function storageClassNameFromPvcRecord(pvc: any): string {
+  return String(
+    pvc?.spec?.storageClassName ||
+      pvc?.status?.storageClassName ||
+      pvc?.metadata?.annotations?.['volume.beta.kubernetes.io/storage-class'] ||
+      '',
+  ).trim();
+}
+
+function classifyStorageKindFromStorageClassNameHeuristic(storageClassName: string): VmImageStorageKind {
+  const sc = String(storageClassName || '').trim().toLowerCase();
+  if (!sc) return 'unknown';
+  if (sc.includes('longhorn')) return 'longhorn';
+  if (sc.includes('rook-ceph') || sc.includes('rook_ceph') || sc.includes('ceph') || sc.includes('rbd')) {
+    return 'ceph';
+  }
+  return 'unknown';
+}
+
+/**
+ * 按源 PVC 的 StorageClass / provisioner 解析 VolumeSnapshotClass。
+ * Longhorn PVC → longhorn-snapshot；Ceph/Rook RBD PVC → rook-ceph-rbd-snapshot。
+ */
+export async function resolveVolumeSnapshotClassForPvc(
+  params: HarvesterTestParams,
+  namespace: string,
+  pvcName: string,
+): Promise<string> {
+  const base = (params.endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  let kind: VmImageStorageKind = 'unknown';
+  try {
+    const getUrl = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`;
+    const pvc = await getJsonOnce(getUrl, params.token || '', params.insecure ?? false, true);
+    const sc = storageClassNameFromPvcRecord(pvc);
+    if (sc) {
+      kind = await classifyVmImageStorageKindByClassName(params, sc);
+      if (kind === 'unknown') kind = classifyStorageKindFromStorageClassNameHeuristic(sc);
+    }
+    const prov = String(pvc?.metadata?.annotations?.['volume.kubernetes.io/storage-provisioner'] || '');
+    if (kind === 'unknown' && prov) kind = classifyVmImageStorageKindFromProvisioner(prov);
+  } catch (e: any) {
+    harvesterStorageLog.debug(
+      `resolveVolumeSnapshotClassForPvc: PVC ${namespace}/${pvcName} 读取失败，回退 longhorn-snapshot`,
+      e?.message ?? String(e),
+    );
+  }
+  if (kind === 'ceph') return CEPH_RBD_VOLUME_SNAPSHOT_CLASS;
+  if (kind === 'longhorn') return LONGHORN_VOLUME_SNAPSHOT_CLASS;
+  return LONGHORN_VOLUME_SNAPSHOT_CLASS;
+}
+
+export type VmImageStorageProfile = {
+  storageClassName: string;
+  kind: VmImageStorageKind;
+  storageClassParameters?: Record<string, string>;
+};
+
+/** 解析目标存储池及驱动类型（创建/上传 VirtualMachineImage 用） */
+export async function resolveVmImageStorageProfile(
+  params: HarvesterTestParams,
+  explicitTargetStorageClassName?: string,
+  fallback = 'longhorn',
+): Promise<VmImageStorageProfile> {
+  const storageClassName =
+    String(explicitTargetStorageClassName || '').trim() ||
+    (await resolveHarvesterDefaultStorageClassName(params, fallback));
+  const kind = await classifyVmImageStorageKindByClassName(params, storageClassName);
+  const storageClassParameters =
+    kind === 'longhorn'
+      ? (await vmImageStorageClassParametersForName(params, storageClassName)) ??
+        { ...DEFAULT_VM_IMAGE_LONGHORN_STORAGE_CLASS_PARAMS }
+      : undefined;
+  return {
+    storageClassName,
+    kind,
+    ...(storageClassParameters && Object.keys(storageClassParameters).length > 0
+      ? { storageClassParameters }
+      : {}),
+  };
+}
+
+/**
+ * 组装 VirtualMachineImage.spec，按存储池类型对齐 Harvester 底层行为：
+ * - Ceph/Rook：backend=cdi，无 storageClassParameters，空 pvc/checksum/url 等与控制台一致
+ * - Longhorn：仅附带 Longhorn storageClassParameters，不写 backend（由控制器选 backingimage）
+ */
+export function buildHarvesterVmImageSpecFields(opts: {
+  profile: VmImageStorageProfile;
+  displayName: string;
+  sourceType: string;
+  url?: string;
+  diskFormat?: string;
+}): Record<string, unknown> {
+  const { profile, displayName, sourceType } = opts;
+  const url = opts.url ?? '';
+  const diskFormat = opts.diskFormat ? String(opts.diskFormat) : undefined;
+
+  const spec: Record<string, unknown> = {
+    displayName,
+    sourceType,
+    targetStorageClassName: profile.storageClassName,
+    url,
+    checksum: '',
+    pvcName: '',
+    pvcNamespace: '',
+    retry: 3,
+  };
+
+  if (profile.kind === 'ceph') {
+    spec.backend = 'cdi';
+    if (diskFormat) spec.diskFormat = diskFormat;
+    return spec;
+  }
+
+  if (diskFormat) spec.diskFormat = diskFormat;
+  if (
+    profile.kind === 'longhorn' &&
+    profile.storageClassParameters &&
+    Object.keys(profile.storageClassParameters).length > 0
+  ) {
+    spec.storageClassParameters = profile.storageClassParameters;
+  }
+  return spec;
+}
+
+/** Ceph 镜像与 Harvester UI 一致的 metadata.annotations 补充项 */
+export function vmImageCephHarvesterExtraAnnotations(): Record<string, string> {
+  return { 'field.cattle.io/description': '' };
+}
 
 /**
  * [镜像原始列表]
@@ -726,13 +1093,20 @@ export const createVolumeSnapshot = async (
       };
   }
 
+  const resolvedSnapshotClass = await resolveVolumeSnapshotClassForPvc(
+    { endpoint, token, insecure },
+    namespace,
+    pvcName,
+  );
+  const volumeSnapshotClassName = resolvedSnapshotClass;
+
   const body = {
     apiVersion: 'snapshot.storage.k8s.io/v1',
     kind: 'VolumeSnapshot',
     metadata,
     spec: {
       source: { persistentVolumeClaimName: pvcName },
-      ...(opts?.snapshotClassName ? { volumeSnapshotClassName: opts.snapshotClassName } : {}),
+      volumeSnapshotClassName,
     },
   } as any;
   const json = await requestJson('POST', urlPath, token, insecure, body);
@@ -911,13 +1285,53 @@ export const clonePVC = async (
   return json;
 };
 
+/** 从 VolumeSnapshot 及其源 PVC 解析恢复用卷规格（卷模式与源盘一致，访问模式固定 RWX） */
+async function resolveVolumeSnapshotRestoreSpec(
+  params: HarvesterTestParams,
+  origin: string,
+  namespace: string,
+  snapshotName: string,
+): Promise<{
+  volumeMode: 'Block' | 'Filesystem';
+  accessModes: ['ReadWriteMany'];
+  restoreSize?: string;
+}> {
+  const accessModes: ['ReadWriteMany'] = ['ReadWriteMany'];
+  let volumeMode: 'Block' | 'Filesystem' = 'Block';
+  let restoreSize: string | undefined;
+
+  try {
+    const snapUrl = `${origin}/apis/snapshot.storage.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/volumesnapshots/${encodeURIComponent(snapshotName)}`;
+    const snap = await getJsonOnce(snapUrl, params.token || '', params.insecure ?? false, true);
+    restoreSize = snap?.status?.restoreSize ? String(snap.status.restoreSize) : undefined;
+
+    const sourcePvc = String(snap?.spec?.source?.persistentVolumeClaimName || '').trim();
+    if (sourcePvc) {
+      const pvcUrl = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(sourcePvc)}`;
+      const pvc = await getJsonOnce(pvcUrl, params.token || '', params.insecure ?? false, true);
+      const mode = String(pvc?.spec?.volumeMode || '').trim();
+      if (mode === 'Block' || mode === 'Filesystem') {
+        volumeMode = mode;
+      }
+    }
+  } catch (e) {
+    harvesterStorageLog.debug(
+      `resolveVolumeSnapshotRestoreSpec: snapshot ${namespace}/${snapshotName} 或源 PVC 读取失败，卷模式回退 Block`,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
+  return { volumeMode, accessModes, restoreSize };
+}
+
 /**
  * [恢复快照]
  * 从快照恢复卷（创建新的 PVC）。
  *
  * [核心逻辑]
- * 1. [容量探测]: 如果未指定恢复大小，尝试获取快照的 restoreSize 字段。
- * 2. [资源创建]: 创建一个新的 PVC，dataSource 指向快照。
+ * 1. 读取 VolumeSnapshot 与源 PVC：`volumeMode` 与源盘一致（Block/Filesystem 不擅自改写）。
+ * 2. `accessModes` 固定为 `ReadWriteMany`（RWX）。
+ * 3. 容量优先请求体 `size`，否则用快照 `status.restoreSize`。
  *
  * @param params 连接参数
  * @param namespace 命名空间
@@ -948,6 +1362,13 @@ export const restoreVolumeSnapshot = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
 
+  const { volumeMode, accessModes, restoreSize } = await resolveVolumeSnapshotRestoreSpec(
+    { endpoint, token, insecure },
+    origin,
+    namespace,
+    snapshotName,
+  );
+
   const body: any = {
     apiVersion: 'v1',
     kind: 'PersistentVolumeClaim',
@@ -963,13 +1384,15 @@ export const restoreVolumeSnapshot = async (
         : {}),
     },
     spec: {
-      accessModes:
-        Array.isArray(opts.accessModes) && opts.accessModes.length > 0
-          ? opts.accessModes
-          : ['ReadWriteOnce'],
-      ...(opts.volumeMode ? { volumeMode: opts.volumeMode } : {}),
+      accessModes: [...accessModes],
+      volumeMode,
       ...(opts.storageClassName ? { storageClassName: opts.storageClassName } : {}),
       dataSource: {
+        name: snapshotName,
+        kind: 'VolumeSnapshot',
+        apiGroup: 'snapshot.storage.k8s.io',
+      },
+      dataSourceRef: {
         name: snapshotName,
         kind: 'VolumeSnapshot',
         apiGroup: 'snapshot.storage.k8s.io',
@@ -977,23 +1400,9 @@ export const restoreVolumeSnapshot = async (
     },
   };
 
-  if (opts.size) {
-    body.spec.resources = { requests: { storage: opts.size } };
-  } else {
-    // [逻辑探测] 若未提供大小，尝试从快照状态中获取 restoreSize
-    try {
-      const snapUrl = `${origin}/apis/snapshot.storage.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/volumesnapshots/${encodeURIComponent(snapshotName)}`;
-      const snap = await getJsonOnce(snapUrl, token, insecure);
-      const restoreSize = snap?.status?.restoreSize;
-      if (restoreSize) {
-        body.spec.resources = { requests: { storage: restoreSize } };
-      }
-    } catch (e) {
-      harvesterStorageLog.debug(
-        'Failed to fetch snapshot size for restoration, submitting without size.',
-        e instanceof Error ? e.message : String(e),
-      );
-    }
+  const sizeStr = String(opts.size || '').trim() || restoreSize;
+  if (sizeStr) {
+    body.spec.resources = { requests: { storage: sizeStr } };
   }
 
   const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims`;
@@ -1218,6 +1627,46 @@ export const createHarvesterVirtualMachineRestore = async (
   const url = `${origin}/apis/${apiVersion}/namespaces/${encodeURIComponent(namespace)}/virtualmachinerestores`;
 
   return requestJson('POST', url, token, insecure, payload);
+};
+
+/**
+ * [VM 恢复列表]
+ * 获取集群内 VirtualMachineRestore 列表（Longhorn / Harvester 原生）。
+ */
+export const listHarvesterVirtualMachineRestoresRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinerestores`,
+    `${origin}/apis/harvesterhci.io/v1alpha1/virtualmachinerestores`,
+    `${origin}/v1/harvester/harvesterhci.io.virtualmachinerestores`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      if (json && (Array.isArray(json.items) || Array.isArray(json.data))) {
+        return json.items || json.data || [];
+      }
+    } catch (e: any) {
+      if (Number(e?.status) !== 404 && !String(e?.message).includes('404')) {
+        harvesterStorageLog.debug(`VM restore list candidate failed: ${url}`, e?.message ?? String(e));
+      }
+    }
+  }
+
+  return [];
 };
 
 /**

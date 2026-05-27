@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message, Button, Alert, Space, Typography, Card } from 'antd';
 import { KeyOutlined, DownloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { createHarvesterSshKey, fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
+import { createHarvesterSshKey } from 'services/harvester/vm';
+import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
 import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
 import { API_BASE_URL } from '../../../../../../services/api';
 import { apiRequest } from '../../../../../../services/api';

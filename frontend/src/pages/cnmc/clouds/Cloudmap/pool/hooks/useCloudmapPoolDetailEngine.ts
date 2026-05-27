@@ -4,8 +4,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { message } from 'antd';
-
 import type { CloudmapPoolDetailContextValue } from '../routing';
 import { runPathResourceLoad, runPoolEssentials } from '../loaders';
 
@@ -13,11 +11,14 @@ import {
   parseCloudmapPoolPath,
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
-import { fetchCloudById, fetchHarvesterNads, fetchHarvesterNodes } from '../api';
+import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
+import type { DatacenterRack } from '../../../../../../services/datacenterTopologyApi';
+import type { NodeLiveMetrics } from '../../../Harvester/hsm/lib/physicalNodeRackUtils';
+import { fetchCloudById } from '../api';
+import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { useCloudmapPoolEcs } from './useCloudmapPoolEcs';
 import { useCloudmapPoolPermissions } from './useCloudmapPoolPermissions';
 import { useCloudmapPoolPathSync } from './useCloudmapPoolPathSync';
-import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
 
 const REQUEST_TIMEOUT = 30000;
 
@@ -74,10 +75,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   >({});
   const [error] = useState<string | null>(null);
 
-  const { ecs, setEcs, rawEcs, setRawEcs, refreshVms } = useCloudmapPoolEcs({
+  const { ecs, setEcs, rawEcs, setRawEcs } = useCloudmapPoolEcs({
     cloudId,
-    checkPerm,
-    setResourceLoading,
   });
 
   const [harvesterNads, setHarvesterNads] = useState<any[]>([]);
@@ -120,7 +119,16 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [harvesterClusterNetworks, setHarvesterClusterNetworks] = useState<
     any[]
   >([]);
+  const [datacenterRacks, setDatacenterRacks] = useState<DatacenterRack[]>([]);
+  const [datacenterNodeMetricsMap, setDatacenterNodeMetricsMap] = useState<
+    Record<string, NodeLiveMetrics>
+  >({});
+  const [harvesterAswSwitches, setHarvesterAswSwitches] = useState<
+    AswCtlSwitchProbeRecord[]
+  >([]);
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]);
+  const [harvesterMigrations, setHarvesterMigrations] = useState<any[]>([]);
+  const [rawMigrations, setRawMigrations] = useState<any | null>(null);
   const [harvesterScheduleVmBackups, setHarvesterScheduleVmBackups] = useState<
     any[]
   >([]);
@@ -158,6 +166,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [httpRoutes, setHttpRoutes] = useState<any[]>([]);
   const [grpcRoutes, setGrpcRoutes] = useState<any[]>([]);
 
+  const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
   const [nsFilter, setNsFilter] = useState<string>('');
   const [nodeFilter, setNodeFilter] = useState<string>('');
   const [showLog] = useState<boolean>(false);
@@ -199,44 +208,9 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [rawClusterNetworks, setRawClusterNetworks] = useState<any | null>(
     null,
   );
-  const [rawIngresses, setRawIngresses] = useState<any | null>(null);
+  const [, setRawIngresses] = useState<any | null>(null);
 
   const loadedRef = React.useRef<Set<string>>(new Set());
-
-  const [nodesLoading, setNodesLoading] = useState(false);
-  const refreshNodes = async (force = false) => {
-    if (nodesLoading) return;
-    setNodesLoading(true);
-    try {
-      const nodesJson = await fetchHarvesterNodes(cloudId, force);
-      const nodesList: any[] = (nodesJson as any)?.data?.items || [];
-      setHarvesterNodes(Array.isArray(nodesList) ? nodesList : []);
-      setRawNodes(nodesJson || null);
-      message.success('节点刷新成功');
-    } catch (e: any) {
-      message.error(`刷新节点失败: ${e?.message || '未知错误'}`);
-    } finally {
-      setNodesLoading(false);
-    }
-  };
-
-  const [nadsLoading, setNadsLoading] = useState(false);
-  const refreshNads = async (force = false, silent = false): Promise<void> => {
-    if (nadsLoading) return;
-    setNadsLoading(true);
-    try {
-      const skipSync = silent || false;
-      const nadsJson = await fetchHarvesterNads(cloudId, force, skipSync);
-      const nadsList: any[] = (nadsJson as any)?.data?.items || [];
-      setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
-      setRawNads(nadsJson || null);
-      if (!silent) message.success('NAD网络刷新成功');
-    } catch (e: any) {
-      message.error(`刷新NAD网络失败: ${e?.message || '未知错误'}`);
-    } finally {
-      setNadsLoading(false);
-    }
-  };
 
   const loadResource = React.useCallback(
     async (
@@ -325,6 +299,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       ovnVpcEnabled,
       canReadFlatSubnets,
       canReadVpcSubnets,
+      setEcs,
+      setRawEcs,
     ],
   );
 
@@ -333,6 +309,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       await runPathResourceLoad(key, force, skipSync, {
         cloudId,
         checkPerm,
+        canReadNetworkScope,
         loadResource,
         loadedRef,
         setResourceLoading,
@@ -361,6 +338,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawTemplates,
         setHarvesterImages,
         setRawImages,
+        setHarvesterMigrations,
+        setRawMigrations,
         setHarvesterGpuResources,
         setRawGpu,
         setHarvesterUsbDevices,
@@ -376,6 +355,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setHarvesterKubeOvnProviderNetworks,
         setHarvesterIPPools,
         setRawIPPools,
+        setHarvesterNads,
+        setRawNads,
         setHarvesterClusterNetworks,
         setRawClusterNetworks,
         setHarvesterNodes,
@@ -412,28 +393,31 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setGateways,
         setHttpRoutes,
         setGrpcRoutes,
+        setDatacenterRacks,
+        setDatacenterNodeMetricsMap,
+        setHarvesterAswSwitches,
       });
     },
     [
       cloudId,
       checkPerm,
+      canReadNetworkScope,
       loadResource,
       canReadLoadBalancers,
       canViewKubeOvnGroup,
       canViewFlatNetworkGroup,
       ovnVpcEnabled,
       harvesterSecrets,
+      setEcs,
+      setRawEcs,
     ],
   );
 
-  const refreshVlans = async (force = false, skipSync = false) => {
-    if (
-      !checkPerm('clouds.vlans:read') &&
-      !checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
-    )
-      return;
-    await loadTabResource('cluster_vlans', force, skipSync);
-  };
+  /** 云主机列表刷新：与切 Tab / computePathLoads `ecs` 同一路径 */
+  const refreshVms = React.useCallback(
+    (force = false, skipSync = false) => loadTabResource('ecs', force, skipSync),
+    [loadTabResource],
+  );
 
   useEffect(() => {
     loadedRef.current.clear();
@@ -443,6 +427,20 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     loadEssentials();
   }, [loadEssentials]);
 
+  useEffect(() => {
+    if (!cloudId || !isTenant) {
+      setTenantNamespaces([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, ok } = await fetchAllowedNamespaces(cloudId);
+      if (!cancelled && ok && data?.namespaces) setTenantNamespaces(data.namespaces);
+      else if (!cancelled) setTenantNamespaces([]);
+    })();
+    return () => { cancelled = true; };
+  }, [cloudId, isTenant]);
+
   const handleTabChange = (key: string) => {
     if (key === '') return;
     if (
@@ -450,7 +448,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       key === 'schedule_vm_backups' ||
       key === 'vm_snapshots'
     ) {
-      loadTabResource('backups');
+      loadTabResource('backups', true, true);
+      window.setTimeout(() => void loadTabResource('backups', true, false), 8000);
       return;
     }
     const shouldForceRefresh =
@@ -521,7 +520,11 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterConfigMaps.forEach(addNamespace);
     harvesterSecrets.forEach(addNamespace);
     harvesterImagePullSecrets.forEach(addNamespace);
-    return Array.from(nsSet).filter(Boolean).sort();
+    const all = Array.from(nsSet).filter(Boolean).sort();
+    if (isTenant && tenantNamespaces.length > 0) {
+      return all.filter((ns) => tenantNamespaces.includes(ns));
+    }
+    return all;
   }, [
     harvesterNamespaces,
     harvesterDeployments,
@@ -535,6 +538,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterConfigMaps,
     harvesterSecrets,
     harvesterImagePullSecrets,
+    isTenant,
+    tenantNamespaces,
   ]);
 
   const cloudmapPoolDetailValue: CloudmapPoolDetailContextValue = {
@@ -576,8 +581,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     setRawEcs,
     refreshVms,
     harvesterNodes,
-    nodesLoading,
-    refreshNodes,
     rawNodes,
     harvesterServices,
     setHarvesterServices,
@@ -585,14 +588,13 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterPods,
     setHarvesterPods,
     namespacesOptions,
+    tenantNamespaces,
     nsFilter,
     setNsFilter,
     harvesterClusterNetworks,
     rawClusterNetworks,
     harvesterNads,
     setHarvesterNads,
-    nadsLoading,
-    refreshNads,
     rawNads,
     harvesterLoadBalancers,
     rawLoadBalancers,
@@ -604,7 +606,6 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawSubnets,
     setKubeOvnSubnets,
     setRawSubnets,
-    refreshVlans,
     harvesterNamespacesForManagement,
     harvesterStorageClasses,
     setHarvesterStorageClasses,
@@ -623,6 +624,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterTemplates,
     harvesterSshKeys,
     harvesterCloudInits,
+    harvesterMigrations,
+    rawMigrations,
     rawImages,
     rawTemplates,
     rawSshKeys,
@@ -687,6 +690,9 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     rawEips,
     rawSnatRules,
     rawDnatRules,
+    datacenterRacks,
+    datacenterNodeMetricsMap,
+    harvesterAswSwitches,
   };
 
   return { cloudmapPoolDetailValue, error };

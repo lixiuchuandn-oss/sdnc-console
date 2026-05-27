@@ -302,8 +302,9 @@ export const harvesterUnpauseVM = async (
  * 创建 VirtualMachineInstanceMigration 对象，KubeVirt 控制器会自动执行迁移流程。
  * 
  * [参数说明]
- * - targetNode: 可选，指定目标节点名称。如果未指定，由调度器自动选择目标节点。
- *   注意：目标节点指定功能依赖 KubeVirt 版本，较旧版本可能忽略此参数。
+ * - targetNode: 可选，指定目标节点名称。若提供，通过 VMIM spec.addedNodeSelector
+ *   （kubernetes.io/hostname）将可迁移节点收窄到该主机；未提供则由调度器自动选择。
+ *   仍须满足 VM 既有 nodeSelector/nodeAffinity 及存储热迁等约束。
  * 
  * @param params Harvester 连接参数
  * @param instanceId 虚拟机实例标识
@@ -330,12 +331,7 @@ export const harvesterMigrateVM = async (
   // Create VirtualMachineInstanceMigration
   const migrationName = `${path.name}-mig-${Date.now().toString(36)}`;
   const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachineinstancemigrations`;
-  
-  // NOTE: Harvester/KubeVirt API for migration
-  // If targetNode is specified, we might need to use specific strategy or wait for newer KubeVirt features.
-  // Standard VMIM does not strictly enforce target node in older versions, but let's check spec.
-  // KubeVirt v1.0+ supports spec.targetNodeName. Harvester usually supports this.
-  
+
   const payload: any = {
     apiVersion: 'kubevirt.io/v1',
     kind: 'VirtualMachineInstanceMigration',
@@ -347,25 +343,16 @@ export const harvesterMigrateVM = async (
       vmiName: path.name,
     },
   };
- 
-   if (targetNode && String(targetNode).trim()) {
-     payload.spec = {
-       ...payload.spec,
-       targetNode: String(targetNode).trim(),
-       targetNodeName: String(targetNode).trim(),
-     };
-   }
 
-  // Although Harvester UI often just triggers it, KubeVirt supports targetNodeName if underlying scheduler allows.
-  // We will include it if provided.
-  // Reference: https://kubevirt.io/api-reference/main/definitions.html#_v1_virtualmachineinstancemigrationspec
-  // Note: It might be ignored if not supported by the cluster version, but worth sending.
-  // Actually, KubeVirt added this recently. If it fails, we might want to retry without it? 
-  // For now, let's assume it works or is ignored.
-  
-  // However, Harvester UI might use a different endpoint if they have a custom action?
-  // Searching Harvester codebase (online knowledge): They use VirtualMachineInstanceMigration.
-  
+  const node = targetNode != null ? String(targetNode).trim() : '';
+  if (node) {
+    // KubeVirt：用 addedNodeSelector 将迁移目标收窄到指定节点（与固定节点调度同一标签键）
+    // 勿写 spec.targetNode / targetNodeName（属 status 或旧版无效字段，会被 API 忽略或 400）
+    payload.spec.addedNodeSelector = {
+      'kubernetes.io/hostname': node,
+    };
+  }
+
   return await requestJson('POST', url, token, insecure, payload);
 };
 

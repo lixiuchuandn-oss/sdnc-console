@@ -1,5 +1,5 @@
 /**
- * 虚拟路由器创建弹窗（字段与提交流程参照 `cloud-database/modals/RdsCreateModal`）。
+ * 虚拟路由器创建弹窗（字段与提交流程参照 `database/modals/RdsCreateModal`）。
  * - 扁平子网 + constructVmPayload 与 RDS 一致。
  * - 镜像目录：`tower.io/paas-category=vne` + `tower.io/paas-type`，或旧镜像仅 `tower.io/vne-type`；创建后打 `paas-managed`、`paas-category=vne`、`paas-type`（与 RDS 同套键名）。
  */

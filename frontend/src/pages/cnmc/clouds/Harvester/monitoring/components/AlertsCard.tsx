@@ -142,9 +142,9 @@ export const AlertsCard: React.FC<AlertsCardProps> = ({ cloudId }) => {
           flexDirection: 'column',
           overflowX: 'hidden',
           overflowY: !alertsLoading && filteredAlerts.length === 0 ? 'hidden' : 'auto',
-          ...(!alertsLoading && filteredAlerts.length === 0
-            ? { justifyContent: 'center', alignItems: 'center' }
-            : {}),
+          justifyContent:
+            alertsLoading || filteredAlerts.length === 0 ? 'center' : 'flex-start',
+          alignItems: alertsLoading || filteredAlerts.length === 0 ? 'center' : 'stretch',
         }}
       >
         {alertsLoading ? (

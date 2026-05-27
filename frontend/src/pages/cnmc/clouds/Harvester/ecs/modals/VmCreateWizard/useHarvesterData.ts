@@ -350,11 +350,14 @@ export const useHarvesterData = (
         const attachedArr = Array.isArray(v?.attachedTo) ? v.attachedTo : [];
         const attachedFlag = Boolean(v?.attached || v?.inUse || v?.used || v?.mounted);
         if (attachedArr.length > 0 || attachedFlag) return false;
-        const stRaw = v?.phase || v?.status?.phase || v?.status?.state || v?.state;
-        const st = String(stRaw || '').toLowerCase();
+        const st = String(
+          v?.phase || v?.status?.phase || v?.status?.state || v?.state || '',
+        ).toLowerCase();
         if (!st) return true;
-        const ok = ['healthy','bound','available','detached'].includes(st);
-        return ok;
+        if (['lost', 'failed', 'terminating', 'pending', 'released'].includes(st)) {
+          return false;
+        }
+        return true;
       })
       .map((v: any) => {
         const n = parseSizeToGi(v?.size);

@@ -3,7 +3,7 @@
  */
 import yaml from "js-yaml";
 import { message } from "antd";
-import { updateHarvesterVmSpec } from "../../../../../../../../services/harvesterApi";
+import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import { getMissingNadsFromNetworks } from "../../../lib/harvesterVmNetwork";
 import {
   buildPrimaryNicFormSlice,

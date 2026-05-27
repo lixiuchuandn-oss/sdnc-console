@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useEffect } from 'react';
 import { Button, Card, Col, Drawer, Flex, Form, Input, InputNumber, Row, Select, Typography } from 'antd';
-import type { HmsSwitchCr } from '../../../../../../services/harvesterApi';
+import type { HmsSwitchCr } from 'services/harvester/cluster';
 import { getHarvesterDrawerSectionCardProps } from '../../shared/drawerSectionCard';
 import {
   HMS_SWITCH_DEFAULT_DIAL_TIMEOUT,
