@@ -113,6 +113,25 @@ export const fetchHarvesterCephVmRestores = async (cloudId: string, force = fals
   return { items: [] };
 };
 
+/** 聚合 Longhorn VirtualMachineRestore + CephVmRestore 列表（恢复任务页 / 恢复前校验） */
+export async function fetchHarvesterVmRestoreTaskList(cloudId: string, force = true): Promise<any[]> {
+  const [rsRes, cephRsRes] = await Promise.all([
+    fetchHarvesterVirtualMachineRestores(cloudId, force),
+    fetchHarvesterCephVmRestores(cloudId, force).catch(() => ({ items: [] })),
+  ]);
+  const rsItems: any[] = Array.isArray((rsRes as any)?.items)
+    ? (rsRes as any).items
+    : Array.isArray((rsRes as any)?.data?.items)
+      ? (rsRes as any).data.items
+      : [];
+  const cephRsItems: any[] = Array.isArray((cephRsRes as any)?.items)
+    ? (cephRsRes as any).items
+    : Array.isArray((cephRsRes as any)?.data?.items)
+      ? (cephRsRes as any).data.items
+      : [];
+  return [...rsItems, ...cephRsItems];
+}
+
 export const deleteHarvesterCephVmRestore = async (cloudId: string, namespace: string, name: string) => {
   const path = `/apis/hms.rivercloud.com/v1/namespaces/${encodeURIComponent(namespace)}/cephvmrestores/${encodeURIComponent(name)}`;
   return await deleteHarvesterResourceByLink(cloudId, path);

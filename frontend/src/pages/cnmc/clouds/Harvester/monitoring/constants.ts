@@ -1,19 +1,24 @@
+import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_INFO, ALERT_LEVEL_WARNING } from './context/MonitoringContext';
+
 /**
  * 监控告警全局常量：告警等级颜色等，供告警列表、告警规则、概览告警卡片等统一使用。
  */
 export const CRITICAL_COLOR = '#FF5C7C';
 export const WARNING_COLOR = '#f59e0b';
 
-export const SEVERITY_CRITICAL = 'critical' as const;
-export const SEVERITY_WARNING = 'warning' as const;
+export const SEVERITY_CRITICAL = ALERT_LEVEL_CRITICAL;
+export const SEVERITY_WARNING = ALERT_LEVEL_WARNING;
+export const SEVERITY_INFO = ALERT_LEVEL_INFO;
 export const SEVERITY_MAP = {
-  SEVERITY_CRITICAL: '紧急告警',
-  SEVERITY_WARNING: '普通告警',
+  SEVERITY_CRITICAL: '严重告警',
+  SEVERITY_WARNING: '注意',
+  SEVERITY_INFO: '信息',
 };
-/** 告警级别下拉选项（严重 / 警告） */
+/** 告警级别下拉选项（严重告警 / 注意 / 信息） */
 export const LEVEL_OPTIONS = [
   { label: SEVERITY_MAP.SEVERITY_CRITICAL, value: SEVERITY_CRITICAL },
   { label: SEVERITY_MAP.SEVERITY_WARNING, value: SEVERITY_WARNING },
+  { label: SEVERITY_MAP.SEVERITY_INFO, value: SEVERITY_INFO },
 ];
 
 /** 告警列表级别筛选下拉选项（含「全部」） */

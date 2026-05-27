@@ -165,6 +165,12 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
     void refreshVms(true);
   }, [refreshVms]);
 
+  const reloadBackupsInventory = useCallback(
+    (force?: boolean, skipSync?: boolean) =>
+      loadTabResource('backups', force !== false, skipSync ?? true),
+    [loadTabResource],
+  );
+
   const refreshVmSectionAuxiliaries = useCallback(() => {
     if (checkPerm('clouds.images:read')) {
       void loadResource(
@@ -263,6 +269,7 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
                 onNsChange={(v) => setNsFilter(v || '')}
                 onNodeChange={(v) => setNodeFilter(v || '')}
                 onRefresh={computeTabOnRefresh.ecs}
+                onBackupsInventoryChanged={reloadBackupsInventory}
                 onStart={async (iid: string) => {
                   try {
                     const vm = ecs.find((v: any) => {

@@ -70,6 +70,7 @@ export type VmDetailDrawerShellProps = Pick<
   | "cloudId"
   | "namespaces"
   | "onRefresh"
+  | "onBackupsInventoryChanged"
 > & {
   vmData: any;
   SafeRead: VmDetailDrawerSafeRead;
@@ -713,6 +714,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
                   p.fetchBackups(force, skipSync);
                   p.fetchSchedules(force, skipSync);
                 }}
+                onBackupsInventoryChanged={p.onBackupsInventoryChanged}
                 namespaces={p.namespaces ?? []}
               />
             </div>

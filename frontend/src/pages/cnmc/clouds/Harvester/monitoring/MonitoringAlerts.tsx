@@ -1,20 +1,21 @@
 /**
- * 监控服务 - 监控告警（站内实时告警列表）
+ * 监控服务 - 正在告警列表
  * 设计文档：plan/设计-监控服务-监控告警.md、设计-监控服务-租户入口与权限.md
  * 告警通知配置已迁移至「告警通知策略」Tab（AlertForwardConfig）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Descriptions, Input, Modal, Select, Space, Table, Typography } from 'antd';
-import type { ColumnsType, ColumnType } from 'antd/es/table';
+import { Button, Input, Select, Space, Table, Tag, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useAuth } from '../../../../../contexts/AuthContext';
-import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
-import { fetchAlertsRules, fetchAllowedNamespaces, fetchPrometheusRulesGroups } from '../../../../../services/monitoringApi';
-import { parseAlerts, type ParsedAlert } from './lib/prometheusAlerts';
-import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
+import { fetchAlertsRules, fetchPrometheusRulesGroups } from '../../../../../services/monitoringApi';
+import { formatDuration, getAlertGroupLabel, parseAlerts, type ParsedAlert } from './lib/prometheusAlerts';
+import { LEVEL_FILTER_OPTIONS, SEVERITY_MAP } from './constants';
+import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_INFO, ALERT_LEVEL_WARNING, MONITORING_NAMESPACE_FILTER_ALL, useMonitoring } from './context/MonitoringContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import AlertDetailModal from './components/AlertDetailModal';
 
 interface MonitoringAlertsProps {
   cloudId: string;
@@ -22,7 +23,7 @@ interface MonitoringAlertsProps {
 
 const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const { formNamespaceOptions, namespaceLoading } = useMonitoring();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const canReadAlerts = useMemo(
     () => hasPermissionForAction(perms, 'clouds.alerts:read'),
@@ -32,61 +33,38 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   // 站内实时告警列表
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsData, setAlertsData] = useState<any>(null);
-  const [alertTotal, setAlertTotal] = useState(0);
-  const [alertPage, setAlertPage] = useState(1);
-  const [alertPageSize, setAlertPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
   const [alertKeyword, setAlertKeyword] = useState('');
   const [levelFilter, setLevelFilter] = useState<string>('');
-  const [dataSourceFilter, setDataSourceFilter] = useState<string>('prometheus'); // 数据源，目前仅 Prometheus
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
-  const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
-  const [allowedNsLoading, setAllowedNsLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<ParsedAlert | null>(null);
   /** 规则组中文映射（从 PrometheusRulesGroup 表 / prometheusrules-groups 接口读取） */
   const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
-
+  /** 加载告警列表 */
   const loadAlerts = useCallback(async () => {
     if (!cloudId || !canReadAlerts) return;
     setAlertsLoading(true);
-    const opts: { datasource?: string; namespace?: string; page?: number; pageSize?: number } = {};
-    opts.datasource = dataSourceFilter || 'prometheus';
+    const opts: { datasource?: string; namespace?: string; page?: number; pageSize?: number } = {
+      datasource: 'prometheus',
+    };
     if (namespaceFilter) opts.namespace = namespaceFilter;
-    if (isAdmin) {
-      opts.page = alertPage;
-      opts.pageSize = alertPageSize;
-    }
     const { data, ok } = await fetchAlertsRules(cloudId, opts);
     setAlertsLoading(false);
     if (!ok) {
       setAlertsData(null);
-      setAlertTotal(0);
     } else if (data != null && typeof data === 'object' && !Array.isArray(data) && 'data' in data && 'total' in data) {
       setAlertsData((data as { data: unknown[] }).data);
-      setAlertTotal((data as { total: number }).total);
     } else {
       const list = Array.isArray(data) ? data : [];
       setAlertsData(list);
-      setAlertTotal(list.length);
     }
-  }, [cloudId, isAdmin, alertPage, alertPageSize, dataSourceFilter, namespaceFilter, canReadAlerts]);
-
-  const loadAllowedNamespaces = useCallback(async () => {
-    if (!cloudId || isAdmin || !canReadAlerts) return;
-    setAllowedNsLoading(true);
-    const { data, ok } = await fetchAllowedNamespaces(cloudId);
-    setAllowedNsLoading(false);
-    if (ok && data?.namespaces) setTenantNamespaces(data.namespaces);
-    else setTenantNamespaces([]);
-  }, [cloudId, isAdmin, canReadAlerts]);
+  }, [cloudId, namespaceFilter, canReadAlerts]);
 
   useEffect(() => {
     if (cloudId && canReadAlerts) loadAlerts();
   }, [loadAlerts, cloudId, canReadAlerts]);
-
-  useEffect(() => {
-    if (cloudId && !isAdmin && canReadAlerts) loadAllowedNamespaces();
-  }, [cloudId, isAdmin, loadAllowedNamespaces, canReadAlerts]);
 
   useEffect(() => {
     if (!cloudId) return;
@@ -110,8 +88,9 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
 
   const filteredAlerts = useMemo(() => {
     let list = alertsList;
-    if (levelFilter === 'critical') list = list.filter((a) => a.level === 'critical');
-    else if (levelFilter === 'warning') list = list.filter((a) => a.level === 'warning');
+    if (levelFilter === ALERT_LEVEL_CRITICAL) list = list.filter((a) => a.level === ALERT_LEVEL_CRITICAL);
+    else if (levelFilter === ALERT_LEVEL_WARNING) list = list.filter((a) => a.level === ALERT_LEVEL_WARNING);
+    else if (levelFilter === ALERT_LEVEL_INFO) list = list.filter((a) => a.level === ALERT_LEVEL_INFO);
     if (alertKeyword.trim()) {
       const k = alertKeyword.trim().toLowerCase();
       list = list.filter(
@@ -123,6 +102,10 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     return list;
   }, [alertsList, levelFilter, alertKeyword]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [alertKeyword, levelFilter, namespaceFilter]);
+
   const openDetail = useCallback((record: ParsedAlert) => {
     setDetailRecord(record);
     setDetailOpen(true);
@@ -133,48 +116,60 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     setDetailRecord(null);
   }, []);
 
-  const renderLevel = useCallback((level: 'critical' | 'warning') => {
-    const isCritical = level === 'critical';
-    const color = isCritical ? CRITICAL_COLOR : WARNING_COLOR;
-    const label = isCritical ? '紧急告警' : '普通告警';
-    return (
-      <Space size={6} style={{ alignItems: 'center' }}>
-        <span
-          style={{
-            display: 'inline-block',
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            backgroundColor: color,
-            flexShrink: 0,
-          }}
-        />
-        <span>{label}</span>
-      </Space>
-    );
-  }, []);
+  const renderLevel = useCallback(
+    (
+      level: typeof ALERT_LEVEL_CRITICAL | typeof ALERT_LEVEL_WARNING | typeof ALERT_LEVEL_INFO
+    ) => {
+      const levelTagStyle: React.CSSProperties = {
+        marginInlineEnd: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+        height: 24,
+        lineHeight: '22px',
+        transform: 'translateY(2px)',
+      };
+      if (level === ALERT_LEVEL_CRITICAL) return <Tag color="error" style={levelTagStyle}>{SEVERITY_MAP.SEVERITY_CRITICAL}</Tag>;
+      if (level === ALERT_LEVEL_WARNING) return <Tag color="warning" style={levelTagStyle}>{SEVERITY_MAP.SEVERITY_WARNING}</Tag>;
+      if (level === ALERT_LEVEL_INFO) return <Tag color="processing" style={levelTagStyle}>{SEVERITY_MAP.SEVERITY_INFO}</Tag>;
+      return <Tag style={levelTagStyle}>{level}</Tag>;
+    },
+    []
+  );
 
-  const renderRuleGroup = useCallback((row: ParsedAlert) => {
-    return row.groupDescription || row.groupName || '-';
-  }, []);
+  const renderRuleGroup = useCallback(
+    (row: ParsedAlert) => getAlertGroupLabel(row, rulesGroupMap),
+    [rulesGroupMap],
+  );
 
   const alertColumns: ColumnsType<ParsedAlert> = useMemo(
     () => [
-      { title: '数据源', key: 'dataSource', fixed: 'left', render: () => 'Prometheus' },
       {
         title: '告警名称',
         dataIndex: 'title',
         key: 'title',
         ellipsis: true,
-        render: (t: string) => <Typography.Text strong ellipsis>{t || '--'}</Typography.Text>,
+        render: (
+          t: string,
+          row: ParsedAlert
+        ) => (
+          <Space size={8} align="center" style={{ minWidth: 0 }}>
+            <Typography.Text
+              strong
+              ellipsis
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                minHeight: 24,
+                lineHeight: '24px',
+              }}
+            >
+              {t || '--'}
+            </Typography.Text>
+            {renderLevel(row.level)}
+          </Space>
+        ),
       },
-      {
-        title: '等级',
-        dataIndex: 'level',
-        key: 'level',
-        render: (level: 'critical' | 'warning') => renderLevel(level),
-      },
-      { title: '命名空间', dataIndex: 'namespace', key: 'namespace', render: (v: string) => v || '-' },
+      { title: '告警项目', dataIndex: 'namespace', key: 'namespace', render: (v: string) => v || '-' },
       {
         title: '节点',
         dataIndex: 'node',
@@ -190,22 +185,9 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         },
       },
       {
-        title: '规则组',
+        title: '告警分组',
         key: 'groupDescription',
         render: (_, row) => renderRuleGroup(row),
-      },
-      {
-        title: '描述',
-        dataIndex: 'description',
-        key: 'description',
-        render: (v: string) => (
-          <Typography.Text
-            type="secondary"
-            style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-          >
-            {v || '-'}
-          </Typography.Text>
-        ),
       },
       {
         title: '触发时间',
@@ -217,6 +199,11 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           return ta - tb;
         },
         render: (v: string) => v || '-',
+      },
+      {
+        title: '持续时间',
+        key: 'duration',
+        render: (_, row) => formatDuration(row),
       },
       {
         title: '操作',
@@ -235,162 +222,101 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   // 列显示设置（需要在 alertColumns 定义之后）
   const { displayColumns: alertTableDisplayColumns } = useTableColumnSettings(alertColumns, 'monitoring_alerts_table');
 
-  const namespaceFilterOptions = useMemo(() => {
-    if (isAdmin) {
-      const allNs = new Set<string>();
-      alertsList.forEach((a) => { if (a.namespace) allNs.add(a.namespace); });
-      return [{ label: '全部', value: '' }, ...Array.from(allNs).sort().map((ns) => ({ label: ns, value: ns }))];
-    }
-    return [{ label: '全部', value: '' }, ...tenantNamespaces.map((ns) => ({ label: ns, value: ns }))];
-  }, [isAdmin, alertsList, tenantNamespaces]);
-
   if (!canReadAlerts) {
     return (
-      <PageDetailSection asCard={false}>
-        <Typography.Text type="secondary">无权查看监控告警，请联系管理员分配 `clouds.alerts:read` 权限。</Typography.Text>
-      </PageDetailSection>
+      <Typography.Text type="secondary">无权查看监控告警，请联系管理员分配 `clouds.alerts:read` 权限。</Typography.Text>
     );
   }
+
+  const tableNode = (
+    <Table
+      className="std-table"
+      bordered={false}
+      rowKey={(row: ParsedAlert) => row.id}
+      loading={alertsLoading}
+      columns={alertTableDisplayColumns}
+      dataSource={filteredAlerts}
+      scroll={{ x: true, y: 320 }}
+      pagination={{
+        current: page,
+        pageSize,
+        total: filteredAlerts.length,
+        showSizeChanger: true,
+        showTotal: (t) => `共 ${t} 条`,
+        pageSizeOptions: ['5', '10', '20'],
+        onChange: (nextPage, nextPageSize) => {
+          setPage(nextPage);
+          if (nextPageSize) setPageSize(nextPageSize);
+        },
+      }}
+    />
+  );
 
 
   return (
     <div>
-      <PageDetailSection
-        asCard={false}
-        toolbarLeft={
-          <>
-            <Input 
-              allowClear 
-              placeholder="名称/ID" 
-              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-              value={alertKeyword} 
-              onChange={(e) => setAlertKeyword(e.target.value)} 
-              onPressEnter={loadAlerts}
-              className="toolbar-search"
-            />
-            <Select
-              placeholder="命名空间"
-              allowClear
-              value={namespaceFilter || undefined}
-              onChange={(v) => setNamespaceFilter(v ?? '')}
-              options={namespaceFilterOptions}
-              loading={!isAdmin && allowedNsLoading}
-              className="toolbar-filter-sm"
-            />
-            <Select
-              placeholder="数据源"
-              value={dataSourceFilter}
-              onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
-              options={[{ label: 'Prometheus', value: 'prometheus' }]}
-              className="toolbar-filter-sm"
-            />
-            <Select
-              placeholder="级别"
-              allowClear
-              value={levelFilter || undefined}
-              onChange={(v) => setLevelFilter(v ?? '')}
-              options={LEVEL_FILTER_OPTIONS}
-              className="toolbar-filter-sm"
-            />
-            <button
-              type="button"
-              className="toolbar-reset-btn"
-              onClick={() => {
-                setAlertKeyword('');
-                setLevelFilter('');
-                setNamespaceFilter('');
-              }}
-            >
-              重置
-            </button>
-          </>
-        }
-        toolbarRight={
-          <>
-            <TableColumnSettingsButton
-              allColumns={alertColumns}
-              settingsKey="monitoring_alerts_table"
-            />
-            <Button icon={<ReloadOutlined />} onClick={loadAlerts} loading={alertsLoading} />
-          </>
-        }
+      <div
+        style={{
+          marginBottom: 12,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
       >
-        <Table
-          className="std-table"
-          bordered={false}
-          rowKey={(row: ParsedAlert) => row.id}
-          loading={alertsLoading}
-          columns={alertTableDisplayColumns}
-          dataSource={filteredAlerts}
-          scroll={{ x: true }}
-          pagination={
-            isAdmin
-              ? {
-                  current: alertPage,
-                  pageSize: alertPageSize,
-                  total: alertTotal,
-                  showSizeChanger: true,
-                  showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-                  pageSizeOptions: ['10', '20', '50'],
-                  onChange: (page, size) => {
-                    setAlertPage(page);
-                    if (size) setAlertPageSize(size);
-                  },
-                }
-              : { pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }
-          }
-        />
-      </PageDetailSection>
+        <Space size={8} wrap>
+          <Input
+            allowClear
+            placeholder="规则名称/标识"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={alertKeyword}
+            onChange={(e) => setAlertKeyword(e.target.value)}
+            onPressEnter={loadAlerts}
+            className="toolbar-search"
+          />
+          <Select
+            placeholder="等级"
+            allowClear
+            value={levelFilter || undefined}
+            onChange={(v) => setLevelFilter(v ?? '')}
+            options={LEVEL_FILTER_OPTIONS}
+            className="toolbar-filter-sm"
+          />
+          <Select
+            placeholder="项目"
+            allowClear
+            value={namespaceFilter || MONITORING_NAMESPACE_FILTER_ALL}
+            onChange={(v) => setNamespaceFilter(v ?? MONITORING_NAMESPACE_FILTER_ALL)}
+            options={formNamespaceOptions}
+            loading={namespaceLoading}
+            style={{ minWidth: 300 }}
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setAlertKeyword('');
+              setLevelFilter('');
+              setNamespaceFilter(MONITORING_NAMESPACE_FILTER_ALL);
+            }}
+          >
+            重置
+          </button>
+        </Space>
+        <Space size={8}>
+          <TableColumnSettingsButton allColumns={alertColumns} settingsKey="monitoring_alerts_table" />
+          <Button icon={<ReloadOutlined />} onClick={loadAlerts} loading={alertsLoading} />
+        </Space>
+      </div>
+      {tableNode}
 
-      <Modal
+      <AlertDetailModal
         open={detailOpen}
-        onCancel={closeDetail}
-        title="告警详情"
-        footer={<Button onClick={closeDetail}>关闭</Button>}
-        width={860}
-        destroyOnHidden
-      >
-        {detailRecord ? (
-          <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>
-            {(alertColumns as ColumnType<ParsedAlert>[])
-              .filter((col) => {
-                const key = (col.key as string) || (col.dataIndex as string);
-                // 详情里单独渲染「告警节点」「告警实例」，这里跳过节点列与操作列
-                return key !== 'action' && key !== 'node';
-              })
-              .map((col) => {
-                const label = (col.title as string) ?? '';
-                const dataIndex = col.dataIndex as string | undefined;
-                const key = (col.key as string) ?? dataIndex;
-                const raw =
-                  dataIndex != null
-                    ? (detailRecord as any)[dataIndex]
-                    : (key ? (detailRecord as any)[key] : undefined);
-                const rendered =
-                  typeof col.render === 'function'
-                    ? col.render(raw, detailRecord, 0)
-                    : (raw != null && raw !== '' ? String(raw) : '-');
-                const content =
-                  rendered != null && typeof rendered === 'object' && 'children' in rendered
-                    ? (rendered as { children?: React.ReactNode }).children
-                    : rendered;
-                return (
-                  <Descriptions.Item key={key || label} label={label}>
-                    {content as React.ReactNode}
-                  </Descriptions.Item>
-                );
-              })}
-            <Descriptions.Item label="告警节点">
-              {detailRecord.node || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="告警实例">
-              {detailRecord.instance || '-'}
-            </Descriptions.Item>
-          </Descriptions>
-        ) : (
-          <Typography.Text type="secondary">暂无数据</Typography.Text>
-        )}
-      </Modal>
+        onClose={closeDetail}
+        record={detailRecord}
+        rulesGroupMap={rulesGroupMap}
+      />
     </div>
   );
 };

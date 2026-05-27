@@ -1,12 +1,15 @@
 /**
  * Harvester - 虚拟机恢复弹窗
  */
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Modal, Form, Input, message, Alert, Switch, Tooltip, Radio, Select } from 'antd';
 import { stopCloudProviderEcs } from '../../../../../../services/api';
-import { createHarvesterVirtualMachineRestore } from 'services/harvester/cbr';
+import { createHarvesterVirtualMachineRestore, fetchHarvesterVmRestoreTaskList } from 'services/harvester/cbr';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
-import { applyVmTowerAliasWhenReady, dispatchVmAliasApplied } from '../../ecs/lib/vmTowerAlias';
+import {
+  ensureHarvesterRestoreTargetVmAlias,
+  RESTORE_VM_ALIAS_MAX_WAIT_MS,
+} from '../../ecs/lib/vmTowerAlias';
 import {
   assertVmRestoreReplaceAllowed,
   buildVmRestoreInitialFormValues,
@@ -16,6 +19,7 @@ import {
   resolveVmRestoreResourceContext,
   VM_RESTORE_K8S_NAME_PATTERN,
 } from '../lib/vmRestoreModalUtils';
+import { findInProgressHarvesterRestoreForBackup } from '../lib/vmRestoreTaskStatus';
 
 interface Props {
   open: boolean;
@@ -39,6 +43,12 @@ const VmRestoreModal: React.FC<Props> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [keepMacAddress, setKeepMacAddress] = useState(false);
+  const [checkingRestores, setCheckingRestores] = useState(false);
+  const [blockingRestore, setBlockingRestore] = useState<{
+    namespace: string;
+    name: string;
+    statusText: string;
+  } | null>(null);
   const newVM = Form.useWatch('newVM', form);
 
   const ctx = useMemo(
@@ -61,10 +71,47 @@ const VmRestoreModal: React.FC<Props> = ({
     }
   }, [open, ctx, form]);
 
+  const loadInProgressRestoreForSource = useCallback(async () => {
+    if (!cloudId || !ctx) {
+      setBlockingRestore(null);
+      return null;
+    }
+    const { namespace, sourceName } = ctx;
+    setCheckingRestores(true);
+    try {
+      const restores = await fetchHarvesterVmRestoreTaskList(cloudId, true);
+      const hit = findInProgressHarvesterRestoreForBackup(restores, namespace, sourceName);
+      setBlockingRestore(hit);
+      return hit;
+    } catch {
+      setBlockingRestore(null);
+      return null;
+    } finally {
+      setCheckingRestores(false);
+    }
+  }, [cloudId, ctx]);
+
+  useEffect(() => {
+    if (!open || !ctx) {
+      setBlockingRestore(null);
+      return;
+    }
+    void loadInProgressRestoreForSource();
+  }, [open, ctx, loadInProgressRestoreForSource]);
+
   const handleOk = async () => {
     if (!ctx) return;
     try {
       const values = await form.validateFields();
+
+      const inProgress = (await loadInProgressRestoreForSource()) ?? blockingRestore;
+      if (inProgress) {
+        message.warning(
+          `该${resourceType === 'snapshot' ? '快照' : '备份'}已有进行中的恢复任务（${inProgress.namespace}/${inProgress.name}，${inProgress.statusText}），请等待完成后再试`,
+        );
+        return;
+      }
+
       setLoading(true);
 
       if (values.newVM === false) {
@@ -89,19 +136,10 @@ const VmRestoreModal: React.FC<Props> = ({
 
       await createHarvesterVirtualMachineRestore(cloudId, ctx.namespace, payload);
 
-      const displayName = values.newVM === true ? String(values.displayName || '').trim() : '';
-      if (displayName) {
-        dispatchVmAliasApplied({
-          namespace: ctx.namespace,
-          name: String(values.newVM ? values.newVmName : ctx.sourceVmName),
-          alias: displayName,
-        });
-        void applyVmTowerAliasWhenReady(
-          cloudId,
-          ctx.namespace,
-          String(values.newVM ? values.newVmName : ctx.sourceVmName),
-          displayName,
-        ).catch((e) => {
+      if (values.newVM === true) {
+        void ensureHarvesterRestoreTargetVmAlias(cloudId, payload, {
+          maxWaitMs: RESTORE_VM_ALIAS_MAX_WAIT_MS,
+        }).catch((e) => {
           console.warn('Failed to set alias for restored VM:', e);
         });
       }
@@ -141,21 +179,24 @@ const VmRestoreModal: React.FC<Props> = ({
       open={open}
       onOk={handleOk}
       onCancel={onCancel}
-      confirmLoading={loading}
+      confirmLoading={loading || checkingRestores}
+      okButtonProps={{ disabled: !!blockingRestore }}
       destroyOnHidden
     >
       <Alert
         message={newVM === false ? '将替换目标虚拟机' : '将新建虚拟机'}
         description={
-          newVM === false
-            ? isSourceVmInRecycleBin
-              ? '源虚拟机在回收站中，不允许使用替换模式，请使用新建虚拟机或先从回收站还原后再操作。'
-              : isSourceVmExists
-                ? '替换模式会自动停止目标虚拟机后执行恢复。'
-                : '目标虚拟机不存在，无法执行替换。'
-            : '新建模式会创建一个新的虚拟机，不会覆盖现有虚拟机。'
+          blockingRestore
+            ? `该${resourceType === 'snapshot' ? '快照' : '备份'}已有进行中的恢复任务（${blockingRestore.namespace}/${blockingRestore.name}，${blockingRestore.statusText}），请等待完成后再发起新的恢复。`
+            : newVM === false
+              ? isSourceVmInRecycleBin
+                ? '源虚拟机在回收站中，不允许使用替换模式，请使用新建虚拟机或先从回收站还原后再操作。'
+                : isSourceVmExists
+                  ? '替换模式会自动停止目标虚拟机后执行恢复。'
+                  : '目标虚拟机不存在，无法执行替换。'
+              : '新建模式会创建一个新的虚拟机，不会覆盖现有虚拟机。'
         }
-        type="warning"
+        type={blockingRestore ? 'error' : 'warning'}
         showIcon
         style={{ marginBottom: 16 }}
       />

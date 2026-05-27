@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, ConfigProvider, Select, Space, Switch, theme } from 'antd';
 import { SyncOutlined } from '@ant-design/icons';
 import CodeEditor from '../../../../../../components/CodeEditor';
@@ -31,10 +31,24 @@ const VIEW_LINK_TAB_CSS = `
 .view-link-tab__body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: ${VLT_UI.surface};
+}
+.view-link-tab__editor-stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.view-link-tab__state--fill {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .view-link-tab__state {
   padding: 14px 16px;
@@ -45,18 +59,16 @@ const VIEW_LINK_TAB_CSS = `
   color: ${VLT_UI.error};
 }
 .view-link-editor {
-  height: 100% !important;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.view-link-editor .cm-editor {
-  height: 100% !important;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
 }
 .view-link-editor .cm-scroller {
-  overflow: auto !important;
-  max-height: 100% !important;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(230, 237, 243, 0.28) rgba(22, 27, 34, 0.65);
+  overflow-x: auto !important;
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto !important;
+  scrollbar-color: rgba(230, 237, 243, 0.5) rgba(13, 17, 23, 0.95) !important;
 }
 .view-link-editor .cm-scroller::-webkit-scrollbar {
   width: 8px;
@@ -202,13 +214,19 @@ export const ViewLinkTabToolbar: React.FC<ViewLinkTabToolbarProps> = ({
   </div>
 );
 
-export const ViewLinkTabEditor: React.FC<ViewLinkTabModel> = ({ content, loading, error, loadContent }) => {
+export const ViewLinkTabEditor: React.FC<ViewLinkTabModel & { bodyHeightPx: number }> = ({
+  content,
+  loading,
+  error,
+  loadContent,
+  bodyHeightPx,
+}) => {
   if (loading && !content) {
-    return <div className="view-link-tab__state">加载中…</div>;
+    return <div className="view-link-tab__state view-link-tab__state--fill">加载中…</div>;
   }
   if (error && !content) {
     return (
-      <div className="view-link-tab__state view-link-tab__state--error">
+      <div className="view-link-tab__state view-link-tab__state--error view-link-tab__state--fill">
         错误: {error}{' '}
         <Button type="link" size="small" onClick={() => void loadContent()}>
           重试
@@ -216,24 +234,29 @@ export const ViewLinkTabEditor: React.FC<ViewLinkTabModel> = ({ content, loading
       </div>
     );
   }
+  const editorPx = Math.max(0, Math.round(bodyHeightPx));
+  if (editorPx < 48) {
+    return <div className="view-link-tab__state view-link-tab__state--fill">准备编辑器…</div>;
+  }
   return (
-    <CodeEditor
-      readOnly
-      value={content}
-      language="json"
-      cmTheme="dark"
-      className="view-link-editor"
-      style={{
-        border: 'none',
-        borderRadius: 0,
-        height: '100%',
-        minHeight: 0,
-        flex: 1,
-        minWidth: 0,
-        overflow: 'hidden',
-        background: VLT_UI.surface,
-      }}
-    />
+    <div className="view-link-tab__editor-stage">
+      <CodeEditor
+        readOnly
+        value={content}
+        language="json"
+        cmTheme="dark"
+        minHeight={0}
+        height={editorPx}
+        className="view-link-editor"
+        style={{
+          border: 'none',
+          borderRadius: 0,
+          width: '100%',
+          overflow: 'hidden',
+          background: VLT_UI.surface,
+        }}
+      />
+    </div>
   );
 };
 
@@ -246,9 +269,42 @@ export const ViewLinkTab: React.FC<{
   style?: React.CSSProperties;
 }> = ({ cloudId, viewLink, active, className, style }) => {
   const m = useViewLinkTab(cloudId, viewLink, active);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [editorBodyPx, setEditorBodyPx] = useState(0);
+
+  const syncBodyHeightPx = useCallback(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const h = Math.round(el.getBoundingClientRect().height);
+    if (h > 0) {
+      setEditorBodyPx(h);
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!active || !viewLink) {
+      setEditorBodyPx(0);
+      return undefined;
+    }
+    const el = bodyRef.current;
+    if (!el) return undefined;
+
+    const tick = () => syncBodyHeightPx();
+    const ro = new ResizeObserver(() => tick());
+    ro.observe(el);
+    tick();
+    const t0 = window.setTimeout(tick, 50);
+    const t1 = window.setTimeout(tick, 320);
+
+    return () => {
+      ro.disconnect();
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+    };
+  }, [active, viewLink, syncBodyHeightPx]);
 
   useEffect(() => {
-    const id = 'compute-tower-view-link-tab-css';
+    const id = 'compute-tower-view-link-tab-css-v2';
     if (typeof document === 'undefined' || document.getElementById(id)) return;
     const el = document.createElement('style');
     el.id = id;
@@ -282,9 +338,9 @@ export const ViewLinkTab: React.FC<{
         className={['view-link-tab', className].filter(Boolean).join(' ')}
         style={{
           width: '100%',
-          minHeight: 320,
           height: '100%',
           flex: 1,
+          minHeight: 0,
           background: VLT_UI.surface,
           border: `1px solid ${VLT_UI.border}`,
           borderRadius: 6,
@@ -295,8 +351,8 @@ export const ViewLinkTab: React.FC<{
         <div className="view-link-tab__header">
           <ViewLinkTabToolbar viewLink={viewLink} {...m} />
         </div>
-        <div className="view-link-tab__body">
-          <ViewLinkTabEditor {...m} />
+        <div ref={bodyRef} className="view-link-tab__body">
+          <ViewLinkTabEditor {...m} bodyHeightPx={editorBodyPx} />
         </div>
       </div>
     </ConfigProvider>

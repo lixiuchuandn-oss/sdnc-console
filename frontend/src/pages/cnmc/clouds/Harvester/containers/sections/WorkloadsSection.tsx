@@ -724,11 +724,11 @@ const WorkloadsSection: React.FC<Props> = ({
   const handleOpenCreate = useCallback(() => {
     setCreateType(activeTab as WorkloadType);
     setCreateModalVisible(true);
-  }, [activeTab]);
+    onRefreshConfigMaps?.();
+    onRefreshSecrets?.();
+  }, [activeTab, onRefreshConfigMaps, onRefreshSecrets]);
   
-  // 打开编辑弹窗
   const handleEdit = useCallback((record: any) => {
-    // 添加缺失的 kind 字段，根据当前活动标签推断类型
     const kind = activeTab === 'deployment' ? 'Deployment' 
       : activeTab === 'statefulset' ? 'StatefulSet' 
       : activeTab === 'daemonset' ? 'DaemonSet' 
@@ -742,7 +742,9 @@ const WorkloadsSection: React.FC<Props> = ({
     
     setEditRecord(enhancedRecord);
     setEditModalVisible(true);
-  }, [activeTab]);
+    onRefreshConfigMaps?.();
+    onRefreshSecrets?.();
+  }, [activeTab, onRefreshConfigMaps, onRefreshSecrets]);
   
   // 根据 nsValue 过滤数据，并按创建时间倒序排序
   const filteredDeployments = useMemo(() => {

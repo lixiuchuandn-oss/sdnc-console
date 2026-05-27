@@ -450,7 +450,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       key === 'schedule_vm_backups' ||
       key === 'vm_snapshots'
     ) {
-      loadTabResource('backups');
+      loadTabResource('backups', true, true);
+      window.setTimeout(() => void loadTabResource('backups', true, false), 8000);
       return;
     }
     const shouldForceRefresh =

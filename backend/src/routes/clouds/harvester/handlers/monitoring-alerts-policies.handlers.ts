@@ -9,14 +9,12 @@ import { ensureProvider, normalizeOrigin } from './monitoring-helpers';
 import {
   PAGESIZE,
   ALERTMANAGERCONFIG_BASE,
-  EMAIL_RECEIVER,
-  DINGTALK_RECEIVER,
-  WEBSITE_RECEIVER,
   isUnreachableError,
   getTenantAccessForMonitoring,
   requireTenantAccessForMonitoring,
   extractAlertNamesFromSpec,
   isPolicyAlertmanagerConfig,
+  isMonitoringReceiverConfigMeta,
   normalizePolicySpec,
   collectReceiverNamesFromRoute,
 } from './monitoring-helpers';
@@ -36,12 +34,10 @@ export async function harvesterMonitoringAlertmanagerConfigsHandler(req: Request
     const url = `${origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     let list: any[] = Array.isArray(raw?.data) ? raw.data : (Array.isArray(raw) ? raw : []);
-    const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
+    // 接收器 CR（含历史共享与新模型 per-target）通过 label monitoring-receiver=true 识别
     list = list.filter((item: any) => {
       const inner = item?.data ?? item;
-      const name = (inner?.metadata?.name ?? item?.name ?? '').toString().trim();
-      if (receiverConfigNames.has(name)) return false;
-      return true;
+      return !isMonitoringReceiverConfigMeta(inner?.metadata ?? {});
     });
     if (!tenant.isAdmin && tenant.namespaces.length > 0) {
       const allowedSet = new Set(tenant.namespaces);
@@ -104,12 +100,12 @@ export async function harvesterMonitoringAlertmanagerConfigsPolicyReceiversHandl
     const url = `${origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     const items: any[] = Array.isArray(raw?.data) ? raw.data : [];
-    const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
     for (const item of items) {
       const inner = item?.data ?? item;
       const policyName = (inner?.metadata?.name ?? '').toString().trim();
       const ns = (inner?.metadata?.namespace ?? '').toString().trim();
-      if (receiverConfigNames.has(policyName)) continue;
+      // 跳过接收器 CR（label monitoring-receiver=true，含历史共享与新模型）
+      if (isMonitoringReceiverConfigMeta(inner?.metadata ?? {})) continue;
       if (namespace && ns !== namespace) continue;
       if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) continue;
       const route = inner?.spec?.route ?? {};
@@ -138,7 +134,7 @@ export async function harvesterMonitoringAlertmanagerConfigsDetailHandler(req: R
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
+    const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences';
     const url = `${origin}/${path}?${excludeQs}`;
     const data = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     res.json(data);
@@ -170,7 +166,8 @@ export async function harvesterMonitoringAlertmanagerConfigsCreateHandler(req: R
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
-    const payload = isPolicyAlertmanagerConfig(name)
+    // 优先按 body.metadata 判定（label monitoring-receiver=true 视为接收器 CR，不走策略 spec 归一化）
+    const payload = isPolicyAlertmanagerConfig(body?.metadata ?? name)
       ? { ...body, spec: normalizePolicySpec(body.spec) }
       : body;
     const data = await requestJson('POST', `${origin}/${ALERTMANAGERCONFIG_BASE}`, cloud.secretKey || '', insecure, payload);
@@ -198,7 +195,8 @@ export async function harvesterMonitoringAlertmanagerConfigsUpdateHandler(req: R
     const origin = normalizeOrigin(cloud.endpoint || '');
     const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
     const body = req.body || {};
-    const payload = isPolicyAlertmanagerConfig(name)
+    // 优先按 body.metadata 判定（label monitoring-receiver=true 视为接收器 CR，不走策略 spec 归一化）
+    const payload = isPolicyAlertmanagerConfig(body?.metadata ?? name)
       ? { ...body, spec: normalizePolicySpec(body.spec) }
       : body;
     const data = await requestJson('PUT', `${origin}/${path}`, cloud.secretKey || '', insecure, payload);

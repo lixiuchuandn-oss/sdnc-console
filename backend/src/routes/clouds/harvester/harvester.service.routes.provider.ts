@@ -99,6 +99,11 @@ import {
 } from './handlers/ceph-rgw-s3-gateway-binding.handlers';
 import {
   harvesterMonitoringAlertsRulesHandler,
+  harvesterMonitoringAccessManagementHandler,
+  harvesterMonitoringAlertmanagerDetailHandler,
+  harvesterMonitoringPrometheusDetailHandler,
+  harvesterMonitoringPrometheusTargetsHandler,
+  harvesterMonitoringPrometheusUpdateHandler,
   harvesterMonitoringPrometheusRulesHandler,
   harvesterMonitoringPrometheusRulesGroupsHandler,
   harvesterMonitoringVmCustomRulesHandler,
@@ -466,6 +471,41 @@ export function registerHarvesterServiceRoutesProvider(
     cloudmap: harvesterMonitoringAlertsRulesHandler,
     'cloudmap.private': harvesterMonitoringAlertsRulesHandler,
     'cloudmap.edge': harvesterMonitoringAlertsRulesHandler,
+  };
+
+  const monitoringAccessManagementHandlers = {
+    harvester: harvesterMonitoringAccessManagementHandler,
+    cloudmap: harvesterMonitoringAccessManagementHandler,
+    'cloudmap.private': harvesterMonitoringAccessManagementHandler,
+    'cloudmap.edge': harvesterMonitoringAccessManagementHandler,
+  };
+
+  const monitoringPrometheusDetailHandlers = {
+    harvester: harvesterMonitoringPrometheusDetailHandler,
+    cloudmap: harvesterMonitoringPrometheusDetailHandler,
+    'cloudmap.private': harvesterMonitoringPrometheusDetailHandler,
+    'cloudmap.edge': harvesterMonitoringPrometheusDetailHandler,
+  };
+
+  const monitoringAlertmanagerDetailHandlers = {
+    harvester: harvesterMonitoringAlertmanagerDetailHandler,
+    cloudmap: harvesterMonitoringAlertmanagerDetailHandler,
+    'cloudmap.private': harvesterMonitoringAlertmanagerDetailHandler,
+    'cloudmap.edge': harvesterMonitoringAlertmanagerDetailHandler,
+  };
+
+  const monitoringPrometheusUpdateHandlers = {
+    harvester: harvesterMonitoringPrometheusUpdateHandler,
+    cloudmap: harvesterMonitoringPrometheusUpdateHandler,
+    'cloudmap.private': harvesterMonitoringPrometheusUpdateHandler,
+    'cloudmap.edge': harvesterMonitoringPrometheusUpdateHandler,
+  };
+
+  const monitoringPrometheusTargetsHandlers = {
+    harvester: harvesterMonitoringPrometheusTargetsHandler,
+    cloudmap: harvesterMonitoringPrometheusTargetsHandler,
+    'cloudmap.private': harvesterMonitoringPrometheusTargetsHandler,
+    'cloudmap.edge': harvesterMonitoringPrometheusTargetsHandler,
   };
 
   const monitoringPrometheusRulesHandlers = {
@@ -843,6 +883,27 @@ export function registerHarvesterServiceRoutesProvider(
 
   // Rules
   router.get('/:id/monitoring/alerts-rules', checkAdminPermission, createProviderRouter(monitoringAlertsRulesHandlers));
+  router.get('/:id/monitoring/access-management', checkAdminPermission, createProviderRouter(monitoringAccessManagementHandlers));
+  router.get(
+    '/:id/monitoring/access-management/prometheus/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringPrometheusDetailHandlers),
+  );
+  router.get(
+    '/:id/monitoring/alert-management/alertmanager/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerDetailHandlers),
+  );
+  router.put(
+    '/:id/monitoring/access-management/prometheus/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringPrometheusUpdateHandlers),
+  );
+  router.get(
+    '/:id/monitoring/access-management/targets',
+    checkAdminPermission,
+    createProviderRouter(monitoringPrometheusTargetsHandlers),
+  );
   router.get('/:id/monitoring/prometheusrules', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesHandlers));
   router.get('/:id/monitoring/prometheusrules-groups', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesGroupsHandlers));
   router.get('/:id/monitoring/prometheusrules/vm-custom-rules', checkAdminPermission, createProviderRouter(monitoringVmCustomRulesHandlers));

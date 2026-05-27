@@ -147,7 +147,7 @@ export const LEGACY_CLOUDMAP_POOL_NAV_ALIASES: Record<string, CloudmapPoolNavKey
 
 const CLOUDMAP_NAV_LABEL: Record<CloudmapPoolNavKey, string> = {
   resource_hub: '资源总览',
-  monitoring_alerts: '监控告警',
+  monitoring_alerts: '云监控',
   cluster: '集群',
   compute: '云主机',
   paas_databases: '云数据库',

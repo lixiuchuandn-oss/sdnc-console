@@ -152,15 +152,33 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
         onClose={onClose}
         placement="right"
         width="60%"
-        styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}
+        styles={{
+          content: { overflow: 'hidden' },
+          body: {
+            padding: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          },
+        }}
       >
       <style>{`
-        .full-height-drawer-tabs { height: 100%; display: flex; flex-direction: column; }
+        .full-height-drawer-tabs { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
         .full-height-drawer-tabs .ant-tabs-nav { margin-bottom: 0; padding: 0 16px; }
         .full-height-drawer-tabs .ant-tabs-content-holder { flex: 1; height: 100%; overflow: hidden; }
         .full-height-drawer-tabs .ant-tabs-content { height: 100%; }
-        .full-height-drawer-tabs .ant-tabs-tabpane { height: 100%; }
-        .full-height-drawer-tabs .ant-tabs-tabpane-active { display: flex; flex-direction: column; }
+        .full-height-drawer-tabs .ant-tabs-tabpane { height: 100%; min-height: 0; }
+        .full-height-drawer-tabs .ant-tabs-tabpane-active { display: flex; flex-direction: column; min-height: 0; }
+        .harvester-ops-drawer-viewlink-pane {
+          flex: 1;
+          min-height: 0;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
       `}</style>
       <Tabs
         className="full-height-drawer-tabs"
@@ -518,7 +536,14 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                   key: 'view_link',
                   label: '实时数据 (View Link)',
                   children: (
-                    <ViewLinkTab cloudId={cloudId} viewLink={viewLink} active={activeTab === 'view_link'} />
+                    <div className="harvester-ops-drawer-viewlink-pane">
+                      <ViewLinkTab
+                        cloudId={cloudId}
+                        viewLink={viewLink}
+                        active={activeTab === 'view_link'}
+                        style={{ flex: 1, minHeight: 0, height: '100%' }}
+                      />
+                    </div>
                   ),
                 },
               ]

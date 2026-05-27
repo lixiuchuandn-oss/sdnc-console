@@ -29,6 +29,9 @@ function isNotFound(err: any): boolean {
   return status === 404 || msg.includes('not found');
 }
 
+/** 新建恢复：目标 VM 常在任务完成时才出现，需更长等待 */
+export const RESTORE_VM_ALIAS_MAX_WAIT_MS = 3_600_000;
+
 /**
  * 恢复/克隆后 VM 可能延迟创建；轮询并写入 tower.io/alias。
  */
