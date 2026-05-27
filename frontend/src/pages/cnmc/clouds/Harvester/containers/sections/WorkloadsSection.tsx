@@ -728,9 +728,21 @@ const WorkloadsSection: React.FC<Props> = ({
   
   // 打开编辑弹窗
   const handleEdit = useCallback((record: any) => {
-    setEditRecord(record);
+    // 添加缺失的 kind 字段，根据当前活动标签推断类型
+    const kind = activeTab === 'deployment' ? 'Deployment' 
+      : activeTab === 'statefulset' ? 'StatefulSet' 
+      : activeTab === 'daemonset' ? 'DaemonSet' 
+      : record?.kind;
+    
+    const enhancedRecord = {
+      ...record,
+      kind: record?.kind || kind,
+      apiVersion: record?.apiVersion || 'apps/v1',
+    };
+    
+    setEditRecord(enhancedRecord);
     setEditModalVisible(true);
-  }, []);
+  }, [activeTab]);
   
   // 根据 nsValue 过滤数据，并按创建时间倒序排序
   const filteredDeployments = useMemo(() => {

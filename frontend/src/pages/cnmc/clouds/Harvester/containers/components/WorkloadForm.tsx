@@ -1602,17 +1602,16 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     });
   }, [persistentVolumeClaims, selectedNamespace]);
   
-  // 使用 refreshKey 确保 add/remove 后立即重新读取数据
-  
-  const volumes = useMemo(() => {
+  // 直接从表单读取最新值，不使用 useMemo 缓存，确保卷名称变化时立即更新
+  const volumes = (() => {
     const v = form.getFieldValue('volumes');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [form, _refreshKey]);
+  })();
   
-  const volumeMounts = useMemo(() => {
+  const volumeMounts = (() => {
     const v = form.getFieldValue('volumeMounts');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [form, _refreshKey]);
+  })();
 
   // 添加卷 - 直接从 form 读取最新值，避免闭包问题
   const addVolume = useCallback((type: VolumeType) => {
@@ -4443,8 +4442,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       const staticIP = staticIPAnnotation || undefined;
       
       // 设置表单值
+      const kind = editData?.kind?.toLowerCase();
+      const type = editData?.type?.toLowerCase();
+      
+      // 根据 kind/type 字段识别工作负载类型
+      const workloadTypeValue = kind === 'daemonset' || type === 'daemonset' ? 'daemonset'
+        : kind === 'statefulset' || type === 'statefulset' ? 'statefulset'
+        : kind === 'deployment' || type === 'deployment' ? 'deployment'
+        : defaultType;
+      
       form.setFieldsValue({
-        workloadType: editData?.kind?.toLowerCase() || defaultType,
+        workloadType: workloadTypeValue,
         name: metadata?.annotations?.['tower.io/alias'] || metadata?.name || '',
         namespace: metadata?.namespace || 'default',
         labels,
@@ -6217,7 +6225,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             
             <LabelEditor name="labels" label="标签" />
             
-            {(workloadType === 'deployment' || workloadType === 'statefulset') && (
+            {workloadType !== 'daemonset' && (
               <Form.Item
                 name="replicas"
                 label="副本数"
@@ -6226,15 +6234,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               >
                 <InputNumber min={1} max={1000} style={{ width: '100%' }} />
               </Form.Item>
-            )}
-            
-            {workloadType === 'daemonset' && (
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginTop: 16 }}
-                message="DaemonSet 会在每个节点上运行一个 Pod，无需设置副本数"
-              />
             )}
           </div>
         );
