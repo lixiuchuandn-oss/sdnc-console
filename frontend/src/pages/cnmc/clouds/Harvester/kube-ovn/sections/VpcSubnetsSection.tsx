@@ -25,6 +25,11 @@ import {
 import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
 import { ovnDisplayName } from '../lib/ovnResourceDisplay';
 import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 /**
  * =============================================================================
@@ -48,8 +53,8 @@ type Props = {
   subnets: any[];
   vpcList?: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
-  onRefreshNads?: (force?: boolean, silent?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
+  onRefreshNads?: HarvesterSectionOnRefresh;
   showYaml?: boolean;
   /** 显式指定标准/运维列；不传则租户为标准列、管理员为运维列 */
   displayMode?: 'standard' | 'ops';
@@ -274,8 +279,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
         setAclModalVisible(false);
         setAclSubnetName(null);
         aclForm.resetFields();
-        onRefresh?.(true);
-        onRefreshNads?.(true, true);
+        runHarvesterSectionRefresh(onRefresh, { force: true });
+        runHarvesterSectionRefresh(onRefreshNads, { force: true, silent: true });
       } catch (e: any) {
         console.error(e);
         if (e?.errorFields) throw e;
@@ -383,8 +388,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
               try {
                 await deleteKubeOvnSubnet(cloudId!, name);
                 message.success('删除成功');
-                onRefresh?.(true);
-                onRefreshNads?.(true, true);
+                runHarvesterSectionRefresh(onRefresh, { force: true });
+                runHarvesterSectionRefresh(onRefreshNads, { force: true, silent: true });
               } catch (e: any) {
                 const msg = e?.response?.data || e?.message || '未知错误';
                 message.error(`删除失败: ${typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg}`);
@@ -669,7 +674,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
             新建 VPC 子网
           </Button>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_subnets_table" />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />
+          <Button icon={<ReloadOutlined />} onClick={createHarvesterToolbarRefresh(onRefresh)} />
         </>
       }
     >

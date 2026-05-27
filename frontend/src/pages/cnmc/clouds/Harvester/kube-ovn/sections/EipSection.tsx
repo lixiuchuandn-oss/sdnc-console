@@ -26,6 +26,11 @@ import {
   buildPublicSubnetNameToVpcNameMap,
   getOvnEipBoundVpcName,
 } from '../lib/kubeOvnEipVpcHelpers';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 function ipv4ToInt(ip: string): number | null {
   const m = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -89,7 +94,7 @@ function ipv4ExcludedBy(entries: string[], ip: string): boolean {
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
-  onRefresh: (force?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
   bordered?: boolean;
 }
 
@@ -289,7 +294,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
       message.success(networkScope === 'flat' ? '公网 IP 创建成功' : 'EIP 创建成功');
       setIsCreateVisible(false);
       form.resetFields();
-      onRefresh(true);
+      runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       let errMsg = e.message || '创建失败';
       try {
@@ -340,7 +345,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
                 uiNetworkScopeToCloudOvn(networkScope),
               );
               message.success('删除成功');
-              onRefresh(true);
+              runHarvesterSectionRefresh(onRefresh, { force: true });
             } catch (e: any) {
               message.error(`删除失败: ${e.message}`);
             }
@@ -547,7 +552,12 @@ export const EipSection: React.FC<EipSectionProps> = ({
           <Space size={8}>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey={eipTableSettingsKey} />
             <Tooltip title="刷新">
-              <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading} aria-label="刷新" />
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={createHarvesterToolbarRefresh(onRefresh)}
+                loading={loading}
+                aria-label="刷新"
+              />
             </Tooltip>
           </Space>
         }

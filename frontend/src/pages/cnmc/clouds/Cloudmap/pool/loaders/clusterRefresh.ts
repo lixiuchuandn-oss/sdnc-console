@@ -18,7 +18,8 @@ export type ClusterInnerTabKey =
   | 'cluster_pci'
   | 'cluster_sriov'
   | 'cluster_vlans'
-  | 'kubeovn_public_networks';
+  | 'kubeovn_public_networks'
+  | 'kubeovn_public_subnets';
 
 export type ClusterTabRefreshDeps = {
   loadTabResource: (
@@ -63,6 +64,10 @@ export function createClusterTabOnRefresh(
           force !== false,
           skipSync,
         );
+      };
+    case 'kubeovn_public_subnets':
+      return (force?: boolean) => {
+        void loadTabResource('kubeovn_public_subnets', force !== false);
       };
     default:
       return (force?: boolean) => {

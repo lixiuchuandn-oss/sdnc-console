@@ -89,12 +89,12 @@
 
 ### 聚合子域 · Section 层待收口
 
-池层 key（如 `nads`、`cluster_vlans`）已进 **`clusterTabOnRefresh`**，但下列 Section 仍部分裸调 **`onRefresh(true)`** 或未统一 **`runHarvesterSectionRefresh`**，**不算 cluster 样板间完成**：
+池层 key（如 `nads`、`cluster_vlans`）已进 **`clusterTabOnRefresh`**。下列仍待完全对齐 **`runHarvesterSectionRefresh`**，**不算 cluster 样板间完成**：
 
 - **`nad/`**：`NadsSection`、`LoadBalancersSection`、`IPPoolsSection`
-- **`kube-ovn/`**：`VlansSection`、`ProviderNetworksSection` 等（受控模式下工具栏可走池 `onRefresh`，写成功路径仍待对齐）
+- **`kube-ovn/`（cluster 导航）**：`ProviderNetworksSection` / `VlansSection` 已接池 `onRefresh` 与 shared helper；**`UnderlaySubnetsSection`** 列表主体仍 Section 自拉（见 **`Harvester/kube-ovn/README.md`** 例外）
 
-收口时：**不改导航归属、不迁目录**；在各自域内 Section 改用 shared refresh helper，父级继续注入 `clusterTabOnRefresh.*`。
+收口时：**不改导航归属、不迁目录**；在各自域内 Section 改用 shared refresh helper，父级继续注入 `clusterTabOnRefresh.*` 或 **`kubeOvnTabOnRefresh.*`**（VPC/扁平侧栏见 **`panels/kube_ovn`**）。
 
 ## 列表表格
 

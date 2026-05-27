@@ -466,19 +466,13 @@ const FlatNetworkRoute: React.FC = () => {
       checkPerm={p.checkPerm}
       canReadFlatSubnets={p.canReadFlatSubnets}
       innerActiveKey={p.poolInnerActive('flat_network')}
-      loadResource={p.loadResource}
       loadTabResource={p.loadTabResource}
-      setResourceLoading={p.setResourceLoading}
       kubeOvnSubnets={p.kubeOvnSubnets}
-      setKubeOvnSubnets={p.setKubeOvnSubnets}
-      setRawSubnets={p.setRawSubnets}
       rawSubnets={p.rawSubnets}
       kubeOvnFlatEips={p.kubeOvnFlatEips}
       kubeOvnVpcs={p.kubeOvnVpcs}
       kubeOvnFlatSnatRules={p.kubeOvnFlatSnatRules}
-      setKubeOvnFlatSnatRules={p.setKubeOvnFlatSnatRules}
       kubeOvnFlatDnatRules={p.kubeOvnFlatDnatRules}
-      setKubeOvnFlatDnatRules={p.setKubeOvnFlatDnatRules}
       resourceLoading={p.resourceLoading}
     />
   );
