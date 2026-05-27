@@ -1435,13 +1435,13 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
               <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 500 }}>环境变量</span>
                 <Space>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'keyValue' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'keyValue' }, 0)} icon={<PlusOutlined />}>
                     键值对
                   </Button>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'configMapKeyRef' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'configMapKeyRef' }, 0)} icon={<PlusOutlined />}>
                     从 ConfigMap 引入
                   </Button>
-                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'secretKeyRef' })} icon={<PlusOutlined />}>
+                  <Button type="dashed" size="small" htmlType="button" onClick={() => add({ type: 'secretKeyRef' }, 0)} icon={<PlusOutlined />}>
                     从 Secret 引入
                   </Button>
                 </Space>
@@ -1546,8 +1546,8 @@ interface VolumesEditorProps {
   cloudId: string;
   namespacesOptions: string[];
   selectedNamespace: string;
-  configMaps: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
-  secrets: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  configMaps: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
+  secrets: Array<{ metadata: { name: string; namespace: string; annotations?: Record<string, string> }; data?: Record<string, string> }>;
   persistentVolumeClaims?: Array<{
     metadata: { name: string; namespace: string; annotations?: Record<string, string> };
     raw?: { metadata?: { annotations?: Record<string, string> } };
@@ -1561,6 +1561,7 @@ interface VolumesEditorProps {
   onOpenQuickCreateConfigMap: () => void;
   onOpenQuickCreateSecret: () => void;
   refreshKey?: number; // 父组件传入的刷新标记，变化时重新读取数据
+  onVolumeChange?: () => void; // 卷变化时通知父组件
 }
 
 const VolumesEditor: React.FC<VolumesEditorProps> = ({
@@ -1575,6 +1576,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   onOpenQuickCreateConfigMap,
   onOpenQuickCreateSecret,
   refreshKey: _refreshKey = 0,
+  onVolumeChange,
 }) => {
   const form = Form.useFormInstance();
   
@@ -1600,32 +1602,24 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     });
   }, [persistentVolumeClaims, selectedNamespace]);
   
-  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
-  // 使用 Form.useWatch 监听 volumes 和 volumeMounts 的变化
-  // 同时使用 useReducer 强制刷新，确保 add/remove 后立即渲染
-  const watchedVolumes = Form.useWatch('volumes', form);
-  const watchedVolumeMounts = Form.useWatch('volumeMounts', form);
-  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
-  
-  const volumes = useMemo(() => {
-    void watchedVolumes;
+  // 直接从表单读取最新值，不使用 useMemo 缓存，确保卷名称变化时立即更新
+  const volumes = (() => {
     const v = form.getFieldValue('volumes');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [watchedVolumes, form]);
+  })();
   
-  const volumeMounts = useMemo(() => {
-    void watchedVolumeMounts;
+  const volumeMounts = (() => {
     const v = form.getFieldValue('volumeMounts');
     return Array.isArray(v) ? v.filter(Boolean) : [];
-  }, [watchedVolumeMounts, form]);
+  })();
 
   // 添加卷 - 直接从 form 读取最新值，避免闭包问题
   const addVolume = useCallback((type: VolumeType) => {
     const currentVolumes = form.getFieldValue('volumes') || [];
     const newVolume: VolumeConfig = { name: '', type };
-    form.setFieldsValue({ volumes: [...currentVolumes, newVolume] });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    form.setFieldsValue({ volumes: [newVolume, ...currentVolumes] });
+    onVolumeChange?.();
+  }, [form, onVolumeChange]);
 
   // 删除卷
   const removeVolume = useCallback((index: number) => {
@@ -1640,24 +1634,24 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
       const updatedMounts = currentMounts.filter((m: VolumeMountConfig) => m.name !== volName);
       form.setFieldsValue({ volumeMounts: updatedMounts });
     }
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 添加挂载
   const addVolumeMount = useCallback(() => {
     const currentMounts = form.getFieldValue('volumeMounts') || [];
     const newMount: VolumeMountConfig = { name: '', mountPath: '', readOnly: false };
-    form.setFieldsValue({ volumeMounts: [...currentMounts, newMount] });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    form.setFieldsValue({ volumeMounts: [newMount, ...currentMounts] });
+    onVolumeChange?.();
+  }, [form, onVolumeChange]);
 
   // 删除挂载
   const removeVolumeMount = useCallback((index: number) => {
     const currentMounts = form.getFieldValue('volumeMounts') || [];
     const updated = currentMounts.filter((_: VolumeMountConfig, i: number) => i !== index);
     form.setFieldsValue({ volumeMounts: updated });
-    forceUpdate(); // 强制刷新
-  }, [form]);
+    onVolumeChange?.(); // 通知父组件刷新
+  }, [form, onVolumeChange]);
 
   // 获取可用的卷名称列表（用于挂载选择）
   const availableVolumeNames = volumes.filter((v: VolumeConfig) => v.name).map((v: VolumeConfig) => v.name);
@@ -1720,7 +1714,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                   const currentName = updated[index]?.name;
                   updated[index] = { name: currentName || '', type: newType };
                   form.setFieldsValue({ volumes: updated });
-                  forceUpdate();
+                  onVolumeChange?.(); // 通知父组件刷新
                 }}
               />
             </Form.Item>
@@ -1741,10 +1735,14 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                     placeholder="选择 ConfigMap"
                     showSearch
                     optionFilterProp="label"
-                    options={filteredConfigMaps.map(cm => ({
-                      label: cm.metadata.name,
-                      value: cm.metadata.name,
-                    }))}
+                    options={filteredConfigMaps.map(cm => {
+                      const alias = cm?.metadata?.annotations?.['tower.io/alias'];
+                      const name = cm.metadata.name;
+                      return {
+                        label: alias ? `${alias} (${name})` : name,
+                        value: name,
+                      };
+                    })}
                     dropdownRender={(menu) => (
                       <>
                         {menu}
@@ -1801,10 +1799,14 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                                   placeholder="选择 Secret"
                                   showSearch
                                   optionFilterProp="label"
-                                  options={filteredSecrets.map(s => ({
-                                    label: s.metadata.name,
-                                    value: s.metadata.name,
-                                  }))}                    dropdownRender={(menu) => (
+                                  options={filteredSecrets.map(s => {
+                                    const alias = s?.metadata?.annotations?.['tower.io/alias'];
+                                    const name = s.metadata.name;
+                                    return {
+                                      label: alias ? `${alias} (${name})` : name,
+                                      value: name,
+                                    };
+                                  })}                    dropdownRender={(menu) => (
                       <>
                         {menu}
                         <Divider style={{ margin: '8px 0' }} />
@@ -4200,7 +4202,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
   // 编辑模式：初始化表单数据
   useEffect(() => {
-    if (editData) {
+    if (!editData) return;
+    try {
       const spec = editData?.spec || {};
       const metadata = editData?.metadata || {};
       const template = spec?.template || {};
@@ -4440,8 +4443,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       const staticIP = staticIPAnnotation || undefined;
       
       // 设置表单值
+      const kind = editData?.kind?.toLowerCase();
+      const type = editData?.type?.toLowerCase();
+      
+      // 根据 kind/type 字段识别工作负载类型
+      const workloadTypeValue = kind === 'daemonset' || type === 'daemonset' ? 'daemonset'
+        : kind === 'statefulset' || type === 'statefulset' ? 'statefulset'
+        : kind === 'deployment' || type === 'deployment' ? 'deployment'
+        : defaultType;
+      
       form.setFieldsValue({
-        workloadType: editData?.kind?.toLowerCase() || defaultType,
+        workloadType: workloadTypeValue,
         name: metadata?.annotations?.['tower.io/alias'] || metadata?.name || '',
         namespace: metadata?.namespace || 'default',
         labels,
@@ -4477,6 +4489,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       };
       const yamlStr = yaml.dump(cleanData, { indent: 2 });
       setYamlContent(yamlStr);
+    } catch (err) {
+      console.error('编辑模式初始化表单数据失败:', err);
     }
   }, [editData, defaultType, form]);
   
@@ -4523,7 +4537,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         
         setKubeSubnets(normalizedSubnets);
         setKubeVpcs(normalizedVpcs);
-        setNads(Array.isArray(nadsRes?.items) ? nadsRes.items : (Array.isArray(nadsRes) ? nadsRes : []));
+        setNads(nadsRes?.data?.items || nadsRes?.items || (Array.isArray(nadsRes) ? nadsRes : []));
       } catch (error) {
         console.error('获取网络数据失败:', error);
       } finally {
@@ -4784,7 +4798,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   }, [cloudId, form, flatSubnetOptions, kubeSubnets, selectedVpc, message]);
   
   
-  // NAD 选项（排除 kube-ovn 类型，参考 VM 创建向导）
   const allNadOptions = useMemo(() => {
     const selectedNamespace = form.getFieldValue('namespace') || defaultNamespace || 'default';
     return (nads || [])
@@ -4793,17 +4806,15 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         const ns = n?.metadata?.namespace || n?.namespace || 'default';
         const displayName = n?.spec?.displayName || n?.metadata?.annotations?.['tower.io/alias'] || '';
         
-        // 解析 config 获取 type 和 vlan
         let type = 'unknown';
         let vlan: any = undefined;
+        let promiscMode = false;
         try {
           const cfg = JSON.parse(n?.spec?.config || '{}');
           type = String(cfg?.type || 'unknown').toLowerCase();
           vlan = cfg?.vlan;
+          promiscMode = !!cfg?.promiscMode;
         } catch {}
-        
-        // 排除 kube-ovn 类型的 NAD
-        if (type === 'kube-ovn') return null;
         
         const isCurrentNs = ns === selectedNamespace;
         const tag = type || '-';
@@ -4817,17 +4828,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           value: `${ns}/${name}`,
           nad: n,
           _type: type,
+          _promisc: promiscMode,
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null) // 过滤掉 null
-      .sort((a, b) => {
-        // 当前命名空间的NAD排在前面
-        const aNs = a.value.split('/')[0];
-        const bNs = b.value.split('/')[0];
-        if (aNs === selectedNamespace && bNs !== selectedNamespace) return -1;
-        if (aNs !== selectedNamespace && bNs === selectedNamespace) return 1;
-        return a.label.localeCompare(b.label);
-      });
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .filter((x: any) => x._promisc === true)
+      .filter((x: any) => x.value.split('/')[0] === selectedNamespace)
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [nads, defaultNamespace, form]);
   
   // 监听工作负载类型变化
@@ -5427,16 +5434,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           break;
           
         case 'custom_nad':
-          // 自定义 NAD：设置 networks 注解
           if (customNad) {
             annotations['k8s.v1.cni.cncf.io/networks'] = customNad;
+            const selectedNadOption = allNadOptions.find((o: any) => o.value === customNad);
+            if (selectedNadOption?._type === 'kube-ovn') {
+              const nadParts = customNad.split('/');
+              if (nadParts.length === 2) {
+                annotations['ovn.kubernetes.io/logical_switch'] = nadParts[1];
+              }
+            }
           }
           break;
-      }
-      
-      // 静态 IP 配置（仅自定义NAD，扁平子网和VPC子网已在case中处理）
-      if (enableStaticIP && staticIP && networkType === 'custom_nad') {
-        annotations['ovn.kubernetes.io/ip_address'] = staticIP;
       }
       
       return annotations;
@@ -5965,6 +5973,28 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         
         resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
+
+        // 防御性检查：编辑模式下若表单 workloadType 与资源类型不一致，自动纠正
+        if (isEditMode) {
+          const editKind = editData?.kind?.toLowerCase()
+            || (editMetadata?.name && (() => {
+              if (editMetadata.name.startsWith('id-ds-')) return 'daemonset';
+              if (editMetadata.name.startsWith('id-sts-')) return 'statefulset';
+              if (editMetadata.name.startsWith('id-dep-')) return 'deployment';
+              return null;
+            })());
+          if (editKind) {
+            const formType = values.workloadType?.toLowerCase();
+            if (editKind !== formType) {
+              console.warn('[WorkloadForm 提交] workloadType 不一致，自动纠正:', { formType, editKind, name: editMetadata?.name });
+              values.workloadType = editKind;
+              syncedValues.workloadType = editKind;
+              resource = buildK8sResource(syncedValues);
+              apiPath = getApiPath(editKind as WorkloadType);
+            }
+          }
+        }
+
         namespace = values.namespace;
         
         // 编辑模式下，保留原有元数据，使用资源 ID 作为 API 路径参数
@@ -6040,11 +6070,31 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       await form.validateFields();
       // 切换步骤前持久化当前容器数据（包括 volumeMounts）
       persistActiveContainerToForm();
+      
+      // 在存储配置页面（步骤3）点击下一步时，检查是否有存储卷但没有卷挂载
+      if (currentStep === 3) {
+        const volumes = form.getFieldValue('volumes') || [];
+        const containers = form.getFieldValue('containers') || [];
+        let hasVolumeMounts = false;
+        
+        for (const container of containers) {
+          if ((container.volumeMounts || []).length > 0) {
+            hasVolumeMounts = true;
+            break;
+          }
+        }
+        
+        if (volumes.length > 0 && !hasVolumeMounts) {
+          message.warning('已定义存储卷，请配置至少一个卷挂载');
+          return;
+        }
+      }
+      
       setCurrentStep((prev) => prev + 1);
     } catch {
       // 验证失败，不跳转
     }
-  }, [form, persistActiveContainerToForm]);
+  }, [form, persistActiveContainerToForm, currentStep, message]);
   
   // 上一步
   const handlePrev = useCallback(() => {
@@ -6086,7 +6136,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } else if (values.networkType === 'custom_nad') {
       networkSummary = values.customNad ? `NAD: ${values.customNad}` : '自定义NAD';
     }
-    if (values.enableStaticIP && values.staticIP) {
+    if (values.enableStaticIP && values.staticIP && values.networkType !== 'custom_nad') {
       networkSummary += ` (静态IP: ${values.staticIP})`;
     }
     
@@ -6199,7 +6249,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             
             <LabelEditor name="labels" label="标签" />
             
-            {(workloadType === 'deployment' || workloadType === 'statefulset') && (
+            {workloadType !== 'daemonset' && (
               <Form.Item
                 name="replicas"
                 label="副本数"
@@ -6208,15 +6258,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               >
                 <InputNumber min={1} max={1000} style={{ width: '100%' }} />
               </Form.Item>
-            )}
-            
-            {workloadType === 'daemonset' && (
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginTop: 16 }}
-                message="DaemonSet 会在每个节点上运行一个 Pod，无需设置副本数"
-              />
             )}
           </div>
         );
@@ -6732,36 +6773,33 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         placeholder={selectedVpc ? "选择子网" : "请先选择VPC"}
                         showSearch
                         optionFilterProp="label"
-                        options={vpcSubnetOptions}
-                        disabled={!selectedVpc}
-                        onChange={(val) => {
-                          // 查找选中的子网对象
+                        options={vpcSubnetOptions.map(opt => {
+                          // 查找子网对象生成 NAD 引用
                           const subnet = (kubeSubnets || []).find(s => 
-                            (s.name || s?.metadata?.name) === val && 
+                            (s.name || s?.metadata?.name) === opt.value && 
                             (s.vpc || s?.spec?.vpc) === selectedVpc
                           );
-                          if (!subnet) {
-                            form.setFieldsValue({ vpcSubnet: val });
-                            return;
-                          }
                           
-                          // 提取 namespace
-                          let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
-                          if (!subnetNs) {
-                            const provider = subnet?.provider || subnet?.spec?.provider;
-                            if (provider) {
-                              const parts = provider.split('.');
-                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                          let nadRef = opt.value;
+                          if (subnet) {
+                            let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
+                            if (!subnetNs) {
+                              const provider = subnet?.provider || subnet?.spec?.provider;
+                              if (provider) {
+                                const parts = provider.split('.');
+                                if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                              }
                             }
+                            subnetNs = subnetNs || 'default';
+                            nadRef = `${subnetNs}/${opt.value}`;
                           }
-                          subnetNs = subnetNs || 'default';
                           
-                          // 生成 NAD 引用（namespace/name 格式）
-                          const nadRef = `${subnetNs}/${val}`;
-                          
-                          // 存储 NAD 引用
-                          form.setFieldsValue({ vpcSubnet: nadRef });
-                        }}
+                          return {
+                            ...opt,
+                            value: nadRef,
+                          };
+                        })}
+                        disabled={!selectedVpc}
                       />
                     </Form.Item>
                   </>
@@ -6801,7 +6839,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 
                 <Divider />
                 
-                {networkType !== 'default' && (() => {
+                {networkType !== 'default' && networkType !== 'custom_nad' && (() => {
                   // 获取当前子网的 CIDR 信息
                   let currentCidr: string | undefined;
                   
@@ -6921,7 +6959,7 @@ return (
                           <div style={{ marginTop: 8 }}>VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。</div>
                         )}
                         {networkType === 'custom_nad' && (
-                          <div style={{ marginTop: 8 }}>自定义 NAD 需要预先创建 NetworkAttachmentDefinition 资源。</div>
+                          <div style={{ marginTop: 8 }}>自定义 NAD 仅展示当前命名空间下混杂模式已开启的网络。Kube-OVN 类型的 NAD 将自动补充子网注解。非 Kube-OVN 类型（如 macvlan/bridge）的 NAD 需在 NAD 配置中设置 IPAM（如 DHCP 或静态 IP）才能为容器分配 IP 地址。</div>
                         )}
                       </div>
                     }
@@ -6970,6 +7008,7 @@ return (
                       onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
                       onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
                       refreshKey={volumeRefreshKey}
+                      onVolumeChange={() => setVolumeRefreshKey(v => v + 1)}
                     />
                   ) : (
                     <div

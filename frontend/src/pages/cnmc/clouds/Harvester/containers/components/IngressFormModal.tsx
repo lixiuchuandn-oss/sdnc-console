@@ -22,6 +22,7 @@ export interface IngressFormModalProps {
   cloudId: string;
   namespacesOptions: string[];
   secrets?: any[];
+  services?: any[];
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
@@ -34,6 +35,7 @@ const IngressFormModal: React.FC<IngressFormModalProps> = ({
   cloudId,
   namespacesOptions,
   secrets,
+  services,
   onSuccess,
   onCancel,
   defaultNamespace,
@@ -59,6 +61,7 @@ const IngressFormModal: React.FC<IngressFormModalProps> = ({
         cloudId={cloudId}
         namespacesOptions={namespacesOptions}
         secrets={secrets}
+        services={services}
         onSuccess={() => {
           onSuccess();
           onCancel();

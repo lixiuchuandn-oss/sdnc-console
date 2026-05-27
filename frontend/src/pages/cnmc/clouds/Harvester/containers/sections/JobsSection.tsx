@@ -37,6 +37,7 @@ import {
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 import { JobForm, CronJobForm } from '../components';
+import { parseToChinese } from '../components/CronExpressionHelper';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
 
@@ -917,6 +918,10 @@ const CronJobDetailDrawer: React.FC<{
           <Descriptions.Item label="调度计划" span={2}>
             <Space direction="vertical">
               <Tag icon={<ClockCircleOutlined />}>{schedule}</Tag>
+              {(() => {
+                const chineseDesc = parseToChinese(schedule);
+                return chineseDesc ? <Tag color="blue">{chineseDesc}</Tag> : null;
+              })()}
               {macroLabel && (
                 <div>
                   <Tag color="orange">宏表达式</Tag>
@@ -1711,10 +1716,13 @@ const CronJobTable: React.FC<{
       key: 'schedule',
       render: (schedule: string) => {
         const macroLabel = getMacroLabel(schedule);
+        const chineseDesc = parseToChinese(schedule);
+        const displayText = macroLabel || schedule;
+        const fullText = chineseDesc ? `${schedule}（${chineseDesc}）` : schedule;
         return (
-          <Tooltip title={macroLabel ? `${schedule} (${macroLabel})` : schedule}>
+          <Tooltip title={fullText}>
             <Tag icon={<ClockCircleOutlined />}>
-              {macroLabel || schedule}
+              {displayText}{chineseDesc && !macroLabel ? `（${chineseDesc}）` : ''}
             </Tag>
           </Tooltip>
         );
