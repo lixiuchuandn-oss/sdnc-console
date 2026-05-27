@@ -25,7 +25,6 @@ import {
   Select,
   Button,
   Space,
-  Divider,
   Row,
   Col,
   App,
@@ -38,7 +37,6 @@ import {
   PlusOutlined,
   MinusCircleOutlined,
   InfoCircleOutlined,
-  GlobalOutlined,
 } from '@ant-design/icons';
 import { createHarvesterIngress, updateHarvesterIngress } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace, translateK8sError } from '../../../../../../utils/harvesterUtils';
@@ -79,6 +77,7 @@ export interface IngressFormProps {
   cloudId: string;
   namespacesOptions: string[];
   secrets?: any[]; // 可用的 Secret 列表（用于 TLS）
+  services?: any[]; // 可用的 Service 列表（用于 serviceName 选择）
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
@@ -153,6 +152,7 @@ const IngressForm: React.FC<IngressFormProps> = ({
   cloudId,
   namespacesOptions,
   secrets,
+  services,
   onSuccess,
   onCancel,
   defaultNamespace,
@@ -348,6 +348,24 @@ const IngressForm: React.FC<IngressFormProps> = ({
       }));
   }, [secrets, currentNamespace]);
 
+  const serviceNamesOptions = useMemo(() => {
+    if (!services || !currentNamespace) return [];
+    return services
+      .filter((s: any) => {
+        const ns = s.metadata?.namespace || s.namespace;
+        return ns === currentNamespace;
+      })
+      .map((s: any) => {
+        const id = s.metadata?.name || s.name;
+        const alias = s.metadata?.annotations?.['tower.io/alias'];
+        const label = alias ? `${alias} (${id})` : id;
+        return {
+          label,
+          value: id,
+        };
+      });
+  }, [services, currentNamespace]);
+
   return (
     <Form
       form={form}
@@ -499,10 +517,15 @@ const IngressForm: React.FC<IngressFormProps> = ({
                               <Form.Item
                                 {...pathRest}
                                 name={[pathIndex, 'backend', 'service', 'name']}
-                                rules={[{ required: true, message: 'Service 名称' }]}
+                                rules={[{ required: true, message: '请选择 Service' }]}
                                 style={{ marginBottom: 0 }}
                               >
-                                <Input placeholder="Service 名称" />
+                                <Select
+                                  placeholder="选择 Service"
+                                  showSearch
+                                  optionFilterProp="label"
+                                  options={serviceNamesOptions}
+                                />
                               </Form.Item>
                             </Col>
                             <Col span={5}>
@@ -594,6 +617,7 @@ const IngressForm: React.FC<IngressFormProps> = ({
                             placeholder="选择 TLS Secret"
                             options={tlsSecretOptions}
                             showSearch
+                            optionFilterProp="label"
                           />
                         </Form.Item>
                       </Col>

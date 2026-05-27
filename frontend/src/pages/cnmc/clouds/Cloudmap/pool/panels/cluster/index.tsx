@@ -16,7 +16,6 @@ import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
 import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
-import { fetchKubeOvnSubnets } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isValidCloudmapPoolInnerSeg } from '../../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import '../../styles/layout.css';
@@ -196,8 +195,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     rawUsbDevices,
     harvesterPciDevices,
     rawPciDevices,
-    cloudConfig,
-    onReloadCloudMeta,
     resourceLoading,
   } = props;
 
@@ -234,6 +231,10 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
       cluster_vlans: createClusterTabOnRefresh('cluster_vlans', deps),
       kubeovn_public_networks: createClusterTabOnRefresh(
         'kubeovn_public_networks',
+        deps,
+      ),
+      kubeovn_public_subnets: createClusterTabOnRefresh(
+        'kubeovn_public_subnets',
         deps,
       ),
     };
@@ -290,16 +291,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               cloudId={cloudId}
               mode="public"
               onSubnetsChanged={() =>
-                loadResource(
-                  'subnets',
-                  () => fetchKubeOvnSubnets(cloudId, true),
-                  (json) => {
-                    const list: any[] = (json as any)?.data?.items || [];
-                    setKubeOvnSubnets(Array.isArray(list) ? list : []);
-                    setRawSubnets(json || null);
-                  },
-                  true,
-                )
+                void clusterTabOnRefresh.kubeovn_public_subnets(true, true)
               }
             />
             <DebugJSON data={rawSubnets} show={showLog} />

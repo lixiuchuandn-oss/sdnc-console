@@ -31,19 +31,20 @@ export function isPhysicalRootDisk(d: any): boolean {
 }
 
 export function isHmsVirtualDiskEntry(d: any): boolean {
-  const model = String(d?.model ?? d?.Model ?? '')
-    .trim()
-    .toLowerCase();
-  if (model) {
-    if (
-      model.includes('virtual-disk') ||
-      model.includes('virtual disk') ||
-      model.includes('virtio') ||
-      model.includes('qemu') ||
-      (model.includes('vmware') && model.includes('virtual'))
-    ) {
-      return true;
-    }
+  const model = String(d?.model ?? d?.Model ?? '').trim();
+  const modelLower = model.toLowerCase();
+
+  // HMS 物理扫描：前面板只展示带型号的物理硬盘；无型号视为虚拟化/非物理盘
+  if (!model) return true;
+
+  if (
+    modelLower.includes('virtual-disk') ||
+    modelLower.includes('virtual disk') ||
+    modelLower.includes('virtio') ||
+    modelLower.includes('qemu') ||
+    (modelLower.includes('vmware') && modelLower.includes('virtual'))
+  ) {
+    return true;
   }
   const name = String(d?.name ?? d?.Name ?? '')
     .trim()

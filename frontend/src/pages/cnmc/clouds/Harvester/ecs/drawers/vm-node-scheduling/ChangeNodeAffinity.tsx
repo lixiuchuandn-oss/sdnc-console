@@ -30,7 +30,7 @@ const ExpressionRow: React.FC<{
   onRemove: () => void;
 }> = ({ exprName, operatorPath, form, onRemove }) => {
   return (
-    <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => {
+    <Form.Item noStyle shouldUpdate={() => {
       const prevOp = form.getFieldValue(operatorPath);
       const currentOp = form.getFieldValue(operatorPath);
       return prevOp !== currentOp;
@@ -115,7 +115,6 @@ const ExpressionRow: React.FC<{
 
 const ChangeNodeAffinity: React.FC<Props> = ({ 
   form, 
-  cloudId, 
   record
 }) => {
   // 从 VM 配置中提取当前的节点亲和性信息

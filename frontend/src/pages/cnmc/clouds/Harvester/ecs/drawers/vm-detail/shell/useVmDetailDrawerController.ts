@@ -296,6 +296,7 @@ export function useVmDetailDrawerController({
       onRefresh,
       reloadVmDetailGpuResources,
       reloadVmDetailUsbResources,
+      reloadVmDetailPciDevices,
     ],
   );
 

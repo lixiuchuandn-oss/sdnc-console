@@ -439,7 +439,6 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     volumes,
     resourceLoading,
     namespacesOptions,
-    namespaceRecords,
     nodesOptions,
     nsValue,
     nodeValue,

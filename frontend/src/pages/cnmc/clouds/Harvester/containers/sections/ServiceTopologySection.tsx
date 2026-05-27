@@ -11,7 +11,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Select, Space, Spin, Empty, Drawer, Descriptions, Tag, Button, Tooltip, App, Table, Tabs } from 'antd';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import { ReloadOutlined, EditOutlined, CodeOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EditOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
 import { ServiceTopology } from '../components/topology';
 import { buildServiceTopology, getTopologyStats, TopologyNode } from '../components/serviceTopologyUtils';
 import { YamlEditModal, IngressFormModal, PodTerminal } from '../components';
@@ -199,7 +199,7 @@ const PodLogViewer: React.FC<{
 
 // ========== Pod 详情抽屉 ==========
 
-const PodDetailDrawer: React.FC<{
+const _PodDetailDrawer: React.FC<{
   pod: any;
   visible: boolean;
   cloudId: string;
@@ -674,7 +674,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
 
   // ========== 快速操作 ==========
 
-  const handleYamlEdit = useCallback((node: TopologyNode) => {
+  const _handleYamlEdit = useCallback((node: TopologyNode) => {
     setYamlEditingNode(node);
     setYamlModalOpen(true);
   }, []);
@@ -749,7 +749,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
 
   // ========== 渲染 ==========
 
-  const getNodeStatusColor = (status?: string) => {
+  const _getNodeStatusColor = (status?: string) => {
     switch (status) {
       case 'Running': return 'success';
       case 'Pending': return 'warning';
@@ -762,7 +762,7 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
 
   const renderNodeDetails = () => {
     if (!selectedNode) return null;
-    const { type, name, namespace, status, ip, port, host, labels, rawData, extra } = selectedNode;
+    const { type, name, namespace, port, host, labels, rawData, extra } = selectedNode;
 
     // Pod 直接显示完整详情
     if (type === 'pod' && rawData) {

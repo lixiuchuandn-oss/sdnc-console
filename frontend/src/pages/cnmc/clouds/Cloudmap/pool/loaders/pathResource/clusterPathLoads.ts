@@ -11,6 +11,7 @@ import {
   fetchHarvesterClusterNetworks,
   fetchHarvesterNodes,
   fetchHarvesterStorageClasses,
+  fetchKubeOvnSubnets,
 } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
@@ -53,9 +54,29 @@ export async function tryLoadClusterTab(
     setHarvesterNodes,
     setRawNodes,
     setHarvesterStorageClasses,
+    setKubeOvnSubnets,
+    setRawSubnets,
   } = deps;
 
   switch (key) {
+    case 'kubeovn_public_subnets':
+      if (checkPerm('clouds.networks:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) {
+        loadResource(
+          'subnets',
+          () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : Array.isArray((json as any)?.items)
+                ? (json as any).items
+                : [];
+            setKubeOvnSubnets(Array.isArray(list) ? list : []);
+            setRawSubnets(json || null);
+          },
+          force,
+        );
+      }
+      return true;
     case 'namespaces':
       if (
         checkPerm('clouds.namespaces:read') ||

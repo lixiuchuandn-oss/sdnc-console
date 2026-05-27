@@ -26,13 +26,11 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
-  fetchHarvesterDeployments,
-  fetchHarvesterStatefulSets,
-  fetchHarvesterDaemonSets,
   scaleHarvesterDeployment,
   scaleHarvesterStatefulSet,
   restartHarvesterDeployment,
   restartHarvesterStatefulSet,
+  restartHarvesterDaemonSet,
   deleteHarvesterContainerResource,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
@@ -363,6 +361,8 @@ const WorkloadTable: React.FC<{
     try {
       if (type === 'statefulset') {
         await restartHarvesterStatefulSet(cloudId, namespace, name);
+      } else if (type === 'daemonset') {
+        await restartHarvesterDaemonSet(cloudId, namespace, name);
       } else {
         await restartHarvesterDeployment(cloudId, namespace, name);
       }
@@ -502,7 +502,6 @@ const WorkloadTable: React.FC<{
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => handleRestart(record),
-            show: type === 'deployment' || type === 'statefulset',
           },
           {
             key: 'delete',
@@ -527,13 +526,13 @@ const WorkloadTable: React.FC<{
           ? itemsAll.filter((i) => i.key === 'yaml')
           : itemsAll
         )
-          .filter((item: any) => !item.show || item.show === true)
-          .map(({ show, ...rest }: any) => rest);
+          .filter((item: any) => item.show === undefined || item.show === true)
+          .map(({ show: _show, ...rest }: any) => rest);
 
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, onEdit, modal, typeLabel, operationsReadOnly]);
+  ], [type, handleScale, handleRestart, handleDelete, handleViewYaml, handleOpenAliasModal, onEdit, modal, typeLabel, operationsReadOnly]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -729,9 +728,21 @@ const WorkloadsSection: React.FC<Props> = ({
   
   // 打开编辑弹窗
   const handleEdit = useCallback((record: any) => {
-    setEditRecord(record);
+    // 添加缺失的 kind 字段，根据当前活动标签推断类型
+    const kind = activeTab === 'deployment' ? 'Deployment' 
+      : activeTab === 'statefulset' ? 'StatefulSet' 
+      : activeTab === 'daemonset' ? 'DaemonSet' 
+      : record?.kind;
+    
+    const enhancedRecord = {
+      ...record,
+      kind: record?.kind || kind,
+      apiVersion: record?.apiVersion || 'apps/v1',
+    };
+    
+    setEditRecord(enhancedRecord);
     setEditModalVisible(true);
-  }, []);
+  }, [activeTab]);
   
   // 根据 nsValue 过滤数据，并按创建时间倒序排序
   const filteredDeployments = useMemo(() => {
@@ -829,6 +840,7 @@ const WorkloadsSection: React.FC<Props> = ({
         onRefreshImagePullSecrets={() => onRefresh(true)}
         defaultNamespace={formDefaultNs}
         editData={editRecord}
+        defaultType={activeTab as WorkloadType}
         hideFlatSubnet={hideFlatSubnet}
         onRefreshConfigMaps={onRefreshConfigMaps}
         onRefreshSecrets={onRefreshSecrets}

@@ -19,7 +19,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Modal, Tooltip, Alert, Spin, Divider, Typography, Form, Switch } from 'antd';
 import yaml from 'js-yaml';
 import YamlEditor from '../../../../../../components/YamlEditor';
-import { ReloadOutlined, ClockCircleOutlined, FileTextOutlined, ExclamationCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, SearchOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, ClockCircleOutlined, FileTextOutlined, ExclamationCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
@@ -31,13 +31,13 @@ import {
   resumeHarvesterCronJob,
   triggerHarvesterCronJob,
   fetchHarvesterJobPods,
-  fetchHarvesterJobEvents,
   fetchHarvesterPodLog,
   fetchHarvesterCronJobJobs,
   createHarvesterContainerResource,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 import { JobForm, CronJobForm } from '../components';
+import { parseToChinese } from '../components/CronExpressionHelper';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
 
@@ -180,9 +180,9 @@ const parseJobFailure = (job: any): FailureInfo | null => {
 };
 
 /**
- * 获取错误类型颜色
+ * 获取错误类型颜色（预留）
  */
-const getErrorColor = (type: string): string => {
+const _getErrorColor = (type: string): string => {
   switch (type) {
     case 'image_pull': return '#ff4d4f';
     case 'crash_loop': return '#faad14';
@@ -325,9 +325,9 @@ const calculateAge = (timestamp?: string) => {
 };
 
 /**
- * Job 失败详情组件
+ * Job 失败详情组件（预留）
  */
-const JobFailureDetails: React.FC<{ job: any }> = ({ job }) => {
+const _JobFailureDetails: React.FC<{ job: any }> = ({ job }) => {
   const failureInfo = parseJobFailure(job);
   const status = job?.status || {};
   const conditions = status?.conditions || [];
@@ -918,6 +918,10 @@ const CronJobDetailDrawer: React.FC<{
           <Descriptions.Item label="调度计划" span={2}>
             <Space direction="vertical">
               <Tag icon={<ClockCircleOutlined />}>{schedule}</Tag>
+              {(() => {
+                const chineseDesc = parseToChinese(schedule);
+                return chineseDesc ? <Tag color="blue">{chineseDesc}</Tag> : null;
+              })()}
               {macroLabel && (
                 <div>
                   <Tag color="orange">宏表达式</Tag>
@@ -1712,10 +1716,13 @@ const CronJobTable: React.FC<{
       key: 'schedule',
       render: (schedule: string) => {
         const macroLabel = getMacroLabel(schedule);
+        const chineseDesc = parseToChinese(schedule);
+        const displayText = macroLabel || schedule;
+        const fullText = chineseDesc ? `${schedule}（${chineseDesc}）` : schedule;
         return (
-          <Tooltip title={macroLabel ? `${schedule} (${macroLabel})` : schedule}>
+          <Tooltip title={fullText}>
             <Tag icon={<ClockCircleOutlined />}>
-              {macroLabel || schedule}
+              {displayText}{chineseDesc && !macroLabel ? `（${chineseDesc}）` : ''}
             </Tag>
           </Tooltip>
         );

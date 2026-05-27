@@ -94,7 +94,6 @@ const StepBasic: React.FC<StepBasicProps> = ({
   form,
   existingVms,
   cloudId,
-  currentCloudId,
   setCurrentCloudId,
   cloudOptions,
   namespaceOptions,
@@ -136,7 +135,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
         });
       }).catch((e: any) => console.error(e));
     }
-  }, [cloudId]);
+  }, [cloudId, form]);
 
   // [业务规则] 项目（namespace）自动选择逻辑
   // 租户：过滤系统与公共项；管理员：默认选第一个非系统项

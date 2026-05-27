@@ -21,15 +21,11 @@ import {
   Space,
   Tooltip,
   Divider,
-  Empty,
 } from "antd";
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
-  LinkOutlined,
   MinusCircleOutlined,
-  PlayCircleOutlined,
-  PlusOutlined,
   RetweetOutlined,
 } from "@ant-design/icons";
 import { ReactComponent as DiskIcon } from "../../../../../../../assets/clouds/disk.svg";
@@ -51,6 +47,7 @@ import { isCloudInitVolume } from "../../lib/vmCloudInitSpec";
 import { isVmStopped } from "../../lib/vmInstanceStatus";
 import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from "../../lib/vmMutation/vmReconfigureSubmitTypes";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
+import VmDeviceManageDrawerEmpty from "../shared/components/VmDeviceManageDrawerEmpty";
 import "../shared/styles/vmManageDrawer.css";
 import VmDiskVolumeExtraFields from "./VmDiskVolumeExtraFields";
 import { DISK_BUS_OPTIONS, CDROM_BUS_FIXED } from "./lib/vmDiskManageDrawerConstants";
@@ -817,9 +814,7 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
         </div>
 
         {disks.length === 0 ? (
-          <div className="vmDeviceManageDrawer-emptyState">
-            <Empty description="当前无块磁盘或光驱。请使用顶部「添加」入口进行配置；修改后需保存方可生效。" />
-          </div>
+          <VmDeviceManageDrawerEmpty description="暂无块磁盘或光驱" />
         ) : null}
 
         {disks.map((disk, idx) => {

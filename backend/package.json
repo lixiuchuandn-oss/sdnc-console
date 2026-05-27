@@ -4,7 +4,7 @@
   "description": "Compute Tower 多云管理平台后端API",
   "main": "dist/src/index.js",
   "scripts": {
-    "dev": "set \"NODE_ENV=development\" && set \"PORT=5001\" && set \"DB_SYNC=true\" && nodemon --exec ts-node --transpile-only src/index.ts",
+    "dev": "set \"NODE_ENV=development\" && set \"PORT=5001\" && set \"DB_SYNC=true\" && set \"LOGIN_ALLOW_PLAINT_PASSWORD=1\" && nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",
     "start": "set \"PORT=5001\" && node dist/src/index.js",
     "test": "jest",

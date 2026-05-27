@@ -23,6 +23,11 @@ import ProviderNetworkDetailDrawer from '../drawers/provider-network-detail-draw
 import ResourceLinkYamlDrawer from '../../shared/components/ResourceLinkYamlDrawer';
 import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../../../utils/towerKubeOvnNames';
 import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../lib/kubeOvnSubnetConstants';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 const { Option } = Select;
 
@@ -43,7 +48,7 @@ type Props = {
   parentNetworks?: any[];
   parentVlans?: any[];
   parentLoading?: boolean;
-  onParentRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  onParentRefresh?: HarvesterSectionOnRefresh;
 };
 
 const ProviderNetworksSection: React.FC<Props> = ({
@@ -139,7 +144,10 @@ const ProviderNetworksSection: React.FC<Props> = ({
       setSubnets([]);
     }
     if (isParentManaged && onParentRefresh) {
-      await onParentRefresh(force, skipSync);
+      await runHarvesterSectionRefresh(onParentRefresh, {
+        force: force !== false,
+        silent: skipSync,
+      });
       return;
     }
     setLoading(true);
@@ -340,7 +348,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
       await createKubeOvnProviderNetwork(cloudId, payload);
       message.success('创建物理网络成功');
       setIsModalVisible(false);
-      fetchData(true, true);
+      if (isParentManaged && onParentRefresh) {
+        void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true });
+      } else {
+        void fetchData(true, true);
+      }
     } catch (error: any) {
       message.error(`创建失败: ${error?.message || '未知错误'}`);
     }
@@ -395,7 +407,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
         try {
           await deleteKubeOvnProviderNetwork(cloudId, name);
           message.success('删除成功');
-          fetchData(true, true);
+          if (isParentManaged && onParentRefresh) {
+        void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true });
+      } else {
+        void fetchData(true, true);
+      }
         } catch (e: any) {
           message.error(e?.message || '删除失败');
         }
@@ -660,7 +676,16 @@ const ProviderNetworksSection: React.FC<Props> = ({
             allColumns={allColumns}
             settingsKey="harvester_provider_networks_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => fetchData(true, false)} loading={loading} title="从集群重新同步" />
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={
+              isParentManaged && onParentRefresh
+                ? createHarvesterToolbarRefresh(onParentRefresh)
+                : () => void fetchData(true, false)
+            }
+            loading={loading}
+            title="从集群重新同步"
+          />
         </div>
       </div>
 
@@ -839,14 +864,22 @@ const ProviderNetworksSection: React.FC<Props> = ({
         onClose={closeDetailDrawer}
         cloudId={cloudId}
         lockProviderName={pnDetailLockProvider}
-        onSuccess={() => fetchData(true, true)}
+        onSuccess={() =>
+          isParentManaged && onParentRefresh
+            ? void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true })
+            : void fetchData(true, true)
+        }
       />
       <ProviderNetworkVlanPlanDrawer
         open={vlanPlanOpen}
         onClose={closeVlanPlanDrawer}
         cloudId={cloudId}
         lockProviderName={vlanPlanLockProvider}
-        onSuccess={() => fetchData(true, true)}
+        onSuccess={() =>
+          isParentManaged && onParentRefresh
+            ? void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true })
+            : void fetchData(true, true)
+        }
       />
       <ResourceLinkYamlDrawer
         open={pnYamlOpen}

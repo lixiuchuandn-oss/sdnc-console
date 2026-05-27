@@ -214,6 +214,15 @@ const DataEditor: React.FC<DataEditorProps> = ({ form }) => {
                       rules={[
                         { required: true, message: '请输入键名' },
                         { pattern: /^[a-zA-Z0-9._-]+$/, message: '只允许字母、数字、点、下划线和连字符' },
+                        {
+                          validator: (_, value) => {
+                            if (!value) return Promise.resolve();
+                            const allData = form.getFieldValue('data') || [];
+                            const duplicateCount = allData.filter((item: any) => item?.key === value).length;
+                            if (duplicateCount > 1) return Promise.reject('键名已存在');
+                            return Promise.resolve();
+                          },
+                        },
                       ]}
                       extra="作为文件名或配置项名使用"
                     >

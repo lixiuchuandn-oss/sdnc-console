@@ -1340,6 +1340,10 @@ export const restartHarvesterStatefulSet = async (cloudId: string, namespace: st
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/statefulsets/restart`, { namespace, name });
 };
 
+export const restartHarvesterDaemonSet = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/daemonsets/restart`, { namespace, name });
+};
+
 /**
  * 获取 Job 列表
  * @param cloudId 云环境 ID

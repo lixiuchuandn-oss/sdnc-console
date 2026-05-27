@@ -95,7 +95,8 @@ export async function buildLoginRequestBody(
   const keyInfo = await fetchLoginPublicKey(apiBase);
   if (keyInfo?.publicKey) {
     if (!globalThis.crypto?.subtle?.importKey) {
-      throw new Error(INSECURE_CONTEXT_LOGIN_HINT);
+      // HTTP 非 secure context：浏览器无 Web Crypto，回退明文（需后端 LOGIN_ALLOW_PLAINT_PASSWORD=1）
+      return { username: trimmedUser, password: trimmedPwd };
     }
     const cipher = await encryptLoginPassword(keyInfo.publicKey, trimmedPwd);
     return { username: trimmedUser, keyId: keyInfo.keyId, cipher };

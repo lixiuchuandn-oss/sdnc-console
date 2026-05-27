@@ -36,9 +36,8 @@ import {
   Switch, message, Space, Typography, Alert, Divider, Collapse, Image, Cascader
 } from 'antd';
 import { 
-  CloudOutlined, CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
-  EyeOutlined, EyeInvisibleOutlined,
-  AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, AppstoreOutlined, CodeSandboxOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined
+  CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
+  DatabaseOutlined, AppstoreOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, ContainerOutlined, DeploymentUnitOutlined
 } from '@ant-design/icons';
 import '../../clouds/Harvester/ecs/modals/VmCreateWizard/InstanceWizard.css';
 import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from '../lib/poolProviders';
@@ -98,7 +97,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
         setTimeout(() => form.setFieldsValue({ ignoreTls: true }), 200);
       }
     }
-  }, [visible, licenseLoading, isCloudMapOnly, csmOnly]);
+  }, [visible, licenseLoading, isCloudMapOnly, csmOnly, form]);
 
   useLayoutEffect(() => {
     if (!visible || !csmOnly || licenseLoading) return;
@@ -128,7 +127,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
       }, 200);
       return () => clearTimeout(timer);
     }
-  }, [selectedProvider, currentStep]);
+  }, [selectedProvider, currentStep, form]);
 
 
 

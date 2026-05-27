@@ -13,7 +13,7 @@
  * - 创建工作负载时快速创建 ConfigMap 用于存储卷挂载
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Modal, Form, Input, Select, Button, Space, Row, Col, Card, App, Tooltip } from 'antd';
 import {
   PlusOutlined,
