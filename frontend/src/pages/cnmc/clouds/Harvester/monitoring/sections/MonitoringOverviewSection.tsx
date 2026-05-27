@@ -71,7 +71,7 @@ const MonitoringOverviewSection: React.FC<MonitoringOverviewSectionProps> = ({ c
         <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH_STYLE}>
           <Col xs={24} lg={10} style={COL_FILL_STYLE}>
             <div style={CARD_COLUMN_FILL_STYLE}>
-              <AlertsCard />
+              <AlertsCard cloudId={cloudId} />
             </div>
           </Col>
           <Col xs={24} lg={7} style={COL_FILL_STYLE}>

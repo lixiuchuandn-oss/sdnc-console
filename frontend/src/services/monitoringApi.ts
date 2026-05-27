@@ -394,19 +394,231 @@ export function fetchMetricRange(
   });
   return apiGet<PrometheusQueryRangeResponse>(`${base(cloudId)}/metric-range?${q.toString()}`, options);
 }
-
+/** 获取告警规则列表，from alertmanager API */
 export function fetchAlertsRules(
   cloudId: string,
-  options?: { signal?: AbortSignal; datasource?: string; namespace?: string; page?: number; pageSize?: number }
+  options?: {
+    signal?: AbortSignal;
+    datasource?: string;
+    namespace?: string;
+    page?: number;
+    pageSize?: number;
+    autoRefreshMs?: number | null;
+  }
 ) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少资源池ID' });
   const params = new URLSearchParams();
-  if (options?.datasource) params.set('datasource', options.datasource);
+  const datasource = String(options?.datasource ?? '').trim() || 'prometheus';
+  params.set('datasource', datasource);
   if (options?.namespace) params.set('namespace', options.namespace);
   if (options?.page != null) params.set('page', String(options.page));
   if (options?.pageSize != null) params.set('pageSize', String(options.pageSize));
+  if (options?.autoRefreshMs !== undefined) {
+    params.set('autoRefreshMs', options.autoRefreshMs == null ? '0' : String(options.autoRefreshMs));
+  }
   const q = params.toString();
   return apiGet(`${base(cloudId)}/alerts-rules${q ? `?${q}` : ''}`, options);
+}
+
+export interface MonitoringAccessPrometheusInstance {
+  name: string;
+  namespace: string;
+  version?: string;
+  image?: string;
+  replicas?: number;
+  readyReplicas?: number;
+  availableReplicas?: number;
+  updatedReplicas?: number;
+  retention?: string;
+  retentionSize?: string;
+  externalUrl?: string;
+  scrapeInterval?: string;
+  evaluationInterval?: string;
+  serviceAccountName?: string;
+  cpuRequest?: string;
+  memoryRequest?: string;
+  cpuLimit?: string;
+  memoryLimit?: string;
+  storageRequest?: string;
+  storageClassName?: string;
+  storageAccessModes?: string[];
+  storageVolumeMode?: string;
+  serviceMonitorSelector?: string;
+  podMonitorSelector?: string;
+  podSummary?: {
+    total: number;
+    running: number;
+    ready: number;
+    notReady: number;
+  };
+  healthStatus?: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  healthReason?: string;
+  createdAt?: string;
+  labels?: Record<string, string>;
+}
+
+export interface MonitoringAccessTarget {
+  type: 'ServiceMonitor' | 'PodMonitor';
+  name: string;
+  namespace: string;
+  endpointsCount?: number;
+  createdAt?: string;
+  labels?: Record<string, string>;
+  selector?: Record<string, unknown>;
+}
+
+export interface MonitoringPrometheusTarget {
+  namespace: string;
+  job: string;
+  service: string;
+  pod: string;
+  container: string;
+  endpoint: string;
+  instance: string;
+  scrapePool: string;
+  scrapeUrl: string;
+  globalUrl: string;
+  health: string;
+  lastError: string;
+  lastScrape: string;
+  lastScrapeDuration: number;
+  scrapeInterval: string;
+  scrapeTimeout: string;
+  labels?: Record<string, string>;
+}
+
+export interface MonitoringPrometheusTaskEndpoint {
+  endpoint: string;
+  total: number;
+  upCount: number;
+  downCount: number;
+  targets: MonitoringPrometheusTarget[];
+}
+
+export interface MonitoringPrometheusMonitorTask {
+  namespace: string;
+  job: string;
+  service: string;
+  scrapePool: string;
+  total: number;
+  upCount: number;
+  downCount: number;
+  endpoints: MonitoringPrometheusTaskEndpoint[];
+}
+
+export interface MonitoringAlertmanagerInstance {
+  name: string;
+  namespace: string;
+  version?: string;
+  image?: string;
+  replicas?: number;
+  readyReplicas?: number;
+  availableReplicas?: number;
+  updatedReplicas?: number;
+  externalUrl?: string;
+  retention?: string;
+  createdAt?: string;
+  labels?: Record<string, string>;
+  healthStatus?: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  healthReason?: string;
+}
+
+export interface MonitoringAlertmanagerDetail {
+  alertmanager: Record<string, unknown>;
+  pods: MonitoringPrometheusPodItem[];
+}
+
+export interface MonitoringPrometheusPodItem {
+  name: string;
+  namespace: string;
+  phase?: string;
+  ready?: boolean;
+  restartCount?: number;
+  nodeName?: string;
+  podIP?: string;
+  createdAt?: string;
+}
+
+export interface MonitoringPrometheusDetail {
+  prometheus: Record<string, unknown>;
+  pods: MonitoringPrometheusPodItem[];
+}
+
+export function fetchMonitoringAccessManagement(
+  cloudId: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = `?_=${Date.now()}`;
+  return apiGet<{
+    prometheusInstances: MonitoringAccessPrometheusInstance[];
+    monitorTargets: MonitoringAccessTarget[];
+  }>(`${base(cloudId)}/access-management${q}`, { signal: options?.signal, cache: 'no-store' });
+}
+
+export function fetchMonitoringPrometheusTargets(
+  cloudId: string,
+  options?: { signal?: AbortSignal; search?: string }
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const params = new URLSearchParams();
+  params.set('_', String(Date.now()));
+  if (options?.search != null) params.set('search', options.search);
+  return apiGet<{
+    targets: MonitoringPrometheusTarget[];
+    monitorTasks: MonitoringPrometheusMonitorTask[];
+  }>(
+    `${base(cloudId)}/access-management/targets?${params.toString()}`,
+    { signal: options?.signal, cache: 'no-store' }
+  );
+}
+
+export function fetchMonitoringPrometheusDetail(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId || !namespace || !name) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  }
+  const q = `?_=${Date.now()}`;
+  return apiGet<MonitoringPrometheusDetail>(
+    `${base(cloudId)}/access-management/prometheus/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${q}`,
+    { signal: options?.signal, cache: 'no-store' }
+  );
+}
+
+export function fetchMonitoringAlertmanagerDetail(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId || !namespace || !name) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  }
+  const q = `?_=${Date.now()}`;
+  return apiGet<MonitoringAlertmanagerDetail>(
+    `${base(cloudId)}/alert-management/alertmanager/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${q}`,
+    { signal: options?.signal, cache: 'no-store' }
+  );
+}
+
+export function updateMonitoringPrometheusDetail(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  body: Record<string, unknown>
+) {
+  if (!cloudId || !namespace || !name) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  }
+  return apiPostPut(
+    `${base(cloudId)}/access-management/prometheus/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    'PUT',
+    body
+  );
 }
 
 export function fetchVirtualMachines(cloudId: string, options?: { signal?: AbortSignal }) {
@@ -446,10 +658,34 @@ export function fetchAlertmanagerconfigDetail(
   return apiGet(`${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, options);
 }
 
-/** 邮件通知对象（receiverName = email-receiver，对齐 AlertmanagerConfig spec.receivers[]） */
-export interface NotificationTargetEmailReceiver {
+/**
+ * 通知方式类型（与后端 `AlertmanagerConfig` `metadata.annotations['tower.io/monitoring-receiver']`
+ * 取值一致；前端「通知方式」一律读 `receiverType`，不要再用 `receiverName` 推断类型）。
+ */
+export type NotificationReceiverType = 'email-receiver' | 'dingtalk-receiver' | 'website-receiver';
+
+/** 通知对象 CR 级展示字段（metadata.annotations） */
+export interface NotificationTargetReceiverMeta {
+  /** 通知对象名称，annotation `tower.io/alias` */
+  alias?: string;
+  /** 通知对象描述，annotation `tower.io/description` */
+  description?: string;
+}
+
+/**
+ * 邮件通知对象（receiverType = email-receiver）。
+ *
+ * 新模型（每通知对象一 CR）下：
+ *   - `receiverName` 即 `metadata.name`，等于通知对象唯一标识（specReceivers[0].name）。
+ *   - `specReceivers` 仅含 1 条；多 emailConfigs 仍承载在该单条 receiver 内。
+ * 兼容历史数据：`receiverName` 可能等于 `email-receiver`（旧共享 CR），此时 `specReceivers` 含多条。
+ */
+export interface NotificationTargetEmailReceiver extends NotificationTargetReceiverMeta {
   namespace?: string;
-  receiverName: 'email-receiver';
+  /** AlertmanagerConfig `metadata.name`；CRUD URL 与列表 KEY 用，类型判断请使用 `receiverType`。 */
+  receiverName: string;
+  /** 通知方式类型（annotation `tower.io/monitoring-receiver`），前端「通知方式」展示与分支判断的唯一依据 */
+  receiverType?: NotificationReceiverType;
   specReceivers: Array<{
     name: string;
     emailConfigs?: Array<{
@@ -462,13 +698,15 @@ export interface NotificationTargetEmailReceiver {
       tlsConfig?: Record<string, unknown>;
       sendResolved?: boolean;
     }>;
+    createdAt?: string;
   }>;
 }
 
-/** 钉钉通知对象（receiverName = dingtalk-receiver，对齐 AlertmanagerConfig spec.receivers[]，webhookConfigs 为代理 URL） */
-export interface NotificationTargetDingtalkReceiver {
+/** 钉钉通知对象（receiverType = dingtalk-receiver） */
+export interface NotificationTargetDingtalkReceiver extends NotificationTargetReceiverMeta {
   namespace?: string;
-  receiverName: 'dingtalk-receiver';
+  receiverName: string;
+  receiverType?: NotificationReceiverType;
   specReceivers: Array<{
     name: string;
     webhookConfigs?: Array<{
@@ -478,11 +716,32 @@ export interface NotificationTargetDingtalkReceiver {
       robotAccessToken?: string;
       sendResolved?: boolean;
     }>;
+    createdAt?: string;
   }>;
 }
 
-/** 告警通知对象（邮件与钉钉分类型，便于 UI 区分；后端列表接口返回此联合类型） */
-export type NotificationTargetReceiver = NotificationTargetEmailReceiver | NotificationTargetDingtalkReceiver;
+/** 站内信通知对象（receiverType = website-receiver；按 namespace 各 1 CR，metadata.name 一般沿用 `website-receiver`） */
+export interface NotificationTargetWebsiteReceiver extends NotificationTargetReceiverMeta {
+  namespace?: string;
+  receiverName: string;
+  receiverType?: NotificationReceiverType;
+  specReceivers: Array<{
+    name: string;
+    createdAt?: string;
+  }>;
+}
+
+/**
+ * 告警通知对象联合类型：后端列表接口返回三类（邮件/钉钉/站内信）。
+ *
+ * 通知方式判断一律使用 `receiverType`（来源 annotation `tower.io/monitoring-receiver`）。
+ * `receiverName` 在新模型下与 `specReceivers[0].name` 一致；旧共享 CR 时 `receiverName` 为
+ * `email-receiver|dingtalk-receiver|website-receiver`，`specReceivers` 可能含多条。
+ */
+export type NotificationTargetReceiver =
+  | NotificationTargetEmailReceiver
+  | NotificationTargetDingtalkReceiver
+  | NotificationTargetWebsiteReceiver;
 
 /** 告警通知对象：按命名空间拉取 receivers 列表（后端返回新结构），receiverName 为 email-receiver / dingtalk-receiver / website-receiver */
 export function fetchNotificationTargets(
@@ -537,16 +796,30 @@ export function createAlertmanagerconfig(cloudId: string, body: unknown) {
   return apiPostPut(`${base(cloudId)}/alertmanagerconfigs`, 'POST', body);
 }
 
-/** 告警通知对象：新增/更新配置。URL 指定 namespace 与 name（email-receiver / dingtalk-receiver / website-receiver），不存在则创建对应 AlertmanagerConfig，存在则在其 spec.receivers 下追加/更新；body 为完整 AlertmanagerConfig。 */
+/**
+ * 告警通知对象：新增/更新（每通知对象一 CR）。
+ *
+ * 约定：
+ *   - URL `:name` 直接作为 AlertmanagerConfig `metadata.name`（= 通知对象唯一标识 specReceiverName）。
+ *   - `receiverType` 必传（'email-receiver' | 'dingtalk-receiver' | 'website-receiver'）；
+ *     后端据此写入 annotation `tower.io/monitoring-receiver`，并校验是否合法。
+ *   - body 应为完整 AlertmanagerConfig 或仅含 `spec.receivers: [<单条>]`；
+ *     `metadata.name`/`labels.monitoring-receiver`/annotation 由服务端兜底写入。
+ *   - 不存在则创建；存在则全量替换（不再 merge 到历史共享 CR）。
+ */
 export function postAlertmanagerconfigReceivers(
   cloudId: string,
   namespace: string,
   name: string,
-  body: unknown
+  body: unknown,
+  options?: { receiverType?: NotificationReceiverType }
 ) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  const params = new URLSearchParams();
+  if (options?.receiverType) params.set('receiverType', options.receiverType);
+  const q = params.toString();
   return apiPostPut(
-    `${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    `${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${q ? `?${q}` : ''}`,
     'POST',
     body
   );
@@ -621,8 +894,10 @@ export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { si
 /** 告警密钥项：与后端 GET /monitoring/secrets 列表元素、GET /monitoring/secrets/:namespace/:name 详情一致。data 的值为 Base64 编码。 */
 export interface OpaqueSecretItem {
   name: string;
+  namespace?: string;
   type?: string;
   data: Record<string, string>;
+  annotations?: Record<string, string>;
 }
 
 /** 查-列表：告警密钥（labels: monitoring-receiver-secret=true）。GET /monitoring/secrets?namespace=&datasource=，返回 { name, data, type }[] */
@@ -646,20 +921,43 @@ export function fetchSecretDetail(
   options?: { signal?: AbortSignal }
 ) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiGet<OpaqueSecretItem & { namespace?: string }>(
+  return apiGet<OpaqueSecretItem>(
     `${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
     options
   );
 }
 
 /** 增：新增告警密钥。POST /monitoring/secrets，body.metadata.namespace/name 必填，body.data 为键值对且值需已 Base64 编码 */
-export function createSecret(cloudId: string, body: { metadata: { namespace: string; name: string; labels?: Record<string, string> }; data: Record<string, string>; type?: string }) {
+export function createSecret(
+  cloudId: string,
+  body: {
+    metadata: {
+      namespace: string;
+      name: string;
+      labels?: Record<string, string>;
+      annotations?: Record<string, string>;
+    };
+    data: Record<string, string>;
+    type?: string;
+  }
+) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiPostPut(`${base(cloudId)}/secrets`, 'POST', body);
 }
 
 /** 改：修改告警密钥。PUT /monitoring/secrets/:namespace/:name，body.data 为键值对且值需已 Base64 编码 */
-export function updateSecret(cloudId: string, namespace: string, name: string, body: { data: Record<string, string>; type?: string }) {
+export function updateSecret(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  body: {
+    data: Record<string, string>;
+    type?: string;
+    metadata?: {
+      annotations?: Record<string, string>;
+    };
+  }
+) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
   return apiPostPut(
     `${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,

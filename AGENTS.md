@@ -436,6 +436,15 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 - 使用 TypeScript 类型定义，放在 `types/`
 - 所有 API 调用通过 `services/` 层
 
+### 云监控 Tooltip 规范
+
+在 `frontend/src/pages/cnmc/clouds/Harvester/monitoring/` 下新增或修改 Tooltip 时：
+
+- 必须复用 `components/MonitoringTooltip`。
+- 不要在业务页面内重复内联 Tooltip 的 `styles.body`。
+- Tooltip 默认使用 `placement="topLeft"`。
+- 说明类图标使用 `QuestionCircleOutlined`，颜色 `rgba(0,0,0,.45)`，字号 `12`，鼠标样式 `help`。
+
 ### 加载态与骨架屏（列表 / 数据区块）
 
 列表使用 **`antd` `Table` 的 `loading`**。非表格区域若使用占位，直接在页面写 **`antd` `Skeleton`**，**禁止**在仓库内封装只为包装 Skeleton 的组件。细则见 **`deployment/docs/specs/frontend-loading-skeleton.md`**。

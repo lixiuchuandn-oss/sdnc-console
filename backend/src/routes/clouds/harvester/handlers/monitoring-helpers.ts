@@ -26,11 +26,40 @@ export const DINGTALK_CONFIGMAP_NAME = 'alertmanager-webhook-dingtalk';
 export const DINGTALK_CONFIG_KEY = 'config.yaml';
 export const MONITORING_RECEIVER_SECRET_LABEL = 'monitoring-receiver-secret';
 export const ALERTMANAGER_TARGET_ANNOTATION = 'tower.io/alertmanager-target';
+/**
+ * AlertmanagerConfig metadata.annotations 中标识「通知方式」的注解键。
+ * 取值与 EMAIL_RECEIVER / DINGTALK_RECEIVER / WEBSITE_RECEIVER 一致：
+ *   - 'email-receiver'    => 邮件通知方式
+ *   - 'dingtalk-receiver' => 钉钉通知方式
+ *   - 'website-receiver'  => 站内信通知方式
+ * 前端展示「通知方式」必须以此注解为准；缺失时按 metadata.name 回退（兼容历史数据）。
+ */
+export const ANNOTATION_MONITORING_RECEIVER = 'tower.io/monitoring-receiver';
+/** 通知对象展示名称（AlertmanagerConfig metadata.annotations） */
+export const ANNOTATION_ALIAS = 'tower.io/alias';
+/** 通知对象描述（AlertmanagerConfig metadata.annotations） */
+export const ANNOTATION_DESCRIPTION = 'tower.io/description';
 
 export const EMAIL_RECEIVER = 'email-receiver';
 export const DINGTALK_RECEIVER = 'dingtalk-receiver';
 export const WEBSITE_RECEIVER = 'website-receiver';
 export const NULL_RECEIVER = 'null-receiver';
+
+/** 由 metadata.name 推导默认的通知方式类型；当 annotation 缺失时使用此回退 */
+export function defaultReceiverTypeByName(name: string): string {
+  const trimmed = String(name ?? '').trim();
+  if (trimmed === EMAIL_RECEIVER || trimmed === DINGTALK_RECEIVER || trimmed === WEBSITE_RECEIVER) {
+    return trimmed;
+  }
+  return EMAIL_RECEIVER;
+}
+
+/** 从 AlertmanagerConfig metadata 读取通知方式类型：优先 annotation，回退 metadata.name */
+export function resolveMonitoringReceiverType(meta: any): string {
+  const fromAnnotation = String(meta?.annotations?.[ANNOTATION_MONITORING_RECEIVER] ?? '').trim();
+  if (fromAnnotation) return fromAnnotation;
+  return defaultReceiverTypeByName(String(meta?.name ?? '').trim());
+}
 
 export const ALERTMANAGERCONFIG_BASE = 'v1/harvester/monitoring.coreos.com.alertmanagerconfigs';
 export const MONITORING_RECEIVER_LABEL_SELECTOR = 'monitoring-receiver=true';
@@ -92,7 +121,7 @@ export async function requireTenantAccessForMonitoring(
     const allowedSet = new Set(tenant.namespaces);
     const allAllowed = namespaces.every((ns) => allowedSet.has(String(ns).trim()));
     if (!allAllowed) {
-      res.status(403).json({ message: options?.forbiddenMessage ?? '无权访问该命名空间下的配置' });
+      res.status(403).json({ message: options?.forbiddenMessage ?? '无权访问项目下的配置' });
       return null;
     }
   }
@@ -122,14 +151,49 @@ export function isWebsiteReceiverInMonitoringNs(receiverName: unknown): boolean 
   return middle !== '' && !middle.includes('/');
 }
 
-// 校验接收器配置名称
+/**
+ * 校验「通知方式名称」是否合法（取值与 ANNOTATION_MONITORING_RECEIVER 取值集合一致）。
+ * 仅用于校验通知方式枚举；不再用于判定 AlertmanagerConfig CR 是否为「接收器 CR」。
+ */
 export function isValidReceiverConfigName(name: string): boolean {
   return [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER].includes(String(name || '').trim());
 }
 
-// 判断是否为告警通知策略
-export function isPolicyAlertmanagerConfig(metadataName: string): boolean {
-  const n = (metadataName ?? '').toString().trim();
+/**
+ * 判定某 AlertmanagerConfig 是否为「接收器 CR」（与之相对的是「告警通知策略 CR」）。
+ *
+ * 自「每通知对象一 CR」改造起：
+ *   - 接收器 CR 的唯一可靠识别标志为 `metadata.labels['monitoring-receiver'] === 'true'`；
+ *   - 兼容历史共享 CR：metadata.name ∈ {email-receiver, dingtalk-receiver, website-receiver} 亦视为接收器；
+ *   - 其它一律视为策略 CR。
+ *
+ * 入参可为完整 metadata 对象（推荐）或仅 metadata.name 字符串（兼容旧调用，但仅按 name 回退）。
+ */
+export function isMonitoringReceiverConfigMeta(meta: any): boolean {
+  if (meta && typeof meta === 'object') {
+    const labelValue = String(meta?.labels?.['monitoring-receiver'] ?? '').trim();
+    if (labelValue === 'true') return true;
+    const name = String(meta?.name ?? '').trim();
+    if (isValidReceiverConfigName(name)) return true;
+    return false;
+  }
+  // 旧调用：仅传 metadata.name 字符串
+  return isValidReceiverConfigName(String(meta ?? '').trim());
+}
+
+/**
+ * 判定 AlertmanagerConfig 是否为「告警通知策略 CR」。
+ *
+ * 推荐传 metadata 对象（按 label 精准判定）；为兼容旧调用，传字符串时仅按名字判定，
+ * 结果会把 per-target 接收器 CR 误判为策略——所以新代码必须传 metadata 对象。
+ */
+export function isPolicyAlertmanagerConfig(metaOrName: any): boolean {
+  if (metaOrName && typeof metaOrName === 'object') {
+    const name = String(metaOrName?.name ?? '').trim();
+    if (!name) return false;
+    return !isMonitoringReceiverConfigMeta(metaOrName);
+  }
+  const n = (metaOrName ?? '').toString().trim();
   return n.length > 0 && !isValidReceiverConfigName(n);
 }
 
@@ -504,13 +568,14 @@ export async function syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(
     return;
   }
   const items: any[] = Array.isArray(raw?.data) ? raw.data : [];
-  const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
   const policiesToUpdate: Array<{ namespace: string; policyName: string }> = [];
   for (const item of items) {
     const inner = item?.data ?? item;
     const policyName = (inner?.metadata?.name ?? '').toString().trim();
     const ns = (inner?.metadata?.namespace ?? '').toString().trim();
-    if (receiverConfigNames.has(policyName) || ns !== namespace) continue;
+    if (ns !== namespace) continue;
+    // 跳过接收器 CR（含历史共享 CR 与新模型 per-target CR，均带 label monitoring-receiver=true）
+    if (isMonitoringReceiverConfigMeta(inner?.metadata ?? {})) continue;
     const route = inner?.spec?.route ?? {};
     const refs = collectReceiverNamesFromRoute(route);
     if (refs.some((rn: string) => namesToSync.has(rn))) policiesToUpdate.push({ namespace: ns, policyName });

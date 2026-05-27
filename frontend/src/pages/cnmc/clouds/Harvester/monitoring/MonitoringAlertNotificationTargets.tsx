@@ -1,6 +1,6 @@
 /**
  * 告警通知对象
- * 按命名空间搜索，展示该命名空间下 receivers 列表（后端返回新结构：通知方式标识/名称、邮件SMTP、是否发送恢复邮件等）
+ * 按项目搜索，展示该项目下 receivers 列表（后端返回新结构：通知方式标识/名称、邮件SMTP、是否发送恢复邮件等）
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Checkbox, Col, Descriptions, Dropdown, Form, Input, message, Modal, Row, Select, Space, Switch, Table, Tag, Typography } from 'antd';
@@ -13,10 +13,14 @@ import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSetti
 import {
   useMonitoring,
   ALERTMANAGERCONFIG_KIND,
+  ANNOTATION_MONITORING_RECEIVER,
+  ANNOTATION_ALIAS,
+  ANNOTATION_DESCRIPTION,
   EMAIL_RECEIVER,
   DINGTALK_RECEIVER,
   WEBSITE_RECEIVER,
   MONITORING_API_VERSION,
+  MONITORING_NAMESPACE_FILTER_ALL,
 } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import {
@@ -26,10 +30,10 @@ import {
   fetchAlertPolicyReceivers,
   fetchAllowedNamespaces,
   fetchAlertmanagerconfigs,
-  fetchAlertmanagerconfigDetail,
   fetchNotificationTargetsList,
   fetchSecrets,
   postAlertmanagerconfigReceivers,
+  type NotificationReceiverType,
   type NotificationTargetReceiver,
   type OpaqueSecretItem,
 } from '../../../../../services/monitoringApi';
@@ -45,9 +49,23 @@ import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 type ReceiverSpecItem = NotificationTargetReceiver;
 type ReceiverItem = {
   key: string;
+  /**
+   * AlertmanagerConfig `metadata.name`，仅用于后续 CRUD URL 寻址。
+   * **判断「通知方式」请使用 {@link ReceiverItem.receiverType}，不要再用 `receiverName`。**
+   */
   receiverName: string;
+  /**
+   * 通知方式类型，来源于 AlertmanagerConfig 注解 `tower.io/monitoring-receiver`。
+   * 注解缺失时按 metadata.name 回退（兼容历史数据）；
+   * 前端「通知方式」列、详情、编辑、删除等所有派发一律以此字段为准。
+   */
+  receiverType: string;
   namespace?: string;
   specReceiverName: string;
+  /** 通知对象名称，annotation `tower.io/alias` */
+  alias?: string;
+  /** 通知对象描述，annotation `tower.io/description` */
+  description?: string;
   /** 邮件/钉钉/站内信通知对象 ID（用于删除前校验关联） */
   emailReceiverId?: string;
   dingtalkReceiverId?: string;
@@ -63,55 +81,64 @@ type ReceiverItem = {
   robotUrl?: string;
   robotAccount?: string;
   robotAccessToken?: string;
-  /** 创建人、创建时间（后端返回） */
-  creator?: string;
+  /** 创建时间（后端返回） */
   createdAt?: string;
 };
 
 interface Props {
   cloudId: string;
 }
-/** 通知方式列表，请求告警通知对象列表时传入 */
-const receiverNames = [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER] as const;
+const SECTION_TITLE_TAG_STYLE: React.CSSProperties = {
+  padding: '4px 12px',
+  fontSize: 14,
+  borderRadius: 16,
+  cursor: 'default',
+  userSelect: 'none',
+};
+/**
+ * 通知方式取值列表（与后端 annotation `tower.io/monitoring-receiver` 等价），
+ * 请求告警通知对象列表时透传给后端按通知方式过滤。
+ */
+const MONITORING_RECEIVER_TYPES = [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER] as const;
 
-/** receiverName 值 -> 展示文案（用于表格、详情等） */
-const RECEIVER_NAME_LABELS: Record<string, string> = {
+/** 通知方式 -> 展示文案（受表格、详情、下拉等场景复用，KEY 与 annotation 取值一致） */
+const RECEIVER_TYPE_LABELS: Record<string, string> = {
   [EMAIL_RECEIVER]: '邮件',       // 'email-receiver' -> '邮件'
   [DINGTALK_RECEIVER]: '钉钉',   // 'dingtalk-receiver' -> '钉钉'
   [WEBSITE_RECEIVER]: '站内信',    // 'website-receiver' -> '站内信'
 };
-const RECEIVER_NAME_SELECT_OPTIONS = Object.entries(RECEIVER_NAME_LABELS).map(([value, label]) => ({ value, label }));
-
-const EMAIL_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'creator', 'createdAt', 'smtpHost', 'smtpRequireTls', 'smtpAuthUsername', 'smtpAuthPassword', 'emailFrom', 'emailTo', 'sendResolved', 'action'] as const;
-const DINGTALK_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'creator', 'createdAt', 'url', 'robotAccount', 'robotUrl', 'robotAccessToken', 'sendResolved', 'action'] as const;
-const WEBSITE_COLUMN_KEYS = ['receiverName', 'namespace', 'opened', 'action'] as const;
-
-const COLUMN_TITLES: Record<string, string> = {
-  receiverName: '通知方式',
-  namespace: '命名空间',
-  specReceiverName: '通知对象名称',
-  opened: '已开通',
-  creator: '创建人',
-  createdAt: '创建时间',
-  smtpHost: '邮件服务器(SMTP)',
-  smtpRequireTls: 'SMTP是否TLS',
-  smtpAuthUsername: 'SMTP授权账号',
-  smtpAuthPassword: 'SMTP授权账号密钥(Secret)',
-  emailFrom: '发件人',
-  emailTo: '收件人',
-  sendResolved: '是否发送恢复通知',
-  robotAccount: '钉钉机器人账号',
-  robotUrl: '钉钉机器人地址',
-  robotAccessToken: '钉钉机器人访问令牌',
-  url: 'Webhook URL',
-  action: '操作',
-};
+const RECEIVER_TYPE_SELECT_OPTIONS = Object.entries(RECEIVER_TYPE_LABELS).map(([value, label]) => ({ value, label }));
 
 const DEFAULT_ADMIN_NAMESPACE = 'cattle-monitoring-system';
 
 /** 邮件/钉钉分别使用独立 AlertmanagerConfig：metadata.name = email-receiver | dingtalk-receiver */
 const EMPTY_EMAIL_CONFIG = { emailTo: '', emailFrom: '', smarthost: '', requireTls: false, authUsername: '', authIdentity: '', authSecretKey: '', sendResolved: true };
 const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAccessToken: '', sendResolved: true };
+
+/** 构造 AlertmanagerConfig metadata.annotations（含 monitoring-receiver / alias / description） */
+function buildReceiverCrAnnotations(
+  receiverType: NotificationReceiverType,
+  alias?: string,
+  description?: string,
+): Record<string, string> {
+  return {
+    [ANNOTATION_MONITORING_RECEIVER]: receiverType,
+    [ANNOTATION_ALIAS]: (alias ?? '').toString().trim(),
+    [ANNOTATION_DESCRIPTION]: (description ?? '').toString().trim(),
+  };
+}
+
+/** 列表列：通知对象名称（描述仅在详情/表单展示，不在列表展示） */
+const RECEIVER_ALIAS_COLUMN: ColumnsType<ReceiverItem> = [
+  {
+    title: '通知对象名称',
+    dataIndex: 'alias',
+    key: 'alias',
+    ellipsis: true,
+    onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+    render: (v: string | undefined) => v?.trim() || '-',
+  },
+];
 
 const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   const { user } = useAuth();
@@ -125,14 +152,15 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     () => hasPermissionForAction(perms, 'clouds.alert-receivers:write'),
     [perms]
   );
-  const { formNamespaceOptions, namespaceLoading, configNsFilter, setConfigNsFilter, namespaceList, tenantNamespaces } = useMonitoring();
+  const { formNamespaceOptions, formNamespaceOptionsForForm, namespaceLoading, configNsFilter, setConfigNsFilter, namespaceList } = useMonitoring();
 
   // 注意：namespaceOptions 和 loadingNs 在 loadNamespaceOptions 中被设置，但当前使用 formNamespaceOptions 和 namespaceLoading（来自 useMonitoring hook）
   // 保留这些变量以保持代码一致性，可能用于未来功能
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [namespaceOptions, setNamespaceOptions] = useState<{ label: string; value: string }[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState<string>('');
-  const [receiverNameFilter, setReceiverNameFilter] = useState<string>(EMAIL_RECEIVER);
+  /** 工具栏「通知方式」筛选值：取值与 annotation `tower.io/monitoring-receiver` 一致 */
+  const [receiverTypeFilter, setReceiverTypeFilter] = useState<string>(EMAIL_RECEIVER);
   const [keyword, setKeyword] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [receiverSpecs, setReceiverSpecs] = useState<ReceiverSpecItem[]>([]);
@@ -198,20 +226,18 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     }
   }, [cloudId, isAdmin, canReadReceivers]);
 
-  /** 根据 configNsFilter 决定请求的命名空间；钉钉的 robotUrl/robotAccessToken 从 dingtalkWebhookConfig（ConfigMap targets）同步读取 */
+  /** 根据 configNsFilter 决定请求的项目；钉钉的 robotUrl/robotAccessToken 从 dingtalkWebhookConfig（ConfigMap targets）同步读取 */
   const loadReceivers = useCallback(async () => {
     if (!cloudId || !canReadReceivers) return;
-    const namespaces =
-      configNsFilter != null
-        ? [configNsFilter]
-        : (isAdmin ? namespaceList : tenantNamespaces);
+    const ns = String(configNsFilter ?? '').trim();
+    const namespaces = ns ? [ns] : namespaceList;
     if (namespaces.length === 0) {
       setReceiverSpecs([]);
       return;
     }
     setLoading(true);
     const [targetsRes, dingtalkConfigRes] = await Promise.all([
-      fetchNotificationTargetsList(cloudId, { namespaces, receiverName: [...receiverNames] }),
+      fetchNotificationTargetsList(cloudId, { namespaces, receiverName: [...MONITORING_RECEIVER_TYPES] }),
       fetchDingtalkWebhookConfig(cloudId),
     ]);
     setLoading(false);
@@ -225,7 +251,9 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     const dingtalkConfig = dingtalkConfigRes.ok ? dingtalkConfigRes.config : undefined;
     let receivers = data?.receivers && Array.isArray(data.receivers) ? data.receivers : [];
     receivers = receivers.map((r: NotificationTargetReceiver) => {
-      if ((r.receiverName ?? '').toString().trim() !== DINGTALK_RECEIVER) return r;
+      // 通知方式优先取注解 receiverType；缺失时回退 metadata.name（receiverName）以兼容历史数据
+      const type = ((r as { receiverType?: string }).receiverType ?? r.receiverName ?? '').toString().trim();
+      if (type !== DINGTALK_RECEIVER) return r;
       const ns = (r.namespace ?? '').toString().trim();
       const specReceivers = Array.isArray((r as any).specReceivers)
         ? (r as any).specReceivers.map((s: any) =>
@@ -235,7 +263,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       return { ...r, specReceivers };
     });
     setReceiverSpecs(receivers);
-  }, [cloudId, configNsFilter, isAdmin, namespaceList, tenantNamespaces, canReadReceivers]);
+  }, [cloudId, configNsFilter, namespaceList, canReadReceivers]);
 
   useEffect(() => {
     if (cloudId && canReadReceivers) loadNamespaceOptions();
@@ -245,17 +273,17 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     if (isAdmin && selectedNamespace === '') setSelectedNamespace(DEFAULT_ADMIN_NAMESPACE);
   }, [isAdmin, selectedNamespace]);
 
-  /** 通知方式或命名空间变更时重新加载通知对象列表 */
+  /** 通知方式或项目变更时重新加载通知对象列表 */
   useEffect(() => {
     if (cloudId && canReadReceivers) loadReceivers();
-  }, [cloudId, configNsFilter, receiverNameFilter, loadReceivers, canReadReceivers]);
+  }, [cloudId, configNsFilter, receiverTypeFilter, loadReceivers, canReadReceivers]);
 
-  /** 命名空间筛选改为具体命名空间时，同步 selectedNamespace 供「新增」使用 */
+  /** 项目筛选改为具体项目时，同步 selectedNamespace 供「新增」使用 */
   useEffect(() => {
     if (configNsFilter != null) setSelectedNamespace(configNsFilter);
   }, [configNsFilter]);
 
-  /** 按命名空间加载邮件弹窗内 SMTP 密钥列表（monitoring-receiver-secret 标签），命名空间变更时需刷新 */
+  /** 按项目加载邮件弹窗内 SMTP 密钥列表（monitoring-receiver-secret 标签），项目变更时需刷新 */
   const loadEmailModalSecrets = useCallback(
     (namespace: string) => {
       if (!cloudId) return;
@@ -272,7 +300,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     [cloudId]
   );
 
-  // 邮件弹窗内命名空间变化时刷新该命名空间下的 Secret 列表
+  // 邮件弹窗内项目变化时刷新该项目下的 Secret 列表
   useEffect(() => {
     if (!addEmailModalOpen || !cloudId) return;
     const ns = (watchedEmailFormNamespace ?? '').toString().trim();
@@ -289,7 +317,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       return;
     }
     if (!selectedNamespace) {
-      message.warning('请先选择命名空间');
+      message.warning('请先选择项目');
       return;
     }
     setAddEmailModalOpen(true);
@@ -299,6 +327,8 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       namespace: selectedNamespace,
       receiverName: EMAIL_RECEIVER,
       specReceiverName: '',
+      alias: '',
+      description: '',
       emailConfigs: [{ ...EMPTY_EMAIL_CONFIG }],
     });
   }, [selectedNamespace, addEmailForm, canWriteReceivers]);
@@ -309,7 +339,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       return;
     }
     if (!selectedNamespace) {
-      message.warning('请先选择命名空间');
+      message.warning('请先选择项目');
       return;
     }
     setAddDingtalkModalOpen(true);
@@ -318,6 +348,8 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     addDingtalkForm.setFieldsValue({
       namespace: selectedNamespace,
       specReceiverName: '',
+      alias: '',
+      description: '',
       webhookConfigs: [{ ...EMPTY_DINGTALK_CONFIG }],
     });
   }, [selectedNamespace, addDingtalkForm, canWriteReceivers]);
@@ -332,6 +364,8 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     addWebsiteForm.setFieldsValue({
       namespace: selectedNamespace ? [selectedNamespace] : [],
       receiverName: WEBSITE_RECEIVER,
+      alias: '',
+      description: '',
     });
   }, [selectedNamespace, addWebsiteForm, canWriteReceivers]);
 
@@ -351,36 +385,65 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
 
   const handleCloseAddWebsiteModal = useCallback(() => {
     setAddWebsiteModalOpen(false);
+    setEditingRecord(null);
     addWebsiteForm.resetFields();
   }, [addWebsiteForm]);
 
   const handleAddWebsiteSubmit = useCallback(async () => {
-    const values = await addWebsiteForm.validateFields(['namespace', 'receiverName']).catch(() => null);
+    const values = await addWebsiteForm.validateFields(['namespace', 'receiverName', 'alias', 'description']).catch(() => null);
     if (!values || !cloudId) return;
     const raw = values.namespace;
-    const namespaces = Array.isArray(raw) ? raw.map((n: any) => String(n ?? '').trim()).filter(Boolean) : [selectedNamespace].filter(Boolean).map(String);
+    const isWebsiteEdit = !!editingRecord && editingRecord.receiverType === WEBSITE_RECEIVER;
+    const namespaces = isWebsiteEdit
+      ? [String(editingRecord?.namespace ?? selectedNamespace ?? '').trim()].filter(Boolean)
+      : Array.isArray(raw)
+        ? raw.map((n: any) => String(n ?? '').trim()).filter(Boolean)
+        : [selectedNamespace].filter(Boolean).map(String);
     if (namespaces.length === 0) {
-      message.warning('请至少选择一个命名空间');
+      message.warning('请至少选择一个项目');
       return;
     }
     setAddWebsiteFormLoading(true);
     try {
       const receiverSpec = buildReceiverSpec(WEBSITE_RECEIVER, WEBSITE_RECEIVER as ReceiverName, {});
+      const annotations = buildReceiverCrAnnotations(
+        WEBSITE_RECEIVER,
+        values.alias,
+        values.description,
+      );
       const failed: string[] = [];
       for (const ns of namespaces) {
         const payload = {
           apiVersion: MONITORING_API_VERSION,
           kind: ALERTMANAGERCONFIG_KIND,
-          metadata: { name: WEBSITE_RECEIVER, namespace: ns },
+          metadata: {
+            name: WEBSITE_RECEIVER,
+            namespace: ns,
+            labels: { 'monitoring-receiver': 'true' },
+            annotations,
+          },
           spec: { receivers: [receiverSpec] },
         };
-        const { ok, error } = await postAlertmanagerconfigReceivers(cloudId, ns, WEBSITE_RECEIVER, payload);
+        const { ok, error } = await postAlertmanagerconfigReceivers(
+          cloudId,
+          ns,
+          WEBSITE_RECEIVER,
+          payload,
+          { receiverType: WEBSITE_RECEIVER }
+        );
         if (!ok) failed.push(`${ns}${error ? `: ${error}` : ''}`);
       }
       await loadReceivers();
       handleCloseAddWebsiteModal();
+      setEditingRecord(null);
       if (failed.length === 0) {
-        message.success(namespaces.length === 1 ? '本站站内信已开通' : `已为 ${namespaces.length} 个命名空间开通站内信`);
+        message.success(
+          isWebsiteEdit
+            ? '站内信通知对象已更新'
+            : namespaces.length === 1
+              ? '本站站内信已开通'
+              : `已为 ${namespaces.length} 个项目开通站内信`,
+        );
       } else if (failed.length < namespaces.length) {
         message.warning(`部分开通成功，失败：${failed.join('；')}`);
       } else {
@@ -389,7 +452,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     } finally {
       setAddWebsiteFormLoading(false);
     }
-  }, [addWebsiteForm, cloudId, selectedNamespace, loadReceivers, handleCloseAddWebsiteModal]);
+  }, [addWebsiteForm, cloudId, selectedNamespace, editingRecord, loadReceivers, handleCloseAddWebsiteModal]);
 
   const handleAddEmailConfigRow = useCallback(() => {
     const current = Array.isArray(addEmailForm.getFieldValue('emailConfigs')) ? addEmailForm.getFieldValue('emailConfigs') : [];
@@ -411,96 +474,137 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     setDingtalkConfigCount((prev) => Math.max(1, prev - 1));
   }, [addDingtalkForm]);
 
+  /**
+   * 新增/编辑通知对象 —— 每通知对象一独立 AlertmanagerConfig CR。
+   *
+   * 约定：
+   *   - `metadata.name = specReceiverName`（用户输入的唯一标识，邮件/钉钉），
+   *     站内信沿用 `metadata.name = website-receiver`（外层另有专用提交入口）。
+   *   - `metadata.annotations['tower.io/monitoring-receiver'] = receiverType`。
+   *   - `spec.receivers = [<本次表单产生的单条 receiver>]`，不再向历史共享 CR 合并。
+   *
+   * 历史共享 CR 迁移：若 editingRecord 来源于「receiverName ≠ specReceiverName」的旧共享 CR，
+   * 写入新 CR 成功后，会调用 deleteAlertmanagerconfigReceiver 移除旧 CR 中的同名 entry，
+   * 避免列表里同一标识出现两条数据。
+   */
   const upsertReceiverToAlertmanagerConfig = useCallback(async (args: {
     namespace: string;
-    receiverName: string;
+    receiverType: NotificationReceiverType;
     formValues: any;
     setLoading: (v: boolean) => void;
     onSuccess: () => void;
-    /** 编辑时传入原 spec.receivers[].name，仅在该条上修改，不新增同名 receiver */
-    editingSpecName?: string;
+    /** 编辑模式下传入原 ReceiverItem（用于历史共享 CR 迁移与重名校验） */
+    editingRecord?: ReceiverItem | null;
   }) => {
-    const { namespace, receiverName, formValues, setLoading, onSuccess, editingSpecName } = args;
+    const { namespace, receiverType, formValues, setLoading, onSuccess, editingRecord } = args;
     setLoading(true);
-    const specReceiverName = (formValues.specReceiverName ?? '').toString().trim() || receiverName;
-    const receiverSpec = buildReceiverSpec(specReceiverName, receiverName as ReceiverName, formValues);
-    // 通知方式 name 一一对应 AlertmanagerConfig.metadata.name（kind: AlertmanagerConfig）
-    const configName = receiverName;
-    const isAdding = !editingSpecName || editingSpecName.trim() === '';
-    const isRenaming = !isAdding && specReceiverName !== editingSpecName.trim();
+    const specReceiverName = (formValues.specReceiverName ?? '').toString().trim();
+    if (!specReceiverName) {
+      setLoading(false);
+      message.warning('通知对象标识不能为空');
+      return;
+    }
+    // 防止与历史共享 CR 同名（email/dingtalk）。站内信 metadata.name 沿用 website-receiver。
+    if (receiverType !== WEBSITE_RECEIVER && specReceiverName === receiverType) {
+      setLoading(false);
+      message.warning('通知对象标识不能等于通知方式名，请改名');
+      return;
+    }
+    const receiverSpec = buildReceiverSpec(specReceiverName, receiverType as ReceiverName, formValues);
+
+    const editingSpecName = (editingRecord?.specReceiverName ?? '').toString().trim();
+    const isAdding = !editingSpecName;
+    const isRenaming = !isAdding && specReceiverName !== editingSpecName;
     if (isAdding || isRenaming) {
       const { data: checkData, ok: checkOk } = await checkReceiverNameExists(
         cloudId,
         namespace,
         specReceiverName,
-        receiverName
+        receiverType
       );
       if (checkOk && (checkData as any)?.exists) {
         setLoading(false);
-        message.warning('该通知对象名称已存在，请使用其他名称');
+        message.warning('该通知对象标识已存在，请使用其他标识');
         return;
       }
     }
-    // email-receiver / dingtalk-receiver：从 receiverSpecs（数据库）构建 payload，不调用 Harvester API
-    const isDbReceiver = configName === EMAIL_RECEIVER || configName === DINGTALK_RECEIVER;
-    let existingReceivers: any[] = [];
-    if (isDbReceiver) {
-      const existing = receiverSpecs.find(
-        (r) => (r.namespace ?? '').toString().trim() === namespace && ((r as any).receiverName ?? '').toString().trim() === configName
-      );
-      existingReceivers = Array.isArray((existing as any)?.specReceivers) ? (existing as any).specReceivers : [];
-    } else {
-      const { data: existingData, ok: fetchOk } = await fetchAlertmanagerconfigDetail(cloudId, namespace, configName);
-      if (fetchOk && existingData && typeof (existingData as any)?.spec === 'object') {
-        const raw = existingData as any;
-        const existing = raw?.data != null && typeof raw.data === 'object' ? raw.data : raw;
-        existingReceivers = Array.isArray(existing.spec?.receivers) ? existing.spec.receivers : [];
+
+    // 新模型：URL `:name` 直接为通知对象标识；payload 仅含本次表单生成的单条 receiver
+    const alias = (formValues.alias ?? '').toString().trim();
+    const description = (formValues.description ?? '').toString().trim();
+    const payload = {
+      apiVersion: MONITORING_API_VERSION,
+      kind: ALERTMANAGERCONFIG_KIND,
+      metadata: {
+        name: specReceiverName,
+        namespace,
+        labels: { 'monitoring-receiver': 'true' },
+        annotations: buildReceiverCrAnnotations(receiverType, alias, description),
+      },
+      spec: { receivers: [receiverSpec] },
+    };
+    const { ok, error } = await postAlertmanagerconfigReceivers(
+      cloudId,
+      namespace,
+      specReceiverName,
+      payload,
+      { receiverType }
+    );
+
+    // 迁移：编辑来源是旧共享 CR 时，写入新 CR 成功后从旧共享 CR 中删除同名 entry
+    const editingFromLegacyShared =
+      editingRecord &&
+      editingRecord.receiverName &&
+      editingRecord.specReceiverName &&
+      editingRecord.receiverName !== editingRecord.specReceiverName;
+    if (ok && editingFromLegacyShared) {
+      const legacyConfigName = editingRecord!.receiverName;
+      const legacySpecName = editingRecord!.specReceiverName;
+      const legacyNs = (editingRecord!.namespace ?? namespace) || namespace;
+      try {
+        await deleteAlertmanagerconfigReceiver(cloudId, legacyNs, legacyConfigName, legacySpecName);
+      } catch (e) {
+        console.warn('[upsert receiver] migrate legacy shared CR entry failed:', e);
       }
     }
-    const trimName = (r: any) => (r?.name ?? '').toString().trim();
-    const nextReceivers =
-      editingSpecName != null && editingSpecName !== ''
-        ? existingReceivers.map((r: any) => (trimName(r) === editingSpecName ? receiverSpec : r))
-        : [...existingReceivers, receiverSpec];
-    const payload = { spec: { receivers: nextReceivers } };
-    const { ok, error } = await postAlertmanagerconfigReceivers(cloudId, namespace, configName, payload);
+
     setLoading(false);
     if (ok) {
-      message.success(editingSpecName != null ? '通知对象已更新' : '通知对象已添加');
+      message.success(editingRecord ? '通知对象已更新' : '通知对象已添加');
       await loadReceivers();
       onSuccess();
     } else {
-      message.error(error || (editingSpecName != null ? '更新通知对象失败' : '添加通知对象失败'));
+      message.error(error || (editingRecord ? '更新通知对象失败' : '添加通知对象失败'));
     }
-  }, [cloudId, loadReceivers, receiverSpecs]);
+  }, [cloudId, loadReceivers]);
 
   const handleAddEmailSubmit = useCallback(async () => {
-    const fieldsToValidate = ['namespace', 'specReceiverName', 'emailConfigs'];
+    const fieldsToValidate = ['namespace', 'specReceiverName', 'alias', 'description', 'emailConfigs'];
     const values = await addEmailForm.validateFields(fieldsToValidate).catch(() => null);
     const namespace = (values?.namespace ?? selectedNamespace) ?? '';
     if (!values || !cloudId || !namespace) return;
     await upsertReceiverToAlertmanagerConfig({
       namespace,
-      receiverName: EMAIL_RECEIVER,
+      receiverType: EMAIL_RECEIVER,
       formValues: values,
       setLoading: setAddEmailFormLoading,
       onSuccess: handleCloseAddEmailModal,
-      editingSpecName: editingRecord?.specReceiverName ?? undefined,
+      editingRecord,
     });
   }, [addEmailForm, cloudId, selectedNamespace, editingRecord, upsertReceiverToAlertmanagerConfig, handleCloseAddEmailModal]);
 
   const handleAddDingtalkSubmit = useCallback(async () => {
-    const fieldsToValidate = ['namespace', 'specReceiverName', 'webhookConfigs'];
+    const fieldsToValidate = ['namespace', 'specReceiverName', 'alias', 'description', 'webhookConfigs'];
     const values = await addDingtalkForm.validateFields(fieldsToValidate).catch(() => null);
     const namespace = (values?.namespace ?? selectedNamespace) ?? '';
     if (!values || !cloudId || !namespace) return;
     await upsertReceiverToAlertmanagerConfig({
       namespace,
-      receiverName: DINGTALK_RECEIVER,
+      receiverType: DINGTALK_RECEIVER,
       formValues: values,
       setLoading: setAddDingtalkFormLoading,
       onSuccess: handleCloseAddDingtalkModal,
-      editingSpecName: editingRecord?.specReceiverName ?? undefined,
+      editingRecord,
     });
   }, [addDingtalkForm, cloudId, selectedNamespace, editingRecord, upsertReceiverToAlertmanagerConfig, handleCloseAddDingtalkModal]);
 
@@ -512,14 +616,18 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         message.warning('无权编辑通知对象');
         return;
       }
-      if (!cloudId || !record.namespace || !record.receiverName || !record.specReceiverName) {
-        message.warning('无法编辑：缺少命名空间或通知对象信息');
+      if (!cloudId || !record.namespace || !record.receiverType || !record.specReceiverName) {
+        message.warning('无法编辑：缺少项目或通知对象信息');
         return;
       }
       setEditingRecord(record);
-      if (record.receiverName === EMAIL_RECEIVER) {
+      if (record.receiverType === EMAIL_RECEIVER) {
+        // 同一通知对象标识下可能有多条邮件配置（一对多），编辑时按 receiverType 聚合该 specReceiverName 的全部行
         const sameReceiverRows = receiverRows.filter(
-          (r) => r.namespace === record.namespace && r.receiverName === record.receiverName && r.specReceiverName === record.specReceiverName
+          (r) =>
+            r.namespace === record.namespace &&
+            r.receiverType === record.receiverType &&
+            r.specReceiverName === record.specReceiverName
         );
         const formConfigs =
           sameReceiverRows.length > 0
@@ -540,10 +648,12 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           namespace: record.namespace,
           receiverName: EMAIL_RECEIVER,
           specReceiverName: record.specReceiverName,
+          alias: record.alias ?? '',
+          description: record.description ?? '',
           emailConfigs: formConfigs,
         });
         setAddEmailModalOpen(true);
-      } else if (record.receiverName === DINGTALK_RECEIVER) {
+      } else if (record.receiverType === DINGTALK_RECEIVER) {
         const formList = [
           {
             robotUrl: (record?.robotUrl ?? '').toString().trim(),
@@ -556,9 +666,20 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         addDingtalkForm.setFieldsValue({
           namespace: record.namespace,
           specReceiverName: record.specReceiverName,
+          alias: record.alias ?? '',
+          description: record.description ?? '',
           webhookConfigs: formList,
         });
         setAddDingtalkModalOpen(true);
+      } else if (record.receiverType === WEBSITE_RECEIVER) {
+        addWebsiteForm.resetFields();
+        addWebsiteForm.setFieldsValue({
+          namespace: record.namespace ?? undefined,
+          receiverName: WEBSITE_RECEIVER,
+          alias: record.alias ?? '',
+          description: record.description ?? '',
+        });
+        setAddWebsiteModalOpen(true);
       } else {
         setEditingRecord(null);
         message.info('暂不支持编辑该类型');
@@ -566,14 +687,23 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     },
     [cloudId, addEmailForm, addDingtalkForm, canWriteReceivers]
   );
+  /**
+   * 删除通知对象。
+   *
+   * 派发逻辑：
+   *   - 新模型（每通知对象一 CR）：`receiverName === specReceiverName`（或站内信沿用 `website-receiver`），
+   *     调用 `deleteAlertmanagerconfig` 整 CR 删除（后端会兜底处理钉钉 ConfigMap、邮件 Secret 关联）。
+   *   - 历史共享 CR：`receiverName ∈ {email-receiver, dingtalk-receiver}` 且与 specReceiverName 不一致，
+   *     调用 `deleteAlertmanagerconfigReceiver` 仅移除该条 entry。
+   */
   const handleDelete = useCallback(
     (record: ReceiverItem) => {
       if (!canWriteReceivers) {
         message.warning('无权删除通知对象');
         return;
       }
-      if (!record.namespace || !record.receiverName || !record.specReceiverName) {
-        message.warning('无法删除：缺少命名空间或通知对象信息');
+      if (!record.namespace || !record.receiverName || !record.receiverType || !record.specReceiverName) {
+        message.warning('无法删除：缺少项目或通知对象信息');
         return;
       }
       Modal.confirm({
@@ -583,23 +713,33 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         cancelText: '取消',
         okButtonProps: { danger: true },
         onOk: async () => {
-          const rn = record.receiverName;
-          if (rn === EMAIL_RECEIVER || rn === DINGTALK_RECEIVER || rn === WEBSITE_RECEIVER) {
-            const { data: policyReceivers, ok: checkOk } = await fetchAlertPolicyReceivers(cloudId!, {
-              namespace: record.namespace,
-              specReceiverName: record.specReceiverName,
-            });
-            const list = (policyReceivers as any)?.data?.data ?? (policyReceivers as any)?.data ?? [];
-            if (checkOk && Array.isArray(list) && list.length > 0) {
-              const policyNames = [...new Set(list.map((p: any) => p.policyName))].join('、');
-              message.warning(`该通知对象已被以下告警通知策略引用，请先解除关联后再删除：${policyNames}`);
-              return;
-            }
+          const { data: policyReceivers, ok: checkOk } = await fetchAlertPolicyReceivers(cloudId!, {
+            namespace: record.namespace,
+            specReceiverName: record.specReceiverName,
+          });
+          const list = (policyReceivers as any)?.data?.data ?? (policyReceivers as any)?.data ?? [];
+          if (checkOk && Array.isArray(list) && list.length > 0) {
+            const policyNames = [...new Set(list.map((p: any) => p.policyName))].join('、');
+            message.warning(`该通知对象已被以下告警通知策略引用，请先解除关联后再删除：${policyNames}`);
+            return;
           }
-          const deleteFn =
-            rn === WEBSITE_RECEIVER
-              ? () => deleteAlertmanagerconfig(cloudId!, record.namespace!, rn!)
-              : () => deleteAlertmanagerconfigReceiver(cloudId!, record.namespace!, rn!, record.specReceiverName);
+          // 新模型：receiverName === specReceiverName ⇒ 整 CR 删除；
+          // 历史共享 CR：receiverName ∈ {email-receiver, dingtalk-receiver, website-receiver} 且 ≠ specReceiverName
+          //   ⇒ 仅移除 spec.receivers 中的同名 entry。
+          const isLegacySharedEntry =
+            record.receiverName !== record.specReceiverName &&
+            (record.receiverName === EMAIL_RECEIVER ||
+              record.receiverName === DINGTALK_RECEIVER ||
+              record.receiverName === WEBSITE_RECEIVER);
+          const deleteFn = isLegacySharedEntry
+            ? () =>
+                deleteAlertmanagerconfigReceiver(
+                  cloudId!,
+                  record.namespace!,
+                  record.receiverName,
+                  record.specReceiverName
+                )
+            : () => deleteAlertmanagerconfig(cloudId!, record.namespace!, record.receiverName);
           const { ok, error } = await deleteFn();
           if (ok) {
             message.success('已删除');
@@ -617,20 +757,29 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     const out: ReceiverItem[] = [];
     for (const r of receiverSpecs) {
       if (!r) continue;
-      const receiverName = (r.receiverName ?? '').toString().trim() || undefined;
+      // 「通知方式」一律以 annotation 落到的 receiverType 为准，缺失时回退 metadata.name（兼容历史数据）
+      const rawType = ((r as { receiverType?: string }).receiverType ?? r.receiverName ?? '').toString().trim();
+      const receiverType = rawType || '';
+      const receiverName = (r.receiverName ?? '').toString().trim() || receiverType;
       const ns = (r.namespace ?? selectedNamespace) || '';
+      const itemAlias = ((r as { alias?: string }).alias ?? '').toString().trim() || undefined;
+      const itemDescription = ((r as { description?: string }).description ?? '').toString().trim() || undefined;
       const list = Array.isArray((r as any)?.specReceivers) ? (r as any).specReceivers : [];
-      if (receiverName === EMAIL_RECEIVER) { // 邮件通知对象
+      const keyType = receiverType || receiverName || 'unknown-receiver';
+      if (receiverType === EMAIL_RECEIVER) { // 邮件通知对象
         for (const specReceiver of list) {
           const specReceiverName = (specReceiver?.name ?? '').toString().trim() || '';
           const specEmailConfigs = Array.isArray(specReceiver?.emailConfigs) ? specReceiver.emailConfigs : [];
           const receiverId = specReceiver?.id;
           specEmailConfigs.forEach((c: any, idx: number) => {
             out.push({
-              key: `${ns}/${receiverName ?? ''}/${specReceiverName}/${idx}`,
+              key: `${ns}/${keyType}/${specReceiverName}/${idx}`,
               namespace: ns || undefined,
-              receiverName: receiverName,
-              specReceiverName: specReceiverName,
+              receiverName,
+              receiverType,
+              specReceiverName,
+              alias: itemAlias,
+              description: itemDescription,
               emailReceiverId: receiverId,
               emailTo: c?.to,
               emailFrom: c?.from,
@@ -642,65 +791,72 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                 key: (c?.authPassword?.key ?? '').toString().trim(),
               },
               sendResolved: c?.sendResolved,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             });
           });
           if (specEmailConfigs.length === 0 && specReceiverName) {
             out.push({
-              key: `${ns}/${receiverName ?? ''}/${specReceiverName}/0`,
+              key: `${ns}/${keyType}/${specReceiverName}/0`,
               namespace: ns || undefined,
-              receiverName: receiverName,
-              specReceiverName: specReceiverName,
+              receiverName,
+              receiverType,
+              specReceiverName,
+              alias: itemAlias,
+              description: itemDescription,
               emailReceiverId: receiverId,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             } as ReceiverItem);
           }
         }
-      } else if (receiverName === DINGTALK_RECEIVER) {  // 钉钉通知对象
+      } else if (receiverType === DINGTALK_RECEIVER) {  // 钉钉通知对象
         for (const specReceiver of list) {
           const specReceiverName = (specReceiver?.name ?? '').toString().trim() || '';
           const receiverId = specReceiver?.id;
           const webhookConfigs = Array.isArray(specReceiver?.webhookConfigs) ? specReceiver.webhookConfigs : [];
           webhookConfigs.forEach((c: any, idx: number) => {
             out.push({
-              key: `${ns}/${receiverName ?? ''}/${specReceiverName}/${idx}`,
+              key: `${ns}/${keyType}/${specReceiverName}/${idx}`,
               namespace: ns || undefined,
-              receiverName: receiverName,
-              specReceiverName: specReceiverName,
+              receiverName,
+              receiverType,
+              specReceiverName,
+              alias: itemAlias,
+              description: itemDescription,
               dingtalkReceiverId: receiverId,
               robotAccount: c?.robotAccount,
               robotUrl: c?.robotUrl,
               url: c?.url,
               robotAccessToken: c?.robotAccessToken,
               sendResolved: c?.sendResolved,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             });
           });
           if (webhookConfigs.length === 0 && specReceiverName) {
             out.push({
-              key: `${ns}/${receiverName ?? ''}/${specReceiverName}/0`,
+              key: `${ns}/${keyType}/${specReceiverName}/0`,
               namespace: ns || undefined,
-              receiverName: receiverName,
-              specReceiverName: specReceiverName,
+              receiverName,
+              receiverType,
+              specReceiverName,
+              alias: itemAlias,
+              description: itemDescription,
               dingtalkReceiverId: receiverId,
-              creator: specReceiver?.creator,
               createdAt: specReceiver?.createdAt,
             } as ReceiverItem);
           }
         }
-      } else if (receiverName === WEBSITE_RECEIVER) {
+      } else if (receiverType === WEBSITE_RECEIVER) {  // 站内信通知对象
         for (const specReceiver of list) {
           const specReceiverName = (specReceiver?.name ?? '').toString().trim() || WEBSITE_RECEIVER;
           out.push({
-            key: `${ns}/${receiverName ?? ''}/${specReceiverName}`,
+            key: `${ns}/${keyType}/${specReceiverName}`,
             namespace: ns || undefined,
-            receiverName: receiverName,
-            specReceiverName: specReceiverName,
+            receiverName,
+            receiverType,
+            specReceiverName,
+            alias: itemAlias,
+            description: itemDescription,
             websiteReceiverId: specReceiver?.id,
-            creator: specReceiver?.creator,
             createdAt: specReceiver?.createdAt,
           } as ReceiverItem);
         }
@@ -710,18 +866,20 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   }, [receiverSpecs, selectedNamespace]);
 
   const filteredReceivers = useMemo(() => {
-    let filtered = receiverRows.filter((r) => r.receiverName === receiverNameFilter);
+    // 工具栏「通知方式」下拉值即 receiverType，列表过滤直接以 receiverType 命中
+    let filtered = receiverRows.filter((r) => r.receiverType === receiverTypeFilter);
     if (keyword.trim()) {
       const k = keyword.trim().toLowerCase();
       filtered = filtered.filter((r) => {
-        const nameMatch = (r.receiverName ?? '').toLowerCase().includes(k);
+        const typeMatch = (r.receiverType ?? '').toLowerCase().includes(k);
         const specNameMatch = (r.specReceiverName ?? '').toLowerCase().includes(k);
+        const aliasMatch = (r.alias ?? '').toLowerCase().includes(k);
         const nsMatch = (r.namespace ?? '').toLowerCase().includes(k);
-        return nameMatch || specNameMatch || nsMatch;
+        return typeMatch || specNameMatch || aliasMatch || nsMatch;
       });
     }
     return filtered;
-  }, [receiverRows, receiverNameFilter, keyword]);
+  }, [receiverRows, receiverTypeFilter, keyword]);
 
   const renderAction = useCallback(
     (_: unknown, record: ReceiverItem) => (
@@ -741,26 +899,28 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     () => [
       {
         title: '通知方式',
-        dataIndex: 'receiverName',
-        key: 'receiverName',
+        dataIndex: 'receiverType',
+        key: 'receiverType',
         fixed: 'left',
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+        // 通知方式展示一律以 annotation 落入的 receiverType 为准
         render: (_: unknown, r: ReceiverItem) => (
           <Space>
             <MailOutlined style={{ color: '#1890ff' }} />
-            {RECEIVER_NAME_LABELS[r.receiverName ?? ''] ?? r.receiverName ?? '-'}
+            {RECEIVER_TYPE_LABELS[r.receiverType ?? ''] ?? r.receiverType ?? '-'}
           </Space>
         ),
       },
       {
-        title: '通知对象名称',
+        title: '通知对象标识',
         dataIndex: 'specReceiverName',
         key: 'specReceiverName',
         ellipsis: true,
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       },
+      ...RECEIVER_ALIAS_COLUMN,
       {
-        title: '命名空间',
+        title: '项目',
         dataIndex: 'namespace',
         key: 'namespace',
         ellipsis: true,
@@ -804,7 +964,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
         render: (v: string | undefined) => v || '-',
       },
-      { title: '创建人', dataIndex: 'creator', key: 'creator', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => v || '-' },
       { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => (v ? (v.replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       { title: '操作', key: 'action', fixed: 'right', render: renderAction },
     ],
@@ -815,26 +974,27 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     () => [
       {
         title: '通知方式',
-        dataIndex: 'receiverName',
-        key: 'receiverName',
+        dataIndex: 'receiverType',
+        key: 'receiverType',
         fixed: 'left',
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
         render: (_: unknown, r: ReceiverItem) => (
           <Space>
             <DingtalkOutlined style={{ color: '#0089ff' }} />
-            {RECEIVER_NAME_LABELS[r.receiverName ?? ''] ?? r.receiverName ?? '-'}
+            {RECEIVER_TYPE_LABELS[r.receiverType ?? ''] ?? r.receiverType ?? '-'}
           </Space>
         ),
       },
       {
-        title: '通知对象名称',
+        title: '通知对象标识',
         dataIndex: 'specReceiverName',
         key: 'specReceiverName',
         ellipsis: true,
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       },
+      ...RECEIVER_ALIAS_COLUMN,
       {
-        title: '命名空间',
+        title: '项目名称',
         dataIndex: 'namespace',
         key: 'namespace',
         ellipsis: true,
@@ -870,7 +1030,6 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         render: (v: boolean | undefined) => (v === true ? <Tag color="blue">是</Tag> : <Tag color="warning">否</Tag>),
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       },
-      { title: '创建人', dataIndex: 'creator', key: 'creator', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => v || '-' },
       { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', ellipsis: true, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: (v: string | undefined) => (v ? (v.replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       { title: '操作', key: 'action', fixed: 'right', render: renderAction },
     ],
@@ -879,25 +1038,31 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
 
   const renderWebsiteAction = useCallback(
     (_: unknown, record: ReceiverItem) => (
-      <Button type="link" danger size="small" disabled={!canWriteReceivers} onClick={() => handleDelete(record)}>
-        删除
-      </Button>
+      <ResourceActionsDropdown
+        items={[
+          { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
+          { key: 'edit', label: '编辑', disabled: !canWriteReceivers, onClick: () => handleEdit(record, receiverRows) },
+          { type: 'divider' as const },
+          { key: 'delete', label: '删除', danger: true, disabled: !canWriteReceivers, onClick: () => handleDelete(record) },
+        ]}
+      />
     ),
-    [handleDelete, canWriteReceivers]
+    [handleDetail, handleEdit, handleDelete, receiverRows, canWriteReceivers]
   );
 
   const websiteColumns: ColumnsType<ReceiverItem> = useMemo(
     () => [
       {
         title: '通知方式',
-        dataIndex: 'receiverName',
-        key: 'receiverName',
+        dataIndex: 'receiverType',
+        key: 'receiverType',
         fixed: 'left',
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
-        render: (_: unknown, r: ReceiverItem) => RECEIVER_NAME_LABELS[r.receiverName ?? ''] ?? r.receiverName ?? '-',
+        render: (_: unknown, r: ReceiverItem) => RECEIVER_TYPE_LABELS[r.receiverType ?? ''] ?? r.receiverType ?? '-',
       },
+      ...RECEIVER_ALIAS_COLUMN,
       {
-        title: '命名空间',
+        title: '项目名称',
         dataIndex: 'namespace',
         key: 'namespace',
         ellipsis: true,
@@ -916,15 +1081,15 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
 
   // 根据通知方式选择对应的列定义
   const allColumns = useMemo(() => {
-    return receiverNameFilter === DINGTALK_RECEIVER
+    return receiverTypeFilter === DINGTALK_RECEIVER
       ? dingtalkColumns
-      : receiverNameFilter === WEBSITE_RECEIVER
+      : receiverTypeFilter === WEBSITE_RECEIVER
         ? websiteColumns
         : emailColumns;
-  }, [receiverNameFilter, emailColumns, dingtalkColumns, websiteColumns]);
+  }, [receiverTypeFilter, emailColumns, dingtalkColumns, websiteColumns]);
 
   // 列显示设置（根据通知方式使用不同的 settingsKey）
-  const settingsKey = `monitoring_alert_notification_targets_${receiverNameFilter}`;
+  const settingsKey = `monitoring_alert_notification_targets_${receiverTypeFilter}`;
   const { displayColumns: columns } = useTableColumnSettings(allColumns, settingsKey);
 
   if (!canReadReceivers) {
@@ -938,32 +1103,36 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   return (
     <div>
       <PageDetailSection
-        asCard={false}
+        asCard={true}
         toolbarLeft={
           <>
+            <Tag.CheckableTag checked style={SECTION_TITLE_TAG_STYLE}>
+              通知对象
+            </Tag.CheckableTag>
             <Input 
               allowClear 
-              placeholder="名称/ID" 
+              placeholder="名称/标识" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword || ''} 
               onChange={(e) => setKeyword(e.target.value)} 
               className="toolbar-search"
             />
             <Select
-              placeholder="命名空间"
-              allowClear
-              value={configNsFilter}
-              onChange={setConfigNsFilter}
-              loading={namespaceLoading}
-              options={formNamespaceOptions}
+              placeholder="通知方式"
+              value={receiverTypeFilter}
+              onChange={(v) => setReceiverTypeFilter(v ?? EMAIL_RECEIVER)}
+              options={RECEIVER_TYPE_SELECT_OPTIONS}
               className="toolbar-filter-sm"
             />
             <Select
-              placeholder="通知方式"
-              value={receiverNameFilter}
-              onChange={(v) => setReceiverNameFilter(v ?? 'email-receiver')}
-              options={RECEIVER_NAME_SELECT_OPTIONS}
-              className="toolbar-filter-sm"
+              placeholder="项目"
+              allowClear
+              value={configNsFilter ?? MONITORING_NAMESPACE_FILTER_ALL}
+              onChange={(v) => setConfigNsFilter(v === MONITORING_NAMESPACE_FILTER_ALL ? MONITORING_NAMESPACE_FILTER_ALL : v)}
+              loading={namespaceLoading}
+              options={formNamespaceOptions}
+              className="toolbar-filter-sm" 
+              style={{ minWidth: 300 }}
             />
           </>
         }
@@ -974,14 +1143,14 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               icon={<PlusOutlined />}
               disabled={!canWriteReceivers}
               onClick={() => {
-                if (receiverNameFilter === EMAIL_RECEIVER) handleOpenAddEmailModal();
-                else if (receiverNameFilter === DINGTALK_RECEIVER) handleOpenAddDingtalkModal();
-                else if (receiverNameFilter === WEBSITE_RECEIVER) handleOpenAddWebsiteModal();
+                if (receiverTypeFilter === EMAIL_RECEIVER) handleOpenAddEmailModal();
+                else if (receiverTypeFilter === DINGTALK_RECEIVER) handleOpenAddDingtalkModal();
+                else if (receiverTypeFilter === WEBSITE_RECEIVER) handleOpenAddWebsiteModal();
               }}
             >
-              {receiverNameFilter === EMAIL_RECEIVER
+              {receiverTypeFilter === EMAIL_RECEIVER
                 ? '新增邮件通知对象'
-                : receiverNameFilter === DINGTALK_RECEIVER
+                : receiverTypeFilter === DINGTALK_RECEIVER
                   ? '新增钉钉通知对象'
                   : '开通站内信'}
             </Button>
@@ -1012,11 +1181,13 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         {detailRecord && (
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="通知方式">
-              {RECEIVER_NAME_LABELS[detailRecord.receiverName ?? ''] ?? detailRecord.receiverName ?? '-'}
+              {RECEIVER_TYPE_LABELS[detailRecord.receiverType ?? ''] ?? detailRecord.receiverType ?? '-'}
             </Descriptions.Item>
-            <Descriptions.Item label="命名空间">{detailRecord.namespace ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="通知对象名称">{detailRecord.specReceiverName ?? '-'}</Descriptions.Item>
-            {detailRecord.receiverName === EMAIL_RECEIVER && ( // 邮件通知对象
+            <Descriptions.Item label="项目">{detailRecord.namespace ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知对象标识">{detailRecord.specReceiverName ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知对象名称">{detailRecord.alias?.trim() || '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知对象描述">{detailRecord.description?.trim() || '-'}</Descriptions.Item>
+            {detailRecord.receiverType === EMAIL_RECEIVER && ( // 邮件通知对象
               <>
                 <Descriptions.Item label="发件人">{detailRecord.emailFrom ?? '-'}</Descriptions.Item>
                 <Descriptions.Item label="收件人">{detailRecord.emailTo ?? '-'}</Descriptions.Item>
@@ -1027,7 +1198,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                 <Descriptions.Item label="SMTP授权账号密钥(Secret)">{detailRecord.smtpAuthPassword?.name ?? '-'}</Descriptions.Item>
               </>
             )}
-            {detailRecord.receiverName === DINGTALK_RECEIVER && ( // 钉钉通知对象
+            {detailRecord.receiverType === DINGTALK_RECEIVER && ( // 钉钉通知对象
               <>
                 <Descriptions.Item label="Webhook URL">{detailRecord.url ?? '-'}</Descriptions.Item>
                 <Descriptions.Item label="钉钉机器人账号">{detailRecord.robotAccount ?? '-'}</Descriptions.Item>
@@ -1036,10 +1207,9 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                 <Descriptions.Item label="发送恢复通知">{detailRecord.sendResolved === true ? '是' : '否'}</Descriptions.Item>
               </>
             )}
-            {detailRecord.receiverName === WEBSITE_RECEIVER && (
+            {detailRecord.receiverType === WEBSITE_RECEIVER && (
               <Descriptions.Item label="说明">本站站内信通知对象，无额外配置</Descriptions.Item>
             )}
-            <Descriptions.Item label="创建人">{detailRecord.creator ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="创建时间">
               {detailRecord.createdAt ? String(detailRecord.createdAt).replace('T', ' ').replace(/\.\d{3}Z?$/, '') : '-'}
             </Descriptions.Item>
@@ -1064,23 +1234,25 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           initialValues={{
             namespace: selectedNamespace,
             specReceiverName: '',
+            alias: '',
+            description: '',
             emailConfigs: [{ ...EMPTY_EMAIL_CONFIG }],
           }}
         >
           <Row gutter={24}>
-            <Col span={10}>
-              <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
+            <Col span={10} style={{ minWidth: 280 }}>
+              <Form.Item name="namespace" label="项目" rules={[{ required: true, message: '请选择项目' }]}>
                 <Select
-                  placeholder="命名空间"
+                  placeholder="项目"
                   allowClear
-                  options={formNamespaceOptions}
+                  options={formNamespaceOptionsForForm}
                   loading={namespaceLoading}
-                  style={{ minWidth: '100%' }}
+                  style={{ width: '100%' }}
                   disabled={!!editingRecord}
                   onChange={(ns) => {
                     if (ns != null && ns !== '') loadEmailModalSecrets(String(ns));
                     else setEmailModalSecrets([]);
-                    // 命名空间变更后密钥列表变化，清空所有邮箱配置的「密钥名称」「密钥Key」
+                    // 项目变更后密钥列表变化，清空所有邮箱配置的「密钥标识」「密钥Key」
                     const configs = addEmailForm.getFieldValue('emailConfigs') ?? [];
                     if (Array.isArray(configs) && configs.length > 0) {
                       addEmailForm.setFieldValue(
@@ -1093,11 +1265,23 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               </Form.Item>
             </Col>
           <Col span={14}>
-            <Form.Item name="specReceiverName" label="通知对象名称" rules={[{ required: true, message: '请输入通知对象名称' }]}>
-              <Input placeholder="如：ops-email、storage-email 等" />
+            <Form.Item name="specReceiverName" label="通知对象标识" rules={[{ required: true, message: '请输入通知对象标识' }]}>
+              <Input placeholder="如：ops-email、storage-email 等" disabled={!!editingRecord} />
             </Form.Item>
           </Col>
         </Row>
+          <Row gutter={24}>
+            <Col span={12}>
+              <Form.Item name="alias" label="通知对象名称">
+                <Input placeholder="便于识别的展示名称（可选）" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="description" label="通知对象描述">
+                <Input.TextArea placeholder="用途说明（可选）" rows={2} />
+              </Form.Item>
+            </Col>
+          </Row>
           {Array.from({ length: emailConfigCount }).map((_, index) => (
             <div key={`email-${index}`} style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -1127,7 +1311,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                   <Col span={12}>
                     <Form.Item name={['emailConfigs', index, 'authIdentity']} noStyle>
                       <Select
-                        placeholder="密钥名称"
+                        placeholder="密钥标识"
                         allowClear
                         loading={loadingEmailModalSecrets}
                         options={emailModalSecrets.map((s) => ({ value: s.name, label: s.name }))}
@@ -1179,28 +1363,42 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           initialValues={{
             namespace: selectedNamespace,
             specReceiverName: '',
+            alias: '',
+            description: '',
             webhookConfigs: [{ url: '', robotAccount: '', robotUrl: '', robotAccessToken: '', sendResolved: true }],
           }}
         >
           <Row gutter={24}>
             <Col span={10}>
-            <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
+            <Form.Item name="namespace" label="项目" rules={[{ required: true, message: '请选择项目' }]}>
               <Select
-                placeholder="命名空间"
+                placeholder="项目"
                 allowClear={!editingRecord}
                 disabled={!!editingRecord}
                 loading={namespaceLoading}
-                options={formNamespaceOptions}
+                options={formNamespaceOptionsForForm}
                 style={{ minWidth: '100%' }}
             />
             </Form.Item>
             </Col>
           <Col span={14}>
-            <Form.Item name="specReceiverName" label="通知对象名称" rules={[{ required: true, message: '请输入通知对象名称' }]}>
-              <Input placeholder="ops-dingtalk、storage-dingtalk 等" />
+            <Form.Item name="specReceiverName" label="通知对象标识" rules={[{ required: true, message: '请输入通知对象标识' }]}>
+              <Input placeholder="ops-dingtalk、storage-dingtalk 等" disabled={!!editingRecord} />
             </Form.Item>
           </Col>
         </Row>
+          <Row gutter={24}>
+            <Col span={12}>
+              <Form.Item name="alias" label="通知对象名称">
+                <Input placeholder="便于识别的展示名称（可选）" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="description" label="通知对象描述">
+                <Input.TextArea placeholder="用途说明（可选）" rows={2} />
+              </Form.Item>
+            </Col>
+          </Row>
           {Array.from({ length: dingtalkConfigCount }).map((_, index) => (
             <div key={`dingtalk-${index}`} style={{ marginBottom: 16, padding: 12, background: '#e6f4ff', borderRadius: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -1220,16 +1418,18 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           ))}
           </Form>
       </Modal>
-
+      {/* 开通/编辑站内信 Modal */}
       <Modal
-        title="开通站内信"
+        title={editingRecord?.receiverType === WEBSITE_RECEIVER ? '编辑站内信' : '开通站内信'}
         open={addWebsiteModalOpen}
         onCancel={handleCloseAddWebsiteModal}
         destroyOnHidden
         width={520}
         footer={[
           <Button key="cancel" onClick={handleCloseAddWebsiteModal}>取消</Button>,
-          <Button key="submit" type="primary" loading={addWebsiteFormLoading} onClick={() => handleAddWebsiteSubmit()}>开通</Button>,
+          <Button key="submit" type="primary" loading={addWebsiteFormLoading} onClick={() => handleAddWebsiteSubmit()}>
+            {editingRecord?.receiverType === WEBSITE_RECEIVER ? '确定' : '开通'}
+          </Button>,
         ]}
       >
         <Form
@@ -1238,6 +1438,8 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           initialValues={{
             namespace: selectedNamespace ? [selectedNamespace] : [],
             receiverName: WEBSITE_RECEIVER,
+            alias: '',
+            description: '',
           }}
         >
           <Row gutter={24}>
@@ -1251,15 +1453,28 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="namespace" label="命名空间" rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个命名空间' }]}>
+              <Form.Item name="namespace" label="项目名称" rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个项目' }]}>
                 <Select
-                  mode="multiple"
-                  placeholder="请选择命名空间（可多选）"
-                  allowClear
-                  options={formNamespaceOptions}
+                  mode={editingRecord?.receiverType === WEBSITE_RECEIVER ? undefined : 'multiple'}
+                  placeholder="请选择项目（可多选）"
+                  allowClear={!editingRecord}
+                  disabled={!!editingRecord}
+                  options={formNamespaceOptionsForForm}
                   loading={namespaceLoading}
                   style={{ minWidth: '100%' }}
                 />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={24}>
+            <Col span={12}>
+              <Form.Item name="alias" label="通知对象名称">
+                <Input placeholder="便于识别的展示名称（可选）" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="description" label="通知对象描述">
+                <Input.TextArea placeholder="用途说明（可选）" rows={2} />
               </Form.Item>
             </Col>
           </Row>

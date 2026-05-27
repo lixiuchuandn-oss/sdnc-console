@@ -1,6 +1,7 @@
 import yaml from 'js-yaml';
 import { fetchConfigMap } from '../../../../../../services/monitoringApi';
 import {
+  ANNOTATION_MONITORING_RECEIVER,
   DINGTALK_CONFIGMAP_NAME,
   DINGTALK_CONFIGMAP_NAMESPACE,
   DINGTALK_RECEIVER,
@@ -32,8 +33,16 @@ export const RECEIVER_NAME_OPTIONS: { value: ReceiverName; label: string }[] = [
 /** 扁平化後的單條接收器（用於列表與下拉選項） */
 export interface FlattenedReceiver {
   namespace: string;
-  /** AlertmanagerConfig.metadata.name，对应 email-receiver | dingtalk-receiver */
+  /**
+   * AlertmanagerConfig.metadata.name，对应 email-receiver | dingtalk-receiver | website-receiver。
+   * **仅用于 CRUD URL 寻址**；判断「通知方式」请使用 {@link FlattenedReceiver.receiverType}。
+   */
   receiverName: string;
+  /**
+   * 通知方式类型，来源于 AlertmanagerConfig 注解 `tower.io/monitoring-receiver`。
+   * 注解缺失时回退 metadata.name（receiverName）以兼容历史数据。
+   */
+  receiverType: ReceiverName;
   /** spec.receivers[].name，具体接收器条目名 */
   specReceiverName: string;
   receiverSpec: ReceiverSpec;
@@ -199,8 +208,28 @@ export function normalizeDingtalkReceiverSpec(
 }
 
 /**
+ * 解析 AlertmanagerConfig 的「通知方式」类型：
+ * - 优先取 `metadata.annotations['tower.io/monitoring-receiver']`；
+ * - 注解缺失时回退 `metadata.name`（兼容历史数据：旧版默认按 metadata.name 寻址通知方式）。
+ * 非法值统一回退为 `email-receiver`，避免 UI 出现「未知通知方式」。
+ */
+function resolveReceiverTypeFromMeta(meta: {
+  name?: string;
+  annotations?: Record<string, string>;
+}): ReceiverName {
+  const fromAnnotation = (meta?.annotations?.[ANNOTATION_MONITORING_RECEIVER] ?? '').toString().trim();
+  const candidate = (fromAnnotation || meta?.name || '').toString().trim();
+  if (candidate === DINGTALK_RECEIVER) return DINGTALK_RECEIVER;
+  if (candidate === WEBSITE_RECEIVER) return WEBSITE_RECEIVER;
+  return EMAIL_RECEIVER;
+}
+
+/**
  * 从 AlertmanagerConfig 列表扁平化出所有接收器。
- * 传入 dingtalkWebhookConfig 时，钉钉接收器会从 config 中按 specReceiverName 取 url 解析出 robotUrl、robotAccessToken。
+ *
+ * 「通知方式」(`receiverType`) 一律以 annotation `tower.io/monitoring-receiver` 为准，
+ * 缺失时回退 metadata.name（兼容历史数据）。钉钉接收器在传入 dingtalkWebhookConfig 时，
+ * 会从 config 中按 specReceiverName 取 url 解析出 robotUrl、robotAccessToken。
  */
 export function flattenReceiversFromConfigList(
   configList: Array<{
@@ -213,17 +242,19 @@ export function flattenReceiversFromConfigList(
   for (const config of configList) {
     const namespace = config.metadata?.namespace ?? '';
     const receiverName = config.metadata?.name ?? '';
+    const receiverType = resolveReceiverTypeFromMeta(config.metadata ?? {});
     const receivers = config.spec?.receivers;
     if (!Array.isArray(receivers)) continue;
     for (const r of receivers) {
       const specReceiverName = (r?.name ?? '').toString().trim();
       const receiverSpec =
-        receiverName === DINGTALK_RECEIVER
+        receiverType === DINGTALK_RECEIVER
           ? normalizeDingtalkReceiverSpec(r as ReceiverSpec, namespace, specReceiverName, dingtalkWebhookConfig)
           : (r as ReceiverSpec);
       out.push({
         namespace,
         receiverName,
+        receiverType,
         specReceiverName,
         receiverSpec,
       });
