@@ -24,12 +24,9 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   CheckOutlined,
   CloseOutlined,
-  DeleteOutlined,
   EditOutlined,
-  PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
-  UploadOutlined,
 } from '@ant-design/icons';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';

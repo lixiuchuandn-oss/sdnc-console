@@ -372,7 +372,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             capabilities={harvesterCapabilities}
             onReloadQuickCreateSubnets={onRefreshVpcs}
             onReloadQuickCreateImages={onRefreshImages}
-            onBackupsInventoryChanged={onRefreshBackups}
+            onBackupsInventoryChanged={backupsTabOnRefresh?.backups}
           />
         );
       case 'recycle-bin':
