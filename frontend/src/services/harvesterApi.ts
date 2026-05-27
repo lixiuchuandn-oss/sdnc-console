@@ -1386,7 +1386,7 @@ export const fetchHarvesterConfigMaps = async (cloudId: string, namespace?: stri
   if (namespace) query += `namespace=${encodeURIComponent(namespace)}&`;
   if (force) query += `force=true&`;
   if (all) query += `all=true&`;
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps${query}`, { skipCache: force });
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps${query}`, { enableCache: true, skipCache: force });
 };
 
 /**
@@ -1403,7 +1403,7 @@ export const fetchHarvesterSecrets = async (cloudId: string, namespace?: string,
   if (type) query += `type=${encodeURIComponent(type)}&`;
   if (force) query += `force=true&`;
   if (all) query += `all=true&`;
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets${query}`, { skipCache: force });
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets${query}`, { enableCache: true, skipCache: force });
 };
 
 // ============================================================
@@ -1417,8 +1417,11 @@ export const fetchHarvesterSecrets = async (cloudId: string, namespace?: string,
  * @param name ConfigMap 名称
  * @returns Promise<any>
  */
-export const fetchHarvesterConfigMapDetail = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+export const fetchHarvesterConfigMapDetail = async (cloudId: string, namespace: string, name: string, force?: boolean) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/configmaps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${query}`, { enableCache: true, skipCache: force });
 };
 
 /**
@@ -1477,7 +1480,7 @@ export const fetchHarvesterSecretDetail = async (cloudId: string, namespace: str
   if (reveal) params.append('reveal', 'true');
   if (force) params.append('force', 'true');
   const query = params.toString() ? `?${params.toString()}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${query}`, { skipCache: force });
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${query}`, { enableCache: true, skipCache: force });
 };
 
 /**

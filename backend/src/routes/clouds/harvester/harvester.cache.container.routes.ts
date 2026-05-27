@@ -43,6 +43,8 @@ const resourceCache = new Map<string, CacheItem<any>>();
 const CACHE_TTL = 30 * 1000; // 30 秒（默认）
 const CACHE_TTL_SECRETS = 5 * 60 * 1000; // 5 分钟（Secrets 响应慢，缓存更久）
 const CACHE_TTL_CONFIGMAPS = 2 * 60 * 1000; // 2 分钟（ConfigMaps 响应较慢）
+const CACHE_TTL_SECRET_DETAIL = 2 * 60 * 1000; // 2 分钟（Secret 详情）
+const CACHE_TTL_CONFIGMAP_DETAIL = 2 * 60 * 1000; // 2 分钟（ConfigMap 详情）
 
 const getCached = <T>(key: string, customTtl?: number): T | null => {
   const item = resourceCache.get(key);
@@ -1158,8 +1160,8 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
-        // 生成缓存 key
-        const cacheKey = `secrets:${id}:${namespace || 'all'}:${type || 'all'}:${all || 'false'}`;
+        // 生成缓存 key (不包含 type，全量缓存，type 过滤在读取时进行)
+        const cacheKey = `secrets:${id}:${namespace || 'all'}:all:${all || 'false'}`;
         
         // 尝试从缓存获取（force=true 时跳过缓存）
         // Secrets 响应慢，使用更长的缓存时间
@@ -1275,8 +1277,9 @@ export const registerHarvesterContainerRoutes = (
         
         const result = await requestJson('POST', url, token, insecure, body);
         
-        // 清除 configmaps 缓存
+        // 清除 configmaps 缓存（列表 + 详情）
         clearCacheByPrefix(`configmaps:${id}:`);
+        clearCacheByPrefix(`configmap:${id}:`);
         
         res.json({ message: '创建 ConfigMap 成功', data: result });
       } catch (error: any) {
@@ -1311,6 +1314,8 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取 ConfigMap 详情
    * GET /:id/resources/harvester/containers/configmaps/:namespace/:name
+   * Query: force (可选，跳过缓存)
+   * 优化: 增加缓存，减少 K8s API 请求
    */
   router.get(
     '/:id/resources/harvester/containers/configmaps/:namespace/:name',
@@ -1318,6 +1323,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id, namespace, name } = req.params;
+        const { force } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1327,8 +1333,23 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
-        const url = buildK8sUrl(base, '/api/v1/configmaps', namespace, name);
-        const result = await getJsonOnce(url, token, insecure, true);
+        // 生成缓存 key
+        const cacheKey = `configmap:${id}:${namespace}:${name}`;
+        
+        // 尝试从缓存获取（force=true 时跳过缓存）
+        let result: any = null;
+        if (force !== 'true' && force !== '1') {
+          result = getCached<any>(cacheKey, CACHE_TTL_CONFIGMAP_DETAIL);
+        }
+        
+        if (!result) {
+          const url = buildK8sUrl(base, '/api/v1/configmaps', namespace, name);
+          result = await getJsonOnce(url, token, insecure, true);
+          // 存入缓存
+          if (result) {
+            setCache(cacheKey, result);
+          }
+        }
         
         if (!result) {
           return res.status(404).json({ message: 'ConfigMap 不存在' });
@@ -1385,8 +1406,9 @@ export const registerHarvesterContainerRoutes = (
         const updateUrl = buildK8sUrl(base, '/api/v1/configmaps', namespace, name);
         const result = await requestJson('PUT', updateUrl, token, insecure, updatedConfigMap);
         
-        // 清除 configmaps 缓存
+        // 清除 configmaps 缓存（列表 + 详情）
         clearCacheByPrefix(`configmaps:${id}:`);
+        clearCacheByPrefix(`configmap:${id}:`);
         
         res.json({ message: '更新 ConfigMap 成功', data: result });
       } catch (error: any) {
@@ -1421,8 +1443,9 @@ export const registerHarvesterContainerRoutes = (
         
         const result = await requestJson('DELETE', url, token, insecure);
         
-        // 清除 configmaps 缓存
+        // 清除 configmaps 缓存（列表 + 详情）
         clearCacheByPrefix(`configmaps:${id}:`);
+        clearCacheByPrefix(`configmap:${id}:`);
         
         res.json({ message: '删除 ConfigMap 成功', data: result });
       } catch (error: any) {
@@ -1477,8 +1500,9 @@ export const registerHarvesterContainerRoutes = (
         
         const result = await requestJson('POST', url, token, insecure, body);
         
-        // 清除 secrets 缓存
+        // 清除 secrets 缓存（列表 + 详情）
         clearCacheByPrefix(`secrets:${id}:`);
+        clearCacheByPrefix(`secret:${id}:`);
         
         res.json({ message: '创建 Secret 成功', data: result });
       } catch (error: any) {
@@ -1538,7 +1562,7 @@ export const registerHarvesterContainerRoutes = (
         // 尝试从缓存获取（force=true 时跳过缓存）
         let result: any = null;
         if (force !== 'true' && force !== '1') {
-          result = getCached<any>(cacheKey);
+          result = getCached<any>(cacheKey, CACHE_TTL_SECRET_DETAIL);
         }
         
         if (!result) {
@@ -1631,8 +1655,9 @@ export const registerHarvesterContainerRoutes = (
         const updateUrl = buildK8sUrl(base, '/api/v1/secrets', namespace, name);
         const result = await requestJson('PUT', updateUrl, token, insecure, updatedSecret);
         
-        // 清除 secrets 缓存
+        // 清除 secrets 缓存（列表 + 详情）
         clearCacheByPrefix(`secrets:${id}:`);
+        clearCacheByPrefix(`secret:${id}:`);
         
         res.json({ message: '更新 Secret 成功', data: result });
       } catch (error: any) {
@@ -1666,8 +1691,9 @@ export const registerHarvesterContainerRoutes = (
         
         const result = await requestJson('DELETE', url, token, insecure);
         
-        // 清除 secrets 缓存
+        // 清除 secrets 缓存（列表 + 详情）
         clearCacheByPrefix(`secrets:${id}:`);
+        clearCacheByPrefix(`secret:${id}:`);
         
         res.json({ message: '删除 Secret 成功', data: result });
       } catch (error: any) {
@@ -1718,8 +1744,9 @@ export const registerHarvesterContainerRoutes = (
   /**
    * [API] 获取镜像凭证列表
    * GET /:id/resources/harvester/containers/imagepullsecrets
-   * Query: namespace (可选，不传则返回所有命名空间)
+   * Query: namespace, force, all (可选)
    * 说明: 返回类型为 kubernetes.io/dockerconfigjson 的 Secret
+   * 优化: 复用 secrets 缓存，避免重复请求 K8s API
    */
   router.get(
     '/:id/resources/harvester/containers/imagepullsecrets',
@@ -1727,7 +1754,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, force, all } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1737,46 +1764,74 @@ export const registerHarvesterContainerRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
         
-        // 获取所有 Secret，然后过滤
-        let items: any[];
-        if (namespace) {
-          items = await getNamespacedResources(base, '/api/v1/secrets', String(namespace), token, insecure);
-        } else {
-          items = await getAllNamespacedResources(base, '/api/v1/secrets', token, insecure);
+        // 复用 secrets 缓存 key (与 secrets 列表路由一致)
+        const cacheKey = `secrets:${id}:${namespace || 'all'}:all:${all || 'false'}`;
+        
+        // 尝试从缓存获取
+        let items: any[] | null = null;
+        if (force !== 'true' && force !== '1') {
+          items = getCached<any[]>(cacheKey, CACHE_TTL_SECRETS);
         }
         
-        // 过滤 kubernetes.io/dockerconfigjson 类型
-        const imagePullSecrets = items
-          .filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson')
-          .map((item: any) => {
-            // 解析并提取仓库信息
-            let registryInfo: any = {};
-            try {
-              if (item.data?.['.dockerconfigjson']) {
+        if (!items) {
+          // 缓存未命中，从 K8s API 获取
+          if (namespace) {
+            items = await getNamespacedResources(base, '/api/v1/secrets', String(namespace), token, insecure);
+          } else {
+            items = await getAllNamespacedResources(base, '/api/v1/secrets', token, insecure);
+          }
+          
+          // all !== 'true' 时过滤系统命名空间
+          if (all !== 'true') {
+            items = items.filter((item: any) => !isSystemResource(item));
+          }
+          
+          // 脱敏处理 (复用 secrets 列表路由的逻辑)
+          items = items.map((item: any) => {
+            let registryServer: string | undefined;
+            let registryUsername: string | undefined;
+            
+            if (item?.type === 'kubernetes.io/dockerconfigjson' && item?.data?.['.dockerconfigjson']) {
+              try {
                 const decoded = Buffer.from(item.data['.dockerconfigjson'], 'base64').toString('utf-8');
                 const config = JSON.parse(decoded);
-                const servers = Object.keys(config.auths || {});
-                if (servers.length > 0) {
-                  const firstServer = servers[0];
-                  registryInfo = {
-                    server: firstServer,
-                    username: config.auths[firstServer].username,
-                    // 不返回密码
-                  };
+                const auths = config.auths || {};
+                const serverKey = Object.keys(auths)[0];
+                if (serverKey) {
+                  registryServer = serverKey;
+                  registryUsername = auths[serverKey]?.username;
                 }
+              } catch {
+                // 解析失败，忽略
               }
-            } catch (e) {
-              console.error('解析 dockerconfigjson 失败:', e);
             }
             
             return {
-              name: item.metadata?.name,
-              namespace: item.metadata?.namespace,
-              creationTimestamp: item.metadata?.creationTimestamp,
-              type: item.type,
-              ...registryInfo,
+              ...item,
+              data: item.data ? Object.keys(item.data).reduce((acc: any, key: string) => {
+                acc[key] = '******';
+                return acc;
+              }, {} as any) : undefined,
+              _registryServer: registryServer,
+              _registryUsername: registryUsername,
             };
           });
+          
+          // 存入缓存
+          setCache(cacheKey, items);
+        }
+        
+        // 过滤 kubernetes.io/dockerconfigjson 类型并转换为简化格式
+        const imagePullSecrets = items
+          .filter((item: any) => item?.type === 'kubernetes.io/dockerconfigjson')
+          .map((item: any) => ({
+            name: item.metadata?.name,
+            namespace: item.metadata?.namespace,
+            creationTimestamp: item.metadata?.creationTimestamp,
+            type: item.type,
+            server: item._registryServer,
+            username: item._registryUsername,
+          }));
         
         res.json({ message: '查询成功', data: { items: imagePullSecrets } });
       } catch (error: any) {
