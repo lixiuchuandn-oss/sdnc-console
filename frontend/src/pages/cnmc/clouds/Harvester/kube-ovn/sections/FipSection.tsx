@@ -23,11 +23,16 @@ import {
   subnetCidrOf,
   vmUsesSubnet,
 } from '../lib/subnetVmPicker';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
-  onRefresh: (force?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
   bordered?: boolean;
 }
 
@@ -314,7 +319,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
       message.success('FIP 创建成功');
       setIsCreateVisible(false);
       form.resetFields();
-      onRefresh(true);
+      runHarvesterSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       if (e?.errorFields) return;
       let errMsg = e.message || '创建失败';
@@ -356,7 +361,7 @@ export const FipSection: React.FC<FipSectionProps> = ({
                 uiNetworkScopeToCloudOvn(networkScope),
               );
               message.success('删除成功');
-              onRefresh(true);
+              runHarvesterSectionRefresh(onRefresh, { force: true });
             } catch (e: any) {
               message.error(`删除失败: ${e.message}`);
             }
@@ -558,7 +563,12 @@ export const FipSection: React.FC<FipSectionProps> = ({
           <Space size={8}>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey={fipTableSettingsKey} />
             <Tooltip title="刷新">
-              <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading} aria-label="刷新" />
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={createHarvesterToolbarRefresh(onRefresh)}
+                loading={loading}
+                aria-label="刷新"
+              />
             </Tooltip>
           </Space>
         }

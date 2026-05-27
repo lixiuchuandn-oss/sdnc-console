@@ -1,15 +1,18 @@
-import React from 'react';
-import { Empty, message } from 'antd';
+/**
+ * Cloudmap 详情 — 扁平网络：刷新经 `kubeOvnRefresh` → `loadTabResource` / `flatNetworkPathLoads`。
+ */
+import React, { useEffect, useMemo } from 'react';
+import { Empty } from 'antd';
 import UnderlaySubnetsSection from '../../../../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 import SecurityGroupsSection from '../../../../Harvester/kube-ovn/sections/SecurityGroupsSection';
 import EipSection from '../../../../Harvester/kube-ovn/sections/EipSection';
 import SnatSection from '../../../../Harvester/kube-ovn/sections/SnatSection';
 import DnatSection from '../../../../Harvester/kube-ovn/sections/DnatSection';
+import { createKubeOvnTabOnRefresh } from '../../loaders/kubeOvnRefresh';
 import {
-  fetchCloudProviderOvnDnatRules,
-  fetchCloudProviderOvnSnatRules,
-  fetchKubeOvnSubnets,
-} from '../../api';
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../../../../Harvester/kube-ovn/lib/kubeOvnSectionRefresh';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -36,30 +39,17 @@ export type CloudmapFlatNetworkRoutePanelProps = {
   checkPerm: (act: string) => boolean;
   canReadFlatSubnets: boolean;
   innerActiveKey: string;
-  loadResource: (
-    key: string,
-    fn: () => Promise<any>,
-    cb: (json: any) => void,
-    force?: boolean,
-  ) => Promise<void>;
   loadTabResource: (
     key: string,
     force?: boolean,
     skipSync?: boolean,
   ) => Promise<void>;
-  setResourceLoading: React.Dispatch<
-    React.SetStateAction<Record<string, boolean>>
-  >;
   kubeOvnSubnets: any[];
-  setKubeOvnSubnets: (v: any[]) => void;
-  setRawSubnets: (v: any) => void;
   rawSubnets: any;
   kubeOvnFlatEips: any[];
   kubeOvnVpcs: any[];
   kubeOvnFlatSnatRules: any[];
-  setKubeOvnFlatSnatRules: (v: any[]) => void;
   kubeOvnFlatDnatRules: any[];
-  setKubeOvnFlatDnatRules: (v: any[]) => void;
   resourceLoading: Record<string, boolean>;
 };
 
@@ -85,6 +75,13 @@ function canViewFlatInner(
   return false;
 }
 
+const FLAT_TAB_KEYS = [
+  'flat_public_subnets',
+  'flat_kubeovn_eips',
+  'flat_kubeovn_snat',
+  'flat_kubeovn_dnat',
+] as const;
+
 const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps> = (
   props,
 ) => {
@@ -94,43 +91,54 @@ const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps
     checkPerm,
     canReadFlatSubnets,
     innerActiveKey,
-    loadResource,
     loadTabResource,
-    setResourceLoading,
-    kubeOvnSubnets,
-    setKubeOvnSubnets,
-    setRawSubnets,
     rawSubnets,
     kubeOvnFlatEips,
     kubeOvnVpcs,
+    kubeOvnSubnets,
     kubeOvnFlatSnatRules,
-    setKubeOvnFlatSnatRules,
     kubeOvnFlatDnatRules,
-    setKubeOvnFlatDnatRules,
     resourceLoading,
   } = props;
+
+  const flatTabOnRefresh = useMemo(
+    () => ({
+      flat_public_subnets: createKubeOvnTabOnRefresh('flat_public_subnets', {
+        loadTabResource,
+      }),
+      flat_kubeovn_eips: createKubeOvnTabOnRefresh('flat_kubeovn_eips', {
+        loadTabResource,
+      }),
+      flat_kubeovn_snat: createKubeOvnTabOnRefresh('flat_kubeovn_snat', {
+        loadTabResource,
+      }),
+      flat_kubeovn_dnat: createKubeOvnTabOnRefresh('flat_kubeovn_dnat', {
+        loadTabResource,
+      }),
+    }),
+    [loadTabResource],
+  );
+
+  useEffect(() => {
+    if ((FLAT_TAB_KEYS as readonly string[]).includes(innerActiveKey)) {
+      void loadTabResource(innerActiveKey, false);
+    }
+  }, [innerActiveKey, cloudId, loadTabResource]);
 
   if (!canViewFlatInner(innerActiveKey, checkPerm, canReadFlatSubnets)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
   if (innerActiveKey === 'flat_public_subnets') {
+    const onPoolSubnetsChanged: HarvesterSectionOnRefresh =
+      flatTabOnRefresh.flat_public_subnets;
     return (
       <>
         <UnderlaySubnetsSection
           cloudId={cloudId}
           mode="flat"
           onSubnetsChanged={() =>
-            loadResource(
-              'subnets',
-              () => fetchKubeOvnSubnets(cloudId, true, false, 'underlay'),
-              (json) => {
-                const list: any[] = (json as any)?.data?.items || [];
-                setKubeOvnSubnets(Array.isArray(list) ? list : []);
-                setRawSubnets(json || null);
-              },
-              true,
-            )
+            runHarvesterSectionRefresh(onPoolSubnetsChanged, { force: true, silent: true })
           }
         />
         <DebugJSON data={rawSubnets} show={showLog} />
@@ -153,7 +161,7 @@ const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps
         subnets={kubeOvnSubnets}
         loading={!!resourceLoading.flatEips}
         networkScope="flat"
-        onRefresh={() => loadTabResource('flat_kubeovn_eips', true)}
+        onRefresh={flatTabOnRefresh.flat_kubeovn_eips}
       />
     );
   }
@@ -167,28 +175,7 @@ const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps
         subnets={kubeOvnSubnets}
         loading={!!resourceLoading.flatSnatRules}
         networkScope="flat"
-        onRefresh={(force = true, silent = false) => {
-          const skipSync = silent;
-          void loadTabResource('flat_kubeovn_eips', force, skipSync);
-          setResourceLoading((prev) => ({
-            ...prev,
-            flatSnatRules: true,
-          }));
-          fetchCloudProviderOvnSnatRules(cloudId, force, skipSync, 'flat')
-            .then((json) => {
-              const list: any[] = (json as any)?.data?.items || [];
-              setKubeOvnFlatSnatRules(Array.isArray(list) ? list : []);
-            })
-            .catch((e) => {
-              if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
-            })
-            .finally(() => {
-              setResourceLoading((prev) => ({
-                ...prev,
-                flatSnatRules: false,
-              }));
-            });
-        }}
+        onRefresh={flatTabOnRefresh.flat_kubeovn_snat}
       />
     );
   }
@@ -202,28 +189,7 @@ const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps
         subnets={kubeOvnSubnets}
         loading={!!resourceLoading.flatDnatRules}
         networkScope="flat"
-        onRefresh={(force = true, silent = false) => {
-          const skipSync = silent;
-          void loadTabResource('flat_kubeovn_eips', force, skipSync);
-          setResourceLoading((prev) => ({
-            ...prev,
-            flatDnatRules: true,
-          }));
-          fetchCloudProviderOvnDnatRules(cloudId, force, skipSync, 'flat')
-            .then((json) => {
-              const list: any[] = (json as any)?.data?.items || [];
-              setKubeOvnFlatDnatRules(Array.isArray(list) ? list : []);
-            })
-            .catch((e) => {
-              if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
-            })
-            .finally(() => {
-              setResourceLoading((prev) => ({
-                ...prev,
-                flatDnatRules: false,
-              }));
-            });
-        }}
+        onRefresh={flatTabOnRefresh.flat_kubeovn_dnat}
       />
     );
   }

@@ -427,7 +427,7 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 **自测**：完成一条增/删/改后，当前页列表应已更新，无需 F5 / Ctrl+F5。
 
-**Harvester Cloudmap 池（样板域）**：**`ecs` / `cluster` / `ebs` / `paas_databases` / `hsm`（resource_hub 拓扑）** 须池层 **`create*TabOnRefresh` → `loadTabResource`**，Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。**禁止**在 `panels/*` 内联拉列表。各 Tab key、检查清单、审计检索见 **`frontend/src/pages/cnmc/clouds/Cloudmap/pool/README.md`**；域内亦见 **`Harvester/{ecs,cluster,ebs,database,hsm}/README.md`**。
+**Harvester Cloudmap 池（样板域）**：**`ecs` / `cluster` / `ebs` / `paas_databases` / `hsm`（resource_hub 拓扑）/ `kube-ovn`（`kube_ovn`+`flat_network`+cluster 挂载）** 须池层 **`create*TabOnRefresh` → `loadTabResource`**，Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。**禁止**在 `panels/*` 内联拉列表。各 Tab key、检查清单、审计检索见 **`frontend/src/pages/cnmc/clouds/Cloudmap/pool/README.md`**；域内亦见 **`Harvester/{ecs,cluster,ebs,database,hsm,kube-ovn}/README.md`**。
 
 **公共组件对齐**：`PageContainer` 工具栏刷新按钮已对 `onRefresh` **固定传入 `true`**（与 `PageDetailSection` → `SharedToolbar` 行为一致），避免 `onClick={onRefresh}` 把 React 点击事件误当作 `force`。业务页仍须在写成功后自行调用列表重载。
 

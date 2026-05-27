@@ -34,6 +34,12 @@ export {
   type StorageSectionOnRefresh,
 } from './storageRefresh';
 export {
+  createKubeOvnTabOnRefresh,
+  type KubeOvnInnerTabKey,
+  type KubeOvnTabRefreshDeps,
+  type KubeOvnSectionOnRefresh,
+} from './kubeOvnRefresh';
+export {
   createResourceHubTabOnRefresh,
   type ResourceHubInnerTabKey,
   type ResourceHubTabRefreshDeps,

@@ -563,7 +563,7 @@ export function getSystemResourceProtectionHint(resource: any, resourceType?: st
   const namespace = metadata.namespace || '';
 
   if (isSystemNamespace(namespace)) {
-    return `系统命名空间 "${namespace}" 中的资源受保护，禁止删除`;
+    return `系统项目 "${namespace}" 中的资源受保护，禁止删除`;
   }
 
   if (namespace === 'default' && name === 'kubernetes') {
@@ -694,6 +694,8 @@ export function translateK8sError(error: any): string {
       'spec.ports[0].name: Invalid value': '端口名称格式无效，只能包含小写字母、数字和连字符(-)，且必须以字母或数字开头和结尾',
       'spec.ports[0].nodePort: Invalid value': 'NodePort 端口无效',
       'spec.ports[0].targetPort': '容器内部端口格式无效，必须为数字',
+      'must be an empty string or consist of alphanumeric': '只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾',
+      'must start and end with an alphanumeric character': '必须以字母或数字开头和结尾',
     };
 
     for (const cause of causes) {
@@ -723,6 +725,18 @@ export function translateK8sError(error: any): string {
           return `NodePort 端口 ${port} 已被占用，请选择其他端口（范围：30000-32767）`;
         }
         return translations['spec.ports[0].nodePort: Invalid value'];
+      }
+
+      if (causeMessage.includes('must be an empty string or consist of alphanumeric')) {
+        const fieldName = field === 'metadata.labels' ? '标签' : 
+                         field === 'spec.selector' ? '选择器' : '字段';
+        return `${fieldName}格式无效，只能包含字母、数字、连字符(-)、下划线(_)和点(.)，且必须以字母或数字开头和结尾`;
+      }
+
+      if (causeMessage.includes('must start and end with an alphanumeric character')) {
+        const fieldName = field === 'metadata.labels' ? '标签' : 
+                         field === 'spec.selector' ? '选择器' : '字段';
+        return `${fieldName}必须以字母或数字开头和结尾`;
       }
     }
 

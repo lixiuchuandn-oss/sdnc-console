@@ -21,7 +21,7 @@
 | **池层** | `create*TabOnRefresh(tab, { loadTabResource, … })` → `void loadTabResource(innerKey, force, skipSync)` |
 | **Section 层** | 工具栏 **`createHarvesterToolbarRefresh(onRefresh)`**；写成功/删改 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（`Harvester/shared/lib/harvesterSectionRefresh.ts`） |
 
-样板域：**`ecs`（compute）**、**`cluster`**、**`ebs`（storage 池）**、**`paas_databases`（云数据库 / RDS）**、**`hsm`（resource_hub · 机房/网络拓扑）**。其它域新增 Tab 时**优先对齐本模式**。
+样板域：**`ecs`（compute）**、**`cluster`**、**`ebs`（storage 池）**、**`paas_databases`（云数据库 / RDS）**、**`hsm`（resource_hub · 机房/网络拓扑）**、**`kube-ovn`（`kube_ovn` + `flat_network` + cluster 导航挂载）**。其它域新增 Tab 时**优先对齐本模式**。
 
 ---
 
@@ -199,6 +199,27 @@ Cloudmap **资源总览** 内 **机房拓扑**、**网络拓扑**（`Harvester/h
 | 写成功 / 机柜 CRUD | **`runHarvesterSectionRefresh(onRefresh, { force: true })`** |
 
 细则亦见 **`Harvester/hsm/README.md`**。
+
+---
+
+## Kube-OVN（`kube_ovn` + `flat_network` + cluster 内挂载）
+
+源码域 **`Harvester/kube-ovn/`**；池装配 **`panels/kube_ovn`**、**`panels/flat_network`**、**`panels/cluster`**（物理网络 / VLAN / 公共子网）。
+
+### 第 1 层 — 池层
+
+| 职责 | 文件 |
+|------|------|
+| `onRefresh` | `loaders/kubeOvnRefresh.ts` → **`createKubeOvnTabOnRefresh`** |
+| VPC 拉数 | `loaders/pathResource/kubeOvnPathLoads.ts` |
+| 扁平拉数 | `loaders/pathResource/flatNetworkPathLoads.ts` |
+| cluster 导航 | `loaders/clusterRefresh.ts`（`kubeovn_public_networks` / `cluster_vlans` / `kubeovn_public_subnets`） |
+
+### 第 2 层 — Section 层
+
+EIP/SNAT/DNAT/FIP、VPC 子网、物理网络（托管模式）等已用 **`runHarvesterSectionRefresh` / `createHarvesterToolbarRefresh`**。Underlay 子网创建流仍 Section 自拉，写成功后回调池刷新。
+
+细则亦见 **`Harvester/kube-ovn/README.md`**。
 
 ---
 
