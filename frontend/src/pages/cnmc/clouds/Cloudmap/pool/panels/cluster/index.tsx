@@ -233,6 +233,10 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
         'kubeovn_public_networks',
         deps,
       ),
+      kubeovn_public_subnets: createClusterTabOnRefresh(
+        'kubeovn_public_subnets',
+        deps,
+      ),
     };
   }, [loadTabResource]);
 

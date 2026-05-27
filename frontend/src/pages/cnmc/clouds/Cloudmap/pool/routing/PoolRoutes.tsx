@@ -494,7 +494,6 @@ const KubeOvnRoute: React.FC = () => {
       innerActiveKey={p.poolInnerActive('kube_ovn')}
       loadResource={p.loadResource}
       loadTabResource={p.loadTabResource}
-      setResourceLoading={p.setResourceLoading}
       kubeOvnVpcs={p.kubeOvnVpcs}
       setKubeOvnVpcs={p.setKubeOvnVpcs}
       setRawVpcs={p.setRawVpcs}
