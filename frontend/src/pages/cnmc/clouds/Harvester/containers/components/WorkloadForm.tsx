@@ -22,7 +22,7 @@
  * 步骤5: 高级配置 - 副本数、调度、健康检查
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef, useReducer } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, useReducer, useImperativeHandle } from 'react';
 import {
   Form,
   Input,
@@ -382,6 +382,15 @@ const MEMORY_UNITS = [
   { label: 'GiB', value: 'Gi' },
 ];
 
+const EMPTY_DIR_SIZE_UNITS = [
+  { label: 'Mi', value: 'Mi' },
+  { label: 'Gi', value: 'Gi' },
+  { label: 'G', value: 'G' },
+  { label: 'Ti', value: 'Ti' },
+  { label: 'T', value: 'T' },
+  { label: 'Pi', value: 'Pi' },
+];
+
 // ============================================================
 // 资源比较函数
 // ============================================================
@@ -724,24 +733,21 @@ const checkIpAvailability = (ip: string, subnet: any): { available: boolean; rea
 // ============================================================
 
 /**
- * 校验 K8s 标签键 (Label Key)
+ * 校验 K8s 标签键 (Label Key) - 节点标签
+ * 节点常用标签如 kubernetes.io/os、node.kubernetes.io/instance-type
  * 格式: 可选前缀（DNS子域名格式）+ / + 键名
  * 键名: 最多63字符，小写字母/数字开头结尾，中间可含连字符(-)、下划线(_)、点(.)
- * 前缀: DNS子域名格式（如 example.com）
  */
-const validateK8sLabelKey = (_: any, value: string) => {
+const validateNodeLabelKey = (_: any, value: string) => {
   if (!value) return Promise.resolve();
-  // DNS子域名格式或无前缀的标签键
   const labelKeyRegex = /^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/)?[a-z0-9]([-a-z0-9._]*[a-z0-9])?$/;
   if (!labelKeyRegex.test(value)) {
-    return Promise.reject(new Error('格式无效：可选DNS前缀（如 example.com/），键名须小写字母/数字开头结尾，中间可含连字符、下划线、点'));
+    return Promise.reject(new Error('格式无效：须小写字母/数字开头结尾，中间可含连字符、下划线、点，可带前缀如 kubernetes.io/os'));
   }
-  // 检查键名部分（不含前缀）长度不超过63
   const keyPart = value.includes('/') ? value.split('/')[1] : value;
   if (keyPart.length > 63) {
     return Promise.reject(new Error('键名长度不能超过63个字符'));
   }
-  // 检查前缀部分长度不超过253
   if (value.includes('/')) {
     const prefixPart = value.split('/')[0];
     if (prefixPart.length > 253) {
@@ -1031,9 +1037,8 @@ const LabelEditor: React.FC<{
               name={[index, 'key']}
               rules={[
                 { required: true, message: '请输入键' },
-                { validator: validateK8sLabelKey },
-              ]}
-            >
+                { validator: validateNodeLabelKey },
+              ]}>
               <Input placeholder="键 (如: app 或 example.com/key)" style={{ width: 180 }} />
             </Form.Item>
             <Form.Item
@@ -1911,7 +1916,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
                 name={[...basePath, 'emptyDirSizeLimit']}
                 label="大小限制"
               >
-                <Input placeholder="如: 1Gi" />
+                <ResourceInput placeholder="如: 1" units={EMPTY_DIR_SIZE_UNITS} defaultUnit="Gi" unitTooltip="Mi=MiB(1024KiB)；Gi=GiB(1024MiB)；Ti=TiB(1024GiB)" />
               </Form.Item>
             </Col>
           </Row>
@@ -2231,6 +2236,10 @@ interface NodeAffinityEditorProps {
   label: string;
 }
 
+export interface NodeAffinityEditorHandle {
+  getHasLabelErrors: () => boolean;
+}
+
 /**
  * 节点亲和性编辑器组件
  * 支持配置 required (必须) 和 preferred (尽量) 两种类型的规则
@@ -2241,7 +2250,8 @@ interface NodeAffinityEditorProps {
  * 
  * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
  */
-const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) => {
+const NodeAffinityEditor = React.forwardRef<NodeAffinityEditorHandle, NodeAffinityEditorProps>(
+  ({ name, label }, ref) => {
   const form = Form.useFormInstance();
   
   // 本地 state 管理规则列表
@@ -2254,6 +2264,17 @@ const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) 
     setRequiredRules(value?.required?.nodeSelectorTerms || []);
     setPreferredRules(value?.preferred || []);
   }, [form, name]);
+
+  useImperativeHandle(ref, () => ({
+    getHasLabelErrors: () => {
+      const errors = form.getFieldsError();
+      return errors.some(e => {
+        if (!e.errors?.length) return false;
+        const fieldName = Array.isArray(e.name) ? e.name.join('.') : String(e.name);
+        return fieldName.startsWith(name);
+      });
+    },
+  }), [form, name]);
 
   // 添加必须满足的规则
   const addRequiredRule = () => {
@@ -2420,18 +2441,18 @@ const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) 
     return (
       <Row key={`${fieldType}-${exprIndex}`} gutter={8} style={{ marginBottom: 8 }}>
         <Col span={6}>
-          <Form.Item name={[...basePath, 'key']} noStyle>
+          <Form.Item name={[...basePath, 'key']} rules={[{ required: true, message: '请输入标签键' }, { validator: validateNodeLabelKey }]} style={{ marginBottom: 0 }}>
             <Input placeholder="标签键 (如: kubernetes.io/os)" />
           </Form.Item>
         </Col>
         <Col span={5}>
-          <Form.Item name={[...basePath, 'operator']} noStyle>
+          <Form.Item name={[...basePath, 'operator']} style={{ marginBottom: 0 }}>
             <Select options={NODE_SELECTOR_OPERATOR_OPTIONS} style={{ width: '100%' }} />
           </Form.Item>
         </Col>
         {showValues && (
           <Col span={10}>
-            <Form.Item name={[...basePath, 'values']} noStyle>
+            <Form.Item name={[...basePath, 'values']} style={{ marginBottom: 0 }}>
               <Select
                 mode="tags"
                 placeholder="输入值后回车添加 (如: linux)"
@@ -2569,7 +2590,7 @@ const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) 
       {preferredRules.map((_: any, index: number) => renderRule('preferred', index))}
     </div>
   );
-};
+});
 
 // ============================================================
 // 子组件: Pod 亲和性编辑器
@@ -2580,6 +2601,10 @@ interface PodAffinityEditorProps {
   namespacesOptions?: string[];
 }
 
+export interface PodAffinityEditorHandle {
+  getHasLabelErrors: () => boolean;
+}
+
 /**
  * Pod 亲和性编辑器组件
  * 支持配置 required (必须) 和 preferred (尽量) 两种类型的规则
@@ -2587,12 +2612,37 @@ interface PodAffinityEditorProps {
  * 
  * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
  */
-const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, namespacesOptions = [] }) => {
+const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityEditorProps>(
+  ({ name, label, namespacesOptions = [] }, ref) => {
   const form = Form.useFormInstance();
   
-  // 本地 state 管理规则列表
   const [requiredRules, setRequiredRules] = useState<PodAffinityTerm[]>([]);
   const [preferredRules, setPreferredRules] = useState<WeightedPodAffinityTerm[]>([]);
+  const [labelErrors, setLabelErrors] = useState<Record<string, { key?: string; value?: string }>>({});
+
+  const validateLabelKey = (v: string): string | undefined => {
+    if (!v) return undefined;
+    const labelKeyRegex = /^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/)?[a-z0-9]([-a-z0-9._]*[a-z0-9])?$/;
+    if (!labelKeyRegex.test(v)) {
+      return '格式无效：须小写字母/数字开头结尾，中间可含连字符、下划线、点';
+    }
+    const keyPart = v.includes('/') ? v.split('/')[1] : v;
+    if (keyPart.length > 63) {
+      return '键名长度不能超过63个字符';
+    }
+    return undefined;
+  };
+
+  const validateLabelValue = (v: string): string | undefined => {
+    if (!v) return undefined;
+    if (!/^[a-zA-Z0-9]([-a-zA-Z0-9._]*[a-zA-Z0-9])?$/.test(v)) {
+      return '格式无效：字母/数字开头结尾，中间可含连字符、下划线、点';
+    }
+    if (v.length > 63) {
+      return '值长度不能超过63个字符';
+    }
+    return undefined;
+  };
   
   // 初始化时从 form 读取值
   useEffect(() => {
@@ -2600,6 +2650,10 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
     setRequiredRules(value?.required || []);
     setPreferredRules(value?.preferred || []);
   }, [form, name]);
+
+  useImperativeHandle(ref, () => ({
+    getHasLabelErrors: () => Object.values(labelErrors).some(e => e.key || e.value),
+  }), [labelErrors]);
 
   // 添加必须满足的规则
   const addRequiredRule = () => {
@@ -2952,26 +3006,55 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
           return (
             <Row key={rowKey} gutter={8} style={{ marginBottom: 8 }}>
               <Col span={10}>
-                <Input
-                  placeholder="标签键 (如: app)"
-                  defaultValue={displayKey}
-                  onBlur={(e) => {
-                    const newKey = e.target.value.trim();
-                    if (newKey && newKey !== key) {
-                      // blur 时替换 key
-                      updateMatchLabelKey(ruleType, ruleIndex, key, newKey);
-                    }
-                  }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <Input
+                    placeholder="标签键 (如: app)"
+                    defaultValue={displayKey}
+                    status={labelErrors[rowKey]?.key ? 'error' : undefined}
+                    onBlur={(e) => {
+                      const newKey = e.target.value.trim();
+                      const err = validateLabelKey(newKey);
+                      setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], key: err } }));
+                      if (!newKey || err) return;
+                      if (newKey !== key) {
+                        updateMatchLabelKey(ruleType, ruleIndex, key, newKey);
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (labelErrors[rowKey]?.key) {
+                        setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], key: undefined } }));
+                      }
+                    }}
+                  />
+                  {labelErrors[rowKey]?.key && (
+                    <div style={{ color: '#ff4d4f', fontSize: 12, lineHeight: 1.5, marginTop: 2 }}>{labelErrors[rowKey]!.key}</div>
+                  )}
+                </div>
               </Col>
               <Col span={10}>
-                <Input
-                  placeholder="标签值 (如: nginx)"
-                  defaultValue={value as string}
-                  onBlur={(e) => {
-                    updateMatchLabelValue(ruleType, ruleIndex, key, e.target.value);
-                  }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <Input
+                    placeholder="标签值 (如: nginx)"
+                    defaultValue={value as string}
+                    status={labelErrors[rowKey]?.value ? 'error' : undefined}
+                    onBlur={(e) => {
+                      const newValue = e.target.value;
+                      const err = validateLabelValue(newValue);
+                      setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], value: err } }));
+                      if (err) return;
+                      updateMatchLabelValue(ruleType, ruleIndex, key, newValue);
+                    }}
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      if (labelErrors[rowKey]?.value) {
+                        setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], value: undefined } }));
+                      }
+                    }}
+                  />
+                  {labelErrors[rowKey]?.value && (
+                    <div style={{ color: '#ff4d4f', fontSize: 12, lineHeight: 1.5, marginTop: 2 }}>{labelErrors[rowKey]!.value}</div>
+                  )}
+                </div>
               </Col>
               <Col span={4}>
                 <Button
@@ -3023,18 +3106,18 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
           return (
             <Row key={exprIndex} gutter={8} style={{ marginBottom: 8 }}>
               <Col span={6}>
-                <Form.Item name={[...exprPath, 'key']} noStyle>
+                <Form.Item name={[...exprPath, 'key']} rules={[{ required: true, message: '请输入标签键' }, { validator: validateNodeLabelKey }]} style={{ marginBottom: 0 }}>
                   <Input placeholder="标签键" />
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item name={[...exprPath, 'operator']} noStyle>
+                <Form.Item name={[...exprPath, 'operator']} style={{ marginBottom: 0 }}>
                   <Select options={POD_SELECTOR_OPERATOR_OPTIONS} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               {showValues && (
                 <Col span={10}>
-                  <Form.Item name={[...exprPath, 'values']} noStyle>
+                  <Form.Item name={[...exprPath, 'values']} style={{ marginBottom: 0 }}>
                     <Select
                       mode="tags"
                       placeholder="输入值后回车添加"
@@ -3216,7 +3299,7 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
       {preferredRules.map((_: any, index: number) => renderRule('preferred', index))}
     </div>
   );
-};
+});
 
 // ============================================================
 // 子组件: 污点容忍编辑器
@@ -3228,7 +3311,12 @@ const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, name
  * 
  * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
  */
-const TolerationsEditor: React.FC = () => {
+export interface TolerationsEditorHandle {
+  getHasLabelErrors: () => boolean;
+}
+
+const TolerationsEditor = React.forwardRef<TolerationsEditorHandle, {}>(
+  (_props, ref) => {
   const form = Form.useFormInstance();
   
   // 本地 state 管理规则列表
@@ -3238,6 +3326,17 @@ const TolerationsEditor: React.FC = () => {
   useEffect(() => {
     setTolerations(form.getFieldValue('tolerations') || []);
   }, [form]);
+
+  useImperativeHandle(ref, () => ({
+    getHasLabelErrors: () => {
+      const errors = form.getFieldsError();
+      return errors.some(e => {
+        if (!e.errors?.length) return false;
+        const fieldName = Array.isArray(e.name) ? e.name.join('.') : String(e.name);
+        return fieldName.startsWith('tolerations');
+      });
+    },
+  }), [form]);
 
   // 添加容忍规则
   const addToleration = (preset?: typeof COMMON_TOLERATION_PRESETS[0]) => {
@@ -3309,6 +3408,10 @@ const TolerationsEditor: React.FC = () => {
             <Form.Item
               name={[...basePath, 'key']}
               label="污点键 (Key)"
+              rules={[
+                { required: true, message: '请输入污点键' },
+                { validator: validateNodeLabelKey },
+              ]}
               extra="可输入或选择预设"
               style={{ marginBottom: 0 }}
             >
@@ -3353,7 +3456,10 @@ const TolerationsEditor: React.FC = () => {
               <Form.Item
                 name={[...basePath, 'value']}
                 label="污点值 (Value)"
-                rules={[{ required: showValue, message: 'Equal 操作符需要填写值' }]}
+                rules={[
+                  { required: showValue, message: 'Equal 操作符需要填写值' },
+                  { validator: validateK8sLabelValue },
+                ]}
                 style={{ marginBottom: 0 }}
               >
                 <Input placeholder="污点值" />
@@ -3433,7 +3539,7 @@ const TolerationsEditor: React.FC = () => {
       {tolerations.map((_: any, index: number) => renderToleration(index))}
     </div>
   );
-};
+});
 
 /**
  * 域名映射编辑器 (HostAliases)
@@ -3939,9 +4045,19 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   
   const editMetadata = editData?.metadata;
   const syncingContainerRef = useRef(false);
+  const nodeAffinityEditorRef = useRef<NodeAffinityEditorHandle>(null);
+  const nodeAntiAffinityEditorRef = useRef<NodeAffinityEditorHandle>(null);
+  const podAffinityEditorRef = useRef<PodAffinityEditorHandle>(null);
+  const podAntiAffinityEditorRef = useRef<PodAffinityEditorHandle>(null);
+  const tolerationsEditorRef = useRef<TolerationsEditorHandle>(null);
   const watchedImagePullSecretsValue = Form.useWatch('imagePullSecrets', form);
   const watchedImagePullSecrets = useMemo<string[]>(() => watchedImagePullSecretsValue || [], [watchedImagePullSecretsValue]);
   Form.useWatch('containers', form);
+  Form.useWatch('nodeAffinity', form);
+  Form.useWatch('nodeAntiAffinity', form);
+  Form.useWatch('podAffinity', form);
+  Form.useWatch('podAntiAffinity', form);
+  Form.useWatch('tolerations', form);
   
   // 存储配置刷新标记，用于通知 VolumesEditor 重新读取数据
   const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
@@ -6005,6 +6121,32 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           }
         }
         
+        // 校验节点亲和性/反亲和性的标签键输入错误
+        const nodeAffinityHasErrors = nodeAffinityEditorRef.current?.getHasLabelErrors();
+        const nodeAntiAffinityHasErrors = nodeAntiAffinityEditorRef.current?.getHasLabelErrors();
+        if (nodeAffinityHasErrors || nodeAntiAffinityHasErrors) {
+          setCurrentStep(4);
+          setLoading(false);
+          return;
+        }
+        
+        // 校验 Pod 亲和性/反亲和性的 matchLabels 输入错误
+        const podAffinityHasErrors = podAffinityEditorRef.current?.getHasLabelErrors();
+        const podAntiAffinityHasErrors = podAntiAffinityEditorRef.current?.getHasLabelErrors();
+        if (podAffinityHasErrors || podAntiAffinityHasErrors) {
+          setCurrentStep(4);
+          setLoading(false);
+          return;
+        }
+        
+        // 校验污点容忍的键/值输入错误
+        const tolerationsHasErrors = tolerationsEditorRef.current?.getHasLabelErrors();
+        if (tolerationsHasErrors) {
+          setCurrentStep(4);
+          setLoading(false);
+          return;
+        }
+        
         resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
 
@@ -7082,18 +7224,19 @@ return (
               {
                 key: 'nodeAffinity',
                 label: `节点亲和性 (${nodeAffinityCount})`,
-                children: <NodeAffinityEditor name="nodeAffinity" label="节点亲和性" />,
+                children: <NodeAffinityEditor ref={nodeAffinityEditorRef} name="nodeAffinity" label="节点亲和性" />,
               },
               {
                 key: 'nodeAntiAffinity',
                 label: `节点反亲和性 (${nodeAntiAffinityCount})`,
-                children: <NodeAffinityEditor name="nodeAntiAffinity" label="节点反亲和性" />,
+                children: <NodeAffinityEditor ref={nodeAntiAffinityEditorRef} name="nodeAntiAffinity" label="节点反亲和性" />,
               },
               {
                 key: 'podAffinity',
                 label: `Pod 亲和性 (${podAffinityCount})`,
                 children: (
                   <PodAffinityEditor 
+                    ref={podAffinityEditorRef}
                     name="podAffinity" 
                     label="Pod 亲和性" 
                     namespacesOptions={namespacesOptions}
@@ -7105,6 +7248,7 @@ return (
                 label: `Pod 反亲和性 (${podAntiAffinityCount})`,
                 children: (
                   <PodAffinityEditor 
+                    ref={podAntiAffinityEditorRef}
                     name="podAntiAffinity" 
                     label="Pod 反亲和性" 
                     namespacesOptions={namespacesOptions}
@@ -7114,7 +7258,7 @@ return (
               {
                 key: 'tolerations',
                 label: `污点容忍 (${tolerationsCount})`,
-                children: <TolerationsEditor />,
+                children: <TolerationsEditor ref={tolerationsEditorRef} />,
               },
               {
                 key: 'hostAliases',
