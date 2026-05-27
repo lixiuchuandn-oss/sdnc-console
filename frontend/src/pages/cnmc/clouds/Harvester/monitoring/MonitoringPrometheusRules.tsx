@@ -3,15 +3,14 @@
  * 表格展示 PrometheusRule 解析后的所有规则（来自 GET prometheusrules?datasource=prometheus）
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Drawer, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
+import { Button, Input, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { QuestionCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
-import CodeEditor from '../../../../../components/CodeEditor';
 import { fetchPrometheusRules, fetchPrometheusRulesGroups, type PrometheusRuleItem } from '../../../../../services/monitoringApi';
-import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS, SEVERITY_CRITICAL, SEVERITY_WARNING, SEVERITY_MAP } from './constants';
+import { LEVEL_FILTER_OPTIONS, SEVERITY_CRITICAL, SEVERITY_INFO, SEVERITY_WARNING, SEVERITY_MAP } from './constants';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 
@@ -19,50 +18,15 @@ interface MonitoringPrometheusRulesProps {
   cloudId: string;
 }
 
-const VLT = {
-  surface: '#161b22',
-  header: '#21262d',
-  border: 'rgba(230, 237, 243, 0.12)',
-  text: '#e6edf3',
-  muted: '#8b949e',
-} as const;
-
 /** 表体纵向滚动高度：预留顶栏、资源池侧栏、工具栏与底部分页，避免单页行数过多时分页被顶出视口 */
 const RULES_TABLE_SCROLL_Y = 'calc(100vh - 320px)';
-
-function buildRuleYaml(rule: PrometheusRuleItem): string {
-  const ns = (rule.namespace ?? 'cattle-monitoring-system').toString().trim() || 'cattle-monitoring-system';
-  const groupName = (rule.groupName ?? '').toString().trim() || 'custom-rules';
-  const groupAlias = (rule.groupAliasName ?? '').toString().trim();
-  const alert = (rule.name ?? '').toString().trim();
-  const summary = (rule.aliasName ?? alert).toString().trim();
-  const expr = (rule.expression ?? '').toString();
-  const interval = (rule.interval ?? '').toString().trim();
-  const severity = (rule.severity ?? '').toString().trim();
-  const exprLines = expr ? expr.split('\n').map((line) => `            ${line}`).join('\n') : '            ""';
-  const metadataAnnotations =
-    groupAlias && groupAlias !== groupName
-      ? `\n  annotations:\n    cloudhci.io/rule-name: "${groupAlias}"`
-      : '';
-  const forBlock = interval ? `\n          for: "${interval}"` : '';
-  const severityBlock = severity
-    ? `\n          labels:\n            severity: "${severity}"`
-    : '';
-  return `apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
-metadata:
-  name: "${groupName}"
-  namespace: "${ns}"${metadataAnnotations}
-spec:
-  groups:
-    - name: "${groupName}"
-      rules:
-        - alert: "${alert}"
-          expr: |
-${exprLines}${forBlock}${severityBlock}
-          annotations:
-            summary: "${summary}"`;
-}
+const RULES_TITLE_TAG_STYLE: React.CSSProperties = {
+  padding: '4px 12px',
+  fontSize: 14,
+  borderRadius: 16,
+  cursor: 'default',
+  userSelect: 'none',
+};
 
 const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ cloudId }) => {
   const severityTip = (
@@ -75,21 +39,21 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
         </Typography.Text>
       </Typography.Paragraph>
       <Typography.Paragraph style={{ marginBottom: 12 }}>
-        <Typography.Text strong>1. 紧急告警(Critical)</Typography.Text>
+        <Typography.Text strong>1. 严重告警(Critical)</Typography.Text>
         <br />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           表示高优先级故障或风险，通常需要立即处理。
         </Typography.Text>
       </Typography.Paragraph>
       <Typography.Paragraph style={{ marginBottom: 12 }}>
-        <Typography.Text strong>2. 普通告警(Warning)</Typography.Text>
+        <Typography.Text strong>2. 注意(Warning)</Typography.Text>
         <br />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           表示存在异常或潜在风险，建议尽快排查与处理。
         </Typography.Text>
       </Typography.Paragraph>
       <Typography.Paragraph style={{ marginBottom: 0 }}>
-        <Typography.Text strong>3. 普通信息(Info)</Typography.Text>
+        <Typography.Text strong>3. 信息(Info)</Typography.Text>
         <br />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           表示状态提示或一般信息，通常用于观察与记录。
@@ -123,15 +87,11 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
   const [loading, setLoading] = useState(false);
   const [rules, setRules] = useState<PrometheusRuleItem[]>([]);
   const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
-  const [dataSourceFilter, setDataSourceFilter] = useState<string>('prometheus');
   const [groupFilter, setGroupFilter] = useState<string>('');
   const [levelFilter, setLevelFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
-  const [yamlDrawerRule, setYamlDrawerRule] = useState<PrometheusRuleItem | null>(null);
-  const [hoveredRuleKey, setHoveredRuleKey] = useState<string | null>(null);
 
   const loadRules = useCallback(async () => {
     if (!cloudId || !canReadRules) return;
@@ -170,9 +130,6 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
 
   const filteredRules = useMemo(() => {
     let list = rules;
-    if (dataSourceFilter) {
-      list = list.filter((r) => String(r.datasource || '').toLowerCase() === dataSourceFilter.toLowerCase());
-    }
     if (groupFilter) {
       list = list.filter((r) => String(r.groupName || '').toLowerCase() === groupFilter.toLowerCase());
     }
@@ -190,48 +147,21 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       );
     }
     return list;
-  }, [rules, dataSourceFilter, groupFilter, levelFilter, keyword]);
+  }, [rules, groupFilter, levelFilter, keyword]);
 
   useEffect(() => {
     setPage(1);
-  }, [dataSourceFilter, groupFilter, levelFilter, keyword]);
-
-  const openYamlDrawer = useCallback((rule: PrometheusRuleItem) => {
-    setYamlDrawerRule(rule);
-    setYamlDrawerOpen(true);
-  }, []);
-
-  const closeYamlDrawer = useCallback(() => {
-    setYamlDrawerOpen(false);
-    setYamlDrawerRule(null);
-  }, []);
+  }, [groupFilter, levelFilter, keyword]);
 
   const columns: ColumnsType<PrometheusRuleItem> = useMemo(() => [
-    { title: '数据源', dataIndex: 'datasource', key: 'datasource', fixed: 'left', render: (v: string) => (v ? String(v).charAt(0).toUpperCase() + String(v).slice(1).toLowerCase() : '-') },
     {
       title: '规则名称',
       dataIndex: 'aliasName',
       key: 'aliasName',
       ellipsis: true,
-      render: (v: string, row: PrometheusRuleItem) => {
-        const ruleKey = `${row.namespace ?? ''}/${row.groupName ?? ''}/${row.name ?? ''}`;
-        const isHovered = hoveredRuleKey === ruleKey;
-        return (
-          <span
-            onClick={() => openYamlDrawer(row)}
-            onMouseEnter={() => setHoveredRuleKey(ruleKey)}
-            onMouseLeave={() => setHoveredRuleKey((prev) => (prev === ruleKey ? null : prev))}
-            style={{
-              color: '#1677ff',
-              cursor: 'pointer',
-              textDecoration: isHovered ? 'underline' : 'none',
-            }}
-          >
-            {v || '-'}
-          </span>
-        );
-      },
+      render: (v: string) => v || '-',
     },
+    { title: '规则标识', dataIndex: 'name', key: 'name', ellipsis: true },
     {
       title: (
         <Space size={4}>
@@ -239,10 +169,12 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
           <Tooltip
             title={severityTip}
             placement="topLeft"
-            overlayInnerStyle={{
-              background: '#fff',
-              color: 'rgba(0,0,0,.88)',
-              boxShadow: '0 6px 16px 0 rgba(0,0,0,.08), 0 3px 6px -4px rgba(0,0,0,.12), 0 9px 28px 8px rgba(0,0,0,.05)',
+            styles={{
+              body: {
+                background: '#fff',
+                color: 'rgba(0,0,0,.88)',
+                boxShadow: '0 6px 16px 0 rgba(0,0,0,.08), 0 3px 6px -4px rgba(0,0,0,.12), 0 9px 28px 8px rgba(0,0,0,.05)',
+              },
             }}
           >
             <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,.45)', cursor: 'help', fontSize: 12 }} />
@@ -254,27 +186,20 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       render: (severity: string) => {
         const s = String(severity ?? '').toLowerCase();
         const isCritical = s === SEVERITY_CRITICAL;
-        const color = isCritical ? CRITICAL_COLOR : WARNING_COLOR;
-        const label = isCritical ? SEVERITY_MAP.SEVERITY_CRITICAL : s === SEVERITY_WARNING ? SEVERITY_MAP.SEVERITY_WARNING : severity || '-';
-        return (
-          <Space size={6} style={{ alignItems: 'center' }}>
-            <span
-              style={{
-                display: 'inline-block',
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                backgroundColor: color,
-                flexShrink: 0,
-              }}
-            />
-            <span>{label}</span>
-          </Space>
-        );
+        const label =
+          isCritical
+            ? SEVERITY_MAP.SEVERITY_CRITICAL
+            : s === SEVERITY_WARNING
+              ? SEVERITY_MAP.SEVERITY_WARNING
+              : s === SEVERITY_INFO
+                ? SEVERITY_MAP.SEVERITY_INFO
+                : severity || '-';
+        if (s === SEVERITY_CRITICAL) return <Tag color="error">{label}</Tag>;
+        if (s === SEVERITY_WARNING) return <Tag color="warning">{label}</Tag>;
+        return <Tag>{label}</Tag>;
       },
     },
     { title: '告警分组', dataIndex: 'groupAliasName', key: 'groupAliasName', ellipsis: true },
-    { title: '规则标识', dataIndex: 'name', key: 'name', ellipsis: true },
     {
       title: (
         <Space size={4}>
@@ -282,10 +207,12 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
           <Tooltip
             title={durationTip}
             placement="topLeft"
-            overlayInnerStyle={{
-              background: '#fff',
-              color: 'rgba(0,0,0,.88)',
-              boxShadow: '0 6px 16px 0 rgba(0,0,0,.08), 0 3px 6px -4px rgba(0,0,0,.12), 0 9px 28px 8px rgba(0,0,0,.05)',
+            styles={{
+              body: {
+                background: '#fff',
+                color: 'rgba(0,0,0,.88)',
+                boxShadow: '0 6px 16px 0 rgba(0,0,0,.08), 0 3px 6px -4px rgba(0,0,0,.12), 0 9px 28px 8px rgba(0,0,0,.05)',
+              },
             }}
           >
             <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,.45)', cursor: 'help', fontSize: 12 }} />
@@ -296,7 +223,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       key: 'interval',
       render: (v: string) => v || '-',
     },
-  ], [durationTip, hoveredRuleKey, openYamlDrawer, severityTip]);
+  ], [durationTip, severityTip]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns } = useTableColumnSettings(columns, 'monitoring_prometheus_rules_table');
@@ -311,7 +238,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
 
   return (
     <PageDetailSection
-      asCard={false}
+      asCard={true}
       style={{
         flex: 1,
         minHeight: 0,
@@ -328,6 +255,9 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       }}
       toolbarLeft={
         <>
+          <Tag.CheckableTag checked style={RULES_TITLE_TAG_STYLE}>
+            告警规则
+          </Tag.CheckableTag>
           <Input 
             allowClear 
             placeholder="名称/标识"
@@ -342,10 +272,10 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
             value={groupFilter || undefined}
             onChange={(v) => setGroupFilter(v ?? '')}
             options={groupFilterOptions}
-            className="toolbar-filter-sm"
+            style={{ width: 230 }}
           />
           <Select
-            placeholder="级别"
+            placeholder="等级"
             allowClear
             value={levelFilter || undefined}
             onChange={(v) => setLevelFilter(v ?? '')}
@@ -394,55 +324,6 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
           },
         }}
       />
-      <Drawer
-        title={`YAML详情 - ${(yamlDrawerRule?.aliasName ?? yamlDrawerRule?.name ?? '').toString()}`}
-        placement="right"
-        width={720}
-        open={yamlDrawerOpen}
-        onClose={closeYamlDrawer}
-        destroyOnClose
-      >
-        <div
-          style={{
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            background: VLT.surface,
-            color: VLT.text,
-            border: `1px solid ${VLT.border}`,
-            borderRadius: 6,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              flexShrink: 0,
-              padding: '8px 14px',
-              background: VLT.header,
-              borderBottom: `1px solid ${VLT.border}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              flexWrap: 'wrap',
-            }}
-          >
-            <span style={{ fontSize: 12, color: VLT.muted, wordBreak: 'break-all' }}>
-              {(yamlDrawerRule?.groupName ?? '').toString().trim() || 'prometheus-rule'}
-            </span>
-          </div>
-          <CodeEditor
-            readOnly
-            value={yamlDrawerRule ? buildRuleYaml(yamlDrawerRule) : ''}
-            language="yaml"
-            cmTheme="dark"
-            style={{
-              flex: 1,
-              minHeight: 0,
-            }}
-          />
-        </div>
-      </Drawer>
     </PageDetailSection>
   );
 };

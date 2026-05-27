@@ -1,6 +1,7 @@
 import React from 'react';
 import { Empty } from 'antd';
-import MonitoringAlerts from '../../../../Harvester/monitoring/MonitoringAlerts';
+import MonitoringOpsDashboard from '../../../../Harvester/monitoring/MonitoringOpsDashboard';
+import MonitoringOpsAlertDashboard from '../../../../Harvester/monitoring/MonitoringOpsAlertDashboard';
 import MonitoringPrometheusRules from '../../../../Harvester/monitoring/MonitoringPrometheusRules';
 import MonitoringAlertNotificationPolicy from '../../../../Harvester/monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from '../../../../Harvester/monitoring/MonitoringAlertNotificationTargets';
@@ -15,6 +16,7 @@ export type CloudmapMonitoringAlertsTabProps = {
 };
 
 function canViewMonitoringInner(key: string, checkPerm: (a: string) => boolean): boolean {
+  if (key === 'ops-alert-dashboard') return checkPerm('clouds.alerts:read');
   if (key === 'alerts-list') return checkPerm('clouds.alerts:read');
   if (key === 'alert-rules') return checkPerm('clouds.alert-rules:read');
   if (key === 'notification-policy') return checkPerm('clouds.alert-policies:read');
@@ -36,8 +38,11 @@ const CloudmapMonitoringAlertsTab: React.FC<CloudmapMonitoringAlertsTabProps> = 
 
   let body: React.ReactNode;
   switch (innerActiveKey) {
+    case 'ops-alert-dashboard':
+      body = <MonitoringOpsAlertDashboard cloudId={cloudId} />;
+      break;
     case 'alerts-list':
-      body = <MonitoringAlerts cloudId={cloudId} />;
+      body = <MonitoringOpsDashboard cloudId={cloudId} />;
       break;
     case 'alert-rules':
       body = <MonitoringPrometheusRules cloudId={cloudId} />;

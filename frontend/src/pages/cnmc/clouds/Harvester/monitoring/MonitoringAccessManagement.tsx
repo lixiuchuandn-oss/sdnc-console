@@ -1,34 +1,43 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { DatabaseOutlined, LinkOutlined, PlusOutlined, QuestionCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Card, Col, Descriptions, Divider, Input, Pagination, Row, Space, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
+import { LineChartOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  Card,
+  Col,
+  Descriptions,
+  Divider,
+  Input,
+  Modal,
+  Pagination,
+  Row,
+  Space,
+  Statistic,
+  Table,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import {
   fetchMonitoringAccessManagement,
+  fetchMonitoringPrometheusTargets,
   type MonitoringAccessPrometheusInstance,
-  type MonitoringAccessTarget,
+  type MonitoringPrometheusMonitorTask,
+  type MonitoringPrometheusTarget,
+  type MonitoringPrometheusTaskEndpoint,
 } from '../../../../../services/monitoringApi';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { MONITORING_DEFAULT_NAMESPACE } from './context/MonitoringContext';
 
 interface MonitoringAccessManagementProps {
   cloudId: string;
 }
 
-type MonitorTargetRow = {
-  key: string;
-  alias: string;
-  monitorCategory: '集群核心组件' | '监控告警组件' | '存储系统' | '集群节点';
-  monitorStatus: 'UP' | 'DOWN';
-  name: string;
-  namespace: string;
-  endpointsCount: number;
-  selectorText: string;
-  createdAt: string;
-};
+type MonitorTaskRow = MonitoringPrometheusMonitorTask & { rowKey: string };
 
-const DEFAULT_MONITORING_NAMESPACE = 'cattle-monitoring-system';
 const statCol = { xs: 24, sm: 12, md: 8 };
+const ENDPOINT_MODAL_MAX_HEIGHT_VH = 75;
 
 function formatTime(v: unknown): string {
   const raw = String(v ?? '').trim();
@@ -36,52 +45,30 @@ function formatTime(v: unknown): string {
   return raw.replace('T', ' ').replace(/\.\d{3}Z?$/, '');
 }
 
-function selectorToText(sel: unknown): string {
-  if (!sel || typeof sel !== 'object') return '';
-  const ml = (sel as { matchLabels?: Record<string, string> }).matchLabels;
-  if (ml && typeof ml === 'object') {
-    return Object.entries(ml).map(([k, v]) => `${k}=${v}`).join(',');
-  }
-  return '';
-}
+const RETENTION_UNIT_CN: Record<string, string> = {
+  y: '年',
+  w: '周',
+  d: '天',
+  h: '小时',
+  m: '分钟',
+  s: '秒',
+  ms: '毫秒',
+};
 
-function resolveTargetMeta(labels: Record<string, string> | undefined): {
-  alias: string;
-  monitorCategory: '集群核心组件' | '监控告警组件' | '存储系统' | '集群节点';
-} {
-  const map = labels || {};
-  const app = String(map.app || '').trim().toLowerCase();   
-  const appName = String(map['app.kubernetes.io/name'] || '').trim().toLowerCase();
-  const component = String(map.component || '').trim().toLowerCase();
-  const kubevirt = String(map['prometheus.kubevirt.io'] || '').trim().toLowerCase();
-  const k8sApp = String(map.k8s_app || map['k8s-app'] || '').trim().toLowerCase();
-
-  if (kubevirt === 'true') return { alias: '虚拟机', monitorCategory: '集群节点' };
-  if (appName === 'prometheus-smartctl-exporter') return {  alias: '主机物理磁盘', monitorCategory: '存储系统' };
-  if (app === 'rancher-monitoring-alertmanager') return { alias: '告警组件', monitorCategory: '监控告警组件' };
-  if (app === 'rancher-monitoring-coredns') return { alias: 'coredns', monitorCategory: '集群核心组件' };
-  if (appName === 'grafana') return { alias: 'grafana', monitorCategory: '监控告警组件' };
-  if (component === 'kube-etcd') return { alias: 'etcd', monitorCategory: '集群核心组件' };
-  if (appName === 'kubelet') return { alias: 'kubelet', monitorCategory: '集群节点' };
-  if (app === 'rancher-monitoring-prometheus') return { alias: 'prometheus', monitorCategory: '监控告警组件' };
-  if (app === 'longhorn-manager') return { alias: 'longhorn-manager', monitorCategory: '存储系统' };
-  if (appName === 'prometheus-node-exporter') return { alias: 'node-exporter', monitorCategory: '集群节点' };
-  if (component === 'apiserver') return { alias: 'kube-apiserver', monitorCategory: '集群核心组件' };
-  if (
-    component === 'kube-scheduler' ||
-    appName === 'kube-scheduler' ||
-    k8sApp === 'kube-scheduler'
-  ) {
-    return { alias: 'kube-scheduler', monitorCategory: '集群核心组件' };
-  }
-  if (
-    component === 'kube-controller-manager' ||
-    appName === 'kube-controller-manager' ||
-    k8sApp === 'kube-controller-manager'
-  ) {
-    return { alias: 'controller-manager', monitorCategory: '集群核心组件' };
-  }
-  return { alias: '', monitorCategory: '集群核心组件' };
+function formatRetentionCn(v: unknown): string {
+  const raw = String(v ?? '').trim();
+  if (!raw) return '-';
+  const matches = raw.match(/\d+(?:ms|[ywdhms])/gi);
+  if (!matches || matches.length === 0) return raw;
+  return matches
+    .map((seg) => {
+      const m = seg.match(/^(\d+)(ms|[ywdhms])$/i);
+      if (!m) return seg;
+      const num = m[1];
+      const unit = m[2].toLowerCase();
+      return `${num}${RETENTION_UNIT_CN[unit] ?? unit}`;
+    })
+    .join('');
 }
 
 function mapHealthStatus(
@@ -93,8 +80,13 @@ function mapHealthStatus(
   return { text: '未知', color: 'default' };
 }
 
-function resolveMonitorStatus(endpointsCount: number | undefined): 'UP' | 'DOWN' {
-  return Number(endpointsCount ?? 0) > 0 ? 'UP' : 'DOWN';
+function formatVolumeModeCn(mode?: string): string {
+  const raw = String(mode ?? '').trim();
+  if (!raw) return '-';
+  const key = raw.toLowerCase();
+  if (key === 'filesystem') return '文件系统';
+  if (key === 'block') return '块设备';
+  return raw;
 }
 
 const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({ cloudId }) => {
@@ -105,38 +97,34 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [tableScrollY, setTableScrollY] = useState(320);
+  const [endpointTableScrollY, setEndpointTableScrollY] = useState(360);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [prometheusInstances, setPrometheusInstances] = useState<MonitoringAccessPrometheusInstance[]>([]);
-  const [targetRows, setTargetRows] = useState<MonitorTargetRow[]>([]);
+  const [taskRows, setTaskRows] = useState<MonitorTaskRow[]>([]);
+  const [endpointModal, setEndpointModal] = useState<{
+    visible: boolean;
+    task?: MonitorTaskRow;
+    endpoint?: MonitoringPrometheusTaskEndpoint;
+  }>({ visible: false });
 
   const loadData = useCallback(async () => {
     if (!cloudId || !canRead) return;
     setLoading(true);
     try {
-      const { data, ok } = await fetchMonitoringAccessManagement(cloudId);
-      if (!ok || !data) {
-        return;
+      const [{ data: accessData, ok: accessOk }, { data: targetData, ok: targetOk }] = await Promise.all([
+        fetchMonitoringAccessManagement(cloudId),
+        fetchMonitoringPrometheusTargets(cloudId, { search: '' }),
+      ]);
+      if (accessOk && accessData) {
+        setPrometheusInstances(accessData.prometheusInstances || []);
       }
-      setPrometheusInstances(data.prometheusInstances || []);
-      const monitorRows = (data.monitorTargets || []).map((item: MonitoringAccessTarget) => {
-        const name = String(item.name ?? '-');
-        const meta = resolveTargetMeta(item.labels);
-        const endpointsCount = Number(item.endpointsCount ?? 0);
-        return {
-          ...meta,
-          alias: meta.alias && meta.alias.trim() ? meta.alias : name,
-          key: `${item.type}/${item.namespace ?? ''}/${item.name ?? ''}`,
-          monitorStatus: resolveMonitorStatus(endpointsCount),
-          type: item.type,
-          name,
-          namespace: String(item.namespace ?? '-'),
-          endpointsCount,
-          selectorText: selectorToText(item.selector),
-          createdAt: formatTime(item.createdAt),
-        };
-      });
-      setTargetRows(monitorRows);
+      const tasks = (targetOk && targetData?.monitorTasks) || [];
+      const rows: MonitorTaskRow[] = tasks.map((t) => ({
+        ...t,
+        rowKey: `${t.namespace}/${t.job || '__unknown__'}`,
+      }));
+      setTaskRows(rows);
     } finally {
       setLoading(false);
     }
@@ -149,6 +137,8 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
   useEffect(() => {
     const updateTableHeight = () => {
       setTableScrollY(Math.max(260, window.innerHeight - 560));
+      const modalBodyHeight = Math.floor(window.innerHeight * (ENDPOINT_MODAL_MAX_HEIGHT_VH / 100));
+      setEndpointTableScrollY(Math.max(220, Math.min(640, modalBodyHeight - 230)));
     };
     updateTableHeight();
     window.addEventListener('resize', updateTableHeight);
@@ -157,76 +147,227 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
 
   const defaultPrometheus = useMemo(() => {
     return (
-      prometheusInstances.find((r) => r.namespace === DEFAULT_MONITORING_NAMESPACE) ??
+      prometheusInstances.find((r) => r.namespace === MONITORING_DEFAULT_NAMESPACE) ??
       prometheusInstances[0] ??
       null
     );
   }, [prometheusInstances]);
 
-  const filteredTargetRows = useMemo(() => {
+  const filteredTaskRows = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    if (!k) return targetRows;
-    return targetRows.filter((r) =>
-      [r.alias, r.monitorCategory, r.monitorStatus, r.name, r.namespace, r.selectorText].some((v) =>
-        String(v).toLowerCase().includes(k)
-      )
-    );
-  }, [keyword, targetRows]);
-  const pagedTargetRows = useMemo(() => {
+    if (!k) return taskRows;
+    return taskRows.filter((r) => {
+      const hay = [
+        r.namespace,
+        r.job,
+        r.service,
+        r.scrapePool,
+        r.endpoints.map((e) => e.endpoint).join(' '),
+        r.endpoints
+          .flatMap((e) => e.targets.flatMap((t) => [t.pod, t.container, t.instance]))
+          .join(' '),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(k);
+    });
+  }, [keyword, taskRows]);
+
+  const pagedTaskRows = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return filteredTargetRows.slice(start, start + pageSize);
-  }, [filteredTargetRows, page, pageSize]);
+    return filteredTaskRows.slice(start, start + pageSize);
+  }, [filteredTaskRows, page, pageSize]);
 
   useEffect(() => {
     setPage(1);
-  }, [keyword, targetRows.length]);
+  }, [keyword, taskRows.length]);
 
-  const targetColumns: ColumnsType<MonitorTargetRow> = [
+  const monitorServiceTip = (
+    <Typography style={{ maxWidth: 320 }}>
+      <Typography.Paragraph style={{ marginBottom: 12 }}>
+        <Typography.Text strong>监控服务</Typography.Text>
+        <br />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          按 Prometheus 抓取任务（labels.job）聚合，每个监控服务通常对应一个 ServiceMonitor / PodMonitor。
+        </Typography.Text>
+      </Typography.Paragraph>
+      <Typography.Paragraph style={{ marginBottom: 0 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          一个监控服务下按 endpoint（端口/路径）分组，每个 endpoint 下包含若干实例 Target（Pod 副本）。
+        </Typography.Text>
+      </Typography.Paragraph>
+    </Typography>
+  );
+
+  const renderEndpointTag = (
+    task: MonitorTaskRow,
+    ep: MonitoringPrometheusTaskEndpoint
+  ) => {
+    const color = ep.downCount > 0 ? (ep.upCount > 0 ? 'warning' : 'error') : 'success';
+    return (
+      <Tag
+        key={ep.endpoint || '__unknown__'}
+        color={color}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => setEndpointModal({ visible: true, task, endpoint: ep })}
+      >
+        {ep.endpoint || '(unnamed)'}
+        <Typography.Text type="secondary" style={{ marginLeft: 4, fontSize: 11 }}>
+          {ep.upCount}/{ep.total}
+        </Typography.Text>
+      </Tag>
+    );
+  };
+
+  const taskColumns: ColumnsType<MonitorTaskRow> = [
     {
       title: (
         <Space size={6}>
-          <span>监控对象</span>
+          <span>监控任务</span>
           <Tooltip
-            title={
-              <>
-                <div>监控对象 = 监控指标提供者（即被采集监控数据的对象）。</div>
-                <div>例如：kube-apiserver、etcd、node-exporter、longhorn-manager、虚拟机等。</div>
-              </>
-            }
+            title={monitorServiceTip}
+            placement="topLeft"
+            styles={{
+              body: {
+                background: '#fff',
+                color: 'rgba(0,0,0,.88)',
+                boxShadow:
+                  '0 6px 16px 0 rgba(0,0,0,.08), 0 3px 6px -4px rgba(0,0,0,.12), 0 9px 28px 8px rgba(0,0,0,.05)',
+              },
+            }}
           >
-            <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,.45)' }} />
+            <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,.45)', cursor: 'help', fontSize: 12 }} />
           </Tooltip>
         </Space>
       ),
-      dataIndex: 'alias',
-      key: 'alias',
+      dataIndex: 'job',
+      key: 'job',
       fixed: 'left',
+      width: 220,
+      render: (v: string, r) => (
+        <Tooltip title={r.scrapePool || ''} placement="topLeft">
+          <Typography.Text strong>{v || '(unknown)'}</Typography.Text>
+        </Tooltip>
+      ),
     },
-    { title: '监控类别', dataIndex: 'monitorCategory', key: 'monitorCategory' },
+    { title: '项目', dataIndex: 'namespace', key: 'namespace', width: 180 },
     {
-      title: '状态',
-      dataIndex: 'monitorStatus',
-      key: 'monitorStatus',
-      render: (v: 'UP' | 'DOWN') => <Tag color={v === 'UP' ? 'success' : 'error'}>{v}</Tag>,
+      title: '监控目标服务',
+      dataIndex: 'service',
+      key: 'service',
+      width: 240,
+      render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
     },
-    { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt' },
+    {
+      title: '监控目标端点',
+      key: 'endpoints',
+      width: 280,
+      render: (_: unknown, r) => (
+        <Space size={6} wrap>
+          {r.endpoints.length > 0
+            ? r.endpoints.map((ep) => renderEndpointTag(r, ep))
+            : <Typography.Text type="secondary">-</Typography.Text>}
+        </Space>
+      ),
+    },
+    {
+      title: '监控目标实例总数',
+      dataIndex: 'total',
+      key: 'total',
+      width: 150,
+      render: (v: number) => v ?? 0,
+    },
+    {
+      title: '监控目标运行状态',
+      key: 'health',
+      width: 200,
+      render: (_: unknown, r) => {
+        if (r.total === 0) return <Tag>无 Target</Tag>;
+        if (r.downCount === 0) return <Tag color="success">全部 UP（{r.upCount}）</Tag>;
+        if (r.upCount === 0) return <Tag color="error">全部 DOWN（{r.downCount}）</Tag>;
+        return (
+          <Space size={4}>
+            <Tag color="success">UP {r.upCount}</Tag>
+            <Tag color="error">DOWN {r.downCount}</Tag>
+          </Space>
+        );
+      },
+    },
+  ];
+
+  const targetModalColumns: ColumnsType<MonitoringPrometheusTarget> = [
+    {
+      title: 'Pod',
+      dataIndex: 'pod',
+      key: 'pod',
+      fixed: 'left',
+      render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
+    },
+    { title: '容器', dataIndex: 'container', key: 'container', render: (v: string) => v || '-' },
+    { title: '实例 (instance)', dataIndex: 'instance', key: 'instance', render: (v: string) => v || '-' },
+    {
+      title: '健康',
+      dataIndex: 'health',
+      key: 'health',
+      width: 100,
+      render: (v: string) => {
+        const norm = String(v || '').toLowerCase();
+        if (norm === 'up') return <Tag color="success">UP</Tag>;
+        if (norm === 'down') return <Tag color="error">DOWN</Tag>;
+        return <Tag>{(v || 'unknown').toUpperCase()}</Tag>;
+      },
+    },
+    {
+      title: '采集地址',
+      dataIndex: 'scrapeUrl',
+      key: 'scrapeUrl',
+      render: (v: string) => (
+        <Typography.Text ellipsis={{ tooltip: v || '-' }} style={{ maxWidth: 360, display: 'inline-block' }}>
+          {v || '-'}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: '最近采集时间',
+      dataIndex: 'lastScrape',
+      key: 'lastScrape',
+      render: (v: string) => formatTime(v),
+    },
+    {
+      title: '采集耗时(s)',
+      dataIndex: 'lastScrapeDuration',
+      key: 'lastScrapeDuration',
+      width: 110,
+      render: (v: number) => (Number.isFinite(v) ? v.toFixed(3) : '-'),
+    },
+    {
+      title: '错误信息',
+      dataIndex: 'lastError',
+      key: 'lastError',
+      render: (v: string) => (
+        <Typography.Text
+          type={v ? 'danger' : undefined}
+          ellipsis={{ tooltip: v || '-' }}
+          style={{ maxWidth: 320, display: 'inline-block' }}
+        >
+          {v || '-'}
+        </Typography.Text>
+      ),
+    },
   ];
 
   if (!canRead) {
     return (
       <PageDetailSection asCard={false}>
-        <Typography.Text type="secondary">无权查看接入管理，请联系管理员分配 `clouds.alerts:read` 权限。</Typography.Text>
+        <Typography.Text type="secondary">
+          无权查看接入管理，请联系管理员分配 `clouds.alerts:read` 权限。
+        </Typography.Text>
       </PageDetailSection>
     );
   }
 
   const renderPrometheusDetail = () => {
     const health = mapHealthStatus(defaultPrometheus?.healthStatus);
-    const healthTooltip = [
-      `判定依据：${defaultPrometheus?.healthReason || '暂无'}`,
-      `副本（可用/期望）：${defaultPrometheus ? `${defaultPrometheus.availableReplicas ?? 0} / ${defaultPrometheus.replicas ?? 1}` : '-'}`,
-      '说明：当前按 Prometheus 副本状态进行简化判定',
-    ].join(' | ');
     return (
       <Card
         size="small"
@@ -234,7 +375,7 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
         styles={{ body: { padding: 0 } }}
         title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <DatabaseOutlined />
+            <LineChartOutlined />
             集群监控组件概览
           </span>
         }
@@ -242,28 +383,33 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
         <div style={{ padding: 16 }}>
           <Row gutter={[16, 20]}>
             <Col {...statCol}>
-              <Statistic title="默认接入监控组件" value="Prometheus" />
+              <Typography.Text type="secondary" style={{ fontSize: 14, display: 'block' }}>
+                默认接入监控组件
+              </Typography.Text>
+              <div style={{ marginTop: 8 }}>
+                <Typography.Text style={{ fontSize: 30, lineHeight: '38px', fontWeight: 500 }}>
+                  Prometheus
+                </Typography.Text>
+              </div>
             </Col>
             <Col {...statCol}>
               <Typography.Text type="secondary" style={{ fontSize: 14, display: 'block' }}>
                 组件状态
               </Typography.Text>
               <div style={{ marginTop: 8 }}>
-                <Tooltip title={healthTooltip}>
-                  <Tag color={health.color}>{health.text}</Tag>
-                </Tooltip>
+                <Tag color={health.color}>{health.text}</Tag>
               </div>
             </Col>
             <Col {...statCol}>
-              <Statistic title="数据保留时长" value={defaultPrometheus?.retention || '-'} />
+              <Statistic title="热存储时长" value={formatRetentionCn(defaultPrometheus?.retention)} />
             </Col>
           </Row>
 
           <Divider style={{ margin: '16px 0 12px' }} />
 
           <Descriptions column={2} bordered size="small" labelStyle={{ width: 180 }}>
-            <Descriptions.Item label="实例所属项目">
-              {defaultPrometheus?.namespace || DEFAULT_MONITORING_NAMESPACE}
+            <Descriptions.Item label="所属项目">
+              <Tag color="blue">{defaultPrometheus?.namespace || MONITORING_DEFAULT_NAMESPACE}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="数据保留容量">{defaultPrometheus?.retentionSize || '-'}</Descriptions.Item>
             <Descriptions.Item label="采集间隔 / 评估间隔">
@@ -274,9 +420,90 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
                 defaultPrometheus?.memoryRequest || '-'
               } / ${defaultPrometheus?.memoryLimit || '-'}`}
             </Descriptions.Item>
+            <Descriptions.Item label="存储配置" span={2}>
+              {`存储类：${defaultPrometheus?.storageClassName || '-'}，存储容量：${
+                defaultPrometheus?.storageRequest || '-'
+              }，访问模式：${
+                defaultPrometheus?.storageAccessModes?.filter(Boolean).join(', ') || '-'
+              }，卷模式：${formatVolumeModeCn(defaultPrometheus?.storageVolumeMode)}`}
+            </Descriptions.Item>
           </Descriptions>
         </div>
       </Card>
+    );
+  };
+  /** 监控目标 (Targets) 详情弹窗 */
+  const renderEndpointModal = () => {
+    const { task, endpoint } = endpointModal;
+    return (
+      <Modal
+        title={
+          task && endpoint ? (
+            <Space size={8}>
+              <span>监控目标 (Targets)</span>
+              <Tag color="blue">{task.job || '(unknown)'}</Tag>
+              <Typography.Text type="secondary">·</Typography.Text>
+              <span>监控目标端点 =</span>
+              <Tag>{endpoint.endpoint || '(unnamed)'}</Tag>
+            </Space>
+          ) : (
+            '监控目标 (Targets)'
+          )
+        }
+        open={endpointModal.visible}
+        onCancel={() => setEndpointModal({ visible: false })}
+        footer={null}
+        width="92vw"
+        styles={{
+          body: {
+            height: `${ENDPOINT_MODAL_MAX_HEIGHT_VH}vh`,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+        destroyOnHidden
+      >
+        {task && endpoint ? (
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+            <Descriptions
+              column={2}
+              size="small"
+              labelStyle={{ width: 120 }}
+              style={{ marginBottom: 16 }}
+            >
+              <Descriptions.Item label="监控任务">{task.job || '-'}</Descriptions.Item>
+              <Descriptions.Item label="项目">{task.namespace || '-'}</Descriptions.Item>
+              <Descriptions.Item label="采集池" span={2}>
+                <Typography.Text code style={{ fontSize: 12 }}>
+                  {task.scrapePool || '-'}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="实例总数">{endpoint.total}</Descriptions.Item>
+              <Descriptions.Item label="UP / DOWN">
+                <Space size={4}>
+                  <Tag color="success">UP {endpoint.upCount}</Tag>
+                  <Tag color="error">DOWN {endpoint.downCount}</Tag>
+                </Space>
+              </Descriptions.Item>
+            </Descriptions>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <Table
+                className="std-table"
+                size="small"
+                bordered={false}
+                rowKey={(r) => `${r.pod}/${r.instance || r.scrapeUrl}`}
+                columns={targetModalColumns}
+                dataSource={endpoint.targets}
+                pagination={
+                  endpoint.targets.length > 10 ? { pageSize: 10, showSizeChanger: false } : false
+                }
+                scroll={{ x: 'max-content', y: endpointTableScrollY }}
+              />
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     );
   };
 
@@ -285,38 +512,26 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
       {renderPrometheusDetail()}
 
       <div style={{ marginTop: 12 }}>
-        <PageDetailSection
-          asCard={false}
-          toolbarLeft={
-            <Space>
-              <Input
-                allowClear
-                placeholder="监控类别 / 监控对象 / 状态 / 原始名称 / 标签"
-                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                className="toolbar-search"
-              />
-            </Space>
-          }
-          toolbarRight={
-            <Space>
-              <Button type="primary" icon={<PlusOutlined />} disabled>
-                添加监控对象
-              </Button>
-              <Button icon={<ReloadOutlined />} onClick={() => void loadData()} loading={loading} />
-            </Space>
-          }
-        >
+        <PageDetailSection asCard={false}>
+          <div style={{ marginBottom: 12 }}>
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder="按任务 / 项目 / 监控目标服务"
+              style={{ maxWidth: 360 }}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+          </div>
           <div style={{ position: 'relative' }}>
             <Table
               className="std-table"
               bordered={false}
-              rowKey="key"
+              rowKey="rowKey"
               loading={loading}
-              columns={targetColumns}
-              dataSource={pagedTargetRows}
-              scroll={{ x: true, y: tableScrollY }}
+              columns={taskColumns}
+              dataSource={pagedTaskRows}
+              scroll={{ x: 'max-content', y: tableScrollY }}
               pagination={false}
             />
             <div
@@ -335,11 +550,11 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
               <Pagination
                 current={page}
                 pageSize={pageSize}
-                total={Math.max(filteredTargetRows.length, 1)}
+                total={Math.max(filteredTaskRows.length, 1)}
                 showSizeChanger
                 hideOnSinglePage={false}
                 pageSizeOptions={['20', '50', '100']}
-                showTotal={() => `共 ${filteredTargetRows.length} 条`}
+                showTotal={() => `共 ${filteredTaskRows.length} 条`}
                 onChange={(nextPage, nextPageSize) => {
                   setPage(nextPage);
                   setPageSize(nextPageSize);
@@ -349,6 +564,7 @@ const MonitoringAccessManagement: React.FC<MonitoringAccessManagementProps> = ({
           </div>
         </PageDetailSection>
       </div>
+      {renderEndpointModal()}
     </>
   );
 };

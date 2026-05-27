@@ -34,7 +34,13 @@ import {
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
-import { ALERTMANAGERCONFIG_KIND, MONITORING_API_VERSION, useMonitoring } from './context/MonitoringContext';
+import {
+  ALERTMANAGERCONFIG_KIND,
+  MONITORING_API_VERSION,
+  MONITORING_DEFAULT_NAMESPACE,
+  MONITORING_NAMESPACE_FILTER_ALL,
+  useMonitoring,
+} from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import {
   fetchAlertmanagerconfigs,
@@ -70,6 +76,13 @@ interface TriggerRuleOption {
   /** 告警分组（管理员 rulesList 有，用于按分组筛选） */
   groupName?: string;
 }
+const SECTION_TITLE_TAG_STYLE: React.CSSProperties = {
+  padding: '4px 12px',
+  fontSize: 14,
+  borderRadius: 16,
+  cursor: 'default',
+  userSelect: 'none',
+};
 
 function flattenPrometheusRuleToTriggerOptions(raw: any): TriggerRuleOption[] {
   const spec = raw?.spec ?? raw?.data?.spec;
@@ -94,6 +107,28 @@ interface AlertmanagerConfigItem {
   type?: string;
   metadata?: { name?: string; namespace?: string; creationTimestamp?: string; creator?: string; annotations?: Record<string, string> };
   spec?: { receivers?: Array<{ name?: string }>; route?: Record<string, unknown> };
+}
+
+const SYSTEM_DEFAULT_ALERTMANAGER_CONFIG_NAME = 'default-alertmanager-config';
+
+function isSystemDefaultAlertPolicy(row: AlertmanagerConfigItem): boolean {
+  const namespace = (row.metadata?.namespace ?? '').toString().trim();
+  if (namespace !== MONITORING_DEFAULT_NAMESPACE) return false;
+  const specAny = (row.spec ?? {}) as any;
+  const alertmanagerSpecName = (
+    specAny?.alertmanager?.spec?.name ??
+    specAny?.alertmanager?.name ??
+    specAny?.name
+  )
+    ?.toString()
+    .trim();
+  if (alertmanagerSpecName === SYSTEM_DEFAULT_ALERTMANAGER_CONFIG_NAME) return true;
+  const targetAnnotation = (row.metadata?.annotations?.['tower.io/alertmanager-target'] ?? '')
+    .toString()
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return targetAnnotation.includes(SYSTEM_DEFAULT_ALERTMANAGER_CONFIG_NAME);
 }
 
 function normalizeListPayload(res: any): AlertmanagerConfigItem[] {
@@ -223,12 +258,10 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     isAdmin,
     namespaceList,
     namespaceLoading,
-    tenantNamespaces,
     configNsFilter,
     setConfigNsFilter,
-    dataSourceFilter,
-    setDataSourceFilter,
     formNamespaceOptions,
+    formNamespaceOptionsForForm,
   } = useMonitoring();
 
   const [configList, setConfigList] = useState<AlertmanagerConfigItem[]>([]);
@@ -285,9 +318,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       const namespaces =
         overrideNamespaces && overrideNamespaces.length > 0
           ? overrideNamespaces
-          : isAdmin
-            ? namespaceList
-            : tenantNamespaces;
+          : namespaceList;
       const { data, ok, error } = await fetchNotificationTargetsList(cloudId, {
         namespaces: namespaces.length ? namespaces : undefined,
       });
@@ -298,7 +329,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       }
       setReceiversList((data?.receivers ?? []) as NotificationTargetReceiver[]);
     },
-    [cloudId, isAdmin, namespaceList, tenantNamespaces]
+    [cloudId, namespaceList]
   );
 
   const loadVmTriggerOptions = useCallback(async () => {
@@ -317,9 +348,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   /** 项目名称就绪后拉取通知对象列表（供「通知对象标识」下拉使用） */
   useEffect(() => {
     if (!cloudId) return;
-    const namespaces = isAdmin ? namespaceList : tenantNamespaces;
+    const namespaces = namespaceList;
     if (namespaces.length > 0 || isAdmin) loadReceiversList();
-  }, [cloudId, isAdmin, namespaceList, tenantNamespaces, loadReceiversList]);
+  }, [cloudId, isAdmin, namespaceList, loadReceiversList]);
 
   useEffect(() => {
     if (formModalOpen && cloudId && !isAdmin) loadVmTriggerOptions();
@@ -366,8 +397,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       );
     }
     if (configNsFilter) list = list.filter((row) => row.metadata?.namespace === configNsFilter);
-    if (!isAdmin && tenantNamespaces.length) {
-      list = list.filter((row) => tenantNamespaces.includes(row.metadata?.namespace ?? ''));
+    if (!isAdmin && namespaceList.length) {
+      list = list.filter((row) => namespaceList.includes(row.metadata?.namespace ?? ''));
     }
     return [...list].sort((a, b) => {
       const aTs = new Date((a.metadata?.creationTimestamp ?? '').toString()).getTime();
@@ -376,13 +407,24 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       const bSafe = Number.isFinite(bTs) ? bTs : 0;
       return bSafe - aSafe;
     });
-  }, [configList, keyword, configNsFilter, isAdmin, tenantNamespaces]);
+  }, [configList, keyword, configNsFilter, isAdmin, namespaceList]);
 
-  /** spec 接收器名称 -> 通知方式（用于编辑回填时拼 type:name，以及提交时按类型取 spec） */
+  /**
+   * spec 接收器名称 -> 通知方式（用于编辑回填时拼 type:name，以及提交时按类型取 spec）。
+   *
+   * 通知方式优先取后端落到 `receiverType` 字段（来源于 AlertmanagerConfig 注解
+   * `tower.io/monitoring-receiver`）；注解缺失时回退 metadata.name（receiverName）以兼容历史数据。
+   */
   const nameToType = useMemo(() => {
     const map: Record<string, ReceiverName> = {};
     for (const r of receiversList) {
-      const type = (r.receiverName ?? '').toString().trim() as ReceiverName;
+      const type = (
+        (r as { receiverType?: string }).receiverType ??
+        r.receiverName ??
+        ''
+      )
+        .toString()
+        .trim() as ReceiverName;
       if (!type) continue;
       const list = Array.isArray(r.specReceivers) ? r.specReceivers : [];
       for (const s of list) {
@@ -495,7 +537,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           });
       } else {
         form.resetFields();
-        const defaultNs = isAdmin ? undefined : (tenantNamespaces[0] ?? 'default');
+        const defaultNs = isAdmin ? undefined : (namespaceList[0] ?? 'default');
         form.setFieldsValue({
           namespace: defaultNs,
           alias: '',
@@ -509,7 +551,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       }
       setFormModalOpen(true);
     },
-    [form, isAdmin, tenantNamespaces, cloudId, nameToType, canWritePolicies]
+    [form, isAdmin, namespaceList, cloudId, nameToType, canWritePolicies]
   );
 
   const handleCloseForm = useCallback(() => {
@@ -623,14 +665,24 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     setDetailData(null);
   }, []);
 
-  /** 按 receiverName 类型筛选的 spec 接收器名称，用于级联下拉 */
+  /**
+   * 按通知方式（receiverType）聚合该类型下所有 spec 接收器名称，供级联/多选下拉使用。
+   * 通知方式从 annotation 落到的 `receiverType` 字段读取，缺失回退 metadata.name（receiverName）。
+   */
   const specReceiverNameOptionsByType = useMemo(() => {
     const types: ReceiverName[] = ['email-receiver', 'dingtalk-receiver', 'website-receiver'];
     const map: Record<ReceiverName, { label: string; value: string }[]> = {} as Record<ReceiverName, { label: string; value: string }[]>;
     for (const t of types) {
       const names = new Set<string>();
       for (const r of receiversList) {
-        if ((r.receiverName ?? '').toString().trim() !== t) continue;
+        const rt = (
+          (r as { receiverType?: string }).receiverType ??
+          r.receiverName ??
+          ''
+        )
+          .toString()
+          .trim();
+        if (rt !== t) continue;
         const list = Array.isArray(r.specReceivers) ? r.specReceivers : [];
         for (const s of list) {
           const name = (s?.name ?? '').toString().trim();
@@ -644,14 +696,24 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     return map;
   }, [receiversList]);
 
-  /** 按类型：spec 接收器名称 -> 完整 ReceiverSpec（用于多选时提交） */
+  /**
+   * 按通知方式（receiverType）映射 spec 接收器名称 -> 完整 ReceiverSpec，
+   * 用于多选提交时按类型取 spec；通知方式以 annotation `receiverType` 为准。
+   */
   const specReceiverNameToSpecByType = useMemo(() => {
     const map: Record<ReceiverName, Record<string, ReceiverSpec>> = {} as Record<ReceiverName, Record<string, ReceiverSpec>>;
     const types: ReceiverName[] = ['email-receiver', 'dingtalk-receiver', 'website-receiver'];
     for (const t of types) {
       const byName: Record<string, ReceiverSpec> = {};
       for (const r of receiversList) {
-        if ((r.receiverName ?? '').toString().trim() !== t) continue;
+        const rt = (
+          (r as { receiverType?: string }).receiverType ??
+          r.receiverName ??
+          ''
+        )
+          .toString()
+          .trim();
+        if (rt !== t) continue;
         const list = Array.isArray(r.specReceivers) ? r.specReceivers : [];
         for (const s of list) {
           const name = (s?.name ?? '').toString().trim();
@@ -744,7 +806,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       return { type: (nameToType[entry] ?? 'email-receiver') as ReceiverName, name: entry };
     });
     const configReceiverNames = parsed.map((p) => p.name);
-    const firstType = parsed[0]?.type ?? 'email-receiver';
     if (parsed.some((p) => p.type === 'email-receiver')) {
       const emailValues = await form.validateFields(['emailList']).catch(() => null);
       if (emailValues) values = { ...values, ...emailValues };
@@ -1015,30 +1076,38 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         title: '操作',
         key: 'action',
         fixed: 'right',
-        render: (_, row) => (
-          <ResourceActionsDropdown
-            items={[
-              { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
-              { key: 'edit', label: '编辑策略', disabled: !canWritePolicies, onClick: () => handleOpenForm(row) },
-              { type: 'divider' as const },
-              {
-                key: 'delete',
-                label: '删除',
-                danger: true,
-                disabled: !canWritePolicies,
-                onClick: () => {
-                  Modal.confirm({
-                    title: '确定删除该策略？',
-                    onOk: () => handleDeleteConfig(row),
-                    okText: '删除',
-                    cancelText: '取消',
-                    okButtonProps: { danger: true },
-                  });
+        render: (_, row) => {
+          const isSystemDefaultPolicy = isSystemDefaultAlertPolicy(row);
+          return (
+            <ResourceActionsDropdown
+              items={[
+                { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
+                {
+                  key: 'edit',
+                  label: '编辑策略',
+                  disabled: !canWritePolicies || isSystemDefaultPolicy,
+                  onClick: () => handleOpenForm(row),
                 },
-              },
-            ]}
-          />
-        ),
+                { type: 'divider' as const },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  disabled: !canWritePolicies || isSystemDefaultPolicy,
+                  onClick: () => {
+                    Modal.confirm({
+                      title: '确定删除该策略？',
+                      onOk: () => handleDeleteConfig(row),
+                      okText: '删除',
+                      cancelText: '取消',
+                      okButtonProps: { danger: true },
+                    });
+                  },
+                },
+              ]}
+            />
+          );
+        },
       },
     ],
     [
@@ -1124,9 +1193,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     <>
       <div>
         <PageDetailSection
-          asCard={false}
+          asCard={true}
           toolbarLeft={
             <>
+              <Tag.CheckableTag checked style={SECTION_TITLE_TAG_STYLE}>
+                通知策略
+              </Tag.CheckableTag>
               <Input 
                 allowClear 
                 placeholder="名称/标识" 
@@ -1136,28 +1208,22 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 className="toolbar-search"
               />
               <Select
-                placeholder="数据源"
-                value={dataSourceFilter}
-                onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
-                options={[{ label: 'Prometheus', value: 'prometheus' }]}
-                className="toolbar-filter-sm"
-              />
-              <Select
-                placeholder="项目名称"
+                placeholder="项目"
                 allowClear
-                value={configNsFilter}
-                onChange={setConfigNsFilter}
+                value={configNsFilter ?? MONITORING_NAMESPACE_FILTER_ALL}
+                onChange={(v) =>
+                  setConfigNsFilter(v === MONITORING_NAMESPACE_FILTER_ALL ? MONITORING_NAMESPACE_FILTER_ALL : v)
+                }
                 loading={namespaceLoading}
-                options={[{ label: '全部', value: undefined }, ...formNamespaceOptions]}
-                className="toolbar-filter-sm"
-                style={{ minWidth: 250 }}
+                options={formNamespaceOptions}
+                style={{ minWidth: 300 }}
               />
               <button
                 type="button"
                 className="toolbar-reset-btn"
                 onClick={() => {
                   setKeyword('');
-                  setConfigNsFilter(undefined);
+                  setConfigNsFilter(MONITORING_NAMESPACE_FILTER_ALL);
                 }}
               >
                 重置
@@ -1201,7 +1267,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>
             <Descriptions.Item label="通知策略名称">{detailData.alias ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="通知策略标识">{detailData.name ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="项目名称">{detailData.namespace ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="项目">{detailData.namespace ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="描述">{detailData.description ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="通知对象">
               {detailData.receiverNames?.length ? (
@@ -1236,7 +1302,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       <Modal
         open={formModalOpen}
         onCancel={handleCloseForm}
-        title={editingRecord ? '编辑告警通知策略' : '新增告警通知策略'}
+        title={editingRecord ? '编辑通知策略' : '新增通知策略'}
         width="90vw"
         destroyOnHidden
         footer={
@@ -1251,7 +1317,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           form={form}
           layout="vertical"
           initialValues={{
-            namespace: isAdmin ? undefined : (tenantNamespaces[0] ?? 'default'),
+            namespace: isAdmin ? undefined : (namespaceList[0] ?? 'default'),
             alias: '',
             matchers: [],
             matcherPairs: [],
@@ -1263,8 +1329,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         >
           <Row gutter={24}>
             <Col span={24}>
-              <Form.Item name="namespace" label="项目名称" rules={[{ required: true }]}>
-                <Select placeholder={isAdmin ? '选择项目名称' : '租户项目名称'} disabled={!!editingRecord} loading={namespaceLoading} options={formNamespaceOptions} />
+              <Form.Item name="namespace" label="项目" rules={[{ required: true }]}>
+                <Select placeholder={isAdmin ? '选择项目名称' : '租户项目名称'} disabled={!!editingRecord} loading={namespaceLoading} options={formNamespaceOptionsForForm} />
               </Form.Item>
             </Col>
           </Row>
