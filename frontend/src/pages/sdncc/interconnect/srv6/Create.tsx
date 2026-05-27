@@ -539,9 +539,12 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   /**
-   * 向顶层写入「经对端 PE 公网 IPv6 到达对端 SRv6前缀」的静态路由。
-   * 平台/PE 向导里可能已有同 via +同 vrf 的另一条 IPv6 目的（如 ipv6Dest 写成汇总240f::/64），
-   * 与对端 SRv6 prefix（无掩码时默认补 /128）等语义重复时；此处对相同下一跳 + VRF 只保留本次注入的一条，避免 ipv6_route 双份。
+   * 向顶层写入两条 IPv6 静态路由：
+   * 1. 对端 PE SID 网段/64 路由（不带 vrf），via 为对端 PE 公网 IPv6
+   * 2. VRF 默认路由 ::/0（带 vrf），via 固定为 "nexthop-vrf 0"，使 VRF 内流量可经由公网表转发
+   *
+   * 去重策略：对相同 via 且不带 vrf 的 IPv6 路由只保留本次注入的一条；
+   * 对相同 vrf 且 destination 为 ::/0 的条目也只保留一条。
    */
   const injectIpv6RouteTop = (cfg: any, destination?: string, via?: string, vrf?: number | string): any => {
     if (!destination || !via) return cfg;
@@ -549,17 +552,28 @@ const SRv6CreatePage: React.FC = () => {
       const cloned = JSON.parse(JSON.stringify(cfg || {}));
       const arr = Array.isArray((cloned as any).ipv6_route) ? (cloned as any).ipv6_route : [];
       const vrfKey = (v: any) => String(v ?? '');
+      // 去重：去掉同 via、不带 vrf 的旧 IPv6 路由（避免公网侧重复）
       const filtered = arr.filter((r: any) => {
         const dest = String(r?.destination || '');
         if (!dest.includes(':')) return true;
         if (String(r?.via || '') !== String(via)) return true;
-        if (vrfKey(r?.vrf) !== vrfKey(vrf)) return true;
+        if (vrfKey(r?.vrf) !== '') return true; // 保留带 vrf 的条目
         return false;
       });
-      const route: any = { destination, via };
-      if (vrf !== undefined) route.vrf = vrf;
-      filtered.push(route);
-      (cloned as any).ipv6_route = filtered;
+      // 条目 1：对端 SID 网段路由，不带 vrf，走公网转发
+      filtered.push({ destination, via });
+      // 条目 2：VRF 默认路由，带 vrf，via 固定为 nexthop-vrf 0
+      if (vrf !== undefined) {
+        // 去重：去掉同 vrf 下已有的 ::/0 默认路由
+        const withoutVrfDefault = filtered.filter((r: any) => {
+          if (vrfKey(r?.vrf) === vrfKey(vrf) && String(r?.destination || '') === '::/0') return false;
+          return true;
+        });
+        withoutVrfDefault.push({ destination: '::/0', vrf, via: 'nexthop-vrf 0' });
+        (cloned as any).ipv6_route = withoutVrfDefault;
+      } else {
+        (cloned as any).ipv6_route = filtered;
+      }
       return cloned;
     } catch {
       return cfg;
@@ -841,86 +855,47 @@ const SRv6CreatePage: React.FC = () => {
     }
   }, [rdRtMeta]);
 
+  /** 公共 PE 注入逻辑：PE-PE 邻居 + PE-CE 邻居 + RD/RT + 两条 IPv6 路由（SID/64 + VRF ::/0） */
+  const buildInjectedPeConfig = (
+    selfKey: 'peA' | 'peB',
+  ): { preview: any; storage: any } => {
+    const selfCfg = peConfigs[selfKey];
+    const peerKey = selfKey === 'peA' ? 'peB' : 'peA';
+    const peerCfg = peConfigs[peerKey];
+    const ceCfg = ceConfigs[selfKey === 'peA' ? 'ceA' : 'ceB'];
+    const innerIfField = selfKey === 'peA' ? 'peAInnerIf' : 'peBInnerIf';
+    const rdKey = selfKey === 'peA' ? 'peA' : 'peB';
+
+    const innerIf: string | undefined = form.getFieldValue(innerIfField);
+    const vrf = selfCfg && innerIf ? extractInterfaceVrf(selfCfg, innerIf) : undefined;
+
+    let c = selfCfg;
+    if (c && peerCfg) c = injectNeighborsForPEPeer(c, peerCfg);
+    if (c && ceCfg) c = injectNeighborsForPEToCE(c, ceCfg, vrf);
+    if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.[rdKey] && vrf !== undefined) {
+      const idx = findBgpIndexByVrf(c, vrf);
+      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap[rdKey], rdRtMeta.rtCommon);
+    }
+    // IPv6 路由：注入两条——①对端 SID/64 路由(不带 vrf，via=对端PE公网IPv6) ②VRF默认路由 ::/0(带 vrf，via=nexthop-vrf 0)
+    const peerPrefix = peerCfg ? extractSrv6Prefix(peerCfg) : undefined;
+    const srv6PeerDest = peerPrefix ? `${peerPrefix.split('/')[0].trim()}/64` : undefined;
+    const via = peerCfg ? extractPortIpv6(peerCfg, 0) : undefined;
+    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+
+    return {
+      preview: c ? sanitizeForDevice(c) : null,
+      storage: c ? buildPeConfigForPlatformStorage(c) : null,
+    };
+  };
+
   // 计算注入邻居后的预览配置
-  const peAPreviewCfg = useMemo(() => {
-    let c = peConfigs.peA;
-    const b = peConfigs.peB;
-    const ceA = ceConfigs.ceA;
-    const peAInnerIf: string | undefined = form.getFieldValue('peAInnerIf');
-    const vrf = c && peAInnerIf ? extractInterfaceVrf(c, peAInnerIf) : undefined;
-    if (c && b) c = injectNeighborsForPEPeer(c, b);
-    if (c && ceA) c = injectNeighborsForPEToCE(c, ceA, vrf);
-    // 内网 BGP：RD/RT 写在 ipv4 unicast 的 address_family 上（与 pe2 专家一致）
-    if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peA && vrf !== undefined) {
-      const idx = findBgpIndexByVrf(c, vrf);
-      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peA, rdRtMeta.rtCommon);
-    }
-    // IPv6 路由：目的为对端 PE 的 SRv6 prefix（无掩码时补 /128），下一跳为对端 PE 公网 IPv6
-    const peerPrefix = b ? extractSrv6Prefix(b) : undefined;
-    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
-    const via = b ? extractPortIpv6(b, 0) : undefined;
-    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
-    return c ? sanitizeForDevice(c) : null;
-  }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
+  const peAInjected = useMemo(() => buildInjectedPeConfig('peA'), [peConfigs, ceConfigs, rdRtMeta, formValues]);
+  const peAPreviewCfg = peAInjected.preview;
+  const peAPreviewStorageCfg = peAInjected.storage;
 
-  /** 与 peAPreviewCfg 同源拼装，额外带 pe.publicBgpIndex 写入平台 vr-config */
-  const peAPreviewStorageCfg = useMemo(() => {
-    let c = peConfigs.peA;
-    const b = peConfigs.peB;
-    const ceA = ceConfigs.ceA;
-    const peAInnerIf: string | undefined = form.getFieldValue('peAInnerIf');
-    const vrf = c && peAInnerIf ? extractInterfaceVrf(c, peAInnerIf) : undefined;
-    if (c && b) c = injectNeighborsForPEPeer(c, b);
-    if (c && ceA) c = injectNeighborsForPEToCE(c, ceA, vrf);
-    if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peA && vrf !== undefined) {
-      const idx = findBgpIndexByVrf(c, vrf);
-      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peA, rdRtMeta.rtCommon);
-    }
-    const peerPrefix = b ? extractSrv6Prefix(b) : undefined;
-    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
-    const via = b ? extractPortIpv6(b, 0) : undefined;
-    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
-    return c ? buildPeConfigForPlatformStorage(c) : null;
-  }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
-
-  const peBPreviewCfg = useMemo(() => {
-    let c = peConfigs.peB;
-    const a = peConfigs.peA;
-    const ceB = ceConfigs.ceB;
-    const peBInnerIf: string | undefined = form.getFieldValue('peBInnerIf');
-    const vrf = c && peBInnerIf ? extractInterfaceVrf(c, peBInnerIf) : undefined;
-    if (c && a) c = injectNeighborsForPEPeer(c, a);
-    if (c && ceB) c = injectNeighborsForPEToCE(c, ceB, vrf);
-    if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peB && vrf !== undefined) {
-      const idx = findBgpIndexByVrf(c, vrf);
-      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peB, rdRtMeta.rtCommon);
-    }
-    // IPv6 路由：目的为对端 PE 的 SRv6 prefix（无掩码时补 /128），下一跳为对端 PE 公网 IPv6
-    const peerPrefix = a ? extractSrv6Prefix(a) : undefined;
-    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
-    const via = a ? extractPortIpv6(a, 0) : undefined;
-    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
-    return c ? sanitizeForDevice(c) : null;
-  }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
-
-  const peBPreviewStorageCfg = useMemo(() => {
-    let c = peConfigs.peB;
-    const a = peConfigs.peA;
-    const ceB = ceConfigs.ceB;
-    const peBInnerIf: string | undefined = form.getFieldValue('peBInnerIf');
-    const vrf = c && peBInnerIf ? extractInterfaceVrf(c, peBInnerIf) : undefined;
-    if (c && a) c = injectNeighborsForPEPeer(c, a);
-    if (c && ceB) c = injectNeighborsForPEToCE(c, ceB, vrf);
-    if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.peB && vrf !== undefined) {
-      const idx = findBgpIndexByVrf(c, vrf);
-      c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap.peB, rdRtMeta.rtCommon);
-    }
-    const peerPrefix = a ? extractSrv6Prefix(a) : undefined;
-    const srv6PeerDest = peerPrefix ? (peerPrefix.includes('/') ? peerPrefix : `${peerPrefix}/128`) : undefined;
-    const via = a ? extractPortIpv6(a, 0) : undefined;
-    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
-    return c ? buildPeConfigForPlatformStorage(c) : null;
-  }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
+  const peBInjected = useMemo(() => buildInjectedPeConfig('peB'), [peConfigs, ceConfigs, rdRtMeta, formValues]);
+  const peBPreviewCfg = peBInjected.preview;
+  const peBPreviewStorageCfg = peBInjected.storage;
 
   // CE 预览：仅注入 PE 内网 neighbor（与 ce2 一致：无 RD/RT、无 neighbor_disable_connected_check）
   const ceAPreviewCfg = useMemo(() => {
@@ -1102,6 +1077,19 @@ const SRv6CreatePage: React.FC = () => {
       message.error('所选内网口未携带 VRF，无法识别内网配置组，请重新选择带 VRF 的接口');
       return false;
     }
+    
+    // 后端控制：SRv6 segment_routing_srv6.prefix 不允许带掩码（例如 /64）
+    const peAPrefix = extractSrv6Prefix(peConfigs.peA);
+    if (peAPrefix && peAPrefix.includes('/')) {
+      message.error('PE-A 的 SRv6 SID 前缀不允许包含/掩码，请去掉 /xx');
+      return false;
+    }
+    const peBPrefix = extractSrv6Prefix(peConfigs.peB);
+    if (peBPrefix && peBPrefix.includes('/')) {
+      message.error('PE-B 的 SRv6 SID 前缀不允许包含/掩码，请去掉 /xx');
+      return false;
+    }
+
     return true;
   };
 
@@ -1559,8 +1547,22 @@ const SRv6CreatePage: React.FC = () => {
           <Form.Item label="SRv6 Locator" name="locator" rules={[{ required: true, message: '请输入 Locator' }]}> 
             <Input placeholder="例如：node-a-locator" />
           </Form.Item>
-          <Form.Item label="SRv6 SID 前缀" name="prefix" rules={[{ required: true, message: '请输入 SID 前缀' }]}> 
-            <Input placeholder="例如：2001:db8:100::/64" />
+          <Form.Item
+            label="SRv6 SID 前缀"
+            name="prefix"
+            rules={[
+              { required: true, message: '请输入 SID 前缀' },
+              {
+                validator: (_, value) => {
+                  const s = String(value ?? '').trim();
+                  if (!s) return Promise.resolve();
+                  if (s.includes('/')) return Promise.reject(new Error('SID 前缀不允许包含/掩码'));
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <Input placeholder="例如：2001:db8:100::（不包含 /xx）" />
           </Form.Item>
           <Form.Item label="BGP ASN" name="bgpAsn" rules={[{ required: true, message: '请输入 BGP ASN' }]}> 
             <Input placeholder="例如：65001" />

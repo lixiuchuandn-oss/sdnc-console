@@ -867,8 +867,21 @@ const PEWizard: React.FC = () => {
           <Form.Item name="locatorName" label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 Locator 名称</span>}> 
             <Input placeholder="例如：default" />
           </Form.Item>
-          <Form.Item name="sidPrefix" label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 SID 前缀</span>}>
-            <Input placeholder="例如：2400:1234::1（不能包含/掩码）" />
+          <Form.Item
+            name="sidPrefix"
+            label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 SID 前缀</span>}
+            rules={[
+              {
+                validator: (_, value) => {
+                  const s = String(value ?? '').trim();
+                  if (!s) return Promise.resolve();
+                  if (s.includes('/')) return Promise.reject(new Error('SID 前缀不允许包含/掩码，请只填写地址部分'));
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <Input placeholder="例如：2400:1234::1（不含 /xx）" />
           </Form.Item>
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定公网口</div>
           <Form.Item name="wanDev" label={<span style={{ fontSize: 13, color: '#595959' }}>公网口设备</span>} rules={[{ required: true, message: '请选择公网口设备' }]}> 
